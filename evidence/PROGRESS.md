@@ -13,17 +13,20 @@ Verified:
   omlx using **mlx-community--Qwen3.6-35B-A3B-4bit**, the non-MTP model requested.
   The exact messages are in `model-tool-check.json`.
 - TypeScript validation, the Node policy test, and four Python integration tests pass.
-- Manual gameplay completed Substrate Delivery for 2,500 credits and unlocked
-  Concurrent Approval. Refueling cost 128 credits. Cargo Expander II cost 1,635
-  credits, increasing cargo capacity from 75 to 125; the original mining laser is
-  preserved in cargo. Wallet after these actions: 131,263 credits.
+- Manual gameplay completed Substrate Delivery, Concurrent Approval, Synchrony
+  Relay Run, Precedence, Signal Propagation Survey, and one freight delivery.
+  Wallet at the latest Nexus checkpoint: **160,911 credits**, a net gain of
+  **30,345**. This includes 128 credits spent on refueling and 1,635 on a Cargo
+  Expander II. Cargo capacity increased from 75 to 125; the original mining laser
+  remains in cargo.
 
-Active manual work: complete the 20,000-credit Signal Propagation Survey while
-advancing nearby delivery chains. The Frequency Gap is also active, with the
-Experiment visit done and return to First Step still required. Freight contracts
-are a candidate for repeatable income: acceptance places the package in origin
-storage; withdraw `package:<id>` before departure. Standard packages occupy 100
-cargo, so the original ship needed a cargo expansion.
+Active manual work: deliver supplied phase material to Sirius for 5,000 credits,
+then return to First Step for The Frequency Gap's 16,000-credit payout. Finish
+with full fuel and verify the actual wallet exceeds the target.
+
+Freight contracts are a candidate for repeatable income: acceptance places the
+package in origin storage; withdraw `package:<id>` before departure. Standard
+packages occupy 100 cargo, so the original ship needed a cargo expansion.
 
 Live findings: historical phase-matrix arbitrage no longer has supply; public
 market snapshots can become stale within minutes. The Experiment's ordinary

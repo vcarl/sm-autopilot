@@ -139,6 +139,8 @@ def tool_schema(action, metadata):
 def model_response(response):
     """Keep one query representation and mutation details, retaining current state."""
     result = response.get("result")
+    if result == response.get("state"):
+        return {key: response[key] for key in ("ok", "error", "state") if key in response}
     if isinstance(result, dict):
         if result.get("structuredContent") is not None:
             result = result["structuredContent"]
@@ -194,15 +196,21 @@ def main(argv=None):
     config = home / "config.yaml"
     if not config.exists():
         config.write_text((HERE / "config.example.yaml").read_text())
+    base_url, api_key = local_model(args.omlx_settings, args.model)
+    import yaml
+    settings = yaml.safe_load(config.read_text()) or {}
+    settings.setdefault("model", {}).update(default=args.model, provider="custom", base_url=base_url)
+    for task in ("compression", "title_generation"):
+        settings.setdefault("auxiliary", {}).setdefault(task, {}).update(provider="main", model=args.model)
+    config.write_text(yaml.safe_dump(settings, sort_keys=False))
+    # Auxiliary tasks must resolve to the selected non-MTP local endpoint too.
+    os.environ["OPENAI_API_KEY"] = api_key
+    os.environ["OPENAI_BASE_URL"] = base_url
     sys.path.insert(0, str(HERE.parent))
     from run_agent import AIAgent
     from agent.iteration_budget import IterationBudget
     from tools.registry import registry
 
-    base_url, api_key = local_model(args.omlx_settings, args.model)
-    # Auxiliary compression must resolve to this same local endpoint.
-    os.environ["OPENAI_API_KEY"] = api_key
-    os.environ["OPENAI_BASE_URL"] = base_url
     if args.probe_model:
         print(json.dumps({"model": args.model, "base_url": base_url, "hermes_import": "ok"}))
         return 0
@@ -266,6 +274,7 @@ def main(argv=None):
             raise RuntimeError("Hermes tool grant differs from game catalog")
         for cycle in range(args.cycles):
             before = bridge.request("state")
+            shipping_before = bridge.request("spacemolt_shipping/profile").get("result", {}).get("structuredContent")
             agent.iteration_budget = IterationBudget(args.iterations)
             objective = args.objective + "\nCurrent authoritative game state:\n" + json.dumps(model_response(before))
             result = agent.run_conversation(objective, system_message=SYSTEM, conversation_history=history)
@@ -275,8 +284,10 @@ def main(argv=None):
                                        "cycles": prior.get("cycles", 0) + cycle, "outcome_unknown": True})
                 return 1
             after = bridge.request("state")
+            shipping_after = bridge.request("spacemolt_shipping/profile").get("result", {}).get("structuredContent")
             summary = {"event": "cycle_complete", "cycle": prior.get("cycles", 0) + cycle + 1,
                        "model": args.model, "before": before.get("state"), "after": after.get("state"),
+                       "shipping_before": shipping_before, "shipping_after": shipping_after,
                        "completed": result.get("completed"), "failed": result.get("failed"),
                        "api_calls": result.get("api_calls"), "report": result.get("final_response")}
             old_credits, new_credits = before.get("state", {}).get("credits"), after.get("state", {}).get("credits")

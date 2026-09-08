@@ -1,5 +1,6 @@
 import { validateAction, catalog } from './policy.ts';
-import { Account, ACTIONS } from '@spacemolt/lib';
+import { Account } from '@spacemolt/lib';
+import { sendAndRefresh } from './execute.ts';
 import { readFileSync, appendFileSync, mkdirSync } from 'node:fs';
 import { createInterface } from 'node:readline';
 
@@ -37,10 +38,7 @@ try {
         validateAction(request.action, request.params);
         appendFileSync(new URL('../runtime/gameplay.jsonl', import.meta.url), JSON.stringify({at:new Date().toISOString(),event:'requested',request})+'\n', {mode:0o600});
         sent = true;
-        const [tool, action] = request.action.split('/');
-        result = await account.send(tool!, action!, request.params);
-        if (request.action === 'spacemolt/get_status') await account.refresh();
-        completed = true;
+        result = await sendAndRefresh(account, request.action, request.params, () => { completed = true; });
       }
       const response = {id:request.id, ok:true, result, state:state()};
       appendFileSync(new URL('../runtime/gameplay.jsonl', import.meta.url), JSON.stringify({at:new Date().toISOString(),request,...response})+'\n', {mode:0o600});

@@ -7,10 +7,10 @@ export const allowed = new Set([
   'spacemolt/install_mod', 'spacemolt/uninstall_mod', 'spacemolt/get_nearby', 'spacemolt/inspect',
   'spacemolt_ship/browse_ships', 'spacemolt_ship/buy_listed_ship',
   'spacemolt_shipping/list', 'spacemolt_shipping/profile', 'spacemolt_shipping/get',
-  'spacemolt_shipping/active', 'spacemolt_shipping/accept', 'spacemolt_shipping/deliver',
+  'spacemolt_shipping/active', 'spacemolt_shipping/accept', 'spacemolt_shipping/deliver', 'spacemolt_shipping/return',
   'spacemolt/undock', 'spacemolt/dock', 'spacemolt/travel', 'spacemolt/jump',
   'spacemolt/mine', 'spacemolt/buy', 'spacemolt/sell', 'spacemolt/refuel', 'spacemolt/repair',
-  'spacemolt/accept_mission', 'spacemolt/complete_mission',
+  'spacemolt/accept_mission', 'spacemolt/complete_mission', 'spacemolt/abandon_mission',
   'spacemolt_market/view_market', 'spacemolt_market/estimate_purchase',
   'spacemolt_storage/view', 'spacemolt_storage/deposit', 'spacemolt_storage/withdraw',
 ]);
