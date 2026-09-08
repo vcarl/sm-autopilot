@@ -8,6 +8,19 @@ The integration is contained in this directory. Hermes core files are unchanged.
 The fork starts from commit `b3399c139624a0081d70397741a5b45f60fbe1f4` of the
 neighboring `hermes-agent` checkout, on branch `spacemolt-local-agent`.
 
+## Live proof
+
+Manual play earned **51,117 net credits**. The actual local Hermes agent then
+completed six freight deliveries over two sessions for **19,697 net credits**
+after fuel, unlocking licensed carrier status. Final balance: **201,380**.
+Both sessions finished fully fueled, undamaged, with original cargo preserved
+and no active freight obligations. See [verified results](evidence/PROGRESS.md),
+[manual receipts](evidence/manual-proof.json), and
+[autonomous receipts](evidence/autonomous-proof.json).
+
+The model occasionally misstates arithmetic in its prose reports. Use the
+runner's independently measured wallet deltas and carrier records for accounting.
+
 ## Setup
 
 Use Node 22+ and the Hermes Python environment (Python 3.11–3.13). From this directory:
@@ -34,11 +47,14 @@ Stop any other client controlling Kvothe before running:
 
 ```sh
 ../../hermes-agent/.venv/bin/python runner.py \
-  --cycles 1 --iterations 30 --seconds-per-cycle 1800 \
-  --objective 'Observe the current state and earn repeatable net profit. Finish docked and refueled.'
+  --cycles 1 --iterations 60 --seconds-per-cycle 3600 \
+  --objective 'Choose profitable live freight contracts. Acceptance leaves packages in origin storage: withdraw and verify cargo before departure. Preserve starting assets, finish deliveries, and end docked and fully refueled with no active contracts.'
 ```
 
-Use `--resume` to continue saved conversation history. `--cycles` bounds consecutive
+Use `--resume` to continue saved conversation history. To continue the verified
+live trial, add `--runtime runtime/live-non-mtp --resume`. The player is currently
+docked at Frontier Station in Void Gate. [Gameplay observations](GAMEPLAY.md)
+record the mechanics learned during development. `--cycles` bounds consecutive
 work sessions, and `--iterations` bounds each session's agent loop. Game actions
 take real time. Do not interrupt and blindly replay a purchase or other mutation
 whose outcome is unknown; inspect live state before continuing.

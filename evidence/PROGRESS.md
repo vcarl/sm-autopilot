@@ -1,42 +1,48 @@
-# Live validation in progress
+# Verified live results — September 8, 2026
 
-The implementation is functional, but the requested gameplay proofs are not yet
-complete. The target wallet balance for the manual phase is **180,566 credits**,
-50,000 above the observed starting balance of 130,566.
+The requested manual and autonomous gameplay proofs are complete.
 
-Verified:
+| Phase | Starting wallet | Ending wallet | Net gain |
+| --- | ---: | ---: | ---: |
+| Manual Kvothe play | 130,566 | 181,683 | 51,117 |
+| Hermes session 1 | 181,683 | 191,396 | 9,713 |
+| Hermes session 2 | 191,396 | 201,380 | 9,984 |
 
-- Local fork created from `hermes-agent`, with the integration in `spacemolt/`.
-- npm `@spacemolt/lib` 14.2.0 successfully authenticates the existing Kvothe account,
-  executes tick-paced actions, and returns live game state.
-- Actual Hermes `AIAgent` successfully called an offline fixture tool through local
-  omlx using **mlx-community--Qwen3.6-35B-A3B-4bit**, the non-MTP model requested.
-  The exact messages are in `model-tool-check.json`.
-- TypeScript validation, the Node policy test, and four Python integration tests pass.
-- Manual gameplay completed Substrate Delivery, Concurrent Approval, Synchrony
-  Relay Run, Precedence, Signal Propagation Survey, and one freight delivery.
-  Wallet at the latest Nexus checkpoint: **160,911 credits**, a net gain of
-  **30,345**. This includes 128 credits spent on refueling and 1,635 on a Cargo
-  Expander II. Cargo capacity increased from 75 to 125; the original mining laser
-  remains in cargo.
+Manual play completed seven missions and one freight delivery. Gross payouts
+were 53,148; fuel cost 356 and Cargo Expander II cost 1,675 including tax.
+The expansion increased capacity to 125. Original cargo and mining equipment
+were preserved. See `manual-proof.json` for the ledger and canonical end state.
 
-Active manual work: deliver supplied phase material to Sirius for 5,000 credits,
-then return to First Step for The Frequency Gap's 16,000-credit payout. Finish
-with full fuel and verify the actual wallet exceeds the target.
+Actual Hermes `AIAgent`, using local omlx model
+`mlx-community--Qwen3.6-35B-A3B-4bit` (non-MTP), then chose and executed 71 game
+tool calls over two sessions. Six freight deliveries paid 19,760 credits;
+63 credits of fuel produced **19,697 net profit**. Every game tool call succeeded.
+The agent chose jobs, accepted and loaded packages, navigated, delivered,
+refueled, and checked progression without corrective gameplay intervention.
 
-Freight contracts are a candidate for repeatable income: acceptance places the
-package in origin storage; withdraw `package:<id>` before departure. Standard
-packages occupy 100 cargo, so the original ship needed a cargo expansion.
+The server confirms progression from probationary to licensed carrier. Successful
+deliveries rose from one to seven; delivered value rose from 14,168 to 80,112.
+Single-package liability rose from 25,000 to 50,000 and aggregate liability from
+50,000 to 100,000. The last return shipment paid 8,845 credits.
 
-Live findings: historical phase-matrix arbitrage no longer has supply; public
-market snapshots can become stale within minutes. The Experiment's ordinary
-asteroid belt is depleted and its survey revealed no hidden deposits. Prioritize
-live orders and actual deposit stock over historical notes or guide price examples.
+Both autonomous sessions ended docked, fuel 120/120, hull 80/80, unchanged cargo,
+zero active contracts and zero debt. Final location: Frontier Station, Void Gate.
+The bounded runner exited successfully and closed its game connection.
 
-The local model has **not yet controlled the live player**. After the manual net
-gain reaches 50,000, run the Hermes agent and measure multiple profitable cycles,
-including fuel and repair costs, to establish self-sustaining behavior.
+See `autonomous-proof.json` for independent session measurements, individual
+shipment and fuel receipts, the model's requested actions, and a hash of the
+private detailed log. Actual saved Hermes history is in ignored
+`runtime/live-non-mtp/checkpoint.json`; full receipts are in `decisions.jsonl`.
 
-Private detailed receipts are in ignored `runtime/gameplay.jsonl` and runner
-`runtime/*/decisions.jsonl` files. This progress note is a checkpoint, not a claim
-that the user's goal has been achieved.
+## Limits of the evidence
+
+This demonstrates profitable, repeatable freight operation and progression under
+observed live conditions. It does not establish indefinite unattended uptime or
+competence in every play style. The model's prose summaries contain arithmetic,
+counting, and board-scope errors; authoritative wallet and carrier fields above
+are the source of truth. Context compression occurred during the live run with
+the same local model configured for auxiliary tasks.
+
+Validation: TypeScript typecheck, two Node policy/reconciliation tests, four
+Python integration tests through `scripts/run_tests.sh`, and a real local-model
+fixture tool call passed. Hermes core files remain unchanged.

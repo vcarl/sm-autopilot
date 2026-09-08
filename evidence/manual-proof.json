@@ -1,0 +1,275 @@
+{
+  "baseline_credits": 130566,
+  "final_credits": 181683,
+  "net_gain": 51117,
+  "at": "2026-09-08T16:04:38.913Z",
+  "state": {
+    "credits": 181683,
+    "ship": {
+      "armor": 3,
+      "cargo_capacity": 125,
+      "cargo_used": 20,
+      "class_id": "cobble",
+      "class_name": "Cobble",
+      "cpu_capacity": 12,
+      "cpu_used": 5,
+      "crew_efficiency": 1,
+      "defense_slots": 1,
+      "effective_crew_capacity": 1,
+      "effective_marine_capacity": 0,
+      "fuel": 120,
+      "hull": 80,
+      "id": "b76179e1db2326d9bf0de8c5401149da",
+      "incapacitated": false,
+      "max_fuel": 120,
+      "max_hull": 80,
+      "max_shield": 35,
+      "minimum_crew": 1,
+      "name": "Cobble",
+      "operational_speed": 2,
+      "personnel": {
+        "fit_crew": 1,
+        "fit_marines": 0,
+        "injured_crew": 0,
+        "injured_marines": 0
+      },
+      "power_capacity": 24,
+      "power_used": 6,
+      "shield": 35,
+      "shield_recharge": 1,
+      "speed": 2,
+      "utility_slots": 2,
+      "weapon_slots": 1
+    },
+    "cargo": [
+      {
+        "item_id": "null_matter",
+        "item_name": "Null Matter",
+        "quantity": 2,
+        "size": 2
+      },
+      {
+        "item_id": "titanium_alloy",
+        "item_name": "Titanium Alloy",
+        "quantity": 5,
+        "size": 1
+      },
+      {
+        "item_id": "mining_laser_i",
+        "item_name": "Mining Laser I",
+        "quantity": 1,
+        "size": 10
+      },
+      {
+        "item_id": "voidborn_neural_soma",
+        "item_name": "Voidborn Neural Soma",
+        "quantity": 1,
+        "size": 1
+      }
+    ],
+    "location": {
+      "system_id": "first_step",
+      "poi_id": "first_step_memorial_station",
+      "docked_at": "first_step_memorial_station",
+      "connections": [
+        "horizon",
+        "void_gate",
+        "markeb",
+        "the_telescope"
+      ],
+      "resources": [],
+      "security_status": "Low Security (slow police response)"
+    },
+    "missions": {
+      "active": [],
+      "max_missions": 5
+    }
+  },
+  "carrier": {
+    "action": "profile",
+    "capacity": {
+      "active_contracts": 0,
+      "active_contracts_unlimited": true,
+      "active_liability": 0,
+      "aggregate_liability_limit": 50000,
+      "liability_unlimited": false,
+      "remaining_aggregate_liability": 50000,
+      "single_package_liability_limit": 25000
+    },
+    "debt_blocks_acceptance": false,
+    "debts": [],
+    "profile": {
+      "active_contracts": 0,
+      "active_liability": 0,
+      "actor": {
+        "id": "177686d5f9eed52e8cabf6f907c03c61",
+        "kind": "player"
+      },
+      "breaches": 0,
+      "defaults": 0,
+      "delivered_value": 14168,
+      "last_consequence_at": "0001-01-01T00:00:00Z",
+      "last_recovery_at": "0001-01-01T00:00:00Z",
+      "late_deliveries": 0,
+      "outstanding_debt": 0,
+      "priority_deliveries": 0,
+      "returns": 0,
+      "successful_deliveries": 1,
+      "tier": "probationary",
+      "updated_at": "2026-09-08T15:38:28.907721956Z"
+    },
+    "progression": {
+      "at_maximum_tier": false,
+      "current_tier": "probationary",
+      "delivered_value": 14168,
+      "next_tier": "licensed",
+      "remaining_delivered_value": 0,
+      "remaining_successful_deliveries": 4,
+      "required_delivered_value": 250,
+      "required_successful_deliveries": 5,
+      "successful_deliveries": 1
+    }
+  },
+  "ledger": [
+    {
+      "at": "2026-09-08T15:03:58.781Z",
+      "action": {
+        "id": "fuel-up",
+        "action": "spacemolt/refuel"
+      },
+      "before": 130566,
+      "after": 130438,
+      "delta": -128
+    },
+    {
+      "at": "2026-09-08T15:15:28.957Z",
+      "action": {
+        "id": "delivery-complete",
+        "action": "spacemolt/complete_mission",
+        "params": {
+          "id": "ac6c66fafc453bc489dad7d5d784d1e3"
+        }
+      },
+      "before": 130438,
+      "after": 132938,
+      "delta": 2500
+    },
+    {
+      "at": "2026-09-08T15:17:49.082Z",
+      "action": {
+        "id": "buy-expander",
+        "action": "spacemolt/buy",
+        "params": {
+          "id": "cargo_expander_ii",
+          "quantity": 1,
+          "deliver_to": "cargo"
+        }
+      },
+      "before": 132938,
+      "after": 131263,
+      "delta": -1675
+    },
+    {
+      "at": "2026-09-08T15:23:08.954Z",
+      "action": {
+        "id": "beta-approval",
+        "action": "spacemolt/complete_mission",
+        "params": {
+          "id": "91131a9ab32e7cbfce685e3834f99f76"
+        }
+      },
+      "before": 131263,
+      "after": 134263,
+      "delta": 3000
+    },
+    {
+      "at": "2026-09-08T15:28:29.932Z",
+      "action": {
+        "id": "relay-complete",
+        "action": "spacemolt/complete_mission",
+        "params": {
+          "id": "ee7a542bc95711a25207109d35f77067"
+        }
+      },
+      "before": 134263,
+      "after": 136763,
+      "delta": 2500
+    },
+    {
+      "at": "2026-09-08T15:34:59.448Z",
+      "action": {
+        "id": "precedence-complete",
+        "action": "spacemolt/complete_mission",
+        "params": {
+          "id": "27d9e976eea158bd3f6427d9882bc2ee"
+        }
+      },
+      "before": 136763,
+      "after": 140763,
+      "delta": 4000
+    },
+    {
+      "at": "2026-09-08T15:38:19.372Z",
+      "action": {
+        "id": "survey-payout",
+        "action": "spacemolt/complete_mission",
+        "params": {
+          "id": "35e54c21b65e5e6a28cc41e8f23afec8"
+        }
+      },
+      "before": 140763,
+      "after": 160763,
+      "delta": 20000
+    },
+    {
+      "at": "2026-09-08T15:38:28.932Z",
+      "action": {
+        "id": "freight-payout",
+        "action": "spacemolt_shipping/deliver",
+        "params": {
+          "shipment_id": "40128e3de83449eb1589c0d31d626b65"
+        }
+      },
+      "before": 160763,
+      "after": 160911,
+      "delta": 148
+    },
+    {
+      "at": "2026-09-08T15:51:20.275Z",
+      "action": {
+        "id": "matrix-payout",
+        "action": "spacemolt/complete_mission",
+        "params": {
+          "id": "bb280a91ba1a08ec301f9f6d734e8a87"
+        }
+      },
+      "before": 160911,
+      "after": 165911,
+      "delta": 5000
+    },
+    {
+      "at": "2026-09-08T16:04:28.637Z",
+      "action": {
+        "id": "frequency-payout",
+        "action": "spacemolt/complete_mission",
+        "params": {
+          "id": "0fac59be2497b947099c0aad13572ba6"
+        }
+      },
+      "before": 165911,
+      "after": 181911,
+      "delta": 16000
+    },
+    {
+      "at": "2026-09-08T16:04:38.896Z",
+      "action": {
+        "id": "manual-final-refuel",
+        "action": "spacemolt/refuel",
+        "params": {}
+      },
+      "before": 181911,
+      "after": 181683,
+      "delta": -228
+    }
+  ]
+}
