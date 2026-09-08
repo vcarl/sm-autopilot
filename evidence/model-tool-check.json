@@ -1,0 +1,51 @@
+{
+  "model": "mlx-community--Qwen3.6-35B-A3B-4bit",
+  "passed": true,
+  "calls": [
+    {}
+  ],
+  "messages": [
+    {
+      "role": "user",
+      "content": "Call fixture_balance exactly once, then report the returned balance.",
+      "timestamp": 1788879727.8958158
+    },
+    {
+      "role": "assistant",
+      "content": "",
+      "reasoning": "\nThe user wants me to call the fixture_balance tool and report what it returns. This is a simple request, so I'll make the tool call once.\n",
+      "finish_reason": "tool_calls",
+      "timestamp": 1788879729.53541,
+      "reasoning_content": "\nThe user wants me to call the fixture_balance tool and report what it returns. This is a simple request, so I'll make the tool call once.\n",
+      "tool_calls": [
+        {
+          "id": "call_2a67939c",
+          "call_id": "call_2a67939c",
+          "response_item_id": "fc_2a67939c",
+          "type": "function",
+          "function": {
+            "name": "fixture_balance",
+            "arguments": "{}"
+          }
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "name": "fixture_balance",
+      "tool_name": "fixture_balance",
+      "content": "{\"credits\": 12345, \"source\": \"offline fixture\"}",
+      "tool_call_id": "call_2a67939c",
+      "timestamp": 1788879729.5405598
+    },
+    {
+      "role": "assistant",
+      "content": "Balance: 12,345 credits (from offline fixture).",
+      "reasoning": "\nThe user asked me to call fixture_balance exactly once and report the returned balance. I've done that. The result shows 12345 credits from an offline fixture source. This is a simple, direct request - I should give a direct answer matching the weight of the ask.\n",
+      "finish_reason": "stop",
+      "timestamp": 1788879730.456199,
+      "reasoning_content": "\nThe user asked me to call fixture_balance exactly once and report the returned balance. I've done that. The result shows 12345 credits from an offline fixture source. This is a simple, direct request - I should give a direct answer matching the weight of the ask.\n"
+    }
+  ],
+  "report": "Balance: 12,345 credits (from offline fixture)."
+}

@@ -1,0 +1,17 @@
+{
+  "dependencies": {
+    "@spacemolt/lib": "14.2.0"
+  },
+  "devDependencies": {
+    "@types/node": "24.13.3",
+    "typescript": "5.9.3"
+  },
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "node --test src/policy.test.ts"
+  },
+  "private": true,
+  "name": "hermes-spacemolt",
+  "version": "0.1.0"
+}
