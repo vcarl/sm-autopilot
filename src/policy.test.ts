@@ -5,6 +5,9 @@ import { sendAndRefresh } from './execute.ts';
 
 test('personal storage and consumables work, transfers and messaging are excluded', () => {
   validateAction('spacemolt_storage/deposit', {item_id:'iron_ore',quantity:2});
+  validateAction('spacemolt/craft', {id:'basic_iron_smelting',quantity:2,dry_run:true});
+  assert.throws(() => validateAction('spacemolt/craft', {source:'faction'}));
+  assert.throws(() => validateAction('spacemolt/craft', {jobs:[{recipe_id:'basic_iron_smelting',target:'other'}]}));
   validateAction('spacemolt/refuel', {id:'fuel_cell',quantity:1});
   assert.throws(() => validateAction('spacemolt_storage/deposit', {target:'someone',credits:100}));
   assert.throws(() => validateAction('spacemolt/refuel', {target:'someone'}));
@@ -13,6 +16,13 @@ test('personal storage and consumables work, transfers and messaging are exclude
     validateAction(action);
     if (action.startsWith('spacemolt_storage/')) assert.ok(metadata.params.every(p => !['target','source','credits','message'].includes(p.name)));
   }
+});
+
+test('crafting explicitly uses personal storage for inputs and outputs', async () => {
+  let actual:unknown;
+  const account = {async send(_tool:string,_action:string,params?:Record<string,unknown>) {actual=params;}, async refresh() {}};
+  await sendAndRefresh(account,'spacemolt/craft',{id:'basic_iron_smelting',quantity:2},()=>{});
+  assert.deepEqual(actual,{id:'basic_iron_smelting',quantity:2,source:'storage',deliver_to:'storage'});
 });
 
 test('mutation receipts are reconciled with canonical state and never resent on refresh failure', async () => {

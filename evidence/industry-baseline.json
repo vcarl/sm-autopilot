@@ -1,0 +1,142 @@
+{
+  "at": "2026-09-08T16:46:38.212Z",
+  "state": {
+    "credits": 201380,
+    "ship": {
+      "armor": 3,
+      "cargo_capacity": 125,
+      "cargo_used": 20,
+      "class_id": "cobble",
+      "class_name": "Cobble",
+      "cpu_capacity": 12,
+      "cpu_used": 5,
+      "crew_efficiency": 1,
+      "defense_slots": 1,
+      "effective_crew_capacity": 1,
+      "effective_marine_capacity": 0,
+      "fuel": 120,
+      "hull": 80,
+      "id": "b76179e1db2326d9bf0de8c5401149da",
+      "incapacitated": false,
+      "max_fuel": 120,
+      "max_hull": 80,
+      "max_shield": 35,
+      "minimum_crew": 1,
+      "name": "Cobble",
+      "operational_speed": 2,
+      "personnel": {
+        "fit_crew": 1,
+        "fit_marines": 0,
+        "injured_crew": 0,
+        "injured_marines": 0
+      },
+      "power_capacity": 24,
+      "power_used": 6,
+      "shield": 35,
+      "shield_recharge": 1,
+      "speed": 2,
+      "utility_slots": 2,
+      "weapon_slots": 1
+    },
+    "cargo": [
+      {
+        "item_id": "null_matter",
+        "item_name": "Null Matter",
+        "quantity": 2,
+        "size": 2
+      },
+      {
+        "item_id": "titanium_alloy",
+        "item_name": "Titanium Alloy",
+        "quantity": 5,
+        "size": 1
+      },
+      {
+        "item_id": "mining_laser_i",
+        "item_name": "Mining Laser I",
+        "quantity": 1,
+        "size": 10
+      },
+      {
+        "item_id": "voidborn_neural_soma",
+        "item_name": "Voidborn Neural Soma",
+        "quantity": 1,
+        "size": 1
+      }
+    ],
+    "location": {
+      "system_id": "void_gate",
+      "poi_id": "mobile_capital",
+      "docked_at": "frontier_station",
+      "connections": [
+        "markeb",
+        "haedus",
+        "first_step",
+        "sulafat",
+        "kochab",
+        "starfall"
+      ],
+      "resources": [],
+      "security_status": "Frontier (minimal police presence)"
+    }
+  },
+  "station_storage": {
+    "action": "view_storage",
+    "base_id": "frontier_station",
+    "hint": "175 items in storage at deep_range_outpost, first_step_memorial_station, frontier_station",
+    "items": [
+      {
+        "item_id": "energy_crystal",
+        "name": "Energy Crystal",
+        "quantity": 61,
+        "size": 1
+      },
+      {
+        "item_id": "carbon_ore",
+        "name": "Carbon Ore",
+        "quantity": 18,
+        "size": 1
+      },
+      {
+        "item_id": "aluminum_ore",
+        "name": "Aluminum Ore",
+        "quantity": 33,
+        "size": 1
+      },
+      {
+        "item_id": "tungsten_ore",
+        "name": "Tungsten Ore",
+        "quantity": 9,
+        "size": 2
+      }
+    ],
+    "locations": [
+      {
+        "base_id": "deep_range_outpost",
+        "base_name": "Deep Range Outpost",
+        "item_count": 1,
+        "ship_count": 0,
+        "system": "deep_range",
+        "system_name": "Deep Range"
+      },
+      {
+        "base_id": "first_step_memorial_station",
+        "base_name": "First Step Memorial Station",
+        "item_count": 53,
+        "ship_count": 0,
+        "system": "first_step",
+        "system_name": "First Step"
+      },
+      {
+        "base_id": "frontier_station",
+        "base_name": "Frontier Station",
+        "item_count": 121,
+        "ship_count": 0,
+        "system": "void_gate",
+        "system_name": "Void Gate"
+      }
+    ],
+    "ships": []
+  },
+  "note": "Full original receipts retained in runtime/gameplay.jsonl."
+}

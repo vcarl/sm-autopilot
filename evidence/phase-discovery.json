@@ -1,0 +1,349 @@
+{
+  "event": "mining_experiment",
+  "id": "manual-phase-horizon-20260908",
+  "at": "2026-09-08T17:47:09.559Z",
+  "controller": "Codex manual exploration",
+  "status": "completed",
+  "origin_station": "first_step_memorial_station",
+  "system_id": "horizon",
+  "poi_id": "horizon_phase_drift",
+  "cycles": 9,
+  "seconds": 880.088,
+  "baseline": {
+    "credits": 201645,
+    "ship": {
+      "armor": 3,
+      "cargo_capacity": 125,
+      "cargo_used": 50,
+      "class_id": "cobble",
+      "class_name": "Cobble",
+      "cpu_capacity": 12,
+      "cpu_used": 4,
+      "crew_efficiency": 1,
+      "defense_slots": 1,
+      "effective_crew_capacity": 1,
+      "effective_marine_capacity": 0,
+      "fuel": 120,
+      "hull": 80,
+      "id": "b76179e1db2326d9bf0de8c5401149da",
+      "incapacitated": false,
+      "max_fuel": 120,
+      "max_hull": 80,
+      "max_shield": 35,
+      "minimum_crew": 1,
+      "name": "Cobble",
+      "operational_speed": 2,
+      "personnel": {
+        "fit_crew": 1,
+        "fit_marines": 0,
+        "injured_crew": 0,
+        "injured_marines": 0
+      },
+      "power_capacity": 24,
+      "power_used": 7,
+      "shield": 35,
+      "shield_recharge": 1,
+      "speed": 2,
+      "utility_slots": 2,
+      "weapon_slots": 1
+    },
+    "cargo": [
+      {
+        "item_id": "null_matter",
+        "item_name": "Null Matter",
+        "quantity": 2,
+        "size": 2
+      },
+      {
+        "item_id": "titanium_alloy",
+        "item_name": "Titanium Alloy",
+        "quantity": 5,
+        "size": 1
+      },
+      {
+        "item_id": "voidborn_neural_soma",
+        "item_name": "Voidborn Neural Soma",
+        "quantity": 1,
+        "size": 1
+      },
+      {
+        "item_id": "survey_scanner_i",
+        "item_name": "Survey Scanner I",
+        "quantity": 1,
+        "size": 10
+      },
+      {
+        "item_id": "carbon_ore",
+        "item_name": "Carbon Ore",
+        "quantity": 1,
+        "size": 1
+      },
+      {
+        "item_id": "silicon_ore",
+        "item_name": "Silicon Ore",
+        "quantity": 25,
+        "size": 1
+      },
+      {
+        "item_id": "palladium_ore",
+        "item_name": "Palladium Ore",
+        "quantity": 4,
+        "size": 1
+      }
+    ],
+    "modules": [
+      {
+        "cpu_usage": 2,
+        "module_id": "8988388a5fc4f8940aba433122b4f3c5",
+        "name": "Cargo Expander II",
+        "power_usage": 2,
+        "size": 10,
+        "slot": "utility",
+        "stats": {
+          "cargo_bonus": 50
+        },
+        "type": "utility",
+        "type_id": "cargo_expander_ii"
+      },
+      {
+        "cpu_usage": 2,
+        "module_id": "b37867937d9b738ea7fad199dd8eba8c",
+        "name": "Mining Laser I",
+        "power_usage": 5,
+        "size": 10,
+        "slot": "utility",
+        "stats": {
+          "mining_power": 5
+        },
+        "type": "mining",
+        "type_id": "mining_laser_i"
+      }
+    ],
+    "location": {
+      "system_id": "first_step",
+      "poi_id": "first_step_memorial_station",
+      "docked_at": "first_step_memorial_station",
+      "connections": [
+        "horizon",
+        "void_gate",
+        "markeb",
+        "the_telescope"
+      ],
+      "resources": [],
+      "security_status": "Low Security (slow police response)"
+    }
+  },
+  "end": {
+    "credits": 202174,
+    "ship": {
+      "armor": 3,
+      "cargo_capacity": 125,
+      "cargo_used": 50,
+      "class_id": "cobble",
+      "class_name": "Cobble",
+      "cpu_capacity": 12,
+      "cpu_used": 4,
+      "crew_efficiency": 1,
+      "defense_slots": 1,
+      "effective_crew_capacity": 1,
+      "effective_marine_capacity": 0,
+      "fuel": 120,
+      "hull": 80,
+      "id": "b76179e1db2326d9bf0de8c5401149da",
+      "incapacitated": false,
+      "max_fuel": 120,
+      "max_hull": 80,
+      "max_shield": 35,
+      "minimum_crew": 1,
+      "name": "Cobble",
+      "operational_speed": 2,
+      "personnel": {
+        "fit_crew": 1,
+        "fit_marines": 0,
+        "injured_crew": 0,
+        "injured_marines": 0
+      },
+      "power_capacity": 24,
+      "power_used": 7,
+      "shield": 35,
+      "shield_recharge": 1,
+      "speed": 2,
+      "utility_slots": 2,
+      "weapon_slots": 1
+    },
+    "cargo": [
+      {
+        "item_id": "null_matter",
+        "item_name": "Null Matter",
+        "quantity": 2,
+        "size": 2
+      },
+      {
+        "item_id": "titanium_alloy",
+        "item_name": "Titanium Alloy",
+        "quantity": 5,
+        "size": 1
+      },
+      {
+        "item_id": "voidborn_neural_soma",
+        "item_name": "Voidborn Neural Soma",
+        "quantity": 1,
+        "size": 1
+      },
+      {
+        "item_id": "survey_scanner_i",
+        "item_name": "Survey Scanner I",
+        "quantity": 1,
+        "size": 10
+      },
+      {
+        "item_id": "carbon_ore",
+        "item_name": "Carbon Ore",
+        "quantity": 1,
+        "size": 1
+      },
+      {
+        "item_id": "silicon_ore",
+        "item_name": "Silicon Ore",
+        "quantity": 25,
+        "size": 1
+      },
+      {
+        "item_id": "palladium_ore",
+        "item_name": "Palladium Ore",
+        "quantity": 4,
+        "size": 1
+      }
+    ],
+    "modules": [
+      {
+        "cpu_usage": 2,
+        "module_id": "8988388a5fc4f8940aba433122b4f3c5",
+        "name": "Cargo Expander II",
+        "power_usage": 2,
+        "size": 10,
+        "slot": "utility",
+        "stats": {
+          "cargo_bonus": 50
+        },
+        "type": "utility",
+        "type_id": "cargo_expander_ii"
+      },
+      {
+        "cpu_usage": 2,
+        "module_id": "b37867937d9b738ea7fad199dd8eba8c",
+        "name": "Mining Laser I",
+        "power_usage": 5,
+        "size": 10,
+        "slot": "utility",
+        "stats": {
+          "mining_power": 5
+        },
+        "type": "mining",
+        "type_id": "mining_laser_i"
+      }
+    ],
+    "location": {
+      "system_id": "first_step",
+      "poi_id": "first_step_memorial_station",
+      "docked_at": "first_step_memorial_station",
+      "connections": [
+        "horizon",
+        "void_gate",
+        "markeb",
+        "the_telescope"
+      ],
+      "resources": [],
+      "security_status": "Low Security (slow police response)"
+    }
+  },
+  "yields": {
+    "phase_crystal": 1,
+    "iron_ore": 4,
+    "copper_ore": 4
+  },
+  "sales": [
+    {
+      "item_id": "phase_crystal",
+      "sold": 1,
+      "credits": 500
+    },
+    {
+      "item_id": "iron_ore",
+      "sold": 4,
+      "credits": 24
+    },
+    {
+      "item_id": "copper_ore",
+      "sold": 4,
+      "credits": 20
+    }
+  ],
+  "retained": {},
+  "unsold": {},
+  "cash_delta": 529,
+  "realized_profit": 529,
+  "fuel_liability_units": 0,
+  "hull_liability_units": 0,
+  "travel_fuel_units": 5,
+  "service_cost": 15,
+  "source_measurements": [
+    {
+      "item_id": "phase_crystal",
+      "quantity": 1,
+      "poi_id": "horizon_phase_drift",
+      "system_id": "horizon",
+      "sortie_seconds": 880.088,
+      "shared_sortie_cash_cost": 15,
+      "warning": "Includes manual observation and decision time; mixed yields cannot assign all sortie cost independently to each ore."
+    },
+    {
+      "item_id": "iron_ore",
+      "quantity": 4,
+      "poi_id": "horizon_phase_drift",
+      "system_id": "horizon",
+      "sortie_seconds": 880.088,
+      "shared_sortie_cash_cost": 15,
+      "warning": "Includes manual observation and decision time; mixed yields cannot assign all sortie cost independently to each ore."
+    },
+    {
+      "item_id": "copper_ore",
+      "quantity": 4,
+      "poi_id": "horizon_phase_drift",
+      "system_id": "horizon",
+      "sortie_seconds": 880.088,
+      "shared_sortie_cash_cost": 15,
+      "warning": "Includes manual observation and decision time; mixed yields cannot assign all sortie cost independently to each ore."
+    }
+  ],
+  "evidence_action_ids": [
+    "explore-silicon",
+    "explore-palladium",
+    "explore-undock",
+    "explore-horizon",
+    "horizon-mine-sample",
+    "phase-probe-1",
+    "phase-probe-2",
+    "phase-probe-3",
+    "phase-probe-4",
+    "phase-probe-5",
+    "phase-probe-6",
+    "phase-probe-7",
+    "phase-probe-8",
+    "phase-return",
+    "phase-return-travel",
+    "phase-dock",
+    "phase-live-bids",
+    "phase-recipes",
+    "phase-matrix-bids",
+    "phase-sale-phase_crystal",
+    "phase-sale-iron_ore",
+    "phase-sale-copper_ore",
+    "phase-refuel",
+    "phase-route-check"
+  ],
+  "notes": [
+    "Confirmed raw phase crystal sold at500; phase_matrix had no buy orders here.",
+    "Starting silicon and palladium were transported but neither consumed nor sold."
+  ]
+}

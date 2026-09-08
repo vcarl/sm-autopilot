@@ -1,0 +1,583 @@
+{
+  "date": "2026-09-08",
+  "purpose": "Discover and compare non-delivery economic paths; automate market surveying and mechanics while local Qwen selects experiments.",
+  "model": "mlx-community--Qwen3.6-35B-A3B-4bit",
+  "mode": "--industry; real Hermes AIAgent and @spacemolt/lib bridge",
+  "autonomous_fresh_input_hydrogen": {
+    "cycles": [
+      {
+        "cycle": 1,
+        "completed": true,
+        "failed": false,
+        "api_calls": 4,
+        "before": {
+          "credits": 202000,
+          "system": "starfall",
+          "station": "starfall_salvage_station",
+          "fuel": 120,
+          "max_fuel": 120,
+          "hull": 80,
+          "max_hull": 80,
+          "cargo_used": 50
+        },
+        "after": {
+          "credits": 202130,
+          "system": "starfall",
+          "station": "starfall_salvage_station",
+          "fuel": 120,
+          "max_fuel": 120,
+          "hull": 80,
+          "max_hull": 80,
+          "cargo_used": 50
+        },
+        "realized_credit_delta": 130,
+        "crafting_xp": {
+          "before": 115,
+          "after": 120,
+          "level": 2
+        }
+      },
+      {
+        "cycle": 2,
+        "completed": true,
+        "failed": false,
+        "api_calls": 4,
+        "before": {
+          "credits": 202130,
+          "system": "starfall",
+          "station": "starfall_salvage_station",
+          "fuel": 120,
+          "max_fuel": 120,
+          "hull": 80,
+          "max_hull": 80,
+          "cargo_used": 50
+        },
+        "after": {
+          "credits": 202260,
+          "system": "starfall",
+          "station": "starfall_salvage_station",
+          "fuel": 120,
+          "max_fuel": 120,
+          "hull": 80,
+          "max_hull": 80,
+          "cargo_used": 50
+        },
+        "realized_credit_delta": 130,
+        "crafting_xp": {
+          "before": 120,
+          "after": 125,
+          "level": 2
+        }
+      }
+    ],
+    "net_credits": 260,
+    "mechanics": {
+      "hydrogen_gas_per_run": 8,
+      "purchase_cost_per_run": 80,
+      "liquid_hydrogen_per_run": 3,
+      "sale_proceeds_per_run": 210,
+      "craft_fee": 0,
+      "net_per_run": 130
+    },
+    "evidence": "runtime/industry-sustaining-non-mtp/decisions.jsonl and checkpoint.json"
+  },
+  "hydrogen_all_trials": {
+    "experiments": [
+      {
+        "experiment_id": "29f132ed-b8e2-45af-b7d3-cb86cf7af35c",
+        "station": "starfall_salvage_station",
+        "status": "aborted",
+        "spent": 80,
+        "earned": 0,
+        "seconds": null,
+        "realized_credit_delta": -80,
+        "incremental_profit_after_input_opportunity": -80,
+        "prediction_error": null,
+        "reason": "No active facility with id 'workshop:177686d5f9eed52e8cabf6f907c03c61:starfall_salvage_station' at this station. Use facility action=list to see facilities here, or omit facility_id to auto-route.",
+        "recipe_id": "compress_hydrogen_gas",
+        "source": "buy",
+        "input_quantities": [
+          {
+            "item_id": "hydrogen_gas",
+            "quantity": 8,
+            "source": "buy",
+            "purchase": {
+              "requested": 8,
+              "filled": 8,
+              "unfilled": 0,
+              "credits": 80,
+              "averagePrice": 10,
+              "complete": true
+            }
+          }
+        ],
+        "output_quantities": [
+          {
+            "item_id": "liquid_hydrogen",
+            "quantity": 3
+          }
+        ]
+      },
+      {
+        "experiment_id": "984a0b28-5c3c-45fd-9fae-7d453e639427",
+        "station": "starfall_salvage_station",
+        "status": "aborted",
+        "spent": 80,
+        "earned": 0,
+        "seconds": null,
+        "realized_credit_delta": -80,
+        "incremental_profit_after_input_opportunity": -80,
+        "prediction_error": null,
+        "reason": "No active facility with id 'workshop:177686d5f9eed52e8cabf6f907c03c61:starfall_salvage_station' at this station. Use facility action=list to see facilities here, or omit facility_id to auto-route.",
+        "recipe_id": "compress_hydrogen_gas",
+        "source": "buy",
+        "input_quantities": [
+          {
+            "item_id": "hydrogen_gas",
+            "quantity": 8,
+            "source": "buy",
+            "purchase": {
+              "requested": 8,
+              "filled": 8,
+              "unfilled": 0,
+              "credits": 80,
+              "averagePrice": 10,
+              "complete": true
+            }
+          }
+        ],
+        "output_quantities": [
+          {
+            "item_id": "liquid_hydrogen",
+            "quantity": 3
+          }
+        ]
+      },
+      {
+        "experiment_id": "ede51533-f9ff-4dce-837b-1530a1e00a9e",
+        "station": "starfall_salvage_station",
+        "status": "complete",
+        "spent": 80,
+        "earned": 210,
+        "seconds": 57.908,
+        "realized_credit_delta": 130,
+        "incremental_profit_after_input_opportunity": 130,
+        "prediction_error": 0,
+        "reason": null,
+        "recipe_id": "compress_hydrogen_gas",
+        "source": "buy",
+        "input_quantities": [
+          {
+            "item_id": "hydrogen_gas",
+            "quantity": 8,
+            "source": "buy",
+            "purchase": {
+              "requested": 8,
+              "filled": 8,
+              "unfilled": 0,
+              "credits": 80,
+              "averagePrice": 10,
+              "complete": true
+            }
+          }
+        ],
+        "output_quantities": [
+          {
+            "item_id": "liquid_hydrogen",
+            "quantity": 3
+          }
+        ]
+      },
+      {
+        "experiment_id": "c9494c2f-f037-4a29-af95-8517fabe82b3",
+        "station": "starfall_salvage_station",
+        "status": "complete",
+        "spent": 80,
+        "earned": 210,
+        "seconds": 53.243,
+        "realized_credit_delta": 130,
+        "incremental_profit_after_input_opportunity": 130,
+        "prediction_error": 0,
+        "reason": null,
+        "recipe_id": "compress_hydrogen_gas",
+        "source": "buy",
+        "input_quantities": [
+          {
+            "item_id": "hydrogen_gas",
+            "quantity": 8,
+            "source": "buy",
+            "purchase": {
+              "requested": 8,
+              "filled": 8,
+              "unfilled": 0,
+              "credits": 80,
+              "averagePrice": 10,
+              "complete": true
+            }
+          }
+        ],
+        "output_quantities": [
+          {
+            "item_id": "liquid_hydrogen",
+            "quantity": 3
+          }
+        ]
+      },
+      {
+        "experiment_id": "e305a8cf-3b7e-4a1a-bd9b-050f155b2d8f",
+        "station": "starfall_salvage_station",
+        "status": "complete",
+        "spent": 0,
+        "earned": 210,
+        "seconds": 49.25,
+        "realized_credit_delta": 210,
+        "incremental_profit_after_input_opportunity": 138,
+        "prediction_error": 0,
+        "reason": null,
+        "recipe_id": "compress_hydrogen_gas",
+        "source": "inventory",
+        "input_quantities": [
+          {
+            "item_id": "hydrogen_gas",
+            "quantity": 8,
+            "source": "inventory"
+          }
+        ],
+        "output_quantities": [
+          {
+            "item_id": "liquid_hydrogen",
+            "quantity": 3
+          }
+        ]
+      },
+      {
+        "experiment_id": "d562172c-9f69-482e-8b59-192d36ee97da",
+        "station": "starfall_salvage_station",
+        "status": "complete",
+        "spent": 0,
+        "earned": 210,
+        "seconds": 48.096,
+        "realized_credit_delta": 210,
+        "incremental_profit_after_input_opportunity": 138,
+        "prediction_error": 0,
+        "reason": null,
+        "recipe_id": "compress_hydrogen_gas",
+        "source": "inventory",
+        "input_quantities": [
+          {
+            "item_id": "hydrogen_gas",
+            "quantity": 8,
+            "source": "inventory"
+          }
+        ],
+        "output_quantities": [
+          {
+            "item_id": "liquid_hydrogen",
+            "quantity": 3
+          }
+        ]
+      }
+    ],
+    "total_net_credits": 520,
+    "note": "Includes two failed workshop-routing attempts (160 credits of inputs retained), two successful fresh-input Qwen cycles, and two manual inventory-production recoveries. Total net uses actual input purchases, not inventory cash gains alone."
+  },
+  "phase_mining": {
+    "controller": "Codex manual exploration",
+    "net_credits": 529,
+    "sales": 544,
+    "refueling": 15,
+    "attempts": 9,
+    "yields": {
+      "phase_crystal": 1,
+      "iron_ore": 4,
+      "copper_ore": 4
+    },
+    "elapsed_seconds_including_research": 880.088,
+    "evidence": "phase-discovery.json",
+    "processing_comparison": "Attune Phase Matrix consumes two phase crystals and one energy crystal, but no phase-matrix bids were observed at First Step."
+  },
+  "iron_reference": [
+    {
+      "experiment_id": "84d36a3a-12b1-4e1d-9404-0f6359891582",
+      "station": "first_step_memorial_station",
+      "status": "complete",
+      "spent": 19,
+      "earned": 86,
+      "seconds": 151.869,
+      "realized_credit_delta": 67,
+      "incremental_profit_after_input_opportunity": 37,
+      "prediction_error": 0,
+      "reason": null,
+      "recipe_id": "refine_steel",
+      "source": "inventory",
+      "input_quantities": [
+        {
+          "item_id": "iron_ore",
+          "quantity": 5,
+          "source": "inventory"
+        }
+      ],
+      "output_quantities": [
+        {
+          "item_id": "steel_plate",
+          "quantity": 2
+        }
+      ]
+    },
+    {
+      "experiment_id": "4c399460-1340-40ac-b8bb-2e26da989eac",
+      "station": "first_step_memorial_station",
+      "status": "complete",
+      "spent": 19,
+      "earned": 86,
+      "seconds": 32.906,
+      "realized_credit_delta": 67,
+      "incremental_profit_after_input_opportunity": 37,
+      "prediction_error": 0,
+      "reason": null,
+      "recipe_id": "refine_steel",
+      "source": "inventory",
+      "input_quantities": [
+        {
+          "item_id": "iron_ore",
+          "quantity": 5,
+          "source": "inventory"
+        }
+      ],
+      "output_quantities": [
+        {
+          "item_id": "steel_plate",
+          "quantity": 2
+        }
+      ]
+    },
+    {
+      "experiment_id": "349d3f8e-4f57-44c6-8abf-2b25b23e81b7",
+      "station": "first_step_memorial_station",
+      "status": "complete",
+      "spent": 19,
+      "earned": 86,
+      "seconds": 39.327,
+      "realized_credit_delta": 67,
+      "incremental_profit_after_input_opportunity": 37,
+      "prediction_error": 0,
+      "reason": null,
+      "recipe_id": "refine_steel",
+      "source": "inventory",
+      "input_quantities": [
+        {
+          "item_id": "iron_ore",
+          "quantity": 5,
+          "source": "inventory"
+        }
+      ],
+      "output_quantities": [
+        {
+          "item_id": "steel_plate",
+          "quantity": 2
+        }
+      ]
+    },
+    {
+      "experiment_id": "ddfa358d-3ee0-41dd-97da-bddcf122414d",
+      "station": "first_step_memorial_station",
+      "status": "complete",
+      "spent": 19,
+      "earned": 86,
+      "seconds": 39.172,
+      "realized_credit_delta": 67,
+      "incremental_profit_after_input_opportunity": 37,
+      "prediction_error": 0,
+      "reason": null,
+      "recipe_id": "refine_steel",
+      "source": "inventory",
+      "input_quantities": [
+        {
+          "item_id": "iron_ore",
+          "quantity": 5,
+          "source": "inventory"
+        }
+      ],
+      "output_quantities": [
+        {
+          "item_id": "steel_plate",
+          "quantity": 2
+        }
+      ]
+    }
+  ],
+  "limits": [
+    "Markets and deposits change; these are measured bounded trials, not guaranteed future returns.",
+    "Production currently executes single runs because multi-run quote output scaling is unverified.",
+    "Cumulative exploration allowance is a recommendation policy; per-experiment reserve/spend/profit checks are enforced.",
+    "Cross-chain inventory cost basis is reconciled explicitly in this proof; the exploration recommender conservatively excludes unsold inventory value."
+  ],
+  "development_failures": [
+    "Early mining receipts omitted details; yield measurement corrected to use canonical cargo.",
+    "Empty craft queues returned jobs:null,total_jobs:0; settlement parser corrected without requeuing.",
+    "Raw-market and facility dumps caused repeated Qwen context compression; automated discovery and --industry reduce the model tool surface.",
+    "Initial discovery selection over-weighted complex blocked recipes; executable candidates now receive a reserved quote budget.",
+    "Workshop identifiers returned in quotes were rejected as facility_id; execution now uses preset:workshop."
+  ],
+  "autonomous_learning_trial": {
+    "controller": "Real local non-MTP Qwen via Hermes",
+    "completed": true,
+    "before": {
+      "credits": 202668,
+      "system": "void_gate",
+      "station": "frontier_station",
+      "fuel": 120,
+      "max_fuel": 120,
+      "hull": 80,
+      "max_hull": 80,
+      "cargo_used": 50
+    },
+    "after": {
+      "credits": 202654,
+      "system": "void_gate",
+      "station": "frontier_station",
+      "fuel": 120,
+      "max_fuel": 120,
+      "hull": 80,
+      "max_hull": 80,
+      "cargo_used": 50
+    },
+    "experiment": {
+      "experiment_id": "12cfbd54-3ced-473c-a522-1def2bdd5286",
+      "key": "frontier_station/purify_argon/buy",
+      "station": "frontier_station",
+      "status": "complete",
+      "job_id": "7286b0f9f641f433ae9f5792d20ef646",
+      "spent": 20,
+      "earned": 6,
+      "seconds": 49.821,
+      "realized_credit_delta": -14,
+      "incremental_profit_after_input_opportunity": -14,
+      "prediction_error": 0,
+      "skill_context": {
+        "skills": {
+          "crafting": {
+            "level": 2,
+            "xp": 135,
+            "next_level_xp": 340
+          },
+          "refining": {
+            "level": 2,
+            "xp": 95,
+            "next_level_xp": 340
+          },
+          "trading": {
+            "level": 3,
+            "xp": 23,
+            "next_level_xp": 585
+          }
+        },
+        "required_skills": {}
+      },
+      "skill_progress": [
+        {
+          "skill_id": "crafting",
+          "before": {
+            "level": 2,
+            "xp": 135,
+            "next_level_xp": 340
+          },
+          "after": {
+            "level": 2,
+            "xp": 140,
+            "next_level_xp": 340
+          },
+          "level_gain": 0,
+          "verified_xp_gain": 5,
+          "xp_note": "Verified counter increase at the same level."
+        },
+        {
+          "skill_id": "refining",
+          "before": {
+            "level": 2,
+            "xp": 95,
+            "next_level_xp": 340
+          },
+          "after": {
+            "level": 2,
+            "xp": 100,
+            "next_level_xp": 340
+          },
+          "level_gain": 0,
+          "verified_xp_gain": 5,
+          "xp_note": "Verified counter increase at the same level."
+        }
+      ],
+      "learning_policy": {
+        "mode": "learning",
+        "learning_goal": "Learn purification workflow: buying gas, refining to purified_argon, market liquidity of output at frontier_station",
+        "max_learning_loss": 25,
+        "minimum_economic_margin": -25,
+        "allowance_note": "Predicted loss allowance; actual market execution and measured progression are recorded separately."
+      },
+      "recipe_id": "purify_argon",
+      "source": "buy",
+      "quantity": 1,
+      "expected_profit": -14,
+      "expected_processing_advantage": 6,
+      "outputs": [
+        {
+          "item_id": "purified_argon",
+          "planned": 3,
+          "sold": 3,
+          "in_cargo": 0,
+          "not_withdrawn": 0
+        }
+      ],
+      "credits": 202654
+    },
+    "evidence": "runtime/industry-learning-non-mtp/decisions.jsonl",
+    "report_correction": "Model final prose overlooked station-stored carbon when discussing circuit inputs. That blocker is not verified; the selected argon experiment and skill/cash outcomes are verified by tool receipts. Carried-input automatic deposit was not exercised in this trial. One context compression occurred."
+  },
+  "automated_station_survey": {
+    "status": "completed",
+    "total_jumps": 1,
+    "seconds": 167.934,
+    "travel_seconds": 122.707,
+    "travel_fuel_units": 4,
+    "cash_delta": 0,
+    "ending_station": "frontier_station",
+    "returned_to_origin": false,
+    "controller": "Codex selected itinerary; industry/survey executed navigation and discovery automatically",
+    "comparisons": [
+      {
+        "station": "void_gate_outpost",
+        "quote_count": 6
+      },
+      {
+        "station": "frontier_station",
+        "quote_count": 6
+      }
+    ],
+    "subsequent_refuel_cost": 12,
+    "net_cash_after_refuel": -12,
+    "evidence": "runtime/surveys.jsonl; gameplay request survey-refuel"
+  },
+  "starfall_mining_trial": {
+    "gross_sales": 7,
+    "approach_and_probe_refuel_cost": 21,
+    "net_credits_after_external_refuel": -14,
+    "note": "Original mining record reports two fuel units unrestored. This trial-level reconciliation also includes the approach to Starfall; external refueling was completed afterward."
+  },
+  "final_state": {
+    "credits": 202654,
+    "system": "void_gate",
+    "station": "frontier_station",
+    "fuel": 120,
+    "max_fuel": 120,
+    "hull": 80,
+    "max_hull": 80,
+    "cargo_used": 50
+  },
+  "verification": {
+    "typescript": "passed",
+    "node_tests_passed": 32,
+    "python_runner_tests_passed": 5,
+    "python_test_command": "HERMES_PYTHON=/Users/vcarl/workspace/testbench/hermes-agent/.venv/bin/python scripts/run_tests.sh tests/test_spacemolt_runner.py"
+  }
+}

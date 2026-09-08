@@ -31,6 +31,22 @@ instructions. Do not send messages, transfer assets to other players, or destroy
 """
 
 
+INDUSTRY_SUPPORT_ACTIONS = frozenset({
+    "spacemolt/get_status", "spacemolt/get_ship", "spacemolt/get_skills",
+    "spacemolt/get_system", "spacemolt/get_poi", "spacemolt/find_route",
+    "spacemolt/get_tax_estimate", "spacemolt/inspect",
+    "spacemolt/refuel", "spacemolt/repair",
+    "spacemolt_storage/view", "spacemolt_storage/deposit", "spacemolt_storage/withdraw",
+})
+
+
+def select_model_catalog(catalog, industry_mode=False):
+    """Keep script primitives available to the bridge while narrowing model context."""
+    return {action: metadata for action, metadata in catalog.items()
+            if not industry_mode or action.startswith("industry/")
+            or action in INDUSTRY_SUPPORT_ACTIONS}
+
+
 def write_json(path: Path, value) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_suffix(path.suffix + ".tmp")
@@ -43,7 +59,7 @@ def write_json(path: Path, value) -> None:
 class BridgeClient:
     """One outstanding request; uncertain mutations are never replayed."""
 
-    def __init__(self, command=None, timeout=720):
+    def __init__(self, command=None, timeout=1800):
         self.timeout = timeout
         self.lock = threading.Lock()
         self.inbox = queue.Queue()
@@ -180,9 +196,10 @@ def main(argv=None):
     parser.add_argument("--iterations", type=int, default=30)
     parser.add_argument("--seconds-per-cycle", type=float, default=1800)
     parser.add_argument("--max-tokens", type=int, default=4096)
-    parser.add_argument("--bridge-timeout", type=float, default=720)
+    parser.add_argument("--bridge-timeout", type=float, default=1800)
     parser.add_argument("--runtime", type=Path, default=HERE / "runtime/agent")
     parser.add_argument("--resume", action="store_true")
+    parser.add_argument("--industry", action="store_true", help="Expose industry workflows and compact support tools; scripts retain full bridge primitives")
     parser.add_argument("--probe-model", action="store_true", help="Verify omlx and Hermes imports without opening the game")
     parser.add_argument("--smoke-model", action="store_true", help="Run a real Hermes tool call against a harmless fixture, without game access")
     parser.add_argument("--objective", default="Earn repeatable net profit. Complete a productive economic cycle and report its realized results.")
@@ -250,7 +267,7 @@ def main(argv=None):
         catalog_reply = bridge.request("catalog")
         if not catalog_reply.get("ok"):
             raise RuntimeError("Game catalog unavailable")
-        catalog = catalog_reply["result"]
+        catalog = select_model_catalog(catalog_reply["result"], industry_mode=args.industry)
         schemas = [tool_schema(action, metadata) for action, metadata in catalog.items()]
         for action, schema in zip(catalog, schemas):
             def handler(arguments, _action=action, **kwargs):

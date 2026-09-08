@@ -12,7 +12,8 @@ neighboring `hermes-agent` checkout, on branch `spacemolt-local-agent`.
 
 Manual play earned **51,117 net credits**. The actual local Hermes agent then
 completed six freight deliveries over two sessions for **19,697 net credits**
-after fuel, unlocking licensed carrier status. Final balance: **201,380**.
+after fuel, unlocking licensed carrier status. That freight trial ended at
+**201,380 credits**; this is a historical result, not the current live balance.
 Both sessions finished fully fueled, undamaged, with original cargo preserved
 and no active freight obligations. See [verified results](evidence/PROGRESS.md),
 [manual receipts](evidence/manual-proof.json), and
@@ -52,8 +53,10 @@ Stop any other client controlling Kvothe before running:
 ```
 
 Use `--resume` to continue saved conversation history. To continue the verified
-live trial, add `--runtime runtime/live-non-mtp --resume`. The player is currently
-docked at Frontier Station in Void Gate. [Gameplay observations](GAMEPLAY.md)
+freight trial, add `--runtime runtime/live-non-mtp --resume`. That trial ended
+docked at Frontier Station in Void Gate; query live state for the present location.
+For recipe, mining, and market experiments, use the [industry workflow](INDUSTRY.md)
+and a separate conversation runtime. [Gameplay observations](GAMEPLAY.md)
 record the mechanics learned during development. `--cycles` bounds consecutive
 work sessions, and `--iterations` bounds each session's agent loop. Game actions
 take real time. Do not interrupt and blindly replay a purchase or other mutation
@@ -73,7 +76,7 @@ but repeated profitable cycles are needed to establish self-sustaining behavior.
   bounded sessions, isolated Hermes home, and resumable conversation evidence.
 - `config.example.yaml`: isolated Hermes settings for the game sessions.
 
-The enabled tools cover observation, navigation, mining, markets, personal storage,
+The enabled tools cover observation, navigation, mining, production experiments, markets, personal storage,
 missions, freight contracts, equipment and ship upgrades, and servicing the current ship. Messaging and asset transfers to other
 players are outside this toolset. The model does not receive account credentials.
 
