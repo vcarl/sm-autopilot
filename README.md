@@ -56,7 +56,9 @@ Use `--resume` to continue saved conversation history. To continue the verified
 freight trial, add `--runtime runtime/live-non-mtp --resume`. That trial ended
 docked at Frontier Station in Void Gate; query live state for the present location.
 For recipe, mining, and market experiments, use the [industry workflow](INDUSTRY.md)
-and a separate conversation runtime. [Gameplay observations](GAMEPLAY.md)
+and a separate conversation runtime. Catalog data and rate-limit cooldowns now
+persist across runner restarts in `runtime/catalog-cache.json`; discovery screens
+the whole catalog locally before requesting live quotes. [Gameplay observations](GAMEPLAY.md)
 record the mechanics learned during development. `--cycles` bounds consecutive
 work sessions, and `--iterations` bounds each session's agent loop. Game actions
 take real time. Do not interrupt and blindly replay a purchase or other mutation

@@ -58,14 +58,32 @@ station being evaluated. The model selects a bounded `industry/survey`
 itinerary for station comparisons. Without `--industry`, the regular navigation
 tools are also available.
 
-Prefer `discover` for the initial comparison rather than repeatedly fetching
-large recipe catalogs. It quotes six candidates by default, configurable with
-`limit` from 1 to 12. Half of its quote budget is reserved for candidates whose
-inputs are currently available and whose preliminary margin is positive; the
-rest investigates novel or blocked hypotheses, with output/material diversity.
-It does not reward recipes merely for having more ingredients. The ranking is a
-bounded sample, not an exhaustive search or a profitability guarantee.
-Use targeted recipe and quote tools to investigate specific gaps afterward.
+Prefer `discover` for the initial comparison. It evaluates the complete visible,
+non-package recipe catalog locally against one market/storage/facility snapshot,
+then live-quotes at most six finalists by default (`limit`: 1–12). Presentation
+limits do not truncate the catalog before evaluation. Known missing supply,
+output demand, explicit skill gates, and unavailable facilities stay as local
+future hypotheses without consuming live quotes. Supplied learning candidates
+must fit the requested `max_learning_loss` before unquoted fees. Missing skill
+metadata is unknown, not an invented requirement or proof of eligibility.
+
+Discovery reuses the station snapshot across its quotes. Production starts a
+separate fresh evaluation and retains its spending and transaction checks.
+Unchanged skill/facility quote failures have a bounded five-minute in-process
+cache, invalidated by changed observations. Rate/busy errors stop further quotes.
+The response reports catalog freshness, recipes evaluated, actual live quote
+count, local hypotheses, and cache reuse. Full hypotheses remain in the ledger;
+the model receives a bounded view.
+
+The bulk catalog is stored in ignored `runtime/catalog-cache.json`, including
+ETag, fetch time, and retry time. A shared process lock prevents simultaneous
+refreshes; fresh data is reused for one hour and revalidated conditionally.
+HTTP errors persist a shared cooldown, respecting `Retry-After` when provided.
+Switching tools or restarting cannot bypass that cooldown. Existing stale
+catalog data remains usable for explicitly labeled exploration; production
+waits for successful revalidation. If no catalog is cached, tools report the
+retry time and issue no game queries. The first successful download is still
+required; an already rate-limited cold start must wait.
 
 For a market survey, select one to three public base or POI IDs from `locations`
 and pass them as `station_ids`. Each leg permits at most two normal jumps; the

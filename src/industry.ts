@@ -1,6 +1,5 @@
-import { SpacemoltClient } from '@spacemolt/lib';
 import type { Account } from '@spacemolt/lib';
-import { randomUUID } from 'node:crypto';
+import { randomUUID, createHash } from 'node:crypto';
 import { appendFileSync, existsSync, readFileSync } from 'node:fs';
 import { snapshotSkills, skillProgress, productionMarginPolicy } from './progression.ts';
 import { evaluateLoop, quoteDepth } from './economics.ts';
@@ -9,10 +8,12 @@ import { recommendStrategy } from './experiment-strategy.ts';
 import { industryLocations } from './locations.ts';
 import { discoverMarket } from './discovery.ts';
 import { surveyMarkets } from './survey.ts';
+import { getIndustryCatalog } from './persistent-catalog.ts';
+import { screenCatalog } from './catalog-screen.ts';
+import { stationSnapshot } from './station-snapshot.ts';
 
 type Wire = Record<string, any>;
 export type IndustryCommand = (action:string, params?:Record<string,unknown>)=>Promise<unknown>;
-const publicData = new SpacemoltClient();
 const ledger = new URL('../runtime/industry.jsonl',import.meta.url);
 export const details = (reply:any):Wire => reply?.structuredContent ?? reply?.delta?.details ?? reply ?? {};
 const record = (event:Wire) => appendFileSync(ledger, JSON.stringify({at:new Date().toISOString(),...event})+'\n',{mode:0o600});
@@ -55,7 +56,7 @@ const compactEvaluation=(row:Wire)=>({
 });
 const compactCandidate=(row:Wire)=>({...pick(row,['id','recipe_id','source','venue','gross_margin','blockers','unknowns','inputs_needed','raw_sale_benchmark','potential_conversion_margin','output_sale_credits','benchmark_note']),inputs:itemAmounts(row.inputs),outputs:itemAmounts(row.outputs)});
 const compactQuote=(quote:Wire)=>({
-  ...pick(quote,['station','recipe_id','source','quantity','market_tick','output_scaling','assumptions','skill_context','input_locations']),
+  ...pick(quote,['station','catalog','recipe_id','source','quantity','market_tick','output_scaling','assumptions','skill_context','input_locations']),
   evaluation:quote.evaluation?compactEvaluation(quote.evaluation):undefined,
   craft:quote.craft?pick(quote.craft,['kind','runs','credits_total','facility_id','venue','have_inputs','have_capacity','have_credits','est_completion_tick']):undefined,
   inputQuotes:quote.inputQuotes?.map((q:Wire)=>pick(q,['item_id','quantity_requested','available','unfilled','subtotal','sales_tax','total_cost'])),
@@ -73,6 +74,7 @@ const compactExperiment=(row:Wire)=>({
 
 /** Only the model-facing view is compressed; all transaction evidence stays in the ledger. */
 export function compactIndustryReply(action:string,result:any):unknown {
+  if(action==='recipes'&&result?.recipes)return {catalog:result.catalog,recipes:compactIndustryReply('recipes',result.recipes)};
   if(action==='recipes'&&Array.isArray(result))return result.map(recipe=>({
     ...pick(recipe,['id','name','category','facility_only','crafting_time','required_skills','skills','skill_requirements','required_facility','package_operation']),
     inputs:itemAmounts(recipe.inputs),outputs:itemAmounts(recipe.outputs),
@@ -81,7 +83,7 @@ export function compactIndustryReply(action:string,result:any):unknown {
   if(result.event==='experiment')return compactExperiment(result);
   if(result.quote)return {...pick(result,['status','reason','experiment_id','job_id','status_existing']),quote:compactQuote(result.quote)};
   if(action==='quote'&&result.evaluation)return compactQuote(result);
-  if(action==='screen'&&result.candidates)return {...pick(result,['station','catalog_version','market_tick','warning']),candidates:result.candidates.map(compactCandidate),exploration_candidates:result.exploration_candidates?.map(compactCandidate)};
+  if(action==='screen'&&result.candidates)return {...pick(result,['station','catalog','catalog_version','market_tick','warning','evaluated_recipe_count']),candidate_count:result.candidates.length,exploration_candidate_count:result.exploration_candidates?.length,candidates:result.candidates.slice(0,result.limit??15).map(compactCandidate),exploration_candidates:result.exploration_candidates?.slice(0,result.limit??15).map(compactCandidate)};
   if(action==='history')return {...result,observations:result.observations?.map((observation:Wire)=>({...pick(observation,['at','station']),candidates:observation.candidates?.slice(0,5).map(compactCandidate),candidate_count:observation.candidates?.length,exploration_candidates:observation.exploration_candidates?.slice(0,5).map(compactCandidate),exploration_candidate_count:observation.exploration_candidates?.length}))};
   if(action==='recommend')return {...pick(result,['budget','limitations','current_skill_context']),learningCandidates:result.learningCandidates?.slice(0,15),repeatCandidates:result.repeatCandidates,explorationCandidates:result.explorationCandidates?.slice(0,15),explorationCandidateCount:result.explorationCandidates?.length,
     discoveryCandidates:result.discoveryCandidates?.slice(0,15),discoveryCandidateCount:result.discoveryCandidates?.length,
@@ -94,7 +96,8 @@ export async function industry(action:string, params:Wire, account:Account, comm
   return compactIndustryReply(action,await executeIndustry(action,params,account,command));
 }
 
-async function executeIndustry(action:string, params:Wire, account:Account, command:IndustryCommand):Promise<unknown> {
+export async function executeIndustry(action:string, params:Wire, account:Account, command:IndustryCommand, context:{snapshot?:ReturnType<typeof stationSnapshot>;catalog?:ReturnType<typeof getIndustryCatalog>;record?:(event:Wire)=>void}={}):Promise<unknown> {
+  const observe=context.record??record;
   const credits=()=>{if(account.credits===undefined)throw new Error('Canonical credits unavailable');return account.credits;};
   const station = account.location?.docked_at;
   if(action==='history'||action==='recommend') {
@@ -107,7 +110,7 @@ async function executeIndustry(action:string, params:Wire, account:Account, comm
   }
   if(action==='locations')return industryLocations(account.location?.system_id,params);
   if(!station) return {status:'blocked',reason:'Dock at the target station first; location is an experiment variable.'};
-  if(action==='discover')return discoverMarket(params,{screen:async p=>await executeIndustry('screen',p,account,command) as Wire,quote:async p=>await executeIndustry('quote',p,account,command) as Wire,record});
+  if(action==='discover')return discoverMarket(params,{screen:async p=>await executeIndustry('screen',p,account,command,context) as Wire,quote:async p=>await executeIndustry('quote',p,account,command,context) as Wire,record:observe});
   if(action==='survey')return surveyMarkets({...params,station_ids:params.station_ids},account,command,()=>executeIndustry('discover',{},account,command));
   if(action==='prepare_mining')return ensureReadiness(account,command,{requireMining:true,minFreeCargo:Number(params.min_free_cargo??20),minFuel:Number(params.min_fuel??10),creditReserve:Number(params.credit_reserve??150000)},params.execute===true);
   if(action==='settle') {
@@ -115,44 +118,25 @@ async function executeIndustry(action:string, params:Wire, account:Account, comm
     if(!experiment)return {status:'blocked',reason:'Unknown experiment_id/job_id; consult history.'};
     return settleExperiment(experiment,params,account,command);
   }
-  const cache=await publicData.catalog();
-  if(action==='recipes') return cache.recipes.filter(r=>!r.hidden && (!params.item_id||[...r.inputs,...r.outputs].some(i=>i.item_id===params.item_id))).slice(0,bounded(params.limit,30,100));
-  const market=details(await command('spacemolt_market/view_market',{}));
+  context.catalog??=getIndustryCatalog();
+  const catalogState=await context.catalog;
+  const cache=catalogState.cache;
+  const catalogMetadata={freshness:catalogState.freshness,fetchedAt:catalogState.fetchedAt,retryAt:catalogState.retryAt,reason:catalogState.reason};
+  if(!cache)return {status:'blocked',reason:'Catalog unavailable; wait for catalog retryAt rather than switching tools.',catalog:catalogMetadata};
+  if(action==='produce' && catalogState.freshness!=='fresh')return {status:'blocked',reason:'Catalog is stale; production waits for successful catalog revalidation.',catalog:catalogMetadata};
+  if(action==='recipes') return {catalog:catalogMetadata,recipes:cache.recipes.filter(r=>!r.hidden && (!params.item_id||[...r.inputs,...r.outputs].some(i=>i.item_id===params.item_id))).slice(0,bounded(params.limit,30,100))};
+  context.snapshot??=stationSnapshot(command,action==='screen');
+  const snapshot=await context.snapshot;
+  const market=snapshot.market;
   const books=new Map<string,Wire>((market.items??[]).map((i:Wire)=>[i.item_id,i]));
-  const storage=details(await command('spacemolt_storage/view',{}));
+  const storage=snapshot.storage;
   const stock=storage.items??[];
   if(action==='screen') {
-    const facilities=details(await command('spacemolt_facility/list',{}));
-    const venues=[...facilities.station_facilities??[],...facilities.public_facilities??[],...facilities.player_facilities??[],...facilities.faction_facilities??[]];
-    const rows=[];
-    const exploration:Wire[]=[];
-    for(const recipe of cache.recipes.filter(r=>!r.hidden&&!r.package_operation&&r.outputs.length)) {
-      const venue=venues.find(v=>v.recipe_id===recipe.id);
-      for(const source of ['buy','inventory'] as const) {
-        const row=evaluateLoop({id:`${station}/${recipe.id}/${source}`,recipe,batches:1,
-          inputs:recipe.inputs.map(i=>({item_id:i.item_id,source,asks:books.get(i.item_id)?.sell_orders??[],rawSaleBids:books.get(i.item_id)?.buy_orders??[],availableQuantity:amount(stock,i.item_id)+amount(account.cargo??[],i.item_id)})),
-          outputMarkets:recipe.outputs.map(i=>({item_id:i.item_id,bids:books.get(i.item_id)?.buy_orders??[]})),
-          costs:{travelCredits:0,laborCredits:undefined,taxCredits:undefined,otherCredits:0,travelSeconds:0,craftSeconds:Math.max(1,Math.ceil(recipe.crafting_time))*10,otherSeconds:30,rawSaleCredits:0},
-          blockers:recipe.facility_only&&!venue?['No observed matching public facility']:[]});
-        if(!row.blockers.length) rows.push({...row,recipe_id:recipe.id,source,gross_margin:row.saleCredits-(source==='inventory'?(row.rawSaleCredits??0):row.purchaseCredits),venue:venue?.name??'Workshop'});
-        else if(source==='inventory'&&row.outputs.every(output=>output.sale?.complete)) {
-          const rawQuotes=recipe.inputs.map(input=>({input,book:books.get(input.item_id),fill:quoteDepth(books.get(input.item_id)?.buy_orders??[],input.quantity,'sell')}));
-          const known=rawQuotes.every(q=>q.book&&q.fill.complete);
-          const benchmark=known?rawQuotes.reduce((n,q)=>n+q.fill.credits,0):null;
-          exploration.push({...row,recipe_id:recipe.id,source:'mine_or_buy',venue:venue?.name??'Workshop',
-            inputs_needed:recipe.inputs.map(input=>({item_id:input.item_id,quantity:Math.max(0,input.quantity-amount(stock,input.item_id)-amount(account.cargo??[],input.item_id))})).filter(input=>input.quantity>0),
-            raw_sale_benchmark:benchmark,potential_conversion_margin:benchmark===null?null:row.saleCredits-benchmark,output_sale_credits:row.saleCredits,
-            benchmark_note:known?'Output proceeds minus finite-depth raw sale opportunity, before labor, tax and acquisition/travel costs.':'Raw-sale benchmark unavailable at full depth; missing inputs are not valued as free.'});
-        }
-      }
-    }
-    rows.sort((a,b)=>b.gross_margin-a.gross_margin);
+    const facilities=snapshot.facilities;
+    const {candidates,exploration_candidates,evaluated_recipe_count}=screenCatalog({recipes:cache.recipes,station,market,storage,cargo:account.cargo??[],facilities,skills:snapshotSkills(account.state)});
     const limit=bounded(params.limit,15,50);
-    const candidates=rows.slice(0,limit);
-    exploration.sort((a,b)=>(b.potential_conversion_margin??-Infinity)-(a.potential_conversion_margin??-Infinity)||b.output_sale_credits-a.output_sale_credits);
-    const exploration_candidates=exploration.slice(0,limit);
-    record({event:'screen',station,catalog_version:cache.version,market_tick:market.current_tick,candidates,exploration_candidates,market,storage,cargo:structuredClone(account.cargo),facilities});
-    return {station,catalog_version:cache.version,market_tick:market.current_tick,candidates,exploration_candidates,warning:'Screening margins exclude unknown labor and taxes. Quote before executing. Inventory is not free: compare processingAdvantage against raw sale value.'};
+    observe({event:'screen',station,catalog_version:cache.version,market_tick:market.current_tick,candidates,exploration_candidates,market,storage,cargo:structuredClone(account.cargo),facilities});
+    return {station,limit,catalog:catalogMetadata,catalog_version:cache.version,market_tick:market.current_tick,observation_key:createHash('sha256').update(JSON.stringify([cache.version,market.items,storage,account.cargo,snapshotSkills(account.state),facilities])).digest('hex'),evaluated_recipe_count,candidates,exploration_candidates,warning:'Screening margins exclude unknown labor and taxes. Quote before executing. Inventory is not free: compare processingAdvantage against raw sale value.'};
   }
   const recipe=cache.recipe(String(params.recipe_id));
   if(!recipe||!recipe.outputs.length)return {status:'blocked',reason:'Unknown recipe; discover with recipes or screen.'};
@@ -182,8 +166,8 @@ async function executeIndustry(action:string, params:Wire, account:Account, comm
   const currentSkills=snapshotSkills(account.state);
   const required=(recipe as Wire).required_skills??{};
   const skill_context={skills:Object.fromEntries(Object.entries(currentSkills).filter(([id])=>['crafting','refining','trading',...Object.keys(required)].includes(id))),required_skills:required};
-  const quote={skill_context,input_locations:inventoryInputPlan(craft.cost.inputs,stock,account.cargo??[]),station,recipe_id:recipe.id,source,quantity,evaluation,craft,inputQuotes,market_tick:market.current_tick,output_scaling:craft.runs>1?'unverified: produces may be per run; quote conservatively uses it once':'single run',assumptions:['Immediate sale to observed buy orders; future fills can change.','Same-station processing; travel is zero here.','Seller proceeds use book prices; compare actual receipts.']};
-  record({event:'quote',...quote});
+  const quote={catalog:catalogMetadata,skill_context,input_locations:inventoryInputPlan(craft.cost.inputs,stock,account.cargo??[]),station,recipe_id:recipe.id,source,quantity,evaluation,craft,inputQuotes,market_tick:market.current_tick,output_scaling:craft.runs>1?'unverified: produces may be per run; quote conservatively uses it once':'single run',assumptions:['Immediate sale to observed buy orders; future fills can change.','Same-station processing; travel is zero here.','Seller proceeds use book prices; compare actual receipts.']};
+  observe({event:'quote',...quote});
   if(action==='quote')return quote;
   if(action!=='produce')return {status:'blocked',reason:'Unknown industry action'};
   if(craft.runs>1)return {status:'blocked',reason:'Multi-run output scaling is not yet verified; use a single production run.',quote};
