@@ -90,7 +90,9 @@ can justify defensive control and return/service without replay. Recovery ends t
 productive attempt and leaves stop latched. Missing acceptance evidence (including a
 hunt whose battle was never observed) stays blocked. Read `recovery-receipt.json` for
 startup recovery, `return-receipt.json` for end-of-session recovery, and the full pilot
-journal before starting another operating period.
+journal before starting another operating period. If inference or runner persistence
+fails after configuration, `exception-receipt.json` records the original error and
+the attempted return/reconciliation. Cleanup failure does not hide that original error.
 
 Hunt sorties refuse onboard passengers and carrier freight until those commitments
 are resolved. Return preserves them; it does not deliver or cancel them. Receipts

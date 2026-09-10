@@ -1,0 +1,92 @@
+{
+  "validation": "Live read-only game preflight and real local-model offline-tool smoke; no new fight",
+  "model_smoke": {
+    "model": "mlx-community--Qwen3.6-35B-A3B-4bit",
+    "passed": true,
+    "report": "Current balance: **12,345 credits** (source: offline fixture)"
+  },
+  "state": {
+    "location": {
+      "system_id": "horizon",
+      "poi_id": "mobile_capital",
+      "docked_at": "frontier_station",
+      "connections": [
+        "altais",
+        "first_step",
+        "frontier",
+        "the_telescope",
+        "deep_range",
+        "distant_light"
+      ],
+      "resources": [],
+      "security_status": "High Security (active police patrols)"
+    },
+    "credits": 197857,
+    "ship": {
+      "armor": 3,
+      "cargo_capacity": 120,
+      "cargo_used": 4,
+      "class_id": "cobble",
+      "class_name": "Cobble",
+      "cpu_capacity": 12,
+      "cpu_used": 8,
+      "crew_efficiency": 1,
+      "defense_slots": 1,
+      "effective_crew_capacity": 1,
+      "effective_marine_capacity": 0,
+      "fuel": 120,
+      "hull": 105,
+      "id": "b76179e1db2326d9bf0de8c5401149da",
+      "incapacitated": false,
+      "max_fuel": 120,
+      "max_hull": 105,
+      "max_shield": 35,
+      "minimum_crew": 1,
+      "name": "Cobble",
+      "operational_speed": 2,
+      "personnel": {
+        "fit_crew": 1,
+        "fit_marines": 0,
+        "injured_crew": 0,
+        "injured_marines": 0
+      },
+      "power_capacity": 24,
+      "power_used": 11,
+      "shield": 35,
+      "shield_recharge": 1,
+      "speed": 2,
+      "utility_slots": 2,
+      "weapon_slots": 1
+    }
+  },
+  "obligations": {
+    "spacemolt_shipping/active": {
+      "result": "You have no live freight contracts as carrier, shipper, recipient, or invited carrier.",
+      "structuredContent": {
+        "action": "active",
+        "message": "You have no live freight contracts as carrier, shipper, recipient, or invited carrier.",
+        "shipments": [],
+        "tick": 1846599
+      }
+    },
+    "spacemolt/list_passengers": {
+      "result": "Passengers aboard: 0",
+      "structuredContent": {
+        "count": 0,
+        "passengers": []
+      }
+    },
+    "spacemolt/craft": {
+      "command": "",
+      "tick": 0,
+      "delta": {
+        "details": {
+          "action": "queue",
+          "jobs": null,
+          "kind": "queue",
+          "total_jobs": 0
+        }
+      }
+    }
+  }
+}

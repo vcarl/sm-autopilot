@@ -209,6 +209,27 @@ These are project-level demonstrations under the new interface, not substitutes 
 - [ ] **A15 — Completion evidence:** Final reports expose independently checkable costs, obligations, location, condition, progression, and outcome, including unsold inventory and unresolved work.
 - [ ] **A16 — Fresh-session reproducibility:** Setup and run instructions are current, required checks pass, and another session can reproduce representative workflows without relying on this conversation's hidden context.
 
+## Real-path preflight and exception cleanup — 2026-09-10
+
+- Real local omlx model discovery and Hermes imports pass. Real AIAgent inference
+  called the harmless balance fixture exactly once and reported its actual value.
+  A single authenticated read-only bridge verified full hull/shields/fuel and no
+  freight, passengers or queued production. Frontier Station is currently at
+  `horizon/mobile_capital`, illustrating why the earlier location is not authoritative.
+  Reviewed evidence: `spacemolt/evidence/shared-preflight.json`. No new fight occurred.
+- Preflight review found that inference, setup or checkpoint-write exceptions bypassed
+  final return. `execution_runner.py` now attempts deterministic cleanup after configured
+  failures, records `exception-receipt.json`, and preserves the original exception if
+  cleanup/persistence also fails. It stops/joins the control monitor and does not repeat
+  completed cleanup when its receipt write fails.
+- Required Python runner tests: 12 pass, including real Python-to-Node travel followed
+  by planner/checkpoint failure, cleanup transport failure and receipt-write failure.
+  Typecheck and the existing 59 Node tests pass. These failure scenarios are offline.
+- The prepared one-Hunt live acceptance launch was rejected by automatic approval
+  review: it requires explicit user authorization for the movement, expenditure and
+  possible loss involved. A permission question is pending. The gameplay process did
+  not start. A3/live acceptance stays open; implementation can continue independently.
+
 ## Event-driven defense increment — 2026-09-10
 
 - `src/defense-events.ts` uses the pinned Account notification API, filtering own

@@ -6,6 +6,33 @@ import threading
 
 def run_execution(args, bridge, agent_class, registry, base_url, api_key, write_json,
                   tool_schema, model_response):
+    lifecycle = {"configured": False, "cleanup_attempted": False}
+    try:
+        return _run_execution(args, bridge, agent_class, registry, base_url, api_key,
+                              write_json, tool_schema, model_response, lifecycle)
+    except BaseException as error:
+        if lifecycle["configured"]:
+            evidence = {"exception": {"type": type(error).__name__, "message": str(error)}}
+            if not lifecycle["cleanup_attempted"]:
+                lifecycle["cleanup_attempted"] = True
+                try:
+                    lifecycle["receipt"] = finish_execution(bridge)
+                except BaseException as cleanup_error:
+                    evidence["cleanup_error"] = str(cleanup_error)
+                    error.add_note("SpaceMolt exception cleanup failed: " + str(cleanup_error))
+            if "receipt" in lifecycle:
+                evidence["cleanup_receipt"] = lifecycle["receipt"]
+            elif "cleanup_error" not in evidence:
+                evidence["cleanup_error"] = "Cleanup was already attempted but produced no receipt"
+            try:
+                write_json(args.runtime / "exception-receipt.json", evidence)
+            except BaseException as persistence_error:
+                error.add_note("Could not persist SpaceMolt exception receipt: " + str(persistence_error))
+        raise
+
+
+def _run_execution(args, bridge, agent_class, registry, base_url, api_key, write_json,
+                   tool_schema, model_response, lifecycle):
     if args.new_run and args.resume:
         raise ValueError("Use a fresh runtime for an explicit new run")
     checkpoint = args.runtime / "checkpoint.json"
@@ -26,8 +53,10 @@ def run_execution(args, bridge, agent_class, registry, base_url, api_key, write_
     })
     if not grant.get("ok"):
         raise RuntimeError(grant.get("error", "Execution configuration failed"))
+    lifecycle["configured"] = True
     recovery = bridge.request("execution/reconcile")
     if not recovery.get("ok") or recovery.get("result", {}).get("status") != "no_unfinished_job":
+        lifecycle.update(cleanup_attempted=True, receipt=recovery)
         write_json(args.runtime / "recovery-receipt.json", recovery)
         return 0 if recovery.get("result", {}).get("status") in {"interrupted", "returned_to_base"} else 1
     if prior and prior.get("context") != grant["result"]["context"]:
@@ -39,8 +68,9 @@ def run_execution(args, bridge, agent_class, registry, base_url, api_key, write_
             if control.exists():
                 bridge.signal_stop("Tired")
                 return
-    threading.Thread(target=monitor, daemon=True).start()
+    monitor_thread = threading.Thread(target=monitor, daemon=True)
     try:
+        monitor_thread.start()
         history = prior.get("messages", [])
         session_id = prior.get("session_id") or "spacemolt-" + uuid.uuid4().hex
         for cycle in range(args.cycles + 8):
@@ -89,15 +119,23 @@ def run_execution(args, bridge, agent_class, registry, base_url, api_key, write_
                 write_json(checkpoint, {**saved, "session_id": session_id, "messages": [],
                                         "context": grant["result"]["context"]})
             else:
+                monitor_done.set()
+                lifecycle["cleanup_attempted"] = True
                 receipt = finish_execution(bridge)
+                lifecycle["receipt"] = receipt
                 write_json(args.runtime / "return-receipt.json", receipt)
                 print(json.dumps({"report": result.get("final_response"), "return_receipt": receipt}), flush=True)
                 return 0 if receipt.get("result", {}).get("status") in {"interrupted", "returned_to_base"} else 1
+        monitor_done.set()
+        lifecycle["cleanup_attempted"] = True
         receipt = finish_execution(bridge)
+        lifecycle["receipt"] = receipt
         write_json(args.runtime / "return-receipt.json", receipt)
         return 0 if receipt.get("result", {}).get("status") in {"interrupted", "returned_to_base"} else 1
     finally:
         monitor_done.set()
+        if monitor_thread.ident is not None:
+            monitor_thread.join()
 
 
 def finish_execution(bridge):
