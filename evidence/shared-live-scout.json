@@ -1,0 +1,71 @@
+{
+  "validation": "Live real Hermes scouting and Tired during travel; no hunt or new fight",
+  "runtime": "spacemolt/runtime/shared-live-hunt-20260910",
+  "exit_code": 0,
+  "starting_credits": 197857,
+  "ending_credits": 197827,
+  "cash_delta": -30,
+  "jobs": [
+    {
+      "action": "track",
+      "status": "completed",
+      "cash_delta": -18,
+      "error": null
+    },
+    {
+      "action": "track",
+      "status": "blocked",
+      "cash_delta": 0,
+      "error": "Survey route must contain 0..2 normal jumps"
+    },
+    {
+      "action": "track",
+      "status": "returned_to_base",
+      "cash_delta": -12,
+      "error": null
+    },
+    {
+      "action": "return_to_base",
+      "status": "returned_to_base",
+      "cash_delta": 0,
+      "error": null
+    },
+    {
+      "action": "return_to_base",
+      "status": "returned_to_base",
+      "cash_delta": 0,
+      "error": null
+    }
+  ],
+  "home": {
+    "base_id": "frontier_station",
+    "poi_id": "mobile_capital",
+    "system_id": "horizon",
+    "rationale": "Docked here with full fuel and services. One jump to First Step (also has distress missions), two jumps to Last Light systems with distress targets. Keep Horizon as home while scouting nearby systems for viable wildlife."
+  },
+  "final_location": {
+    "system_id": "horizon",
+    "poi_id": "mobile_capital",
+    "docked_at": "frontier_station",
+    "in_transit": null
+  },
+  "final_condition": {
+    "id": "b76179e1db2326d9bf0de8c5401149da",
+    "hull": 105,
+    "max_hull": 105,
+    "shield": 35,
+    "max_shield": 35,
+    "fuel": 120,
+    "max_fuel": 120
+  },
+  "starting_cargo_preserved": true,
+  "raw_hunt_commands": 0,
+  "stop": "Tired",
+  "controller_closed": true,
+  "report_sha256": "6d0345ededc5f4343630b03d8ff1661abb0ad43ac958efed406dd87d8dd041b8",
+  "findings": [
+    "one_job stopping condition is not enforced across tool calls; model continued after blocked route until external Tired",
+    "Live-state duplicates exceed context-scaled tool-result budget and spill into files unavailable under this grant",
+    "Tired halted productive work after submitted movement and returned/service verified; model continued requesting rejected work until its loop finished"
+  ]
+}

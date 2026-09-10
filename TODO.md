@@ -209,6 +209,47 @@ These are project-level demonstrations under the new interface, not substitutes 
 - [ ] **A15 — Completion evidence:** Final reports expose independently checkable costs, obligations, location, condition, progression, and outcome, including unsold inventory and unresolved work.
 - [ ] **A16 — Fresh-session reproducibility:** Setup and run instructions are current, required checks pass, and another session can reproduce representative workflows without relying on this conversation's hidden context.
 
+## Wind-down handoff — live run, 2026-09-10
+
+User authorized normal MMO risks (movement, spending, ship/cargo loss), then requested
+shutdown before laptop sleep. Industry milestone committed as `a14d1fc922` (61 Node
+tests/typecheck, 24 Python tests, real-model offline gathering). The live runner exited
+normally with code 0; its bridge closed and controller lock was released. No controller
+should be restarted without a fresh process check and authoritative game observation.
+
+Reviewed live evidence: `spacemolt/evidence/shared-live-scout.json`; private runtime:
+`spacemolt/runtime/shared-live-hunt-20260910`. Hermes chose Frontier Station in Horizon
+as home, scouted First Step, hit the two-jump limit for Last Light, then started another
+scout toward Deep Range despite the requested stopping rule. External
+Tired stopped after the submitted movement and returned serviced. Final credits 197827
+(30 spent), hull 105/105, shields 35/35, fuel 120/120, original cargo preserved. No hunt
+command or fight occurred. A3/full Hunt acceptance remains open; this is live evidence
+for home choice, scouting, servicing and Tired during travel only.
+
+Next priorities from this live run, before another acceptance attempt:
+
+1. Enforce `stop_condition: one_job` across tool calls and session handoffs. It is
+   currently metadata only. Bound the concrete Hunt flow to one optional scouting
+   sortie then one hunt; stop on an admitted blocker/no eligible quarry/finished hunt.
+   Persist the operating-run allowance across reconnect/handoff; only explicit verified
+   host new-run resets it. Preserve actual job outcome while recording a stopping reason;
+   interrupt Hermes when the script has stopped, then run deterministic cleanup.
+2. Compact actual live receipts, not only fixture journals. Live track results were
+   94K/50K/70K characters and observe reached 262K, mostly duplicate state/receipt history.
+   At 65536-token model context the tool-result threshold is 39321 chars, so outcomes
+   spilled to files unavailable to the small grant. Preserve every candidate's scan,
+   assessment decision/unknowns and verified outcomes while removing duplicate snapshots.
+   Replay private spillover `call_65644292.txt` (track) and `call_efde2a82.txt` (observe)
+   through actual Hermes result handling; prove no inaccessible-output marker remains.
+3. Fix gross spending separately from net wallet change before more economic consumers.
+   Offline reproduction: max_spend12, initial refuel12, async income100, cleanup refuel9
+   currently completes at gross21. Use authoritative journaled total costs, never add
+   refuel tax twice, and block further spend if cost evidence is missing. Recovery must
+   not double-count accepted commands. Net cash_delta stays separate.
+
+All ICs are finished; no code edits for these follow-ups have started. The user is
+pausing work, not abandoning the full TODO goal.
+
 ## Resume grant preservation — 2026-09-10
 
 - Resume now preserves the saved wildlife permission when its original CLI grant is
