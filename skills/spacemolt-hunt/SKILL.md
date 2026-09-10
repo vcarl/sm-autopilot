@@ -29,6 +29,8 @@ Target individual IDs expire during travel; prefer a scouted species and habitat
 Use `job__track` docked to visit bounded wildlife habitats, scan candidates, record
 assessments, return and service. Stationless systems are valid destinations for a
 sortie; do not manually fly there and expect a docked-start job to become admissible.
+The current operating run permits one scouting sortie before its hunting attempt.
+An empty or unsupported assessment ends the run; do not try another destination.
 
 ## Tool: job__hunt
 
@@ -46,8 +48,9 @@ execute the same single objective without diversions. Tired exits and returns.
 ## Procedure
 
 Compare training and harvesting as separate objectives. Retained loot may be useful
-without producing cash; progression requires authoritative skill counters. Ask for
-another objective through the planning handoff when evidence blocks the intended one.
+without producing cash; progression requires authoritative skill counters. Report
+the stopping reason when evidence blocks the intended objective. A later operating
+run can reconsider it; a planning handoff does not restore this run's allowance.
 Reconsider home when return travel or absent supplies make the job impractical.
 
 ## Pitfalls

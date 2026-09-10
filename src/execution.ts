@@ -13,6 +13,7 @@ import {resolveContext,canHunt,type ExecutionContext,type Home} from './executio
 import {reconcileJob} from './recovery.ts';
 import {observeObligations,admitProductiveSortie,ObligationObservationError,type Obligations} from './obligations.ts';
 import {ExecutionStore,type Job} from './execution-store.ts';
+import {admissionBlocker,terminalStoppingReason} from './execution-stopping.ts';
 import {ensureReadiness} from './readiness.ts';
 import {observeGathering,assessGathering,gatherResources,verifyGatherInventory,type GatherReceipt} from './gather.ts';
 
@@ -33,7 +34,7 @@ export function executionCatalog(context:ExecutionContext):Record<string,any> {
     return_to_base:meta('Latch stop, return and service; preserves home and unfinished obligations.'),
   });
   if(context.stance==='Hunt') {
-    common.track=combatCatalog['combat/scout'];
+    common.track={...(combatCatalog['combat/scout'] as Wire),summary:'One optional scouting sortie for this operating run: visit up to three habitats in one destination system, assess quarry, return and service. No eligible quarry or a blocker stops the run; another tracking sortie is not allowed.'};
     if(canHunt(context))common.hunt=combatCatalog['combat/hunt'];
   }
   if(context.stance==='Industry') {
@@ -71,7 +72,7 @@ export class Execution {
     store.data.context=this.context;store.save();
     this.stopping=Boolean(store.data.stop)||context.mood==='Tired';
   }
-  signal(reason='Tired') {this.stopping=true;this.store.data.stop=reason;this.store.save();}
+  signal(reason='Tired') {this.stopping=true;this.store.data.stop??=reason;this.store.save();}
   stopped=()=>this.stopping;
   requestDefense() {this.dangerPending=true;}
   async respondToDanger() {
@@ -241,11 +242,12 @@ export class Execution {
     const nextContext=this.context;
     this.context=job.context;this.active=job;
     try {
-      return await reconcileJob(this.account,this.store,job,{
+      await reconcileJob(this.account,this.store,job,{
         command:this.command,snapshot:()=>this.snapshot(),
         resetBoundary:()=>{this.boundary=new CommandBoundary();this.uncertain=false;},
         returnHome:()=>this.returnHome(),uncertain:()=>this.uncertain,clock:this.deps.combat,
       });
+      job.stopping_reason=this.store.data.stop;this.store.save();return structuredClone(job);
     } finally {this.context=nextContext;this.active=undefined;}
   }
   async dispatch(action:string,params:Wire={}) {
@@ -255,8 +257,8 @@ export class Execution {
     if(this.active)throw new Error('A job already owns the connection');
     if(this.pending&&action!=='return_to_base')throw new Error('Session handoff required before another job');
     if(!(action in executionCatalog(this.context)))throw new Error('Tool unavailable under current stance, mood or permission');
-    if(this.stopping&&action!=='return_to_base')throw new Error('Stop latched: productive admission closed');
     if(this.store.unresolved())throw new Error('An unfinished job requires reconciliation; observe it without replay');
+    if(this.stopping&&action!=='return_to_base')throw new Error('Stop latched: productive admission closed');
     if(action==='assess'&&this.context.stance!=='Industry')return combat('assess',params,this.account,this.command,this.deps.combat);
     if(!this.context.home&&action!=='return_to_base')throw new Error('Observe and choose home before work');
     if(Object.keys(params).some(k=>!((executionCatalog(this.context)[action].params??[]) as any[]).some(p=>p.name===k)))throw new Error('Unsupported job parameter');
@@ -272,11 +274,13 @@ export class Execution {
     if(params.retreat_hull_fraction!==undefined&&(!Number.isFinite(params.retreat_hull_fraction)||params.retreat_hull_fraction<limits.retreat_hull_fraction||params.retreat_hull_fraction>0.95))throw new Error('Withdrawal override exceeds resolved policy');
     if(action==='assess')return assessGathering(this.account,this.command,this.context,{poi_id:params.poi_id,cycles:limits.max_gather_cycles});
     if(action==='return_to_base')this.signal();
+    const allowanceBlocker=admissionBlocker(action,this.store.runJobs());
     await this.account.refresh();
     const job:Job={id:randomUUID(),action,status:'running',context:structuredClone(this.context),started_at:new Date().toISOString(),before:this.snapshot(),actions:[]};
     this.active=job;this.store.data.jobs.push(job);this.store.save();
     let result:any;
     try {
+      if(allowanceBlocker)throw new Error(allowanceBlocker);
       if(this.observedDanger)await this.defend();
       let obligations:Obligations|undefined;
       try {
@@ -303,6 +307,7 @@ export class Execution {
       if(['hunt','track','gather'].includes(action))admitProductiveSortie(obligations!,action==='gather'?'Gather':'Hunt');
       result=await handlers[action]!();
       job.result=result;
+      if(result?.status==='blocked'&&action!=='return_to_base'&&!job.return_plan)throw new Error(result.reason??'Job returned a blocker');
       if(this.stopping&&action!=='return_to_base'&&!job.return_plan)throw new StopWork('Productive work suspended; return and service before stopping');
       job.status=result?.status==='blocked'?'blocked':this.stopping?'returned_to_base':action==='hunt'&&!result?.sortie?.fight?.verified_victory?'blocked':'completed';
     } catch(error) {
@@ -339,6 +344,8 @@ export class Execution {
         }
       }
       job.after=this.snapshot();job.cash_delta=this.account.credits!-(job.before as Wire).credits;
+      const stoppingReason=this.store.data.stop??terminalStoppingReason(job);
+      if(stoppingReason){this.signal(stoppingReason);job.stopping_reason=stoppingReason;}
       this.store.save();this.active=undefined;
     }
     return structuredClone(job);

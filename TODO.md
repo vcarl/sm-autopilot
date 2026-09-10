@@ -209,7 +209,29 @@ These are project-level demonstrations under the new interface, not substitutes 
 - [ ] **A15 — Completion evidence:** Final reports expose independently checkable costs, obligations, location, condition, progression, and outcome, including unsold inventory and unresolved work.
 - [ ] **A16 — Fresh-session reproducibility:** Setup and run instructions are current, required checks pass, and another session can reproduce representative workflows without relying on this conversation's hidden context.
 
+## Executable stopping and live receipt compaction — in progress
+
+The live repeated-scout failure is being fixed at the script/runner boundary, not
+through a stronger prompt. `execution-stopping.ts` and the pilot store enforce one
+optional Hunt scout and one principal Hunt/gather attempt, with persistent admission
+across handoff/reconnect and verified host-only reset. Terminal `stopping_reason` is
+separate from completed/blocked outcome. The runner interrupts on this reason and
+urgent Tired, while deterministic cleanup retains pending-command ownership.
+
+Stopping validation: typecheck and 63 Node tests pass; all 25 SpaceMolt Python tests
+pass through the required test runner, including idle inference interruption and
+terminal gather interruption through actual Hermes and Node. The real bridge and
+offline tests now share `ExecutionHost` dispatch, including verified host reset.
+Independent review found no allowance bypass; a monitor reference race was fixed
+before final validation. Recorded live-result compaction replay remains in progress.
+This closes the current single-attempt gap, not S17's general objective-driven repetition.
+
 ## Wind-down handoff — live run, 2026-09-10
+
+Resumed at the user's request. The next slice implements the first two follow-ups
+below: a durable `one_job` allowance and faithful compact live-data responses.
+Routine MMO gameplay risks remain explicitly authorized; process/state checks still
+precede any new controller. Implementation and offline validation come first.
 
 User authorized normal MMO risks (movement, spending, ship/cargo loss), then requested
 shutdown before laptop sleep. Industry milestone committed as `a14d1fc922` (61 Node
@@ -336,7 +358,8 @@ narrative. No spillover files or unavailable `read_file` calls occurred. The rev
 before/after evidence is in `shared-model-fixture.json`. Unreconciled/running jobs
 produce an unknown aggregate cash delta rather than treating stale balances as final.
 
-Live acceptance still requires approval and evidence. Full S18/X8 across all stance
+Live acceptance still requires new evidence; gameplay-risk authorization was provided
+later on 2026-09-10. Full S18/X8 across all stance
 consumers remains open; this closes the concrete reporting defects found in real inference.
 
 ## Real-path preflight and exception cleanup — 2026-09-10

@@ -106,6 +106,23 @@ Every job records identity, policy snapshot, starting/final ship/cargo/skills/lo
 obligations, command phases, result, actual wallet delta and blockers. The journal is
 private; shareable evidence requires a separate reviewed receipt.
 
+The current `one_job` operating run permits one principal attempt (Hunt or gathering),
+with at most one optional scouting sortie before a Hunt. A scout already visits up to
+three habitats within its selected system. No eligible quarry, an admitted job blocker,
+or the end of the principal attempt closes admission. Parameter validation failures
+before admission can be corrected without consuming an attempt. Preparation and
+observations do not consume the principal attempt, but an admitted preparation failure
+still ends the run. A stop reason is separate from the actual job outcome: successfully
+finishing an attempt remains completed, and a blocker remains blocked.
+
+The durable pilot journal owns the operating-run boundary. Conversation handoffs,
+changed objectives/stances, reconnects and fresh runner directories cannot reset it.
+Only the host's explicit `new_run`, after reconciliation and fully serviced docking,
+starts another allowance. This implements the present single-attempt contract; general
+repetition until XP, production or delivery thresholds remains S17 work. The runner
+interrupts planning when a script supplies a stopping reason and performs final cleanup
+outside inference. Urgent Tired interrupts planning and signals active scripts directly.
+
 | State/trigger | Required behavior |
 |---|---|
 | Idle + Tired/stop | Latch admission closed and queue return/service without an inference turn |

@@ -31,6 +31,11 @@ mining) and produces; Trade buys and sells; Logistics moves freight/passengers;
 Explore discovers; Salvage recovers wrecks. A stance choice does not grant permission.
 Tired overrides all of them and admits no productive jobs.
 
+The current `one_job` stop condition permits one productive attempt. Hunt can use
+one scouting sortie first. A blocked admitted job or a completed productive attempt
+ends the operating run; follow the receipt's stopping reason. Session handoffs and
+changed plans do not reset that allowance.
+
 ## Procedure
 
 Compare observed stations on access, services, storage, proximity to work and travel

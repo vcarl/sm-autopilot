@@ -17,6 +17,10 @@ test('resolved policy gates stale tools and real Hunt dispatch verifies return/s
   }
   assert.throws(()=>resolveContext({objective:'test',mood:'Cautious',limits:{retreat_hull_fraction:0.8}}),/bounds/);
   const f=fixture(t);await f.choose();
+  const visit:any=await f.execution.dispatch('travel',{base_id:'other'});
+  assert.equal(visit.status,'completed');assert.equal(f.state.location.docked_at,'other');
+  assert.equal(f.store.data.home?.base_id,'base');
+  await f.execution.dispatch('travel',{base_id:'base'});
   const receipt:any=await f.execution.dispatch('hunt',{poi_id:'belt',species:'phase_lurker'});
   assert.equal(receipt.status,'completed');assert.equal(receipt.result.sortie.fight.verified_victory,true);
   assert.equal(f.state.ship.fuel,120);assert.equal(f.state.location.docked_at,'base');
@@ -24,9 +28,6 @@ test('resolved policy gates stale tools and real Hunt dispatch verifies return/s
   assert.equal(f.calls.filter(c=>c.key==='spacemolt/hunt').length,1);
   assert.ok(receipt.actions.every((a:any)=>a.status==='confirmed'));
   assert.equal(new ExecutionStore(f.directory,'pilot').data.home?.base_id,'base');
-  const visit:any=await f.execution.dispatch('travel',{base_id:'other'});
-  assert.equal(visit.status,'completed');assert.equal(f.state.location.docked_at,'other');
-  assert.equal(f.store.data.home?.base_id,'base');
   f.execution.signal();
   await assert.rejects(f.execution.dispatch('hunt',{poi_id:'belt'}),/admission closed/);
   const returned:any=await f.execution.dispatch('return_to_base');assert.equal(returned.status,'returned_to_base');

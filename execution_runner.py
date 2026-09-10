@@ -78,11 +78,17 @@ def _run_execution(args, bridge, agent_class, registry, base_url, api_key, write
     if prior and prior.get("context") != grant["result"]["context"]:
         raise ValueError("Persisted home or grant changed; start a new runtime to preserve cached context")
     monitor_done = threading.Event()
+    stop_requested = threading.Event()
+    planner = {"active": None}
     def monitor():
         control = args.runtime / "stop.json"
         while not monitor_done.wait(0.25):
             if control.exists():
+                stop_requested.set()
                 bridge.signal_stop("Tired")
+                active = planner["active"]
+                if active is not None:
+                    active.interrupt()
                 return
     monitor_thread = threading.Thread(target=monitor, daemon=True)
     try:
@@ -106,7 +112,10 @@ def _run_execution(args, bridge, agent_class, registry, base_url, api_key, write
                     if response.get("result", {}).get("status") == "handoff_required":
                         handoff.append(response["result"])
                         agent.interrupt()
-                    if response.get("result", {}).get("status") == "needs_reconciliation":
+                    outcome = response.get("result", {})
+                    if outcome.get("stopping_reason"):
+                        stop_requested.set()
+                    if outcome.get("status") == "needs_reconciliation" or stop_requested.is_set():
                         agent.interrupt()
                     return json.dumps(model_response(response))
                 registry.register(name=schema["name"], toolset="spacemolt_execution", schema=schema, handler=handler)
@@ -118,16 +127,21 @@ def _run_execution(args, bridge, agent_class, registry, base_url, api_key, write
                                 run_budget_seconds=args.seconds_per_cycle, quiet_mode=True)
             if agent.valid_tool_names != {schema["name"] for schema in schemas} | {"skill_view"}:
                 raise RuntimeError("Hermes grant differs from resolved job catalog")
+            planner["active"] = agent
             observation = bridge.request("job/observe")
-            result = agent.run_conversation(context["objective"] + "\n" + json.dumps(model_response(observation)),
+            if stop_requested.is_set():
+                result = {"messages": history, "final_response": ""}
+            else:
+                result = agent.run_conversation(context["objective"] + "\n" + json.dumps(model_response(observation)),
                                             system_message=guidance + "\nResolved context: " + json.dumps(context, sort_keys=True),
                                             conversation_history=history)
+            planner["active"] = None
             history = result["messages"]
             saved = {"mode": "execution", "model": args.model, "session_id": session_id,
                      "context": context, "messages": history, "model_report": result.get("final_response"),
                      "job_receipts": lifecycle["receipts"], "report": receipt_report(lifecycle["receipts"])}
             write_json(checkpoint, saved)
-            if handoff:
+            if handoff and not stop_requested.is_set():
                 write_json(args.runtime / (session_id + ".json"), saved)
                 grant = bridge.request("execution/handoff")
                 if not grant.get("ok"):

@@ -89,6 +89,14 @@ of the outstanding job request. The bridge latches stop immediately, queues retu
 if idle, and tactical control reacts on its next poll (normally within two seconds).
 Already submitted travel must finish/reconcile before movement can change. Stop
 files are deliberately persistent. A final return runs outside the model budget.
+Tired also interrupts active model inference; script return and reconciliation still
+retain ownership of any already-submitted game command.
+
+The `one_job` operating allowance permits one optional Hunt scout and one hunting
+attempt, or one Industry gathering attempt. An admitted blocker or a scout without
+an eligible quarry ends the run. Script receipts carry `stopping_reason`, which ends
+the model loop without changing the historical prompt or tool catalog. Handoffs and
+reconnects retain the allowance; only a verified explicit `--new-run` resets it.
 
 Use `--resume` only with an existing checkpoint and unchanged session/model/grant.
 Saved wildlife permission and stance/mood locks persist without repeating their flags.

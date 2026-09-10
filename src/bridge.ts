@@ -1,8 +1,7 @@
 import {controllerLock} from './controller-lock.ts';
 import {createHash} from 'node:crypto';
 import {Execution} from './execution.ts';
-import {ExecutionStore} from './execution-store.ts';
-import {resolveHostContext} from './execution-policy.ts';
+import {ExecutionHost} from './execution-host.ts';
 import {BridgeQueue,serveInput} from './bridge-input.ts';
 import {watchDefense} from './defense-events.ts';
 import {fileURLToPath} from 'node:url';
@@ -39,6 +38,7 @@ try {
 await account.connect();
 await account.authenticate(credentials());
 let execution:Execution|undefined;
+const executionHost=new ExecutionHost(account,fileURLToPath(new URL('../runtime/pilots/',import.meta.url)));
 let fatal=false;
 emit({event:'ready', state:state()});
 const input = createInterface({input:process.stdin, terminal:false});
@@ -54,25 +54,13 @@ try {
       request = JSON.parse(line);
       if (!request) throw new Error('Missing request');
       let result:unknown;
-      if(request.action==='execution/configure') {
-        if(execution)throw new Error('Execution already configured');
-        const context=resolveHostContext(request.params??{});
-        const store=new ExecutionStore(fileURLToPath(new URL('../runtime/pilots/',import.meta.url)),account.state.player!.id);
-        if(request.params?.new_run===true&&store.data.stop) {
-          await account.refresh();
-          const ship=account.ship;
-          if(store.unresolved()||!account.location?.docked_at||account.location.in_transit||!ship||ship.hull!==ship.max_hull||ship.fuel!==ship.max_fuel||ship.shield!==ship.max_shield)throw new Error('Cannot clear stop before reconciled, docked and fully serviced state');
-          delete store.data.stop;store.save();
-        }
-        execution=new Execution(account,store,context);
-        if(!closing)stopDefense=watchDefense(account,execution,queue,error=>{
+      if(request.action.startsWith('execution/')||request.action.startsWith('job/')) {
+        result=await executionHost.dispatch(request.action,request.params);
+        execution=executionHost.execution;
+        if(request.action==='execution/configure'&&!closing)stopDefense=watchDefense(account,execution!,queue,error=>{
           appendFileSync(new URL('../runtime/gameplay.jsonl',import.meta.url),JSON.stringify({at:new Date().toISOString(),event:'defense_blocked',error:String(error)})+'\n',{mode:0o600});
         });
-        result=execution.handoff();
       }
-      else if(request.action==='execution/reconcile') {if(!execution)throw new Error('Configure execution first');result=await execution.reconcile();}
-      else if(request.action==='execution/handoff') {if(!execution)throw new Error('Configure execution first');result=execution.handoff();}
-      else if(request.action.startsWith('job/')) {if(!execution)throw new Error('Configure execution first');result=await execution.dispatch(request.action.slice(4),request.params??{});}
       else if (request.action === 'state') { await account.refresh(); result = state(); }
       else if(execution)throw new Error('Legacy commands unavailable in execution sessions');
       else if (request.action === 'catalog') result = {...catalog(),...industryCatalog,...combatCatalog};

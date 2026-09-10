@@ -30,6 +30,8 @@ def receipt_report(receipts, cleanup_response=None):
                     ("objective", "stance", "mood", "policy_version", "home") if key in context})
         if job.get("error"):
             row["error"] = job["error"]
+        if job.get("stopping_reason"):
+            row["stopping_reason"] = job["stopping_reason"]
         result = job.get("result")
         sortie = work_result(result, "sortie")
         if "skill_progress" in sortie:
