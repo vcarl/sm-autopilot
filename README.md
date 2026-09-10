@@ -1,8 +1,9 @@
 # Hermes SpaceMolt
 
 This local Hermes fork runs the real `AIAgent` loop against omlx and a persistent
-`@spacemolt/lib` WebSocket connection. The model chooses individual game actions;
-the bridge handles authentication, serialization, and waiting for game outcomes.
+`@spacemolt/lib` WebSocket connection. The model chooses plans and complete jobs; scripts handle mechanical
+execution, urgent controls, return, servicing and verified receipts. The first new
+execution slice supports Hunt. Other stance jobs remain tracked in root TODO.md.
 
 The integration is contained in this directory. Hermes core files are unchanged.
 The fork starts from commit `b3399c139624a0081d70397741a5b45f60fbe1f4` of the
@@ -44,31 +45,63 @@ Set `SPACEMOLT_CREDENTIALS_FILE` to use another credential file.
 
 ## Play
 
-Stop any other client controlling Kvothe before running:
+Check for an existing controller before opening a live connection. The bridge now
+holds an exclusive per-login lock under `runtime/controller-*.lock`; a crash leaves
+it for inspection rather than silently stealing control. It cannot detect unrelated
+clients outside this checkout. Do not delete a stale lock before verifying ownership.
+
+From the repository root, use a fresh runtime for the new interface:
 
 ```sh
-../../hermes-agent/.venv/bin/python runner.py \
-  --cycles 1 --iterations 60 --seconds-per-cycle 3600 \
-  --objective 'Choose profitable live freight contracts. Acceptance leaves packages in origin storage: withdraw and verify cargo before departure. Preserve starting assets, finish deliveries, and end docked and fully refueled with no active contracts.'
+../hermes-agent/.venv/bin/python spacemolt/runner.py \
+  --allow-wildlife --runtime spacemolt/runtime/jobs \
+  --iterations 30 --seconds-per-cycle 1800 \
+  --objective 'Choose a sensible home, assess nearby wildlife training opportunities, complete one hunt if supported by evidence, and return serviced. Report verified outcomes and blockers.'
 ```
 
-Use `--resume` to continue saved conversation history. To continue the verified
-freight trial, add `--runtime runtime/live-non-mtp --resume`. That trial ended
-docked at Frontier Station in Void Gate; query live state for the present location.
-For recipe, mining, and market experiments, use the [industry workflow](INDUSTRY.md)
-and a separate conversation runtime. Catalog data and rate-limit cooldowns now
-persist across runner restarts in `runtime/catalog-cache.json`; discovery screens
-the whole catalog locally before requesting live quotes. [Gameplay observations](GAMEPLAY.md)
-record the mechanics learned during development. `--cycles` bounds consecutive
-work sessions, and `--iterations` bounds each session's agent loop. Game actions
-take real time. Do not interrupt and blindly replay a purchase or other mutation
-whose outcome is unknown; inspect live state before continuing.
+The agent chooses stance/mood unless supplied with `--stance` or `--mood`, and
+chooses home through observed stations and a reasoned plan. Default initial policy
+is Hunt/Cautious; a mood choice never grants initiation. `--combat` is shorthand
+for authorizing the new Hunt path. It no longer exposes the primitive catalog.
+The session receives common job tools, Hunt tools when eligible, and native
+`skill_view`; shared and Hunt skills preload at session creation. Tool names use
+`job__observe`, `job__plan`, `job__track`, `job__hunt`, etc. Plan archives the old
+conversation and starts a fresh session without editing its historical prefix.
 
-`runtime/` contains private, ignored game receipts, model decisions, and checkpoint
-files. `evidence/` contains reviewed summaries. Profit means realized wallet change
-after purchases and ship servicing; selling starting inventory or consuming fuel
-must be accounted for separately. One-time mission rewards demonstrate progression,
-but repeated profitable cycles are needed to establish self-sustaining behavior.
+To request Tired during a live run, create `stop.json` in that run's runtime:
+
+```sh
+printf '{}\n' > spacemolt/runtime/jobs/stop.json
+```
+
+The runner notices the file within 250 ms and sends a control frame independently
+of the outstanding job request. The bridge latches stop immediately, queues return
+if idle, and tactical control reacts on its next poll (normally within two seconds).
+Already submitted travel must finish/reconcile before movement can change. Stop
+files are deliberately persistent. A final return runs outside the model budget.
+
+Use `--resume` only for an unchanged session/model/grant. After a completed stop,
+start a fresh runtime with `--new-run`; clearing the prior stop requires a reconciled,
+docked, fully serviced ship. Home persists per pilot across runtimes. A job interrupted
+by worker death or uncertain response blocks productive admission after restart;
+automatic reconciliation/resumption is still pending. Observe receipts before acting.
+
+Private full command checkpoints and home live under `runtime/pilots/`. These are
+separate from per-conversation history. Public station discovery does not establish
+access. Unreachable home, missing fuel quotes, damaged hull without verified repair
+pricing, or incomplete shields produce explicit blockers. Automatic fallback station
+selection and universal defense during every noncombat wait remain unfinished.
+
+The explicit `--industry` flag retains the historical industry runner and its
+[existing guide](INDUSTRY.md); it has not yet been migrated to these contracts.
+Historical freight receipts remain evidence of the earlier primitive runner, not
+new Logistics acceptance. [Combat internals](COMBAT.md) and [decision contracts](DECISIONS.md)
+explain the reused controller and current limits.
+
+Validation: `npm run typecheck && npm test` from this directory, and the root
+`scripts/run_tests.sh tests/test_spacemolt_runner.py` with the Hermes Python environment.
+The new tests use real Hermes registration/dispatch and Node execution against offline
+fixtures; they do not establish new live inference or combat performance.
 
 ## Design
 
@@ -78,13 +111,9 @@ but repeated profitable cycles are needed to establish self-sustaining behavior.
   bounded sessions, isolated Hermes home, and resumable conversation evidence.
 - `config.example.yaml`: isolated Hermes settings for the game sessions.
 
-The enabled tools cover observation, navigation, mining, production experiments, markets, personal storage,
-missions, freight contracts, equipment and ship upgrades, and servicing the current ship. Messaging and asset transfers to other
-players are outside this toolset. The model does not receive account credentials.
-
-Freight acceptance puts its package into origin station storage. Inspect its size,
-withdraw `package:<id>`, and verify it appears in cargo before departure. The
-carrier profile describes liability limits and the deliveries required for advancement.
+The new model catalog contains only implemented common and Hunt jobs. Legacy
+primitives remain internal to scripts. Messaging and transfers remain excluded.
+Execution decisions and unfinished milestones are recorded in root TODO.md.
 
 Current game contracts come from the installed library's `COMMANDS.md` and generated
 `ACTIONS` catalog. Public references: [library](https://github.com/SpaceMolt/spacemolt-lib),

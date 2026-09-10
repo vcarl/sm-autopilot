@@ -40,11 +40,49 @@ INDUSTRY_SUPPORT_ACTIONS = frozenset({
 })
 
 
-def select_model_catalog(catalog, industry_mode=False):
+COMBAT_SUPPORT_ACTIONS = INDUSTRY_SUPPORT_ACTIONS | frozenset({
+    "spacemolt/undock", "spacemolt/dock", "spacemolt/travel", "spacemolt/jump",
+    "spacemolt/get_nearby", "spacemolt_market/estimate_purchase", "spacemolt/get_guide",
+    "industry/locations",
+})
+COMBAT_SYSTEM = """Your playstyle is assessed wildlife hunting. Inspect the current fit
+first; keep a usable installed weapon. Use combat/prepare to
+quote and fit an eligible weapon; execute only within the fitting budget. Starter
+weapons may be ammo-free or loaded large-magazine autocannons. Source matching ammo
+before fitting an autocannon; the preparation tool loads it and checks its magazine.
+Use combat/scout while docked to discover habitats and eligible quarry. For nearby
+systems without stations, pass target_system_id directly to combat/scout and
+combat/hunt: they handle up to two jumps each way and return to your departure
+station. Choose the species from scouting rather than copying a creature_id across
+travel: individuals can disappear before arrival. The hunt selects and scans a
+live individual of that species. Do not manually fly to a stationless system and then try to start a sortie.
+Use combat/hunt for one fight at a time; it handles tactics and withdrawal without
+model latency. Wildlife lives in belts, gas clouds, ice fields and nebulae. A mining
+laser is not a combat weapon. If no equipment or creatures are available locally,
+use get_system/find_route and navigation to visit a nearby station, then recheck.
+Preserve 150000 credits. Store valuable starting cargo before hunting, restore hull
+and fuel between sorties, and distinguish retained loot from realized income.
+An interrupted or uncertain hunt must be reconciled before starting another.
+Distress-response missions can be added automatically by the game. They are not
+the hunting objective; do not divert to them or contact other players.
+Use combat/assess to compare our current ship with one target or an aggregate
+of target_ids and nearby possible threats. Obey avoid and need_intelligence results;
+role and hull size alone do not establish safety. Capability estimates have evidence
+and loadout limits. No speculative ally credit. The hunting script rechecks before
+engagement and during battle. Multiple IDs assess a group; hunt still initiates
+one wildlife fight, not a chain of attacks.
+Success is a verified battle outcome and a safe docked return, not merely issuing hunt.
+"""
+
+
+def select_model_catalog(catalog, industry_mode=False, combat_mode=False):
     """Keep script primitives available to the bridge while narrowing model context."""
+    if combat_mode:
+        return {action: metadata for action, metadata in catalog.items()
+                if action.startswith("combat/") or action in COMBAT_SUPPORT_ACTIONS}
     return {action: metadata for action, metadata in catalog.items()
-            if not industry_mode or action.startswith("industry/")
-            or action in INDUSTRY_SUPPORT_ACTIONS}
+            if (not industry_mode and not action.startswith("combat/"))
+            or (industry_mode and (action.startswith("industry/") or action in INDUSTRY_SUPPORT_ACTIONS))}
 
 
 def write_json(path: Path, value) -> None:
@@ -62,6 +100,7 @@ class BridgeClient:
     def __init__(self, command=None, timeout=1800):
         self.timeout = timeout
         self.lock = threading.Lock()
+        self.write_lock = threading.Lock()
         self.inbox = queue.Queue()
         self.counter = 0
         self.broken = False
@@ -104,8 +143,9 @@ class BridgeClient:
                 raise RuntimeError("Bridge unavailable; no uncertain action will be replayed")
             self.counter += 1
             request_id = str(self.counter)
-            self.process.stdin.write(json.dumps({"id": request_id, "action": action, "params": params or {}}) + "\n")
-            self.process.stdin.flush()
+            with self.write_lock:
+                self.process.stdin.write(json.dumps({"id": request_id, "action": action, "params": params or {}}) + "\n")
+                self.process.stdin.flush()
             result = self._receive()
             if result.get("id") != request_id:
                 self.broken = True
@@ -115,11 +155,17 @@ class BridgeClient:
                 raise RuntimeError("Bridge reported an uncertain action outcome; stopping without replay")
             return result
 
+    def signal_stop(self, reason="Tired"):
+        """Bypass outstanding request lock; control frames have no reply."""
+        with self.write_lock:
+            self.process.stdin.write(json.dumps({"action": "control/stop", "params": {"reason": reason}}) + "\n")
+            self.process.stdin.flush()
+
     def close(self):
         if self.process.stdin and not self.process.stdin.closed:
             self.process.stdin.close()
         try:
-            self.process.wait(timeout=5)
+            self.process.wait(timeout=self.timeout)
         except subprocess.TimeoutExpired:
             self.process.terminate()
             self.process.wait(timeout=5)
@@ -199,11 +245,20 @@ def main(argv=None):
     parser.add_argument("--bridge-timeout", type=float, default=1800)
     parser.add_argument("--runtime", type=Path, default=HERE / "runtime/agent")
     parser.add_argument("--resume", action="store_true")
-    parser.add_argument("--industry", action="store_true", help="Expose industry workflows and compact support tools; scripts retain full bridge primitives")
+    modes = parser.add_mutually_exclusive_group()
+    modes.add_argument("--industry", action="store_true", help="Expose industry workflows and compact support tools; scripts retain full bridge primitives")
+    modes.add_argument("--combat", action="store_true", help="Expose guarded wildlife hunting, fitting and navigation workflows")
     parser.add_argument("--probe-model", action="store_true", help="Verify omlx and Hermes imports without opening the game")
     parser.add_argument("--smoke-model", action="store_true", help="Run a real Hermes tool call against a harmless fixture, without game access")
-    parser.add_argument("--objective", default="Earn repeatable net profit. Complete a productive economic cycle and report its realized results.")
+    parser.add_argument("--new-run", action="store_true", help="Clear a prior stop only after verified docked readiness; use a fresh runtime")
+    parser.add_argument("--stance", choices=["Combat", "Hunt", "Industry", "Trade", "Logistics", "Explore", "Salvage"])
+    parser.add_argument("--mood", choices=["Relaxed", "Cautious", "Focused", "Opportunistic", "Aggressive", "Tired"])
+    parser.add_argument("--allow-wildlife", action="store_true", help="Authorize assessed wildlife initiation independently of mood")
+    parser.add_argument("--objective", default=None)
     args = parser.parse_args(argv)
+    if args.objective is None:
+        args.objective = ("Prepare for wildlife hunting, discover an assessable nearby creature, complete one guarded hunt, and return docked. Report the verified battle outcome, retained loot, costs and skill progress."
+                          if args.combat else "Earn repeatable net profit. Complete a productive economic cycle and report its realized results.")
     if min(args.cycles, args.iterations, args.seconds_per_cycle, args.max_tokens, args.bridge_timeout) <= 0:
         parser.error("All budgets must be positive")
     args.runtime = args.runtime.resolve()
@@ -249,10 +304,21 @@ def main(argv=None):
                    "calls": calls, "messages": result["messages"], "report": result.get("final_response")})
         print(json.dumps({"model": args.model, "passed": passed, "calls": calls, "report": result.get("final_response")}))
         return 0 if passed else 1
+    if not args.industry:
+        from spacemolt.execution_runner import run_execution
+        bridge = BridgeClient(timeout=args.bridge_timeout)
+        try:
+            return run_execution(args, bridge, AIAgent, registry, base_url, api_key,
+                                 write_json, tool_schema, model_response)
+        finally:
+            bridge.close()
     checkpoint = args.runtime / "checkpoint.json"
     prior = json.loads(checkpoint.read_text()) if args.resume and checkpoint.exists() else {}
     if prior and prior.get("model") != args.model:
         raise ValueError("Resume model differs from saved session")
+    mode = "combat" if args.combat else "industry" if args.industry else "general"
+    if prior and (prior.get("mode") not in (None, mode) or (mode == "combat" and prior.get("mode") is None)):
+        raise ValueError("Resume playstyle differs from saved session; use a new runtime to preserve its prompt and tools")
     history = prior.get("messages", [])
     session_id = prior.get("session_id") or "spacemolt-" + uuid.uuid4().hex
     bridge = BridgeClient(timeout=args.bridge_timeout)
@@ -267,7 +333,7 @@ def main(argv=None):
         catalog_reply = bridge.request("catalog")
         if not catalog_reply.get("ok"):
             raise RuntimeError("Game catalog unavailable")
-        catalog = select_model_catalog(catalog_reply["result"], industry_mode=args.industry)
+        catalog = select_model_catalog(catalog_reply["result"], industry_mode=args.industry, combat_mode=args.combat)
         schemas = [tool_schema(action, metadata) for action, metadata in catalog.items()]
         for action, schema in zip(catalog, schemas):
             def handler(arguments, _action=action, **kwargs):
@@ -294,10 +360,10 @@ def main(argv=None):
             shipping_before = bridge.request("spacemolt_shipping/profile").get("result", {}).get("structuredContent")
             agent.iteration_budget = IterationBudget(args.iterations)
             objective = args.objective + "\nCurrent authoritative game state:\n" + json.dumps(model_response(before))
-            result = agent.run_conversation(objective, system_message=SYSTEM, conversation_history=history)
+            result = agent.run_conversation(objective, system_message=SYSTEM + (COMBAT_SYSTEM if args.combat else ""), conversation_history=history)
             history = result["messages"]
             if bridge.broken:
-                write_json(checkpoint, {"session_id": session_id, "model": args.model, "messages": history,
+                write_json(checkpoint, {"session_id": session_id, "model": args.model, "mode": mode, "messages": history,
                                        "cycles": prior.get("cycles", 0) + cycle, "outcome_unknown": True})
                 return 1
             after = bridge.request("state")
@@ -311,7 +377,7 @@ def main(argv=None):
             if isinstance(old_credits, (int, float)) and isinstance(new_credits, (int, float)):
                 summary["realized_credit_delta"] = new_credits - old_credits
             record(summary)
-            write_json(checkpoint, {"session_id": session_id, "model": args.model, "messages": history,
+            write_json(checkpoint, {"session_id": session_id, "model": args.model, "mode": mode, "messages": history,
                                     "cycles": summary["cycle"], "last_outcome": summary})
             print(json.dumps(summary), flush=True)
             if result.get("failed"):

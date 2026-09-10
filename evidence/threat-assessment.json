@@ -1,0 +1,65 @@
+{
+  "source": "Replay of recorded live observation; no new combat performed",
+  "observed_at": "2026-09-09T16:03:24.294Z",
+  "policy": {
+    "retreatHullFraction": 0.8,
+    "maxTicks": 24,
+    "approachTicks": 3,
+    "escapeTicks": 3,
+    "outgoingAccuracy": 0.8,
+    "incomingMargin": 1.25
+  },
+  "self": {
+    "id": "177686d5f9eed52e8cabf6f907c03c61",
+    "hull": 105,
+    "maxHull": 105,
+    "shield": 35,
+    "shieldRecharge": 1,
+    "speed": 2,
+    "durability": 1,
+    "shieldBypass": false,
+    "evidence": "Current canonical ship and fitted weapon stats; no speculative armor or skill bonus credit.",
+    "weapons": [
+      {
+        "damage": 10,
+        "cooldown": 1,
+        "reach": 2,
+        "rounds": 495
+      }
+    ]
+  },
+  "single": {
+    "decision": "engage",
+    "reasons": [],
+    "unknown": [],
+    "estimates": {
+      "outgoingDamagePerTick": 8,
+      "incomingDamagePerTick": 5,
+      "opponentDurability": 55,
+      "firingTicks": 7,
+      "fightTicks": 10,
+      "exposureTicks": 13,
+      "projectedDamage": 52,
+      "damageBudget": 56,
+      "margin": 4
+    }
+  },
+  "group": {
+    "decision": "avoid",
+    "reasons": [
+      "Aggregate damage exhausts survival and escape budget"
+    ],
+    "unknown": [],
+    "estimates": {
+      "outgoingDamagePerTick": 8,
+      "incomingDamagePerTick": 10,
+      "opponentDurability": 110,
+      "firingTicks": 14,
+      "fightTicks": 17,
+      "exposureTicks": 20,
+      "projectedDamage": 180,
+      "damageBudget": 56,
+      "margin": -124
+    }
+  }
+}

@@ -1,0 +1,259 @@
+{
+  "date": "2026-09-09",
+  "activity": "Three real Hermes combat training fights against Phase-Lurkers in Horizon Phase Drift",
+  "battles": [
+    {
+      "battle_id": "6d68b2779ec75f9e162773b9251af2e7",
+      "category": "wildlife",
+      "destroyed_names": [
+        "Phase-Lurker"
+      ],
+      "duration_ticks": 7,
+      "ended_at": "2026-09-09T16:29:44Z",
+      "has_station": false,
+      "outcome": "victory",
+      "participant_count": 2,
+      "player_names": [
+        "kvothe"
+      ],
+      "ships_destroyed": 1,
+      "sides": [
+        {
+          "participants": [
+            "Phase-Lurker"
+          ],
+          "side_id": 1
+        },
+        {
+          "participants": [
+            "kvothe"
+          ],
+          "side_id": 2
+        }
+      ],
+      "start_tick": 1838404,
+      "status": "completed",
+      "system_id": "horizon",
+      "system_name": "Horizon",
+      "top_damage": {
+        "damage": 55,
+        "username": "kvothe"
+      },
+      "total_damage": 67,
+      "winning_side": 2
+    },
+    {
+      "battle_id": "b6d93f9b797ecb6bca22f8eba16cfec6",
+      "category": "wildlife",
+      "duration_ticks": 9,
+      "ended_at": "2026-09-09T16:36:54Z",
+      "has_station": false,
+      "outcome": "stalemate",
+      "participant_count": 2,
+      "player_names": [
+        "kvothe"
+      ],
+      "ships_destroyed": 0,
+      "sides": [
+        {
+          "participants": [
+            "Phase-Lurker"
+          ],
+          "side_id": 1
+        },
+        {
+          "participants": [
+            "kvothe"
+          ],
+          "side_id": 2
+        }
+      ],
+      "start_tick": 1838445,
+      "status": "completed",
+      "system_id": "horizon",
+      "system_name": "Horizon",
+      "top_damage": {
+        "damage": 50,
+        "username": "kvothe"
+      },
+      "total_damage": 74,
+      "winning_side": -1
+    },
+    {
+      "battle_id": "f34eb57b6e43aa29afdb902dbc92142c",
+      "category": "wildlife",
+      "duration_ticks": 8,
+      "ended_at": "2026-09-09T16:44:44Z",
+      "has_station": false,
+      "outcome": "stalemate",
+      "participant_count": 2,
+      "player_names": [
+        "kvothe"
+      ],
+      "ships_destroyed": 0,
+      "sides": [
+        {
+          "participants": [
+            "Phase-Lurker"
+          ],
+          "side_id": 1
+        },
+        {
+          "participants": [
+            "kvothe"
+          ],
+          "side_id": 2
+        }
+      ],
+      "start_tick": 1838493,
+      "status": "completed",
+      "system_id": "horizon",
+      "system_name": "Horizon",
+      "top_damage": {
+        "damage": 50,
+        "username": "kvothe"
+      },
+      "total_damage": 66,
+      "winning_side": -1
+    }
+  ],
+  "skills": {
+    "gunnery": {
+      "before": {
+        "category": "Combat",
+        "level": 0,
+        "max_level": 100,
+        "name": "Gunnery",
+        "next_level_xp": 60,
+        "xp": 30
+      },
+      "after": {
+        "category": "Combat",
+        "level": 1,
+        "max_level": 100,
+        "name": "Gunnery",
+        "next_level_xp": 165,
+        "xp": 18
+      }
+    },
+    "tactics": {
+      "before": {
+        "category": "Combat",
+        "level": 0,
+        "max_level": 100,
+        "name": "Tactics",
+        "next_level_xp": 60,
+        "xp": 20
+      },
+      "after": {
+        "category": "Combat",
+        "level": 0,
+        "max_level": 100,
+        "name": "Tactics",
+        "next_level_xp": 60,
+        "xp": 52
+      }
+    },
+    "weapons": {
+      "before": {
+        "category": "Combat",
+        "level": 0,
+        "max_level": 100,
+        "name": "Weapons",
+        "next_level_xp": 60,
+        "xp": 10
+      },
+      "after": {
+        "category": "Combat",
+        "level": 0,
+        "max_level": 100,
+        "name": "Weapons",
+        "next_level_xp": 60,
+        "xp": 26
+      }
+    },
+    "xenobiology": {
+      "before": {
+        "category": "Wildlife",
+        "level": 0,
+        "max_level": 100,
+        "name": "Xenobiology",
+        "next_level_xp": 60,
+        "xp": 52
+      },
+      "after": {
+        "category": "Wildlife",
+        "level": 1,
+        "max_level": 100,
+        "name": "Xenobiology",
+        "next_level_xp": 165,
+        "xp": 41
+      }
+    },
+    "salvaging": {
+      "before": {
+        "category": "Industry",
+        "level": 0,
+        "max_level": 100,
+        "name": "Salvaging",
+        "next_level_xp": 60,
+        "xp": 55
+      },
+      "after": {
+        "category": "Industry",
+        "level": 1,
+        "max_level": 100,
+        "name": "Salvaging",
+        "next_level_xp": 165,
+        "xp": 20
+      }
+    }
+  },
+  "verified_combat_xp_gained": {
+    "gunnery": 48,
+    "tactics": 32,
+    "weapons": 16
+  },
+  "credits_before": 197923,
+  "credits_after": 197857,
+  "service_cost": 66,
+  "ammunition_before": 489,
+  "ammunition_after": 470,
+  "final_ship": {
+    "hull": 105,
+    "max_hull": 105,
+    "shield": 35,
+    "max_shield": 35,
+    "fuel": 120,
+    "max_fuel": 120
+  },
+  "final_station": "frontier_station",
+  "final_system": "first_step",
+  "retained_cargo": [
+    {
+      "item_id": "standard_rounds_box",
+      "item_name": "Standard Rounds Box",
+      "quantity": 1,
+      "size": 1
+    },
+    {
+      "item_id": "creature_carapace",
+      "item_name": "Creature Carapace",
+      "quantity": 1,
+      "size": 1
+    },
+    {
+      "item_id": "phase_pearl",
+      "item_name": "Phase Pearl",
+      "quantity": 2,
+      "size": 1
+    }
+  ],
+  "recovery": "Laptop sleep disconnected the second fight. Reconnected, confirmed battle ended in stalemate and pilot survived; manually returned to Frontier Station and refueled, then resumed the third hunt through Hermes. No hunt was replayed.",
+  "notes": [
+    "One victory, two stalemates. The escaped targets still awarded combat XP.",
+    "First cycle skipped requested fuel service despite adequate iteration budget; service was completed during recovery. Final cycle refueled as requested.",
+    "No equipment bought, no loot sold, and no hull damage in this batch."
+  ],
+  "private_log_sha256": "4d068d20e7446a6e6734a1bc4e0e9b40427e5c465484623fc30fd1a9bf14f8c6"
+}

@@ -1,6 +1,15 @@
 import { ACTIONS } from '@spacemolt/lib';
+// Tactical commands are internal to the bounded wildlife controller, not model tools.
+export const combatActions = new Set([
+  'spacemolt/hunt', 'spacemolt/scan', 'spacemolt_battle/status',
+  'spacemolt_battle/stance', 'spacemolt_battle/advance', 'spacemolt_battle/retreat',
+  'spacemolt_battle/target', 'spacemolt_battle/summary', 'spacemolt_battle/log',
+  'spacemolt_battle/reload',
+  'spacemolt_salvage/wrecks', 'spacemolt_salvage/loot',
+]);
 export const allowed = new Set([
-  'spacemolt/get_status', 'spacemolt/get_active_missions', 'spacemolt/get_missions',
+  ...combatActions,
+  'spacemolt/list_passengers', 'spacemolt/get_status', 'spacemolt/get_active_missions', 'spacemolt/get_missions',
   'spacemolt/get_system', 'spacemolt/get_poi', 'spacemolt/get_base', 'spacemolt/find_route',
   'spacemolt/get_skills', 'spacemolt/get_guide', 'spacemolt/completed_missions',
   'spacemolt/get_ship', 'spacemolt_market/analyze_market',
@@ -28,7 +37,7 @@ export function validateAction(action: string, params: Record<string, unknown> =
   if (action.startsWith('spacemolt_shipping/') && params.carrier !== undefined && params.carrier !== 'player') throw new Error('Only personal freight contracts are enabled');
 }
 export function catalog() {
-  return Object.fromEntries(Object.entries(ACTIONS).filter(([key]) => allowed.has(key)).map(([key,value]) => {
+  return Object.fromEntries(Object.entries(ACTIONS).filter(([key]) => allowed.has(key) && !combatActions.has(key)).map(([key,value]) => {
     const forbidden = key.startsWith('spacemolt_storage/') ? ['target','source','credits','message'] : ['spacemolt/refuel','spacemolt/repair'].includes(key) ? ['target'] : [];
     const craftFields = ['id','quantity','dry_run','preset','facility_id','job_id','source','deliver_to'];
     return [key, {...value, summary:key === 'spacemolt/craft' ? 'Quote (dry_run=true) or queue one recipe by id using personal station storage. quantity is output count. No id lists queued jobs; job_id cancels that job. Output arrives later in storage; never resubmit pending work.' : key.startsWith('spacemolt_storage/') ? 'Manage your personal items at station storage' : value.summary, params:value.params.filter(p => !forbidden.includes(p.name) && (key !== 'spacemolt/craft' || craftFields.includes(p.name)))}];

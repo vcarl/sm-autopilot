@@ -1,0 +1,266 @@
+{
+  "date": "2026-09-09",
+  "pilot": "kvothe",
+  "controller": "Real Hermes AIAgent with mlx-community--Qwen3.6-35B-A3B-4bit; combat/hunt runs bounded tactics through @spacemolt/lib 14.2.0",
+  "preparation": {
+    "equipment_and_ammunition_cost": 4485,
+    "weapon": "autocannon_i",
+    "defense": "hull_reinforcement_i",
+    "ammo_crafted_boxes": 5,
+    "preserved_modules": [
+      "mining_laser_i",
+      "cargo_expander_ii"
+    ],
+    "original_cargo_storage": "First Step Memorial Station"
+  },
+  "validation_history": [
+    "Empty habitat searches and stale individual IDs did not submit hunt. Species selection now chooses on arrival.",
+    "One websocket disconnect stopped commands; canonical state was reconciled before continuing.",
+    "First real battle ended in stalemate with no hull loss. Live tick_duration failed to track every combat tick; maneuver cadence was corrected.",
+    "Successful hunt used a supplied known habitat and species. The model consumed its ten-call budget, so a separate Hermes service-only run refueled."
+  ],
+  "successful_sortie": {
+    "id": "de2d305b-e2e1-49e0-8073-526e831c3e73",
+    "fight": {
+      "battle_id": "3c931f1bb2f799e336d52880d483f6b8",
+      "retreated": false,
+      "summary": {
+        "battle_id": "3c931f1bb2f799e336d52880d483f6b8",
+        "category": "wildlife",
+        "destroyed_names": [
+          "Phase-Lurker"
+        ],
+        "duration_ticks": 7,
+        "ended_at": "2026-09-09T16:04:54Z",
+        "has_station": false,
+        "outcome": "victory",
+        "participant_count": 2,
+        "player_names": [
+          "kvothe"
+        ],
+        "ships_destroyed": 1,
+        "sides": [
+          {
+            "participants": [
+              "Phase-Lurker"
+            ],
+            "side_id": 1
+          },
+          {
+            "participants": [
+              "kvothe"
+            ],
+            "side_id": 2
+          }
+        ],
+        "start_tick": 1838255,
+        "status": "completed",
+        "system_id": "horizon",
+        "system_name": "Horizon",
+        "top_damage": {
+          "damage": 55,
+          "username": "kvothe"
+        },
+        "total_damage": 59,
+        "winning_side": 2
+      },
+      "verified_victory": true,
+      "target": {
+        "creature_id": "crt_32307d6c7d18d686d1a88143f3fc9051",
+        "hull": 55,
+        "in_combat": false,
+        "max_hull": 55,
+        "name": "Phase-Lurker",
+        "role": "grazer",
+        "species": "phase_lurker"
+      }
+    },
+    "cash_delta": 0,
+    "fuel_liability_units": 10,
+    "hull_liability_units": 0,
+    "skill_progress": [
+      {
+        "skill_id": "gunnery",
+        "before": {
+          "level": 0,
+          "xp": 12,
+          "next_level_xp": 60
+        },
+        "after": {
+          "level": 0,
+          "xp": 30,
+          "next_level_xp": 60
+        },
+        "level_gain": 0,
+        "verified_xp_gain": 18,
+        "xp_note": "Verified counter increase at the same level."
+      },
+      {
+        "skill_id": "navigation",
+        "before": {
+          "level": 4,
+          "xp": 104,
+          "next_level_xp": 900
+        },
+        "after": {
+          "level": 4,
+          "xp": 118,
+          "next_level_xp": 900
+        },
+        "level_gain": 0,
+        "verified_xp_gain": 14,
+        "xp_note": "Verified counter increase at the same level."
+      },
+      {
+        "skill_id": "piloting",
+        "before": {
+          "level": 4,
+          "xp": 402,
+          "next_level_xp": 900
+        },
+        "after": {
+          "level": 4,
+          "xp": 447,
+          "next_level_xp": 900
+        },
+        "level_gain": 0,
+        "verified_xp_gain": 45,
+        "xp_note": "Verified counter increase at the same level."
+      },
+      {
+        "skill_id": "salvaging",
+        "before": {
+          "level": 0,
+          "xp": 20,
+          "next_level_xp": 60
+        },
+        "after": {
+          "level": 0,
+          "xp": 55,
+          "next_level_xp": 60
+        },
+        "level_gain": 0,
+        "verified_xp_gain": 35,
+        "xp_note": "Verified counter increase at the same level."
+      },
+      {
+        "skill_id": "scanning",
+        "before": {
+          "level": 3,
+          "xp": 29,
+          "next_level_xp": 585
+        },
+        "after": {
+          "level": 3,
+          "xp": 34,
+          "next_level_xp": 585
+        },
+        "level_gain": 0,
+        "verified_xp_gain": 5,
+        "xp_note": "Verified counter increase at the same level."
+      },
+      {
+        "skill_id": "tactics",
+        "before": {
+          "level": 0,
+          "xp": 8,
+          "next_level_xp": 60
+        },
+        "after": {
+          "level": 0,
+          "xp": 20,
+          "next_level_xp": 60
+        },
+        "level_gain": 0,
+        "verified_xp_gain": 12,
+        "xp_note": "Verified counter increase at the same level."
+      },
+      {
+        "skill_id": "weapons",
+        "before": {
+          "level": 0,
+          "xp": 4,
+          "next_level_xp": 60
+        },
+        "after": {
+          "level": 0,
+          "xp": 10,
+          "next_level_xp": 60
+        },
+        "level_gain": 0,
+        "verified_xp_gain": 6,
+        "xp_note": "Verified counter increase at the same level."
+      },
+      {
+        "skill_id": "xenobiology",
+        "before": {
+          "level": 0,
+          "xp": 9,
+          "next_level_xp": 60
+        },
+        "after": {
+          "level": 0,
+          "xp": 52,
+          "next_level_xp": 60
+        },
+        "level_gain": 0,
+        "verified_xp_gain": 43,
+        "xp_note": "Verified counter increase at the same level."
+      }
+    ]
+  },
+  "accounting": {
+    "successful_sortie_start_credits": 197953,
+    "end_credits_after_refuel": 197923,
+    "fuel_service_cost": 30,
+    "ammo_consumed_successful_hunt": 6,
+    "loot_sold": false,
+    "loot_is_cash_profit": false,
+    "development_start_credits": 202654,
+    "total_development_cash_spend": 4731
+  },
+  "final_state": {
+    "credits": 197923,
+    "station": "void_gate_outpost",
+    "hull": 105,
+    "max_hull": 105,
+    "shield": 35,
+    "max_shield": 35,
+    "fuel": 120,
+    "max_fuel": 120,
+    "current_ammo": 489,
+    "cargo": [
+      {
+        "item_id": "standard_rounds_box",
+        "item_name": "Standard Rounds Box",
+        "quantity": 1,
+        "size": 1
+      },
+      {
+        "item_id": "creature_carapace",
+        "item_name": "Creature Carapace",
+        "quantity": 1,
+        "size": 1
+      },
+      {
+        "item_id": "phase_pearl",
+        "item_name": "Phase Pearl",
+        "quantity": 1,
+        "size": 1
+      }
+    ]
+  },
+  "limits": [
+    "One verified victory, not a reliability or profitability benchmark.",
+    "Model discovery and preparation required development guidance; this does not prove an unguided play Spacemolt request.",
+    "No autonomous recovery from a lost connection during combat.",
+    "Automated retreat is covered by tests but was not triggered in this live victory."
+  ],
+  "validation": {
+    "typescript_typecheck": "passed",
+    "node_tests_passed": 45,
+    "python_tests_passed": 5,
+    "python_runner": "scripts/run_tests.sh"
+  },
+  "private_gameplay_log_sha256": "8cc1c9b60361027a59e26151189d2984011817414e14347e8369a299aacbe18b"
+}
