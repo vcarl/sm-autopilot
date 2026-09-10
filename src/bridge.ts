@@ -65,6 +65,7 @@ try {
         execution=new Execution(account,store,context);
         result=execution.handoff();
       }
+      else if(request.action==='execution/reconcile') {if(!execution)throw new Error('Configure execution first');result=await execution.reconcile();}
       else if(request.action==='execution/handoff') {if(!execution)throw new Error('Configure execution first');result=execution.handoff();}
       else if(request.action.startsWith('job/')) {if(!execution)throw new Error('Configure execution first');result=await execution.dispatch(request.action.slice(4),request.params??{});}
       else if (request.action === 'state') { await account.refresh(); result = state(); }

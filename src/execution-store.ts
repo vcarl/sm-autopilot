@@ -4,8 +4,9 @@ import type {ExecutionContext,Home} from './execution-policy.ts';
 export interface Job {
   id:string; action:string; status:'running'|'completed'|'blocked'|'interrupted'|'returned_to_base'|'needs_reconciliation';
   context:ExecutionContext; started_at:string; before:unknown; after?:unknown; obligations?:unknown;
-  actions:{action:string; params:unknown; status:'pending'|'confirmed'|'uncertain'; result?:unknown}[];
+  actions:{action:string; params:unknown; status:'pending'|'confirmed'|'uncertain'; result?:unknown;before?:unknown;accepted_result?:unknown;reconciled_by?:string}[];
   result?:unknown; error?:string; cash_delta?:number;
+  reconciliation?:Record<string,any>[];
   return_plan?:{home?:Home;destination:Home;temporary:boolean;reason?:string};
 }
 export interface PilotRecord {pilot_id:string;home?:Home;context?:ExecutionContext;stop?:string;jobs:Job[]}

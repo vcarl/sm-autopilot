@@ -10,6 +10,7 @@ import {CommandBoundary} from './command-boundary.ts';
 import {sendAndRefresh} from './execute.ts';
 import {validateAction} from './policy.ts';
 import {resolveContext,canHunt,type ExecutionContext,type Home} from './execution-policy.ts';
+import {reconcileJob} from './recovery.ts';
 import {ExecutionStore,type Job} from './execution-store.ts';
 
 type Wire=Record<string,any>;
@@ -64,10 +65,10 @@ export class Execution {
     this.boundary.assertHealthy();
     validateAction(action,params);
     if(this.stopping&&['spacemolt/hunt','spacemolt/buy','spacemolt/install_mod','spacemolt_storage/withdraw','spacemolt_salvage/loot','spacemolt/scan'].includes(action))throw new StopWork('Stop requested before productive command');
-    const entry:Job['actions'][number]={action,params,status:'pending'};
+    const entry:Job['actions'][number]={action,params,status:'pending',before:this.snapshot()};
     this.active?.actions.push(entry);this.store.save();
     try {
-      const value=await this.boundary.run(async(sent,completed)=>{sent();return sendAndRefresh(this.account,action,params,completed);});
+      const value=await this.boundary.run(async(sent,completed)=>{sent();return sendAndRefresh(this.account,action,params,result=>{completed();entry.accepted_result=result;this.store.save();});});
       entry.status='confirmed';entry.result=value;this.store.save();return value;
     } catch(error) {
       const status=this.boundary.status(error);
@@ -102,7 +103,8 @@ export class Execution {
     return {context:this.context,catalog:executionCatalog(this.context)};
   }
   private async defend() {
-    if(await battleStatus(this.command))await controlHunt(this.account,this.command,'',{force_retreat:true,max_ticks:1,retreat_hull_fraction:0.95},{...this.deps.combat,stopped:this.stopped});
+    const battle=await battleStatus(this.command);
+    if(battle)await controlHunt(this.account,this.command,'',{observed_battle:battle,force_retreat:true,max_ticks:1,retreat_hull_fraction:0.95},{...this.deps.combat,stopped:this.stopped});
   }
   private async travel(home:Home,productive=false) {
     await this.account.refresh();
@@ -172,6 +174,21 @@ export class Execution {
     const returnPlan={home,destination:destination!,temporary:Boolean(fallbackReason),reason:fallbackReason};
     if(this.active){this.active.return_plan=returnPlan;this.store.save();}
     return {...returnPlan,service:await this.service()};
+  }
+  async reconcile() {
+    if(this.active)throw new Error('Wait for current command ownership before reconciliation');
+    const job=this.store.unresolved();
+    if(!job)return {status:'no_unfinished_job'};
+    this.signal('Recovery: productive work remains stopped');
+    const nextContext=this.context;
+    this.context=job.context;this.active=job;
+    try {
+      return await reconcileJob(this.account,this.store,job,{
+        command:this.command,snapshot:()=>this.snapshot(),
+        resetBoundary:()=>{this.boundary=new CommandBoundary();this.uncertain=false;},
+        returnHome:()=>this.returnHome(),uncertain:()=>this.uncertain,clock:this.deps.combat,
+      });
+    } finally {this.context=nextContext;this.active=undefined;}
   }
   async dispatch(action:string,params:Wire={}) {
     if(action==='observe') {if(this.active)throw new Error('Job owns the connection');return this.observe();}

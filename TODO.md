@@ -98,10 +98,10 @@ Decisions are recorded in [DECISIONS.md](spacemolt/DECISIONS.md). D7 has a worki
   - [x] Model iteration/time exhaustion does not interrupt required script cleanup; a worker/process interruption leaves enough state for reconciliation rather than an invented success.
 
 - [ ] **S9 — Reconnect and reconciliation recover actual jobs.** Depends on S8 and S18.
-  - [ ] Reconnection queries authoritative location, transit, battle, inventory, production, and obligations as relevant before resuming work.
+  - [x] Reconnection queries authoritative location, transit, battle, inventory, production, and obligations as relevant before resuming work.
   - [ ] An accepted action whose response was lost is recognized without a duplicate purchase, attack, craft, transport acceptance, or delivery.
   - [ ] Active combat is reconciled and handed to defensive/tactical control; completed combat is resolved from authoritative outcomes.
-  - [ ] Unresolvable uncertainty produces a durable blocked state with evidence and a next step, rather than a blind retry or silent loss of the job.
+  - [x] Unresolvable uncertainty produces a durable blocked state with evidence and a next step, rather than a blind retry or silent loss of the job.
 
 - [ ] **S10 — Defense operates beneath every stance.** Depends on S1, S3, S8, and S9.
   - [ ] Actual attacks trigger scripted assessment and fight/escape handling during noncombat work without model inference or an exposed offensive tool.
@@ -209,6 +209,35 @@ These are project-level demonstrations under the new interface, not substitutes 
 - [ ] **A15 — Completion evidence:** Final reports expose independently checkable costs, obligations, location, condition, progression, and outcome, including unsold inventory and unresolved work.
 - [ ] **A16 — Fresh-session reproducibility:** Setup and run instructions are current, required checks pass, and another session can reproduce representative workflows without relying on this conversation's hidden context.
 
+## Interrupted-job reconciliation increment — 2026-09-10
+
+- `src/recovery.ts`, `execution.ts`, `execution-store.ts`, `execute.ts`: preserve a
+  received response before refresh and journal the pre-action snapshot. Reconcile
+  the existing job against fresh authenticated state; never replay the pending command.
+  Accepted responses, verified destinations and actual quarry participation justify
+  cleanup, while missing battle/transaction evidence remains a durable blocker.
+- Actual combat gets forced defensive control, including when another unresolved
+  effect must remain blocked. Recorded battle IDs select exact terminal summaries.
+  The tactical controller now retains an already-observed battle ID, so a battle
+  ending between reconciliation and the first control poll does not become a bogus
+  "hunt accepted but no battle observed" failure.
+- `execution_runner.py`, `bridge.ts`: run reconciliation before inference and after
+  uncertain job results, using the existing library reconnect/re-auth path. Recovery
+  returns/services under the interrupted job's policy, reports interrupted instead
+  of productive success, and keeps stop latched for a later explicit new run.
+- Offline evidence: `recovery.test.ts` proves retained refuel acceptance without a
+  second purchase, verified movement without repeated outward travel, active Hunt
+  recovery/escape, the battle-end race and durable ambiguity. The parameterized real
+  Hermes registry/Python subprocess/Node dispatch integration now exercises a lost
+  accepted hunt response through automatic runner recovery as well as normal success.
+- Validation: TypeScript typecheck, 53 Node tests and eight Python tests through the
+  required runner pass. No new live game connection or live disconnect test performed.
+
+Remaining S9 scope: raw lost economic responses need stronger acceptance/provenance
+proof; ongoing transit, replaced ships and missing battle history remain explicit
+blockers. General productive resumption is not implemented. Repair-price verification,
+obligations-aware routing and universal defense during noncombat waits remain next.
+
 ## Return and servicing increment — 2026-09-10
 
 - `src/servicing.ts` is the common service consumer for preparation, travel and Hunt
@@ -278,9 +307,10 @@ Remaining work, in dependency order:
 1. Strengthen home/service completion: verified repair pricing and obligations-aware
    return admission. Bounded shield waiting and temporary fallback were added on
    2026-09-10; see the increment above.
-2. Reconcile real interrupted jobs after reconnect. Restart currently preserves a
-   durable `needs_reconciliation` blocker and prohibits replay; it cannot autonomously
-   resolve a lost fight/purchase response or resume productive work.
+2. Extend interrupted-job reconciliation beyond the evidenced Hunt/movement and
+   retained-response cases added on 2026-09-10. Raw lost economic responses and missing
+   battle history still need authoritative provenance; productive resumption remains
+   separate from return/cleanup.
 3. Extend defense beyond current job/travel checkpoints and Hunt polling to all
    relevant noncombat waits and idle attacks, using library events and single ownership.
 4. Complete S1 context breadth, S3 assessment domains, remaining S4–S10 conditions,
@@ -306,5 +336,6 @@ If the test runner needs an environment selector, the handoff used `HERMES_PYTHO
 |---|---|---|---|---|
 | D1–D6, D8–D10; K0/K2; selected foundation conditions | [Decision contracts](spacemolt/DECISIONS.md), implementation record above | Typecheck; 49 Node tests; 7 Python tests through required runner; both skill validators | Offline fixtures with scripted planner; no new live acceptance; recovery/fallback/universal defense pending | 2026-09-09 |
 | S6/S7 selected conditions; lock intent confirmed | `servicing.ts`, bounded return fallback, `return-service.test.ts` | Typecheck; 51 Node tests; 7 Python runner tests; diff check | Offline fixtures only; repair pricing, obligations-aware routing and reconnect reconciliation pending | 2026-09-10 |
+| S9 selected conditions | `recovery.ts`, accepted-response checkpoints, automatic runner reconciliation | Typecheck; 53 Node tests; eight Python tests including lost-Hunt integration | Offline evidence; raw economic uncertainty, missing battle history and ongoing transit remain blocked | 2026-09-10 |
 
 The project is complete when the decisions are resolved, the required skills and systems satisfy their conditions, cross-system invariants hold, and the acceptance demonstrations have evidence. A smaller milestone may be reported as complete without implying that the entire project is done.

@@ -83,8 +83,14 @@ files are deliberately persistent. A final return runs outside the model budget.
 Use `--resume` only for an unchanged session/model/grant. After a completed stop,
 start a fresh runtime with `--new-run`; clearing the prior stop requires a reconciled,
 docked, fully serviced ship. Home persists per pilot across runtimes. A job interrupted
-by worker death or uncertain response blocks productive admission after restart;
-automatic reconciliation/resumption is still pending. Observe receipts before acting.
+by worker death or uncertain response blocks productive admission. The runner now
+reconciles it before inference and after uncertain job results, using the library
+connection recovery. Saved responses, verified arrival and observed battle participation
+can justify defensive control and return/service without replay. Recovery ends the
+productive attempt and leaves stop latched. Missing acceptance evidence (including a
+hunt whose battle was never observed) stays blocked. Read `recovery-receipt.json` for
+startup recovery, `return-receipt.json` for end-of-session recovery, and the full pilot
+journal before starting another operating period.
 
 Private full command checkpoints and home live under `runtime/pilots/`. These are
 separate from per-conversation history. Public station discovery does not establish

@@ -59,7 +59,7 @@ export function battleDecision(status:Wire,playerId:string,targetId:string,retre
 export async function controlHunt(account:Account,command:IndustryCommand,targetId:string,params:Wire,deps:CombatDeps={}) {
   const sleep=deps.sleep??(ms=>new Promise(resolve=>setTimeout(resolve,ms)));
   const now=deps.now??Date.now,start=now(),playerId=account.state.player!.id;
-  let retreat=Boolean(params.force_retreat),lastManeuver=-Infinity,battleId:string|undefined,ownSide:number|undefined;
+  let retreat=Boolean(params.force_retreat),lastManeuver=-Infinity,battleId:string|undefined=params.observed_battle?.battle_id,ownSide:number|undefined=params.observed_battle?.participants?.find((p:Wire)=>p.player_id===playerId)?.side_id;
   // Waiting for the first observed battle is separate from submitting hunt. Never resubmit.
   for(;;) {
     const status=await battleStatus(command);

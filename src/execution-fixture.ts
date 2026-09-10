@@ -23,7 +23,7 @@ export function executionFixture(t:any) {
     if(key==='spacemolt/scan')result={success:true};
     if(key==='spacemolt/hunt')fight=true;
     if(key==='spacemolt_battle/stance')stance=params.id;
-    if(key==='spacemolt_battle/summary')result={status:'completed',outcome:'victory',winning_side:0};
+    if(key==='spacemolt_battle/summary')result={battle_id:'battle',status:'completed',outcome:'victory',winning_side:0};
     if(key==='spacemolt/undock')state.location.docked_at=null;
     if(key==='spacemolt/travel'){state.location.poi_id=params.id;state.ship.fuel--;}
     if(key==='spacemolt/dock')state.location.docked_at=state.location.poi_id==='other'?'other':'base';

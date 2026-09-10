@@ -26,6 +26,10 @@ def run_execution(args, bridge, agent_class, registry, base_url, api_key, write_
     })
     if not grant.get("ok"):
         raise RuntimeError(grant.get("error", "Execution configuration failed"))
+    recovery = bridge.request("execution/reconcile")
+    if not recovery.get("ok") or recovery.get("result", {}).get("status") != "no_unfinished_job":
+        write_json(args.runtime / "recovery-receipt.json", recovery)
+        return 0 if recovery.get("result", {}).get("status") in {"interrupted", "returned_to_base"} else 1
     if prior and prior.get("context") != grant["result"]["context"]:
         raise ValueError("Persisted home or grant changed; start a new runtime to preserve cached context")
     monitor_done = threading.Event()
@@ -55,6 +59,8 @@ def run_execution(args, bridge, agent_class, registry, base_url, api_key, write_
                     if response.get("result", {}).get("status") == "handoff_required":
                         handoff.append(response["result"])
                         agent.interrupt()
+                    if response.get("result", {}).get("status") == "needs_reconciliation":
+                        agent.interrupt()
                     return json.dumps(model_response(response))
                 registry.register(name=schema["name"], toolset="spacemolt_execution", schema=schema, handler=handler)
             TOOLSETS[toolset] = {"description": "Immutable session job grant", "tools": [s["name"] for s in schemas], "includes": []}
@@ -83,12 +89,22 @@ def run_execution(args, bridge, agent_class, registry, base_url, api_key, write_
                 write_json(checkpoint, {**saved, "session_id": session_id, "messages": [],
                                         "context": grant["result"]["context"]})
             else:
-                receipt = bridge.request("job/return_to_base")
+                receipt = finish_execution(bridge)
                 write_json(args.runtime / "return-receipt.json", receipt)
                 print(json.dumps({"report": result.get("final_response"), "return_receipt": receipt}), flush=True)
-                return 0 if receipt.get("result", {}).get("status") == "returned_to_base" else 1
-        receipt = bridge.request("job/return_to_base")
+                return 0 if receipt.get("result", {}).get("status") in {"interrupted", "returned_to_base"} else 1
+        receipt = finish_execution(bridge)
         write_json(args.runtime / "return-receipt.json", receipt)
-        return 0 if receipt.get("result", {}).get("status") == "returned_to_base" else 1
+        return 0 if receipt.get("result", {}).get("status") in {"interrupted", "returned_to_base"} else 1
     finally:
         monitor_done.set()
+
+
+def finish_execution(bridge):
+    recovery = bridge.request("execution/reconcile")
+    if not recovery.get("ok") or recovery.get("result", {}).get("status") != "no_unfinished_job":
+        return recovery
+    receipt = bridge.request("job/return_to_base")
+    if receipt.get("result", {}).get("status") == "needs_reconciliation":
+        return bridge.request("execution/reconcile")
+    return receipt

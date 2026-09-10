@@ -109,8 +109,25 @@ A healthy command rejection permits cleanup. Ambiguous send or post-send refresh
 failure latches the existing CommandBoundary: no cleanup mutation is then safe.
 Every command is saved pending before send and confirmed only after its required
 refresh; uncertainty is explicit. On restart, unfinished jobs become
-needs_reconciliation. Observation can collect evidence from a new connection, but
-automatic reconciliation/resumption is not implemented yet.
+needs_reconciliation. The runner now invokes bounded reconciliation before inference
+and when a job reports uncertainty. It uses the library's existing reconnect/re-auth
+rather than opening a competing controller, waiting up to 30 seconds for authentication.
+
+The journal captures pre-command state and the received response before the post-command
+refresh. A retained response proves the command outcome, not the productive objective.
+Fresh location may resolve pending travel/docking; observed quarry participation may
+resolve a lost hunt response. Actual combat receives forced defensive escape. A previously
+observed battle ID is used to query its exact terminal summary when it has ended; a
+missing battle with no prior observation is never interpreted as a failed hunt.
+
+Reconciliation records authoritative state and missions/freight/passengers/production,
+per-action evidence and cleanup in the original job. It does not replay purchases,
+attacks, craft submissions or deliveries. Unproven effects stay needs_reconciliation
+with evidence and an explicit next step. Resolved work returns/services and ends as
+interrupted (or returned_to_base for a return job), preserving the original policy and
+keeping stop latched. This is recovery to a safe terminal state, not productive resumption.
+Underlying transport failure, ongoing transit, ship changes, older checkpoints without
+necessary pre-action evidence and absent battle history may still require intervention.
 
 Terminal outcomes distinguish completed objective, blocked attempt, interrupted,
 returned_to_base and needs_reconciliation. A hunting victory requires the battle
@@ -130,7 +147,7 @@ battle outcome. These require dedicated executors before any completion claim.
 A bounded temporary return fallback and shield recovery wait are implemented. Shield
 recovery polls at two-second intervals for at most 120 seconds, preserving dock/ship
 identity and rechecking defense. Timeout or changed hull/fuel/docking stays blocked.
-No verified repair-price adapter, comprehensive idle attack subscription, reconnect
-resolution, all-stance job coverage, or repetition controller is claimed. Defense currently reuses forced-escape tactical control at
+No verified repair-price adapter, comprehensive idle attack subscription, general
+economic-effect recovery, all-stance job coverage, or repetition controller is claimed. Defense currently reuses forced-escape tactical control at
 job/travel checkpoints and throughout hunting combat. It does not yet guarantee an
 immediate reaction while every possible noncombat command is waiting on the server.
