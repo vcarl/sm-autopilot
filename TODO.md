@@ -209,6 +209,36 @@ These are project-level demonstrations under the new interface, not substitutes 
 - [ ] **A15 — Completion evidence:** Final reports expose independently checkable costs, obligations, location, condition, progression, and outcome, including unsold inventory and unresolved work.
 - [ ] **A16 — Fresh-session reproducibility:** Setup and run instructions are current, required checks pass, and another session can reproduce representative workflows without relying on this conversation's hidden context.
 
+## Real-inference receipt fidelity — 2026-09-10
+
+- A real local-model/AIAgent run through the offline Node execution fixture chose
+  home with a rationale, handed off, tracked, completed one fixture Hunt, and returned
+  serviced. This is genuine inference and dispatch evidence, not live gameplay.
+  `spacemolt/evidence/shared-model-fixture.json` preserves reviewed findings.
+- The run exposed two gaps: model prose treated projected hull damage/ticks as measured
+  results, and repeated command snapshots spilled the Hunt tool response to a file
+  whose required `read_file` tool was deliberately absent from the session catalog.
+- `spacemolt/receipts.py` now constructs public reports from recorded job receipts,
+  deduplicating recovered IDs and excluding model narrative/assessment estimates.
+  Endpoint hull is explicitly an observation, not inferred damage taken. Raw narrative
+  remains `model_report` in the private checkpoint; `verified-report.json` is the
+  authoritative public report artifact. Cash aggregation is labeled for recorded jobs,
+  not total session profit or unrecorded asynchronous activity.
+- Model responses omit repetitive mechanical command journals while retaining complete
+  outcomes, assessments, obligations, and unresolved command identities. Full journals
+  remain executor-owned and persisted; the model catalog is not expanded with file tools.
+
+Validation after fixes: 14 Python tests pass through the required runner. A fresh
+real-model/offline-game run completed two Hermes sessions, agent-selected home,
+scouting, exactly one fixture Hunt, and verified return. The public report agrees
+with checkpoint and stdout; it contains no projected damage/ticks or raw model
+narrative. No spillover files or unavailable `read_file` calls occurred. The reviewed
+before/after evidence is in `shared-model-fixture.json`. Unreconciled/running jobs
+produce an unknown aggregate cash delta rather than treating stale balances as final.
+
+Live acceptance still requires approval and evidence. Full S18/X8 across all stance
+consumers remains open; this closes the concrete reporting defects found in real inference.
+
 ## Real-path preflight and exception cleanup — 2026-09-10
 
 - Real local omlx model discovery and Hermes imports pass. Real AIAgent inference

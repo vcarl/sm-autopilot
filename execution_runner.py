@@ -2,11 +2,12 @@
 import json
 import uuid
 import threading
+from spacemolt.receipts import capture_receipt, receipt_report
 
 
 def run_execution(args, bridge, agent_class, registry, base_url, api_key, write_json,
                   tool_schema, model_response):
-    lifecycle = {"configured": False, "cleanup_attempted": False}
+    lifecycle = {"configured": False, "cleanup_attempted": False, "receipts": []}
     try:
         return _run_execution(args, bridge, agent_class, registry, base_url, api_key,
                               write_json, tool_schema, model_response, lifecycle)
@@ -22,10 +23,12 @@ def run_execution(args, bridge, agent_class, registry, base_url, api_key, write_
                     error.add_note("SpaceMolt exception cleanup failed: " + str(cleanup_error))
             if "receipt" in lifecycle:
                 evidence["cleanup_receipt"] = lifecycle["receipt"]
+                capture_receipt(lifecycle["receipts"], lifecycle["receipt"])
             elif "cleanup_error" not in evidence:
                 evidence["cleanup_error"] = "Cleanup was already attempted but produced no receipt"
             try:
                 write_json(args.runtime / "exception-receipt.json", evidence)
+                write_json(args.runtime / "verified-report.json", receipt_report(lifecycle["receipts"], lifecycle.get("receipt")))
             except BaseException as persistence_error:
                 error.add_note("Could not persist SpaceMolt exception receipt: " + str(persistence_error))
         raise
@@ -37,6 +40,7 @@ def _run_execution(args, bridge, agent_class, registry, base_url, api_key, write
         raise ValueError("Use a fresh runtime for an explicit new run")
     checkpoint = args.runtime / "checkpoint.json"
     prior = json.loads(checkpoint.read_text()) if args.resume and checkpoint.exists() else {}
+    lifecycle["receipts"] = prior.get("job_receipts", [])
     if prior and prior.get("mode") != "execution":
         raise ValueError("Use a new runtime for the job interface; legacy history has different tools")
     context = prior.get("context") or {"stance": args.stance or "Hunt", "mood": args.mood or "Cautious",
@@ -57,7 +61,9 @@ def _run_execution(args, bridge, agent_class, registry, base_url, api_key, write
     recovery = bridge.request("execution/reconcile")
     if not recovery.get("ok") or recovery.get("result", {}).get("status") != "no_unfinished_job":
         lifecycle.update(cleanup_attempted=True, receipt=recovery)
+        capture_receipt(lifecycle["receipts"], recovery)
         write_json(args.runtime / "recovery-receipt.json", recovery)
+        write_json(args.runtime / "verified-report.json", receipt_report(lifecycle["receipts"], recovery))
         return 0 if recovery.get("result", {}).get("status") in {"interrupted", "returned_to_base"} else 1
     if prior and prior.get("context") != grant["result"]["context"]:
         raise ValueError("Persisted home or grant changed; start a new runtime to preserve cached context")
@@ -86,6 +92,7 @@ def _run_execution(args, bridge, agent_class, registry, base_url, api_key, write
                 schemas.append(schema)
                 def handler(arguments, _action=action, **kwargs):
                     response = bridge.request("job/" + _action, arguments)
+                    capture_receipt(lifecycle["receipts"], response)
                     if response.get("result", {}).get("status") == "handoff_required":
                         handoff.append(response["result"])
                         agent.interrupt()
@@ -107,7 +114,8 @@ def _run_execution(args, bridge, agent_class, registry, base_url, api_key, write
                                             conversation_history=history)
             history = result["messages"]
             saved = {"mode": "execution", "model": args.model, "session_id": session_id,
-                     "context": context, "messages": history, "report": result.get("final_response")}
+                     "context": context, "messages": history, "model_report": result.get("final_response"),
+                     "job_receipts": lifecycle["receipts"], "report": receipt_report(lifecycle["receipts"])}
             write_json(checkpoint, saved)
             if handoff:
                 write_json(args.runtime / (session_id + ".json"), saved)
@@ -123,14 +131,22 @@ def _run_execution(args, bridge, agent_class, registry, base_url, api_key, write
                 lifecycle["cleanup_attempted"] = True
                 receipt = finish_execution(bridge)
                 lifecycle["receipt"] = receipt
+                capture_receipt(lifecycle["receipts"], receipt)
                 write_json(args.runtime / "return-receipt.json", receipt)
-                print(json.dumps({"report": result.get("final_response"), "return_receipt": receipt}), flush=True)
+                report = receipt_report(lifecycle["receipts"], receipt)
+                write_json(args.runtime / "verified-report.json", report)
+                write_json(checkpoint, {**saved, "report": report})
+                print(json.dumps({"report": report, "return_receipt": receipt}), flush=True)
                 return 0 if receipt.get("result", {}).get("status") in {"interrupted", "returned_to_base"} else 1
         monitor_done.set()
         lifecycle["cleanup_attempted"] = True
         receipt = finish_execution(bridge)
         lifecycle["receipt"] = receipt
+        capture_receipt(lifecycle["receipts"], receipt)
         write_json(args.runtime / "return-receipt.json", receipt)
+        report = receipt_report(lifecycle["receipts"], receipt)
+        write_json(args.runtime / "verified-report.json", report)
+        write_json(checkpoint, {**json.loads(checkpoint.read_text()), "job_receipts": lifecycle["receipts"], "report": report})
         return 0 if receipt.get("result", {}).get("status") in {"interrupted", "returned_to_base"} else 1
     finally:
         monitor_done.set()

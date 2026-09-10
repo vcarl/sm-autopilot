@@ -198,6 +198,24 @@ def tool_schema(action, metadata):
                            "required": [p["name"] for p in params if p.get("required")], "additionalProperties": False}}
 
 
+def compact_job_receipts(value):
+    """Keep job outcomes available without spilling repetitive journals to file tools."""
+    if isinstance(value, list):
+        return [compact_job_receipts(item) for item in value]
+    if not isinstance(value, dict):
+        return value
+    is_job = all(key in value for key in ("id", "action", "status", "actions"))
+    result = {key: compact_job_receipts(item) for key, item in value.items()
+              if not (is_job and key == "actions")}
+    if is_job:
+        result["unresolved_commands"] = [
+            {key: entry[key] for key in ("action", "params", "status", "result") if key in entry}
+            for entry in value["actions"] if entry.get("status") in {"pending", "uncertain"}
+        ]
+        result["journal_note"] = "Full mechanical command journal retained by the executor; outcomes and unfinished commands are included here."
+    return result
+
+
 def model_response(response):
     """Keep one query representation and mutation details, retaining current state."""
     result = response.get("result")
@@ -213,7 +231,7 @@ def model_response(response):
         elif isinstance(result.get("delta"), dict):
             result = {"command": result.get("command"), "tick": result.get("tick"),
                       "details": result["delta"].get("details")}
-    return {**{key: response[key] for key in ("ok", "error", "state") if key in response}, "result": result}
+    return {**{key: response[key] for key in ("ok", "error", "state") if key in response}, "result": compact_job_receipts(result)}
 
 
 def local_model(settings_path, model):

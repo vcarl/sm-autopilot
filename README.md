@@ -94,6 +94,13 @@ journal before starting another operating period. If inference or runner persist
 fails after configuration, `exception-receipt.json` records the original error and
 the attempted return/reconciliation. Cleanup failure does not hide that original error.
 
+Use `verified-report.json` for recorded outcomes, cash changes, final condition and
+obligations. The runner builds this report from script receipts, excluding model prose
+and assessment estimates. The private checkpoint retains `model_report` for review.
+Observed endpoint hull is not a measurement of damage taken during a fight. Model
+responses keep outcomes and unresolved commands but omit repeated mechanical journal
+snapshots; the full journal remains on disk for executor recovery.
+
 Hunt sorties refuse onboard passengers and carrier freight until those commitments
 are resolved. Return preserves them; it does not deliver or cancel them. Receipts
 keep admission `obligations`, fresh terminal `obligations_after`, and an explicit

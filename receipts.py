@@ -1,0 +1,66 @@
+"""Reports from script receipts; model prose and planning estimates are not evidence."""
+from copy import deepcopy
+import math
+
+
+def capture_receipt(receipts, response):
+    job = response.get("result")
+    if response.get("ok") and isinstance(job, dict) and isinstance(job.get("id"), str) and "action" in job:
+        receipts.append(deepcopy(job))
+
+
+def receipt_report(receipts, cleanup_response=None):
+    # Recovery updates the original job ID. Its complete delta replaces the older
+    # partial delta; summing both would count the same purchases twice.
+    unique = {job["id"]: job for job in receipts}
+    jobs = []
+    for job in unique.values():
+        row = {key: deepcopy(job.get(key)) for key in ("id", "action", "status", "cash_delta")}
+        context = job.get("context") or {}
+        row.update({key: deepcopy(context[key]) for key in
+                    ("objective", "stance", "mood", "policy_version", "home") if key in context})
+        if job.get("error"):
+            row["error"] = job["error"]
+        result = job.get("result")
+        sortie = result.get("sortie") if isinstance(result, dict) else None
+        if not isinstance(sortie, dict):
+            sortie = {}
+        if "skill_progress" in sortie:
+            row["observed_skill_progress"] = deepcopy(sortie["skill_progress"])
+        if isinstance(sortie.get("fight"), dict):
+            fight = sortie["fight"]
+            row["combat_outcome"] = {key: deepcopy(fight[key]) for key in
+                                     ("battle_id", "retreated", "verified_victory") if key in fight}
+            summary = fight.get("summary")
+            if isinstance(summary, dict):
+                row["combat_outcome"]["summary"] = {key: deepcopy(summary[key]) for key in
+                                                   ("status", "outcome", "winning_side") if key in summary}
+        jobs.append(row)
+    deltas = [job["cash_delta"] for job in jobs]
+    known_cash = (all(job["status"] not in {"running", "needs_reconciliation"} for job in jobs)
+                  and all(isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value)
+                          for value in deltas))
+    report = {"source": "Script job receipts; assessment estimates and model narrative excluded",
+              "jobs": jobs, "recorded_jobs_cash_delta": sum(deltas) if known_cash else None,
+              "final": None}
+    if cleanup_response is not None:
+        cleanup = cleanup_response.get("result")
+        report["cleanup_outcome"] = cleanup.get("status") if isinstance(cleanup, dict) else None
+        if cleanup_response.get("error"):
+            report["cleanup_error"] = cleanup_response["error"]
+        if cleanup_response.get("ok") and isinstance(cleanup, dict) and "id" in cleanup:
+            after = cleanup.get("after") or {}
+            ship = after.get("ship") or {}
+            report["final"] = {
+                "receipt_id": cleanup["id"], "status": cleanup.get("status"),
+                "location": deepcopy(after.get("location")), "credits": after.get("credits"),
+                "ship_condition": {key: ship[key] for key in
+                                   ("id", "hull", "max_hull", "shield", "max_shield", "fuel", "max_fuel") if key in ship},
+                "retained_cargo": deepcopy(after.get("cargo")), "observed_skills": deepcopy(after.get("skills")),
+                "obligations": deepcopy(cleanup.get("obligations_after")),
+                "obligation_verification": deepcopy(cleanup.get("obligation_verification")),
+                "condition_note": "Observed endpoint condition; not a measurement of damage taken or resources consumed during the job",
+            }
+            if cleanup.get("status") in {"running", "needs_reconciliation"}:
+                report["final"]["condition_note"] = "Last recorded snapshot only; reconciliation remains outstanding, so final condition is not verified"
+    return report
