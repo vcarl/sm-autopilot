@@ -209,6 +209,33 @@ These are project-level demonstrations under the new interface, not substitutes 
 - [ ] **A15 — Completion evidence:** Final reports expose independently checkable costs, obligations, location, condition, progression, and outcome, including unsold inventory and unresolved work.
 - [ ] **A16 — Fresh-session reproducibility:** Setup and run instructions are current, required checks pass, and another session can reproduce representative workflows without relying on this conversation's hidden context.
 
+## Resume grant preservation — 2026-09-10
+
+- Resume now preserves the saved wildlife permission when its original CLI grant is
+  omitted. Repeating the same stance/mood flags asserts those choices without adding
+  new locks to a previously unlocked session. Existing locks remain unchanged, including
+  the original mood lock while Tired is active. Bridge host configuration now reuses
+  `resolveHostContext`, which validates those lock identities against the current policy.
+- An attempted permission expansion is rejected before execution configuration;
+  `--resume` without a checkpoint no longer silently starts a fresh session. Normal
+  new-session authorization behavior is unchanged.
+- `tests/test_spacemolt_resume.py` exercises real Hermes construction/tool resolution,
+  native skill setup, Python-to-Node dispatch and policy resolution against a temporary
+  Hermes home, with both permission and lock states. It verifies session/history/grant
+  retention, Tired override persistence and pre-configuration rejection. Combined
+  Python checks: 20 tests pass; typecheck and 59 Node tests pass.
+  No live gameplay is used or authorized by these tests.
+
+Next implementation slice, following the delegated Industry audit: local bounded
+`gather` under shared Execution, retaining gathered inventory (no implicit sales).
+Reuse mining readiness and canonical yield accounting, but let the shared executor
+own home return, servicing, uncertainty and defensive control. Add local resource
+observations/assessment, productive mine admission and stop checks, per-cycle partial
+yield checkpoints, Industry skill/tool integration and verified gather reports.
+Do not directly wrap the legacy experiment: its separate ledger, origin return,
+caller-supplied service quotes and missing stop checkpoints violate the new contract.
+Production, cross-system gathering and settlement remain later S12 scope.
+
 ## Real-inference receipt fidelity — 2026-09-10
 
 - A real local-model/AIAgent run through the offline Node execution fixture chose

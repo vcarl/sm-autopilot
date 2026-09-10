@@ -2,7 +2,7 @@ import {controllerLock} from './controller-lock.ts';
 import {createHash} from 'node:crypto';
 import {Execution} from './execution.ts';
 import {ExecutionStore} from './execution-store.ts';
-import {resolveContext} from './execution-policy.ts';
+import {resolveHostContext} from './execution-policy.ts';
 import {BridgeQueue,serveInput} from './bridge-input.ts';
 import {watchDefense} from './defense-events.ts';
 import {fileURLToPath} from 'node:url';
@@ -56,9 +56,7 @@ try {
       let result:unknown;
       if(request.action==='execution/configure') {
         if(execution)throw new Error('Execution already configured');
-        const context=resolveContext(request.params??{});
-        context.permissions={wildlife:request.params?.wildlife===true};
-        context.authority={stance:request.params?.lock_stance===true?context.stance:undefined,mood:request.params?.lock_mood===true?context.mood:undefined};
+        const context=resolveHostContext(request.params??{});
         const store=new ExecutionStore(fileURLToPath(new URL('../runtime/pilots/',import.meta.url)),account.state.player!.id);
         if(request.params?.new_run===true&&store.data.stop) {
           await account.refresh();

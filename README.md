@@ -80,7 +80,10 @@ if idle, and tactical control reacts on its next poll (normally within two secon
 Already submitted travel must finish/reconcile before movement can change. Stop
 files are deliberately persistent. A final return runs outside the model budget.
 
-Use `--resume` only for an unchanged session/model/grant. After a completed stop,
+Use `--resume` only with an existing checkpoint and unchanged session/model/grant.
+Saved wildlife permission and stance/mood locks persist without repeating their flags.
+Repeating matching stance/mood values does not add new locks; expanding permission
+requires a fresh runtime. After a completed stop,
 start a fresh runtime with `--new-run`; clearing the prior stop requires a reconciled,
 docked, fully serviced ship. Home persists per pilot across runtimes. A job interrupted
 by worker death or uncertain response blocks productive admission. The runner now

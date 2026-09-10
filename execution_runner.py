@@ -39,7 +39,11 @@ def _run_execution(args, bridge, agent_class, registry, base_url, api_key, write
     if args.new_run and args.resume:
         raise ValueError("Use a fresh runtime for an explicit new run")
     checkpoint = args.runtime / "checkpoint.json"
-    prior = json.loads(checkpoint.read_text()) if args.resume and checkpoint.exists() else {}
+    if args.resume and not checkpoint.exists():
+        raise ValueError("Resume requires an existing checkpoint; use a fresh runtime without --resume")
+    prior = json.loads(checkpoint.read_text()) if args.resume else {}
+    if args.resume and (not isinstance(prior, dict) or not prior.get("context") or not prior.get("session_id")):
+        raise ValueError("Resume requires a saved context and session identity; use a fresh runtime for a new session")
     lifecycle["receipts"] = prior.get("job_receipts", [])
     if prior and prior.get("mode") != "execution":
         raise ValueError("Use a new runtime for the job interface; legacy history has different tools")
@@ -50,10 +54,16 @@ def _run_execution(args, bridge, agent_class, registry, base_url, api_key, write
                   (args.mood and args.mood != context["mood"])):
         raise ValueError("Resume must retain model and policy; use a new runtime for a host transition")
     authority = context.get("authority", {})
+    requested_wildlife = args.allow_wildlife or args.combat
+    wildlife = context.get("permissions", {}).get("wildlife", False) if prior else requested_wildlife
+    if prior and requested_wildlife and not wildlife:
+        raise ValueError("Resume cannot expand wildlife permission; start a fresh runtime for a new grant")
+    # Resume flags assert the saved choice; only a fresh session can establish locks.
+    lock_stance = bool(authority.get("stance")) if prior else bool(args.stance)
+    lock_mood = bool(authority.get("mood")) if prior else bool(args.mood)
     grant = bridge.request("execution/configure", {
-        **context, "wildlife": args.allow_wildlife or args.combat, "new_run": args.new_run,
-        "lock_stance": bool(args.stance or authority.get("stance")),
-        "lock_mood": bool(args.mood or authority.get("mood")),
+        **context, "wildlife": wildlife, "new_run": args.new_run,
+        "lock_stance": lock_stance, "lock_mood": lock_mood,
     })
     if not grant.get("ok"):
         raise RuntimeError(grant.get("error", "Execution configuration failed"))

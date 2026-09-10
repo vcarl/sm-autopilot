@@ -31,3 +31,14 @@ export function resolveContext(input:Record<string,any>, previous?:ExecutionCont
   return {stance,mood,objective,home:previous?.home,limits,authority:previous?.authority,permissions:previous?.permissions??{wildlife:false},policy_version:policyVersion,stop_condition:'one_job',return_policy:'home_or_explicit_fallback'};
 }
 export function canHunt(context:ExecutionContext) {return context.stance==='Hunt'&&context.permissions.wildlife&&presets[context.mood].initiate;}
+
+/** Host configuration preserves original lock identities through a Tired override. */
+export function resolveHostContext(input:Record<string,any>):ExecutionContext {
+  const context=resolveContext(input);
+  const authority={
+    stance:input.lock_stance===true?(input.authority?.stance??context.stance):undefined,
+    mood:input.lock_mood===true?(input.authority?.mood??context.mood):undefined,
+  };
+  if((authority.stance!==undefined&&!stances.includes(authority.stance))||(authority.mood!==undefined&&!moods.includes(authority.mood)))throw new Error('Invalid host lock');
+  return resolveContext(context,{...context,authority,permissions:{wildlife:input.wildlife===true}});
+}
