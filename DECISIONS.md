@@ -159,7 +159,17 @@ battle outcome. These require dedicated executors before any completion claim.
 A bounded temporary return fallback and shield recovery wait are implemented. Shield
 recovery polls at two-second intervals for at most 120 seconds, preserving dock/ship
 identity and rechecking defense. Timeout or changed hull/fuel/docking stays blocked.
-No verified repair-price adapter, comprehensive idle attack subscription, general
-economic-effect recovery, all-stance job coverage, or repetition controller is claimed. Defense currently reuses forced-escape tactical control at
-job/travel checkpoints and throughout hunting combat. It does not yet guarantee an
-immediate reaction while every possible noncombat command is waiting on the server.
+No verified repair-price adapter, general economic-effect recovery, all-stance job
+coverage, or repetition controller is claimed.
+
+Event-driven defense (2026-09-10) subscribes to own battle notifications plus startup
+and post-refresh reconnect checks. The bridge queue remains the sole command owner.
+Notifications only latch an assessment; battle status must establish participation.
+Idle defense runs as a durable return job, even while a normal handoff is pending.
+Unexpected combat suspends productive work and preserves obligations through forced
+escape/return. Active Hunt retains tactical ownership of its intentional battle.
+A safety return invalidated by defense recomputes its route/service inputs once,
+records the reassessment, and leaves repeated disruption blocked. It never resends
+an uncertain command. Service waits check defense every two seconds; unresolved
+server commands cannot be preempted. Additional stance-specific waits and live
+acceptance remain to be validated.

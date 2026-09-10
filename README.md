@@ -104,8 +104,12 @@ access. Unreachable home, missing fuel quotes, damaged hull without verified rep
 pricing, or shields that fail to recover within a bounded two-minute wait produce
 explicit blockers. A known home-route/docking rejection permits one temporary service
 fallback (current verified dock first, otherwise an observed refuel station), preserving
-home. Uncertain movement never triggers fallback. Universal defense during every
-noncombat wait remains unfinished.
+home. Uncertain movement never triggers fallback. Own-battle notifications wake
+scripted defense through the shared command queue, including while Hermes is idle.
+Existing work checks danger at travel/service and command boundaries. Unexpected
+combat suspends productive work and returns; interrupted return gets one fresh
+route/service assessment. Pending commands must settle or reconcile before defense
+can issue a mutation. Future stance-specific waits still need integration.
 
 The explicit `--industry` flag retains the historical industry runner and its
 [existing guide](INDUSTRY.md); it has not yet been migrated to these contracts.

@@ -3,7 +3,8 @@ import {createHash} from 'node:crypto';
 import {Execution} from './execution.ts';
 import {ExecutionStore} from './execution-store.ts';
 import {resolveContext} from './execution-policy.ts';
-import {serveInput} from './bridge-input.ts';
+import {BridgeQueue,serveInput} from './bridge-input.ts';
+import {watchDefense} from './defense-events.ts';
 import {fileURLToPath} from 'node:url';
 import { validateAction, catalog } from './policy.ts';
 import { Account } from '@spacemolt/lib';
@@ -41,6 +42,9 @@ let execution:Execution|undefined;
 let fatal=false;
 emit({event:'ready', state:state()});
 const input = createInterface({input:process.stdin, terminal:false});
+const queue=new BridgeQueue();
+let stopDefense:(()=>void)|undefined;
+let closing=false;
 try {
   await serveInput(input,async(line)=>{
     if(fatal)return;
@@ -63,6 +67,9 @@ try {
           delete store.data.stop;store.save();
         }
         execution=new Execution(account,store,context);
+        if(!closing)stopDefense=watchDefense(account,execution,queue,error=>{
+          appendFileSync(new URL('../runtime/gameplay.jsonl',import.meta.url),JSON.stringify({at:new Date().toISOString(),event:'defense_blocked',error:String(error)})+'\n',{mode:0o600});
+        });
         result=execution.handoff();
       }
       else if(request.action==='execution/reconcile') {if(!execution)throw new Error('Configure execution first');result=await execution.reconcile();}
@@ -113,6 +120,6 @@ try {
       try {await execution.dispatch('return_to_base');}
       catch(error) {appendFileSync(new URL('../runtime/gameplay.jsonl',import.meta.url),JSON.stringify({event:'control_return_blocked',error:String(error)})+'\n',{mode:0o600});}
     }
-  });
-} finally { account.close(); }
+  },queue);
+} finally { closing=true;stopDefense?.();await queue.drain();account.close(); }
 } finally {account.close();unlock();}

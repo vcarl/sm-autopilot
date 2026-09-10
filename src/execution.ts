@@ -37,6 +37,7 @@ export function executionCatalog(context:ExecutionContext):Record<string,any> {
   return common;
 }
 export class StopWork extends Error {}
+class DefenseInterruption extends StopWork {}
 class TravelBlocked extends Error {}
 export interface ExecutionDeps {
   locations?:typeof industryLocations;
@@ -49,6 +50,9 @@ export class Execution {
   private stations:Home[]=[];
   private stopping=false;
   private uncertain=false;
+  private dangerPending=false;
+  private defending=false;
+  private observedDanger?:Wire;
   private boundary=new CommandBoundary();
   readonly account:Account;
   readonly store:ExecutionStore;
@@ -61,10 +65,30 @@ export class Execution {
   }
   signal(reason='Tired') {this.stopping=true;this.store.data.stop=reason;this.store.save();}
   stopped=()=>this.stopping;
+  requestDefense() {this.dangerPending=true;}
+  async respondToDanger() {
+    if(!this.dangerPending)return {status:'no_pending_danger'};
+    if(this.active)throw new Error('Active job owns defense checkpoints');
+    if(this.store.unresolved())return this.reconcile();
+    this.dangerPending=false;
+    // A notification is a wake signal, not participation evidence. This probe is
+    // read-only; mutations begin only under the durable return job below.
+    let battle:Wire|null;
+    try {battle=await battleStatus(async(action,params)=>{
+      const [tool,name]=action.split('/');return this.account.send(tool!,name!,params);
+    });}
+    catch(error){this.dangerPending=true;throw error;}
+    if(!battle)return {status:'no_active_battle'};
+    this.observedDanger=battle;
+    return this.dispatch('return_to_base');
+  }
   snapshot() {return structuredClone({credits:this.account.credits,ship:this.account.ship,cargo:this.account.cargo,modules:this.account.state.modules,skills:this.account.state.skills,location:this.account.location,missions:this.account.state.missions});}
   private command:IndustryCommand=async(action,params={})=>{
     this.boundary.assertHealthy();
     validateAction(action,params);
+    if(this.active&&this.dangerPending&&!this.defending&&!action.startsWith('spacemolt_battle/')) {
+      if(await this.defend())throw new DefenseInterruption('Unexpected combat invalidated the pending operation; return before reconsidering work');
+    }
     if(this.stopping&&['spacemolt/hunt','spacemolt/buy','spacemolt/install_mod','spacemolt_storage/withdraw','spacemolt_salvage/loot','spacemolt/scan'].includes(action))throw new StopWork('Stop requested before productive command');
     const entry:Job['actions'][number]={action,params,status:'pending',before:this.snapshot()};
     this.active?.actions.push(entry);this.store.save();
@@ -104,8 +128,20 @@ export class Execution {
     return {context:this.context,catalog:executionCatalog(this.context)};
   }
   private async defend() {
-    const battle=await battleStatus(this.command);
-    if(battle)await controlHunt(this.account,this.command,'',{observed_battle:battle,force_retreat:true,max_ticks:1,retreat_hull_fraction:0.95},{...this.deps.combat,stopped:this.stopped});
+    if(this.defending)return false;
+    this.defending=true;
+    this.dangerPending=false;
+    const observed=this.observedDanger;this.observedDanger=undefined;
+    try {
+      const battle=observed??await battleStatus(this.command);
+      if(!battle)return false;
+      this.signal('Unexpected battle: productive work suspended for defensive return');
+      const evidence:Wire={observed_at:new Date().toISOString(),battle,status:'running'};
+      if(this.active){this.active.defense??=[];this.active.defense.push(evidence);this.store.save();}
+      evidence.result=await controlHunt(this.account,this.command,'',{observed_battle:battle,force_retreat:true,max_ticks:1,retreat_hull_fraction:0.95},{...this.deps.combat,stopped:this.stopped});
+      evidence.status='completed';this.store.save();
+      return true;
+    } finally {this.defending=false;}
   }
   private async travel(home:Home,productive=false) {
     await this.account.refresh();
@@ -132,18 +168,30 @@ export class Execution {
       if(this.account.location!.docked_at)await this.command('spacemolt/undock',{});
       await this.command('spacemolt/travel',{id:home.poi_id});await this.defend();
     }
+    if(productive&&this.stopping)throw new StopWork('Return requested after travel checkpoint');
     if(this.account.location!.poi_id!==home.poi_id||this.account.location!.in_transit)throw new Error('POI arrival not verified');
     if(!this.account.location!.docked_at)await this.command('spacemolt/dock',{});
     if(this.account.location!.docked_at!==home.base_id)throw new Error('Docking identity not verified');
   }
   private async service() {
-    return serviceShip(this.account,this.command,{maxSpend:this.remainingSpend(),creditReserve:this.context.limits.credit_reserve},()=>this.defend(),this.deps.combat);
+    return serviceShip(this.account,this.command,{maxSpend:this.remainingSpend(),creditReserve:this.context.limits.credit_reserve},async()=>{await this.defend();},this.deps.combat);
   }
   private remainingSpend() {
     const before=(this.active?.before as Wire)?.credits??this.account.credits!;
     return Math.max(0,this.context.limits.max_spend-Math.max(0,before-this.account.credits!));
   }
   private async returnHome() {
+    for(let replan=0;;replan++) {
+      try {return await this.returnAttempt();}
+      catch(error) {
+        if(!(error instanceof DefenseInterruption)||replan>=1)throw error;
+        // Defense invalidated a safety operation, not its obligation to return.
+        // Recompute route/service inputs once; never resend the stale command.
+        if(this.active){this.active.return_reassessments??=[];this.active.return_reassessments.push({at:new Date().toISOString(),reason:error.message,state:this.snapshot()});this.store.save();}
+      }
+    }
+  }
+  private async returnAttempt() {
     await this.defend();
     const home=this.context.home;
     let destination=home,fallbackReason:string|undefined;
@@ -192,10 +240,11 @@ export class Execution {
     } finally {this.context=nextContext;this.active=undefined;}
   }
   async dispatch(action:string,params:Wire={}) {
+    if(this.dangerPending&&!this.active&&!this.observedDanger)await this.respondToDanger();
     if(action==='observe') {if(this.active)throw new Error('Job owns the connection');return this.observe();}
     if(action==='plan')return this.plan(params);
     if(this.active)throw new Error('A job already owns the connection');
-    if(this.pending)throw new Error('Session handoff required before another job');
+    if(this.pending&&action!=='return_to_base')throw new Error('Session handoff required before another job');
     if(!(action in executionCatalog(this.context)))throw new Error('Tool unavailable under current stance, mood or permission');
     if(this.stopping&&action!=='return_to_base')throw new Error('Stop latched: productive admission closed');
     if(this.store.unresolved())throw new Error('An unfinished job requires reconciliation; observe it without replay');
@@ -217,6 +266,7 @@ export class Execution {
     this.active=job;this.store.data.jobs.push(job);this.store.save();
     let result:any;
     try {
+      if(this.observedDanger)await this.defend();
       let obligations:Obligations|undefined;
       try {
         obligations=(await this.observe()).obligations;
@@ -241,6 +291,7 @@ export class Execution {
       if(action==='hunt'||action==='track')admitHunt(obligations!);
       result=await handlers[action]!();
       job.result=result;
+      if(this.stopping&&action!=='return_to_base'&&!job.return_plan)throw new StopWork('Productive work suspended; return and service before stopping');
       job.status=result?.status==='blocked'?'blocked':this.stopping?'returned_to_base':action==='hunt'&&!result?.sortie?.fight?.verified_victory?'blocked':'completed';
     } catch(error) {
       job.error=error instanceof Error?error.message:String(error);

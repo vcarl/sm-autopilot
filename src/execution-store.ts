@@ -10,6 +10,8 @@ export interface Job {
   obligation_verification?:{status:'observed'|'unavailable';reason:string};
   result?:unknown; error?:string; cash_delta?:number;
   reconciliation?:Record<string,any>[];
+  defense?:Record<string,any>[];
+  return_reassessments?:Record<string,any>[];
   return_plan?:{home?:Home;destination:Home;temporary:boolean;reason?:string};
 }
 export interface PilotRecord {pilot_id:string;home?:Home;context?:ExecutionContext;stop?:string;jobs:Job[]}

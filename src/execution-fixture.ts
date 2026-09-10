@@ -37,5 +37,6 @@ export function executionFixture(t:any) {
   const context=resolveContext({objective:'One verified hunt',mood:'Aggressive'});context.permissions.wildlife=true;
   const execution=new Execution(account,store,context,{locations:async()=>({origin_system:'system',max_jumps:2,total_stations:2,stations:[{base_id:'base',poi_id:'station',system_id:'system',system_name:'System',station_name:'Base',services:['refuel'],hops:0},{base_id:'other',poi_id:'other',system_id:'system',system_name:'System',station_name:'Other',services:['refuel'],hops:0}],limitation:'fixture directory'}),combat:{save:()=>{},now:()=>now,sleep:async(ms)=>{now+=ms;tick=Math.floor(now/10000);}}});
   const choose=async()=>{await execution.dispatch('observe');await execution.dispatch('plan',{home_base_id:'base',home_rationale:'Services near wildlife and existing storage'});execution.handoff();};
-  return {execution,account,state,calls,store,directory,choose};
+  const attack=()=>{fight=true;tick=0;now=0;stance='fire';};
+  return {execution,account,state,calls,store,directory,choose,attack};
 }

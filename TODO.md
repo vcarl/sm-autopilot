@@ -107,7 +107,7 @@ Decisions are recorded in [DECISIONS.md](spacemolt/DECISIONS.md). D7 has a worki
   - [ ] Actual attacks trigger scripted assessment and fight/escape handling during noncombat work without model inference or an exposed offensive tool.
   - [ ] Relaxed never initiates hostilities; Tired defense aims to reach a safe return path; neither bypasses permissions or resource limits.
   - [ ] Defensive control coordinates with the active job, preserving or checkpointing its obligations before resumption or return.
-  - [ ] Tests exercise danger during noncombat activity and verify that the job and defender do not race or duplicate commands.
+  - [x] Tests exercise danger during noncombat activity and verify that the job and defender do not race or duplicate commands. See the 2026-09-10 event-defense increment (offline).
 
 ## Stance jobs and repeated work — S11–S18
 
@@ -208,6 +208,40 @@ These are project-level demonstrations under the new interface, not substitutes 
 - [ ] **A14 — Handoff:** Stance and mood transitions preserve the objective and state, deliver the correct new catalog/skills, and do not rebuild the historical prompt prefix.
 - [ ] **A15 — Completion evidence:** Final reports expose independently checkable costs, obligations, location, condition, progression, and outcome, including unsold inventory and unresolved work.
 - [ ] **A16 — Fresh-session reproducibility:** Setup and run instructions are current, required checks pass, and another session can reproduce representative workflows without relying on this conversation's hidden context.
+
+## Event-driven defense increment — 2026-09-10
+
+- `src/defense-events.ts` uses the pinned Account notification API, filtering own
+  participation/damage/join events. Callbacks only latch danger; startup and the
+  library's post-refresh reconnect hook also request authoritative assessment.
+  Repeated notifications coalesce onto the bridge's existing command lane.
+- `BridgeQueue` serializes input, control return and idle defense; a failed task
+  does not prevent later recovery/stop work. Shutdown removes listeners before
+  draining. No offensive tool or prompt change is needed for defensive execution.
+- `Execution` verifies participation before idle response, then owns defense under a
+  durable return job. Active jobs consume danger before subsequent noncombat commands
+  and at travel/service checkpoints. Actual unexpected combat suspends productive
+  work and uses the existing forced-retreat controller, preserving obligations.
+  Normal Hunt battle notifications leave its tactical controller in ownership.
+- Pending session handoffs cannot block urgent return. Stale operations after defense
+  are discarded. If defense interrupts return itself, one bounded replan recomputes
+  current route/service inputs and records `return_reassessments`; it does not replay
+  the preceding accepted movement. Repeated disruption remains an explicit blocker.
+- Offline evidence: `defense-events.test.ts` drives the real library socket parser/
+  event emitter through the shared queue into actual Execution and durable service
+  receipts. `defensive-execution.test.ts` covers all-stance idle defense during a
+  pending handoff, Relaxed no-first-strike, pending movement serialization, service
+  waits, own-Hunt ownership, lost defensive response recovery and interrupted return.
+  Independent IC review reproduced two defects (handoff gating and return interruption);
+  both now have fixes and passing regressions.
+- Validation: typecheck, 59 Node tests and eight Python runner tests pass. No new
+  live connection, live attack or live reconnect acceptance is claimed.
+
+Remaining S10 scope: exercise new live defense, integrate subsequent stance consumers'
+work/wait checkpoints, and verify broader defensive objectives. Notifications cannot
+preempt an unresolved tick-deferred command: the library must finish it or reconciliation
+must establish its outcome before another mutation. Existing service waits check at
+most two seconds apart; arbitrary future waits must explicitly participate.
 
 ## Obligation verification increment — 2026-09-10
 
@@ -344,8 +378,8 @@ Remaining work, in dependency order:
    retained-response cases added on 2026-09-10. Raw lost economic responses and missing
    battle history still need authoritative provenance; productive resumption remains
    separate from return/cleanup.
-3. Extend defense beyond current job/travel checkpoints and Hunt polling to all
-   relevant noncombat waits and idle attacks, using library events and single ownership.
+3. Validate the new event-driven idle defense and existing travel/service wait
+   integration with live evidence, then apply checkpoints to subsequent stance consumers.
 4. Complete S1 context breadth, S3 assessment domains, remaining S4–S10 conditions,
    then validate one new live Hermes Hunt with a reviewed receipt before claiming S11/A3.
 5. Add Industry and Logistics consumers and their skills following existing TODO
