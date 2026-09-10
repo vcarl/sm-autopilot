@@ -89,8 +89,11 @@ automatic reconciliation/resumption is still pending. Observe receipts before ac
 Private full command checkpoints and home live under `runtime/pilots/`. These are
 separate from per-conversation history. Public station discovery does not establish
 access. Unreachable home, missing fuel quotes, damaged hull without verified repair
-pricing, or incomplete shields produce explicit blockers. Automatic fallback station
-selection and universal defense during every noncombat wait remain unfinished.
+pricing, or shields that fail to recover within a bounded two-minute wait produce
+explicit blockers. A known home-route/docking rejection permits one temporary service
+fallback (current verified dock first, otherwise an observed refuel station), preserving
+home. Uncertain movement never triggers fallback. Universal defense during every
+noncombat wait remains unfinished.
 
 The explicit `--industry` flag retains the historical industry runner and its
 [existing guide](INDUSTRY.md); it has not yet been migrated to these contracts.

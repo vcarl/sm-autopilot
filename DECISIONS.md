@@ -5,6 +5,11 @@ not claim implementation of the remaining stance jobs. VISION.md is preserved.
 
 ## Authority and boundaries (D1, D3, D6, D8)
 
+Intent checkpoint, 2026-09-10: the initiating agent may choose the CLI stance/mood
+locks. Once initiated, those choices stay fixed for the execution session or
+operating period; normal reconsideration belongs to a later session. A lock does
+not imply that a human must make the choice. Tired remains an immediate override.
+
 User constraints outrank agent plans; scripted safety suspensions and urgent stop
 can tighten either. The agent otherwise chooses its stance, mood, objective and
 home. Explicit CLI stance/mood selections are locked; an agent can still become
@@ -74,8 +79,12 @@ fresh-session handoff. A temporary station visit never writes home.
 Reconsider when objectives, supplies, access or route costs change. If discovery has
 no suitable candidate, report the discovery blocker without inventing IDs. If home
 cannot be reached, preserve its identity and report the return blocker and current
-location. Automatic choice of a temporary fallback is deferred; it must eventually
-be explicit in the receipt and must never overwrite home.
+location. A known route preflight or docking rejection now permits one explicit
+temporary fallback: prefer the current verified dock, otherwise the nearest observed
+refuel station. The fallback follows the same verified travel/reserve checks and is
+recorded before movement. Missing home uses the same temporary-return policy without
+creating a home. Uncertain commands or inconsistent arrival state prohibit fallback.
+Failed servicing does not trigger an unbounded search for another station.
 
 ## Jobs, interruption and evidence (D5, D9, D10)
 
@@ -118,8 +127,10 @@ battle outcome. These require dedicated executors before any completion claim.
 
 ## Deliberate first-slice limits
 
-No automatic fallback station, verified repair-price adapter, comprehensive idle
-attack subscription, reconnect resolution, all-stance job coverage, or repetition
-controller is claimed. Defense currently reuses forced-escape tactical control at
+A bounded temporary return fallback and shield recovery wait are implemented. Shield
+recovery polls at two-second intervals for at most 120 seconds, preserving dock/ship
+identity and rechecking defense. Timeout or changed hull/fuel/docking stays blocked.
+No verified repair-price adapter, comprehensive idle attack subscription, reconnect
+resolution, all-stance job coverage, or repetition controller is claimed. Defense currently reuses forced-escape tactical control at
 job/travel checkpoints and throughout hunting combat. It does not yet guarantee an
 immediate reaction while every possible noncombat command is waiting on the server.

@@ -83,13 +83,13 @@ Decisions are recorded in [DECISIONS.md](spacemolt/DECISIONS.md). D7 has a worki
   - [ ] A broad objective prompts the agent to consider home and compare observed locations using access, services, storage, activity, and travel costs.
   - [x] The selected home and rationale persist across sessions for the pilot and are available to job planning without a user-supplied station ID.
   - [x] Reconsideration updates home deliberately; a temporary resupply stop or travel fallback does not overwrite it.
-  - [ ] No suitable observed home produces an explicit discovery or temporary-return plan, not an invented destination or an unexplained halt.
+  - [x] No suitable observed home produces an explicit discovery or temporary-return plan, not an invented destination or an unexplained halt.
 
 - [ ] **S7 — Return-and-resupply implements Tired across stances.** Depends on S4–S6, S8, and D9.
   - [ ] `return_to_base` stops productive admission, resolves immediate danger, selects home or a documented service fallback, travels, services, and stops.
   - [ ] Tired during idle, travel, work, and combat reaches each state's specified safe exit without waiting for another model turn.
   - [ ] Pending production, passengers, cargo contracts, and deadlines remain recorded and are not silently abandoned, sold, canceled, or reported complete.
-  - [ ] The terminal receipt verifies location and readiness or explicitly identifies the remaining service/return blocker; it does not automatically restart productive work.
+  - [x] The terminal receipt verifies location and readiness or explicitly identifies the remaining service/return blocker; it does not automatically restart productive work.
 
 - [ ] **S8 — Jobs have a shared durable lifecycle.** Depends on D5, D6, and D9; develop alongside S7 and S18.
   - [ ] Every admitted job has an identity, resolved policy, preconditions, execution progress, relevant obligations, and an explicit terminal outcome.
@@ -209,6 +209,39 @@ These are project-level demonstrations under the new interface, not substitutes 
 - [ ] **A15 — Completion evidence:** Final reports expose independently checkable costs, obligations, location, condition, progression, and outcome, including unsold inventory and unresolved work.
 - [ ] **A16 — Fresh-session reproducibility:** Setup and run instructions are current, required checks pass, and another session can reproduce representative workflows without relying on this conversation's hidden context.
 
+## Return and servicing increment — 2026-09-10
+
+- `src/servicing.ts` is the common service consumer for preparation, travel and Hunt
+  cleanup, reusing `ensureReadiness`. It waits for authoritative shield recovery at
+  two-second intervals for at most 120 seconds, checking dock/ship identity and
+  defense. Changed fuel/hull or incomplete state is a blocker. Repair quotes remain
+  unresolved; no estimated all-in repair price is invented.
+- `src/execution.ts` now chooses one explicit temporary return fallback after a known
+  home-route or docking rejection. It prefers the current verified dock, otherwise an
+  observed refuel station using the existing route and reserve checks. A missing home
+  can also return temporarily, including Tired sessions in every stance. This never
+  overwrites home or relaxes policy. Unknown command outcomes and inconsistent arrival
+  state still prohibit further movement.
+- Return attempts record the temporary destination and reason before fallback travel.
+  An already-failed return does not silently retry its whole cleanup sequence. Existing
+  obligations and cargo are preserved; fallback cannot declare their delivery complete.
+- Evidence: `src/return-service.test.ts` exercises real execution dispatch with offline
+  accounts: denied home, home-less Tired returns, uncertainty, shield recovery/timeout,
+  changed docking and unquoted repair. Typecheck and 51 Node tests pass. All seven Python runner regression tests pass through
+  `scripts/run_tests.sh tests/test_spacemolt_runner.py` with the Hermes environment. No new live connection or gameplay used.
+
+Next: verify repair pricing from an authoritative API path; add obligations-aware
+return routing/admission and interrupted-job reconciliation. Fallback service failure
+currently stays blocked rather than trying additional stations. Shared parent and live
+acceptance milestones remain open.
+
+## Intent checkpoint — 2026-09-10
+
+Confirmed: initiating agents may choose `--stance` and `--mood` locks. Those choices
+remain fairly static for the execution session/operating period. Normal policy
+reconsideration occurs in a later session; urgent Tired control remains immediate.
+This confirms the existing lock semantics rather than requiring human selection.
+
 ## First shared/Hunt implementation record — 2026-09-09
 
 Implemented paths:
@@ -242,8 +275,9 @@ Existing Node tests and earlier live evidence are preserved.
 
 Remaining work, in dependency order:
 
-1. Strengthen home/service completion: verified repair pricing, shield waiting,
-   explicit reachable temporary fallback, and obligations-aware return admission.
+1. Strengthen home/service completion: verified repair pricing and obligations-aware
+   return admission. Bounded shield waiting and temporary fallback were added on
+   2026-09-10; see the increment above.
 2. Reconcile real interrupted jobs after reconnect. Restart currently preserves a
    durable `needs_reconciliation` blocker and prohibits replay; it cannot autonomously
    resolve a lost fight/purchase response or resume productive work.
@@ -271,5 +305,6 @@ If the test runner needs an environment selector, the handoff used `HERMES_PYTHO
 | Completed item IDs | Implementation / decision | Validation and evidence | Remaining limits | Date |
 |---|---|---|---|---|
 | D1–D6, D8–D10; K0/K2; selected foundation conditions | [Decision contracts](spacemolt/DECISIONS.md), implementation record above | Typecheck; 49 Node tests; 7 Python tests through required runner; both skill validators | Offline fixtures with scripted planner; no new live acceptance; recovery/fallback/universal defense pending | 2026-09-09 |
+| S6/S7 selected conditions; lock intent confirmed | `servicing.ts`, bounded return fallback, `return-service.test.ts` | Typecheck; 51 Node tests; 7 Python runner tests; diff check | Offline fixtures only; repair pricing, obligations-aware routing and reconnect reconciliation pending | 2026-09-10 |
 
 The project is complete when the decisions are resolved, the required skills and systems satisfy their conditions, cross-system invariants hold, and the acceptance demonstrations have evidence. A smaller milestone may be reported as complete without implying that the entire project is done.

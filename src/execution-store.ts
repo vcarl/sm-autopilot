@@ -6,6 +6,7 @@ export interface Job {
   context:ExecutionContext; started_at:string; before:unknown; after?:unknown; obligations?:unknown;
   actions:{action:string; params:unknown; status:'pending'|'confirmed'|'uncertain'; result?:unknown}[];
   result?:unknown; error?:string; cash_delta?:number;
+  return_plan?:{home?:Home;destination:Home;temporary:boolean;reason?:string};
 }
 export interface PilotRecord {pilot_id:string;home?:Home;context?:ExecutionContext;stop?:string;jobs:Job[]}
 /** One bridge owns this pilot's file. Every command is checkpointed before send. */

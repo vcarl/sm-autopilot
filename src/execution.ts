@@ -1,11 +1,11 @@
-import {type Account} from '@spacemolt/lib';
+import {SpacemoltError,type Account} from '@spacemolt/lib';
 import {randomUUID} from 'node:crypto';
 import {combat,battleStatus,controlHunt} from './combat.ts';
 import {combatCatalog} from './combat-metadata.ts';
 import {details,type IndustryCommand} from './industry.ts';
 import {industryLocations} from './locations.ts';
 import {routeSteps} from './survey.ts';
-import {ensureReadiness} from './readiness.ts';
+import {serviceShip} from './servicing.ts';
 import {CommandBoundary} from './command-boundary.ts';
 import {sendAndRefresh} from './execute.ts';
 import {validateAction} from './policy.ts';
@@ -35,6 +35,7 @@ export function executionCatalog(context:ExecutionContext):Record<string,any> {
   return common;
 }
 export class StopWork extends Error {}
+class TravelBlocked extends Error {}
 export interface ExecutionDeps {
   locations?:typeof industryLocations;
   combat?:Parameters<typeof combat>[4];
@@ -109,13 +110,15 @@ export class Execution {
     if(this.account.location?.in_transit)throw new Error('Transit needs reconciliation; no movement replay');
     if(this.account.location!.system_id!==home.system_id) {
       const quote=details(await this.command('spacemolt/find_route',{id:home.system_id}));
-      const steps=routeSteps(quote,this.account.location!.system_id,home.system_id);
-      if(!Number.isFinite(quote.estimated_fuel)||this.account.ship!.fuel<quote.estimated_fuel+17)throw new Error('Route breaches fuel reserve');
+      let steps:string[];
+      try {steps=routeSteps(quote,this.account.location!.system_id,home.system_id);}
+      catch(error) {throw new TravelBlocked(String(error));}
+      if(!Number.isFinite(quote.estimated_fuel)||this.account.ship!.fuel<quote.estimated_fuel+17)throw new TravelBlocked('Route breaches fuel reserve');
       if(this.account.location!.docked_at)await this.command('spacemolt/undock',{});
       for(const next of steps) {
         if(productive&&this.stopping)throw new StopWork('Return requested during travel');
         const system=details(await this.command('spacemolt/get_system',{})).system;
-        if(!system?.connections?.some((c:any)=>(typeof c==='string'?c:c.system_id)===next))throw new Error('Route is not a verified normal connection');
+        if(!system?.connections?.some((c:any)=>(typeof c==='string'?c:c.system_id)===next))throw new TravelBlocked('Route is not a verified normal connection');
         await this.command('spacemolt/jump',{id:next});
         if(this.account.location!.system_id!==next||this.account.location!.in_transit)throw new Error('Jump not verified');
         await this.defend();
@@ -131,15 +134,7 @@ export class Execution {
     if(this.account.location!.docked_at!==home.base_id)throw new Error('Docking identity not verified');
   }
   private async service() {
-    const base=details(await this.command('spacemolt/get_base',{})),ship=this.account.ship!;
-    const price=base.fuel_price_all_in;
-    const quote=Number.isFinite(price)&&price>=0?(ship.max_fuel-ship.fuel)*price:undefined;
-    const remaining=this.remainingSpend();
-    const result=await ensureReadiness(this.account,this.command,{minFuel:ship.max_fuel,minHull:ship.max_hull,creditReserve:this.context.limits.credit_reserve,maxServiceSpend:remaining,serviceQuotes:{refuel:quote}},true);
-    // The current API does not expose a verified all-in repair quote here. Keep that blocker.
-    if(!result.verification.ready)throw new Error(result.verification.blockers.join('; ')||'Servicing did not reach readiness');
-    if(this.account.ship!.shield<this.account.ship!.max_shield)throw new Error('Shields have not recovered; readiness remains blocked');
-    return result;
+    return serviceShip(this.account,this.command,{maxSpend:this.remainingSpend(),creditReserve:this.context.limits.credit_reserve},()=>this.defend(),this.deps.combat);
   }
   private remainingSpend() {
     const before=(this.active?.before as Wire)?.credits??this.account.credits!;
@@ -148,9 +143,35 @@ export class Execution {
   private async returnHome() {
     await this.defend();
     const home=this.context.home;
-    if(!home)throw new Error('No chosen home; observe stations and deliberately select home before starting work');
-    await this.travel(home);
-    return {destination:home,service:await this.service()};
+    let destination=home,fallbackReason:string|undefined;
+    if(home) {
+      if(this.active){this.active.return_plan={home,destination:home,temporary:false};this.store.save();}
+      try {await this.travel(home);}
+      catch(error) {
+        this.boundary.assertHealthy();
+        if(!(error instanceof TravelBlocked)&&!(error instanceof SpacemoltError))throw error;
+        fallbackReason=String(error);
+      }
+    } else fallbackReason='No home chosen; use a temporary service stop without establishing home';
+    if(fallbackReason) {
+      const location=this.account.location;
+      if(location?.in_transit)throw new Error('Return requires transit reconciliation; no fallback movement');
+      const observedAt=new Date().toISOString();
+      if(location?.docked_at&&location.docked_at!==home?.base_id) {
+        destination={system_id:location.system_id,poi_id:location.poi_id!,base_id:location.docked_at,rationale:'Already at a verified temporary dock',observed_at:observedAt};
+      } else {
+        const directory=await (this.deps.locations??industryLocations)(location?.system_id,{});
+        // One candidate per return attempt; no unbounded station hopping after rejection.
+        const candidate=(directory.stations??[]).find(s=>s.base_id!==home?.base_id&&s.services.includes('refuel'));
+        if(!candidate)throw new Error(`No observed service fallback: ${fallbackReason}`);
+        destination={...candidate,rationale:'Nearest observed refuel station after home return was unavailable',observed_at:observedAt};
+      }
+      if(this.active){this.active.return_plan={home,destination,temporary:true,reason:fallbackReason};this.store.save();}
+      await this.travel(destination!);
+    }
+    const returnPlan={home,destination:destination!,temporary:Boolean(fallbackReason),reason:fallbackReason};
+    if(this.active){this.active.return_plan=returnPlan;this.store.save();}
+    return {...returnPlan,service:await this.service()};
   }
   async dispatch(action:string,params:Wire={}) {
     if(action==='observe') {if(this.active)throw new Error('Job owns the connection');return this.observe();}
@@ -161,7 +182,7 @@ export class Execution {
     if(this.stopping&&action!=='return_to_base')throw new Error('Stop latched: productive admission closed');
     if(this.store.unresolved())throw new Error('An unfinished job requires reconciliation; observe it without replay');
     if(action==='assess')return combat('assess',params,this.account,this.command,this.deps.combat);
-    if(!this.context.home)throw new Error('Observe and choose home before work');
+    if(!this.context.home&&action!=='return_to_base')throw new Error('Observe and choose home before work');
     if(Object.keys(params).some(k=>!((executionCatalog(this.context)[action].params??[]) as any[]).some(p=>p.name===k)))throw new Error('Unsupported job parameter');
     for(const field of executionCatalog(this.context)[action].params??[]) {
       const value=params[field.name];
@@ -200,6 +221,7 @@ export class Execution {
         this.boundary.assertHealthy();
         job.status='blocked';
         // Known failures and urgent exits still owe return and servicing.
+        if(action==='return_to_base'||job.return_plan)throw error;
         job.result={partial:result??job.result,cleanup:await this.returnHome()};
         if(this.stopping)job.status='returned_to_base';
       } catch(cleanupError) {
