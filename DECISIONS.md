@@ -136,6 +136,18 @@ or stalemate remains blocked for a victory objective. Tired can return successfu
 without achieving the productive objective. Existing cargo/mission/transport/queued
 production records survive; cleanup never cancels, sells or declares them settled.
 
+Obligation checks (2026-09-10): shared observations retain server identities, deadlines
+and queue metadata. Missing lists never mean empty. Hunt/track admission blocks onboard
+passengers or freight carried by this pilot (including unknown carrier role), because
+this executor has no delivery/deadline plan. Shipper/recipient/invited-carrier records
+without custody and background production do not alone block Hunt. Return still
+services safely and preserves commitments; it does not take a delivery detour or
+automatically unload, sell, cancel, or settle them. Dedicated Logistics routing remains
+work to implement. Receipts retain admission `obligations`, refresh `obligations_after`
+after cleanup, and expose `obligation_verification`. Disappearance from a queue is not
+proof of settlement. Failed terminal observation prevents a successful terminal status;
+command uncertainty preserves the last evidence and defers fresh checks to recovery.
+
 Other stance success contracts: Industry measures new yield/settled output and input
 consumption; Trade actual fills and realized cash plus retained exposure; Logistics
 authoritative delivery/custody/payment; Explore observed coverage and discoveries;

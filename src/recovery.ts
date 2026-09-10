@@ -2,6 +2,7 @@ import {ACTIONS,type Account} from '@spacemolt/lib';
 import {battleStatus,controlHunt} from './combat.ts';
 import {details,type IndustryCommand} from './industry.ts';
 import type {ExecutionStore,Job} from './execution-store.ts';
+import {observeObligations,ObligationObservationError} from './obligations.ts';
 import type {ServiceClock} from './servicing.ts';
 
 type Wire=Record<string,any>;
@@ -67,10 +68,11 @@ export async function reconcileJob(account:Account,store:ExecutionStore,job:Job,
       evidence.battle_summary=summary;store.save();
       if(summary.battle_id!==previousBattle.battle_id||summary.status!=='completed')throw new Error('Recorded battle has no matching authoritative terminal summary');
     }
-    evidence.obligations={missions:account.state.missions,
-      freight:details(await probe('spacemolt_shipping/active',{})),
-      passengers:details(await probe('spacemolt/list_passengers',{})),
-      production:details(await probe('spacemolt/craft',{}))};
+    try {evidence.obligations=await observeObligations(account,probe);}
+    catch(error) {
+      if(!(error instanceof ObligationObservationError))throw error;
+      evidence.obligation_error=String(error);store.save();
+    }
     await account.refresh();
     const state=ops.snapshot();evidence.state=state;
     if(state.ship?.id!==(job.before as Wire)?.ship?.id)throw new Error('Ship changed since job admission; reconcile loss before returning');
@@ -86,10 +88,14 @@ export async function reconcileJob(account:Account,store:ExecutionStore,job:Job,
     ops.resetBoundary();
     evidence.cleanup_attempted=true;store.save();
     evidence.cleanup=await ops.returnHome();
+    await account.refresh();
+    job.obligations_after=await observeObligations(account,probe);
+    job.obligation_verification={status:'observed',reason:'Outstanding commitments remain unfinished after recovery'};
     job.status=job.action==='return_to_base'?'returned_to_base':'interrupted';
     evidence.outcome=job.status;
   } catch(error) {
     evidence.error=String(error);
+    job.obligation_verification={status:'unavailable',reason:'Recovery did not verify terminal obligations: '+String(error)};
     job.status=evidence.cleanup_attempted&&!ops.uncertain()?'blocked':'needs_reconciliation';
     evidence.outcome=job.status;
   } finally {

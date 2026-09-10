@@ -11,6 +11,7 @@ import {sendAndRefresh} from './execute.ts';
 import {validateAction} from './policy.ts';
 import {resolveContext,canHunt,type ExecutionContext,type Home} from './execution-policy.ts';
 import {reconcileJob} from './recovery.ts';
+import {observeObligations,admitHunt,ObligationObservationError,type Obligations} from './obligations.ts';
 import {ExecutionStore,type Job} from './execution-store.ts';
 
 type Wire=Record<string,any>;
@@ -80,7 +81,7 @@ export class Execution {
     await this.account.refresh();
     const locations=await (this.deps.locations??industryLocations)(this.account.location?.system_id,{});
     this.stations=(locations.stations??[]).map((s:any)=>({...s,rationale:'',observed_at:new Date().toISOString()}));
-    const obligations={missions:this.account.state.missions,freight:details(await this.command('spacemolt_shipping/active',{})),passengers:details(await this.command('spacemolt/list_passengers',{})),production:details(await this.command('spacemolt/craft',{}))};
+    const obligations=await observeObligations(this.account,this.command);
     return {observed_at:new Date().toISOString(),source:'authenticated account and public station directory',state:this.snapshot(),locations,obligations,context:this.context,stop:this.store.data.stop,receipts:this.store.data.jobs.slice(-5)};
   }
   plan(params:Wire) {
@@ -216,7 +217,15 @@ export class Execution {
     this.active=job;this.store.data.jobs.push(job);this.store.save();
     let result:any;
     try {
-      job.obligations=(await this.observe()).obligations;this.store.save();
+      let obligations:Obligations|undefined;
+      try {
+        obligations=(await this.observe()).obligations;
+        job.obligations=obligations;
+      } catch(error) {
+        if(action!=='return_to_base'||!(error instanceof ObligationObservationError))throw error;
+        job.obligation_admission_error=String(error);
+      }
+      this.store.save();
       await this.defend();
       const handlers:Record<string,()=>Promise<unknown>>={
         return_to_base:()=>this.returnHome(),
@@ -229,6 +238,7 @@ export class Execution {
         track:()=>this.sortie('scout',params),hunt:()=>this.sortie('hunt',params),
       };
       if(this.stopping&&action!=='return_to_base')throw new StopWork('Stop requested before work');
+      if(action==='hunt'||action==='track')admitHunt(obligations!);
       result=await handlers[action]!();
       job.result=result;
       job.status=result?.status==='blocked'?'blocked':this.stopping?'returned_to_base':action==='hunt'&&!result?.sortie?.fight?.verified_victory?'blocked':'completed';
@@ -246,6 +256,17 @@ export class Execution {
         job.status=this.uncertain?'needs_reconciliation':'blocked';
       }
     } finally {
+      if(this.uncertain)job.obligation_verification={status:'unavailable',reason:'Command uncertainty prevents terminal observation; admission evidence is retained'};
+      else {
+        try {
+          await this.account.refresh();
+          job.obligations_after=await observeObligations(this.account,this.command);
+          job.obligation_verification={status:'observed',reason:'Outstanding commitments are recorded, not declared delivered or settled'};
+        } catch(error) {
+          job.obligation_verification={status:'unavailable',reason:String(error)};
+          job.status=this.uncertain?'needs_reconciliation':'blocked';
+        }
+      }
       job.after=this.snapshot();job.cash_delta=this.account.credits!-(job.before as Wire).credits;
       this.store.save();this.active=undefined;
     }

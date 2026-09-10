@@ -209,6 +209,39 @@ These are project-level demonstrations under the new interface, not substitutes 
 - [ ] **A15 — Completion evidence:** Final reports expose independently checkable costs, obligations, location, condition, progression, and outcome, including unsold inventory and unresolved work.
 - [ ] **A16 — Fresh-session reproducibility:** Setup and run instructions are current, required checks pass, and another session can reproduce representative workflows without relying on this conversation's hidden context.
 
+## Obligation verification increment — 2026-09-10
+
+- Shared `src/obligations.ts` now supplies normal observations and recovery, retaining
+  authoritative freight roles/custody, passenger destinations/deadlines and production
+  queue metadata. Missing lists cannot establish absence of commitments.
+- Hunt/track admission blocks passengers and carried freight until a transport plan
+  exists. Freight in a non-carrier role without custody and background production
+  do not alone block hunting. Return remains available and preserves those obligations.
+- Every normally finalized job now records fresh `obligations_after` and an explicit
+  `obligation_verification`; admission evidence remains immutable. Recovery refreshes
+  these after cleanup too. Observation failure cannot yield verified success, and
+  uncertain mutations prohibit further normal commands until reconciliation. Empty
+  final queues do not imply delivered or settled output.
+- Offline behavioral tests cover admission, changing deadlines/queues during servicing,
+  persisted receipts, malformed observations and failed final observation. Known
+  malformed obligation data still permits defensive return/service (including recovery);
+  the terminal receipt remains blocked/unverified. An independent IC review found
+  and reproduced this distinction, plus queue-count and freight-custody validation gaps. Typecheck,
+  55 Node tests and eight Python tests through the required runner pass. No live play.
+
+Repair pricing investigation: pinned `GetBaseResponse` has a nested station-owner
+`repair_price_per_hull` override and empire policy has `repair_cost_per_hull`, but
+neither establishes all-in repair tax/default/discount/rounding semantics. `repair`
+has no quote or maximum-charge parameter; `RepairResponse.cost` is post-action only.
+The neighboring library provides no additional pricing helper. Retain the precise
+unquoted-repair blocker pending an authoritative quote/cap contract; do not invent a
+price from these inputs. This was a delegated local read-only investigation, not a
+live quote or repair test.
+
+Remaining: obligation-aware delivery routing and resource allocation, settlement
+verification, authoritative repair pricing and universal idle/wait defense. This
+increment strengthens S7/S8/S18 and X5 but does not close their all-stance conditions.
+
 ## Interrupted-job reconciliation increment — 2026-09-10
 
 - `src/recovery.ts`, `execution.ts`, `execution-store.ts`, `execute.ts`: preserve a

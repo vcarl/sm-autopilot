@@ -12,6 +12,9 @@ export function executionFixture(t:any) {
   const calls:any[]=[];
   const account={state,get ship(){return state.ship;},get credits(){return state.player.credits;},get cargo(){return state.cargo;},get location(){return state.location;},async refresh(){},async send(tool:string,action:string,params:any){
     const key=tool+'/'+action;calls.push({key,params});let result:any={};
+    if(key==='spacemolt_shipping/active')result={action:'active',shipments:[],tick:0};
+    if(key==='spacemolt/list_passengers')result={count:0,passengers:[]};
+    if(key==='spacemolt/craft')result={kind:'queue',jobs:null,total_jobs:0};
     if(key==='spacemolt/get_base')result={fuel_price_all_in:3};
     if(key==='spacemolt/inspect')result={catalog:{items:[{id:params.id,damage:10}]}};
     if(key==='spacemolt/get_system')result={system:{pois:[{id:'belt',type:'asteroid_belt'}]}};

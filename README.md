@@ -92,6 +92,12 @@ hunt whose battle was never observed) stays blocked. Read `recovery-receipt.json
 startup recovery, `return-receipt.json` for end-of-session recovery, and the full pilot
 journal before starting another operating period.
 
+Hunt sorties refuse onboard passengers and carrier freight until those commitments
+are resolved. Return preserves them; it does not deliver or cancel them. Receipts
+keep admission `obligations`, fresh terminal `obligations_after`, and an explicit
+`obligation_verification`. Missing terminal observations block success. A production
+job disappearing from the queue does not itself prove that output was settled.
+
 Private full command checkpoints and home live under `runtime/pilots/`. These are
 separate from per-conversation history. Public station discovery does not establish
 access. Unreachable home, missing fuel quotes, damaged hull without verified repair
