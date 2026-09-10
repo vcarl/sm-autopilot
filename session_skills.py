@@ -6,8 +6,9 @@ from pathlib import Path
 def session_skills(context, catalog, home, resume=False):
     from tools.skills_tool import skill_view
     names = ["spacemolt-operations"]
-    if context["stance"] == "Hunt":
-        names.append("spacemolt-hunt")
+    stance_skill = {"Hunt": "spacemolt-hunt", "Industry": "spacemolt-industry"}.get(context["stance"])
+    if stance_skill:
+        names.append(stance_skill)
     loaded = []
     for name in names:
         destination = home / "skills" / name / "SKILL.md"

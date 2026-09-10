@@ -24,10 +24,10 @@ export async function observeObligations(account:Account,command:IndustryCommand
   return structuredClone({observed_at:new Date().toISOString(),missions:account.state.missions,freight,passengers,production});
 }
 
-export function admitHunt(obligations:Obligations) {
+export function admitProductiveSortie(obligations:Obligations,activity:string) {
   const transporting=obligations.freight.shipments.some((s:Record<string,any>)=>
     s.package_in_your_cargo!==false||!['shipper','recipient','invited_carrier'].includes(s.role));
   if(transporting||obligations.passengers.passengers.length) {
-    throw new Error('Hunt sortie blocked by active freight or onboard passengers; resolve transport commitments before hunting. Return preserves them but does not deliver them.');
+    throw new Error(`${activity} sortie blocked by active freight or onboard passengers; resolve transport commitments before productive sorties. Return preserves them but does not deliver them.`);
   }
 }

@@ -120,7 +120,7 @@ Each job must use the shared context, lifecycle, defense, receipts, and relevant
   - [ ] Combat and Hunt each have a representative real-Hermes job receipt under the new interface; training XP, escapes, victories, and costs are distinguished.
 
 - [ ] **S12 — Industry includes gathering and complete production.** Depends on shared foundations and the Industry skill.
-  - [ ] `gather` handles assessed resource collection, preserving starting assets and verifying yield, storage/sale policy, return, and servicing.
+  - [x] `gather` handles assessed resource collection, preserving starting assets and verifying yield, storage/sale policy, return, and servicing. Local retained-output consumer: `gather.ts`, `gather.test.ts`, real Hermes dispatch tests and [offline real-model receipt](spacemolt/evidence/shared-industry-model-fixture.json). Live acceptance and cross-system collection remain open.
   - [ ] `produce` handles input sourcing/staging, quotes, craft submission, pending output, settlement, and explicit unsold inventory or remaining obligations.
   - [ ] Focused ignores unrelated opportunities; Opportunistic diversions include switching costs and pending work; Tired starts no new extraction or production.
   - [ ] Representative real-Hermes gathering and production jobs each finish with verified outputs, costs, servicing, and obligations under the new contract.
@@ -226,15 +226,47 @@ These are project-level demonstrations under the new interface, not substitutes 
   Python checks: 20 tests pass; typecheck and 59 Node tests pass.
   No live gameplay is used or authorized by these tests.
 
-Next implementation slice, following the delegated Industry audit: local bounded
-`gather` under shared Execution, retaining gathered inventory (no implicit sales).
-Reuse mining readiness and canonical yield accounting, but let the shared executor
-own home return, servicing, uncertainty and defensive control. Add local resource
-observations/assessment, productive mine admission and stop checks, per-cycle partial
-yield checkpoints, Industry skill/tool integration and verified gather reports.
-Do not directly wrap the legacy experiment: its separate ledger, origin return,
-caller-supplied service quotes and missing stop checkpoints violate the new contract.
-Production, cross-system gathering and settlement remain later S12 scope.
+## Industry gathering integration — 2026-09-10
+
+The delegated Industry audit selected a local bounded `gather` consumer under shared
+Execution, retaining gathered inventory without implicit sales. Implementation reuses
+mining readiness and canonical inventory accounting; shared Execution owns home return,
+servicing, uncertainty and defensive control. The legacy experiment is not wrapped:
+its separate ledger, origin return, caller-supplied service quotes and missing stop
+checkpoints conflict with the shared contract.
+
+- The Industry session now includes local candidate observation, assessment, mining
+  preparation and a policy-bounded gathering executor. Asteroid-belt listings permit
+  a verification visit; only arrival observations establish resource contents.
+- The gathering skill loads through native Hermes skill reading and follows the
+  actual session catalog, including Tired filtering. It explicitly scopes production
+  and sales as unfinished. K3 remains open for the complete Industry planning skill.
+- Python receipt reporting retains verified gathering output and progression through
+  partial cleanup wrappers. It distinguishes successful return from interrupted work
+  and does not convert retained materials or model prose into realized earnings.
+- Independent review reproduced two verification gaps before acceptance: a ship
+  replacement after the last mine and a filtered mine with unrelated cargo gains.
+  The executor now checks ship identity after extraction and final return, and matches
+  pilot extraction receipts to canonical cargo changes. Unattributed gains are separate.
+  Follow-up review also reproduced stale retention after recovery; recovery now rechecks
+  known gathered inventory after cleanup and blocks missing cargo without replaying mining
+  or attributing uncertain yield. The independent reviewer confirmed all three fixes.
+
+Validation: real Hermes imports, native skill loading and Python-to-Node
+dispatch against temporary homes and offline game fixtures, including Tired after
+an accepted extraction. All 24 SpaceMolt Python tests pass through the required runner.
+Typecheck and 61 Node tests pass. A real local-model run chose home, handed off,
+assessed a site, gathered two cycles and returned serviced: 2 ore + 1 carbon retained,
+10 measured mining XP and 12 credits spent. Its public report agrees with the receipts;
+reviewed evidence is `spacemolt/evidence/shared-industry-model-fixture.json`.
+No live gameplay is claimed by this evidence. Production, cross-system gathering and settlement remain
+later S12 scope; A4 remains open.
+
+Shared spending follow-up found during this slice: `Execution.remainingSpend()` uses
+net wallet loss. An unrelated asynchronous credit reward can mask prior expenditures;
+this is not yet a proof of cumulative gross spending limits. Before extending economic
+consumers, record authoritative per-command costs (including taxes) and test concurrent
+income against the job allocation. Current gathering has no sales or production income.
 
 ## Real-inference receipt fidelity — 2026-09-10
 
@@ -283,9 +315,10 @@ consumers remains open; this closes the concrete reporting defects found in real
   by planner/checkpoint failure, cleanup transport failure and receipt-write failure.
   Typecheck and the existing 59 Node tests pass. These failure scenarios are offline.
 - The prepared one-Hunt live acceptance launch was rejected by automatic approval
-  review: it requires explicit user authorization for the movement, expenditure and
-  possible loss involved. A permission question is pending. The gameplay process did
-  not start. A3/live acceptance stays open; implementation can continue independently.
+  review because movement, expenditure and possible loss required explicit authorization.
+  That launch did not start. The user has now explicitly authorized those normal MMO
+  risks (2026-09-10); live acceptance can proceed after controller checks. A3 stays open
+  until a new live receipt establishes the result.
 
 ## Event-driven defense increment — 2026-09-10
 

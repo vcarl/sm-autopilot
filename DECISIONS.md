@@ -28,8 +28,8 @@ outside this slice. Changing objective through plan does not grant new activitie
 | Explore | Useful observations with survey | Cover bounded nearby observations | Expand coverage budget or turn a hypothesis into productive work |
 | Salvage | Recover assessed wrecks with salvage | Capacity-limited eligible item recovery | Change contested-target permissions or sell starting cargo |
 
-All have common observe, assess, prepare and travel where implemented. Only Hunt
-has productive tools in the new interface today; unsupported tools are absent.
+All have common observe, assess, prepare and travel where implemented. Hunt and
+local Industry gathering have productive tools; unsupported tools are absent.
 The legacy `--industry` path is explicitly separate historical functionality.
 
 ## Moods and numbers (D2, D7)
@@ -66,6 +66,18 @@ Focused and Opportunistic therefore have identical execution in this slice.
 Opportunistic switching-cost and benefit thresholds are deferred until a real
 alternative-job consumer exists. Relaxed has no first strike but can scout and
 escape actual combat. Tired overrides every stance and cannot be undone by plan.
+
+Industry gathering adds bounded extraction cycles: Relaxed 2, Cautious 2, Focused 4,
+Opportunistic 4, Aggressive 6, Tired 0. Call overrides only tighten the resolved
+limit. These are exposure bounds, not yield guarantees. The first gathering consumer
+stays in the selected home's system and retains all output; no sale, storage transfer,
+production input allocation or unrelated diversion is implicit. It requires an
+observed local asteroid-belt candidate, verifies actual resources after arrival,
+and rechecks readiness, stop and defense between extraction commands. Candidate
+discovery never claims remote resource contents or known hostile capability.
+Starting cargo remains protected, transport custody blocks admission, and an uncertain
+mine is never replayed from a cargo difference alone. Industry production/settlement
+and opportunity switching remain unfinished.
 
 ## Home (D4)
 

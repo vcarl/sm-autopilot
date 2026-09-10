@@ -11,8 +11,10 @@ import {sendAndRefresh} from './execute.ts';
 import {validateAction} from './policy.ts';
 import {resolveContext,canHunt,type ExecutionContext,type Home} from './execution-policy.ts';
 import {reconcileJob} from './recovery.ts';
-import {observeObligations,admitHunt,ObligationObservationError,type Obligations} from './obligations.ts';
+import {observeObligations,admitProductiveSortie,ObligationObservationError,type Obligations} from './obligations.ts';
 import {ExecutionStore,type Job} from './execution-store.ts';
+import {ensureReadiness} from './readiness.ts';
+import {observeGathering,assessGathering,gatherResources,verifyGatherInventory,type GatherReceipt} from './gather.ts';
 
 type Wire=Record<string,any>;
 const parameter=(name:string,type:string,description:string,required=false)=>({name,type,description,required});
@@ -33,6 +35,12 @@ export function executionCatalog(context:ExecutionContext):Record<string,any> {
   if(context.stance==='Hunt') {
     common.track=combatCatalog['combat/scout'];
     if(canHunt(context))common.hunt=combatCatalog['combat/hunt'];
+  }
+  if(context.stance==='Industry') {
+    common.assess=meta('Assess a local asteroid belt verification visit, mining readiness and home bounds. Resource contents require arrival observation.',[parameter('poi_id','string','Observed local asteroid belt POI',true)]);
+    common.prepare=meta('Service and install owned mining equipment where supported, preserving displaced equipment. No purchases.');
+    if(context.limits.max_gather_cycles>0)common.gather=meta('Gather for bounded cycles at a local asteroid belt, retain all new cargo, return home and service. Records partial yield and blockers.',[
+      parameter('poi_id','string','Observed local asteroid belt POI',true),parameter('cycles','number','Optional cycle count, only tighter than resolved max_gather_cycles')]);
   }
   return common;
 }
@@ -89,7 +97,7 @@ export class Execution {
     if(this.active&&this.dangerPending&&!this.defending&&!action.startsWith('spacemolt_battle/')) {
       if(await this.defend())throw new DefenseInterruption('Unexpected combat invalidated the pending operation; return before reconsidering work');
     }
-    if(this.stopping&&['spacemolt/hunt','spacemolt/buy','spacemolt/install_mod','spacemolt_storage/withdraw','spacemolt_salvage/loot','spacemolt/scan'].includes(action))throw new StopWork('Stop requested before productive command');
+    if(this.stopping&&['spacemolt/hunt','spacemolt/mine','spacemolt/buy','spacemolt/install_mod','spacemolt/uninstall_mod','spacemolt_storage/withdraw','spacemolt_salvage/loot','spacemolt/scan'].includes(action))throw new StopWork('Stop requested before productive command');
     const entry:Job['actions'][number]={action,params,status:'pending',before:this.snapshot()};
     this.active?.actions.push(entry);this.store.save();
     try {
@@ -101,12 +109,13 @@ export class Execution {
       entry.status=status.fatal?'uncertain':'confirmed';entry.result={error:String(error),...status};this.store.save();throw error;
     }
   };
-  async observe() {
+  async observe(includeGathering=true) {
     await this.account.refresh();
     const locations=await (this.deps.locations??industryLocations)(this.account.location?.system_id,{});
     this.stations=(locations.stations??[]).map((s:any)=>({...s,rationale:'',observed_at:new Date().toISOString()}));
     const obligations=await observeObligations(this.account,this.command);
-    return {observed_at:new Date().toISOString(),source:'authenticated account and public station directory',state:this.snapshot(),locations,obligations,context:this.context,stop:this.store.data.stop,receipts:this.store.data.jobs.slice(-5)};
+    const gathering=includeGathering&&this.context.stance==='Industry'?await observeGathering(this.account,this.command):undefined;
+    return {observed_at:new Date().toISOString(),source:'authenticated account and public station directory',state:this.snapshot(),locations,obligations,gathering,context:this.context,stop:this.store.data.stop,receipts:this.store.data.jobs.slice(-5)};
   }
   plan(params:Wire) {
     if(this.active)throw new Error('Wait for the active job receipt before a normal transition');
@@ -248,7 +257,7 @@ export class Execution {
     if(!(action in executionCatalog(this.context)))throw new Error('Tool unavailable under current stance, mood or permission');
     if(this.stopping&&action!=='return_to_base')throw new Error('Stop latched: productive admission closed');
     if(this.store.unresolved())throw new Error('An unfinished job requires reconciliation; observe it without replay');
-    if(action==='assess')return combat('assess',params,this.account,this.command,this.deps.combat);
+    if(action==='assess'&&this.context.stance!=='Industry')return combat('assess',params,this.account,this.command,this.deps.combat);
     if(!this.context.home&&action!=='return_to_base')throw new Error('Observe and choose home before work');
     if(Object.keys(params).some(k=>!((executionCatalog(this.context)[action].params??[]) as any[]).some(p=>p.name===k)))throw new Error('Unsupported job parameter');
     for(const field of executionCatalog(this.context)[action].params??[]) {
@@ -258,8 +267,10 @@ export class Execution {
       if(!valid)throw new Error(`Invalid or missing ${field.name}`);
     }
     const limits=this.context.limits;
+    if(params.cycles!==undefined&&(!Number.isInteger(params.cycles)||params.cycles<1||params.cycles>limits.max_gather_cycles))throw new Error('cycles exceeds resolved gathering policy');
     if(params.max_ticks!==undefined&&(!Number.isInteger(params.max_ticks)||params.max_ticks<1||params.max_ticks>limits.max_ticks))throw new Error('max_ticks exceeds resolved policy');
     if(params.retreat_hull_fraction!==undefined&&(!Number.isFinite(params.retreat_hull_fraction)||params.retreat_hull_fraction<limits.retreat_hull_fraction||params.retreat_hull_fraction>0.95))throw new Error('Withdrawal override exceeds resolved policy');
+    if(action==='assess')return assessGathering(this.account,this.command,this.context,{poi_id:params.poi_id,cycles:limits.max_gather_cycles});
     if(action==='return_to_base')this.signal();
     await this.account.refresh();
     const job:Job={id:randomUUID(),action,status:'running',context:structuredClone(this.context),started_at:new Date().toISOString(),before:this.snapshot(),actions:[]};
@@ -269,7 +280,7 @@ export class Execution {
       if(this.observedDanger)await this.defend();
       let obligations:Obligations|undefined;
       try {
-        obligations=(await this.observe()).obligations;
+        obligations=(await this.observe(action!=='return_to_base')).obligations;
         job.obligations=obligations;
       } catch(error) {
         if(action!=='return_to_base'||!(error instanceof ObligationObservationError))throw error;
@@ -284,11 +295,12 @@ export class Execution {
           if(!destination)throw new Error('Observe destination before travel');
           await this.travel(destination,true);return {destination,service:await this.service()};
         },
-        prepare:async()=>{await this.service();if(this.context.stance!=='Hunt')return {status:'serviced'};return combat('prepare',{execute:true,max_spend:this.remainingSpend(),credit_reserve:limits.credit_reserve},this.account,this.command,this.deps.combat);},
+        prepare:()=>this.prepare(),
         track:()=>this.sortie('scout',params),hunt:()=>this.sortie('hunt',params),
+        gather:()=>this.gather(params),
       };
       if(this.stopping&&action!=='return_to_base')throw new StopWork('Stop requested before work');
-      if(action==='hunt'||action==='track')admitHunt(obligations!);
+      if(['hunt','track','gather'].includes(action))admitProductiveSortie(obligations!,action==='gather'?'Gather':'Hunt');
       result=await handlers[action]!();
       job.result=result;
       if(this.stopping&&action!=='return_to_base'&&!job.return_plan)throw new StopWork('Productive work suspended; return and service before stopping');
@@ -317,11 +329,49 @@ export class Execution {
           job.obligation_verification={status:'unavailable',reason:String(error)};
           job.status=this.uncertain?'needs_reconciliation':'blocked';
         }
+        if(action==='gather'&&!this.uncertain) {
+          let progress=job.result as Wire|undefined;
+          while(progress?.partial)progress=progress.partial;
+          if(progress?.gather) {
+            try {verifyGatherInventory(progress.gather as GatherReceipt,this.account);}
+            catch(error){job.error??=String(error);job.status='blocked';}
+          }
+        }
       }
       job.after=this.snapshot();job.cash_delta=this.account.credits!-(job.before as Wire).credits;
       this.store.save();this.active=undefined;
     }
     return structuredClone(job);
+  }
+  private async prepare():Promise<any> {
+    await this.service();
+    const limits=this.context.limits;
+    if(this.context.stance==='Industry') {
+      if(this.stopping)throw new StopWork('Stop requested before mining preparation');
+      const readiness=await ensureReadiness(this.account,this.command,{requireMining:true,minFreeCargo:10,creditReserve:limits.credit_reserve},true);
+      return {status:readiness.verification.ready?'prepared':'blocked',readiness};
+    }
+    if(this.context.stance==='Hunt')return combat('prepare',{execute:true,max_spend:this.remainingSpend(),credit_reserve:limits.credit_reserve},this.account,this.command,this.deps.combat);
+    return {status:'serviced'};
+  }
+  private async gather(params:Wire) {
+    const cycles=params.cycles??this.context.limits.max_gather_cycles;
+    const plan={poi_id:params.poi_id,cycles};
+    // Home bounds precede fitting or departure.
+    if(this.context.home?.system_id!==this.account.location?.system_id)throw new Error('Gather requires home in the current system');
+    const prepared=await this.prepare();
+    if(prepared.status==='blocked') {
+      if(this.active){this.active.result={preparation:prepared};this.store.save();}
+      throw new Error('Gather mining preparation blocked: '+prepared.readiness.verification.blockers.join('; '));
+    }
+    const assessment=await assessGathering(this.account,this.command,this.context,plan);
+    const gathered=await gatherResources(this.account,this.command,plan,assessment,{
+      checkpoint:async()=>{await this.defend();if(this.stopping)throw new StopWork('Productive gathering suspended; return and preserve gathered cargo');},
+      save:gather=>{if(this.active){this.active.result={gather};this.store.save();}},
+    });
+    const cleanup=await this.returnHome();
+    verifyGatherInventory(gathered,this.account);
+    return {gather:gathered,cleanup,status:gathered.status};
   }
   private async sortie(action:string,params:Wire) {
     await this.service();

@@ -2,6 +2,7 @@ import {snapshotSkills,skillProgress} from './progression.ts';
 import type {GameState} from '@spacemolt/lib';
 import {appendFileSync, mkdirSync} from 'node:fs';
 import {ensureReadiness, type ReadinessAccount, type ReadinessCommand} from './readiness.ts';
+import {miningInventory as inventory,miningYield} from './mining-inventory.ts';
 
 export interface MiningExperimentParams {
   poi_id: string;
@@ -22,7 +23,6 @@ export interface MiningExperimentParams {
 }
 interface Dependencies { record?: (event:Record<string,unknown>)=>void; now?: ()=>number }
 const details = (reply:any):any => reply?.structuredContent ?? reply?.delta?.details ?? reply ?? {};
-const inventory = (state:GameState) => Object.fromEntries((state.cargo??[]).map(i=>[i.item_id,i.quantity]));
 const snapshot = (state:GameState) => structuredClone({credits:state.player?.credits,ship:state.ship,cargo:state.cargo,modules:state.modules,location:state.location,skills:snapshotSkills(state)});
 function defaultRecord(event:Record<string,unknown>) {
   mkdirSync(new URL('../runtime/',import.meta.url),{recursive:true});
@@ -122,7 +122,7 @@ export async function miningExperiment(params:MiningExperimentParams, account:Re
       const after=inventory(account.state);
       // Live mutation receipts may omit details entirely. Canonical cargo is
       // the yield authority, including sorties that produce multiple resources.
-      const gained=Object.entries(after).map(([item,quantity])=>[item,Math.max(0,quantity-(before[item]??0))] as const).filter(([,quantity])=>quantity>0);
+      const gained=Object.entries(miningYield(before,after));
       if(!gained.length){stopReason='no_yield';break;}
       for(const [item,quantity] of gained)yields[item]=(yields[item]??0)+quantity;
       if(result.remaining===0){stopReason='depleted';break;}

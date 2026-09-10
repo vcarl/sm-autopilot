@@ -4,6 +4,7 @@ import {details,type IndustryCommand} from './industry.ts';
 import type {ExecutionStore,Job} from './execution-store.ts';
 import {observeObligations,ObligationObservationError} from './obligations.ts';
 import type {ServiceClock} from './servicing.ts';
+import {verifyGatherInventory,type GatherReceipt} from './gather.ts';
 
 type Wire=Record<string,any>;
 export function reconcileAction(action:Job['actions'][number],state:Wire,battle:Wire|null) {
@@ -91,11 +92,19 @@ export async function reconcileJob(account:Account,store:ExecutionStore,job:Job,
     await account.refresh();
     job.obligations_after=await observeObligations(account,probe);
     job.obligation_verification={status:'observed',reason:'Outstanding commitments remain unfinished after recovery'};
+    evidence.obligation_verification=job.obligation_verification;
+    if(job.action==='gather') {
+      let progress=job.result as Wire|undefined;
+      while(progress?.partial)progress=progress.partial;
+      // Recovery verifies custody of already recorded yield, never attributes
+      // additional cargo to the interrupted mining command or restarts it.
+      if(progress?.gather)verifyGatherInventory(progress.gather as GatherReceipt,account);
+    }
     job.status=job.action==='return_to_base'?'returned_to_base':'interrupted';
     evidence.outcome=job.status;
   } catch(error) {
     evidence.error=String(error);
-    job.obligation_verification={status:'unavailable',reason:'Recovery did not verify terminal obligations: '+String(error)};
+    if(!evidence.obligation_verification)job.obligation_verification={status:'unavailable',reason:'Recovery did not verify terminal obligations: '+String(error)};
     job.status=evidence.cleanup_attempted&&!ops.uncertain()?'blocked':'needs_reconciliation';
     evidence.outcome=job.status;
   } finally {

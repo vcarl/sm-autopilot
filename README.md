@@ -3,7 +3,9 @@
 This local Hermes fork runs the real `AIAgent` loop against omlx and a persistent
 `@spacemolt/lib` WebSocket connection. The model chooses plans and complete jobs; scripts handle mechanical
 execution, urgent controls, return, servicing and verified receipts. The first new
-execution slice supports Hunt. Other stance jobs remain tracked in root TODO.md.
+execution interface supports Hunt and bounded local Industry gathering. Production
+and other stance jobs remain tracked in root TODO.md. The new shared interface has
+offline integration evidence; the live results below use the historical workflows.
 
 The integration is contained in this directory. Hermes core files are unchanged.
 The fork starts from commit `b3399c139624a0081d70397741a5b45f60fbe1f4` of the
@@ -64,9 +66,17 @@ chooses home through observed stations and a reasoned plan. Default initial poli
 is Hunt/Cautious; a mood choice never grants initiation. `--combat` is shorthand
 for authorizing the new Hunt path. It no longer exposes the primitive catalog.
 The session receives common job tools, Hunt tools when eligible, and native
-`skill_view`; shared and Hunt skills preload at session creation. Tool names use
+`skill_view`; shared and selected stance skills preload at session creation. Tool names use
 `job__observe`, `job__plan`, `job__track`, `job__hunt`, etc. Plan archives the old
 conversation and starts a fresh session without editing its historical prefix.
+
+Use `--stance Industry` for bounded local gathering. The agent observes nearby
+asteroid-belt candidates, chooses home and a site, then uses `job__gather` for a
+policy-limited visit, extraction, and serviced return. Resources are verified on
+arrival; remote POI listings do not prove deposits or safety. Gather retains new
+materials and preserves starting cargo. Its receipt distinguishes measured yield
+and XP from cash spent on servicing. Production and sales are not yet exposed by
+this shared Industry interface; `--industry` still selects the legacy workflows.
 
 To request Tired during a live run, create `stop.json` in that run's runtime:
 

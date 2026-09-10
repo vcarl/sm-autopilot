@@ -9,6 +9,15 @@ def capture_receipt(receipts, response):
         receipts.append(deepcopy(job))
 
 
+def work_result(result, name):
+    # Cleanup may fail after a work phase has already checkpointed useful output.
+    while isinstance(result, dict):
+        if isinstance(result.get(name), dict):
+            return result[name]
+        result = result.get("partial")
+    return {}
+
+
 def receipt_report(receipts, cleanup_response=None):
     # Recovery updates the original job ID. Its complete delta replaces the older
     # partial delta; summing both would count the same purchases twice.
@@ -22,9 +31,7 @@ def receipt_report(receipts, cleanup_response=None):
         if job.get("error"):
             row["error"] = job["error"]
         result = job.get("result")
-        sortie = result.get("sortie") if isinstance(result, dict) else None
-        if not isinstance(sortie, dict):
-            sortie = {}
+        sortie = work_result(result, "sortie")
         if "skill_progress" in sortie:
             row["observed_skill_progress"] = deepcopy(sortie["skill_progress"])
         if isinstance(sortie.get("fight"), dict):
@@ -35,6 +42,14 @@ def receipt_report(receipts, cleanup_response=None):
             if isinstance(summary, dict):
                 row["combat_outcome"]["summary"] = {key: deepcopy(summary[key]) for key in
                                                    ("status", "outcome", "winning_side") if key in summary}
+        gather = work_result(result, "gather")
+        if gather:
+            row["gather_work"] = {key: deepcopy(gather[key]) for key in
+                                  ("status", "poi_id", "cycles_requested", "cycles_completed",
+                                   "stop_reason", "yields", "retained_cargo",
+                                   "unattributed_cargo_gains", "inventory_verification") if key in gather}
+            if "skill_progress" in gather:
+                row["observed_skill_progress"] = deepcopy(gather["skill_progress"])
         jobs.append(row)
     deltas = [job["cash_delta"] for job in jobs]
     known_cash = (all(job["status"] not in {"running", "needs_reconciliation"} for job in jobs)

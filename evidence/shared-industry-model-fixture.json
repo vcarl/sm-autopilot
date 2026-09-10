@@ -1,0 +1,147 @@
+{
+  "validation_level": "Real local model / actual Hermes AIAgent registry and run_execution; offline gatherFixture game only",
+  "model": "mlx-community--Qwen3.6-35B-A3B-4bit",
+  "exit_code": 0,
+  "sessions": 2,
+  "model_tools": [
+    "job__plan",
+    "job__assess",
+    "job__gather"
+  ],
+  "tool_errors": [],
+  "model_report": "Gathering complete. Results:\n\n**Extracted from belt (2 cycles):** +2 ore, +1 carbon\n**Cargo retained:** 12 ore (10 original + 2 new), 1 carbon, 1 original \u2014 all preserved\n**Credits:** 200 000 \u2192 199 988 (\u221212 refuel)\n**Mining skill:** lvl 1, 0 \u2192 10 XP\n**Location:** docked at base (home)\n**Obligation:** `existing-obligation` still active, untouched\n**Stop:** job limit reached (2/2 cycles)",
+  "jobs": [
+    {
+      "action": "gather",
+      "status": "completed",
+      "cash_delta": -12
+    },
+    {
+      "action": "return_to_base",
+      "status": "returned_to_base",
+      "cash_delta": 0
+    }
+  ],
+  "raw_mines": 2,
+  "raw_refuels": 1,
+  "forbidden_actions": [],
+  "gather_work": {
+    "status": "completed",
+    "poi_id": "belt",
+    "cycles_requested": 2,
+    "cycles_completed": 2,
+    "stop_reason": "cycle_limit",
+    "yields": {
+      "ore": 2,
+      "carbon": 1
+    },
+    "retained_cargo": {
+      "ore": 2,
+      "carbon": 1
+    },
+    "unattributed_cargo_gains": {},
+    "inventory_verification": "Starting cargo preserved; measured new yield remains carried"
+  },
+  "skill_progress": [
+    {
+      "skill_id": "mining",
+      "before": {
+        "level": 1,
+        "xp": 0
+      },
+      "after": {
+        "level": 1,
+        "xp": 10
+      },
+      "level_gain": 0,
+      "verified_xp_gain": 10,
+      "xp_note": "Verified counter increase at the same level."
+    }
+  ],
+  "recorded_jobs_cash_delta": -12,
+  "final": {
+    "receipt_id": "b2255415-b9a8-48f4-b1d7-11a366606247",
+    "status": "returned_to_base",
+    "location": {
+      "system_id": "system",
+      "poi_id": "station",
+      "docked_at": "base"
+    },
+    "credits": 199988,
+    "ship_condition": {
+      "id": "ship",
+      "hull": 105,
+      "max_hull": 105,
+      "shield": 35,
+      "max_shield": 35,
+      "fuel": 120,
+      "max_fuel": 120
+    },
+    "retained_cargo": [
+      {
+        "item_id": "ore",
+        "quantity": 4,
+        "size": 1
+      },
+      {
+        "item_id": "ore",
+        "quantity": 6,
+        "size": 1
+      },
+      {
+        "item_id": "original",
+        "quantity": 1,
+        "size": 1
+      },
+      {
+        "item_id": "ore",
+        "quantity": 2,
+        "size": 1
+      },
+      {
+        "item_id": "carbon",
+        "quantity": 1,
+        "size": 1
+      }
+    ],
+    "observed_skills": {
+      "mining": {
+        "level": 1,
+        "xp": 10
+      }
+    },
+    "obligations": {
+      "observed_at": "2026-09-10T15:44:30.348Z",
+      "missions": {
+        "active": [
+          {
+            "id": "existing-obligation"
+          }
+        ]
+      },
+      "freight": {
+        "action": "active",
+        "shipments": [],
+        "tick": 0
+      },
+      "passengers": {
+        "count": 0,
+        "passengers": []
+      },
+      "production": {
+        "kind": "queue",
+        "jobs": null,
+        "total_jobs": 0
+      }
+    },
+    "obligation_verification": {
+      "status": "observed",
+      "reason": "Outstanding commitments are recorded, not declared delivered or settled"
+    },
+    "condition_note": "Observed endpoint condition; not a measurement of damage taken or resources consumed during the job"
+  },
+  "report_matches_checkpoint": true,
+  "report_matches_stdout": true,
+  "initial_attempt_note": "--industry selects legacy raw workflow even with --stance Industry; corrected launcher omits legacy --industry. First harmless attempt failed at catalog before model/game mutations.",
+  "review_note": "Offline game state only. Real model selected home and gathered; no live Industry acceptance claimed."
+}

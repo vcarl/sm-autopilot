@@ -9,8 +9,8 @@ choices, servicing and verification within the resolved policy.
 
 ## When to Use
 
-Use in every SpaceMolt job session. Only Hunt has productive jobs in this slice;
-other stances offer common operations while their job implementations are pending.
+Use in every SpaceMolt job session. Hunt and Industry gathering have productive
+executors; other stance jobs and production remain pending.
 
 ## Prerequisites
 
@@ -46,8 +46,8 @@ Scripts can suspend work but cannot change the objective or grant new target cla
 
 ## Tool: job__prepare
 
-Use `job__prepare` docked to service and prepare the existing hunting fit within the
-job budget. A missing supply or unpriced repair is a blocker, not permission to guess.
+Use `job__prepare` docked to service and prepare the stance-appropriate capability
+within the job budget. A missing supply or unpriced repair is a blocker, not permission to guess.
 
 ## Tool: job__travel
 
@@ -56,7 +56,8 @@ station remains a temporary stop unless you explicitly choose it as home.
 
 ## Tool: job__assess
 
-Use `job__assess` for live nearby threat comparison. Unknown capability is not harmless.
+Use `job__assess` for the selected stance: nearby threat comparison in Hunt, or
+local resource-site suitability in Industry. Unknown capability is not harmless.
 
 ## Tool: job__return_to_base
 
