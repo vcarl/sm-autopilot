@@ -1,0 +1,12 @@
+# Add this block to the dedicated Hermes profile's config.yaml.
+# Keep credentials in the profile .env or launchd environment; never put them here.
+mcp_servers:
+  spacemolt:
+    command: "node"
+    args: ["/Users/vcarl/workspace/testbench/hermes-spacemolt/spacemolt/src/mcp-server.ts"]
+    env:
+      SPACEMOLT_CREDENTIALS_FILE: "/secure/path/kvothe-credentials.txt"
+      SPACEMOLT_STANCE: "Logistics"
+      SPACEMOLT_MOOD: "Focused"
+      SPACEMOLT_OBJECTIVE: "Carry one verified delivery and finish docked"
+    timeout: 1800

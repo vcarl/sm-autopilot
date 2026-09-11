@@ -1969,21 +1969,28 @@ script-owned defensive return remain available despite time-planning blockers.
 
 User asked whether Hermes can run as a daemon, schedule fixed tasks and accept
 Discord inquiries/direction. Local Hermes supports a macOS launchd gateway,
-gateway-hosted cron, Discord DM/channel sessions and scheduled delivery. Our
-SpaceMolt tools are currently registered by execution_runner inside its dedicated
-process; installing the general gateway alone does not expose them. Proposed
-integration: dedicated Hermes profile/gateway plus one serialized SpaceMolt worker,
-with scheduled and Discord intents queued through a plugin/skill boundary. Queries
-use receipts or serialized fresh observations; urgent Tired reaches active scripts,
-normal policy changes use handoff. Cron/chat session lifetimes must not own or kill
-an active movement/cleanup. No daemon installed, schedules created, Discord messages
-sent, or game connections opened by this discussion.
+gateway-hosted cron, Discord DM/channel sessions and scheduled delivery. The new
+`src/mcp-server.ts` is a concrete boundary: one MCP process owns one bridge and
+controller lock, while cron and Discord sessions call high-level SpaceMolt tools.
+`mcp-config.example.yaml` and `DAEMON.md` document a dedicated profile, secret
+credential file, launchd gateway, cron prompt and Discord authorization. No
+credentials are stored. The adapter is typechecked but not started: no daemon
+installed, schedules created, Discord messages sent, or game connections opened.
+Queries use receipts or serialized fresh observations; urgent Tired reaches active
+scripts, normal policy changes use handoff. Cron/chat session lifetimes must not own
+or kill an active movement/cleanup.
 
 Integration coverage now includes a late first leg/no second leg, preserved custody,
 resumed original allowance and fresh selected-custody deadline checks. The deadline
-observer uses shipping/active.tick rather than stale Account.currentTick. Daemon/Discord integration is a user interest,
-not yet implemented or configured; concrete schedules and Discord configuration
-have not been supplied. Preserve these helper files while continuing.
+observer uses shipping/active.tick rather than stale Account.currentTick. Daemon use
+is now scaffolded but not configured; a first real schedule and Discord target still
+require profile secrets and user-selected IDs. Preserve these helper files while
+continuing.
+
+MCP protocol smoke test (with an intentionally missing credential path) returned
+the initialize handshake and the stable eight-tool catalog without contacting the
+game. `npm run typecheck` passes after the adapter addition. The full required
+SpaceMolt Python suite remains green at50 tests; no new Python behavior is claimed.
 
 Tests for this increment: typecheck and npm test passed123 Node tests; required
 Python runner passed50 tests across12 SpaceMolt/native-skill files. Logs:
