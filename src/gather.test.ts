@@ -73,7 +73,7 @@ test('Industry shared jobs assess real local candidates, preserve mixed yield an
       if(mode==='mismatch'&&action==='mine'&&result.structuredContent.resource_id==='carbon')result.structuredContent.quantity++;
       return result;
     };
-    if(mode==='other_system')blocked.execution.context.home!.system_id='remote';
+    if(mode==='other_system')Object.assign(blocked.execution.context.home!,{base_id:'remote_base',poi_id:'remote_station',system_id:'remote'});
     const result:any=await blocked.execution.dispatch('gather',{poi_id:'belt',cycles:2});
     assert.equal(result.status,'blocked',mode);
     assert.equal(blocked.calls.filter(c=>c.key==='spacemolt/mine').length,mode==='replaced'?1:mode==='mismatch'?2:0,mode);

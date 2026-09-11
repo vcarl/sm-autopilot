@@ -18,7 +18,7 @@ export interface Job {
   reconciliation?:Record<string,any>[];
   defense?:Record<string,any>[];
   return_reassessments?:Record<string,any>[];
-  return_plan?:{home?:Home;destination:Home;temporary:boolean;reason?:string};
+  return_plan?:{home?:Home;destination:Home;temporary:boolean;reason?:string;home_location_source?:string;reused_from_job_id?:string};
 }
 export interface PilotRecord {pilot_id:string;home?:Home;context?:ExecutionContext;stop?:string;run_start_job:number;jobs:Job[]}
 /** One bridge owns this pilot's file. Every command is checkpointed before send. */

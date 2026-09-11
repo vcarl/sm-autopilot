@@ -96,6 +96,18 @@ and rationale independently of conversation runtime. Directory access is provisi
 travel verifies arrival and docking. Only plan deliberately replaces home, through a
 fresh-session handoff. A temporary station visit never writes home.
 
+The chosen base ID is stable; its waypoint may move. Observations and scripts resolve
+the same base from authenticated docking first, then the public station directory.
+A missing entry in the bounded directory retains an explicitly remembered waypoint;
+it does not establish absence. Receipts record the effective destination and source
+separately from the unchanged session home choice. Industry admission uses this same
+location resolution. No historical prompt or plan is rewritten.
+
+Final return can reuse the latest fallback reached by the same job/budget owner when
+fresh state confirms the same ship is still docked there. It rechecks servicing and
+obligations, without repeating the known-failed home route. A new operating run does
+not inherit this shortcut. Unknown command outcomes still require reconciliation.
+
 Reconsider when objectives, supplies, access or route costs change. If discovery has
 no suitable candidate, report the discovery blocker without inventing IDs. If home
 cannot be reached, preserve its identity and report the return blocker and current

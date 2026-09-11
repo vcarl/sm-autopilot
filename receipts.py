@@ -34,7 +34,7 @@ def receipt_report(receipts, cleanup_response=None):
             row["stopping_reason"] = job["stopping_reason"]
         if isinstance(job.get("spending"), dict):
             row["spending"] = deepcopy(job["spending"])
-        for key in ("budget_owner_id", "budget_spending"):
+        for key in ("budget_owner_id", "budget_spending", "return_plan"):
             if key in job:
                 row[key] = deepcopy(job[key])
         result = job.get("result")

@@ -2,7 +2,7 @@ export const stances = ['Combat','Hunt','Industry','Trade','Logistics','Explore'
 export const moods = ['Relaxed','Cautious','Focused','Opportunistic','Aggressive','Tired'] as const;
 export type Stance = typeof stances[number];
 export type Mood = typeof moods[number];
-export const policyVersion = 'one-job-gross-1';
+export const policyVersion = 'one-job-gross-home-1';
 export interface Home {system_id:string; poi_id:string; base_id:string; rationale:string; observed_at:string}
 export interface ExecutionContext {
   stance:Stance; mood:Mood; objective:string; home?:Home;

@@ -133,6 +133,13 @@ even across repeated calls or reconnects. Unknown paid costs block more spending
 Exhausting the allocation can leave servicing blocked, and `--new-run` cannot
 clear that condition because it requires an already serviced ship.
 
+Home identifies the chosen base. `home_location` observations resolve its current
+waypoint from authenticated docking or the station directory, including mobile
+bases. This does not change the session's saved home choice or cached prompt.
+Return receipts distinguish the chosen home from the observed destination. Final
+cleanup reuses a fallback already reached under the same job budget, checking
+current ship condition and obligations again rather than repeating a failed route.
+
 Hunt sorties refuse onboard passengers and carrier freight until those commitments
 are resolved. Return preserves them; it does not deliver or cancel them. Receipts
 keep admission `obligations`, fresh terminal `obligations_after`, and an explicit

@@ -15,6 +15,7 @@ import {observeObligations,admitProductiveSortie,ObligationObservationError,type
 import {ExecutionStore,type Job} from './execution-store.ts';
 import {admissionBlocker,terminalStoppingReason} from './execution-stopping.ts';
 import {isPaidCommand,jobSpending,jobBudget,requireCommandSpend} from './spending.ts';
+import {locateHome} from './home-location.ts';
 import {ensureReadiness} from './readiness.ts';
 import {observeGathering,assessGathering,gatherResources,verifyGatherInventory,type GatherReceipt} from './gather.ts';
 
@@ -135,7 +136,7 @@ export class Execution {
     this.stations=(locations.stations??[]).map((s:any)=>({...s,rationale:'',observed_at:new Date().toISOString()}));
     const obligations=await observeObligations(this.account,this.command);
     const gathering=includeGathering&&this.context.stance==='Industry'?await observeGathering(this.account,this.command):undefined;
-    return {observed_at:new Date().toISOString(),source:'authenticated account and public station directory',state:this.snapshot(),locations,obligations,gathering,context:this.context,stop:this.store.data.stop,receipts:this.store.data.jobs.slice(-5)};
+    return {observed_at:new Date().toISOString(),source:'authenticated account and public station directory',state:this.snapshot(),locations,home_location:locateHome(this.context.home,this.account.location,this.stations),obligations,gathering,context:this.context,stop:this.store.data.stop,receipts:this.store.data.jobs.slice(-5)};
   }
   plan(params:Wire) {
     if(this.active)throw new Error('Wait for the active job receipt before a normal transition');
@@ -222,13 +223,40 @@ export class Execution {
       }
     }
   }
+  private async homeLocation() {
+    await this.account.refresh();
+    const resolved=locateHome(this.context.home,this.account.location);
+    if(resolved.source==='authenticated_home_dock'||!this.context.home)return resolved;
+    const directory=await (this.deps.locations??industryLocations)(this.account.location?.system_id,{});
+    return locateHome(this.context.home,this.account.location,directory.stations??[]);
+  }
   private async returnAttempt() {
+    await this.account.refresh();
     await this.defend();
     const home=this.context.home;
+    const location=this.account.location;
+    if(location?.in_transit)throw new Error('Return requires transit reconciliation; no movement replay');
+    const owner=this.active?.budget_owner_id??this.active?.id;
+    const prior=this.store.runJobs().filter(job=>job!==this.active&&(job.budget_owner_id??job.id)===owner).at(-1);
+    const previous=prior?.return_plan;
+    // A final return re-verifies the safe destination already reached by this
+    // job. It must not restart a known-failed home route or acquire a new budget.
+    if(previous?.temporary&&location?.system_id&&location.poi_id&&previous.home?.base_id===home?.base_id&&
+      previous.destination.base_id===location?.docked_at&&
+      (prior?.after as Wire)?.ship?.id===this.account.ship?.id&&
+      (prior?.after as Wire)?.location?.docked_at===location?.docked_at) {
+      const destination={base_id:previous.destination.base_id,rationale:previous.destination.rationale,system_id:location.system_id,poi_id:location.poi_id,observed_at:new Date().toISOString()};
+      const plan={...previous,home,destination,reused_from_job_id:prior!.id};
+      if(this.active){this.active.return_plan=plan;this.store.save();}
+      return {...plan,service:await this.service()};
+    }
     let destination=home,fallbackReason:string|undefined;
+    let homeLocationSource:string|undefined;
     if(home) {
-      if(this.active){this.active.return_plan={home,destination:home,temporary:false};this.store.save();}
-      try {await this.travel(home);}
+      const resolved=await this.homeLocation();
+      destination=resolved.destination!;homeLocationSource=resolved.source;
+      if(this.active){this.active.return_plan={home,destination,temporary:false,home_location_source:homeLocationSource};this.store.save();}
+      try {await this.travel(destination);}
       catch(error) {
         this.boundary.assertHealthy();
         if(!(error instanceof TravelBlocked)&&!(error instanceof SpacemoltError))throw error;
@@ -251,7 +279,7 @@ export class Execution {
       if(this.active){this.active.return_plan={home,destination,temporary:true,reason:fallbackReason};this.store.save();}
       await this.travel(destination!);
     }
-    const returnPlan={home,destination:destination!,temporary:Boolean(fallbackReason),reason:fallbackReason};
+    const returnPlan={home,destination:destination!,temporary:Boolean(fallbackReason),reason:fallbackReason,home_location_source:homeLocationSource};
     if(this.active){this.active.return_plan=returnPlan;this.store.save();}
     return {...returnPlan,service:await this.service()};
   }
@@ -293,7 +321,7 @@ export class Execution {
     if(params.cycles!==undefined&&(!Number.isInteger(params.cycles)||params.cycles<1||params.cycles>limits.max_gather_cycles))throw new Error('cycles exceeds resolved gathering policy');
     if(params.max_ticks!==undefined&&(!Number.isInteger(params.max_ticks)||params.max_ticks<1||params.max_ticks>limits.max_ticks))throw new Error('max_ticks exceeds resolved policy');
     if(params.retreat_hull_fraction!==undefined&&(!Number.isFinite(params.retreat_hull_fraction)||params.retreat_hull_fraction<limits.retreat_hull_fraction||params.retreat_hull_fraction>0.95))throw new Error('Withdrawal override exceeds resolved policy');
-    if(action==='assess')return assessGathering(this.account,this.command,this.context,{poi_id:params.poi_id,cycles:limits.max_gather_cycles});
+    if(action==='assess')return assessGathering(this.account,this.command,{...this.context,home:(await this.homeLocation()).destination},{poi_id:params.poi_id,cycles:limits.max_gather_cycles});
     if(action==='return_to_base')this.signal();
     const allowanceBlocker=admissionBlocker(action,this.store.runJobs());
     await this.account.refresh();
@@ -392,13 +420,14 @@ export class Execution {
     const cycles=params.cycles??this.context.limits.max_gather_cycles;
     const plan={poi_id:params.poi_id,cycles};
     // Home bounds precede fitting or departure.
-    if(this.context.home?.system_id!==this.account.location?.system_id)throw new Error('Gather requires home in the current system');
+    const homeLocation=await this.homeLocation();
+    if(homeLocation.destination?.system_id!==this.account.location?.system_id)throw new Error('Gather requires home in the current system');
     const prepared=await this.prepare();
     if(prepared.status==='blocked') {
       if(this.active){this.active.result={preparation:prepared};this.store.save();}
       throw new Error('Gather mining preparation blocked: '+prepared.readiness.verification.blockers.join('; '));
     }
-    const assessment=await assessGathering(this.account,this.command,this.context,plan);
+    const assessment=await assessGathering(this.account,this.command,{...this.context,home:homeLocation.destination},plan);
     const gathered=await gatherResources(this.account,this.command,plan,assessment,{
       checkpoint:async()=>{await this.defend();if(this.stopping)throw new StopWork('Productive gathering suspended; return and preserve gathered cargo');},
       save:gather=>{if(this.active){this.active.result={gather};this.store.save();}},

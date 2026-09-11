@@ -281,6 +281,29 @@ budget reauthorization workflow remains future work. Independent review reproduc
 the original boundary defect, but the reviewing IC hit a usage limit before final
 patch review; final implementation review and validation were completed locally.
 
+## Mobile-home and final-cleanup correction — 2026-09-11
+
+`home-location.ts` resolves the chosen base ID using current authenticated docking
+or the station directory. The session home and cached context stay unchanged;
+`home_location` observations and `return_plan` receipts carry current coordinates
+and their source. Missing bounded-directory entries retain a labeled remembered
+waypoint. Return and Industry assessment/admission share this resolution.
+
+Final return now reuses the latest temporary fallback within the same budget owner
+when fresh state confirms the same ship remains docked there. It still services
+current fuel/hull/shields and observes obligations; it neither repeats the failed
+home route nor grants new spending. Explicit new-run boundaries discard fallback
+reuse. Public reports include the return plan and provenance.
+
+Offline validation: typecheck, 67 Node tests and 29 Python tests through the required
+runner. New contracts cover relocated home at dock/away, Industry gathering under a
+relocated home, immutable session context, restart/fallback reuse, fresh service
+needs, unquoted hull damage and new-run retry. Real Python bridge → Node dispatch →
+runner final cleanup checks prove no additional movement or spending after either
+successful mobile-home or fallback cleanup. Policy: `one-job-gross-home-1`.
+No new live run has validated this correction yet. The previous live receipt below
+remains evidence of the original defects, not acceptance of this patch.
+
 ## Second live shared Hunt attempt — 2026-09-10
 
 After commit `42dd9fa919`, fresh process and lock checks found no controller. Real
