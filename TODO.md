@@ -1448,6 +1448,67 @@ verified, position for a bounded real-Hermes passenger job. General shopping-tri
 implementation stays paused per user steering; full VISION and passenger acceptance
 remain unfinished.
 
+## Passenger materials and purchase-tax fix — 2026-09-11
+
+Baseline commit is `d3d589c8a0`. Direct Codex setup (not Hermes acceptance) reached
+Starfall Salvage Station from Void Gate and bought two life_support_unit after a
+fresh fully filled quote: subtotal3819, tax19, actual debit3838. Verified both units
+in cargo. Refueling three units cost9 including tax3. Evidence and replay inputs:
+`spacemolt/evidence/codex-passenger-starfall.json`. No economy cabin sellers were
+quoted; a business cabin ask30000 exceeds the configured10000 allocation and was
+not purchased. No wrecks or waiting passengers were observed locally.
+
+This exposed a production accounting bug: accepted buy `details.total_cost` excludes
+tax. `execute.ts` now captures the canonical lifetime credits_spent counter before
+submission and in the accepted response, durably before refresh can fail. The shared
+spending parser conservatively charges that observed interval, preserving the raw
+subtotal. Concurrent income cannot conceal spending; unrelated interval debits also
+consume the allocation. Missing, decreasing or inconsistent counters remain unknown
+costs and block further spending. Historical receipts lacking this evidence are not
+silently assigned a tax estimate. Regression tests were reproduced red before the
+fix; taxed fixtures now exercise actual sendAndRefresh and shared durable recovery.
+
+Validation actually run: from spacemolt, `npm run typecheck && npm test` passed104
+Node tests. `HERMES_PYTHON=/Users/vcarl/workspace/testbench/hermes-agent/.venv/bin/python
+scripts/run_tests.sh tests/test_spacemolt*.py tests/skills/test_spacemolt_industry_skill.py
+tests/skills/test_spacemolt_logistics_skill.py` passed46 tests across12 files, including
+real Hermes imports/registry/BridgeClient/ExecutionHost in temporary HERMES_HOME.
+Recorded live data replay through sendAndRefresh and commandSpend confirms3838 gross
+spend while preserving3819 subtotal in both accepted callback and returned receipt.
+These are fixtures, integration checks and a recorded-data replay, not a new Hermes
+live job. Diff check passes; VISION remains verbatim.
+
+Terminal direct runtime: `spacemolt/runtime/codex-passenger-starfall-20260911`, tool
+handle11027 and bridge PID5019 exited0; terminal.json records exit and subsequent
+process inspection confirms PID absent. No controller is active. Last authoritative
+state: docked starfall_salvage_station / starfall, credits194640, fuel120/120,
+hull105/105, shield35/35, cargo19/120. Original cargo and modules preserved; staged
+materials are titanium_alloy4 and life_support_unit2. No passengers, freight or craft
+queue remain, and no ship commission was submitted. Only Unknown Edge distress
+mission `2a23e470f63feb5b23c1be98a5bcf466` remains in the active listing; absent Starfall
+missions are not claimed completed or paid. Remembered home remains Frontier Station,
+last observed in Deep Range / mobile_capital; temporary servicing did not change it.
+
+Files in this verified milestone: TODO.md, spacemolt/README.md, execute.ts and its new
+behavioral test, spending.ts/test, execution-fixture.ts, production-fixture.ts,
+industry.test.ts, passenger-fit.test.ts, new shared-buy-spending.test.ts,
+tests/test_spacemolt_production.py and sanitized Starfall evidence. Commit this set
+locally as `Account for purchase tax using accepted spending counters`; no push.
+No unrelated uncommitted work was present. The commit containing this record closes
+the accounting bug, not passenger setup or the full vision.
+
+Exact next action: check controller ownership, reconnect and query fresh state, then
+quote a route toward Frontier's previously observed polymer supply. The staged cabin
+recipe now needs only flex_polymer6 plus an available workshop; re-quote local supply,
+all-in costs and craft prerequisites before buying or queuing. Crafting is a fallback,
+not mandatory: a currently available affordable cabin remains a valid alternative.
+Starfall is three jumps from the last home region, so use a verified multi-leg route,
+not an assumed shared two-jump return. A queued cabin takes about84 docked ticks;
+verify completion/output custody before fitting and preserve the removed mining laser.
+Canonical berths must exist before a bounded real-Hermes passenger demonstration.
+General requisition implementation remains paused; live retained production,
+passenger acceptance and full-vision integration remain open.
+
 ## Validation and completion record
 
 Follow the repository's required test workflow. Existing useful checks from the repository root are:

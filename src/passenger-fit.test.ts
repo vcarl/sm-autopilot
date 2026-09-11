@@ -21,7 +21,7 @@ function fixture(t:any,source:'buy'|'storage'|'cargo'='buy',noInstall=false) {
     if(action==='estimate_purchase')result={quantity_requested:1,available:1,unfilled:0,total_cost:80,subtotal:75,sales_tax:5,fills:[{quantity:1,price_each:75}]};
     if(action==='buy'||tool==='spacemolt_storage'&&action==='withdraw') {
       f.state.cargo.push({item_id:cabin,quantity:1,size:10});f.state.ship.cargo_used+=10;
-      if(action==='buy'){f.state.player.credits+=100-80;result={item_id:cabin,quantity:1,total_cost:80,delivered_to_cargo:1};}else{stored--;result={};}
+      if(action==='buy'){f.state.player.credits+=100-80;f.state.player.stats.credits_spent+=80;return {command:'buy',delta:{player:{stats:{credits_spent:f.state.player.stats.credits_spent}},details:{item_id:cabin,quantity:1,total_cost:75,delivered_to_cargo:1}}};}else{stored--;result={};}
     }
     if(action==='uninstall_mod') {
       f.state.modules=f.state.modules.filter((row:any)=>row.module_id!==params.id);

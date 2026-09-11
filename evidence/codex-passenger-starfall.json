@@ -1,0 +1,219 @@
+{
+  "classification": "Direct Codex setup gameplay and recorded receipt evidence; not Hermes/oMLX live acceptance",
+  "date": "2026-09-11",
+  "private_runtime": "spacemolt/runtime/codex-passenger-starfall-20260911",
+  "controller": {
+    "bridge_pid": 5019,
+    "exit_code": 0,
+    "tool_process_handle": 11027,
+    "status": "exited"
+  },
+  "movement": {
+    "from": {
+      "system_id": "void_gate",
+      "poi_id": "void_gate_outpost",
+      "docked_at": "void_gate_outpost"
+    },
+    "to": {
+      "system_id": "starfall",
+      "poi_id": "starfall_salvage_station",
+      "docked_at": "starfall_salvage_station"
+    },
+    "normal_jumps": 1
+  },
+  "purchase": {
+    "item_id": "life_support_unit",
+    "quantity": 2,
+    "delivered_to": "cargo",
+    "quote": {
+      "quantity_requested": 2,
+      "available": 2,
+      "unfilled": 0,
+      "subtotal": 3819,
+      "sales_tax": 19,
+      "total_cost": 3838
+    },
+    "quote_fills": [
+      {
+        "quantity": 1,
+        "price_each": 1905,
+        "subtotal": 1905,
+        "source": "station"
+      },
+      {
+        "quantity": 1,
+        "price_each": 1914,
+        "subtotal": 1914,
+        "source": "station"
+      }
+    ],
+    "accepted_details": {
+      "action": "buy",
+      "item_id": "life_support_unit",
+      "quantity": 2,
+      "total_cost": 3819,
+      "delivered_to_cargo": 2,
+      "fills": [
+        {
+          "quantity": 1,
+          "price_each": 1905,
+          "subtotal": 1905,
+          "source": "station"
+        },
+        {
+          "quantity": 1,
+          "price_each": 1914,
+          "subtotal": 1914,
+          "source": "station"
+        }
+      ]
+    },
+    "counter_evidence": {
+      "before_source": "spacemolt/runtime/codex-passenger-fleet-20260911/028.json",
+      "before_credits_spent": 33721,
+      "after_source": "spacemolt/runtime/codex-passenger-starfall-20260911/016.json",
+      "after_credits_spent": 37559,
+      "same_player_identity_verified": true,
+      "observed_spending_increment": 3838
+    },
+    "wallet_evidence": {
+      "before": 198487,
+      "after_purchase": 194649,
+      "decrease": 3838
+    },
+    "finding": "Accepted buy.details.total_cost=3819 matches the pre-tax subtotal; the accepted cumulative spending counter increases by3838, matching the prior all-in quote and wallet decrease. Reading only details.total_cost undercounts this observed purchase by19."
+  },
+  "recorded_accounting_replay": {
+    "identity_redaction": "The same observed player ID is replaced consistently by pilot.",
+    "before": {
+      "player": {
+        "id": "pilot",
+        "credits": 198487,
+        "stats": {
+          "credits_spent": 33721
+        }
+      }
+    },
+    "accepted_result": {
+      "command": "buy",
+      "tick": 1852661,
+      "delta": {
+        "player": {
+          "id": "pilot",
+          "credits": 194649,
+          "stats": {
+            "credits_spent": 37559
+          }
+        },
+        "details": {
+          "action": "buy",
+          "item_id": "life_support_unit",
+          "quantity": 2,
+          "total_cost": 3819,
+          "delivered_to_cargo": 2
+        }
+      }
+    },
+    "expected_gross_spend": 3838
+  },
+  "refuel": {
+    "action": "refuel",
+    "source": "station",
+    "fuel": 3,
+    "cost": 9,
+    "market_cost": 6,
+    "tax_amount": 3,
+    "credits_spent_after": 37568,
+    "counter_increment": 9
+  },
+  "observed_alternatives": {
+    "economy_cabin": {
+      "available": 0,
+      "unfilled": 1,
+      "quantity_requested": 1
+    },
+    "business_cabin": {
+      "item_id": "business_passenger_cabin",
+      "best_sell": 30000,
+      "best_sell_qty": 1
+    },
+    "configured_allocation": 10000,
+    "business_cabin_purchased": false,
+    "wrecks": 0,
+    "waiting_passengers": 0
+  },
+  "final": {
+    "credits": 194640,
+    "ship_condition": {
+      "fuel": 120,
+      "max_fuel": 120,
+      "hull": 105,
+      "max_hull": 105,
+      "shield": 35,
+      "max_shield": 35,
+      "cargo_used": 19,
+      "cargo_capacity": 120
+    },
+    "cargo": [
+      {
+        "item_id": "standard_rounds_box",
+        "quantity": 1,
+        "size": 1
+      },
+      {
+        "item_id": "creature_carapace",
+        "quantity": 1,
+        "size": 1
+      },
+      {
+        "item_id": "phase_pearl",
+        "quantity": 2,
+        "size": 1
+      },
+      {
+        "item_id": "carbon_ore",
+        "quantity": 6,
+        "size": 1
+      },
+      {
+        "item_id": "platinum_ore",
+        "quantity": 1,
+        "size": 1
+      },
+      {
+        "item_id": "titanium_alloy",
+        "quantity": 4,
+        "size": 1
+      },
+      {
+        "item_id": "life_support_unit",
+        "quantity": 2,
+        "size": 2
+      }
+    ],
+    "starting_cargo_preserved": true,
+    "passengers": {
+      "count": 0,
+      "passengers": []
+    },
+    "freight_shipments": [],
+    "production_queue": {
+      "kind": "queue",
+      "jobs": null,
+      "total_jobs": 0
+    },
+    "active_mission_destinations": [
+      "unknown_edge"
+    ],
+    "economy_cabin_aboard": false
+  },
+  "limits": [
+    "The Starfall mission listings disappeared, but disappearance alone does not establish completion.",
+    "No cabin was purchased or produced and no passenger was transported.",
+    "The purchase counter increment is observed gross spend for this serialized interval; this receipt does not establish universal tax or counter semantics."
+  ],
+  "run_accounting": {
+    "gross_purchase_and_service": 3847,
+    "wallet_delta": -3847
+  }
+}

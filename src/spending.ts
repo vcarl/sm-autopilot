@@ -10,14 +10,22 @@ export interface BudgetSpending extends SpendingEvidence {owner_job_id:string;ma
 export const isPaidCommand=(action:string,params:unknown={})=>action in paidFields||
   (action==='spacemolt/craft'&&params!==null&&typeof params==='object'&&
     'id' in params&&typeof params.id==='string'&&(!('dry_run' in params)||params.dry_run!==true));
-const costEvidence=(action:string)=>paidFields[action]??'escrowed.labor and escrowed.fee';
+const costEvidence=(action:string)=>action==='spacemolt/buy'?'accepted lifetime credits_spent counter interval covering the market subtotal':paidFields[action]??'escrowed.labor and escrowed.fee';
 const validCost=(cost:unknown):cost is number=>typeof cost==='number'&&Number.isFinite(cost)&&cost>=0;
 
-/** These pinned response fields are totals. Refuel tax is already in cost. */
+/** Buy total_cost excludes sales tax. Count the full observed debit interval conservatively. */
 export function commandSpend(action:string,reply:any,params:unknown={}):number|null {
   const field=paidFields[action];
   if(!isPaidCommand(action,params))return 0;
   const result=reply?.structuredContent??reply?.delta?.details??reply;
+  if(action==='spacemolt/buy') {
+    const evidence=result?._hermes_spending;
+    if(evidence?.source!=='lifetime_credits_spent_interval'||!validCost(result?.total_cost)||
+      evidence.market_subtotal!==result.total_cost||!validCost(evidence.before)||!validCost(evidence.after))return null;
+    const total=evidence.after-evidence.before;
+    // Other asynchronous debits may share the interval; income cannot conceal spending.
+    return validCost(total)&&total>=result.total_cost?total:null;
+  }
   if(action==='spacemolt/craft') {
     const escrow=result?.escrowed;
     if(result?.kind!=='job'||!validCost(escrow?.labor)||!validCost(escrow?.fee))return null;

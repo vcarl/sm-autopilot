@@ -7,7 +7,7 @@ import {ExecutionStore} from './execution-store.ts';
 import {resolveContext} from './execution-policy.ts';
 export function executionFixture(t:any) {
   const directory=mkdtempSync(join(tmpdir(),'spacemolt-jobs-'));t.after(()=>rmSync(directory,{recursive:true,force:true}));
-  const state:any={player:{id:'pilot',credits:200000},ship:{id:'ship',armor:3,shield_recharge:1,fuel:120,max_fuel:120,hull:105,max_hull:105,shield:35,max_shield:35,cargo_used:1,cargo_capacity:100,cpu_used:4,cpu_capacity:20,power_used:4,power_capacity:20,utility_slots:2,weapon_slots:2,defense_slots:2,speed:2},location:{system_id:'system',poi_id:'station',docked_at:'base'},cargo:[{item_id:'original',quantity:1,size:1}],modules:[{module_id:'weapon',type_id:'autocannon_i',slot:'weapon',ammo_type:'autocannon',current_ammo:500,stats:{damage:10,cooldown:1,reach:2}}],skills:{},missions:{active:[{id:'existing-obligation'}]}};
+  const state:any={player:{id:'pilot',credits:200000,stats:{credits_spent:0}},ship:{id:'ship',armor:3,shield_recharge:1,fuel:120,max_fuel:120,hull:105,max_hull:105,shield:35,max_shield:35,cargo_used:1,cargo_capacity:100,cpu_used:4,cpu_capacity:20,power_used:4,power_capacity:20,utility_slots:2,weapon_slots:2,defense_slots:2,speed:2},location:{system_id:'system',poi_id:'station',docked_at:'base'},cargo:[{item_id:'original',quantity:1,size:1}],modules:[{module_id:'weapon',type_id:'autocannon_i',slot:'weapon',ammo_type:'autocannon',current_ammo:500,stats:{damage:10,cooldown:1,reach:2}}],skills:{},missions:{active:[{id:'existing-obligation'}]}};
   let fight=false,tick=0,now=0,stance='fire';
   const calls:any[]=[];
   const account={state,get ship(){return state.ship;},get credits(){return state.player.credits;},get cargo(){return state.cargo;},get location(){return state.location;},async refresh(){},async send(tool:string,action:string,params:any){
@@ -30,7 +30,7 @@ export function executionFixture(t:any) {
     if(key==='spacemolt/undock')state.location.docked_at=null;
     if(key==='spacemolt/travel'){state.location.poi_id=params.id;state.ship.fuel--;}
     if(key==='spacemolt/dock')state.location.docked_at=state.location.poi_id==='other'?'other':'base';
-    if(key==='spacemolt/refuel'){const cost=(120-state.ship.fuel)*3;state.player.credits-=cost;state.ship.fuel=120;result={cost,fuel:120,source:'station'};}
+    if(key==='spacemolt/refuel'){const cost=(120-state.ship.fuel)*3;state.player.credits-=cost;state.player.stats.credits_spent+=cost;state.ship.fuel=120;result={cost,fuel:120,source:'station'};}
     return {structuredContent:result};
   }} as unknown as Account;
   const store=new ExecutionStore(directory,'pilot');

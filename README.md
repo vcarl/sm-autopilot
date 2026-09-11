@@ -172,7 +172,13 @@ observed skill/loadout/ship changes remain available for planning.
 
 Verified reports distinguish gross spending from net wallet change. Preparation
 and cleanup use one per-job allocation; automatic return keeps that allocation
-even across repeated calls or reconnects. Unknown paid costs block more spending.
+even across repeated calls or reconnects. Live purchase `total_cost` can exclude
+sales tax. Buy accounting therefore retains the canonical lifetime-spending counter
+from immediately before the command and its accepted response. The observed debit
+interval includes tax and cannot be reduced by concurrent income; any unrelated
+spending within that interval also consumes the allocation. It is not a promise of
+exact purchase-only attribution. Missing or inconsistent counter evidence leaves
+the all-in purchase cost unknown and blocks further spending.
 Exhausting the allocation can leave servicing blocked, and `--new-run` cannot
 clear that condition because it requires an already serviced ship.
 

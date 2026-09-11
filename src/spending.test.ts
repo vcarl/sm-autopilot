@@ -42,7 +42,7 @@ test('accepted service costs survive recovery exactly once; missing prices canno
 });
 
 test('service totals include tax once and an overquote stops further service despite concurrent income',async t=>{
-  assert.equal(commandSpend('spacemolt/buy',{delta:{details:{total_cost:21,tax:3}}}),21);
+  assert.equal(commandSpend('spacemolt/buy',{delta:{details:{total_cost:21,tax:3}}}),null);
   assert.equal(commandSpend('spacemolt/refuel',{structuredContent:{cost:12,market_cost:8,tax:4}}),12);
   assert.equal(commandSpend('spacemolt/repair',{structuredContent:{cost:0}}),0);
   const f=gatherFixture(t);f.state.ship.fuel=116;f.state.ship.hull=104;
@@ -52,6 +52,19 @@ test('service totals include tax once and an overquote stops further service des
     return {structuredContent:{cost:12,market_cost:8,tax:4}};
   },{minFuel:120,maxServiceSpend:12,serviceQuotes:{refuel:9,repair:3}},true),/spending breached/);
   assert.deepEqual(actions,['spacemolt/refuel']);
+});
+
+test('purchase subtotals never establish all-in spending without a valid accepted counter interval',()=>{
+  const receipt={total_cost:3819};
+  for(const [before,after,expected] of [[33721,37559,3838],[33721,37540,3819],[33721,37659,3938],[undefined,37559,null],[33721,undefined,null],[33721,33720,null],[33721,37539,null],[NaN,37559,null],[33721,Infinity,null]]) {
+    const result={...receipt,_hermes_spending:{source:'lifetime_credits_spent_interval',before,after,market_subtotal:3819}};
+    assert.equal(commandSpend('spacemolt/buy',result),expected);
+    const job:any={id:'buy',actions:[{action:'spacemolt/buy',params:{id:'life_support_unit',quantity:2},status:'uncertain',accepted_result:{delta:{details:result}},result:{error:'refresh failed'}}]};
+    assert.equal(jobSpending(job).gross_spend,expected);
+  }
+  for(const invalid of [{source:'wallet_delta'}, {market_subtotal:3818}])
+    assert.equal(commandSpend('spacemolt/buy',{...receipt,_hermes_spending:{source:'lifetime_credits_spent_interval',before:33721,after:37559,market_subtotal:3819,...invalid}}),null);
+  assert.equal(commandSpend('spacemolt/buy',receipt),null);
 });
 
 test('craft reads are free while accepted enqueue escrow remains priced exactly once across recovery',()=>{

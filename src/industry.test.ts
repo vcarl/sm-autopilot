@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {CatalogCache, type Account} from '@spacemolt/lib';
 import {normalizeIndustryCatalog} from './persistent-catalog.ts';
+import {sendAndRefresh} from './execute.ts';
 import { executeIndustry, craftRouting, settleExperiment, sameQuantities, viableSpend } from './industry.ts';
 
 test('settles partial output across cargo-sized sales and resumes without duplicate withdrawal or production', async () => {
@@ -90,22 +91,25 @@ test('shared production persists every mutation and uses accepted costs despite 
   for(const missingEscrow of [false,true]) {
     const recipe={id:'refine',name:'Refine',category:'refining',description:'',crafting_time:1,inputs:[{item_id:'ore',quantity:2}],outputs:[{item_id:'metal',quantity:1}]};
     const cache=new CatalogCache(normalizeIndustryCatalog({version:'fixture',items:[],recipes:[recipe]}));
-    const account:any={credits:100,location:{docked_at:'station'},cargo:[],state:{skills:{}}};
+    const account:any={credits:100,location:{docked_at:'station'},cargo:[],state:{skills:{},player:{stats:{credits_spent:0}}}};
     let stock=0;
     const snapshots:any[]=[],mutations:string[]=[];
     const market={items:[{item_id:'ore',sell_orders:[{price_each:2,quantity:20}],buy_orders:[]},{item_id:'metal',buy_orders:[{price_each:20,quantity:20}]}]};
     const context={existing_experiments:[] as any[],catalog:Promise.resolve({cache,freshness:'fresh' as const,fetchedAt:0,retryAt:null}),snapshot:Promise.resolve({market,storage:{items:[]},facilities:{}}),record:(e:any)=>snapshots.push(structuredClone(e)),now:()=>0};
-    const command=async(action:string,params:any={})=>{
+    const rawCommand=async(action:string,params:any={})=>{
       if(action==='spacemolt_market/view_market')return market;
       if(action==='spacemolt_market/estimate_purchase')return {total_cost:4,sales_tax:0,unfilled:0,fills:[{price_each:2,quantity:2}]};
       if(action==='spacemolt_storage/view')return {items:[{item_id:'ore',quantity:stock}]};
       if(action==='spacemolt/craft'&&params.dry_run)return {kind:'quote',runs:1,credits_total:3,effective_time_per_run:1,have_inputs:true,cost:{inputs:recipe.inputs},produces:recipe.outputs};
       if(action==='spacemolt/craft'&&!params.id)return {kind:'queue',jobs:[{job_id:'job'}]};
       mutations.push(action);account.credits+=100;
-      if(action==='spacemolt/buy'){stock=2;return {total_cost:4,unfilled:0,delivered_to_storage:2};}
+      if(action==='spacemolt/buy'){stock=2;account.state.player.stats.credits_spent+=4;return {command:'buy',delta:{player:{stats:{credits_spent:account.state.player.stats.credits_spent}},details:{total_cost:4,unfilled:0,delivered_to_storage:2}}};}
       if(action==='spacemolt/craft')return {kind:'job',job_id:'job',escrowed:missingEscrow?{labor:3}:{labor:2,fee:1}};
       throw new Error(`Unexpected ${action}`);
     };
+    account.send=async(tool:string,action:string,params:any)=>rawCommand(tool+'/'+action,params);
+    account.refresh=async()=>{};
+    const command=(action:string,params:any={})=>sendAndRefresh(account,action,params,()=>{});
     const result:any=await executeIndustry('produce',{recipe_id:'refine',source:'buy',credit_reserve:0,max_spend:7,max_wait_seconds:0},account,command,context);
     assert.equal(result.job_id,'job');assert.equal(result.earned,0);
     assert.equal(result.spent,missingEscrow?4:7);
@@ -148,11 +152,11 @@ test('own-use production retains verified output without sale demand while prese
     const recipe={id:'build',name:'Build cabin',category:'utility',description:'',crafting_time:1,inputs:[{item_id:'ore',quantity:2}],outputs:[{item_id:'cabin',quantity:1}]};
     const cache=new CatalogCache(normalizeIndustryCatalog({version:'retention-fixture',items:[],recipes:[recipe]}));
     const stock=[{item_id:'ore',quantity:source==='inventory'?2:0},{item_id:'cabin',quantity:3}];
-    const account:any={credits:100,location:{docked_at:'station'},cargo:[{item_id:'original',quantity:1}],state:{skills:{}}};
+    const account:any={credits:100,location:{docked_at:'station'},cargo:[{item_id:'original',quantity:1}],state:{skills:{},player:{stats:{credits_spent:0}}}};
     const mutations:string[]=[],snapshots:any[]=[];
     let estimates=0;
     const context={existing_experiments:[],catalog:Promise.resolve({cache,freshness:'fresh' as const,fetchedAt:0,retryAt:null}),snapshot:Promise.resolve({market:{items:[]},storage:{items:structuredClone(stock)},facilities:{}}),record:(row:any)=>snapshots.push(structuredClone(row))};
-    const command=async(action:string,params:any={})=>{
+    const rawCommand=async(action:string,params:any={})=>{
       if(action==='spacemolt_market/view_market')return {items:[]};
       if(action==='spacemolt_storage/view')return {items:structuredClone(stock)};
       if(action==='spacemolt_market/estimate_purchase') {
@@ -162,10 +166,13 @@ test('own-use production retains verified output without sale demand while prese
       if(action==='spacemolt/craft'&&params.dry_run)return {kind:'quote',runs:1,credits_total:scenario==='zero_workshop'?0:3,effective_time_per_run:1,have_inputs:stock[0]!.quantity>=2,have_credits:true,have_capacity:true,cost:{inputs:recipe.inputs,...(scenario==='zero_workshop'?{}:{labor:2,fee:1})},produces:recipe.outputs};
       if(action==='spacemolt/craft'&&!params.id)return {kind:'queue',jobs:[],total_jobs:0};
       mutations.push(action);
-      if(action==='spacemolt/buy'){stock[0]!.quantity+=2;account.credits+=96;return {total_cost:4,unfilled:0,delivered_to_storage:2};}
+      if(action==='spacemolt/buy'){stock[0]!.quantity+=2;account.credits+=96;account.state.player.stats.credits_spent+=4;return {command:'buy',delta:{player:{stats:{credits_spent:account.state.player.stats.credits_spent}},details:{total_cost:4,unfilled:0,delivered_to_storage:2}}};}
       if(action==='spacemolt/craft'){stock[0]!.quantity-=2;stock[1]!.quantity++;account.credits+=scenario==='zero_workshop'?100:97;return {kind:'job',job_id:'job',escrowed:scenario==='zero_workshop'?{labor:0,fee:0}:{labor:2,fee:1}};}
       throw new Error(`Unexpected retained-output mutation ${action}`);
     };
+    account.send=async(tool:string,action:string,params:any)=>rawCommand(tool+'/'+action,params);
+    account.refresh=async()=>{};
+    const command=(action:string,params:any={})=>sendAndRefresh(account,action,params,()=>{});
     const params={recipe_id:'build',source,...(scenario==='sell'?{}:{disposition:'retain'}),credit_reserve:0,max_spend:scenario==='budget'?2:7,max_wait_seconds:0};
     const result:any=await executeIndustry('produce',params,account,command,context);
     const succeeds=['retain','zero_workshop'].includes(scenario)||source==='inventory'&&['incomplete','changed_quote'].includes(scenario);
