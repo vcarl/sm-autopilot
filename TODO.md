@@ -281,6 +281,31 @@ budget reauthorization workflow remains future work. Independent review reproduc
 the original boundary defect, but the reviewing IC hit a usage limit before final
 patch review; final implementation review and validation were completed locally.
 
+## Corrected live economic planning and next Logistics slice — 2026-09-11
+
+A fresh real Hermes/oMLX Industry run after `1a8c92b813` performed one bounded
+local economic assessment, then chose return/stop without guessing recipe IDs.
+Discovery established no profitable candidate at Frontier Station: its observed
+shortlist had input costs above output demand before additional fees. Raw assessment
+is preserved. This is a local bounded result, not proof that production is globally
+unprofitable. Final Deep Range/Frontier Station,197,773 credits, full105 hull/35
+shields/120 fuel, unchanged cargo, gross0/net0, no craft or sale. Exit0; controller
+lock released. Evidence: `spacemolt/evidence/shared-live-production-blocker.json`.
+A4 still needs actual live production; the current market is an observed blocker.
+
+Next meaningful implementation is S14 Logistics. Independent pinned-library audit
+found singular passenger load/unload commands and dock-triggered passenger delivery,
+plus inspectable freight package size. Freight and passenger executors are now being
+implemented separately with shared checkpoints, journaled travel/docking evidence,
+identity/custody checks and explicit monetary receipts. No Logistics tool is exposed
+until its shared integration works. Existing route parsing supports at most two normal
+jumps; reuse it. Proposed initial Logistics route bounds: Relaxed/Cautious1 jump,
+Focused/Opportunistic/Aggressive2, Tired0. Freight failure-liability allocations are
+separate from gross spending:500/500/1000/1000/2000/0 credits respectively, also subject
+to carrier profile eligibility and existing exposure. These values still need concrete
+consumer coverage before D7/S14 completion. Passenger deadlines are observed after
+boarding; neither a route estimate nor an optimistic model claim guarantees punctuality.
+
 ## Live production planning diagnostic — 2026-09-11
 
 Real Hermes/oMLX ran the shared Industry interface against the MMO after controller

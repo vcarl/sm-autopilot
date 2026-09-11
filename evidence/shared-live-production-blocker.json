@@ -1,0 +1,517 @@
+{
+  "validation_level": "Real Hermes/oMLX and authenticated live SpaceMolt assessment and return; no craft or sale",
+  "code_commit": "1a8c92b813",
+  "private_runtime": "spacemolt/runtime/shared-live-production-20260911-02",
+  "exit_code": 0,
+  "model": "mlx-community--Qwen3.6-35B-A3B-4bit",
+  "assessment": {
+    "arguments": {},
+    "decision": "no_profitable_candidate",
+    "catalog": {
+      "freshness": "fresh",
+      "fetchedAt": 1789104992636,
+      "retryAt": null
+    },
+    "evaluated_recipe_count": 846,
+    "screened_actionable_count": 15,
+    "quote_count": 0,
+    "income_candidates": [],
+    "ranked": [
+      {
+        "recipe_id": "basic_copper_processing",
+        "source": "buy",
+        "station": "frontier_station",
+        "quantity": 1,
+        "inputs": [
+          {
+            "item_id": "copper_ore",
+            "quantity": 8,
+            "source": "buy",
+            "purchase": {
+              "requested": 8,
+              "filled": 8,
+              "unfilled": 0,
+              "credits": 56,
+              "averagePrice": 7,
+              "complete": true
+            }
+          }
+        ],
+        "outputs": [
+          {
+            "item_id": "copper_wiring",
+            "quantity": 1,
+            "sale": {
+              "requested": 1,
+              "filled": 1,
+              "unfilled": 0,
+              "credits": 10,
+              "averagePrice": 10,
+              "complete": true
+            }
+          }
+        ],
+        "venue": "Workshop",
+        "blockers": [
+          "Screened loss already exceeds the learning allowance before unquoted fees"
+        ],
+        "status": "blocked_hypothesis",
+        "learning_kind": "future_hypothesis",
+        "quote_skipped": true,
+        "economic_profit": null,
+        "economic_profit_per_second": null,
+        "expected_cash_profit": null,
+        "processing_advantage": null,
+        "theoretical_processing_advantage": null,
+        "expected_learning_loss": null,
+        "within_learning_loss_cap": false,
+        "skill_context": null,
+        "skill_progress": [],
+        "requires_fresh_quote": true,
+        "valuation_note": "Known unmet requirements or a screened loss beyond the allowance: no live quote was requested. Re-screen after inputs, facilities, skills or budget change."
+      },
+      {
+        "recipe_id": "manufacture_ap_rounds",
+        "source": "buy",
+        "station": "frontier_station",
+        "quantity": 1,
+        "inputs": [
+          {
+            "item_id": "steel_plate",
+            "quantity": 1,
+            "source": "buy",
+            "purchase": {
+              "requested": 1,
+              "filled": 1,
+              "unfilled": 0,
+              "credits": 1800,
+              "averagePrice": 1800,
+              "complete": true
+            }
+          },
+          {
+            "item_id": "tungsten_ore",
+            "quantity": 1,
+            "source": "buy",
+            "purchase": {
+              "requested": 1,
+              "filled": 1,
+              "unfilled": 0,
+              "credits": 25,
+              "averagePrice": 25,
+              "complete": true
+            }
+          }
+        ],
+        "outputs": [
+          {
+            "item_id": "armor_piercing_rounds_box",
+            "quantity": 4,
+            "sale": {
+              "requested": 4,
+              "filled": 4,
+              "unfilled": 0,
+              "credits": 120,
+              "averagePrice": 30,
+              "complete": true
+            }
+          }
+        ],
+        "venue": "Workshop",
+        "blockers": [
+          "Screened loss already exceeds the learning allowance before unquoted fees"
+        ],
+        "status": "blocked_hypothesis",
+        "learning_kind": "future_hypothesis",
+        "quote_skipped": true,
+        "economic_profit": null,
+        "economic_profit_per_second": null,
+        "expected_cash_profit": null,
+        "processing_advantage": null,
+        "theoretical_processing_advantage": null,
+        "expected_learning_loss": null,
+        "within_learning_loss_cap": false,
+        "skill_context": null,
+        "skill_progress": [],
+        "requires_fresh_quote": true,
+        "valuation_note": "Known unmet requirements or a screened loss beyond the allowance: no live quote was requested. Re-screen after inputs, facilities, skills or budget change."
+      },
+      {
+        "recipe_id": "onboard_dark_matter_condensing",
+        "source": "buy",
+        "station": "frontier_station",
+        "quantity": 1,
+        "inputs": [
+          {
+            "item_id": "dark_matter_residue",
+            "quantity": 3,
+            "source": "buy",
+            "purchase": {
+              "requested": 3,
+              "filled": 3,
+              "unfilled": 0,
+              "credits": 3000,
+              "averagePrice": 1000,
+              "complete": true
+            }
+          }
+        ],
+        "outputs": [
+          {
+            "item_id": "condensed_dark_matter",
+            "quantity": 1,
+            "sale": {
+              "requested": 1,
+              "filled": 1,
+              "unfilled": 0,
+              "credits": 1682,
+              "averagePrice": 1682,
+              "complete": true
+            }
+          }
+        ],
+        "venue": "Workshop",
+        "blockers": [
+          "Screened loss already exceeds the learning allowance before unquoted fees"
+        ],
+        "status": "blocked_hypothesis",
+        "learning_kind": "future_hypothesis",
+        "quote_skipped": true,
+        "economic_profit": null,
+        "economic_profit_per_second": null,
+        "expected_cash_profit": null,
+        "processing_advantage": null,
+        "theoretical_processing_advantage": null,
+        "expected_learning_loss": null,
+        "within_learning_loss_cap": false,
+        "skill_context": null,
+        "skill_progress": [],
+        "requires_fresh_quote": true,
+        "valuation_note": "Known unmet requirements or a screened loss beyond the allowance: no live quote was requested. Re-screen after inputs, facilities, skills or budget change."
+      },
+      {
+        "recipe_id": "process_copper_wiring",
+        "source": "buy",
+        "station": "frontier_station",
+        "quantity": 1,
+        "inputs": [
+          {
+            "item_id": "copper_ore",
+            "quantity": 4,
+            "source": "buy",
+            "purchase": {
+              "requested": 4,
+              "filled": 4,
+              "unfilled": 0,
+              "credits": 28,
+              "averagePrice": 7,
+              "complete": true
+            }
+          }
+        ],
+        "outputs": [
+          {
+            "item_id": "copper_wiring",
+            "quantity": 2,
+            "sale": {
+              "requested": 2,
+              "filled": 2,
+              "unfilled": 0,
+              "credits": 20,
+              "averagePrice": 10,
+              "complete": true
+            }
+          }
+        ],
+        "venue": "Copper Wire Mill",
+        "blockers": [
+          "Screened loss already exceeds the learning allowance before unquoted fees"
+        ],
+        "status": "blocked_hypothesis",
+        "learning_kind": "future_hypothesis",
+        "quote_skipped": true,
+        "economic_profit": null,
+        "economic_profit_per_second": null,
+        "expected_cash_profit": null,
+        "processing_advantage": null,
+        "theoretical_processing_advantage": null,
+        "expected_learning_loss": null,
+        "within_learning_loss_cap": false,
+        "skill_context": null,
+        "skill_progress": [],
+        "requires_fresh_quote": true,
+        "valuation_note": "Known unmet requirements or a screened loss beyond the allowance: no live quote was requested. Re-screen after inputs, facilities, skills or budget change."
+      },
+      {
+        "recipe_id": "purify_argon",
+        "source": "buy",
+        "station": "frontier_station",
+        "quantity": 1,
+        "inputs": [
+          {
+            "item_id": "argon_gas",
+            "quantity": 5,
+            "source": "buy",
+            "purchase": {
+              "requested": 5,
+              "filled": 5,
+              "unfilled": 0,
+              "credits": 20,
+              "averagePrice": 4,
+              "complete": true
+            }
+          }
+        ],
+        "outputs": [
+          {
+            "item_id": "purified_argon",
+            "quantity": 3,
+            "sale": {
+              "requested": 3,
+              "filled": 3,
+              "unfilled": 0,
+              "credits": 6,
+              "averagePrice": 2,
+              "complete": true
+            }
+          }
+        ],
+        "venue": "Workshop",
+        "blockers": [
+          "Screened loss already exceeds the learning allowance before unquoted fees"
+        ],
+        "status": "blocked_hypothesis",
+        "learning_kind": "future_hypothesis",
+        "quote_skipped": true,
+        "economic_profit": null,
+        "economic_profit_per_second": null,
+        "expected_cash_profit": null,
+        "processing_advantage": null,
+        "theoretical_processing_advantage": null,
+        "expected_learning_loss": null,
+        "within_learning_loss_cap": false,
+        "skill_context": null,
+        "skill_progress": [],
+        "requires_fresh_quote": true,
+        "valuation_note": "Known unmet requirements or a screened loss beyond the allowance: no live quote was requested. Re-screen after inputs, facilities, skills or budget change."
+      },
+      {
+        "recipe_id": "synthesize_coolant_fluid",
+        "source": "buy",
+        "station": "frontier_station",
+        "quantity": 1,
+        "inputs": [
+          {
+            "item_id": "liquid_nitrogen",
+            "quantity": 3,
+            "source": "buy",
+            "purchase": {
+              "requested": 3,
+              "filled": 3,
+              "unfilled": 0,
+              "credits": 51,
+              "averagePrice": 17,
+              "complete": true
+            }
+          },
+          {
+            "item_id": "purified_water",
+            "quantity": 2,
+            "source": "buy",
+            "purchase": {
+              "requested": 2,
+              "filled": 2,
+              "unfilled": 0,
+              "credits": 116,
+              "averagePrice": 58,
+              "complete": true
+            }
+          }
+        ],
+        "outputs": [
+          {
+            "item_id": "coolant_fluid",
+            "quantity": 3,
+            "sale": {
+              "requested": 3,
+              "filled": 3,
+              "unfilled": 0,
+              "credits": 150,
+              "averagePrice": 50,
+              "complete": true
+            }
+          }
+        ],
+        "venue": "Workshop",
+        "blockers": [
+          "Screened loss already exceeds the learning allowance before unquoted fees"
+        ],
+        "status": "blocked_hypothesis",
+        "learning_kind": "future_hypothesis",
+        "quote_skipped": true,
+        "economic_profit": null,
+        "economic_profit_per_second": null,
+        "expected_cash_profit": null,
+        "processing_advantage": null,
+        "theoretical_processing_advantage": null,
+        "expected_learning_loss": null,
+        "within_learning_loss_cap": false,
+        "skill_context": null,
+        "skill_progress": [],
+        "requires_fresh_quote": true,
+        "valuation_note": "Known unmet requirements or a screened loss beyond the allowance: no live quote was requested. Re-screen after inputs, facilities, skills or budget change."
+      }
+    ],
+    "limitations": [
+      "The available full catalog is screened locally; live quotes are limited to the selected feasible shortlist, so quoted discovery is not exhaustive.",
+      "Inventory profit subtracts raw-sale opportunity. Mining and travel costs need separate measurements.",
+      "Quotes do not reserve market depth or authorize spending."
+    ]
+  },
+  "api_trace": [
+    "2026-09-11 01:42:17,199 INFO [spacemolt-fbb04311186b4e6db78498342a5e4143] agent.conversation_loop: API call #1: model=mlx-community--Qwen3.6-35B-A3B-4bit provider=custom in=20615 out=410 total=21025 latency=12.1s cache=2048/20615 (10%) id=chatcmpl-a249f88d",
+    "2026-09-11 01:42:36,423 INFO [spacemolt-fbb04311186b4e6db78498342a5e4143] agent.conversation_loop: API call #2: model=mlx-community--Qwen3.6-35B-A3B-4bit provider=custom in=24351 out=1630 total=25981 latency=18.8s cache=20480/24351 (84%) id=chatcmpl-061921db",
+    "2026-09-11 01:42:38,095 INFO [spacemolt-fbb04311186b4e6db78498342a5e4143] agent.conversation_loop: Turn ended: reason=interrupted_by_user model=mlx-community--Qwen3.6-35B-A3B-4bit api_calls=2/12 budget=2/12 tool_turns=2 last_msg_role=assistant response_len=0 session=spacemolt-fbb04311186b4e6db78498342a5e4143"
+  ],
+  "jobs": [
+    {
+      "action": "return_to_base",
+      "status": "returned_to_base",
+      "cash_delta": 0,
+      "spending": {
+        "gross_spend": 0,
+        "known_gross_spend": 0,
+        "unpriced_actions": []
+      }
+    },
+    {
+      "action": "return_to_base",
+      "status": "returned_to_base",
+      "cash_delta": 0,
+      "spending": {
+        "gross_spend": 0,
+        "known_gross_spend": 0,
+        "unpriced_actions": []
+      }
+    }
+  ],
+  "final": {
+    "location": {
+      "system_id": "deep_range",
+      "poi_id": "mobile_capital",
+      "docked_at": "frontier_station"
+    },
+    "credits": 197773,
+    "ship_condition": {
+      "id": "b76179e1db2326d9bf0de8c5401149da",
+      "hull": 105,
+      "max_hull": 105,
+      "shield": 35,
+      "max_shield": 35,
+      "fuel": 120,
+      "max_fuel": 120
+    },
+    "retained_cargo": [
+      {
+        "item_id": "standard_rounds_box",
+        "item_name": "Standard Rounds Box",
+        "quantity": 1,
+        "size": 1
+      },
+      {
+        "item_id": "creature_carapace",
+        "item_name": "Creature Carapace",
+        "quantity": 1,
+        "size": 1
+      },
+      {
+        "item_id": "phase_pearl",
+        "item_name": "Phase Pearl",
+        "quantity": 2,
+        "size": 1
+      },
+      {
+        "item_id": "carbon_ore",
+        "item_name": "Carbon Ore",
+        "quantity": 6,
+        "size": 1
+      },
+      {
+        "item_id": "platinum_ore",
+        "item_name": "Platinum Ore",
+        "quantity": 1,
+        "size": 1
+      }
+    ],
+    "obligations": {
+      "observed_at": "2026-09-11T05:42:39.916Z",
+      "missions": {
+        "active": [
+          {
+            "accepted_at": "2026-09-11T05:36:45Z",
+            "description": "MAYDAY: Wexler XNK-D3 is stranded at Probability Cloud \u2014 Distant Light in Distant Light with 2/120 fuel! Any pilots nearby, please help!",
+            "difficulty": 5,
+            "expires_in_ticks": 1044,
+            "giver": {
+              "name": "Wexler XNK-D3",
+              "title": "Emergency Broadcast"
+            },
+            "issuing_base": "",
+            "issuing_system_id": "distant_light",
+            "issuing_system_name": "Distant Light",
+            "mission_id": "4d5b499cf8d7ed23b83c98def0a3746d",
+            "objectives": [
+              {
+                "completed": false,
+                "current": 0,
+                "description": "Investigate distress call in Distant Light",
+                "required": 1,
+                "system_id": "distant_light",
+                "system_name": "Distant Light",
+                "type": "visit_system"
+              }
+            ],
+            "percent_complete": 0,
+            "rewards": {
+              "credits": 0,
+              "skill_xp": {
+                "piloting": 25
+              }
+            },
+            "title": "Distress: Wexler XNK-D3 in Distant Light",
+            "type": "distress_response"
+          }
+        ],
+        "max_missions": 5
+      },
+      "freight": {
+        "action": "active",
+        "message": "You have no live freight contracts as carrier, shipper, recipient, or invited carrier.",
+        "shipments": [],
+        "tick": 1851808
+      },
+      "passengers": {
+        "count": 0,
+        "passengers": []
+      },
+      "production": {
+        "action": "queue",
+        "jobs": null,
+        "kind": "queue",
+        "total_jobs": 0
+      }
+    },
+    "obligation_verification": {
+      "status": "observed",
+      "reason": "Outstanding commitments are recorded, not declared delivered or settled"
+    }
+  },
+  "gross_spend": 0,
+  "wallet_delta": 0,
+  "controller_released": true,
+  "limitations": [
+    "No profitable candidate established by bounded local discovery, not proof that all stations or future markets are unprofitable.",
+    "No production submitted; live S12/A4 remains open.",
+    "Model chose return; runner reverified cleanup without movement or spending."
+  ]
+}
