@@ -1987,6 +1987,16 @@ is now scaffolded but not configured; a first real schedule and Discord target s
 require profile secrets and user-selected IDs. Preserve these helper files while
 continuing.
 
+Gateway handoff observation (2026-09-11): `hermes gateway status` reports the
+launchd definition matches the installed Hermes version but is not loaded. A
+manually launched default-profile gateway is authoritative at PID37628 (parent
+PID1, `hermes_cli.main gateway run --external-supervisor`). Do not start a second
+gateway or reload MCP beneath it. Discord credentials and one allowed user are
+already present in the profile; their values remain secret and are not copied into
+this repository. Enabling the MCP config requires stopping/restarting that gateway,
+then checking the SpaceMolt controller lock before the MCP bridge connects. No
+restart or external config mutation was performed in this turn.
+
 MCP protocol smoke test (with an intentionally missing credential path) returned
 the initialize handshake and the stable eight-tool catalog without contacting the
 game. `npm run typecheck` passes after the adapter addition. The full required
