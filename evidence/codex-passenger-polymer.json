@@ -1,0 +1,270 @@
+{
+  "classification": "Direct Codex setup gameplay; materials staged and ship serviced. No Hermes inference or craft submission in this run.",
+  "date": "2026-09-11",
+  "private_runtime": "spacemolt/runtime/codex-passenger-polymer-20260911",
+  "controller": {
+    "bridge_pid": 6014,
+    "exit_code": 0,
+    "tool_process_handle": 34813,
+    "status": "exited"
+  },
+  "movement": {
+    "from": {
+      "system_id": "starfall",
+      "poi_id": "starfall_salvage_station",
+      "docked_at": "starfall_salvage_station"
+    },
+    "to": {
+      "system_id": "deep_range",
+      "poi_id": "mobile_capital",
+      "docked_at": "frontier_station"
+    },
+    "jump_systems": [
+      "the_telescope",
+      "horizon",
+      "deep_range"
+    ]
+  },
+  "purchase": {
+    "item_id": "flex_polymer",
+    "quantity": 6,
+    "quote": {
+      "quantity_requested": 6,
+      "available": 6,
+      "unfilled": 0,
+      "subtotal": 468,
+      "sales_tax": 2,
+      "total_cost": 470
+    },
+    "accepted": {
+      "item_id": "flex_polymer",
+      "quantity": 6,
+      "total_cost": 468,
+      "delivered_to_cargo": 6,
+      "_hermes_spending": {
+        "source": "lifetime_credits_spent_interval",
+        "before": 37568,
+        "after": 38038,
+        "market_subtotal": 468
+      }
+    },
+    "verified_gross_spend": 470,
+    "note": "Accepted total_cost remains the468 market subtotal; patched lifetime-counter metadata records470 including2 tax."
+  },
+  "deposits": [
+    {
+      "item_id": "titanium_alloy",
+      "quantity": 4,
+      "storage_total": 4,
+      "cargo_remaining": 0,
+      "cargo_decrease_verified": 4
+    },
+    {
+      "item_id": "life_support_unit",
+      "quantity": 2,
+      "storage_total": 2,
+      "cargo_remaining": 0,
+      "cargo_decrease_verified": 2
+    },
+    {
+      "item_id": "flex_polymer",
+      "quantity": 6,
+      "storage_total": 6,
+      "cargo_remaining": 0,
+      "cargo_decrease_verified": 6
+    }
+  ],
+  "storage": {
+    "base_id": "frontier_station",
+    "items": [
+      {
+        "item_id": "energy_crystal",
+        "quantity": 61,
+        "size": 1
+      },
+      {
+        "item_id": "carbon_ore",
+        "quantity": 18,
+        "size": 1
+      },
+      {
+        "item_id": "aluminum_ore",
+        "quantity": 33,
+        "size": 1
+      },
+      {
+        "item_id": "tungsten_ore",
+        "quantity": 9,
+        "size": 2
+      },
+      {
+        "item_id": "standard_rounds_box",
+        "quantity": 3,
+        "size": 1
+      },
+      {
+        "item_id": "titanium_alloy",
+        "quantity": 4,
+        "size": 1
+      },
+      {
+        "item_id": "life_support_unit",
+        "quantity": 2,
+        "size": 2
+      },
+      {
+        "item_id": "flex_polymer",
+        "quantity": 6,
+        "size": 1
+      }
+    ]
+  },
+  "refuel_rejected": {
+    "request": {
+      "action": "spacemolt/refuel",
+      "params": {
+        "amount": 7
+      }
+    },
+    "ok": false,
+    "error": "invalid_payload: Unknown parameter(s): amount. Valid parameters: quantity, item_id, target.",
+    "code": "invalid_payload",
+    "outcome_unknown": false,
+    "fatal": false,
+    "action_completed": false,
+    "state_unchanged_from_preceding_response": true
+  },
+  "refuel_accepted": {
+    "request": {
+      "action": "spacemolt/refuel",
+      "params": {
+        "quantity": 7
+      }
+    },
+    "receipt": {
+      "source": "station",
+      "fuel": 7,
+      "cost": 21,
+      "market_cost": 14,
+      "tax_amount": 7
+    }
+  },
+  "craft_quote": {
+    "kind": "quote",
+    "dry_run": true,
+    "quantity": 1,
+    "runs": 1,
+    "credits_total": 0,
+    "have_credits": true,
+    "have_inputs": true,
+    "effective_time_per_run": 83.33333333333333,
+    "est_completion_tick": 1852868,
+    "venue": "Station Workshop",
+    "venue_type": "workshop",
+    "inputs": [
+      {
+        "item_id": "titanium_alloy",
+        "quantity": 4
+      },
+      {
+        "item_id": "flex_polymer",
+        "quantity": 6
+      },
+      {
+        "item_id": "life_support_unit",
+        "quantity": 2
+      }
+    ],
+    "produces": [
+      {
+        "item_id": "economy_passenger_cabin",
+        "quantity": 1
+      }
+    ],
+    "limitation": "About84 ticks while docked at this workshop; quoted ETA is not completed production."
+  },
+  "final": {
+    "credits": 194149,
+    "location": {
+      "system_id": "deep_range",
+      "poi_id": "mobile_capital",
+      "docked_at": "frontier_station"
+    },
+    "ship_condition": {
+      "fuel": 120,
+      "max_fuel": 120,
+      "hull": 105,
+      "max_hull": 105,
+      "shield": 35,
+      "max_shield": 35,
+      "cargo_used": 11,
+      "cargo_capacity": 120
+    },
+    "cargo": [
+      {
+        "item_id": "standard_rounds_box",
+        "quantity": 1,
+        "size": 1
+      },
+      {
+        "item_id": "creature_carapace",
+        "quantity": 1,
+        "size": 1
+      },
+      {
+        "item_id": "phase_pearl",
+        "quantity": 2,
+        "size": 1
+      },
+      {
+        "item_id": "carbon_ore",
+        "quantity": 6,
+        "size": 1
+      },
+      {
+        "item_id": "platinum_ore",
+        "quantity": 1,
+        "size": 1
+      }
+    ],
+    "original_unstaged_cargo_preserved": true,
+    "modules_unchanged": true,
+    "production_queue": {
+      "kind": "queue",
+      "jobs": null,
+      "total_jobs": 0
+    },
+    "passengers": {
+      "count": 0,
+      "passengers": []
+    },
+    "freight_shipments": [],
+    "missions": [
+      {
+        "id": "2a23e470f63feb5b23c1be98a5bcf466",
+        "destinations": [
+          "unknown_edge"
+        ]
+      },
+      {
+        "id": "5d71554aad53fcbbd6551bc2dadab278",
+        "destinations": [
+          "unknown_edge"
+        ]
+      },
+      {
+        "id": "1e94648058ef9b7316ad1bcb5b373b31",
+        "destinations": [
+          "zosma"
+        ]
+      }
+    ]
+  },
+  "accounting": {
+    "gross_spend": 491,
+    "wallet_delta": -491,
+    "purchase": 470,
+    "service": 21
+  },
+  "remaining": "Materials are ready in personal Frontier Station storage. No cabin was crafted or fitted and no passenger was transported. A real Hermes production run is the next acceptance step."
+}

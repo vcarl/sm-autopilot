@@ -1509,6 +1509,61 @@ Canonical berths must exist before a bounded real-Hermes passenger demonstration
 General requisition implementation remains paused; live retained production,
 passenger acceptance and full-vision integration remain open.
 
+## Materials staged and live workshop receipt mismatch — 2026-09-11
+
+Purchase-tax fix committed as `7506d0f973`. Direct Codex setup returned Starfall →
+The Telescope → Horizon → Deep Range → Frontier Station, with fresh route/arrival
+verification. Bought flex_polymer6 for470 (subtotal468 +tax2); the patched bridge
+captured canonical spending37568→38038. Deposited titanium_alloy4, life_support_unit2
+and flex_polymer6 into personal Frontier storage, verifying cargo/storage deltas and
+preserving original cargo/modules. Fresh cheap quote selected workshop, explicit
+credits_total0, have_inputs true, ~84 docked ticks. Refuel7 cost21. One operator
+request used invalid amount instead of quantity; server rejected it without effects.
+Evidence: `spacemolt/evidence/codex-passenger-polymer.json`. Direct runtime
+`spacemolt/runtime/codex-passenger-polymer-20260911`, handle34813/PID6014 exited0,
+PID absent and lock cleared before Hermes launch. Final credits194149, fuel120,
+hull105, shield35, cargo11, docked frontier_station/mobile_capital/deep_range.
+No queued craft, freight or passengers existed at that direct checkpoint. Three
+active distress missions were observed (Unknown Edge twice, Zosma); no completion
+or payouts claimed. This closed material staging, not passenger capability.
+
+Real Hermes/oMLX then ran shared Industry at
+`spacemolt/runtime/shared-live-cabin-retain-20260911-01`, handle31474 exited1 and
+bridge PID6290 absent/lock cleared. It corrected an initial output_search lacking
+retain disposition, discovered/quoted the cabin, and queued exactly one retained
+workshop craft. Shared job6d12fa84-4702-469d-a2de-78b74c625134,
+experiment63fb6218-3bd3-440c-b5cf-30fec213c792,
+server jobc711344461b35498e31c07b6442fd4a9. Accepted escrow includes inputs but omits
+labor/fee; existing parser refused to invent zero and suspended needs_reconciliation.
+Cleanup verified docked/full readiness without movement. No completed production or
+passenger acceptance is claimed. Remembered Frontier home identity was preserved;
+its historical system cache is Horizon, while authenticated current dock resolves
+Deep Range correctly.
+
+Read-only direct reconciliation observation:
+`spacemolt/runtime/codex-cabin-reconciliation-20260911`, handle93926/PID6594 exited0.
+Fresh get_status shows lifetime credits_spent38059, identical to pre-craft accepted
+refuel receipt codex-passenger-polymer-20260911/017.json, with the same pilot identity.
+Thus the observed interval had zero debit; the quote alone is not actual-cost proof.
+Queue still contains the original job, progress20.4%, eta67ticks; materials are consumed
+and no cabin yet in storage. No new craft or paid command was submitted. Latest
+credits194149 and full readiness at Frontier; latest status lists four distress
+missions, to retain by exact IDs in the eventual final checkpoint. No controller is
+currently active, but the dock-dependent workshop job remains an obligation.
+
+Development in progress: extend accepted craft spending evidence with a durable
+before counter and authoritative post-refresh counter; preserve unknowns on refresh
+failure and conservatively count unrelated debits. Reconcile the exact accepted craft
+into the persisted experiment once, clearing its pending marker only with proven
+accounting/job identity, then resume existing settlement without another craft.
+The old live receipt lacks the baseline, so a backed-up private checkpoint evidence
+restoration from the recorded pre-craft receipt will be explicitly classified manual.
+No new code validation has run yet in this increment; prior104Node/46Python results
+remain the baseline. Commit material evidence/TODO separately while source fixes are
+unfinished. Exact next action: finish and verify that fix, reconcile this original
+job, then let real Hermes select its persisted experiment and verify retained cabin
+custody. Fit and canonical berths/passenger demonstration remain unfinished.
+
 ## Validation and completion record
 
 Follow the repository's required test workflow. Existing useful checks from the repository root are:
