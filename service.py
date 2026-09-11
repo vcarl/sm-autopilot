@@ -8,6 +8,7 @@ import shutil
 import threading
 from typing import Any
 
+from agent.secret_scope import UnscopedSecretError, get_secret
 from hermes_constants import get_hermes_home
 
 from .runner import BridgeClient
@@ -21,9 +22,18 @@ _SERVICES: dict[Path, "SpaceMoltService"] = {}
 _SERVICES_LOCK = threading.Lock()
 
 
+def credentials_file() -> Path | None:
+    """Return this turn's credential path without borrowing another profile's secret."""
+    try:
+        value = get_secret("SPACEMOLT_CREDENTIALS_FILE", "")
+    except UnscopedSecretError:
+        return None
+    path = Path(value).expanduser() if value else None
+    return path if path and path.is_file() else None
+
+
 def credentials_configured() -> bool:
-    value = os.environ.get("SPACEMOLT_CREDENTIALS_FILE")
-    return bool(value and Path(value).is_file())
+    return credentials_file() is not None
 
 
 class SpaceMoltService:
@@ -126,6 +136,10 @@ class SpaceMoltService:
             raise RuntimeError("SpaceMolt requires SPACEMOLT_CREDENTIALS_FILE and Node.js before it can connect")
         if self._bridge is None:
             env = os.environ.copy()
+            credentials = credentials_file()
+            if credentials is None:
+                raise RuntimeError("SpaceMolt requires an accessible SPACEMOLT_CREDENTIALS_FILE before it can connect")
+            env["SPACEMOLT_CREDENTIALS_FILE"] = str(credentials)
             env["SPACEMOLT_RUNTIME_DIR"] = str(self.runtime / "runtime")
             self._bridge = BridgeClient(timeout=1800, cwd=self.source, env=env)
             configured = self._bridge.request("execution/configure", self._configure_payload())

@@ -118,3 +118,41 @@ def test_cross_process_stop_writes_control_without_creating_a_bridge(monkeypatch
     assert result["status"] == "stop_requested"
     assert json.loads((tmp_path / "hermes-home" / "spacemolt" / "control.json").read_text()) == {"reason": "Wind down"}
     assert persisted_status()["connected"] is False
+
+
+def test_multiplexed_service_uses_only_the_active_profile_credential(monkeypatch, tmp_path):
+    from agent.secret_scope import reset_secret_scope, set_multiplex_active, set_secret_scope
+    from spacemolt import service as service_mod
+
+    inherited = tmp_path / "inherited.txt"
+    scoped = tmp_path / "scoped.txt"
+    inherited.write_text("Username: inherited\nPassword: inherited\n")
+    scoped.write_text("Username: scoped\nPassword: scoped\n")
+    monkeypatch.setenv("SPACEMOLT_CREDENTIALS_FILE", str(inherited))
+    captured = []
+
+    class Bridge:
+        def __init__(self, **kwargs):
+            captured.append(kwargs["env"]["SPACEMOLT_CREDENTIALS_FILE"])
+            self.process = type("Process", (), {"pid": 42})()
+
+        def request(self, action, arguments):
+            return {"ok": True, "result": {"state": {}}}
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(service_mod, "BridgeClient", Bridge)
+    monkeypatch.setattr(service_mod.shutil, "which", lambda name: "/node" if name == "node" else None)
+    set_multiplex_active(True)
+    try:
+        assert service_mod.credentials_configured() is False
+        token = set_secret_scope({"SPACEMOLT_CREDENTIALS_FILE": str(scoped)})
+        try:
+            result = service_mod.SpaceMoltService(tmp_path / "profile").call("observe", {})
+        finally:
+            reset_secret_scope(token)
+        assert result == {"state": {}}
+        assert captured == [str(scoped)]
+    finally:
+        set_multiplex_active(False)

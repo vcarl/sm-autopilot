@@ -2077,11 +2077,18 @@ proves Tired's Industry catalog has no gather entry. `npm run typecheck && npm t
 124 Node tests after this addition. This covers gathering only; the remaining numerical policy
 consumers, including the Logistics route and liability limits, still need comparable evidence.
 
+Multiplex safety follow-up: the direct service now resolves `SPACEMOLT_CREDENTIALS_FILE` through
+Hermes's active profile secret scope and forwards only that resolved path to the bridge. An
+unscoped multiplex call fails closed rather than borrowing a process environment credential.
+The required runner passed 18 focused plugin/bridge tests, including a two-credential behavior
+test proving the spawned bridge receives the active profile's path. This is still local process
+evidence; it is not a multi-profile gateway or Discord connection.
+
 No live controller was opened, no Discord gateway was restarted, and no schedule was created.
 The gateway PID37628 and historical Frontier/Kvothe checkpoint described above remain unchanged;
 their current state must be observed before any live operation. Untracked `credentials.kvothe.txt`
-and `players/` were preserved. Exact next action: commit the Industry policy evidence, then
-audit profile-scoped secret handling before a gateway-owned Discord/cron acceptance run. A
+and `players/` were preserved. Exact next action: commit the profile-scoped credential handling,
+then prepare a gateway-owned Discord/cron acceptance run. A
 dedicated profile and no competing controller are required before that live acceptance.
 
 Follow the repository's required test workflow. Existing useful checks from the repository root are:
