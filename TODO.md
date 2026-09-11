@@ -1717,6 +1717,60 @@ observation/skill correction locally; model-retry acceptance remains unproven un
 its recorded behavior exists. VISION unchanged; no push. Passenger delivery and full
 vision remain open.
 
+## Live passenger discovery correction verified — 2026-09-11
+
+Observation/skill fix committed as `ab0effc90b`. Fresh real Hermes/oMLX retry02
+actually called passenger assessment at Frontier and again after Outpost arrival.
+Frontier now offered an economy passenger to Grand Exchange Station; the destination
+was outside the two-jump policy. Outpost offered a passenger whose destination was
+also outside that policy and whose class lacked a free berth. These are dated local
+offers with explicit feasibility blockers, not an empty station or global absence.
+Hermes correctly used actual offers rather than onboard counts. Scripts verified
+travel, service, home-preserving return and terminal obligations. No passenger was
+boarded/delivered; passenger acceptance remains open. Evidence:
+`spacemolt/evidence/shared-live-passenger-discovery.json` includes the failed01 and
+corrected02 behavior, excluding private model reasoning.
+
+Runtime shared-live-passengers-outpost-20260911-02 handle6801 exited0; bridge PID8141
+is absent and no controller lock remains. No live runtime needs polling. Last
+verified Kvothe: credits194137, fuel120/120, hull105/105, shield35/35, cargo21/120,
+docked frontier_station/mobile_capital/deep_range. Cabin installed with12 free economy
+berths; displaced mining laser remains cargo, other modules and original cargo intact.
+No passengers, freight or craft queue. Six active distress missions remain:
+2a23e470f63feb5b23c1be98a5bcf466,5d71554aad53fcbbd6551bc2dadab278,
+f854b7a203c7c7089f144c4521a8cf9b (Unknown Edge),
+5c9bc23fa56b3cd0774b57ba60e7eff5 (Altais),
+84329d25261cee50f7909cb7c94d43d2 (Void Gate),
+7174b196617c87cc44ecf45242914bb8 (Starfall). No mission payouts claimed.
+Each Outpost run spent6 for servicing (3 outbound destination,3 home), separate from
+cabin capital and zero transport earnings. Remembered Frontier home is preserved.
+
+Tests actually run for the last source change: typecheck +107Node tests;
+HERMES_PYTHON=/Users/vcarl/workspace/testbench/hermes-agent/.venv/bin/python via
+scripts/run_tests.sh passed46 tests across12 SpaceMolt/native-skill files. Fixtures
+prove onboard/waiting separation and real Hermes imports/dispatch/skill loading;
+retry02 proves corrected real-model live assessment. No source changes followed
+validation. Remaining uncommitted files are this TODO and sanitized discovery
+comparison evidence, to commit locally as the completed discovery correction proof.
+VISION unchanged and nothing pushed.
+
+Exact next development job follows D7/S5/S14: inspect and complete transport itinerary
+admission before broadening route limits. The current1/2-jump mood cap is deliberate
+initial policy, not a library restriction. Current passenger admission checks outbound
+route and fuel reserve, but does not establish an outbound-plus-home-return service
+budget, route hazard evidence, or a travel-time feasibility check against actual
+post-boarding deadlines. Do not simply raise the cap to admit Grand Exchange. Build
+and test a complete bounded itinerary/return-cost contract using existing locations,
+travel, service, spending and recovery; maintain unknown costs as unknown. A fresh
+read-only route quote can determine actual current distance for this offer, without
+boarding or speculative travel. Audit also found survey.ts routeSteps independently
+rejects routes above2 jumps, and locations.ts directory expansion caps at5. Separate
+route validation from caller allocations before widening Logistics, preserving the
+survey's explicit existing cap. Pinned find_route accepts only destination (no from
+origin) and reports fuel/jumps but no duration; future-origin return routes and ETA
+must remain qualified estimates/unknowns unless grounded in actual map/timing data. Passenger live delivery, universal route/defense
+integration, general requisition (still paused) and full VISION remain unfinished.
+
 ## Validation and completion record
 
 Follow the repository's required test workflow. Existing useful checks from the repository root are:

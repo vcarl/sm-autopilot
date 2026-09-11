@@ -1,0 +1,447 @@
+{
+  "classification": "Live real Hermes/oMLX passenger discovery attempt; verified travel and servicing, but no station waiting-passenger observation or delivery.",
+  "date": "2026-09-11",
+  "private_runtime": "spacemolt/runtime/shared-live-passengers-outpost-20260911-01",
+  "model": "mlx-community--Qwen3.6-35B-A3B-4bit",
+  "controller": {
+    "tool_process_handle": 97161,
+    "bridge_pid": 7812,
+    "exit_code": 0,
+    "terminal_evidence": "Parent controller owner observed terminal handle and absent bridge process."
+  },
+  "actual_model_tool_calls": [
+    {
+      "name": "job__travel",
+      "arguments": {
+        "base_id": "deep_range_outpost"
+      }
+    },
+    {
+      "name": "job__return_to_base",
+      "arguments": {}
+    }
+  ],
+  "visible_model_claim": {
+    "text": "No passengers at Deep Range Outpost (0 count, empty list). Returning to home base.",
+    "supported": false,
+    "reason": "The observed list_passengers count referred to passengers onboard the ship. No list_station_passengers query or targeted passenger assessment was performed."
+  },
+  "observed_actions": {
+    "station_board_queries": 0,
+    "passenger_loads": 0,
+    "assess_calls": 0,
+    "onboard_passenger_queries": 6
+  },
+  "jobs": [
+    {
+      "id": "f2dd4160-af93-4f50-b63b-ed0bc64629f7",
+      "action": "travel",
+      "status": "completed",
+      "gross_spend": 3,
+      "cash_delta": -3
+    },
+    {
+      "id": "dcaa3eb3-effd-4ad9-87d2-0f039af4ef6e",
+      "action": "return_to_base",
+      "status": "returned_to_base",
+      "gross_spend": 3,
+      "cash_delta": -3
+    },
+    {
+      "id": "70cb1372-6f44-4971-ba91-7d0fa3d9d514",
+      "action": "return_to_base",
+      "status": "returned_to_base",
+      "gross_spend": 0,
+      "cash_delta": 0
+    }
+  ],
+  "verified_outpost_arrival": {
+    "system_id": "deep_range",
+    "poi_id": "deep_range_outpost",
+    "docked_at": "deep_range_outpost"
+  },
+  "final": {
+    "status": "returned_to_base",
+    "credits": 194143,
+    "location": {
+      "system_id": "deep_range",
+      "poi_id": "mobile_capital",
+      "docked_at": "frontier_station"
+    },
+    "ship_condition": {
+      "fuel": 120,
+      "max_fuel": 120,
+      "hull": 105,
+      "max_hull": 105,
+      "shield": 35,
+      "max_shield": 35
+    },
+    "cargo_used": 21,
+    "cargo": [
+      {
+        "item_id": "standard_rounds_box",
+        "item_name": "Standard Rounds Box",
+        "quantity": 1,
+        "size": 1
+      },
+      {
+        "item_id": "creature_carapace",
+        "item_name": "Creature Carapace",
+        "quantity": 1,
+        "size": 1
+      },
+      {
+        "item_id": "phase_pearl",
+        "item_name": "Phase Pearl",
+        "quantity": 2,
+        "size": 1
+      },
+      {
+        "item_id": "carbon_ore",
+        "item_name": "Carbon Ore",
+        "quantity": 6,
+        "size": 1
+      },
+      {
+        "item_id": "platinum_ore",
+        "item_name": "Platinum Ore",
+        "quantity": 1,
+        "size": 1
+      },
+      {
+        "item_id": "mining_laser_i",
+        "item_name": "Mining Laser I",
+        "quantity": 1,
+        "size": 10
+      }
+    ],
+    "onboard_passengers": {
+      "berths": {
+        "business": {
+          "free": 0,
+          "total": 0
+        },
+        "economy": {
+          "free": 12,
+          "total": 12
+        },
+        "first": {
+          "free": 0,
+          "total": 0
+        }
+      },
+      "count": 0,
+      "passengers": []
+    },
+    "freight_shipments": [],
+    "production_queue": {
+      "kind": "queue",
+      "jobs": null,
+      "total_jobs": 0
+    },
+    "obligation_verification": {
+      "status": "observed",
+      "reason": "Outstanding commitments are recorded, not declared delivered or settled"
+    }
+  },
+  "accounting": {
+    "outpost_service": 3,
+    "home_return_service": 3,
+    "final_reverification": 0,
+    "gross_spend": 6,
+    "wallet_delta": -6
+  },
+  "implementation_followup": {
+    "path": "spacemolt/src/obligations.ts",
+    "change": "Passenger obligation observations now explicitly label observation_scope:onboard_ship and station_offers.status:not_observed, so an empty onboard list cannot establish an empty station board.",
+    "skill_reference": "spacemolt/skills/spacemolt-logistics/SKILL.md",
+    "validation_limit": "Retry02 verifies actual live station assessment after the scope/skill correction. It does not establish passenger boarding or delivery."
+  },
+  "remaining": "Find an observed economy passenger destination within the current route policy and complete a verified passenger transport. Both recorded runs are terminal; waiting-offer observations remain historical.",
+  "corrected_retry_02": {
+    "classification": "Live real Hermes/oMLX discovery correction verified: actual station assessments observed waiting offers and explicit route/berth blockers. No boarding or transport acceptance.",
+    "private_runtime": "spacemolt/runtime/shared-live-passengers-outpost-20260911-02",
+    "controller": {
+      "tool_process_handle": 6801,
+      "bridge_pid": 8141,
+      "exit_code": 0,
+      "terminal_evidence": "Parent controller owner verified terminal handle, absent PID and no controller lock."
+    },
+    "actual_model_tool_calls": [
+      {
+        "name": "job__assess",
+        "arguments": {
+          "kind": "passengers"
+        }
+      },
+      {
+        "name": "job__travel",
+        "arguments": {
+          "base_id": "deep_range_outpost"
+        }
+      },
+      {
+        "name": "job__assess",
+        "arguments": {
+          "kind": "passengers"
+        }
+      },
+      {
+        "name": "job__return_to_base",
+        "arguments": {}
+      }
+    ],
+    "policy": {
+      "stance": "Logistics",
+      "mood": "Focused",
+      "max_route_jumps": 2
+    },
+    "station_assessments": [
+      {
+        "source": "spacemolt/runtime/shared-live-passengers-outpost-20260911-02/observations/c9e46c8cf1354601beaf902c4ffb08ed.json",
+        "observed_at": "2026-09-11T09:04:37.873878+00:00",
+        "arguments": {
+          "kind": "passengers"
+        },
+        "status": "blocked",
+        "station": "frontier_station",
+        "candidates": [
+          {
+            "destination": "grand_exchange_station",
+            "resolution": {
+              "status": "outside_route_limit",
+              "station": {
+                "base_id": "grand_exchange_station",
+                "poi_id": "grand_exchange",
+                "system_id": "haven",
+                "station_name": "Grand Exchange Station"
+              }
+            },
+            "passenger_classes": [
+              "economy"
+            ],
+            "waiting_offer_count": 1,
+            "berths": {
+              "business": {
+                "free": 0,
+                "total": 0
+              },
+              "economy": {
+                "free": 12,
+                "total": 12
+              },
+              "first": {
+                "free": 0,
+                "total": 0
+              }
+            },
+            "blockers": [
+              "Destination resolution: outside_route_limit"
+            ]
+          }
+        ]
+      },
+      {
+        "source": "spacemolt/runtime/shared-live-passengers-outpost-20260911-02/observations/b15b4ddfaed049cfb6ad265b1e5427b6.json",
+        "observed_at": "2026-09-11T09:05:53.378397+00:00",
+        "arguments": {
+          "kind": "passengers"
+        },
+        "status": "blocked",
+        "station": "deep_range_outpost",
+        "candidates": [
+          {
+            "destination": "784309214f105860a16a0c100a70eb14",
+            "resolution": {
+              "status": "outside_route_limit",
+              "station": {
+                "base_id": "784309214f105860a16a0c100a70eb14",
+                "poi_id": "0321b3e4406021575337b7be26e53dd7",
+                "system_id": "lhs_1140",
+                "station_name": "Ironlight Crossroads"
+              }
+            },
+            "passenger_classes": [
+              "business"
+            ],
+            "waiting_offer_count": 1,
+            "berths": {
+              "business": {
+                "free": 0,
+                "total": 0
+              },
+              "economy": {
+                "free": 12,
+                "total": 12
+              },
+              "first": {
+                "free": 0,
+                "total": 0
+              }
+            },
+            "blockers": [
+              "Destination resolution: outside_route_limit",
+              "No free berth observed for these passenger classes"
+            ]
+          }
+        ]
+      }
+    ],
+    "jobs": [
+      {
+        "action": "travel",
+        "status": "completed",
+        "gross_spend": 3,
+        "cash_delta": -3
+      },
+      {
+        "action": "return_to_base",
+        "status": "returned_to_base",
+        "gross_spend": 3,
+        "cash_delta": -3
+      },
+      {
+        "action": "return_to_base",
+        "status": "returned_to_base",
+        "gross_spend": 0,
+        "cash_delta": 0
+      }
+    ],
+    "final": {
+      "credits": 194137,
+      "location": {
+        "system_id": "deep_range",
+        "poi_id": "mobile_capital",
+        "docked_at": "frontier_station"
+      },
+      "ship_condition": {
+        "fuel": 120,
+        "max_fuel": 120,
+        "hull": 105,
+        "max_hull": 105,
+        "shield": 35,
+        "max_shield": 35
+      },
+      "cargo_used": 21,
+      "cargo": [
+        {
+          "item_id": "standard_rounds_box",
+          "item_name": "Standard Rounds Box",
+          "quantity": 1,
+          "size": 1
+        },
+        {
+          "item_id": "creature_carapace",
+          "item_name": "Creature Carapace",
+          "quantity": 1,
+          "size": 1
+        },
+        {
+          "item_id": "phase_pearl",
+          "item_name": "Phase Pearl",
+          "quantity": 2,
+          "size": 1
+        },
+        {
+          "item_id": "carbon_ore",
+          "item_name": "Carbon Ore",
+          "quantity": 6,
+          "size": 1
+        },
+        {
+          "item_id": "platinum_ore",
+          "item_name": "Platinum Ore",
+          "quantity": 1,
+          "size": 1
+        },
+        {
+          "item_id": "mining_laser_i",
+          "item_name": "Mining Laser I",
+          "quantity": 1,
+          "size": 10
+        }
+      ],
+      "cargo_unchanged": true,
+      "fit_unchanged": true,
+      "remembered_home_base_id": "frontier_station",
+      "onboard_passengers": {
+        "berths": {
+          "business": {
+            "free": 0,
+            "total": 0
+          },
+          "economy": {
+            "free": 12,
+            "total": 12
+          },
+          "first": {
+            "free": 0,
+            "total": 0
+          }
+        },
+        "count": 0,
+        "passengers": [],
+        "observation_scope": "onboard_ship",
+        "station_offers": {
+          "status": "not_observed",
+          "reason": "This count covers passengers aboard our ship. It does not establish whether passengers are waiting at the station."
+        }
+      },
+      "freight_shipments": [],
+      "production_queue": {
+        "kind": "queue",
+        "jobs": null,
+        "total_jobs": 0
+      },
+      "missions": [
+        {
+          "id": "2a23e470f63feb5b23c1be98a5bcf466",
+          "destinations": [
+            "unknown_edge"
+          ]
+        },
+        {
+          "id": "5d71554aad53fcbbd6551bc2dadab278",
+          "destinations": [
+            "unknown_edge"
+          ]
+        },
+        {
+          "id": "f854b7a203c7c7089f144c4521a8cf9b",
+          "destinations": [
+            "unknown_edge"
+          ]
+        },
+        {
+          "id": "5c9bc23fa56b3cd0774b57ba60e7eff5",
+          "destinations": [
+            "altais"
+          ]
+        },
+        {
+          "id": "84329d25261cee50f7909cb7c94d43d2",
+          "destinations": [
+            "void_gate"
+          ]
+        },
+        {
+          "id": "7174b196617c87cc44ecf45242914bb8",
+          "destinations": [
+            "starfall"
+          ]
+        }
+      ],
+      "obligation_verification": {
+        "status": "observed",
+        "reason": "Outstanding commitments are recorded, not declared delivered or settled"
+      }
+    },
+    "accounting": {
+      "outpost_service": 3,
+      "home_return_service": 3,
+      "gross_spend": 6,
+      "wallet_delta": -6
+    },
+    "conclusion": "Hermes distinguished onboard custody from station offers and assessed both stations. Frontier economy offer was outside the two-jump policy; Outpost business offer was outside policy and unsupported by the installed economy berths. Neither station was falsely declared empty."
+  }
+}
