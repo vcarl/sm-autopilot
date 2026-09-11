@@ -41,6 +41,12 @@ uncertainty explicitly: accepting freight can create liability before pickup suc
 
 ## Tool: job__assess
 
+After arriving at a boarding station, use `job__assess` to read its waiting offers
+before deciding whether there is work. Passenger counts in `job__observe`, travel
+receipts and obligations describe people already aboard your ship. An empty ship
+can be docked beside waiting passengers; arrival or servicing does not inspect that
+board. Use a fresh assessment after each station change.
+
 Use `job__assess` without parameters to compare freight and passenger opportunities.
 Choose `kind` as `freight` with a `shipment_id`, or `passengers` with the exact
 `destination` token from a waiting passenger offer, for focused assessment. A board listing alone does not prove route readiness

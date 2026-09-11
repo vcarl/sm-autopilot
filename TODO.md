@@ -1683,6 +1683,40 @@ passenger destination if offered, then return/service at remembered Frontier. Re
 controller ownership first. Passenger acceptance remains open, not blocked globally
 by Frontier's local empty board. Nothing is pushed; VISION remains verbatim.
 
+## Passenger discovery scope correction — 2026-09-11
+
+Completed workshop evidence committed as `15db97fc41`; completed real-Hermes fitting
+and12-berth custody proof as `80775a2b1b`. Fresh shared Logistics Outpost run01 at
+shared-live-passengers-outpost-20260911-01 traveled to Deep Range Outpost, serviced,
+then returned to Frontier without assessing the station board. The actual model
+mistook obligations.passengers count0 (aboard) for zero waiting offers. Its statement
+that Outpost had no passengers is unsupported; no station-board observation occurred.
+Shared travel and home-preserving return worked, spending3 each for6 total, final
+credits194143/full120/105/35/cargo21. Handle97161/PID7812 exited0, PID absent, no lock.
+No passenger boarded or delivered, and original cargo/modules/laser remained intact.
+
+Fix: obligations retain their server count/passengers/berths fields and explicitly
+label onboard_ship scope with station_offers not_observed. This is shared data
+semantics, not a Logistics tool advertised in other stances. Logistics skill now
+teaches a fresh job__assess after each boarding-station arrival; empty onboard lists
+cannot establish an empty board. No Hermes-core capability added, and no live
+session prompt or catalog changed. Behavioral regression demonstrates empty onboard
+custody alongside a real waiting offer discovered only by assessment; failed on prior
+code. Typecheck +107Node tests and required Python runner46 tests across12files pass,
+including real Hermes imports/registry/BridgeClient/ExecutionHost/native skill loading.
+
+Fresh real-Hermes retry is active at
+spacemolt/runtime/shared-live-passengers-outpost-20260911-02, handle6801, Logistics/
+Focused, max_spend100, unchanged discovery/transport/return objective. Prior controller
+exit and empty lock set verified before launch. Follow the handle and verify actual
+station assessment, selected transport or precise blockers, final custody/fare and
+return. Do not repeat the unsupported empty-board claim or start another controller.
+Files in this fix are obligations.ts/test, native Logistics SKILL.md and this TODO;
+new sanitized discovery evidence is being prepared separately. Commit the verified
+observation/skill correction locally; model-retry acceptance remains unproven until
+its recorded behavior exists. VISION unchanged; no push. Passenger delivery and full
+vision remain open.
+
 ## Validation and completion record
 
 Follow the repository's required test workflow. Existing useful checks from the repository root are:

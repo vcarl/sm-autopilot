@@ -2,6 +2,28 @@ import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {executionFixture} from './execution-fixture.ts';
 import {ExecutionStore} from './execution-store.ts';
+import {observeObligations} from './obligations.ts';
+import {assessPassengers} from './passengers.ts';
+
+test('empty onboard custody leaves station offers unobserved until the passenger board is assessed',async t=>{
+  const f=executionFixture(t);await f.choose();
+  const calls:string[]=[];
+  const command=async(action:string,params:any={})=>{
+    calls.push(action);
+    if(action==='spacemolt/list_passengers')return {count:0,passengers:[],berths:{economy:{free:12},business:{free:0},first:{free:0}}};
+    if(action==='spacemolt/list_station_passengers')return {count:1,waiting:[{citizen_id:'waiting-traveler',destination:'other',class:'economy'}]};
+    const [tool,name]=action.split('/');return f.account.send(tool!,name!,params);
+  };
+  const obligations=await observeObligations(f.account,command);
+  assert.equal(obligations.passengers.count,0);
+  assert.equal(obligations.passengers.observation_scope,'onboard_ship');
+  assert.equal(obligations.passengers.station_offers.status,'not_observed');
+  assert.equal(calls.includes('spacemolt/list_station_passengers'),false);
+  const offers=await assessPassengers(f.account,command,{}, {stations:[]});
+  assert.equal(offers.candidates[0]!.passengers[0]!.citizen_id,'waiting-traveler');
+  assert.equal(calls.includes('spacemolt/list_station_passengers'),true);
+  assert.deepEqual(obligations.passengers.passengers,[]);
+});
 
 test('Hunt admission protects transport commitments; Tired records fresh deadlines and queued work without settling or discarding them',async t=>{
   for(const kind of ['passengers','freight']) {

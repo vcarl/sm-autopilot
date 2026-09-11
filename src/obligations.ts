@@ -21,7 +21,9 @@ export async function observeObligations(account:Account,command:IndustryCommand
     ||production.kind!=='queue'||!(Array.isArray(production.jobs)?production.total_jobs===production.jobs.length:production.jobs===null&&production.total_jobs===0)) {
     throw new ObligationObservationError('Incomplete obligation observation; missing lists cannot establish an empty hold or queue');
   }
-  return structuredClone({observed_at:new Date().toISOString(),missions:account.state.missions,freight,passengers,production});
+  return structuredClone({observed_at:new Date().toISOString(),missions:account.state.missions,freight,
+    passengers:{...passengers,observation_scope:'onboard_ship',
+      station_offers:{status:'not_observed',reason:'This count covers passengers aboard our ship. It does not establish whether passengers are waiting at the station.'}},production});
 }
 
 export function admitProductiveSortie(obligations:Obligations,activity:string) {
