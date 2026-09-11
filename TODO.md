@@ -202,7 +202,7 @@ These are project-level demonstrations under the new interface, not substitutes 
 - [ ] **A8 — Salvage:** A representative independent recovery job completes through real Hermes with verified recovered items and cleanup.
 - [ ] **A9 — Mood behavior:** Relaxed combat does not shoot first but defends; Focused industry ignores unrelated opportunities; Aggressive hunt increases initiative without bypassing assessment. Cautious and Opportunistic have behavioral evidence for their distinct margins and switching rules.
 - [ ] **A10 — Tired:** Tests from idle, travel, productive work, and combat show no new productive admissions and the documented safe exit, return, resupply, and stop. A representative real-Hermes Tired return is recorded.
-- [ ] **A11 — Home failure:** Unavailable or unreachable home produces an explicit fallback and verified return outcome without silently losing the agent's home choice.
+- [x] **A11 — Home failure:** Unavailable home produced an explicit serviced fallback while preserving the chosen home. Live evidence: `spacemolt/evidence/shared-live-local-scout.json`. Stale mobile-home coordinates and redundant final return remain follow-up defects; no full Hunt acceptance is claimed.
 - [ ] **A12 — Uncertain action:** Disconnect scenarios after acceptance demonstrate reconciliation without duplicated purchases, attacks, crafts, transport obligations, or deliveries.
 - [ ] **A13 — Model budget:** Exhausting the model's iteration/time budget leaves active scripts able to complete their defined safe terminal behavior; obligations remain recorded.
 - [ ] **A14 — Handoff:** Stance and mood transitions preserve the objective and state, deliver the correct new catalog/skills, and do not rebuild the historical prompt prefix.
@@ -280,6 +280,30 @@ new-run readiness gate correctly refuses to erase that liability; an explicit ho
 budget reauthorization workflow remains future work. Independent review reproduced
 the original boundary defect, but the reviewing IC hit a usage limit before final
 patch review; final implementation review and validation were completed locally.
+
+## Second live shared Hunt attempt — 2026-09-10
+
+After commit `42dd9fa919`, fresh process and lock checks found no controller. Real
+Hermes launched with Hunt/Aggressive locks and wildlife permission in
+`spacemolt/runtime/shared-live-hunt-local-20260910-02`, one local scout then at most
+one assessed hunt. Fresh state places Frontier Station (`mobile_capital`) in
+Deep Range, while the persisted home coordinates still say Horizon. This is a
+mobile-home location case requiring follow-up: preserve the chosen base identity
+while reconciling its authoritative current location, rather than silently choosing
+a different home. The run exited 0 and released its controller lock. Final verified
+state: Deep Range Outpost, 197,785 credits, hull105/105, shields35/35, fuel120/120,
+starting cargo unchanged. Gross spending42 equals net cash−42; scout/fallback cost27
+and the redundant final return cost15. Both draw from the original 1,000-credit
+job allowance. No hunt was submitted. Reviewed evidence:
+`spacemolt/evidence/shared-live-local-scout.json`.
+
+Observed follow-up: scouting found 12 `need_intelligence` candidates and no eligible
+quarry. After verified fallback service, it stopped inference after one oMLX call;
+the live tool response stayed inline at 20,618 characters. Automatic final return
+then repeated the stale home route, despite already serviced fallback arrival.
+Next fix must resolve mobile-home coordinates by identity and reuse/reverify a
+completed safe cleanup without restarting a known-failed home attempt. Preserve
+fresh condition/obligation checks, defense, and the existing budget owner.
 
 ## Wind-down handoff — live run, 2026-09-10
 

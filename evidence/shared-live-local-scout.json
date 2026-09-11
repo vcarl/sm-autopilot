@@ -1,0 +1,219 @@
+{
+  "scope": "Live real Hermes/oMLX and SpaceMolt; local scouting, scripted stopping, spending and fallback; no live fight",
+  "private_runtime": "spacemolt/runtime/shared-live-hunt-local-20260910-02",
+  "model": "mlx-community--Qwen3.6-35B-A3B-4bit",
+  "endpoint": "http://127.0.0.1:8000/v1",
+  "policy_version": "one-job-gross-1",
+  "stance": "Hunt",
+  "mood": "Aggressive",
+  "runner_exit_code": 0,
+  "controller_lock_released": true,
+  "initial": {
+    "credits": 197827,
+    "location": {
+      "system_id": "deep_range",
+      "poi_id": "mobile_capital",
+      "docked_at": "frontier_station"
+    }
+  },
+  "final": {
+    "credits": 197785,
+    "location": {
+      "system_id": "deep_range",
+      "system_name": "Deep Range",
+      "poi_id": "deep_range_outpost",
+      "docked_at": "deep_range_outpost"
+    },
+    "ship_condition": {
+      "id": "b76179e1db2326d9bf0de8c5401149da",
+      "hull": 105,
+      "max_hull": 105,
+      "shield": 35,
+      "max_shield": 35,
+      "fuel": 120,
+      "max_fuel": 120
+    },
+    "retained_cargo": [
+      {
+        "item_id": "standard_rounds_box",
+        "item_name": "Standard Rounds Box",
+        "quantity": 1,
+        "size": 1
+      },
+      {
+        "item_id": "creature_carapace",
+        "item_name": "Creature Carapace",
+        "quantity": 1,
+        "size": 1
+      },
+      {
+        "item_id": "phase_pearl",
+        "item_name": "Phase Pearl",
+        "quantity": 2,
+        "size": 1
+      }
+    ],
+    "obligation_verification": {
+      "status": "observed",
+      "reason": "Outstanding commitments are recorded, not declared delivered or settled"
+    }
+  },
+  "gross_spend": 42,
+  "cash_delta": -42,
+  "home_choice_preserved": true,
+  "jobs": [
+    {
+      "id": "2d17b31d-23a2-4fc4-88f2-6894d244036f",
+      "action": "track",
+      "status": "completed",
+      "stopping_reason": "one_job scouting found no eligible quarry",
+      "spending": {
+        "gross_spend": 27,
+        "known_gross_spend": 27,
+        "unpriced_actions": []
+      },
+      "budget_owner_id": null,
+      "budget_spending": {
+        "owner_job_id": "2d17b31d-23a2-4fc4-88f2-6894d244036f",
+        "max_spend": 1000,
+        "credit_reserve": 150000,
+        "gross_spend": 27,
+        "known_gross_spend": 27,
+        "unpriced_actions": []
+      },
+      "return_plan": {
+        "home": {
+          "system_id": "horizon",
+          "system_name": "Horizon",
+          "hops": 0,
+          "station_name": "Frontier Station",
+          "base_id": "frontier_station",
+          "poi_id": "mobile_capital",
+          "services": [
+            "crafting",
+            "marine_training",
+            "market",
+            "medical",
+            "missions",
+            "personnel",
+            "refuel",
+            "repair",
+            "salvage_yard",
+            "shipyard",
+            "storage"
+          ],
+          "rationale": "Docked here with full fuel and services. One jump to First Step (also has distress missions), two jumps to Last Light systems with distress targets. Keep Horizon as home while scouting nearby systems for viable wildlife.",
+          "observed_at": "2026-09-10T15:48:16.321Z"
+        },
+        "destination": {
+          "system_id": "deep_range",
+          "system_name": "Deep Range",
+          "hops": 1,
+          "station_name": "Deep Range Outpost",
+          "base_id": "deep_range_outpost",
+          "poi_id": "deep_range_outpost",
+          "services": [
+            "crafting",
+            "marine_training",
+            "market",
+            "medical",
+            "missions",
+            "personnel",
+            "refuel",
+            "repair",
+            "shipyard",
+            "storage"
+          ],
+          "rationale": "Nearest observed refuel station after home return was unavailable",
+          "observed_at": "2026-09-11T02:31:14.440Z"
+        },
+        "temporary": true,
+        "reason": "SpacemoltError: It's called a Mobile Capital for a reason \u2014 it's not here right now. Jump to Deep Range to find it."
+      }
+    },
+    {
+      "id": "8058b5eb-d788-41cb-8976-6c5b90a958ac",
+      "action": "return_to_base",
+      "status": "returned_to_base",
+      "stopping_reason": "one_job scouting found no eligible quarry",
+      "spending": {
+        "gross_spend": 15,
+        "known_gross_spend": 15,
+        "unpriced_actions": []
+      },
+      "budget_owner_id": "2d17b31d-23a2-4fc4-88f2-6894d244036f",
+      "budget_spending": {
+        "owner_job_id": "2d17b31d-23a2-4fc4-88f2-6894d244036f",
+        "max_spend": 1000,
+        "credit_reserve": 150000,
+        "gross_spend": 42,
+        "known_gross_spend": 42,
+        "unpriced_actions": []
+      },
+      "return_plan": {
+        "home": {
+          "system_id": "horizon",
+          "system_name": "Horizon",
+          "hops": 0,
+          "station_name": "Frontier Station",
+          "base_id": "frontier_station",
+          "poi_id": "mobile_capital",
+          "services": [
+            "crafting",
+            "marine_training",
+            "market",
+            "medical",
+            "missions",
+            "personnel",
+            "refuel",
+            "repair",
+            "salvage_yard",
+            "shipyard",
+            "storage"
+          ],
+          "rationale": "Docked here with full fuel and services. One jump to First Step (also has distress missions), two jumps to Last Light systems with distress targets. Keep Horizon as home while scouting nearby systems for viable wildlife.",
+          "observed_at": "2026-09-10T15:48:16.321Z"
+        },
+        "destination": {
+          "system_id": "deep_range",
+          "system_name": "Deep Range",
+          "hops": 1,
+          "station_name": "Deep Range Outpost",
+          "base_id": "deep_range_outpost",
+          "poi_id": "deep_range_outpost",
+          "services": [
+            "crafting",
+            "marine_training",
+            "market",
+            "medical",
+            "missions",
+            "personnel",
+            "refuel",
+            "repair",
+            "shipyard",
+            "storage"
+          ],
+          "rationale": "Nearest observed refuel station after home return was unavailable",
+          "observed_at": "2026-09-11T02:34:14.536Z"
+        },
+        "temporary": true,
+        "reason": "SpacemoltError: It's called a Mobile Capital for a reason \u2014 it's not here right now. Jump to Deep Range to find it."
+      }
+    }
+  ],
+  "candidate_decisions": {
+    "need_intelligence": 12
+  },
+  "hunt_commands": 0,
+  "tool_spillover_files": 0,
+  "model_trace": [
+    "2026-09-10 22:27:24,418 INFO [spacemolt-7fdd031fb1b24ffe9c5e12f04b8d4443] agent.conversation_loop: API call #1: model=mlx-community--Qwen3.6-35B-A3B-4bit provider=custom in=16745 out=439 total=17184 latency=10.5s id=chatcmpl-1d2d5b34",
+    "2026-09-10 22:33:06,559 INFO [spacemolt-7fdd031fb1b24ffe9c5e12f04b8d4443] agent.tool_executor: tool job__track completed (342.13s, 20618 chars)",
+    "2026-09-10 22:33:06,560 INFO [spacemolt-7fdd031fb1b24ffe9c5e12f04b8d4443] agent.conversation_loop: Turn ended: reason=interrupted_by_user model=mlx-community--Qwen3.6-35B-A3B-4bit api_calls=1/20 budget=1/20 tool_turns=1 last_msg_role=assistant response_len=0 session=spacemolt-7fdd031fb1b24ffe9c5e12f04b8d4443"
+  ],
+  "limitations": [
+    "Mobile home retained stale Horizon coordinates although live Frontier Station was in Deep Range.",
+    "Final runner return repeated the already handled home rejection and cost another15 credits after serviced fallback.",
+    "No eligible quarry and no fight; full Hunt acceptance remains open."
+  ]
+}
