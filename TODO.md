@@ -2104,6 +2104,21 @@ and `players/` were preserved. Exact next action: commit the Logistics policy ev
 prepare a gateway-owned Discord/cron acceptance run. A
 dedicated profile and no competing controller are required before that live acceptance.
 
+Session record, 2026-09-11: committed `9c04471ec3` (Industry mood gathering evidence),
+`c8e69c5e85` (profile-scoped credentials), `e3f43f3ee7` (fork-local deployment instructions),
+and `94b8267868` (Logistics mood admission evidence). Tracked worktree is clean; only the
+pre-existing untracked `credentials.kvothe.txt` and `players/` remain. Tests actually run after
+these changes: `cd spacemolt && npm run typecheck && npm test` (125 passing Node tests), and
+`HERMES_PYTHON=/Users/vcarl/workspace/testbench/hermes-agent/.venv/bin/python
+scripts/run_tests.sh tests/test_spacemolt_plugin.py tests/test_spacemolt_runner.py` (18 passing
+Python tests). No live runtime, gateway, Discord session, bridge, or controller was started in
+this session. The last verified pilot checkpoint remains the earlier historical Frontier Station /
+Deep Range record above (194143 credits, fuel120/120, hull105/105, shield35/35, cargo21/120,
+no passengers, freight, queue, or other known custody); it must be authoritatively observed
+before the proposed live acceptance. The next action is to create/configure the dedicated profile
+from the documented fork command, check gateway and controller ownership, then run one bounded
+Hermes/Discord observation and record its gateway process handle and verified receipt.
+
 Follow the repository's required test workflow. Existing useful checks from the repository root are:
 
 ```sh
