@@ -1,0 +1,370 @@
+{
+  "classification": "Live direct Codex passenger prerequisite scouting and owned-material staging; no passenger capability established, no Hermes acceptance",
+  "runtimes": [
+    "spacemolt/runtime/codex-passenger-setup-20260911",
+    "spacemolt/runtime/codex-passenger-fleet-20260911"
+  ],
+  "controllers": [
+    {
+      "tool_handle": 10611,
+      "bridge_pid": 4440,
+      "exit_code": 0
+    },
+    {
+      "tool_handle": 8726,
+      "bridge_pid": 4659,
+      "exit_code": 0
+    }
+  ],
+  "route": [
+    "Frontier Station in Deep Range",
+    "Horizon transit",
+    "First Step Memorial Station",
+    "Void Gate Outpost"
+  ],
+  "cabin_quotes": [
+    {
+      "runtime": "codex-passenger-setup-20260911",
+      "record": "014.json",
+      "station": "first_step_memorial_station",
+      "quote": {
+        "action": "estimate_purchase",
+        "available": 0,
+        "fills": [],
+        "item": "Economy Passenger Cabin",
+        "message": "No sellers for Economy Passenger Cabin at this station.",
+        "quantity_requested": 1,
+        "sales_tax": 0,
+        "sales_tax_rate_bps": 50,
+        "subtotal": 0,
+        "total_cost": 0,
+        "unfilled": 1
+      }
+    },
+    {
+      "runtime": "codex-passenger-fleet-20260911",
+      "record": "018.json",
+      "station": "void_gate_outpost",
+      "quote": {
+        "action": "estimate_purchase",
+        "available": 0,
+        "fills": [],
+        "item": "Economy Passenger Cabin",
+        "message": "No sellers for Economy Passenger Cabin at this station.",
+        "quantity_requested": 1,
+        "sales_tax": 0,
+        "sales_tax_rate_bps": 50,
+        "subtotal": 0,
+        "total_cost": 0,
+        "unfilled": 1
+      }
+    }
+  ],
+  "life_support_supply_change": {
+    "first_step_initial_quote": {
+      "action": "estimate_purchase",
+      "available": 2,
+      "fills": [
+        {
+          "counterparty": "First Step Memorial Station",
+          "price_each": 1914,
+          "quantity": 2,
+          "source": "station",
+          "subtotal": 3828
+        }
+      ],
+      "item": "Life Support Unit",
+      "message": "2 of 2 available. Subtotal 3828 credits + 19 sales tax = 3847 total.",
+      "quantity_requested": 2,
+      "sales_tax": 19,
+      "sales_tax_rate_bps": 50,
+      "subtotal": 3828,
+      "total_cost": 3847,
+      "unfilled": 0
+    },
+    "first_step_fresh_quote": {
+      "action": "estimate_purchase",
+      "available": 0,
+      "fills": [],
+      "item": "Life Support Unit",
+      "message": "0 of 2 available. Subtotal 0 credits + 0 sales tax = 0 total. 2 units not available.",
+      "quantity_requested": 2,
+      "sales_tax": 0,
+      "sales_tax_rate_bps": 50,
+      "subtotal": 0,
+      "total_cost": 0,
+      "unfilled": 2
+    },
+    "void_gate_quote": {
+      "action": "estimate_purchase",
+      "available": 0,
+      "fills": [],
+      "item": "Life Support Unit",
+      "message": "No sellers for Life Support Unit at this station.",
+      "quantity_requested": 2,
+      "sales_tax": 0,
+      "sales_tax_rate_bps": 50,
+      "subtotal": 0,
+      "total_cost": 0,
+      "unfilled": 2
+    },
+    "purchase_attempt": {
+      "request": {
+        "action": "spacemolt/buy",
+        "params": {
+          "id": "life_support_unit",
+          "quantity": 2,
+          "deliver_to": "cargo",
+          "auto_list": false
+        }
+      },
+      "accepted": false,
+      "error": "item_not_available: No one is selling Life Support Unit at this station. To place a standing buy order, use: {\"type\": \"create_buy_order\", \"payload\": {\"item_id\": \"life_support_unit\", \"quantity\": 2, \"price_each\": <your_price>}}. Credits are escrowed immediately; when a seller fills your order, items are delivered to your station storage.",
+      "credits_before": 198496,
+      "credits_after": 198496,
+      "cargo_unchanged": true,
+      "note": "Codex mistakenly submitted buy after the fresh quote showed zero stock. The server rejected it; this was not an acquisition."
+    }
+  },
+  "policy_rejection": {
+    "request": {
+      "action": "spacemolt/storage",
+      "params": {}
+    },
+    "error": "Action is outside the enabled gameplay toolset"
+  },
+  "cabin_crafting_observation": {
+    "kind": "quote",
+    "dry_run": true,
+    "cost": {
+      "inputs": [
+        {
+          "item_id": "titanium_alloy",
+          "name": "Titanium Alloy",
+          "quantity": 4
+        },
+        {
+          "item_id": "flex_polymer",
+          "name": "Flex Polymer",
+          "quantity": 6
+        },
+        {
+          "item_id": "life_support_unit",
+          "name": "Life Support Unit",
+          "quantity": 2
+        }
+      ]
+    },
+    "credits_total": 0,
+    "have_inputs": false,
+    "produces": [
+      {
+        "item_id": "economy_passenger_cabin",
+        "name": "Economy Passenger Cabin",
+        "quantity": 1
+      }
+    ],
+    "effective_time_per_run": 83.33333333333333,
+    "venue_type": "workshop",
+    "message": "Quote only \u2014 nothing queued. Crafting 1 run(s) of Build Economy Passenger Cabin at Station Workshop would consume 4 Titanium Alloy, 6 Flex Polymer, 2 Life Support Unit at no credit cost; ~84 tick(s) to finish. You don't currently have all the materials in storage. Venue: your Station Workshop (hand-crafting) \u2014 advances only while you're docked here and pauses if you undock."
+  },
+  "hull_alternatives": {
+    "credits_only_quotes": [
+      {
+        "ship_class": "technically_legal",
+        "ship_name": "Technically Legal",
+        "credits_only_total": 80377,
+        "provide_materials_total": 11049,
+        "can_commission": true,
+        "build_time": 144,
+        "bare_hull": true
+      },
+      {
+        "ship_class": "loose_change",
+        "ship_name": "Loose Change",
+        "credits_only_total": 68780,
+        "provide_materials_total": 9536,
+        "can_commission": true,
+        "build_time": 120,
+        "bare_hull": true
+      }
+    ],
+    "foreign_design_rejections": [
+      {
+        "request": {
+          "action": "spacemolt_ship/commission_quote",
+          "params": {
+            "id": "cogito",
+            "bare_hull": true
+          }
+        },
+        "error": "Cogito is a solarian-exclusive design. Commission it at a solarian shipyard, or license and build it at your own faction station."
+      },
+      {
+        "request": {
+          "action": "spacemolt_ship/commission_quote",
+          "params": {
+            "id": "nebula_tender",
+            "bare_hull": true
+          }
+        },
+        "error": "Nebula Tender is a nebula-exclusive design. Commission it at a nebula shipyard, or license and build it at your own faction station."
+      }
+    ],
+    "commission_submitted": false,
+    "interpretation": "Quotes do not establish owned ship or passenger accommodation. No ship was bought, commissioned or switched."
+  },
+  "owned_titanium_transfer": {
+    "origin": "first_step_memorial_station",
+    "before_storage": {
+      "item_id": "titanium_alloy",
+      "quantity": 5
+    },
+    "withdrawal_receipt": {
+      "action": "withdraw_items",
+      "item_id": "titanium_alloy",
+      "quantity": 4,
+      "storage_remaining": 1,
+      "cargo_total": 4,
+      "cargo_space": 105
+    },
+    "after_cargo": {
+      "item_id": "titanium_alloy",
+      "quantity": 4,
+      "size": 1
+    },
+    "purchased": false
+  },
+  "accounting": {
+    "initial_credits": 198511,
+    "first_step_refuel": {
+      "action": "refuel",
+      "source": "station",
+      "fuel": 5,
+      "cost": 15,
+      "market_cost": 10,
+      "tax_amount": 5
+    },
+    "void_gate_refuel": {
+      "action": "refuel",
+      "source": "station",
+      "fuel": 3,
+      "cost": 9,
+      "market_cost": 6,
+      "tax_amount": 3
+    },
+    "gross_service_spend": 24,
+    "final_credits": 198487,
+    "wallet_delta": -24,
+    "purchases_accepted": 0,
+    "note": "Service cost includes tax; the8 fuel units cost24 total, not24 plus tax. No revenue was earned in these runs."
+  },
+  "final_state": {
+    "location": {
+      "system_id": "void_gate",
+      "poi_id": "void_gate_outpost",
+      "docked_at": "void_gate_outpost"
+    },
+    "ship": {
+      "id": "b76179e1db2326d9bf0de8c5401149da",
+      "fuel": 120,
+      "max_fuel": 120,
+      "hull": 105,
+      "max_hull": 105,
+      "shield": 35,
+      "max_shield": 35,
+      "cargo_used": 15,
+      "cargo_capacity": 120
+    },
+    "cargo": [
+      {
+        "item_id": "standard_rounds_box",
+        "quantity": 1,
+        "size": 1
+      },
+      {
+        "item_id": "creature_carapace",
+        "quantity": 1,
+        "size": 1
+      },
+      {
+        "item_id": "phase_pearl",
+        "quantity": 2,
+        "size": 1
+      },
+      {
+        "item_id": "carbon_ore",
+        "quantity": 6,
+        "size": 1
+      },
+      {
+        "item_id": "platinum_ore",
+        "quantity": 1,
+        "size": 1
+      },
+      {
+        "item_id": "titanium_alloy",
+        "quantity": 4,
+        "size": 1
+      }
+    ],
+    "modules_unchanged": true,
+    "passengers": {
+      "count": 0,
+      "passengers": []
+    },
+    "production": {
+      "action": "queue",
+      "jobs": null,
+      "kind": "queue",
+      "total_jobs": 0
+    },
+    "freight_shipments": [],
+    "ship_commissions": {
+      "commissions": [],
+      "count": 0
+    },
+    "missions": [
+      {
+        "mission_id": "fff0b7ce092ff4f0d31ebd19977b803f",
+        "type": "distress_response",
+        "issuing_system_id": "starfall",
+        "expires_in_ticks": 303,
+        "percent_complete": 0
+      },
+      {
+        "mission_id": "2a23e470f63feb5b23c1be98a5bcf466",
+        "type": "distress_response",
+        "issuing_system_id": "unknown_edge",
+        "expires_in_ticks": 625,
+        "percent_complete": 0
+      },
+      {
+        "mission_id": "7e90e5674cdef9743cf85984c776e640",
+        "type": "distress_response",
+        "issuing_system_id": "starfall",
+        "expires_in_ticks": 873,
+        "percent_complete": 0
+      },
+      {
+        "mission_id": "b440eef2ecb1d76c0abd0f31074fa979",
+        "type": "distress_response",
+        "issuing_system_id": "starfall",
+        "expires_in_ticks": 874,
+        "percent_complete": 0
+      }
+    ],
+    "previous_active_missions_no_longer_present": [
+      "a5d91118259cb9ce131c5f1027cddce1"
+    ],
+    "missing_mission_disposition": "Unknown. Completed-missions response035 does not establish a matching result; absence from active missions is not proof of completion.",
+    "remembered_home": "Frontier Station remains remembered home; Void Gate is a temporary serviced stop, not a home reassignment."
+  },
+  "limits": [
+    "No cabin was purchased, crafted or installed. No passenger was boarded or delivered.",
+    "Station cabin absence and vanished life-support stock are local observations; global supply remains unknown.",
+    "Craft quote does not create production; credits_total0 and omitted labor/fee fields are preserved without inventing a complete cost contract.",
+    "Direct Codex actions do not satisfy real-Hermes gameplay acceptance.",
+    "Player messages, nearby players, mission bodies and unrelated state have been omitted."
+  ]
+}

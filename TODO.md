@@ -1349,6 +1349,105 @@ Shareable direct-game evidence: `spacemolt/evidence/codex-market-exploration.jso
 Final evidence/TODO checkpoint will be committed separately from implementation;
 no other uncommitted source work remains.
 
+## Passenger-test setup steering — 2026-09-11
+
+User clarified that Codex may directly control Kvothe generally to unblock skills or
+scripts; Hermes inference is required for acceptance, not development setup. The
+return-freight detour did not unblock passengers. General requisition implementation
+is paused (neither IC edited files); current priority is directly obtaining usable
+passenger capacity and positioning for a bounded Hermes passenger demonstration.
+
+Active direct controller: `spacemolt/runtime/codex-passenger-setup-20260911`, tool
+handle10611, bridge PID4440. Login and fresh state confirm198511 credits and full
+serviced Cobble at Frontier Station before departure. Read-only remote listings had
+no First Step ships under10000, and no technically_legal at Starfall/voidGate.
+A fresh route to First Step Memorial Station is Deep Range→Horizon→First Step,
+two jumps quoted4 fuel. Root undocked and submitted jump to Horizon; follow existing
+handle10611 and record authoritative arrival before another movement. Do not open a
+competing controller or treat an observation timeout as terminal.
+
+Alternate capability found in pinned catalog/API: T1 cogito/technically_legal each
+have one inherent economy berth, nebula_tender two, loose_change four. These are
+capability leads, not owned/available ships. NPC shipyards expose commission_quote
+and credits-only commission_ship, but can wait for materials; submission is not an
+owned usable ship. list_ships/switch_ship and canonical berth query are required to
+verify that alternative. No ship commission or purchase has been made. First Step
+local cabin market remains unobserved. No new code tests were needed/run in this
+setup increment; prior101Node/46Python milestone remains the last source validation.
+
+Passenger setup continuation: prior handle10611/bridge4440 exited0 after docking and
+refueling at First Step (fuel5 cost15; credits198496). The private diagnostic bridge
+adds pinned fleet/commission queries for direct Codex use without changing repository
+policy or a Hermes session. Current runtime
+`spacemolt/runtime/codex-passenger-fleet-20260911`, handle8726, bridge PID4659.
+Fleet query confirms only the active Cobble. First Step quotes technically_legal
+credits-only80377 and loose_change68780, both above the configured spend and150000
+reserve. No commission was submitted. Cabin market quote has no sellers; a life-support
+quote initially offered2 for3847 but a fresh quote later showed0. Codex mistakenly
+submitted the buy after that fresh unavailable quote; server rejected it with no
+credit/item change or standing order. One mistyped storage action was policy-rejected
+before game dispatch. These are operator errors, not script acceptance evidence.
+
+Verified withdrawal of4 owned titanium alloy from First Step storage into cargo
+(15/120 used, original cargo preserved). Current direct operation is a quoted one-jump
+trip First Step→Void Gate (fuel quote2) to inspect another cabin/material market;
+jump submitted and existing handle8726 must be followed to authoritative arrival.
+No passenger capability is installed and no production/ship commission is pending.
+General requisition implementation remains paused; setup is unfinished.
+
+## Passenger prerequisite checkpoint — 2026-09-11, 07:59Z
+
+Evidence: `spacemolt/evidence/codex-passenger-setup.json`; private resume state:
+`spacemolt/runtime/codex-passenger-fleet-20260911/resume-checkpoint.json`.
+Known controller PIDs are absent and no controller lock remains.
+
+Direct setup has not yet produced passenger capability. First Step and Void Gate
+both explicitly quote no cabin sellers; Void Gate also has no life-support sellers
+or waiting passengers. First Step's previously available two life-support units were
+no longer available at the fresh quote. No cabin/material purchase succeeded. NPC
+credits-only hull quotes80377/68780 exceed the10000 spend ceiling and150000 reserve;
+Cogito/Nebula Tender commissioning is rejected at this non-home-empire yard. Remote
+Starfall and Unknown Edge listings under10000 are empty; Ramen's Rest lists only a
+Prayer hull, not established passenger capacity. No commission or standing order was
+created. These are local dated supply limits, not proof of global unavailability.
+
+Final direct-controller observations: credits198487 (198511 start minus24 fuel
+purchases), fuel120/120, hull105/105, shield35/35, cargo15/120. Original cargo and fit
+preserved; additional titanium_alloy4 was withdrawn from owned First Step storage,
+which retains1. Docked at Void Gate Outpost / void_gate. Remembered home remains
+Frontier Station; this temporary service stop did not select a new home. This is
+three jumps from the last home region, so do not start a shared two-jump return on
+assumption; direct repositioning or a verified multi-leg plan is needed first.
+Passenger count0, crafting queue empty, active freight empty, ship commissions empty.
+Four missions now appear active: fff0b7ce092ff4f0d31ebd19977b803f,
+2a23e470f63feb5b23c1be98a5bcf466,7e90e5674cdef9743cf85984c776e640,
+b440eef2ecb1d76c0abd0f31074fa979. The prior Void Gate distress mission is no longer
+active; its disposition is not proven by that absence, and no completion credit is
+claimed. Completed-mission query was saved for inspection.
+
+Both private controllers are terminal: codex-passenger-setup-20260911 handle10611 /
+PID4440 exited0; codex-passenger-fleet-20260911 handle8726 / PID4659 exited0. Followed
+actual process handles through every travel, dock and service; no uncertain mutation
+was retried and no controller was restarted based on timeout. The fleet launcher
+only extends the private diagnostic command set, not repository policy or Hermes's
+session catalog. Current source remains the verified f813df1428 baseline. Only TODO
+and new sanitized passenger-setup evidence are being committed in this increment;
+no tests run because no production/test code changed. JSON/evidence checks and git
+diff check are the validation here; prior101Node/46Python results remain historical.
+
+Exact next action: continue direct passenger prerequisite work from the verified
+Void Gate dock, checking ownership before reconnect. Starfall is an observed adjacent
+market not yet inspected locally for cabins; quote its actual route before travel.
+Do not repeat the vanished First Step supply without new evidence, buy a hull beyond
+limits, or claim a cabin has been acquired. If buying remains unavailable, compare a
+fully quoted materials route before extending any crafting chain. Two life-support
+units plus one cabin need titanium4, polymer18, boards6, steel4 and water6 when the
+life-support units themselves must be produced; only titanium4 is staged. No such
+chain is admitted yet. Once capacity is actually installed and canonical berths
+verified, position for a bounded real-Hermes passenger job. General shopping-trip
+implementation stays paused per user steering; full VISION and passenger acceptance
+remain unfinished.
+
 ## Validation and completion record
 
 Follow the repository's required test workflow. Existing useful checks from the repository root are:
