@@ -85,3 +85,27 @@ test('pending and partial production resume only settlement in a new run while u
     assert.equal(f.calls.filter(call=>call.key==='spacemolt/craft'&&call.params.id&&!call.params.dry_run).length,1);
   }
 });
+
+test('unknown recipe assessment supplies exposed discovery recovery with actual candidates or blockers',async t=>{
+  for(const demand of [true,false]) {
+    const f=productionFixture(t);
+    if(!demand) {
+      const send=f.account.send.bind(f.account);
+      f.account.send=async(tool,action,params)=>{
+        const reply=await send(tool,action,params);
+        if(tool==='spacemolt_market'&&action==='view_market')return {structuredContent:{items:[{item_id:'ore',buy_orders:[{price_each:1,quantity:100}],sell_orders:[{price_each:2,quantity:100}]},{item_id:'metal',buy_orders:[],sell_orders:[]}]}} as any;
+        return reply;
+      };
+    }
+    const result:any=await f.execution.dispatch('assess',{recipe_id:'guessed_recipe'});
+    assert.equal(result.status,'blocked');assert.equal(result.requested_recipe_id,'guessed_recipe');
+    assert.deepEqual(result.next_action,{action:'assess',params:{}});
+    const discovered:any=await f.execution.dispatch(result.next_action.action,result.next_action.params);
+    assert.equal(discovered.decision,demand?'candidates_available':'no_profitable_candidate');
+    assert.equal(result.discovery.decision,discovered.decision);
+    const rows=demand?result.discovery.income_candidates:result.discovery.ranked;
+    assert.ok(rows.some((row:any)=>row.recipe_id==='refine'&&(demand||row.blockers.length>0)));
+    assert.equal(f.calls.some(call=>call.key==='spacemolt/craft'&&call.params.id==='guessed_recipe'),false);
+    assert.equal(f.calls.some(call=>['spacemolt/buy','spacemolt/sell','spacemolt_storage/withdraw'].includes(call.key)||call.key==='spacemolt/craft'&&call.params.id&&!call.params.dry_run),false);
+  }
+});

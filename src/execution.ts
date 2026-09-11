@@ -18,7 +18,7 @@ import {isPaidCommand,jobSpending,jobBudget,requireCommandSpend} from './spendin
 import {locateHome} from './home-location.ts';
 import {ensureReadiness} from './readiness.ts';
 import {observeGathering,assessGathering,gatherResources,verifyGatherInventory,type GatherReceipt} from './gather.ts';
-import {productionWaitSeconds,productionExperiments,productionReceipt,unfinishedProduction,retainProductionAcceptance} from './shared-production.ts';
+import {assessProduction,productionWaitSeconds,productionExperiments,productionReceipt,unfinishedProduction,retainProductionAcceptance} from './shared-production.ts';
 
 type Wire=Record<string,any>;
 const parameter=(name:string,type:string,description:string,required=false)=>({name,type,description,required});
@@ -339,7 +339,7 @@ export class Execution {
         return assessGathering(this.account,this.command,{...this.context,home:(await this.homeLocation()).destination},{poi_id:params.poi_id,cycles:limits.max_gather_cycles});
       }
       await this.account.refresh();
-      return executeIndustry(params.recipe_id?'quote':'discover',params,this.account,this.command,{...this.deps.industry,record:()=>{},existing_experiments:productionExperiments(this.store.data.jobs)});
+      return assessProduction(params,this.account,this.command,{...this.deps.industry,record:()=>{},existing_experiments:productionExperiments(this.store.data.jobs)});
     }
     if(action==='produce'&&((!params.recipe_id&&!params.experiment_id)||(params.experiment_id&&(params.recipe_id||params.source||params.quantity!==undefined))))throw new Error('Provide recipe_id for new production or only experiment_id for settlement');
     if(action==='return_to_base')this.signal();

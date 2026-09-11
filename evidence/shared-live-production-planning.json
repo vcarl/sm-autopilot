@@ -1,0 +1,209 @@
+{
+  "validation_level": "Live authenticated SpaceMolt with real Hermes/oMLX; assessment and Tired return, no production acceptance",
+  "code_commit": "9e4b553fdd",
+  "private_runtime": "spacemolt/runtime/shared-live-production-20260911-01",
+  "exit_code": 0,
+  "model": "mlx-community--Qwen3.6-35B-A3B-4bit",
+  "operator_stop": "Repeated economic assessment and guessed recipe IDs filled context without productive submission; explicit Tired requested for diagnosis.",
+  "remaining_tool_calls_after_compression": [
+    {
+      "name": "job__assess",
+      "arguments": "{\"source\": \"inventory\"}"
+    },
+    {
+      "name": "job__assess",
+      "arguments": "{\"recipe_id\": \"carbon_mesh\", \"source\": \"inventory\"}"
+    },
+    {
+      "name": "job__assess",
+      "arguments": "{\"recipe_id\": \"platinum_catalyst\", \"source\": \"inventory\"}"
+    },
+    {
+      "name": "job__assess",
+      "arguments": "{\"recipe_id\": \"phase_device\", \"source\": \"inventory\"}"
+    },
+    {
+      "name": "job__assess",
+      "arguments": "{\"recipe_id\": \"carapace_plate\", \"source\": \"inventory\"}"
+    },
+    {
+      "name": "job__assess",
+      "arguments": "{\"recipe_id\": \"carbon_fiber\", \"source\": \"inventory\"}"
+    },
+    {
+      "name": "job__assess",
+      "arguments": "{\"recipe_id\": \"dark_matter_condensing\", \"source\": \"inventory\"}"
+    },
+    {
+      "name": "job__assess",
+      "arguments": "{\"recipe_id\": \"xenobiology_synthesis\", \"source\": \"inventory\"}"
+    },
+    {
+      "name": "job__assess",
+      "arguments": "{\"recipe_id\": \"bio_composite\", \"source\": \"inventory\"}"
+    },
+    {
+      "name": "job__assess",
+      "arguments": "{\"recipe_id\": \"xenocomposite\", \"source\": \"inventory\"}"
+    },
+    {
+      "name": "job__assess",
+      "arguments": "{\"recipe_id\": \"carbon_weave\", \"source\": \"inventory\"}"
+    }
+  ],
+  "remaining_blocked_replies": [
+    {
+      "status": "blocked",
+      "reason": "Unknown recipe; discover with recipes or screen."
+    },
+    {
+      "status": "blocked",
+      "reason": "Unknown recipe; discover with recipes or screen."
+    }
+  ],
+  "assessment_calls_from_agent_log": 20,
+  "api_and_compression_trace": [
+    "2026-09-11 01:36:32,038 INFO [spacemolt-179a8ddc3495405bb402344adc9ccd11] agent.conversation_loop: API call #1: model=mlx-community--Qwen3.6-35B-A3B-4bit provider=custom in=22588 out=367 total=22955 latency=12.8s cache=2048/22588 (9%) id=chatcmpl-62c8a87b",
+    "2026-09-11 01:36:38,318 INFO [spacemolt-179a8ddc3495405bb402344adc9ccd11] agent.conversation_loop: API call #2: model=mlx-community--Qwen3.6-35B-A3B-4bit provider=custom in=25875 out=289 total=26164 latency=5.4s cache=22528/25875 (87%) id=chatcmpl-09edc087",
+    "2026-09-11 01:36:48,662 INFO [spacemolt-179a8ddc3495405bb402344adc9ccd11] agent.conversation_loop: API call #3: model=mlx-community--Qwen3.6-35B-A3B-4bit provider=custom in=29167 out=646 total=29813 latency=9.9s cache=24576/29167 (84%) id=chatcmpl-be83af30",
+    "2026-09-11 01:37:02,063 INFO [spacemolt-179a8ddc3495405bb402344adc9ccd11] agent.conversation_loop: API call #4: model=mlx-community--Qwen3.6-35B-A3B-4bit provider=custom in=36285 out=499 total=36784 latency=11.6s cache=28672/36285 (79%) id=chatcmpl-4b07e909",
+    "2026-09-11 01:37:23,522 INFO [spacemolt-179a8ddc3495405bb402344adc9ccd11] agent.conversation_loop: API call #5: model=mlx-community--Qwen3.6-35B-A3B-4bit provider=custom in=43387 out=1135 total=44522 latency=20.4s cache=34816/43387 (80%) id=chatcmpl-df7024f2",
+    "2026-09-11 01:37:45,725 INFO [spacemolt-179a8ddc3495405bb402344adc9ccd11] agent.conversation_loop: API call #6: model=mlx-community--Qwen3.6-35B-A3B-4bit provider=custom in=53988 out=689 total=54677 latency=20.7s cache=43008/53988 (80%) id=chatcmpl-94b0e9e1",
+    "2026-09-11 01:37:47,027 INFO agent.conversation_compression: context compression started: session=spacemolt-179a8ddc3495405bb402344adc9ccd11 messages=27 tokens=~59,873 model=mlx-community--Qwen3.6-35B-A3B-4bit focus=None",
+    "2026-09-11 01:38:26,763 INFO agent.conversation_compression: context compression done: session=spacemolt-179a8ddc3495405bb402344adc9ccd11 messages=27->17 rough_tokens=~36,196 awaiting_real_usage=true",
+    "2026-09-11 01:38:26,763 INFO agent.conversation_compression: context compression attempt telemetry: {\"attempt_id\":\"882b6ee0e6274b2f9491e87e8a0aeeab\",\"aux_call_duration_ms\":39702,\"aux_model\":\"mlx-community--Qwen3.6-35B-A3B-4bit\",\"aux_output_reservation\":null,\"aux_prompt_tokens\":2345,\"aux_provider\":\"main\",\"chunk_count\":1,\"chunking\":false,\"commit_ms\":0,\"commit_status\":\"committed\",\"current_estimated_tokens\":59873,\"effective_aux_context\":65536,\"effective_threshold\":54175,\"event\":\"compression_attempt\",\"failure_class\":null,\"fallback_used\":false,\"fit_margin\":63191,\"main_context_limit\":65536,\"main_model\":\"mlx-community--Qwen3.6-35B-A3B-4bit\",\"main_provider\":\"custom\",\"middle_window_tokens\":2100,\"prellm_skip_count\":0,\"prompt_build_ms\":0,\"protected_head_tokens\":11546,\"protected_tail_tokens\":4968,\"queue_wait_ms\":0,\"session_id\":\"spacemolt-179a8ddc3495405bb402344adc9ccd11\",\"split_status\":\"not_applicable\",\"summary_generation_ms\":39701,\"time_to_first_progress_ms\":32,\"total_duration_ms\":39737,\"trigger_source\":\"auto\"}",
+    "2026-09-11 01:38:26,766 INFO [spacemolt-179a8ddc3495405bb402344adc9ccd11] agent.conversation_loop: Turn ended: reason=interrupted_by_user model=mlx-community--Qwen3.6-35B-A3B-4bit api_calls=6/20 budget=6/20 tool_turns=3 last_msg_role=user response_len=0 session=spacemolt-179a8ddc3495405bb402344adc9ccd11"
+  ],
+  "jobs": [
+    {
+      "action": "return_to_base",
+      "status": "returned_to_base",
+      "cash_delta": 0,
+      "spending": {
+        "gross_spend": 0,
+        "known_gross_spend": 0,
+        "unpriced_actions": []
+      }
+    }
+  ],
+  "final": {
+    "location": {
+      "system_id": "deep_range",
+      "poi_id": "mobile_capital",
+      "docked_at": "frontier_station"
+    },
+    "credits": 197773,
+    "ship_condition": {
+      "id": "b76179e1db2326d9bf0de8c5401149da",
+      "hull": 105,
+      "max_hull": 105,
+      "shield": 35,
+      "max_shield": 35,
+      "fuel": 120,
+      "max_fuel": 120
+    },
+    "retained_cargo": [
+      {
+        "item_id": "standard_rounds_box",
+        "item_name": "Standard Rounds Box",
+        "quantity": 1,
+        "size": 1
+      },
+      {
+        "item_id": "creature_carapace",
+        "item_name": "Creature Carapace",
+        "quantity": 1,
+        "size": 1
+      },
+      {
+        "item_id": "phase_pearl",
+        "item_name": "Phase Pearl",
+        "quantity": 2,
+        "size": 1
+      },
+      {
+        "item_id": "carbon_ore",
+        "item_name": "Carbon Ore",
+        "quantity": 6,
+        "size": 1
+      },
+      {
+        "item_id": "platinum_ore",
+        "item_name": "Platinum Ore",
+        "quantity": 1,
+        "size": 1
+      }
+    ],
+    "obligations": {
+      "observed_at": "2026-09-11T05:38:28.411Z",
+      "missions": {
+        "active": [
+          {
+            "accepted_at": "2026-09-11T05:36:45Z",
+            "description": "MAYDAY: Wexler XNK-D3 is stranded at Probability Cloud \u2014 Distant Light in Distant Light with 2/120 fuel! Any pilots nearby, please help!",
+            "difficulty": 5,
+            "expires_in_ticks": 1069,
+            "giver": {
+              "name": "Wexler XNK-D3",
+              "title": "Emergency Broadcast"
+            },
+            "issuing_base": "",
+            "issuing_system_id": "distant_light",
+            "issuing_system_name": "Distant Light",
+            "mission_id": "4d5b499cf8d7ed23b83c98def0a3746d",
+            "objectives": [
+              {
+                "completed": false,
+                "current": 0,
+                "description": "Investigate distress call in Distant Light",
+                "required": 1,
+                "system_id": "distant_light",
+                "system_name": "Distant Light",
+                "type": "visit_system"
+              }
+            ],
+            "percent_complete": 0,
+            "rewards": {
+              "credits": 0,
+              "skill_xp": {
+                "piloting": 25
+              }
+            },
+            "title": "Distress: Wexler XNK-D3 in Distant Light",
+            "type": "distress_response"
+          }
+        ],
+        "max_missions": 5
+      },
+      "freight": {
+        "action": "active",
+        "message": "You have no live freight contracts as carrier, shipper, recipient, or invited carrier.",
+        "shipments": [],
+        "tick": 1851783
+      },
+      "passengers": {
+        "count": 0,
+        "passengers": []
+      },
+      "production": {
+        "action": "queue",
+        "jobs": null,
+        "kind": "queue",
+        "total_jobs": 0
+      }
+    },
+    "obligation_verification": {
+      "status": "observed",
+      "reason": "Outstanding commitments are recorded, not declared delivered or settled"
+    }
+  },
+  "controller_released": true,
+  "gross_spend": 0,
+  "wallet_delta": 0,
+  "limitations": [
+    "No craft or sale job completed; S12/A4 live acceptance remains open.",
+    "Compression replaced earlier tool payloads, so the initial discovery response cannot be reconstructed from the checkpoint.",
+    "Unknown recipe reply referred to unavailable legacy recipes/screen tools.",
+    "This run does not establish absence of viable local production; it establishes a planning/error-guidance failure."
+  ]
+}

@@ -2,6 +2,7 @@
 import json
 import uuid
 import threading
+from datetime import datetime, timezone
 from spacemolt.receipts import capture_receipt, receipt_report
 
 
@@ -122,6 +123,12 @@ def _run_execution(args, bridge, agent_class, registry, base_url, api_key, write
                 def handler(arguments, _action=action, **kwargs):
                     response = bridge.request("job/" + _action, arguments)
                     capture_receipt(lifecycle["receipts"], response)
+                    if _action in {"observe", "assess"}:
+                        write_json(args.runtime / "observations" / (uuid.uuid4().hex + ".json"), {
+                            "observed_at": datetime.now(timezone.utc).isoformat(),
+                            "session_id": session_id, "action": _action,
+                            "arguments": arguments, "response": response,
+                        })
                     if response.get("result", {}).get("status") == "handoff_required":
                         handoff.append(response["result"])
                         agent.interrupt()

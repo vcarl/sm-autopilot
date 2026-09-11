@@ -281,6 +281,29 @@ budget reauthorization workflow remains future work. Independent review reproduc
 the original boundary defect, but the reviewing IC hit a usage limit before final
 patch review; final implementation review and validation were completed locally.
 
+## Live production planning diagnostic — 2026-09-11
+
+Real Hermes/oMLX ran the shared Industry interface against the MMO after controller
+checks. It repeatedly assessed guessed recipe IDs, received an error referring to
+unavailable legacy tools, and triggered context compression without submitting
+production. An operator Tired signal stopped the run; final verified state remained
+Frontier Station/Deep Range, 197,773 credits, full105 hull/35 shields/120 fuel,
+unchanged cargo, gross0/net0, no queued production. Exit0 and lock released.
+Evidence: `spacemolt/evidence/shared-live-production-planning.json`.
+
+This does not prove that no profitable opportunity exists. Earlier discovery payloads
+were lost from the compressed conversation, so their exact blockers cannot be
+reconstructed. The runner now preserves raw observe/assess responses, request
+arguments and session IDs under the private runtime `observations/` directory before
+model compaction. A real Hermes dispatch test verifies this persistence.
+
+Shared economic assessment now rejects unknown recipe IDs with the requested ID,
+the available assessment action, and actual bounded discovery candidates/blockers.
+Discovery explicitly distinguishes candidates available from no profitable candidate
+established; it never directs Hermes to absent recipes/screen tools. Unknown IDs
+are not sent as craft quotes. Typecheck, 78 Node tests and 32 Python tests pass.
+The corrected planning path still needs another live attempt; A4 remains open.
+
 ## Shared production job and custody verification — 2026-09-11
 
 Industry now exposes economic assessment and `produce` through the shared session

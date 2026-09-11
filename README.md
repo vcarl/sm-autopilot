@@ -131,6 +131,9 @@ and assessment estimates. The private checkpoint retains `model_report` for revi
 Observed endpoint hull is not a measurement of damage taken during a fight. Model
 responses keep outcomes and unresolved commands but omit repeated mechanical journal
 snapshots; the full journal remains on disk for executor recovery.
+Raw model-requested observe/assess responses are retained under each runtime’s
+`observations/` directory with arguments and session identity, independently of
+conversation compression. These are observations, not completed-job receipts.
 Large observations factor repeated evidence into inline references and named-column
 tables. Mission snapshots retain their changing fields as explicit overrides. A
 `reading_note` explains the representation in the same response. Current state,
