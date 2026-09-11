@@ -1186,6 +1186,33 @@ actual recipe prerequisites, before implementing or launching another passenger
 attempt. No same-state faction-intel retry, invented supply, expanded route bounds
 or implicit faction membership is justified by the previous live blocker.
 
+## Own-use cabin production audit — 2026-09-11
+
+Shared readiness milestone committed locally as `a68731ae9b`; no source edits remain.
+A bounded read-only audit found `build_economy_passenger_cabin` in `spacemolt/runtime/catalog-cache.json`, catalog
+version `0.599.5`, fetched 2026-09-11T05:36:32.636Z: four titanium alloy, six flex
+polymer and two life-support units produce one cabin, with `crafting_time:90`.
+These are historical catalog facts, not current material availability or a quote.
+The catalog/pinned recipe schema omit required skills/facilities; historical crafting2
+and engineering0 prove neither eligibility nor rejection. Inspected historical
+cargo/storage contained none of those inputs or the cabin; no prior cabin dry-run
+was found.
+
+The existing producer's admission requires sale depth and positive economic margin,
+and settlement withdraws/sells all output (`industry.ts`). Retaining a cabin therefore
+needs an explicit persisted own-use disposition on the existing Industry job, with
+unchanged input/craft quotation, allocation and custody checks, no output-demand
+requirement, verified retained output, and spending reported without invented sale
+earnings. Then a normal session handoff to Logistics can use its existing owned
+storage/cargo cabin fitting path. This extends complete production rather than adding
+a cabin-only executor or silently changing disposition during settlement.
+
+Exact next prerequisite observation: a fresh read-only craft dry-run for this recipe
+at the authenticated current station. Its actual skill/facility/material/cost result
+must guide whether to implement or launch the retained-output acquisition path.
+No live call or new controller occurred during this audit; the terminal live checkpoint
+and outstanding missions remain those recorded above. S12/S14 and A4/A6 remain open.
+
 ## Validation and completion record
 
 Follow the repository's required test workflow. Existing useful checks from the repository root are:
