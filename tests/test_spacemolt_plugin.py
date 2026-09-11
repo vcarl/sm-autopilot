@@ -78,6 +78,8 @@ def test_native_plugin_registers_static_high_level_tools_through_real_registry(m
     assert {"spacemolt_observe", "spacemolt_plan", "spacemolt_transport", "spacemolt_hunt", "spacemolt_gather", "spacemolt_stop"} <= names
     plan = next(entry["function"] for entry in definitions if entry["function"]["name"] == "spacemolt_plan")
     assert set(plan["parameters"]["properties"]) >= {"stance", "mood", "objective", "home_base_id"}
+    prompt = manager._system_prompt_sections["spacemolt.operations"].content
+    assert all(name in prompt for name in names)
 
 
 def test_profile_plugin_discovery_loads_the_packaged_direct_toolset(monkeypatch, tmp_path):

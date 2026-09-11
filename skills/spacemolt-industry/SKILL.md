@@ -39,9 +39,9 @@ current system directory identifies candidate POIs but does not reveal their res
 contents remotely. Scripts inspect resources after arrival before admitting extraction;
 an empty site can therefore end the job without yield.
 
-## Tool: job__assess
+## Tool: spacemolt_assess
 
-Use `job__assess` with an observed `poi_id` to check local gathering suitability.
+Use `spacemolt_assess` with an observed `poi_id` to check local gathering suitability.
 Read blockers before committing to a site. A viable candidate permits a bounded
 verification visit, not an assertion of remote resource contents. Even observed
 resources do not promise a quantity or sale price.
@@ -63,23 +63,23 @@ production job returned that field for unfinished work.
 Retained production requires complete acquisition/crafting costs and capacity, but
 does not require a profitable sale. Missing inputs or quotes remain blockers.
 
-## Tool: job__prepare
+## Tool: spacemolt_prepare
 
-Use `job__prepare` docked to service the ship and prepare mining capability through
+Use `spacemolt_prepare` docked to service the ship and prepare mining capability through
 the shared readiness executor. Unavailable equipment, insufficient capacity, or an
 unpriced repair produces a blocker; do not substitute an invented quote.
 
-## Tool: job__gather
+## Tool: spacemolt_gather
 
-Use `job__gather` with the chosen `poi_id` and optionally a smaller cycle count.
+Use `spacemolt_gather` with the chosen `poi_id` and optionally a smaller cycle count.
 It verifies the site and readiness, extracts within policy, records canonical cargo
 changes, and returns home or an explicit service fallback. It retains gathered items
 and preserves starting cargo. It does not sell, manufacture, or promise a particular
 resource mix or quantity. Zero yield does not satisfy a collection objective.
 
-## Tool: job__produce
+## Tool: spacemolt_produce
 
-Use `job__produce` at the chosen home with `recipe_id`, `source` (`inventory` by
+Use `spacemolt_produce` at the chosen home with `recipe_id`, `source` (`inventory` by
 default), and optionally `quantity`. Only one recipe run is supported. The script
 services the ship, revalidates the chosen purpose, stages or buys inputs, submits crafting,
 and verifies resulting inventory. `disposition: sell` is the default and sells only

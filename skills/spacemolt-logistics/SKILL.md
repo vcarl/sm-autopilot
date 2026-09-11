@@ -39,15 +39,15 @@ or out-of-policy destinations remain blocked. Assess capacity, route fuel, exist
 obligations, carrier eligibility, and deadlines before committing. Read cargo size
 uncertainty explicitly: accepting freight can create liability before pickup succeeds.
 
-## Tool: job__assess
+## Tool: spacemolt_assess
 
-After arriving at a boarding station, use `job__assess` to read its waiting offers
-before deciding whether there is work. Passenger counts in `job__observe`, travel
+After arriving at a boarding station, use `spacemolt_assess` to read its waiting offers
+before deciding whether there is work. Passenger counts in `spacemolt_observe`, travel
 receipts and obligations describe people already aboard your ship. An empty ship
 can be docked beside waiting passengers; arrival or servicing does not inspect that
 board. Use a fresh assessment after each station change.
 
-Use `job__assess` without parameters to compare freight and passenger opportunities.
+Use `spacemolt_assess` without parameters to compare freight and passenger opportunities.
 Choose `kind` as `freight` with a `shipment_id`, or `passengers` with the exact
 `destination` token from a waiting passenger offer, for focused assessment. A board listing alone does not prove route readiness
 or guarantee a fare. Passenger deadlines are observed after boarding; no route
@@ -65,18 +65,18 @@ Compare reachable leads with the objective, then use shared travel and reassess
 fitting after arrival. Missing intel or no matched listing means no supplier has
 been established; it does not prove that cabins are unavailable everywhere.
 
-## Tool: job__prepare
+## Tool: spacemolt_prepare
 
-Use `job__prepare` without parameters for shared servicing. With `kind: passengers`,
+Use `spacemolt_prepare` without parameters for shared servicing. With `kind: passengers`,
 it prepares an economy cabin using owned stock or a freshly quoted purchase within
 the host budget. If utility slots are full, it may replace an observed mining laser,
 preserving that equipment in cargo. Other equipment remains fitted. Read the verified
 berth result before selecting passengers; blocked fitting is not usable capacity.
 Unavailable services or unverified repair prices remain explicit blockers.
 
-## Tool: job__transport
+## Tool: spacemolt_transport
 
-Use `job__transport` with `kind` and the assessed `shipment_id` or `destination`.
+Use `spacemolt_transport` with `kind` and the assessed `shipment_id` or `destination`.
 Once a feasible delivery is selected, execute the tool and read its receipt rather
 than ending with an intention to carry it. The worker tracks the exact package or
 boarded citizen IDs. Boarding loads available passengers for one destination up to

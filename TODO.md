@@ -2141,6 +2141,33 @@ message, then records the reply/tool receipt; controller and pilot state must be
 before any productive instruction. Untracked `credentials.kvothe.txt` and `players/` remain
 preserved.
 
+## Direct Discord tool guidance repair — 2026-09-11
+
+The profile configuration itself is correct: `spacemolt` is enabled and included in the Discord
+platform toolsets, and the profile-scoped credential gate resolves successfully. The reported
+`spacemostat_*` calls were never registered names. Investigation found the actual defect in the
+bundled direct-plugin skills: they still directed the model to the obsolete `job__*` execution
+catalog even though the native plugin exposes only `spacemolt_*` tools. The plugin prompt now
+enumerates the complete direct catalog, the four bundled operational skills name the direct
+tools, and the Logistics assessment receipt directs callers to `spacemolt_assess`. A real
+registry test asserts every dynamically registered direct tool is named in the prompt, preventing
+that instruction/schema split from returning.
+
+Validation: `HERMES_PYTHON=/Users/vcarl/workspace/testbench/hermes-agent/.venv/bin/python
+scripts/run_tests.sh tests/test_spacemolt_plugin.py` passed 5 tests, and `cd spacemolt && npm run
+typecheck && npm test` passed 125 Node tests. This is development and registry evidence; it does
+not prove a Discord session has received the repaired schema.
+
+During the repair check, the existing Discord gateway already owned a live SpaceMolt bridge
+(PID22338 and its controller lock). A profile-scoped Tired request was written through
+`hermes spacemolt stop`; the bridge remained connected because the gateway retains its single
+bridge owner while idle, so it must be cleanly stopped before replacing the installed plugin.
+No second controller was opened. Exact next action: stop the existing gateway after Tired,
+verify the bridge and lock exit, install this repaired plugin copy, restart one gateway, then use
+a new Discord thread/session so its immutable tool catalog and prompt are built from the repaired
+plugin. The user must verify the Discord reply; no productive game command should be sent until
+the fresh session can call `spacemolt_observe` and return its authoritative receipt.
+
 Follow the repository's required test workflow. Existing useful checks from the repository root are:
 
 ```sh

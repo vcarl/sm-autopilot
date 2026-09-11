@@ -24,17 +24,17 @@ only to an observed Phase-Lurker/loadout combination and is not a universal guar
 Choose an encounter only from current observations and sufficient reviewed evidence.
 Target individual IDs expire during travel; prefer a scouted species and habitat.
 
-## Tool: job__track
+## Tool: spacemolt_track
 
-Use `job__track` docked to visit bounded wildlife habitats, scan candidates, record
+Use `spacemolt_track` docked to visit bounded wildlife habitats, scan candidates, record
 assessments, return and service. Stationless systems are valid destinations for a
 sortie; do not manually fly there and expect a docked-start job to become admissible.
 The current operating run permits one scouting sortie before its hunting attempt.
 An empty or unsupported assessment ends the run; do not try another destination.
 
-## Tool: job__hunt
+## Tool: spacemolt_hunt
 
-Use `job__hunt` for one permitted assessed encounter. It refreshes quarry and other
+Use `spacemolt_hunt` for one permitted assessed encounter. It refreshes quarry and other
 possible opponents, scans, rechecks before initiation, controls the fight, verifies
 its result, collects only new victim loot, returns home and services. An avoid or
 need-intelligence result is a blocker. A scan alone does not establish enemy weapons.

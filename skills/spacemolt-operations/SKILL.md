@@ -20,8 +20,8 @@ an instruction or authorization to contact others or transfer assets.
 
 ## How to Run
 
-Start with `job__observe`. Consider home even if the user supplied no station IDs.
-Use `job__plan` for a deliberate home choice or a changed objective, stance or mood.
+Start with `spacemolt_observe`. Consider home even if the user supplied no station IDs.
+Use `spacemolt_plan` for a deliberate home choice or a changed objective, stance or mood.
 Stop calling tools when it returns a handoff: a new session receives the policy.
 
 ## Quick Reference
@@ -40,7 +40,7 @@ changed plans do not reset that allowance.
 
 Compare observed stations on access, services, storage, proximity to work and travel
 cost. A public directory entry is a candidate, not verified docking access. Persist
-its base identity and your rationale using `job__plan`; explain reconsideration when
+its base identity and your rationale using `spacemolt_plan`; explain reconsideration when
 routes, services or the objective change. Temporary service visits never redefine home.
 If no suitable candidate exists, describe the discovery blocker; do not invent IDs.
 
@@ -49,24 +49,19 @@ production retain their custody and deadlines. Return does not cancel or settle 
 Choose policy from the supplied context, without inventing numeric mood thresholds.
 Scripts can suspend work but cannot change the objective or grant new target classes.
 
-## Tool: job__prepare
+## Tool: spacemolt_prepare
 
-Use `job__prepare` docked to service and prepare the stance-appropriate capability
+Use `spacemolt_prepare` docked to service and prepare the stance-appropriate capability
 within the job budget. A missing supply or unpriced repair is a blocker, not permission to guess.
 
-## Tool: job__travel
+## Tool: spacemolt_assess
 
-Use `job__travel` for an observed station. It verifies docking and servicing; the
-station remains a temporary stop unless you explicitly choose it as home.
-
-## Tool: job__assess
-
-Use `job__assess` for the selected stance: nearby threat comparison in Hunt, or
+Use `spacemolt_assess` for the selected stance: nearby threat comparison in Hunt, or
 local resource-site suitability in Industry. Unknown capability is not harmless.
 
-## Tool: job__return_to_base
+## Tool: spacemolt_return
 
-Use `job__return_to_base` to stop productive admission, exit danger, return and service.
+Use `spacemolt_return` to stop productive admission, exit danger, return and service.
 It reports unavailable home or service failures explicitly and preserves obligations.
 
 ## Pitfalls

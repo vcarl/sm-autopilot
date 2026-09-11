@@ -6,7 +6,7 @@ from pathlib import Path
 from .cli import spacemolt_command, register_cli
 from .service import TOOL_DEFINITIONS, close_services
 
-_PROMPT = """SpaceMolt is a live game capability. Use its high-level tools only: observe before planning; choose stance, mood, objective and home from observations; treat tool receipts as the only proof of success. A plan takes effect in the next session. Tired/stop immediately suspends productive work while scripts own return, servicing, obligations and reconciliation. Never claim money, delivery, safety or cleanup without the returned receipt."""
+_PROMPT = """SpaceMolt is a live game capability. Its only game tools are spacemolt_observe, spacemolt_plan, spacemolt_assess, spacemolt_prepare, spacemolt_transport, spacemolt_track, spacemolt_hunt, spacemolt_gather, spacemolt_produce, spacemolt_return, spacemolt_reconcile, and spacemolt_stop. Observe before planning; choose stance, mood, objective and home from observations; treat tool receipts as the only proof of success. A plan takes effect in the next session. Tired/stop immediately suspends productive work while scripts own return, servicing, obligations and reconciliation. Never claim money, delivery, safety or cleanup without the returned receipt."""
 
 
 def register(ctx) -> None:
