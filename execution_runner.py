@@ -117,7 +117,7 @@ def _run_execution(args, bridge, agent_class, registry, base_url, api_key, write
                         stop_requested.set()
                     if outcome.get("status") == "needs_reconciliation" or stop_requested.is_set():
                         agent.interrupt()
-                    return json.dumps(model_response(response))
+                    return json.dumps(model_response(response), separators=(",", ":"))
                 registry.register(name=schema["name"], toolset="spacemolt_execution", schema=schema, handler=handler)
             TOOLSETS[toolset] = {"description": "Immutable session job grant", "tools": [s["name"] for s in schemas], "includes": []}
             agent = agent_class(provider="custom", api_mode="chat_completions", base_url=base_url,

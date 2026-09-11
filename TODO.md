@@ -209,10 +209,9 @@ These are project-level demonstrations under the new interface, not substitutes 
 - [ ] **A15 — Completion evidence:** Final reports expose independently checkable costs, obligations, location, condition, progression, and outcome, including unsold inventory and unresolved work.
 - [ ] **A16 — Fresh-session reproducibility:** Setup and run instructions are current, required checks pass, and another session can reproduce representative workflows without relying on this conversation's hidden context.
 
-## Executable stopping and live receipt compaction — in progress
+## Executable stopping and live receipt compaction — 2026-09-10
 
-The live repeated-scout failure is being fixed at the script/runner boundary, not
-through a stronger prompt. `execution-stopping.ts` and the pilot store enforce one
+The live repeated-scout failure is fixed at the script/runner boundary. `execution-stopping.ts` and the pilot store enforce one
 optional Hunt scout and one principal Hunt/gather attempt, with persistent admission
 across handoff/reconnect and verified host-only reset. Terminal `stopping_reason` is
 separate from completed/blocked outcome. The runner interrupts on this reason and
@@ -223,8 +222,33 @@ pass through the required test runner, including idle inference interruption and
 terminal gather interruption through actual Hermes and Node. The real bridge and
 offline tests now share `ExecutionHost` dispatch, including verified host reset.
 Independent review found no allowance bypass; a monitor reference race was fixed
-before final validation. Recorded live-result compaction replay remains in progress.
+before final validation.
+Real local-model validation also passed through actual `ExecutionHost` dispatch:
+home choice, assessment, one gather, immediate inference interruption, then verified
+cleanup. There was no third model completion after the assess/gather tool turns;
+the public report was built with no final model narrative. Reviewed offline evidence:
+`spacemolt/evidence/shared-stopping-model-fixture.json`.
 This closes the current single-attempt gap, not S17's general objective-driven repetition.
+
+`model_receipts.py` now keeps large planning results inline using shared evidence,
+named-column tables and mission overrides. Historical duplicate snapshots are
+omitted; current state, every candidate assessment/scan, obligations, unresolved
+accepted responses and observed skill/loadout/ship changes remain. Raw durable
+journals are unchanged. Five recorded live responses shrink from 49K–262K to
+10,531–37,967 characters, below the actual 39,321-character Hermes threshold at
+65,536-token context. Real registry/storage/turn-budget checks and all 26 Python
+tests pass. This bounds the tested receipts, not arbitrary future payloads.
+
+A real local-model reading check initially misread scan success as engagement
+clearance despite retaining all `need_intelligence` assessments. Derived recorded
+decision counts and engage IDs now make the distinction explicit. A repeat with
+concise JSON output correctly reported all 12 candidates needing intelligence,
+zero engagement clearances and the −18 cash delta, with no spilled output. This
+is a reading check over saved live evidence, not new gameplay or proof of general
+model planning competence; scripts independently enforce fresh assessment. Both
+attempts are recorded in `spacemolt/evidence/shared-receipt-compaction.json`.
+
+Next: enforce gross spending independently of income before another economic job.
 
 ## Wind-down handoff — live run, 2026-09-10
 

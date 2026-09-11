@@ -121,6 +121,11 @@ and assessment estimates. The private checkpoint retains `model_report` for revi
 Observed endpoint hull is not a measurement of damage taken during a fight. Model
 responses keep outcomes and unresolved commands but omit repeated mechanical journal
 snapshots; the full journal remains on disk for executor recovery.
+Large observations factor repeated evidence into inline references and named-column
+tables. Mission snapshots retain their changing fields as explicit overrides. A
+`reading_note` explains the representation in the same response. Current state,
+candidate assessments and scans, obligations, accepted uncertain responses, and
+observed skill/loadout/ship changes remain available for planning.
 
 Hunt sorties refuse onboard passengers and carrier freight until those commitments
 are resolved. Return preserves them; it does not deliver or cancel them. Receipts

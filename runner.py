@@ -198,29 +198,12 @@ def tool_schema(action, metadata):
                            "required": [p["name"] for p in params if p.get("required")], "additionalProperties": False}}
 
 
-def compact_job_receipts(value):
-    """Keep job outcomes available without spilling repetitive journals to file tools."""
-    if isinstance(value, list):
-        return [compact_job_receipts(item) for item in value]
-    if not isinstance(value, dict):
-        return value
-    is_job = all(key in value for key in ("id", "action", "status", "actions"))
-    result = {key: compact_job_receipts(item) for key, item in value.items()
-              if not (is_job and key == "actions")}
-    if is_job:
-        result["unresolved_commands"] = [
-            {key: entry[key] for key in ("action", "params", "status", "result") if key in entry}
-            for entry in value["actions"] if entry.get("status") in {"pending", "uncertain"}
-        ]
-        result["journal_note"] = "Full mechanical command journal retained by the executor; outcomes and unfinished commands are included here."
-    return result
-
-
 def model_response(response):
     """Keep one query representation and mutation details, retaining current state."""
+    envelope_keys = ("ok", "error", "code", "outcome_unknown", "fatal", "action_completed", "state")
     result = response.get("result")
     if result == response.get("state"):
-        return {key: response[key] for key in ("ok", "error", "state") if key in response}
+        return {key: response[key] for key in envelope_keys if key in response}
     if isinstance(result, dict):
         if result.get("structuredContent") is not None:
             result = result["structuredContent"]
@@ -231,7 +214,8 @@ def model_response(response):
         elif isinstance(result.get("delta"), dict):
             result = {"command": result.get("command"), "tick": result.get("tick"),
                       "details": result["delta"].get("details")}
-    return {**{key: response[key] for key in ("ok", "error", "state") if key in response}, "result": compact_job_receipts(result)}
+    from spacemolt.model_receipts import compact_response
+    return compact_response({**{key: response[key] for key in envelope_keys if key in response}, "result": result})
 
 
 def local_model(settings_path, model):

@@ -1,0 +1,62 @@
+{
+  "scope": "Real Hermes AIAgent local-model reading check over a saved scout receipt; no live gameplay or gameplay competence claim",
+  "model": "mlx-community--Qwen3.6-35B-A3B-4bit",
+  "sizes": [
+    {
+      "file": "call_efde2a82.txt",
+      "raw_chars": 262295,
+      "compact_chars": 37967,
+      "threshold": 39321,
+      "sha256": "df71ef6c88bd818b2d169ed79c20f5fefd56338268516681362ac3decad5c8f7"
+    },
+    {
+      "file": "call_65644292.txt",
+      "raw_chars": 93777,
+      "compact_chars": 22867,
+      "threshold": 39321,
+      "sha256": "a8332306a8751f3bef837453b6d2f5ada34f111c0d3bed56c8372af27b3c2e32"
+    },
+    {
+      "file": "call_741d2ab6.txt",
+      "raw_chars": 49321,
+      "compact_chars": 10732,
+      "threshold": 39321,
+      "sha256": "8a9f9d4b66df038de1ad6ad6d2aaaaf57afb172ab830d096a59758e70b7a6550"
+    },
+    {
+      "file": "call_298409d4.txt",
+      "raw_chars": 49864,
+      "compact_chars": 10531,
+      "threshold": 39321,
+      "sha256": "322ab16214d0eb2e532e8fc9ebb3d8a782f19157e0aecca2ac00636f5fc040ea"
+    },
+    {
+      "file": "call_a99b4bfe.txt",
+      "raw_chars": 70279,
+      "compact_chars": 13058,
+      "threshold": 39321,
+      "sha256": "a343f18cd7b3fc9abe03ed5068022a34932bc4f60bc147bf1990b0dc0e02d3ba"
+    }
+  ],
+  "tool_calls": [
+    {}
+  ],
+  "final_answer": {
+    "candidate_count": 12,
+    "unique_decisions": [
+      "need_intelligence"
+    ],
+    "recorded_engage_candidate_count": 0,
+    "can_initiate_hunt": false,
+    "blocker": "All 12 assessments report need_intelligence; recorded_engage_candidate_ids is empty. Missing intelligence prevents engagement regardless of scan success.",
+    "scan_succeeded": true,
+    "scan_is_sufficient_to_engage": false,
+    "cash_delta": -18
+  },
+  "spillover_files": 0,
+  "initial_attempt": "No spills; model read all12 identities and need_intelligence decisions but incorrectly promoted one successful scan to clearance and hit output limit. Retained in model-result.json.",
+  "change": "Derived recorded assessment counts/engage IDs and explicit scan-versus-assessment note; final replay requested concise JSON and passed. Scripts continue to enforce fresh assessment independently.",
+  "raw_journals": "Read-only replay checked byte equality after projection; no game connection or game credentials used.",
+  "private_runtime": "/var/folders/_4/1kmc70zj6s18v8ls6cxn81m40000gn/T/spacemolt-compact-replay.ktlg1fwu",
+  "validation": "26 Python tests passed across six SpaceMolt files through scripts/run_tests.sh; five saved live receipts replayed through actual Hermes result storage and turn budget. No new gameplay."
+}

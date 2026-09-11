@@ -1,0 +1,69 @@
+{
+  "validation_level": "Actual local omlx model and Hermes AIAgent; actual ExecutionHost dispatch; offline gatherFixture account only",
+  "model": "mlx-community--Qwen3.6-35B-A3B-4bit",
+  "exit_code": 0,
+  "sessions": 2,
+  "home": {
+    "base_id": "base",
+    "poi_id": "station",
+    "system_id": "system",
+    "system_name": "System",
+    "station_name": "Base",
+    "services": [
+      "refuel"
+    ],
+    "hops": 0,
+    "rationale": "Currently docked, same system as belt candidate, minimal travel cost, provides refuel service.",
+    "observed_at": "2026-09-10T23:58:21.892Z"
+  },
+  "policy_version": "one-job-1",
+  "jobs": [
+    {
+      "action": "gather",
+      "status": "completed",
+      "stopping_reason": "one_job gather attempt finished",
+      "cash_delta": -12
+    },
+    {
+      "action": "return_to_base",
+      "status": "returned_to_base",
+      "stopping_reason": "one_job gather attempt finished",
+      "cash_delta": 0
+    }
+  ],
+  "gather_calls": 1,
+  "mining_commands": 2,
+  "observed_yields": {
+    "ore": 2,
+    "carbon": 1
+  },
+  "measured_mining_xp": 10,
+  "cash_delta": -12,
+  "final_serviced": true,
+  "obligations_observed": true,
+  "model_report": null,
+  "real_agent_interrupt_observed": true,
+  "report_matches_checkpoint_and_stdout": true,
+  "no_post_gather_model_tool_calls": true,
+  "limitations": [
+    "No live gameplay or disconnect acceptance.",
+    "Trace wrappers recorded real agent methods without changing their behavior.",
+    "AIAgent clears its interrupt flag while finishing; event trace records it true at the actual interrupt call.",
+    "Model preliminary prose called the belt ready for extraction before arrival; scripts still required and verified arrival resources. Final public report is receipt-derived."
+  ],
+  "no_extra_inference_after_gather": {
+    "agent_log": "/private/tmp/spacemolt-stopping-model.pidzvf/runtime/hermes-home/logs/agent.log",
+    "trace": [
+      "2026-09-10 19:58:29,135 INFO [spacemolt-bd151476a6f3458e9f85cac7e161e667] agent.conversation_loop: API call #1: model=mlx-community--Qwen3.6-35B-A3B-4bit provider=custom in=6200 out=281 total=6481 latency=3.1s cache=4096/6200 (66%) id=chatcmpl-e9ff2f09",
+      "2026-09-10 19:58:30,166 INFO [spacemolt-bd151476a6f3458e9f85cac7e161e667] agent.conversation_loop: API call #2: model=mlx-community--Qwen3.6-35B-A3B-4bit provider=custom in=6501 out=77 total=6578 latency=1.0s cache=6144/6501 (95%) id=chatcmpl-cc4ac5b4",
+      "2026-09-10 19:58:30,198 INFO [spacemolt-bd151476a6f3458e9f85cac7e161e667] agent.conversation_loop: Turn ended: reason=interrupted_by_user model=mlx-community--Qwen3.6-35B-A3B-4bit api_calls=2/12 budget=2/12 tool_turns=2 last_msg_role=assistant response_len=0 session=spacemolt-bd151476a6f3458e9f85cac7e161e667"
+    ],
+    "explanation": "Two actual API completions produced assess then gather; immediately after the gather result the turn ended interrupted with api_calls=2 and response_len=0, without a third model completion."
+  },
+  "bridge_closed": {
+    "launcher_exit_code": 0,
+    "fixture_finally_evidence_written": true,
+    "closure_path": "runner.BridgeClient.close closes stdin and waits for the Node process; launcher exited successfully after fixture finally wrote evidence and cleaned its temporary pilot store."
+  },
+  "private_runtime": "/private/tmp/spacemolt-stopping-model.pidzvf"
+}
