@@ -110,6 +110,17 @@ reachability, not fuel cost, docking access, hazards or timely arrival. For an a
 custody already docked at its destination can settle before blocked return/service
 is reported; the normal startup readiness and stop gates still apply. A later operating run can resume verified
 unfinished transport with only `resume_job_id`, retaining its spending owner.
+Transport also records an outbound-plus-return fuel estimate at the current load,
+rechecks after loading and before each subsequent movement, and retains movement
+snapshots. Future-origin fuel uses directed return hops and the larger of the
+quoted per-jump rate and average outbound fuel per jump,
+explicitly a projection; the existing 17-unit local/escape allowance stays in force.
+New custody reserves the itinerary fuel estimate plus contingency at an observed home price against
+both remaining gross spending and wallet headroom. Home servicing or departure
+records that price for same-run away pickups. Cleanup requotes actual service and
+may use unspent funds within the original gross budget, reporting planning overruns.
+Delivery income and resumed jobs cannot expand that gross budget.
+Unknown future prices, repair costs and delivery durations remain limitations.
 Uncertain acceptance/delivery/payment remains blocked without replay. Existing cargo
 capacity and passenger berths are required for boarding. Assess `kind: passenger_fit`
 to quote economy cabin preparation; prepare `kind: passengers` to execute the fit

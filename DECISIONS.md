@@ -69,6 +69,33 @@ for withdrawal, 100 loaded autocannon rounds, and ten free cargo units. Shared t
 requires quoted route fuel plus 17 units and at most two verified normal jumps per
 leg. These are not configurable adjectives. They are current consumer restrictions.
 
+Transport itinerary allocation (2026-09-11): before new custody, after loading and
+before each further productive movement, scripts check the current outbound fuel
+quote plus a destination-to-home projection and the existing17-unit local/escape
+allowance. A current-origin homeward route uses an actual quote; a future-origin
+return uses fresh directed map hops times the larger of the loaded outbound quoted
+fuel per jump and its total fuel divided by jumps. Contradictory quote components
+therefore cannot select the smaller rate.
+The latter is a projection, not a server quote or physical upper bound. Changed
+load/fuel/location invalidates a quote; failed rechecks preserve custody. Movement
+snapshots and raw quotes remain in the journal. Deadlines and duration feasibility
+are not established by this estimate.
+
+New transport reserves the itinerary fuel estimate plus the existing contingency,
+priced at an observed home all-in fuel rate, from its
+remaining gross job allowance and wallet headroom, excluding anticipated fares.
+Home servicing or shared departure captures the price for same-run away pickup
+with matching home identity, ship and tank capacity. Price age stays visible;
+unknown pricing blocks new custody rather than becoming zero. The original budget
+owner retains this planning allocation across resume and linked cleanup. Before
+further productive movement, changed fuel estimates can increase the reservation
+only within remaining original funds. Actual servicing is repriced against the
+original gross budget and wallet reserve; it may use unallocated funds and records
+any planning overrun. Income cannot refill the gross budget. This is an itinerary
+allowance at an observed price, not a future price guarantee. Unexpected repair costs and remote service prices
+remain unknown. Existing custody can settle at its authenticated destination even
+when return planning is blocked; delivery and cleanup outcomes stay separate.
+
 No offensive retries, encounter chaining or unrelated diversions are supported.
 Focused and Opportunistic therefore have identical execution in this slice.
 Opportunistic switching-cost and benefit thresholds are deferred until a real

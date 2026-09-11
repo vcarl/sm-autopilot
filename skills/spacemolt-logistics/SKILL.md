@@ -82,6 +82,20 @@ than ending with an intention to carry it. The worker tracks the exact package o
 boarded citizen IDs. Boarding loads available passengers for one destination up to
 actual berth capacity; there is no requested passenger-count parameter.
 
+Scripts check the complete outbound-plus-home fuel estimate before custody, after
+loading and before each further movement. The return projection and 17-unit
+local/escape allowance are operating estimates; read their limitations. They do
+not guarantee travel time or future fuel consumption. A failed loaded check retains
+the commitment and stops departure rather than accepting another job.
+
+New custody also requires money reserved for the itinerary fuel estimate and contingency
+at an observed home fuel price. Shared servicing and departure from home retain that dated observation for
+away pickups in the same operating run. If it is missing for the current ship and
+home, return and service before reconsidering new work. Remote prices and repair
+costs remain unknown. Delivery income cannot enlarge the original gross budget. Scripts reprice actual
+service against its remaining funds and report planning overruns; a changed quote
+can leave cleanup blocked after successful delivery.
+
 Docking can deliver passengers automatically. Scripts inspect the docking receipt
 before unloading remaining selected passengers. They never unload unrelated
 passengers or declare missing passengers delivered without evidence.

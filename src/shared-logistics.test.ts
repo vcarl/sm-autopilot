@@ -4,7 +4,8 @@ import {freightFixture} from './logistics-fixture.ts';
 import {passengerFixture} from './passenger-fixture.ts';
 import {Execution} from './execution.ts';
 import {ExecutionStore} from './execution-store.ts';
-import {transportReceipt,validateTransportRoute} from './execution-logistics.ts';
+import {transportReceipt} from './execution-logistics.ts';
+import {planTransportFuel} from './transport-itinerary.ts';
 import {resolveContext} from './execution-policy.ts';
 
 test('transport admission checks fresh home reachability from the delivery system before accepting either custody',async t=>{
@@ -126,7 +127,10 @@ test('Tired after boarding retains passenger custody and later resumes without b
   assert.equal(f.calls.filter(call=>call.key==='spacemolt/load_passenger').length,1);
   assert.equal(next.budget_owner_id,first.id);
   const target={base_id:'far',poi_id:'far',system_id:'far',rationale:'fixture',observed_at:'fixture'};
-  const command=async()=>({found:true,target_system:'far',total_jumps:2,estimated_fuel:20,fuel_per_jump:10,route:[{system_id:'system',jumps:0},{system_id:'middle',jumps:1},{system_id:'far',jumps:2}]});
-  await assert.rejects(validateTransportRoute(f.account,command,target,resolveContext({stance:'Logistics',mood:'Cautious',objective:'Delivery'})),/mood jump/);
-  await validateTransportRoute(f.account,command,target,resolveContext({stance:'Logistics',mood:'Focused',objective:'Delivery'}));
+  const command=async()=>({found:true,target_system:'far',total_jumps:2,estimated_fuel:20,fuel_per_jump:10,cargo_used:f.account.ship!.cargo_used,fuel_available:f.account.ship!.fuel,route:[{system_id:'system',jumps:0},{system_id:'middle',jumps:1},{system_id:'far',jumps:2}]});
+  const home={...f.execution.context.home!,hops:2};
+  const cautious=await planTransportFuel(f.account,command,target,home,resolveContext({stance:'Logistics',mood:'Cautious',objective:'Delivery'},f.execution.context));
+  assert.equal(cautious.status,'blocked');assert.match(cautious.blockers.join('; '),/normal jumps/);
+  const focused=await planTransportFuel(f.account,command,target,home,resolveContext({stance:'Logistics',mood:'Focused',objective:'Delivery'},f.execution.context));
+  assert.equal(focused.status,'ready');assert.equal(focused.required_fuel,57);
 });

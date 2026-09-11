@@ -1861,6 +1861,90 @@ spending and deadline admission contract before considering longer Logistics
 routes. Reachability is not a fuel, cost, docking-access, hazard or arrival-time
 promise; passenger live delivery, S5/S14 integration and full VISION remain open.
 
+## Transport fuel itinerary and cleanup budgeting — 2026-09-11
+
+Previous milestone committed as `4e93a24a65`. This increment is development only;
+no new Kvothe connection or Hermes/oMLX session. It integrates itinerary planning
+with existing transport workers, shared travel/service and original budget owners.
+No route cap was widened, Hermes core changed, or active prompt/catalog mutated.
+
+transport-itinerary.ts replaces the old outbound-only route helper. Before custody,
+after loading and before each further productive movement it checks current quoted
+outbound fuel, fresh directed home-return hops and the existing17-unit local/escape
+allowance. A return from the current system uses an actual route quote; a future
+return uses a qualified projection. The projected rate takes the larger of quoted
+per-jump fuel and total outbound fuel divided by jumps, so contradictory fields
+cannot select an implausibly cheaper component. Pinned types do not establish exact
+rate/total equality. Quotes must match canonical cargo/fuel; changes during quoting
+block commitment. Movement snapshots and blocked raw quote evidence persist.
+
+servicing.ts records authenticated home fuel pricing with time, dock, ship identity
+and capacity. Shared Logistics departure also captures this read-only observation,
+allowing pickup away from home in the same operating run. Missing, unknown or
+inapplicable home pricing blocks new custody. No remote price is invented. New
+transport reserves the current tank deficit plus remaining itinerary estimate and
+contingency at that dated price, within remaining original gross funds and wallet
+headroom. Reassessment can increase the reservation only within those limits.
+We rejected a full-tank reservation because it needlessly excluded inexpensive
+local jobs: a100-credit local job can proceed with a51-credit planning reservation
+at fuel price3. Actual measured cost remains distinct from that reservation.
+
+The reservation is a planning estimate, not another hard service cap. Actual
+cleanup is repriced against original gross spending and wallet limits; unexpected
+fuel use or pricing can use unallocated original funds and produces an explicit
+planning_overrun. Delivery income cannot enlarge the gross budget. Resumes and
+linked returns keep the original owner/allocation and do not replenish it. Unknown
+repair prices remain blockers. Already-arrived admitted custody still settles before
+return/service blockers. Service fuel observations are run-local for new jobs;
+existing custody may retain its historical allocation across resume.
+
+Behavioral evidence: loading changes can make departure infeasible without losing
+passenger custody; unexpected first-jump fuel consumption blocks the second outward
+jump while allowing return/refuel within the original budget. Tests retain the
+measured planning overrun. A1200-credit service quote beyond a1000-credit gross cap blocks service;
+reprice200 above planned51 but below that cap succeeds, reports149 planning overrun,
+and repeated cleanup does not refill the allowance. A regression probe against
+isolated committed HEAD with max_spend5 boarded one passenger before ultimately
+blocking cleanup; the working fix blocks before boarding (same no-boarding assertion
+red on baseline, green on fix). Temporary probe directories were removed.
+
+Validation: npm run typecheck and npm test passed118 Node tests. Required
+HERMES_PYTHON=/Users/vcarl/workspace/testbench/hermes-agent/.venv/bin/python with
+scripts/run_tests.sh passed50 tests across12 SpaceMolt/native-skill files. Logs:
+/tmp/spacemolt-itinerary-node.log and /tmp/spacemolt-itinerary-python.log.
+git diff --check passed. Tests include actual
+Hermes imports, registry, BridgeClient and ExecutionHost for both transport kinds
+with successful, unreachable-home and unfunded-cleanup admissions. Richer inline
+receipts exercise existing table/reference compaction; the integration test now
+uses the shared test decoder instead of assuming every array stays uncompressed.
+No fixtures are presented as live gameplay or delivery acceptance.
+
+Milestone files: spacemolt/src/{transport-itinerary.ts,test,
+transport-itinerary-execution.test.ts,transport-budget.ts,test,execution-logistics.ts,
+execution-store.ts,execution.ts,servicing.ts,shared-logistics.test.ts};
+spacemolt/README.md, DECISIONS.md and Logistics SKILL.md; tests/test_spacemolt_logistics.py,
+test_spacemolt_model_receipts.py and new spacemolt_evidence_helpers.py; this TODO.
+Commit locally as `Plan transport fuel and cleanup spending before commitment`.
+VISION is unchanged; no push and no unrelated uncommitted work.
+
+Live checkpoint unchanged and historical: runtime
+spacemolt/runtime/shared-live-passengers-outpost-20260911-02, handle6801 exited0,
+bridge PID8141 absent and no locks at last verification. Frontier Station dock
+frontier_station/mobile_capital/deep_range, credits194137, fuel120/120 hull105/105
+shield35/35, cargo21/120 including preserved mining laser,12 free economy berths,
+no passengers/freight/queued crafting. Six listed distress missions remain open;
+no payouts verified. Check actual controller processes before any new connection.
+
+Exact next action: implement measured transport elapsed-tick/deadline checkpoints
+using pinned Account.currentTick and fresh custody observations before subsequent
+productive legs. currentTick is the highest observed server tick, not a continuously
+ticking clock; transit_arrival_tick is published only after submission. Persist the
+original custody start tick/allowance across resume, record a single accepted leg's
+overrun, and never cancel/replay an uncertain transit. Fresh passenger deadlines
+must be checked between legs. This does not justify a preflight ETA guarantee.
+Then revisit broader travel hazards/access and route allocations before fresh live
+passenger acceptance. S5/S14/A6 and the full VISION remain unfinished.
+
 ## Validation and completion record
 
 Follow the repository's required test workflow. Existing useful checks from the repository root are:

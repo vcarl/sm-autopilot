@@ -5,7 +5,7 @@ import {combatCatalog} from './combat-metadata.ts';
 import {details,executeIndustry,type IndustryCommand,type IndustryContext} from './industry.ts';
 import {industryLocations,type DestinationResolution} from './locations.ts';
 import {routeSteps} from './normal-route.ts';
-import {serviceShip} from './servicing.ts';
+import {serviceShip,observeServiceFuelQuote} from './servicing.ts';
 import {CommandBoundary} from './command-boundary.ts';
 import {sendAndRefresh} from './execute.ts';
 import {validateAction} from './policy.ts';
@@ -22,7 +22,9 @@ import {assessPassengers,transportPassengers,type PassengerReceipt} from './pass
 import {discoverPassengerSupply} from './passenger-supply.ts';
 import {preparePassengers} from './passenger-fit.ts';
 import {logisticsPolicy} from './logistics-policy.ts';
-import {validateTransportRoute,validateTransportReturn,transportReceipt} from './execution-logistics.ts';
+import {validateTransportReturn,transportReceipt} from './execution-logistics.ts';
+import {planTransportCleanup,remainingTransportCleanup} from './transport-budget.ts';
+import {planTransportFuel} from './transport-itinerary.ts';
 import {observeGathering,assessGathering,gatherResources,verifyGatherInventory,type GatherReceipt} from './gather.ts';
 import {assessProduction,productionWaitSeconds,productionExperiments,productionReceipt,unfinishedProduction,retainProductionAcceptance} from './shared-production.ts';
 
@@ -193,7 +195,7 @@ export class Execution {
       return true;
     } finally {this.defending=false;}
   }
-  private async travel(home:Home,productive=false) {
+  private async travel(home:Home,productive=false,beforeMove?:()=>Promise<void>) {
     await this.account.refresh();
     await this.defend();
     if(this.account.location?.in_transit)throw new Error('Transit needs reconciliation; no movement replay');
@@ -203,9 +205,11 @@ export class Execution {
       try {steps=routeSteps(quote,this.account.location!.system_id,home.system_id,2);}
       catch(error) {throw new TravelBlocked(String(error));}
       if(!Number.isFinite(quote.estimated_fuel)||this.account.ship!.fuel<quote.estimated_fuel+17)throw new TravelBlocked('Route breaches fuel reserve');
+      if(beforeMove)await beforeMove();
       if(this.account.location!.docked_at)await this.command('spacemolt/undock',{});
-      for(const next of steps) {
+      for(const [index,next] of steps.entries()) {
         if(productive&&this.stopping)throw new StopWork('Return requested during travel');
+        if(beforeMove&&index>0)await beforeMove();
         const system=details(await this.command('spacemolt/get_system',{})).system;
         if(!system?.connections?.some((c:any)=>(typeof c==='string'?c:c.system_id)===next))throw new TravelBlocked('Route is not a verified normal connection');
         await this.command('spacemolt/jump',{id:next});
@@ -215,6 +219,7 @@ export class Execution {
     }
     if(productive&&this.stopping)throw new StopWork('Return requested during travel');
     if(this.account.location!.poi_id!==home.poi_id) {
+      if(beforeMove)await beforeMove();
       if(this.account.location!.docked_at)await this.command('spacemolt/undock',{});
       await this.command('spacemolt/travel',{id:home.poi_id});await this.defend();
     }
@@ -225,7 +230,12 @@ export class Execution {
   }
   private async service() {
     const creditReserve=this.active?jobBudget(this.active,this.store.data.jobs).credit_reserve:this.context.limits.credit_reserve;
-    return serviceShip(this.account,this.command,{maxSpend:this.remainingSpend(),creditReserve},async()=>{await this.defend();},this.deps.combat);
+    const cleanup=this.active?remainingTransportCleanup(this.active,this.store.data.jobs):undefined;
+    const available=this.remainingSpend();
+    const result=await serviceShip(this.account,this.command,{maxSpend:available,creditReserve},async()=>{await this.defend();},this.deps.combat);
+    if(this.active){this.active.service_fuel_quotes??=[];this.active.service_fuel_quotes.push(result.fuel_quote);this.store.save();}
+    return {...result,...(cleanup===undefined?{}:{transport_cleanup_budget:{planned_remaining_before:cleanup,gross_available_before:available,
+      actual_service_spend:result.actual_spend??0,planning_overrun:Math.max(0,(result.actual_spend??0)-cleanup)}})};
   }
   private remainingSpend() {
     if(!this.active)return this.context.limits.max_spend;
@@ -412,6 +422,10 @@ export class Execution {
           }
           const destination=this.stations.find(s=>s.base_id===params.base_id);
           if(!destination)throw new Error('Observe destination before travel');
+          if(this.context.stance==='Logistics'&&this.account.location?.docked_at===this.context.home?.base_id) {
+            const quote=await observeServiceFuelQuote(this.account,this.command);
+            job.service_fuel_quotes??=[];job.service_fuel_quotes.push(quote);this.store.save();
+          }
           await this.travel(destination,true);return {destination,service:await this.service()};
         },
         prepare:()=>this.prepare(params),
@@ -562,15 +576,32 @@ export class Execution {
       checkpoint:async()=>{await this.defend();if(this.stopping)throw new StopWork('Transport suspended; preserve cargo and passenger obligations');},
       record:(receipt:any)=>{this.active!.result={transport:{...receipt,kind},transport_policy:policy};this.store.save();},
       validateRoute:async(id:string)=>{
-        if(!arrived())await validateTransportRoute(this.account,this.command,destination(id),this.context);
         const evidence=await validateTransportReturn(destination(id),this.context,this.deps.locations??industryLocations);
         this.active!.transport_return_checks??=[];this.active!.transport_return_checks.push(evidence);this.store.save();
         // Existing custody already at its destination may settle despite a blocked return.
         if(evidence.status!=='reachable'&&!arrived())throw new Error(`Transport return unavailable: ${evidence.reason}`);
+        if(!arrived()) {
+          const fuel=await planTransportFuel(this.account,this.command,destination(id),evidence.home,this.context);
+          this.active!.transport_itinerary_checks??=[];this.active!.transport_itinerary_checks.push({checked_at:new Date().toISOString(),fuel});this.store.save();
+          if(fuel.status!=='ready')throw new Error(fuel.blockers.join('; '));
+          if(!resume) {
+            const cleanup=planTransportCleanup(this.account,this.context.home,this.active!,this.store.data.jobs,this.store.runJobs(),fuel.required_fuel);
+            this.active!.transport_itinerary_checks??=[];this.active!.transport_itinerary_checks.push({checked_at:new Date().toISOString(),cleanup});
+            if(cleanup.allocation)this.active!.transport_cleanup_allocation=cleanup.allocation;
+            this.store.save();
+            if(cleanup.status!=='ready')throw new Error(cleanup.blockers.join('; '));
+          }
+        }
       },
       travel:async(id:string)=>{
         const start=this.active!.actions.length;
-        await this.travel(destination(id),true);
+        const before=this.snapshot();
+        try {await this.travel(destination(id),true,()=>controls.validateRoute(id));}
+        finally {
+          this.active!.transport_itinerary_checks??=[];
+          this.active!.transport_itinerary_checks.push({checked_at:new Date().toISOString(),movement:{before,after:this.snapshot(),action_start:start,action_end:this.active!.actions.length}});
+          this.store.save();
+        }
         return {dock_receipts:this.active!.actions.slice(start).filter(entry=>entry.action==='spacemolt/dock').map(entry=>entry.accepted_result??entry.result)};
       },
     };
