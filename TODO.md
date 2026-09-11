@@ -2046,6 +2046,14 @@ A separate temporary-profile invocation of the fork's real
 credentials, Node and npm without opening the game. This is not a Discord, live-model, or
 live-game run.
 
+Follow-up direct-dispatch invariant: after `spacemolt_plan` returns its handoff receipt, the
+service records the originating Hermes session ID and refuses further productive calls from that
+same session. A different session clears the gate; observe, reconciliation and Tired remain
+available while the handoff is pending. The service test proves this route using the real handler
+contract's `session_id`. Focused required Python plugin tests and Node typecheck pass after this
+change. This guard is in-process; gateway restart during a pending handoff still needs a durable
+handoff marker before it can be claimed as complete recovery behavior.
+
 No live controller was opened, no Discord gateway was restarted, and no schedule was created.
 The gateway PID37628 and historical Frontier/Kvothe checkpoint described above remain unchanged;
 their current state must be observed before any live operation. Untracked `credentials.kvothe.txt`

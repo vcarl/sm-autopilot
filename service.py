@@ -37,6 +37,7 @@ class SpaceMoltService:
         self._bridge: BridgeClient | None = None
         self._context = self._load_context()
         self._broken: str | None = None
+        self._handoff_session_id: str | None = None
         self._monitor_stop = threading.Event()
         self._monitor: threading.Thread | None = None
         self._seen_control: str | None = None
@@ -126,7 +127,13 @@ class SpaceMoltService:
                 raise RuntimeError(str(reply.get("error", "SpaceMolt request failed")))
             return reply.get("result")
 
-    def call(self, operation: str, arguments: dict[str, Any]) -> dict[str, Any]:
+    def call(self, operation: str, arguments: dict[str, Any], *, session_id: str | None = None) -> dict[str, Any]:
+        if self._handoff_session_id is not None and session_id and session_id != self._handoff_session_id:
+            self._handoff_session_id = None
+        if (self._handoff_session_id is not None and session_id == self._handoff_session_id
+                and operation not in {"observe", "reconcile", "stop"}):
+            return {"status": "handoff_required", "next_session_required": True,
+                    "reason": "The plan changed context; continue in a new session."}
         if operation == "stop":
             with self._lock:
                 bridge = self._ensure_bridge()
@@ -142,6 +149,7 @@ class SpaceMoltService:
                 if isinstance(context, dict):
                     self._context = {**self._context, **context}
                     self._save_context()
+                self._handoff_session_id = session_id
                 return {"observed": observed, "plan": planned, "next_session_required": True}
             return {"observed": observed, "plan": planned}
         actions = {
@@ -207,8 +215,8 @@ def persisted_status() -> dict[str, Any]:
 
 
 def _handler(operation: str):
-    def handle(arguments: dict[str, Any], **_: Any) -> str:
-        return json.dumps(service().call(operation, arguments), separators=(",", ":"))
+    def handle(arguments: dict[str, Any], session_id: str | None = None, **_: Any) -> str:
+        return json.dumps(service().call(operation, arguments, session_id=session_id), separators=(",", ":"))
     return handle
 
 

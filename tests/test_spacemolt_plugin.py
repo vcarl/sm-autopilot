@@ -40,12 +40,14 @@ def test_service_owns_one_bridge_and_handoffs_plans_to_the_next_session(monkeypa
     monkeypatch.setattr(service_mod, "BridgeClient", Bridge)
     service = service_mod.SpaceMoltService(tmp_path / "profile")
 
-    planned = service.call("plan", {"stance": "Industry", "objective": "one job"})
-    assessed = service.call("assess", {"kind": "freight"})
-    stopped = service.call("stop", {"reason": "Tired"})
+    planned = service.call("plan", {"stance": "Industry", "objective": "one job"}, session_id="old")
+    blocked = service.call("assess", {"kind": "freight"}, session_id="old")
+    assessed = service.call("assess", {"kind": "freight"}, session_id="new")
+    stopped = service.call("stop", {"reason": "Tired"}, session_id="old")
 
     assert planned["next_session_required"] is True
     assert planned["observed"]["state"]["credits"] == 10
+    assert blocked["status"] == "handoff_required"
     assert assessed["status"] == "assessed"
     assert stopped == {"status": "stop_requested", "reason": "Tired"}
     assert len(created) == 1
