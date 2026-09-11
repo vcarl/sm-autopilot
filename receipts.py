@@ -76,7 +76,7 @@ def receipt_report(receipts, cleanup_response=None):
         if transport:
             row["transport_work"] = {key: deepcopy(transport[key]) for key in
                                      ("kind", "status", "reason", "shipment_id", "package_id", "origin",
-                                      "destination", "ship_id", "acceptance", "custody", "delivery",
+                                      "destination", "destination_base_id", "ship_id", "acceptance", "custody", "delivery",
                                       "payout", "accounting_unverified", "pending_action", "loaded",
                                       "delivered", "onboard", "fare_collected", "obligations_after", "profile_after")
                                      if key in transport}

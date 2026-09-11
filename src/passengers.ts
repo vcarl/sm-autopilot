@@ -1,11 +1,12 @@
 import type {Account} from '@spacemolt/lib';
 import type {Home} from './execution-policy.ts';
 import {details,type IndustryCommand} from './industry.ts';
+import type {DestinationResolution} from './locations.ts';
 
 type Wire=Record<string,any>;
 export interface PassengerReceipt {
   kind:'passengers';status:'running'|'completed'|'blocked'|'interrupted'|'needs_reconciliation';
-  destination:string;origin?:string;ship_id?:string;before?:{passengers:Wire[];cargo:Wire[]};
+  destination:string;destination_base_id?:string;origin?:string;ship_id?:string;before?:{passengers:Wire[];cargo:Wire[]};
   loaded:Wire[];delivered:Wire[];onboard:Wire[];fare_collected:number|null;
   pending_action?:{action:string;params:Wire};last_receipt?:unknown;reason?:string;
 }
@@ -33,9 +34,11 @@ function preserve(receipt:PassengerReceipt,account:Account,rows:Wire[]) {
 }
 
 /** One destination; the shared executor owns travel, defense, spending and cleanup. */
-export async function transportPassengers(account:Account,command:IndustryCommand,params:{destination:string;resume?:PassengerReceipt},controls:PassengerControls):Promise<PassengerReceipt> {
-  const receipt:PassengerReceipt=params.resume?structuredClone(params.resume):{kind:'passengers',status:'running',destination:params.destination,loaded:[],delivered:[],onboard:[],fare_collected:0};
+export async function transportPassengers(account:Account,command:IndustryCommand,params:{destination:string;destination_base_id?:string;resume?:PassengerReceipt},controls:PassengerControls):Promise<PassengerReceipt> {
+  const receipt:PassengerReceipt=params.resume?structuredClone(params.resume):{kind:'passengers',status:'running',destination:params.destination,destination_base_id:params.destination_base_id??params.destination,loaded:[],delivered:[],onboard:[],fare_collected:0};
   if(receipt.destination!==params.destination)return {...receipt,status:'blocked',reason:'Resume destination cannot change'};
+  const destinationBase=receipt.destination_base_id??receipt.destination;
+  if(params.destination_base_id&&params.destination_base_id!==destinationBase)return {...receipt,status:'blocked',reason:'Resume canonical destination cannot change'};
   if(receipt.pending_action||receipt.status==='needs_reconciliation')return {...receipt,status:'needs_reconciliation',reason:'Unresolved passenger effect; automatic replay disabled'};
   if(receipt.status==='completed')return receipt;
   const save=()=>controls.record(structuredClone(receipt));
@@ -51,15 +54,15 @@ export async function transportPassengers(account:Account,command:IndustryComman
       receipt.origin=account.location.docked_at;receipt.ship_id=account.ship.id;
       receipt.before={passengers:structuredClone(initial.passengers),cargo:structuredClone(account.cargo)};
       if(initial.passengers.some((row:Wire)=>row.destination===params.destination))throw new Error('Existing passengers share destination; their automatic delivery must be planned separately');
-      if(params.destination===receipt.origin)throw new Error('Passenger destination must differ from boarding station');
+      if(destinationBase===receipt.origin)throw new Error('Passenger destination must differ from boarding station');
       const station=details(await command('spacemolt/list_station_passengers',{}));
       if(!validRows(station.waiting)||station.count!==station.waiting.length)throw new Error('Station passenger observation unavailable');
       const candidates=station.waiting.filter((row:Wire)=>row.destination===params.destination);
       const berths=initial.berths;
       if(!berths||!['economy','business','first'].every(key=>Number.isInteger(berths[key]?.free)&&berths[key].free>=0))throw new Error('Passenger berth capacity unavailable');
       if(!candidates.some((row:Wire)=>berths[row.class]?.free>0))throw new Error('No observed passengers for destination with available berth capacity');
-      await controls.validateRoute(params.destination);
-      const loaded=await mutate('spacemolt/load_passenger',{id:params.destination});
+      await controls.validateRoute(destinationBase);
+      const loaded=await mutate('spacemolt/load_passenger',{id:destinationBase});
       if(!validRows(loaded.loaded)||loaded.count!==loaded.loaded.length||!loaded.loaded.length||loaded.loaded.some((row:Wire)=>row.destination!==params.destination||!candidates.some((candidate:Wire)=>candidate.citizen_id===row.citizen_id)||!Number.isFinite(row.ticks_remaining)))throw new Error('Accepted boarding identities or deadlines unavailable');
       receipt.loaded=structuredClone(loaded.loaded);save();
       const observed=await onboard(command);receipt.onboard=structuredClone(observed.passengers);
@@ -75,15 +78,15 @@ export async function transportPassengers(account:Account,command:IndustryComman
       if(!Number.isFinite(passenger.ticks_remaining)||passenger.ticks_remaining<=0)throw new Error('Boarded passenger deadline is unavailable or expired; preserve custody for reassessment');
     }
     await controls.checkpoint();
-    await controls.validateRoute(params.destination);
+    await controls.validateRoute(destinationBase);
     let dockReceipts:unknown[]=[];
-    if(account.location?.docked_at!==params.destination) {
+    if(account.location?.docked_at!==destinationBase) {
       // Docking itself can deliver passengers, so lost travel evidence blocks replay.
-      receipt.pending_action={action:'travel',params:{destination:params.destination}};save();
-      const arrival=await controls.travel(params.destination);dockReceipts=arrival.dock_receipts;
+      receipt.pending_action={action:'travel',params:{destination:destinationBase}};save();
+      const arrival=await controls.travel(destinationBase);dockReceipts=arrival.dock_receipts;
       receipt.last_receipt=arrival;save();
     }
-    if(account.location?.docked_at!==params.destination)throw new Error('Passenger destination arrival unverified');
+    if(account.location?.docked_at!==destinationBase)throw new Error('Passenger destination arrival unverified');
     const arrived=await onboard(command);receipt.onboard=structuredClone(arrived.passengers);
     preserve(receipt,account,arrived.passengers);
     for(const raw of dockReceipts) {
@@ -120,24 +123,27 @@ export async function transportPassengers(account:Account,command:IndustryComman
 
 
 /** Waiting offers have no deadline in the pinned contract; boarding supplies it. */
-export async function assessPassengers(account:Account,command:IndustryCommand,params:{destination?:string},context:{stations:Home[]}) {
+export async function assessPassengers(account:Account,command:IndustryCommand,params:{destination?:string},context:{stations:Home[];resolveDestinations?:(ids:string[])=>Promise<DestinationResolution[]>}) {
   if(!account.location?.docked_at)return {status:'blocked',reason:'Passenger assessment requires docking at the departure station',candidates:[]};
   const aboard=await onboard(command);
   const station=details(await command('spacemolt/list_station_passengers',{}));
   if(!validRows(station.waiting)||station.count!==station.waiting.length)throw new Error('Station passenger observation unavailable');
   const destinations=[...new Set<string>(station.waiting.map((row:Wire)=>row.destination))].filter(destination=>!params.destination||destination===params.destination);
+  const unresolved=destinations.filter(id=>!context.stations.some(station=>station.base_id===id));
+  const resolutions=unresolved.length&&context.resolveDestinations?await context.resolveDestinations(unresolved.slice(0,6)):[];
   const candidates=destinations.map(destination=>{
     const passengers=station.waiting.filter((row:Wire)=>row.destination===destination);
-    const target=context.stations.find(row=>row.base_id===destination);
+    const resolution=resolutions.find(row=>row.requested_id===destination);
+    const target=context.stations.find(row=>row.base_id===destination)??(resolution?.status==='resolved'?resolution.station:undefined);
     const berths=aboard.berths;
     const known=berths&&['economy','business','first'].every(key=>Number.isInteger(berths[key]?.free)&&berths[key].free>=0);
     const blockers:string[]=[];
-    if(!target)blockers.push('Destination is absent from observed station directory');
+    if(!target)blockers.push(resolution?`Destination resolution: ${resolution.status}`:'Destination is absent from observed station directory; assess this exact destination for bounded resolution');
     if(!known)blockers.push('Passenger berth capacity unavailable');
     else if(!passengers.some((row:Wire)=>berths[row.class]?.free>0))blockers.push('No free berth observed for these passenger classes');
     if(aboard.passengers.some((row:Wire)=>row.destination===destination))blockers.push('Existing passengers share this automatic delivery destination; plan their custody separately');
-    if(destination===account.location?.docked_at)blockers.push('Destination matches departure station');
-    return {destination,station:target,passengers:structuredClone(passengers),berths:structuredClone(berths),blockers};
+    if(target?.base_id===account.location?.docked_at)blockers.push('Destination matches departure station');
+    return {destination,destination_base_id:target?.base_id,station:target,resolution,passengers:structuredClone(passengers),berths:structuredClone(berths),blockers};
   });
   return {status:candidates.some(row=>!row.blockers.length)?'assessed':'blocked',station:account.location.docked_at,
     candidates,onboard:structuredClone(aboard.passengers),

@@ -33,15 +33,17 @@ identities and deadlines remain visible on return.
 ## How to Run
 
 Read observed contract IDs and passenger destinations. Select a destination from
-the station directory, never an invented ID. Assess capacity, route fuel, existing
+the observed offers, never an invented ID. Scripts resolve public directory IDs to
+canonical stations while preserving passenger identity. Missing, ambiguous, wrecked
+or out-of-policy destinations remain blocked. Assess capacity, route fuel, existing
 obligations, carrier eligibility, and deadlines before committing. Read cargo size
 uncertainty explicitly: accepting freight can create liability before pickup succeeds.
 
 ## Tool: job__assess
 
 Use `job__assess` without parameters to compare freight and passenger opportunities.
-Choose `kind` as `freight` with a `shipment_id`, or `passengers` with a `destination`
-base ID, for focused assessment. A board listing alone does not prove route readiness
+Choose `kind` as `freight` with a `shipment_id`, or `passengers` with the exact
+`destination` token from a waiting passenger offer, for focused assessment. A board listing alone does not prove route readiness
 or guarantee a fare. Passenger deadlines are observed after boarding; no route
 estimate guarantees punctuality.
 

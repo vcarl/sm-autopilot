@@ -91,7 +91,9 @@ or accounting evidence prevents replay. Shared receipts live in the pilot job st
 
 Use `--stance Logistics` for one personal freight contract or passengers for one
 destination. `job__assess` compares observed opportunities; `job__transport` accepts
-`kind: freight` and `shipment_id`, or `kind: passengers` and destination base ID.
+`kind: freight` and `shipment_id`, or `kind: passengers` and the exact destination
+token in a passenger offer. Scripts resolve that token to the canonical station
+for boarding and routing while preserving the original token in custody receipts.
 The script checks custody and payment, preserves docking-triggered passenger
 settlement, then returns and services. A later operating run can resume verified
 unfinished transport with only `resume_job_id`, retaining its spending owner.

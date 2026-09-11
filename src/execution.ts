@@ -3,7 +3,7 @@ import {randomUUID} from 'node:crypto';
 import {combat,battleStatus,controlHunt} from './combat.ts';
 import {combatCatalog} from './combat-metadata.ts';
 import {details,executeIndustry,type IndustryCommand,type IndustryContext} from './industry.ts';
-import {industryLocations} from './locations.ts';
+import {industryLocations,type DestinationResolution} from './locations.ts';
 import {routeSteps} from './survey.ts';
 import {serviceShip} from './servicing.ts';
 import {CommandBoundary} from './command-boundary.ts';
@@ -56,7 +56,7 @@ export function executionCatalog(context:ExecutionContext):Record<string,any> {
   }
   if(context.stance==='Logistics') {
     common.assess=meta('Observe freight and passenger opportunities, or assess a selected shipment/destination. Eligibility does not guarantee capacity, timely delivery or profit.',[
-      parameter('kind','string','freight or passengers; omit to compare both; passenger_fit quotes economy berth preparation'),parameter('shipment_id','string','Freight contract ID'),parameter('destination','string','Observed passenger destination base ID')]);
+      parameter('kind','string','freight or passengers; omit to compare both; passenger_fit quotes economy berth preparation'),parameter('shipment_id','string','Freight contract ID'),parameter('destination','string','Exact destination token from an observed passenger offer; scripts resolve the station')]);
     common.prepare=meta('Service ship. With kind passengers, fit an economy cabin within the host budget, preserving a displaced mining laser in cargo. Quote first with assess kind passenger_fit.',[
       parameter('kind','string','passengers to prepare economy berths; omit for servicing only')]);
     common.transport=meta('Carry one freight contract or passengers for one destination, verify delivery/payment, then return and service. Records unfinished custody. Resume a known interrupted job only by resume_job_id.',[
@@ -505,9 +505,20 @@ export class Execution {
     verifyGatherInventory(gathered,this.account);
     return {gather:gathered,cleanup,status:gathered.status};
   }
+  private async resolvePassengerDestinations(ids:string[]):Promise<DestinationResolution[]> {
+    const observation=await (this.deps.locations??industryLocations)(this.account.location?.system_id,{
+      max_jumps:logisticsPolicy(this.context).max_route_jumps,observed_destination_ids:ids,
+    });
+    const matches=observation.destination_matches??ids.map(requested_id=>({requested_id,status:'missing' as const}));
+    for(const match of matches)if(match.status==='resolved'&&match.station) {
+      this.stations=this.stations.filter(row=>row.base_id!==match.station!.base_id);
+      this.stations.push(match.station);
+    }
+    return matches;
+  }
   private async assessLogistics(params:Wire) {
     await this.observe(false);
-    const policy={...logisticsPolicy(this.context),stations:this.stations};
+    const policy={...logisticsPolicy(this.context),stations:this.stations,resolveDestinations:(ids:string[])=>this.resolvePassengerDestinations(ids)};
     if(params.kind==='passenger_fit')return preparePassengers({max_spend:this.context.limits.max_spend,credit_reserve:this.context.limits.credit_reserve},this.account,this.command);
     if(params.kind==='freight'||params.shipment_id)return assessFreight(this.account,this.command,params,policy);
     if(params.kind==='passengers'||params.destination)return assessPassengers(this.account,this.command,params,policy);
@@ -536,7 +547,16 @@ export class Execution {
       },
     };
     let receipt:any;
-    if(kind==='passengers')receipt=await transportPassengers(this.account,this.command,{destination:resume?.destination??params.destination,resume:resume as PassengerReceipt|undefined},controls);
+    if(kind==='passengers') {
+      const token=resume?.destination??params.destination;
+      let base=this.stations.find(row=>row.base_id===token)?.base_id;
+      if(!base) {
+        const match=(await this.resolvePassengerDestinations([token])).find(row=>row.requested_id===token);
+        if(match?.status!=='resolved'||!match.station)throw new Error(`Passenger destination resolution: ${match?.status??'missing'}`);
+        base=match.station.base_id;
+      }
+      receipt=await transportPassengers(this.account,this.command,{destination:token,destination_base_id:base,resume:resume as PassengerReceipt|undefined},controls);
+    }
     else {
       const assessment=resume?.assessment??await assessFreight(this.account,this.command,params,{...policy,stations:this.stations});
       receipt=await transportFreight(this.account,this.command,{shipment_id:resume?.shipment_id??params.shipment_id,...(resume?{resume:resume as FreightReceipt,policy:{...policy,stations:this.stations}}: {})},assessment,controls);

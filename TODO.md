@@ -977,11 +977,33 @@ passengers or production queue. [Live evidence](spacemolt/evidence/shared-live-p
 No live controller should be resumed from this terminal run; check processes and
 locks again before another connection. The next useful work is finding cabin supply
 and resolving observed passenger destination tokens against public directory IDs.
-A delegated partial implementation in `locations.ts` and `passengers.ts` is preserved
-in the working tree: bounded exact public-directory matches and distinct wire versus
-canonical destination identity. It still needs Execution integration, behavioral
-coverage and review before use; it is not completion evidence. Do not discard it or
-claim the mapping feature complete. No live cabin fitting or passenger delivery yet.
+The delegated destination mapping was partial at wind-down; it is now integrated,
+tested and ready to commit as described below. No live cabin fitting or passenger
+delivery has yet occurred.
+
+## Completed passenger destination mapping — 2026-09-11
+
+`locations.ts` resolves at most six exact observed passenger destination tokens
+against public directory ID, base ID or POI ID before the usual shortlist truncation.
+Names and opaque-ID shapes are not identity evidence. Missing, ambiguous, wrecked
+and outside-route-limit matches remain explicit blockers; input bounds are checked
+before public requests. Resolved stations enter the executor's observed routing
+set without changing home or the session catalog.
+
+Assessment, transport admission and interrupted-job resume now use the mapping.
+Receipts preserve both the server passenger destination and canonical base ID:
+passenger identity checks use the former; boarding commands and travel/docking use
+the latter, as required by the pinned load-passenger API. Resume cannot
+change the recorded canonical destination. Existing route/fuel/mood checks still
+run before boarding. No additional tools or mid-session prompt changes were added.
+
+Validation: typecheck and all 88 Node tests pass, including exact/ambiguous/wrecked/
+distant identity matching, shared alias delivery, Tired/resume without duplicate
+boarding, and unresolved admission without boarding. Required Python runner: 27 tests
+across runner, Logistics, resume and native skill integration. These are offline
+behavioral/integration tests, not live destination acceptance. No controller was
+started for this task. Next session: fresh cabin supply and passenger observations;
+live passenger completion remains open under S14/A6.
 
 ## Validation and completion record
 
