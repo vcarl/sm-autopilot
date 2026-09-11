@@ -880,6 +880,26 @@ Remaining work, in dependency order:
 
 No S1–S18 parent or A1–A16 live acceptance condition is claimed complete by this slice.
 
+## Live Logistics admission correction — 2026-09-11
+
+The first real Hermes/oMLX Logistics run made two inference calls, assessed freight
+and passengers, and attempted transport. It accepted no contract: admission incorrectly
+compared reserved exposure with the mood failure-debt allocation. The observed local
+candidate had 500 failure debt and 13,230 reserved exposure; Focused allows 1,000 debt
+and the carrier profile allowed 50,000 single / 100,000 remaining aggregate exposure.
+The run stopped serviced with zero spending and cash delta. See
+[evidence](spacemolt/evidence/shared-live-logistics-admission.json). This is a live
+blocked-job result, not successful freight acceptance or delivery.
+
+`logistics.ts` now caps failure debt separately from the existing carrier exposure
+capacity checks, in both admission and continuation. Policy version is
+`one-destination-2`. Admission errors retain the specific assessment blockers.
+Behavioral coverage reproduces the old false rejection, completes delivery with
+exposure above the debt cap, and still rejects carrier-capacity overflow and excessive
+debt without accepting. Typecheck and all 84 Node tests pass; the required Python
+runner passes 15 tests across runner and Logistics integration. A corrected live run
+is still needed; S14/A6 remain open.
+
 ## Validation and completion record
 
 Follow the repository's required test workflow. Existing useful checks from the repository root are:

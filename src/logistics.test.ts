@@ -9,6 +9,7 @@ import {transportReceipt} from './execution-logistics.ts';
 test('personal freight accepts, verifies sealed custody and delivery, and separates payout from wallet income',async t=>{
   for(const hiddenSize of [false,true]) {
     const f=freightFixture(t,{hiddenSize});
+    f.contract.reserved_exposure=5000;
     const board=await assessFreight(f.account,f.command,{},f.policy);assert.equal(board.candidates[0].destination.base_id,'other');
     const assessed=await assessFreight(f.account,f.command,{shipment_id:'freight'},f.policy);
     assert.equal(assessed.status,'ready_to_accept');assert.equal(assessed.liability.failure_debt,100);
@@ -27,6 +28,14 @@ test('personal freight accepts, verifies sealed custody and delivery, and separa
   const constrained=freightFixture(t);const assessment=await assessFreight(constrained.account,constrained.command,{shipment_id:'freight'},{...constrained.policy,max_liability:50});
   assert.equal(assessment.status,'blocked');assert.ok(assessment.blockers.some((text:string)=>text.includes('liability allocation')));
   assert.equal(constrained.calls.some(call=>call.key==='spacemolt_shipping/accept'),false);
+  const overCapacity=freightFixture(t);overCapacity.contract.reserved_exposure=10001;
+  const capacityAssessment=await assessFreight(overCapacity.account,overCapacity.command,{shipment_id:'freight'},overCapacity.policy);
+  assert.equal(capacityAssessment.status,'blocked');
+  assert.ok(capacityAssessment.blockers.some((text:string)=>text.includes('capacity unavailable or insufficient')));
+  await assert.rejects(transportFreight(overCapacity.account,overCapacity.command,{shipment_id:'freight'},capacityAssessment,{
+    record:()=>{},checkpoint:async()=>{},travel:async()=>{},validateRoute:async()=>{},
+  }),/capacity unavailable or insufficient/);
+  assert.equal(overCapacity.calls.some(call=>call.key==='spacemolt_shipping/accept'),false);
   const shared=freightFixture(t);await shared.choose();
   const job:any=await shared.execution.dispatch('transport',{kind:'freight',shipment_id:'freight'});
   assert.equal(job.status,'completed');assert.equal(job.result.transport.payout,80);

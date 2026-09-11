@@ -52,7 +52,7 @@ export async function assessFreight(account:Account,command:IndustryCommand,para
     if(capacity.active_contracts_unlimited!==true&&(!finite(capacity.active_contract_limit)||!finite(capacity.active_contracts)||capacity.active_contracts>=capacity.active_contract_limit))blockers.push('Carrier contract capacity unavailable or exhausted');
     if(capacity.liability_unlimited!==true&&(!finite(capacity.remaining_aggregate_liability)||!finite(capacity.single_package_liability_limit)||contract.reserved_exposure>Math.min(capacity.remaining_aggregate_liability,capacity.single_package_liability_limit)))blockers.push('Carrier liability capacity unavailable or insufficient');
   }
-  if(!finite(contract.failure_debt)||!finite(contract.reserved_exposure)||Math.max(contract.failure_debt,contract.reserved_exposure)>policy.max_liability)blockers.push('Contract exceeds resolved contingent-liability allocation');
+  if(!finite(contract.failure_debt)||!finite(contract.reserved_exposure)||contract.failure_debt>policy.max_liability)blockers.push('Contract exceeds resolved contingent-liability allocation');
   if(!finite(account.credits)||account.credits<policy.credit_reserve)blockers.push('Wallet reserve unavailable');
   const ship=account.ship;
   if(!ship||![ship.cargo_capacity,ship.cargo_used,ship.fuel,ship.hull,ship.max_hull,ship.shield,ship.max_shield].every(finite)||ship.incapacitated||ship.hull!==ship.max_hull||ship.shield!==ship.max_shield)blockers.push('Service and verify ship condition before freight');
@@ -78,7 +78,7 @@ export async function assessFreight(account:Account,command:IndustryCommand,para
 
 /** One contract, no retries: the caller owns servicing, return, and uncertain-command recovery. */
 export async function transportFreight(account:Account,command:IndustryCommand,params:{shipment_id:string;resume?:FreightReceipt;policy?:FreightPolicy},assessment:Wire,controls:FreightControls):Promise<FreightReceipt> {
-  if(assessment.contract?.id!==params.shipment_id||(!params.resume&&assessment.status!=='ready_to_accept'))throw new Error('Fresh freight admission required');
+  if(assessment.contract?.id!==params.shipment_id||(!params.resume&&assessment.status!=='ready_to_accept'))throw new Error(`Fresh freight admission required: ${(assessment.blockers??['contract identity or readiness unavailable']).join('; ')}`);
   if(params.resume&&(params.resume.shipment_id!==params.shipment_id||params.resume.status==='completed'||params.resume.pending_action||params.resume.accounting_unverified||!params.resume.acceptance))throw new Error('Only known accepted freight without unresolved commands can resume');
   if(params.resume&&!params.policy)throw new Error('Resumed freight requires the current resolved policy');
   const policy=params.policy??assessment.policy as FreightPolicy;
@@ -107,7 +107,7 @@ export async function transportFreight(account:Account,command:IndustryCommand,p
     if(!finite(account.credits)||account.credits<policy.credit_reserve)throw new Error('Current wallet breaches freight reserve');
     const fresh=details(await command('spacemolt_shipping/get',{shipment_id:contract.id})).contract;
     if(!fresh||['id','package_id','origin_base_id','destination_base_id','failure_debt','reserved_exposure'].some(key=>fresh[key]!==contract[key])||fresh.status!==(params.resume?'in_transit':'posted'))throw new Error('Freight contract changed; reassess before acceptance or continuation');
-    if(!finite(fresh.failure_debt)||!finite(fresh.reserved_exposure)||Math.max(fresh.failure_debt,fresh.reserved_exposure)>policy.max_liability)throw new Error('Current freight liability exceeds resolved allocation');
+    if(!finite(fresh.failure_debt)||!finite(fresh.reserved_exposure)||fresh.failure_debt>policy.max_liability)throw new Error('Current freight liability exceeds resolved allocation');
     const personallyAccepted=(value:Wire)=>value?.status==='in_transit'&&value.contractor?.kind==='player'&&value.contractor?.id===account.state.player?.id;
     if(params.resume&&!personallyAccepted(fresh))throw new Error('Personal carrier identity not verified for continuation');
     if(!params.resume)await mutation('spacemolt_shipping/accept',{shipment_id:contract.id,carrier:'player'},async reply=>{
