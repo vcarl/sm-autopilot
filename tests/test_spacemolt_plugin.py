@@ -75,7 +75,7 @@ def test_native_plugin_registers_static_high_level_tools_through_real_registry(m
                                       skip_tool_search_assembly=True)
     names = {entry["function"]["name"] for entry in definitions}
 
-    assert {"spacemolt_observe", "spacemolt_plan", "spacemolt_transport", "spacemolt_stop"} <= names
+    assert {"spacemolt_observe", "spacemolt_plan", "spacemolt_transport", "spacemolt_hunt", "spacemolt_gather", "spacemolt_stop"} <= names
     plan = next(entry["function"] for entry in definitions if entry["function"]["name"] == "spacemolt_plan")
     assert set(plan["parameters"]["properties"]) >= {"stance", "mood", "objective", "home_base_id"}
 

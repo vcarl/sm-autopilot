@@ -11,6 +11,10 @@ provides_tools:
   - spacemolt_assess
   - spacemolt_prepare
   - spacemolt_transport
+  - spacemolt_track
+  - spacemolt_hunt
+  - spacemolt_gather
+  - spacemolt_produce
   - spacemolt_return
   - spacemolt_reconcile
   - spacemolt_stop

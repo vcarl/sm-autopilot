@@ -182,7 +182,8 @@ class SpaceMoltService:
         actions = {
             "observe": "job/observe", "assess": "job/assess", "prepare": "job/prepare",
             "transport": "job/transport", "return": "job/return_to_base",
-            "reconcile": "execution/reconcile",
+            "reconcile": "execution/reconcile", "track": "job/track", "hunt": "job/hunt",
+            "gather": "job/gather", "produce": "job/produce",
         }
         return self._request(actions[operation], arguments)
 
@@ -263,6 +264,10 @@ TOOL_DEFINITIONS = tuple(
         ("spacemolt_assess", "assess", "Assess verified SpaceMolt opportunities or readiness.", {"kind": {"type": "string"}, "shipment_id": {"type": "string"}, "destination": {"type": "string"}}),
         ("spacemolt_prepare", "prepare", "Run verified servicing or passenger preparation.", {"kind": {"type": "string"}}),
         ("spacemolt_transport", "transport", "Execute or resume one verified transport job.", {"kind": {"type": "string"}, "shipment_id": {"type": "string"}, "destination": {"type": "string"}, "resume_job_id": {"type": "string"}}),
+        ("spacemolt_track", "track", "Scout one bounded wildlife habitat sortie and return serviced.", {"target_system_id": {"type": "string"}, "poi_ids": {"type": "array", "items": {"type": "string"}}}),
+        ("spacemolt_hunt", "hunt", "Run one assessed guarded wildlife hunt and return serviced.", {"target_system_id": {"type": "string"}, "poi_id": {"type": "string"}, "species": {"type": "string"}, "creature_id": {"type": "string"}}),
+        ("spacemolt_gather", "gather", "Gather bounded resources at an observed local asteroid belt and return serviced.", {"poi_id": {"type": "string"}, "cycles": {"type": "number"}}),
+        ("spacemolt_produce", "produce", "Run or settle one assessed production experiment and verify its outcome.", {"recipe_id": {"type": "string"}, "source": {"type": "string"}, "quantity": {"type": "number"}, "disposition": {"type": "string"}, "experiment_id": {"type": "string"}, "max_wait_seconds": {"type": "number"}}),
         ("spacemolt_return", "return", "Return to remembered home or observed fallback and service.", _EMPTY),
         ("spacemolt_reconcile", "reconcile", "Reconcile unfinished work without replaying uncertain commands.", _EMPTY),
         ("spacemolt_stop", "stop", "Signal Tired to active scripts; they own defensive return and cleanup.", {"reason": {"type": "string"}}),

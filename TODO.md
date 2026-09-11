@@ -2064,6 +2064,12 @@ install (`added 4 packages`), and reported a disconnected controller with valid 
 credentials, Node and npm. No gateway, Discord client, oMLX model, bridge or game connection was
 started. This is a local packaging acceptance, not a published remote install or live acceptance.
 
+The direct plugin catalog now also exposes existing complete job scripts for Hunt (`track`, `hunt`)
+and Industry (`gather`, `produce`), alongside the shared and Logistics tools. These map only to
+the already-tested `ExecutionHost` job names; raw SpaceMolt primitives remain absent. Focused
+plugin/runner tests pass after this expansion. Trade, Explore and Salvage still have no concrete
+executor and therefore remain absent rather than being presented as superficial support.
+
 No live controller was opened, no Discord gateway was restarted, and no schedule was created.
 The gateway PID37628 and historical Frontier/Kvothe checkpoint described above remain unchanged;
 their current state must be observed before any live operation. Untracked `credentials.kvothe.txt`
