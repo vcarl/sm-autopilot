@@ -1807,6 +1807,60 @@ admission. Broader itinerary economics, timing and longer-route policy remain op
 Last verified pilot and outstanding missions remain the194137-credit serviced
 Frontier checkpoint above; no controller or new game observation this increment.
 
+## Transport return reachability admission — 2026-09-11
+
+Route extraction committed as `b5bdf5b049`. Development only: no new Kvothe
+connection or real-model run this increment. New transport checks resolve delivery
+station and remembered home together from the delivery system using a refreshed
+public directed map and station directory. New freight acceptance and passenger
+boarding require a canonical unchanged destination and home within the cleanup
+executor's existing two-jump allocation; checks repeat after loading. Missing,
+wrecked, ambiguous or moved destinations block for reassessment. Evidence persists
+in transport_return_checks, including blocked observations and its explicit limits.
+Remembered home identity is preserved when its observed waypoint moves.
+
+The pinned client otherwise caches map edges indefinitely. Internal refresh_map
+forces refresh at admission while preserving ordinary discovery caching. Its
+behavior test was proven red against HEAD's old provider in an isolated temporary
+copy, then green with this fix; asymmetric map edges cannot establish reverse
+reachability. Real Hermes imports/registry/BridgeClient/ExecutionHost tests in a
+temporary HERMES_HOME cover reachable and blocked freight/passenger jobs, including
+no acceptance/boarding when home is unreachable. These are fixtures, not Hermes
+playing or completed live transport.
+
+Already-arrived, legitimately admitted resumes may settle existing custody before
+return servicing despite blocked return evidence. Startup readiness and urgent
+stop gates remain in force. Freight follows the same rule: an authenticated dock at the contract base
+supersedes historical destination coordinates, and delivery precedes any movement
+or refueling. Its test verifies one acceptance and package removal after a station
+moves with the ship docked. Integration is ready for local commit after validation.
+
+Validation actually run: npm run typecheck and npm test passed112 Node tests;
+HERMES_PYTHON=/Users/vcarl/workspace/testbench/hermes-agent/.venv/bin/python with
+scripts/run_tests.sh passed48 tests across12 SpaceMolt/native-skill files.
+Logs: /tmp/spacemolt-return-reachability-node.log and
+/tmp/spacemolt-return-reachability-python.log. git diff --check passed.
+Uncommitted milestone files: TODO.md, spacemolt/README.md, execution-logistics.ts,
+execution-store.ts, execution.ts, locations.ts, new locations-refresh.test.ts,
+logistics.ts/test, passenger-destinations.test.ts, shared-logistics.test.ts, and
+tests/test_spacemolt_logistics.py. VISION remains unchanged; no push.
+
+No active live runtime introduced. Last verified terminal runtime remains
+spacemolt/runtime/shared-live-passengers-outpost-20260911-02: handle6801 exited0,
+bridge PID8141 absent, locks absent at that checkpoint. Historical pilot: docked
+Frontier Station (frontier_station/mobile_capital/deep_range), credits194137,
+fuel120/120 hull105/105 shield35/35, cargo21/120, economy cabin12 free berths,
+preserved mining laser in cargo, no passengers/freight/crafting queue. Six distress
+missions listed above remain outstanding; no mission payouts verified. Query fresh
+authoritative state after checking controllers before any future live operation.
+
+Commit this bounded milestone as `Verify transport return reachability before custody`.
+All listed milestone files belong to that commit; no unrelated work is present.
+Next action: implement the broader itinerary fuel/service
+spending and deadline admission contract before considering longer Logistics
+routes. Reachability is not a fuel, cost, docking-access, hazard or arrival-time
+promise; passenger live delivery, S5/S14 integration and full VISION remain open.
+
 ## Validation and completion record
 
 Follow the repository's required test workflow. Existing useful checks from the repository root are:

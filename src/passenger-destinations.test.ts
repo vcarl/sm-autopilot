@@ -23,7 +23,7 @@ test('shared passenger jobs resolve offer IDs for routing and retain identity ac
     const f=passengerFixture(t,{destination:'public-id'});
     const locations=f.execution.deps.locations!;
     f.execution.deps.locations=async(system,params)=>({...await locations(system,params),
-      destination_matches:resolveStationDestinations([station('public-id','other')] as any,new Map([['system',0]]),params.observed_destination_ids as string[]??[],2)});
+      destination_matches:resolveStationDestinations([station('public-id','other'),station('base','base')] as any,new Map([['system',0]]),params.observed_destination_ids as string[]??[],2)});
     await f.choose();
     const assessment:any=await f.execution.dispatch('assess',{kind:'passengers'});
     assert.equal(assessment.candidates[0].destination,'public-id');

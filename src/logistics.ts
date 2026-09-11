@@ -120,6 +120,7 @@ export async function transportFreight(account:Account,command:IndustryCommand,p
     if(!finite(fresh.failure_debt)||!finite(fresh.reserved_exposure)||fresh.failure_debt>policy.max_liability)throw new Error('Current freight liability exceeds resolved allocation');
     const personallyAccepted=(value:Wire)=>value?.status==='in_transit'&&value.contractor?.kind==='player'&&value.contractor?.id===account.state.player?.id;
     if(params.resume&&!personallyAccepted(fresh))throw new Error('Personal carrier identity not verified for continuation');
+    if(!params.resume)await controls.validateRoute(receipt.destination.base_id);
     if(!params.resume)await mutation('spacemolt_shipping/accept',{shipment_id:contract.id,carrier:'player'},async reply=>{
       receipt.acceptance=reply;save();
       if(reply.action!=='accept'||!personallyAccepted(reply.contract)||['id','package_id','origin_base_id','destination_base_id','failure_debt','reserved_exposure'].some(key=>reply.contract[key]!==contract[key]))throw new Error('Personal contract acceptance not verified');
@@ -145,8 +146,14 @@ export async function transportFreight(account:Account,command:IndustryCommand,p
     receipt.custody={...receipt.custody,active:carrying};save();
     if(!finite(carrying.ticks_to_deadline)||carrying.late||carrying.ticks_to_deadline<=0)throw new Error('Freight deadline already expired; preserve commitment for reassessment');
     await controls.checkpoint();await controls.validateRoute(receipt.destination.base_id);
-    await controls.travel(receipt.destination.base_id);await controls.checkpoint();verifyShip();
-    if(account.location?.docked_at!==receipt.destination.base_id||account.location.system_id!==receipt.destination.system_id||count(account.cargo??[],item)!==1)throw new Error('Freight destination/custody not verified');
+    if(account.location?.docked_at===receipt.destination.base_id&&!account.location.in_transit) {
+      if(params.resume&&account.location.system_id&&account.location.poi_id) {
+        // A mobile station's authenticated dock supersedes its historical coordinates.
+        receipt.destination={...receipt.destination,system_id:account.location.system_id,poi_id:account.location.poi_id};save();
+      }
+    } else await controls.travel(receipt.destination.base_id);
+    await controls.checkpoint();verifyShip();
+    if(account.location?.docked_at!==receipt.destination.base_id||account.location.in_transit||account.location.system_id!==receipt.destination.system_id||count(account.cargo??[],item)!==1)throw new Error('Freight destination/custody not verified');
     await mutation('spacemolt_shipping/deliver',{shipment_id:contract.id},async reply=>{
       receipt.delivery=reply;save();
       if(reply.action!=='deliver'||reply.contract?.id!==contract.id||reply.contract?.status!=='delivered'||count(account.cargo??[],item)!==0)throw new Error('Freight delivery and package removal not verified');

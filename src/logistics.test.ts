@@ -21,11 +21,13 @@ test('personal freight accepts, verifies sealed custody and delivery, and separa
     assert.equal(assessed.status,'ready_to_accept');assert.equal(assessed.liability.failure_debt,100);
     if(hiddenSize)assert.ok(assessed.unknowns.some((text:string)=>text.includes('size unverified')));
     const snapshots:FreightReceipt[]=[],baseline=f.account.credits!;
+    const routeCustody:boolean[]=[];
     const result=await transportFreight(f.account,f.command,{shipment_id:'freight'},assessed,{
-      checkpoint:async()=>{},record:row=>snapshots.push(row),validateRoute:async()=>{assert.equal(f.account.cargo?.some(row=>row.item_id==='package:box'),true);},
+      checkpoint:async()=>{},record:row=>snapshots.push(row),validateRoute:async()=>{routeCustody.push(f.account.cargo?.some(row=>row.item_id==='package:box')??false);},
       travel:async base=>{assert.equal(base,'other');f.state.location={system_id:'system',poi_id:'other',docked_at:'other'};},
     });
     assert.equal(result.status,'completed');assert.equal(result.payout,80);assert.equal(f.account.credits!-baseline,180);
+    assert.deepEqual(routeCustody,[false,true],'Route admission precedes acceptance and is revalidated with loaded cargo');
     assert.deepEqual(f.state.cargo,[{item_id:'original',quantity:1,size:1}]);assert.equal(result.pending_action,undefined);
     assert.ok(snapshots.some(row=>row.pending_action?.action==='spacemolt_shipping/accept'));
     assert.ok(snapshots.some(row=>row.acceptance&&row.pending_action?.action==='spacemolt_shipping/accept'));

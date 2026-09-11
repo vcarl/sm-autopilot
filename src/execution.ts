@@ -22,7 +22,7 @@ import {assessPassengers,transportPassengers,type PassengerReceipt} from './pass
 import {discoverPassengerSupply} from './passenger-supply.ts';
 import {preparePassengers} from './passenger-fit.ts';
 import {logisticsPolicy} from './logistics-policy.ts';
-import {validateTransportRoute,transportReceipt} from './execution-logistics.ts';
+import {validateTransportRoute,validateTransportReturn,transportReceipt} from './execution-logistics.ts';
 import {observeGathering,assessGathering,gatherResources,verifyGatherInventory,type GatherReceipt} from './gather.ts';
 import {assessProduction,productionWaitSeconds,productionExperiments,productionReceipt,unfinishedProduction,retainProductionAcceptance} from './shared-production.ts';
 
@@ -549,7 +549,9 @@ export class Execution {
     const resume=previous?transportReceipt(previous.result):undefined;
     if(previous&&(!resume||resume.pending_action||resume.accounting_unverified||resume.status==='completed'))throw new Error('Transport must have verified unfinished custody before resuming');
     if(!resume)admitProductiveSortie(obligations,'Transport');
-    await this.service();
+    const resumeDestination=resume?.kind==='passengers'?resume.destination_base_id??resume.destination:resume?.destination?.base_id;
+    const arrived=()=>Boolean(resume&&resumeDestination&&this.account.location?.docked_at===resumeDestination&&!this.account.location?.in_transit);
+    if(!arrived())await this.service();
     const policy=logisticsPolicy(this.context),kind=resume?.kind??params.kind;
     const destination=(id:string)=>{
       const station=this.stations.find(row=>row.base_id===id);
@@ -559,7 +561,13 @@ export class Execution {
     const controls={
       checkpoint:async()=>{await this.defend();if(this.stopping)throw new StopWork('Transport suspended; preserve cargo and passenger obligations');},
       record:(receipt:any)=>{this.active!.result={transport:{...receipt,kind},transport_policy:policy};this.store.save();},
-      validateRoute:(id:string)=>validateTransportRoute(this.account,this.command,destination(id),this.context),
+      validateRoute:async(id:string)=>{
+        if(!arrived())await validateTransportRoute(this.account,this.command,destination(id),this.context);
+        const evidence=await validateTransportReturn(destination(id),this.context,this.deps.locations??industryLocations);
+        this.active!.transport_return_checks??=[];this.active!.transport_return_checks.push(evidence);this.store.save();
+        // Existing custody already at its destination may settle despite a blocked return.
+        if(evidence.status!=='reachable'&&!arrived())throw new Error(`Transport return unavailable: ${evidence.reason}`);
+      },
       travel:async(id:string)=>{
         const start=this.active!.actions.length;
         await this.travel(destination(id),true);

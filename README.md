@@ -101,7 +101,14 @@ destination. `job__assess` compares observed opportunities; `job__transport` acc
 token in a passenger offer. Scripts resolve that token to the canonical station
 for boarding and routing while preserving the original token in custody receipts.
 The script checks custody and payment, preserves docking-triggered passenger
-settlement, then returns and services. A later operating run can resume verified
+settlement, then returns and services. Before taking new freight or passengers and
+after loading, it refreshes the public map and station directory to check the
+delivery station's location and whether remembered home is reachable within the
+return executor's limit. A moved destination requires reassessment; a moved home
+keeps its base identity and uses the observed location. These checks establish map
+reachability, not fuel cost, docking access, hazards or timely arrival. For an admitted resume, existing
+custody already docked at its destination can settle before blocked return/service
+is reported; the normal startup readiness and stop gates still apply. A later operating run can resume verified
 unfinished transport with only `resume_job_id`, retaining its spending owner.
 Uncertain acceptance/delivery/payment remains blocked without replay. Existing cargo
 capacity and passenger berths are required for boarding. Assess `kind: passenger_fit`

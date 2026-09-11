@@ -31,7 +31,8 @@ export async function industryLocations(systemId: string | undefined, params: Re
   if (!Number.isInteger(maxJumps) || maxJumps < 1 || maxJumps > 5 || !Number.isInteger(limit) || limit < 1 || limit > 30) throw new Error('max_jumps must be 1..5 and limit 1..30');
   const destinationIds=params.observed_destination_ids??[];
   if(!Array.isArray(destinationIds)||destinationIds.length>6||destinationIds.some(id=>typeof id!=='string'||!id.trim()))throw new Error('Resolve at most six observed destination IDs');
-  const [map, directory] = await Promise.all([publicData.map(), fetchStations(publicData.httpBaseUrl)]);
+  if(params.refresh_map!==undefined&&typeof params.refresh_map!=='boolean')throw new Error('refresh_map must be boolean');
+  const [map, directory] = await Promise.all([publicData.map(params.refresh_map===true), fetchStations(publicData.httpBaseUrl)]);
   const distances = new Map<string, number>([[systemId, 0]]);
   const queue = [systemId];
   for (let index = 0; index < queue.length; index++) {
