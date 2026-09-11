@@ -131,7 +131,7 @@ export async function discoverMarket(params:DiscoveryParams,dependencies:Discove
       economic_profit_per_second:valued&&finite(economicProfit)&&finite(seconds)&&seconds>0?economicProfit/seconds:null,
       estimated_seconds:seconds??null,purchase_credits:evaluation?.purchaseCredits??null,
       crafting_credits:quote.craft?.credits_total??null,raw_sale_opportunity:evaluation?.rawSaleCredits??null,
-      inputs_needed:candidate.inputs_needed,requires_fresh_quote:true});
+      input_locations:quote.input_locations,inputs_needed:candidate.inputs_needed,requires_fresh_quote:true});
   }
   observations.push(...futureHypotheses.slice(0,limit));
   observations.sort((a,b)=>Number(b.status==='profitable_quote')-Number(a.status==='profitable_quote')||(b.economic_profit_per_second??-Infinity)-(a.economic_profit_per_second??-Infinity)||(b.economic_profit??-Infinity)-(a.economic_profit??-Infinity)||a.recipe_id.localeCompare(b.recipe_id));

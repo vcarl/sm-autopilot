@@ -12,15 +12,15 @@ test('settles partial output across cargo-sized sales and resumes without duplic
     calls.push(action);
     if(action==='spacemolt/craft')return {kind:'queue',jobs:null,total_jobs:0};
     if(action==='spacemolt_storage/view')return {items:[{item_id:'metal',quantity:storage,size:1}]};
-    if(action==='spacemolt_storage/withdraw'){storage-=params.quantity;account.ship.cargo_used+=params.quantity;return {};}
+    if(action==='spacemolt_storage/withdraw'){storage-=params.quantity;account.ship.cargo_used+=params.quantity;account.cargo=[{item_id:'metal',quantity:account.ship.cargo_used}];return {};}
     if(action==='spacemolt/sell'){
       const sold=first?1:params.quantity;first=false;
-      account.ship.cargo_used-=sold;account.credits+=sold*10+100;
+      account.ship.cargo_used-=sold;account.cargo=[{item_id:'metal',quantity:account.ship.cargo_used}];account.credits+=sold*10+100;
       return {quantity_sold:sold,total_earned:sold*10,unsold:params.quantity-sold};
     }
     throw new Error(`Unexpected ${action}`);
   };
-  const experiment:any={experiment_id:'experiment',station:'station',job_id:'job',status:'pending',started:Date.now(),spent:3,earned:0,sold:{},withdrawn:{},sales:[],before:{storage:[]},quote:{source:'inventory',evaluation:{inputs:[],outputs:[{item_id:'metal',quantity:5}],rawSaleCredits:12,expectedProfit:47}}};
+  const experiment:any={experiment_id:'experiment',station:'station',job_id:'job',status:'pending',started:Date.now(),spent:3,earned:0,sold:{},withdrawn:{},sales:[],before:{storage:[],cargo:[]},quote:{source:'inventory',evaluation:{inputs:[],outputs:[{item_id:'metal',quantity:5}],rawSaleCredits:12,expectedProfit:47}}};
   const snapshots:any[]=[];
   const save=(e:any)=>snapshots.push(structuredClone(e));
   const partial=await settleExperiment(experiment,{max_wait_seconds:0},account as Account,command,save);
@@ -63,7 +63,7 @@ test('workshop quotes route by preset while real facilities retain their identif
 
 test('shared settlement checkpoints preserve queued work and accepted withdrawals before stopping',async()=>{
   const account:any={credits:100,location:{docked_at:'station'},ship:{cargo_capacity:2,cargo_used:0},cargo:[]};
-  const experiment:any={experiment_id:'shared',station:'station',job_id:'job',status:'pending',started:0,spent:0,earned:0,sold:{},withdrawn:{},sales:[],before:{storage:[]},quote:{source:'inventory',evaluation:{inputs:[],outputs:[{item_id:'metal',quantity:2}]}}};
+  const experiment:any={experiment_id:'shared',station:'station',job_id:'job',status:'pending',started:0,spent:0,earned:0,sold:{},withdrawn:{},sales:[],before:{storage:[],cargo:[]},quote:{source:'inventory',evaluation:{inputs:[],outputs:[{item_id:'metal',quantity:2}]}}};
   let time=0,queued=true,tired=false,stock=2;
   const sleeps:number[]=[],snapshots:any[]=[],mutations:string[]=[];
   const context={existing_experiments:[experiment],record:(e:any)=>snapshots.push(structuredClone(e)),now:()=>time,
@@ -72,7 +72,7 @@ test('shared settlement checkpoints preserve queued work and accepted withdrawal
     if(action==='spacemolt/craft')return {kind:'queue',jobs:queued?[{job_id:'job'}]:[]};
     if(action==='spacemolt_storage/view')return {items:[{item_id:'metal',quantity:stock,size:1}]};
     mutations.push(action);
-    if(action==='spacemolt_storage/withdraw'){stock-=params.quantity;account.ship.cargo_used+=params.quantity;tired=true;return {};}
+    if(action==='spacemolt_storage/withdraw'){stock-=params.quantity;account.ship.cargo_used+=params.quantity;account.cargo=[{item_id:'metal',quantity:account.ship.cargo_used}];tired=true;return {};}
     throw new Error(`Unexpected mutation ${action}`);
   };
   const pending:any=await executeIndustry('settle',{experiment_id:'shared'},account,command,context);
@@ -126,8 +126,8 @@ test('shared production persists every mutation and uses accepted costs despite 
         if(action==='spacemolt/craft')return {kind:'queue',jobs:[]};
         if(action==='spacemolt_storage/view')return {items:[{item_id:'metal',quantity:output,size:1}]};
         mutations.push(action);
-        if(action==='spacemolt_storage/withdraw'){output=0;account.ship.cargo_used=1;return {};}
-        if(action==='spacemolt/sell'){account.ship.cargo_used=0;account.credits+=100;return saleReceipt;}
+        if(action==='spacemolt_storage/withdraw'){output=0;account.ship.cargo_used=1;account.cargo=[{item_id:'metal',quantity:1}];return {};}
+        if(action==='spacemolt/sell'){account.ship.cargo_used=0;account.cargo=[];account.credits+=100;return saleReceipt;}
         throw new Error(`Unexpected ${action}`);
       };
       const unpriced:any=await executeIndustry('settle',{experiment_id:result.experiment_id,max_wait_seconds:0},account,settleCommand,context);

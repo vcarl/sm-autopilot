@@ -2,7 +2,7 @@ import {SpacemoltError,type Account} from '@spacemolt/lib';
 import {randomUUID} from 'node:crypto';
 import {combat,battleStatus,controlHunt} from './combat.ts';
 import {combatCatalog} from './combat-metadata.ts';
-import {details,type IndustryCommand} from './industry.ts';
+import {details,executeIndustry,type IndustryCommand,type IndustryContext} from './industry.ts';
 import {industryLocations} from './locations.ts';
 import {routeSteps} from './survey.ts';
 import {serviceShip} from './servicing.ts';
@@ -18,6 +18,7 @@ import {isPaidCommand,jobSpending,jobBudget,requireCommandSpend} from './spendin
 import {locateHome} from './home-location.ts';
 import {ensureReadiness} from './readiness.ts';
 import {observeGathering,assessGathering,gatherResources,verifyGatherInventory,type GatherReceipt} from './gather.ts';
+import {productionWaitSeconds,productionExperiments,productionReceipt,unfinishedProduction,retainProductionAcceptance} from './shared-production.ts';
 
 type Wire=Record<string,any>;
 const parameter=(name:string,type:string,description:string,required=false)=>({name,type,description,required});
@@ -40,10 +41,13 @@ export function executionCatalog(context:ExecutionContext):Record<string,any> {
     if(canHunt(context))common.hunt=combatCatalog['combat/hunt'];
   }
   if(context.stance==='Industry') {
-    common.assess=meta('Assess a local asteroid belt verification visit, mining readiness and home bounds. Resource contents require arrival observation.',[parameter('poi_id','string','Observed local asteroid belt POI',true)]);
+    common.assess=meta('With poi_id assess gathering. With recipe_id quote local production; without either discover local economic candidates. Inventory inputs have opportunity cost; quotes are not realized profit.',[
+      parameter('poi_id','string','Observed local asteroid belt POI'),parameter('recipe_id','string','Recipe to quote'),parameter('source','string','inventory (default) or buy'),parameter('quantity','number','Output count for a single production run')]);
     common.prepare=meta('Service and install owned mining equipment where supported, preserving displaced equipment. No purchases.');
     if(context.limits.max_gather_cycles>0)common.gather=meta('Gather for bounded cycles at a local asteroid belt, retain all new cargo, return home and service. Records partial yield and blockers.',[
       parameter('poi_id','string','Observed local asteroid belt POI',true),parameter('cycles','number','Optional cycle count, only tighter than resolved max_gather_cycles')]);
+    common.produce=meta('At home, source inputs and execute one economically assessed production run, settle output sales, and service. Pending/partial work is unfinished. In a later operating run, pass only experiment_id to continue known settlement without crafting again.',[
+      parameter('recipe_id','string','Recipe for new production'),parameter('source','string','inventory (default) or buy'),parameter('quantity','number','Output count; only one recipe run is supported'),parameter('experiment_id','string','Known unfinished experiment to settle, exclusive with recipe/source/quantity'),parameter('max_wait_seconds','number','Queue waiting bound, 0..120 seconds (default 120)')]);
   }
   return common;
 }
@@ -53,6 +57,7 @@ class TravelBlocked extends Error {}
 export interface ExecutionDeps {
   locations?:typeof industryLocations;
   combat?:Parameters<typeof combat>[4];
+  industry?:Pick<IndustryContext,'catalog'>;
 }
 export class Execution {
   context:ExecutionContext;
@@ -100,7 +105,7 @@ export class Execution {
     if(this.active&&this.dangerPending&&!this.defending&&!action.startsWith('spacemolt_battle/')) {
       if(await this.defend())throw new DefenseInterruption('Unexpected combat invalidated the pending operation; return before reconsidering work');
     }
-    if(this.stopping&&['spacemolt/hunt','spacemolt/mine','spacemolt/buy','spacemolt/install_mod','spacemolt/uninstall_mod','spacemolt_storage/withdraw','spacemolt_salvage/loot','spacemolt/scan'].includes(action))throw new StopWork('Stop requested before productive command');
+    if(this.stopping&&(['spacemolt/hunt','spacemolt/mine','spacemolt/buy','spacemolt/sell','spacemolt/install_mod','spacemolt/uninstall_mod','spacemolt_storage/deposit','spacemolt_storage/withdraw','spacemolt_salvage/loot','spacemolt/scan'].includes(action)||(action==='spacemolt/craft'&&params.id!==undefined&&params.dry_run!==true)))throw new StopWork('Stop requested before productive command');
     if(this.active&&isPaidCommand(action,params)) {
       const spending=jobBudget(this.active,this.store.data.jobs);
       if(spending.gross_spend===null)throw new Error('Unpriced paid command prevents further spending until reconciliation');
@@ -136,7 +141,7 @@ export class Execution {
     this.stations=(locations.stations??[]).map((s:any)=>({...s,rationale:'',observed_at:new Date().toISOString()}));
     const obligations=await observeObligations(this.account,this.command);
     const gathering=includeGathering&&this.context.stance==='Industry'?await observeGathering(this.account,this.command):undefined;
-    return {observed_at:new Date().toISOString(),source:'authenticated account and public station directory',state:this.snapshot(),locations,home_location:locateHome(this.context.home,this.account.location,this.stations),obligations,gathering,context:this.context,stop:this.store.data.stop,receipts:this.store.data.jobs.slice(-5)};
+    return {observed_at:new Date().toISOString(),source:'authenticated account and public station directory',state:this.snapshot(),locations,home_location:locateHome(this.context.home,this.account.location,this.stations),obligations,production_experiments:productionExperiments(this.store.data.jobs),gathering,context:this.context,stop:this.store.data.stop,receipts:this.store.data.jobs.slice(-5)};
   }
   plan(params:Wire) {
     if(this.active)throw new Error('Wait for the active job receipt before a normal transition');
@@ -297,6 +302,9 @@ export class Execution {
         resetBoundary:()=>{this.boundary=new CommandBoundary();this.uncertain=false;},
         returnHome:()=>this.returnHome(),uncertain:()=>this.uncertain,clock:this.deps.combat,
       });
+      retainProductionAcceptance(job);
+      const production=productionReceipt(job.result);
+      if(production?.pending_action||production?.accounting_unverified)job.status='needs_reconciliation';
       job.stopping_reason=this.store.data.stop;this.store.save();return structuredClone(job);
     } finally {this.context=nextContext;this.active=undefined;}
   }
@@ -310,7 +318,7 @@ export class Execution {
     if(this.store.unresolved())throw new Error('An unfinished job requires reconciliation; observe it without replay');
     if(this.stopping&&action!=='return_to_base')throw new Error('Stop latched: productive admission closed');
     if(action==='assess'&&this.context.stance!=='Industry')return combat('assess',params,this.account,this.command,this.deps.combat);
-    if(!this.context.home&&action!=='return_to_base')throw new Error('Observe and choose home before work');
+    if(!this.context.home&&action!=='return_to_base'&&!(action==='assess'&&this.context.stance==='Industry'&&!params.poi_id))throw new Error('Observe and choose home before work');
     if(Object.keys(params).some(k=>!((executionCatalog(this.context)[action].params??[]) as any[]).some(p=>p.name===k)))throw new Error('Unsupported job parameter');
     for(const field of executionCatalog(this.context)[action].params??[]) {
       const value=params[field.name];
@@ -322,17 +330,34 @@ export class Execution {
     if(params.cycles!==undefined&&(!Number.isInteger(params.cycles)||params.cycles<1||params.cycles>limits.max_gather_cycles))throw new Error('cycles exceeds resolved gathering policy');
     if(params.max_ticks!==undefined&&(!Number.isInteger(params.max_ticks)||params.max_ticks<1||params.max_ticks>limits.max_ticks))throw new Error('max_ticks exceeds resolved policy');
     if(params.retreat_hull_fraction!==undefined&&(!Number.isFinite(params.retreat_hull_fraction)||params.retreat_hull_fraction<limits.retreat_hull_fraction||params.retreat_hull_fraction>0.95))throw new Error('Withdrawal override exceeds resolved policy');
-    if(action==='assess')return assessGathering(this.account,this.command,{...this.context,home:(await this.homeLocation()).destination},{poi_id:params.poi_id,cycles:limits.max_gather_cycles});
+    if(params.source!==undefined&&!['inventory','buy'].includes(params.source))throw new Error('source must be inventory or buy');
+    if(params.quantity!==undefined&&(!Number.isInteger(params.quantity)||params.quantity<1||params.quantity>1000))throw new Error('quantity must be an integer 1..1000');
+    if(params.max_wait_seconds!==undefined&&(!Number.isFinite(params.max_wait_seconds)||params.max_wait_seconds<0||params.max_wait_seconds>productionWaitSeconds))throw new Error('max_wait_seconds must be 0..120');
+    if(action==='assess') {
+      if(params.poi_id) {
+        if(params.recipe_id||params.source||params.quantity!==undefined)throw new Error('Assess gathering or production separately');
+        return assessGathering(this.account,this.command,{...this.context,home:(await this.homeLocation()).destination},{poi_id:params.poi_id,cycles:limits.max_gather_cycles});
+      }
+      await this.account.refresh();
+      return executeIndustry(params.recipe_id?'quote':'discover',params,this.account,this.command,{...this.deps.industry,record:()=>{},existing_experiments:productionExperiments(this.store.data.jobs)});
+    }
+    if(action==='produce'&&((!params.recipe_id&&!params.experiment_id)||(params.experiment_id&&(params.recipe_id||params.source||params.quantity!==undefined))))throw new Error('Provide recipe_id for new production or only experiment_id for settlement');
     if(action==='return_to_base')this.signal();
     const allowanceBlocker=admissionBlocker(action,this.store.runJobs());
     await this.account.refresh();
     const job:Job={id:randomUUID(),action,status:'running',context:structuredClone(this.context),started_at:new Date().toISOString(),before:this.snapshot(),actions:[]};
     const predecessor=this.store.runJobs().at(-1);
     if(action==='return_to_base'&&predecessor)job.budget_owner_id=predecessor.budget_owner_id??predecessor.id;
+    if(action==='produce'&&params.experiment_id) {
+      const owner=this.store.data.jobs.find(previous=>productionReceipt(previous.result)?.experiment_id===params.experiment_id);
+      if(owner)job.budget_owner_id=owner.budget_owner_id??owner.id;
+    }
     this.active=job;this.store.data.jobs.push(job);this.store.save();
     let result:any;
     try {
       if(allowanceBlocker)throw new Error(allowanceBlocker);
+      const unfinished=unfinishedProduction(this.store.data.jobs);
+      if(action!=='return_to_base'&&unfinished.some(row=>action!=='produce'||row.experiment_id!==params.experiment_id))throw new Error('Unfinished production requires settlement by experiment_id before new productive work');
       if(this.observedDanger)await this.defend();
       let obligations:Obligations|undefined;
       try {
@@ -354,14 +379,15 @@ export class Execution {
         prepare:()=>this.prepare(),
         track:()=>this.sortie('scout',params),hunt:()=>this.sortie('hunt',params),
         gather:()=>this.gather(params),
+        produce:()=>this.produce(params,obligations!),
       };
       if(this.stopping&&action!=='return_to_base')throw new StopWork('Stop requested before work');
-      if(['hunt','track','gather'].includes(action))admitProductiveSortie(obligations!,action==='gather'?'Gather':'Hunt');
+      if(['hunt','track','gather','produce'].includes(action))admitProductiveSortie(obligations!,this.context.stance);
       result=await handlers[action]!();
       job.result=result;
       if(result?.status==='blocked'&&action!=='return_to_base'&&!job.return_plan)throw new Error(result.reason??'Job returned a blocker');
       if(this.stopping&&action!=='return_to_base'&&!job.return_plan)throw new StopWork('Productive work suspended; return and service before stopping');
-      job.status=result?.status==='blocked'?'blocked':this.stopping?'returned_to_base':action==='hunt'&&!result?.sortie?.fight?.verified_victory?'blocked':'completed';
+      job.status=action==='produce'&&result?.production?.status!=='complete'?(result?.production?.status==='needs_reconciliation'?'needs_reconciliation':'blocked'):result?.status==='blocked'?'blocked':this.stopping?'returned_to_base':action==='hunt'&&!result?.sortie?.fight?.verified_victory?'blocked':'completed';
     } catch(error) {
       job.error=error instanceof Error?error.message:String(error);
       try {
@@ -376,6 +402,7 @@ export class Execution {
         job.status=this.uncertain?'needs_reconciliation':'blocked';
       }
     } finally {
+      retainProductionAcceptance(job);
       if(this.uncertain)job.obligation_verification={status:'unavailable',reason:'Command uncertainty prevents terminal observation; admission evidence is retained'};
       else {
         try {
@@ -398,6 +425,9 @@ export class Execution {
       job.after=this.snapshot();job.cash_delta=this.account.credits!-(job.before as Wire).credits;
       job.spending=jobSpending(job);
       job.budget_spending=jobBudget(job,this.store.data.jobs);
+      const production=productionReceipt(job.result);
+      if(production?.pending_action||production?.accounting_unverified)job.status='needs_reconciliation';
+      else if(action==='produce'&&production?.status!=='complete'&&job.status!=='needs_reconciliation')job.status='blocked';
       if(job.budget_spending.gross_spend===null)job.status='needs_reconciliation';
       else if(job.budget_spending.gross_spend>job.budget_spending.max_spend)job.status='blocked';
       const stoppingReason=this.store.data.stop??terminalStoppingReason(job);
@@ -436,6 +466,27 @@ export class Execution {
     const cleanup=await this.returnHome();
     verifyGatherInventory(gathered,this.account);
     return {gather:gathered,cleanup,status:gathered.status};
+  }
+  private async produce(params:Wire,obligations:Obligations) {
+    const home=(await this.homeLocation()).destination;
+    if(!home||this.account.location?.docked_at!==home.base_id)throw new Error('Local production requires docking at the chosen home; travel there first');
+    const experiments=productionExperiments(this.store.data.jobs);
+    const existing=params.experiment_id?experiments.find(row=>row.experiment_id===params.experiment_id):undefined;
+    if(params.experiment_id&&(!existing||existing.station!==home.base_id))throw new Error('Unknown experiment or wrong station for settlement');
+    if(existing&&['complete','aborted'].includes(existing.status))throw new Error('Experiment is already terminal; settlement cannot be counted again');
+    if(existing&&(existing.pending_action||existing.accounting_unverified))throw new Error('Unresolved production acceptance/accounting requires reconciliation; no automatic settlement');
+    if((obligations.production.jobs??[]).some((queued:Wire)=>queued.job_id!==existing?.job_id))throw new Error('Other queued production must be resolved before this local production job');
+    await this.service();
+    const production=await executeIndustry(existing?'settle':'produce',{
+      ...params,max_wait_seconds:params.max_wait_seconds??productionWaitSeconds,
+      max_spend:this.remainingSpend(),credit_reserve:this.active?jobBudget(this.active,this.store.data.jobs).credit_reserve:this.context.limits.credit_reserve,
+    },this.account,this.command,{
+      ...this.deps.industry,...this.deps.combat,existing_experiments:experiments,
+      checkpoint:async()=>{await this.defend();if(this.stopping)throw new StopWork('Production suspended; preserve queued work and unsold output before return');},
+      record:row=>{if(row.experiment_id&&this.active){this.active.result={production:structuredClone(row)};this.store.save();}},
+    });
+    if(this.active){this.active.result={production};retainProductionAcceptance(this.active);this.store.save();}
+    return {production,cleanup:await this.returnHome()};
   }
   private async sortie(action:string,params:Wire) {
     await this.service();

@@ -65,6 +65,7 @@ def receipt_report(receipts, cleanup_response=None):
                                        "sold", "withdrawn", "deposited", "sales", "after",
                                        "retained_assets_note", "realized_credit_delta",
                                        "incremental_profit_after_input_opportunity") if key in production}
+            row["production_work"]["accounting_scope"] = "Cumulative experiment amounts at this receipt; do not sum repeated experiment_id snapshots"
             if "skill_progress" in production:
                 row["observed_skill_progress"] = deepcopy(production["skill_progress"])
         jobs.append(row)

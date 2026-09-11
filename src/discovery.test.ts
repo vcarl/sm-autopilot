@@ -13,11 +13,12 @@ test('discovery diversifies formulas, ranks opportunity-adjusted profit and keep
     calls.push(params);
     if(params.recipe_id==='fuel')throw new SpacemoltError('skill_required','Requires refining level 3');
     const owned=params.source==='inventory';
-    return {station:'station',craft:{runs:1,credits_total:4,venue:'Factory'},evaluation:{feasible:true,blockers:[],unknowns:[],expectedProfit:owned?100:20,processingAdvantage:owned?-5:10,seconds:10,purchaseCredits:owned?0:12,rawSaleCredits:105}};
+    return {station:'station',input_locations:[{item_id:'ore',stored:2,carried:0}],craft:{runs:1,credits_total:4,venue:'Factory'},evaluation:{feasible:true,blockers:[],unknowns:[],expectedProfit:owned?100:20,processingAdvantage:owned?-5:10,seconds:10,purchaseCredits:owned?0:12,rawSaleCredits:105}};
   },record:row=>saved.push(row),now:()=>1000});
   assert.equal(calls.length,3);assert.ok(calls.every(row=>row.quantity===1));
   assert.equal(result.ranked[0].recipe_id,'metal_a');
   const inventory=result.ranked.find((row:any)=>row.source==='inventory');
+  assert.deepEqual(inventory.input_locations,[{item_id:'ore',stored:2,carried:0}]);
   assert.equal(inventory.status,'blocked_hypothesis');assert.equal(inventory.economic_profit,-5);assert.equal(inventory.expected_cash_profit,100);
   assert.ok(result.ranked.find((row:any)=>row.recipe_id==='fuel').blockers.some((reason:string)=>reason.includes('refining')));
   assert.equal(saved[0].quotes.length,calls.length);assert.equal(saved[0].screen,screen);

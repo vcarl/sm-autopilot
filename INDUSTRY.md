@@ -1,5 +1,17 @@
 # Industry experiments
 
+The shared `--stance Industry` interface now composes these production mechanics
+through `job__produce` and the durable pilot job lifecycle. It supports one recipe
+run at the chosen home, with input sourcing, output sales, return/service, and
+explicit later settlement by `experiment_id`. Shared queue waits are at most
+120 seconds and check urgent control at most two seconds apart. The legacy tool
+names and longer wait bounds below describe `--industry`, not the shared catalog.
+
+Accepted receipt fields establish gross spending and direct-sale proceeds; net
+wallet changes may include unrelated activity. Craft escrow with missing labor or
+fee leaves accounting unresolved. Queue disappearance alone cannot establish
+finished output, and a serviced return does not establish completed settlement.
+
 The local Hermes agent can compare recipes, input sources, stations, and live
 markets, then run bounded production or mining experiments. The model selects
 the experiment; the industry tools execute and record its mechanical steps.

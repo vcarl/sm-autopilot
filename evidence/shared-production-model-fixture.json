@@ -1,0 +1,441 @@
+{
+  "validation_level": "Real local oMLX model and Hermes AIAgent through actual ExecutionHost, using offline productionFixture game only",
+  "model": "mlx-community--Qwen3.6-35B-A3B-4bit",
+  "date": "2026-09-11",
+  "attempts": [
+    {
+      "private_runtime": "/var/folders/_4/1kmc70zj6s18v8ls6cxn81m40000gn/T/spacemolt-production-model-2p8tvv3f",
+      "exit_code": 0,
+      "finding": "Ended with intent prose after discovery; confused station storage with carried cargo.",
+      "job_requests": [
+        {
+          "action": "job/observe",
+          "params": {}
+        },
+        {
+          "action": "job/observe",
+          "params": {}
+        },
+        {
+          "action": "job/assess",
+          "params": {}
+        },
+        {
+          "action": "job/plan",
+          "params": {
+            "home_base_id": "base",
+            "home_rationale": "Already docked at base with no travel cost; offers refuel service; no better candidate observed.",
+            "objective": "Complete one profitable production cycle using observed local opportunities. Choose a suitable home, compare input sourcing, settle the output, and finish serviced with verified costs and obligations.",
+            "stance": "Industry",
+            "mood": "Focused"
+          }
+        },
+        {
+          "action": "job/observe",
+          "params": {}
+        },
+        {
+          "action": "job/assess",
+          "params": {}
+        },
+        {
+          "action": "job/return_to_base",
+          "params": {}
+        }
+      ],
+      "jobs": [
+        {
+          "action": "return_to_base",
+          "status": "returned_to_base",
+          "cash_delta": 0,
+          "production_work": null,
+          "stopping_reason": "Tired"
+        }
+      ],
+      "craft_submissions": 0,
+      "gross_spend": 0,
+      "wallet_delta": 0,
+      "final": {
+        "receipt_id": "189c7580-7416-49ba-b225-01190370dd08",
+        "status": "returned_to_base",
+        "location": {
+          "system_id": "system",
+          "poi_id": "station",
+          "docked_at": "base"
+        },
+        "credits": 200000,
+        "ship_condition": {
+          "id": "ship",
+          "hull": 105,
+          "max_hull": 105,
+          "shield": 35,
+          "max_shield": 35,
+          "fuel": 120,
+          "max_fuel": 120
+        },
+        "retained_cargo": [
+          {
+            "item_id": "original",
+            "quantity": 1,
+            "size": 1
+          }
+        ],
+        "observed_skills": {
+          "crafting": {
+            "level": 1,
+            "xp": 0
+          },
+          "trading": {
+            "level": 1,
+            "xp": 0
+          }
+        },
+        "obligations": {
+          "observed_at": "2026-09-11T05:31:31.038Z",
+          "missions": {
+            "active": [
+              {
+                "id": "existing-obligation"
+              }
+            ]
+          },
+          "freight": {
+            "action": "active",
+            "shipments": [],
+            "tick": 0
+          },
+          "passengers": {
+            "count": 0,
+            "passengers": []
+          },
+          "production": {
+            "kind": "queue",
+            "total_jobs": 0,
+            "jobs": []
+          }
+        },
+        "obligation_verification": {
+          "status": "observed",
+          "reason": "Outstanding commitments are recorded, not declared delivered or settled"
+        },
+        "condition_note": "Observed endpoint condition; not a measurement of damage taken or resources consumed during the job"
+      },
+      "model_report": "The assessment shows a `refine` recipe is available at the base, producing `metal` from `ore`.\n\nLet's check if I have the inputs in inventory:\n- I have `ore` (2 units needed, I have 1 `original` item).\n- I need to check if I have 2 ore.\n\nMy current cargo has 1 item with `item_id` \"original\". This doesn't seem to be 2 `ore` items.\n\nLet me verify:\n- `cargo`: `[{\"item_id\": \"original\", \"quantity\": 1, \"size\": 1}]`\n- `cargo_capacity`: 100\n- `cargo_used`: 1\n\nI don't have 2 ore. I need to buy ore to use the `source: \"buy\"` path, which has an expected profit of 33. Or maybe I can sell `original`? No, that's probably the store of charge.\n\nActually, wait. The recipe needs 2 `ore`. I have 1 `original` item (probably a store charge). Selling the store charge might reduce my effective profit.\n\nComparing the two options:\n- Source: `inventory`: Profit 37. Requires 2 `ore` in inventory.\n- Source: `buy`: Profit 33. Requires buying 2 `ore` (cost: 4 credits).\n\nSince I don't have ore in inventory, the `inventory` source option would be lower because I'd need to acquire them (opportunity cost). Actually, if I don't have ore, I can't use source: inventory unless I acquire them somehow.\n\nLet's just try to gather ore first or buy it. But there are no local asteroid belt candidates (`candidates: []`).\n\nSo I can't gather. I should use `source: \"buy\"` with 2 ore.\n\nLet's produce 1 `refine` run using `buy`.\n\nThe quote says:\n- `purchase_credits`: 4 (cost to buy ore)\n- `crafting_credits`: 3 (cost to craft)\n- `raw_sale_opportunity`: 2\n- Expected cash profit: 33 (which is 2 * sale price - purchase_credits - crafting_credits = 2 * sale_price - 4 - 3 = 2 * sale_price - 7).\n- So 33 = 2 * sale_price - 7 => sale_price = 20.\n\nWait, if I sell the ore I have? I only have `original`.\n\nLet's just produce 1 `refine` using `buy` and `quantity: 1`.",
+      "api_trace": [
+        "2026-09-11 01:31:20,278 INFO [spacemolt-ff4cf0a364ac457ca28ec4fa4ad45cd3] agent.conversation_loop: API call #1: model=mlx-community--Qwen3.6-35B-A3B-4bit provider=custom in=6604 out=216 total=6820 latency=4.0s id=chatcmpl-1b0554f5",
+        "2026-09-11 01:31:22,549 INFO [spacemolt-ff4cf0a364ac457ca28ec4fa4ad45cd3] agent.conversation_loop: API call #2: model=mlx-community--Qwen3.6-35B-A3B-4bit provider=custom in=7347 out=196 total=7543 latency=2.2s cache=6144/7347 (84%) id=chatcmpl-1351a520",
+        "2026-09-11 01:31:22,558 INFO [spacemolt-ff4cf0a364ac457ca28ec4fa4ad45cd3] agent.conversation_loop: Turn ended: reason=interrupted_by_user model=mlx-community--Qwen3.6-35B-A3B-4bit api_calls=2/12 budget=2/12 tool_turns=2 last_msg_role=assistant response_len=0 session=spacemolt-ff4cf0a364ac457ca28ec4fa4ad45cd3",
+        "2026-09-11 01:31:25,355 INFO [spacemolt-03ceee93aa2141f8921791e63486a453] agent.conversation_loop: API call #1: model=mlx-community--Qwen3.6-35B-A3B-4bit provider=custom in=6902 out=208 total=7110 latency=2.8s cache=4096/6902 (59%) id=chatcmpl-1379d959",
+        "2026-09-11 01:31:31,024 INFO [spacemolt-03ceee93aa2141f8921791e63486a453] agent.conversation_loop: API call #2: model=mlx-community--Qwen3.6-35B-A3B-4bit provider=custom in=7999 out=561 total=8560 latency=5.7s cache=6144/7999 (77%) id=chatcmpl-dc68c24a",
+        "2026-09-11 01:31:31,028 INFO [spacemolt-03ceee93aa2141f8921791e63486a453] agent.conversation_loop: Turn ended: reason=text_response(finish_reason=stop) model=mlx-community--Qwen3.6-35B-A3B-4bit api_calls=2/12 budget=2/12 tool_turns=1 last_msg_role=assistant response_len=1833 session=spacemolt-03ceee93aa2141f8921791e63486a453"
+      ],
+      "fixture_closed": true
+    },
+    {
+      "private_runtime": "/var/folders/_4/1kmc70zj6s18v8ls6cxn81m40000gn/T/spacemolt-production-model-1w6kkcyg",
+      "exit_code": 0,
+      "finding": "Economic assessment before home was rejected; no productive job executed.",
+      "job_requests": [
+        {
+          "action": "job/observe",
+          "params": {}
+        },
+        {
+          "action": "job/observe",
+          "params": {}
+        },
+        {
+          "action": "job/assess",
+          "params": {
+            "source": "inventory"
+          }
+        },
+        {
+          "action": "job/return_to_base",
+          "params": {}
+        }
+      ],
+      "jobs": [
+        {
+          "action": "return_to_base",
+          "status": "returned_to_base",
+          "cash_delta": 0,
+          "production_work": null,
+          "stopping_reason": "Tired"
+        }
+      ],
+      "craft_submissions": 0,
+      "gross_spend": 0,
+      "wallet_delta": 0,
+      "final": {
+        "receipt_id": "fe8c0fe0-2b46-4c6e-a3eb-aeda44db664a",
+        "status": "returned_to_base",
+        "location": {
+          "system_id": "system",
+          "poi_id": "station",
+          "docked_at": "base"
+        },
+        "credits": 200000,
+        "ship_condition": {
+          "id": "ship",
+          "hull": 105,
+          "max_hull": 105,
+          "shield": 35,
+          "max_shield": 35,
+          "fuel": 120,
+          "max_fuel": 120
+        },
+        "retained_cargo": [
+          {
+            "item_id": "original",
+            "quantity": 1,
+            "size": 1
+          }
+        ],
+        "observed_skills": {
+          "crafting": {
+            "level": 1,
+            "xp": 0
+          },
+          "trading": {
+            "level": 1,
+            "xp": 0
+          }
+        },
+        "obligations": {
+          "observed_at": "2026-09-11T05:32:42.798Z",
+          "missions": {
+            "active": [
+              {
+                "id": "existing-obligation"
+              }
+            ]
+          },
+          "freight": {
+            "action": "active",
+            "shipments": [],
+            "tick": 0
+          },
+          "passengers": {
+            "count": 0,
+            "passengers": []
+          },
+          "production": {
+            "kind": "queue",
+            "total_jobs": 0,
+            "jobs": []
+          }
+        },
+        "obligation_verification": {
+          "status": "observed",
+          "reason": "Outstanding commitments are recorded, not declared delivered or settled"
+        },
+        "condition_note": "Observed endpoint condition; not a measurement of damage taken or resources consumed during the job"
+      },
+      "model_report": "Action: `job__plan` with home_base_id=\"base\".",
+      "api_trace": [
+        "2026-09-11 01:32:42,104 INFO [spacemolt-776c12e735154a20a9eb6ff9c949f2a8] agent.conversation_loop: API call #1: model=mlx-community--Qwen3.6-35B-A3B-4bit provider=custom in=6671 out=354 total=7025 latency=4.8s cache=2048/6671 (31%) id=chatcmpl-e3a9b65d",
+        "2026-09-11 01:32:42,775 INFO [spacemolt-776c12e735154a20a9eb6ff9c949f2a8] agent.conversation_loop: API call #2: model=mlx-community--Qwen3.6-35B-A3B-4bit provider=custom in=7426 out=14 total=7440 latency=0.6s cache=6144/7426 (83%) id=chatcmpl-59de3146",
+        "2026-09-11 01:32:42,778 INFO [spacemolt-776c12e735154a20a9eb6ff9c949f2a8] agent.conversation_loop: Turn ended: reason=text_response(finish_reason=stop) model=mlx-community--Qwen3.6-35B-A3B-4bit api_calls=2/12 budget=2/12 tool_turns=1 last_msg_role=assistant response_len=45 session=spacemolt-776c12e735154a20a9eb6ff9c949f2a8"
+      ],
+      "fixture_closed": true
+    },
+    {
+      "private_runtime": "/var/folders/_4/1kmc70zj6s18v8ls6cxn81m40000gn/T/spacemolt-production-model-24w80ik9",
+      "exit_code": 0,
+      "finding": "Completed one production job after preserving input locations and allowing read-only economic assessment before home selection.",
+      "job_requests": [
+        {
+          "action": "job/observe",
+          "params": {}
+        },
+        {
+          "action": "job/plan",
+          "params": {
+            "home_base_id": "base",
+            "home_rationale": "Primary observed station with refuel service, closest to current location, and simplest to return to for production settlement.",
+            "objective": "Complete one profitable production cycle using observed local opportunities. Choose a suitable home, compare input sourcing, settle the output, and finish serviced with verified costs and obligations.",
+            "stance": "Industry"
+          }
+        },
+        {
+          "action": "job/observe",
+          "params": {}
+        },
+        {
+          "action": "job/assess",
+          "params": {
+            "source": "inventory"
+          }
+        },
+        {
+          "action": "job/produce",
+          "params": {
+            "recipe_id": "refine",
+            "source": "inventory",
+            "quantity": 1
+          }
+        },
+        {
+          "action": "job/return_to_base",
+          "params": {}
+        }
+      ],
+      "jobs": [
+        {
+          "action": "produce",
+          "status": "completed",
+          "cash_delta": 237,
+          "production_work": {
+            "experiment_id": "953d83df-833d-4d9f-9922-705f0f65a41a",
+            "job_id": "craft-job",
+            "station": "base",
+            "status": "complete",
+            "spent": 3,
+            "earned": 40,
+            "sold": {
+              "metal": 2
+            },
+            "withdrawn": {
+              "metal": 2
+            },
+            "sales": [
+              {
+                "item_id": "metal",
+                "quantity_sold": 2,
+                "unsold": 0,
+                "total_earned": 40
+              }
+            ],
+            "after": {
+              "skills": {
+                "crafting": {
+                  "level": 1,
+                  "xp": 10
+                },
+                "trading": {
+                  "level": 1,
+                  "xp": 2
+                }
+              },
+              "credits": 200237,
+              "cargo": [
+                {
+                  "item_id": "original",
+                  "quantity": 1,
+                  "size": 1
+                }
+              ],
+              "storage": [
+                {
+                  "item_id": "ore",
+                  "quantity": 0,
+                  "size": 1
+                },
+                {
+                  "item_id": "metal",
+                  "quantity": 0,
+                  "size": 1
+                }
+              ]
+            },
+            "realized_credit_delta": 37,
+            "incremental_profit_after_input_opportunity": 35,
+            "accounting_scope": "Cumulative experiment amounts at this receipt; do not sum repeated experiment_id snapshots"
+          },
+          "stopping_reason": "one_job produce attempt finished"
+        },
+        {
+          "action": "return_to_base",
+          "status": "returned_to_base",
+          "cash_delta": 0,
+          "production_work": null,
+          "stopping_reason": "one_job produce attempt finished"
+        }
+      ],
+      "craft_submissions": 1,
+      "gross_spend": 3,
+      "wallet_delta": 237,
+      "final": {
+        "receipt_id": "f4f7b32d-9746-4bd0-adbb-cf58cb8f4fc6",
+        "status": "returned_to_base",
+        "location": {
+          "system_id": "system",
+          "poi_id": "station",
+          "docked_at": "base"
+        },
+        "credits": 200237,
+        "ship_condition": {
+          "id": "ship",
+          "hull": 105,
+          "max_hull": 105,
+          "shield": 35,
+          "max_shield": 35,
+          "fuel": 120,
+          "max_fuel": 120
+        },
+        "retained_cargo": [
+          {
+            "item_id": "original",
+            "quantity": 1,
+            "size": 1
+          }
+        ],
+        "observed_skills": {
+          "crafting": {
+            "level": 1,
+            "xp": 10
+          },
+          "trading": {
+            "level": 1,
+            "xp": 2
+          }
+        },
+        "obligations": {
+          "observed_at": "2026-09-11T05:34:05.336Z",
+          "missions": {
+            "active": [
+              {
+                "id": "existing-obligation"
+              }
+            ]
+          },
+          "freight": {
+            "action": "active",
+            "shipments": [],
+            "tick": 0
+          },
+          "passengers": {
+            "count": 0,
+            "passengers": []
+          },
+          "production": {
+            "kind": "queue",
+            "total_jobs": 0,
+            "jobs": []
+          }
+        },
+        "obligation_verification": {
+          "status": "observed",
+          "reason": "Outstanding commitments are recorded, not declared delivered or settled"
+        },
+        "condition_note": "Observed endpoint condition; not a measurement of damage taken or resources consumed during the job"
+      },
+      "model_report": null,
+      "api_trace": [
+        "2026-09-11 01:33:58,726 INFO [spacemolt-21a7df00bbec4d60b58fd9234ce261b9] agent.conversation_loop: API call #1: model=mlx-community--Qwen3.6-35B-A3B-4bit provider=custom in=6672 out=326 total=6998 latency=4.4s cache=2048/6672 (31%) id=chatcmpl-7ea9b207",
+        "2026-09-11 01:33:58,751 INFO [spacemolt-21a7df00bbec4d60b58fd9234ce261b9] agent.conversation_loop: Turn ended: reason=interrupted_by_user model=mlx-community--Qwen3.6-35B-A3B-4bit api_calls=1/12 budget=1/12 tool_turns=1 last_msg_role=assistant response_len=0 session=spacemolt-21a7df00bbec4d60b58fd9234ce261b9",
+        "2026-09-11 01:34:01,775 INFO [spacemolt-a4d46d7f4cd44b7f95229ac29e91b8da] agent.conversation_loop: API call #1: model=mlx-community--Qwen3.6-35B-A3B-4bit provider=custom in=6976 out=241 total=7217 latency=3.0s cache=4096/6976 (59%) id=chatcmpl-fa871a03",
+        "2026-09-11 01:34:05,279 INFO [spacemolt-a4d46d7f4cd44b7f95229ac29e91b8da] agent.conversation_loop: API call #2: model=mlx-community--Qwen3.6-35B-A3B-4bit provider=custom in=8233 out=285 total=8518 latency=3.5s cache=6144/8233 (75%) id=chatcmpl-54b3b809",
+        "2026-09-11 01:34:05,324 INFO [spacemolt-a4d46d7f4cd44b7f95229ac29e91b8da] agent.conversation_loop: Turn ended: reason=interrupted_by_user model=mlx-community--Qwen3.6-35B-A3B-4bit api_calls=2/12 budget=2/12 tool_turns=2 last_msg_role=assistant response_len=0 session=spacemolt-a4d46d7f4cd44b7f95229ac29e91b8da"
+      ],
+      "fixture_closed": true
+    }
+  ],
+  "limitations": [
+    "No MMO connection, live crafting or live settlement acceptance.",
+    "First two unsuccessful model attempts are retained; a successful repeat does not establish general planning reliability.",
+    "Fixture injects unrelated wallet income; receipt spending and sales remain separate.",
+    "Model received a broad production objective and stance/mood locks, without station/recipe IDs or individual game commands."
+  ]
+}

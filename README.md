@@ -3,9 +3,10 @@
 This local Hermes fork runs the real `AIAgent` loop against omlx and a persistent
 `@spacemolt/lib` WebSocket connection. The model chooses plans and complete jobs; scripts handle mechanical
 execution, urgent controls, return, servicing and verified receipts. The first new
-execution interface supports Hunt and bounded local Industry gathering. Production
-and other stance jobs remain tracked in root TODO.md. The new shared interface has
-offline integration evidence; the live results below use the historical workflows.
+execution interface supports Hunt and bounded local Industry gathering and production.
+Remaining stance work and acceptance are tracked in root TODO.md. Shared live scout
+and gathering evidence is in `evidence/shared-live-*.json`; production currently has
+offline integration evidence. Historical workflows are distinguished below.
 
 The integration is contained in this directory. Hermes core files are unchanged.
 The fork starts from commit `b3399c139624a0081d70397741a5b45f60fbe1f4` of the
@@ -75,8 +76,17 @@ asteroid-belt candidates, chooses home and a site, then uses `job__gather` for a
 policy-limited visit, extraction, and serviced return. Resources are verified on
 arrival; remote POI listings do not prove deposits or safety. Gather retains new
 materials and preserves starting cargo. Its receipt distinguishes measured yield
-and XP from cash spent on servicing. Production and sales are not yet exposed by
-this shared Industry interface; `--industry` still selects the legacy workflows.
+and XP from cash spent on servicing.
+
+Industry also exposes `job__produce` for one recipe run at the chosen home. Economic
+`job__assess` discovers candidates or quotes a `recipe_id` with inventory/bought
+inputs. Production stages inputs, rechecks economics, queues once, verifies output,
+sells it directly, and services. It does not install mining equipment. A pending
+queue or partial sale stays unfinished; a later explicit operating run can call
+`job__produce` with the recorded `experiment_id` to continue settlement without
+another craft. Queue waits are bounded to 120 seconds. Missing acceptance, custody,
+or accounting evidence prevents replay. Shared receipts live in the pilot job store;
+`--industry` continues to select the separate legacy workflows.
 
 To request Tired during a live run, create `stop.json` in that run's runtime:
 
@@ -93,7 +103,7 @@ Tired also interrupts active model inference; script return and reconciliation s
 retain ownership of any already-submitted game command.
 
 The `one_job` operating allowance permits one optional Hunt scout and one hunting
-attempt, or one Industry gathering attempt. An admitted blocker or a scout without
+attempt, or one Industry gathering/production attempt. An admitted blocker or a scout without
 an eligible quarry ends the run. Script receipts carry `stopping_reason`, which ends
 the model loop without changing the historical prompt or tool catalog. Handoffs and
 reconnects retain the allowance; only a verified explicit `--new-run` resets it.

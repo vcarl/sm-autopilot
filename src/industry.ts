@@ -248,6 +248,20 @@ export async function executeIndustry(action:string, params:Wire, account:Accoun
 
 async function experimentCommand(experiment:Wire,command:IndustryCommand,action:string,params:Wire,account:Account,save:(event:Wire)=>void=record,controls:IndustryControls={}):Promise<Wire> {
   await controls.checkpoint?.();
+  let saleCargoBefore:number|undefined;
+  if(action==='spacemolt/sell') {
+    if(!Array.isArray(experiment.before.cargo)||!Array.isArray(account.cargo))throw new Error('Starting cargo custody unavailable');
+    saleCargoBefore=amount(account.cargo,params.id);
+    const startingCargo=Math.max(0,amount(experiment.before.cargo,params.id)-(experiment.deposited?.[params.id]??0));
+    if(saleCargoBefore!-startingCargo<params.quantity)throw new Error('Produced cargo no longer verified above starting inventory; sale disabled');
+  }
+  let withdrawalBefore:{stock:number;cargo:number}|undefined;
+  if(action==='spacemolt_storage/withdraw') {
+    const stock=details(await command('spacemolt_storage/view',{})).items;
+    if(!Array.isArray(stock)||!Array.isArray(account.cargo))throw new Error('Withdrawal custody unavailable');
+    withdrawalBefore={stock:amount(stock,params.item_id),cargo:amount(account.cargo,params.item_id)};
+    await controls.checkpoint?.();
+  }
   experiment.pending_action={action,params};save(experiment);
   const receipt=details(await command(action,params));
   // Retain acceptance evidence before validating its quantities or accounting.
@@ -255,9 +269,17 @@ async function experimentCommand(experiment:Wire,command:IndustryCommand,action:
   if(action==='spacemolt/craft'&&receipt.job_id)experiment.job_id=receipt.job_id;
   save(experiment);
   if(action==='spacemolt_storage/deposit'){experiment.deposited??={};experiment.deposited[params.item_id]=(experiment.deposited[params.item_id]??0)+params.quantity;}
-  if(action==='spacemolt_storage/withdraw')experiment.withdrawn[params.item_id]=(experiment.withdrawn[params.item_id]??0)+params.quantity;
+  if(action==='spacemolt_storage/withdraw') {
+    const stock=details(await command('spacemolt_storage/view',{})).items;
+    if(!Array.isArray(stock)||!Array.isArray(account.cargo)||
+      withdrawalBefore!.stock-amount(stock,params.item_id)!==params.quantity||
+      amount(account.cargo,params.item_id)-withdrawalBefore!.cargo!==params.quantity)
+      throw new Error('Accepted output withdrawal custody is unverified; do not replay or sell starting cargo');
+    experiment.withdrawn[params.item_id]=(experiment.withdrawn[params.item_id]??0)+params.quantity;
+  }
   if(action==='spacemolt/sell') {
     if(!Number.isInteger(receipt.quantity_sold)||receipt.quantity_sold<0||receipt.quantity_sold>params.quantity)throw new Error('Invalid sale receipt');
+    if(!Array.isArray(account.cargo)||saleCargoBefore!-amount(account.cargo,params.id)!==receipt.quantity_sold)throw new Error('Accepted output sale custody is unverified; do not replay');
     experiment.sales.push(receipt);experiment.sold[params.id]=(experiment.sold[params.id]??0)+receipt.quantity_sold;
   }
   if(action==='spacemolt/craft') {if(!receipt.job_id)throw new Error('Craft response missing job id; reconcile queue before retry');experiment.job_id=receipt.job_id;}

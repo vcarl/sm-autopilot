@@ -1,27 +1,29 @@
 ---
 name: spacemolt-industry
-description: Plan resource gathering and account for retained output.
-version: 1.0.0
+description: Plan gathering, production, and verified settlement.
+version: 1.1.0
 author: Carl Vitullo (@vcarl)
 license: MIT
 platforms: [linux, macos, windows]
 metadata:
   hermes:
-    tags: [spacemolt, industry, gathering]
+    tags: [spacemolt, industry, gathering, production]
     category: gaming
     related_skills: [spacemolt-operations]
 ---
 # SpaceMolt Industry Skill
 
 Choose Industry for resource gathering, including mining, and production objectives.
-The current executor supports bounded local gathering with retained output; production
-and selling that output remain separate unfinished capabilities.
+The executors support bounded local gathering with retained output and single-run
+production with direct output sales at home. Queued output and partial sales remain
+unfinished work until settlement is verified.
 
 ## When to Use
 
 Gather when the objective calls for raw materials or extraction experience. Do not
 equate ore in the hold with realized earnings. A production objective also needs input
 allocation, a production quote and verified settlement before it can be completed.
+Compare buying inputs with using inventory; owned inputs have an opportunity cost.
 
 ## Prerequisites
 
@@ -44,6 +46,13 @@ Read blockers before committing to a site. A viable candidate permits a bounded
 verification visit, not an assertion of remote resource contents. Even observed
 resources do not promise a quantity or sale price.
 
+For production, omit `poi_id`: supply `recipe_id` to quote a known recipe or omit both
+IDs to discover local economic candidates. Choose `source` as `inventory` or `buy`;
+read input availability, market depth, processing advantage, and blockers. Discovery
+and quotes are planning evidence, not completed production or earned credits.
+`inventory` includes personal station storage as well as carried cargo; read
+`input_locations` instead of inferring shortages from the ship hold alone.
+
 ## Tool: job__prepare
 
 Use `job__prepare` docked to service the ship and prepare mining capability through
@@ -58,12 +67,31 @@ changes, and returns home or an explicit service fallback. It retains gathered i
 and preserves starting cargo. It does not sell, manufacture, or promise a particular
 resource mix or quantity. Zero yield does not satisfy a collection objective.
 
+## Tool: job__produce
+
+Use `job__produce` at the chosen home with `recipe_id`, `source` (`inventory` by
+default), and optionally `quantity`. Only one recipe run is supported. The script
+services the ship, revalidates economics, stages or buys inputs, submits crafting,
+verifies resulting inventory, and sells only the produced output directly. It
+preserves unrelated assets and reports unsold output. Preparation for production
+does not require a mining refit. Once you choose a feasible quote for an execution
+objective, call the tool and read its receipt. A final message announcing that you
+intend to produce does not execute the job.
+
+Queue waits are bounded to 120 seconds; `max_wait_seconds` can reduce that bound.
+A pending queue or partial sale ends with unfinished evidence, not success. After
+an explicit new operating run, pass the observed `experiment_id` to the same tool
+to continue settlement without sourcing or crafting again. Do not also provide
+recipe, source, or quantity. Unknown acceptance or accounting must be reconciled
+before settlement; never create a replacement job to work around the blocker.
+
 ## Quick Reference
 
 Read cycle limits from the resolved context. Cautious bounds exposure more tightly;
 Aggressive permits a longer bounded attempt without bypassing readiness or defense.
 Relaxed avoids hostilities. Focused and Opportunistic currently stay on the chosen
-collection objective without diversions. Tired stops further extraction and returns.
+activity without diversions. Tired stops further extraction, input purchases, craft
+submission, and output sales, then returns while preserving unfinished obligations.
 
 ## Procedure
 
@@ -89,3 +117,7 @@ Read completed cycles, measured yield, retained new inventory, progression and s
 reason together with the terminal job status, return/service outcome and obligations.
 Partial yield remains useful evidence even if cleanup fails. A safe return is distinct
 from achieving the requested collection objective, and retained materials are not cash.
+For production, read the experiment status, confirmed spending and sale proceeds,
+sold/withdrawn quantities, remaining inventory and unresolved accounting. A queue
+entry disappearing does not prove output exists or was sold. Gross spending comes
+from accepted transaction receipts; unrelated wallet income does not reduce it.

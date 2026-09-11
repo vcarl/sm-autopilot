@@ -121,7 +121,7 @@ Each job must use the shared context, lifecycle, defense, receipts, and relevant
 
 - [ ] **S12 — Industry includes gathering and complete production.** Depends on shared foundations and the Industry skill.
   - [x] `gather` handles assessed resource collection, preserving starting assets and verifying yield, storage/sale policy, return, and servicing. Local retained-output consumer: `gather.ts`, `gather.test.ts`, real Hermes dispatch tests and [offline real-model receipt](spacemolt/evidence/shared-industry-model-fixture.json). Live acceptance and cross-system collection remain open.
-  - [ ] `produce` handles input sourcing/staging, quotes, craft submission, pending output, settlement, and explicit unsold inventory or remaining obligations.
+  - [x] `produce` handles input sourcing/staging, quotes, craft submission, pending output, settlement, and explicit unsold inventory or remaining obligations. Local single-run consumer at chosen home: `execution.ts`, `industry.ts`, `shared-production.test.ts`, `production-custody.test.ts`, and real Hermes registry/ExecutionHost integration in `tests/test_spacemolt_production.py`. Live production acceptance remains open.
   - [ ] Focused ignores unrelated opportunities; Opportunistic diversions include switching costs and pending work; Tired starts no new extraction or production.
   - [ ] Representative real-Hermes gathering and production jobs each finish with verified outputs, costs, servicing, and obligations under the new contract.
 
@@ -280,6 +280,45 @@ new-run readiness gate correctly refuses to erase that liability; an explicit ho
 budget reauthorization workflow remains future work. Independent review reproduced
 the original boundary defect, but the reviewing IC hit a usage limit before final
 patch review; final implementation review and validation were completed locally.
+
+## Shared production job and custody verification — 2026-09-11
+
+Industry now exposes economic assessment and `produce` through the shared session
+catalog. New work uses one recipe run at the chosen home, input inventory or purchases,
+existing production economics, shared gross budget/reserve, and return/service without
+mining fitting. A queued/partial result remains blocked with its experiment visible.
+An explicit later operating run can settle that experiment without purchasing or
+crafting again; its costs and cleanup stay linked to the original budget owner.
+Unknown accounting/acceptance remains unresolved even after generic recovery.
+
+The existing settlement code had two independently reproduced custody defects:
+an accepted withdrawal without matching inventory could sell starting cargo, and
+an accepted sale with no cargo removal could falsely complete. Withdrawals now require
+matching storage/cargo deltas; sales protect starting cargo and require a matching
+canonical decrease. Ambiguous accepted effects retain their receipt and prevent replay.
+Tests also cover vanished output before resumed sale, partial fills, queued work,
+Tired during bounded waits, and missing monetary evidence.
+
+Native skill loading follows the actual catalog, including removing productive tool
+sections for Tired. A real Hermes registry → Python bridge → ExecutionHost test
+chooses home, quotes, produces, settles, stops inference, and verifies the final
+report under temporary HERMES_HOME. Its planner and game are fixtures, not live
+inference/gameplay. Production report amounts are labeled cumulative per experiment;
+job-level gross spending is independently counted once.
+
+Local oMLX/Hermes validation used a broad production objective without station or
+recipe IDs. The first attempt ended with intent prose and confused storage with cargo;
+the second hit an unnecessary home prerequisite on read-only economic assessment.
+Discovery now retains input locations, the skill explains storage and execution,
+and economic assessment can inform home selection. The third attempt chose home,
+used owned inputs, crafted once, sold two output units, and stopped on the receipt.
+Gross3, sales40, net production37 (35 after input opportunity), wallet+237 including
+unrelated fixture income200. All three attempts are preserved in
+`spacemolt/evidence/shared-production-model-fixture.json`. This is real inference
+with an offline game, not live production acceptance. Validation: typecheck,
+77 Node tests and 32 Python tests through the required runner.
+S12/A4 live acceptance, multi-station production, general recovery and opportunity
+switching remain open. No new MMO connection was started for this increment.
 
 ## Production accounting and settlement integration — 2026-09-11
 
