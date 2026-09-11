@@ -52,6 +52,13 @@ Compare the live quote and fitting blockers before committing. Catalog value is 
 a purchase quote, and cabin capital cost is not delivery profit. A fitting allocation
 comes from the host; the model cannot raise its spending limit.
 
+When local cabin supply is unavailable, assessment checks faction trade intelligence
+for historical supplier leads. A lead's observation tick and station identity do
+not establish current stock, docking access, travel cost or an all-in purchase price.
+Compare reachable leads with the objective, then use shared travel and reassess
+fitting after arrival. Missing intel or no matched listing means no supplier has
+been established; it does not prove that cabins are unavailable everywhere.
+
 ## Tool: job__prepare
 
 Use `job__prepare` without parameters for shared servicing. With `kind: passengers`,

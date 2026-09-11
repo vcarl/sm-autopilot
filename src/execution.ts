@@ -19,6 +19,7 @@ import {locateHome} from './home-location.ts';
 import {ensureReadiness} from './readiness.ts';
 import {assessFreight,transportFreight,type FreightReceipt} from './logistics.ts';
 import {assessPassengers,transportPassengers,type PassengerReceipt} from './passengers.ts';
+import {discoverPassengerSupply} from './passenger-supply.ts';
 import {preparePassengers} from './passenger-fit.ts';
 import {logisticsPolicy} from './logistics-policy.ts';
 import {validateTransportRoute,transportReceipt} from './execution-logistics.ts';
@@ -77,6 +78,7 @@ export class Execution {
   pending?:ExecutionContext;
   active?:Job;
   private stations:Home[]=[];
+  private passengerSuppliers=new Set<string>();
   private stopping=false;
   private uncertain=false;
   private dangerPending=false;
@@ -401,6 +403,11 @@ export class Execution {
       const handlers:Record<string,()=>Promise<unknown>>={
         return_to_base:()=>this.returnHome(),
         travel:async()=>{
+          if(this.context.stance==='Logistics'&&this.passengerSuppliers.has(params.base_id)) {
+            const matches=await this.resolvePassengerDestinations([params.base_id]);
+            const match=matches.find(row=>row.requested_id===params.base_id);
+            if(match?.status!=='resolved'||match.station?.base_id!==params.base_id)throw new Error(`Observed cabin supplier cannot be resolved within current route policy: ${match?.status??'missing'}`);
+          }
           const destination=this.stations.find(s=>s.base_id===params.base_id);
           if(!destination)throw new Error('Observe destination before travel');
           await this.travel(destination,true);return {destination,service:await this.service()};
@@ -519,7 +526,18 @@ export class Execution {
   private async assessLogistics(params:Wire) {
     await this.observe(false);
     const policy={...logisticsPolicy(this.context),stations:this.stations,resolveDestinations:(ids:string[])=>this.resolvePassengerDestinations(ids)};
-    if(params.kind==='passenger_fit')return preparePassengers({max_spend:this.context.limits.max_spend,credit_reserve:this.context.limits.credit_reserve},this.account,this.command);
+    if(params.kind==='passenger_fit') {
+      const fitting=await preparePassengers({max_spend:this.context.limits.max_spend,credit_reserve:this.context.limits.credit_reserve},this.account,this.command);
+      const quote=fitting.plan.find(step=>step.action==='spacemolt/buy')?.quote;
+      if(fitting.status!=='blocked'||fitting.blockers.some(reason=>reason!=='Complete economy cabin purchase quote unavailable')||quote?.quantity_requested!==1||quote.available!==0||quote.unfilled!==1||!Array.isArray(quote.fills)||quote.fills.length!==0)return fitting;
+      const supply_discovery=await discoverPassengerSupply(this.account.location?.system_id,policy.max_route_jumps,this.command,this.deps.locations);
+      for(const candidate of supply_discovery.candidates) {
+        this.passengerSuppliers.add(candidate.base_id as string);
+        this.stations=this.stations.filter(station=>station.base_id!==candidate.base_id);
+        this.stations.push({...candidate,rationale:'Dated cabin supply lead matched to public station identity',observed_at:supply_discovery.observed_at} as Home);
+      }
+      return {...fitting,supply_discovery};
+    }
     if(params.kind==='freight'||params.shipment_id)return assessFreight(this.account,this.command,params,policy);
     if(params.kind==='passengers'||params.destination)return assessPassengers(this.account,this.command,params,policy);
     return {policy,freight:await assessFreight(this.account,this.command,{},policy),passengers:await assessPassengers(this.account,this.command,{},policy)};

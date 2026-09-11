@@ -103,6 +103,12 @@ to quote economy cabin preparation; prepare `kind: passengers` to execute the fi
 within the host allocation, preserving a displaced mining laser in cargo. The host
 can set `--max-spend` (0..10,000 credits; default 1,000) for a new shared session.
 Catalog values are not purchase quotes; cabin capital costs remain separate from fares.
+If local cabin supply is unavailable, the same assessment checks bounded faction
+trade intelligence for historical supplier leads and matches station identities
+against the public directory within the Logistics route policy. These are leads,
+not remote purchase quotes: current stock, access, travel costs and all-in pricing
+still require fresh verification. Unavailable faction intelligence stays an explicit
+blocker; an empty result is not a claim about global cabin availability.
 The [shared live freight receipt](evidence/shared-live-freight.json) verifies delivery,
 207 credits paid and a serviced return costing 6. Live passenger acceptance remains open.
 

@@ -1070,7 +1070,22 @@ route limit, and retains the report tick, unknown current stock/cost, rejected
 matches and explicit unavailable-intel result. It uses the existing passenger-fit
 assessment and shared travel, preserving home and session prompt/catalog. No faction
 mutations or remote purchase primitive are added. README and Logistics guidance
-explain the observation limits. Validation and live results follow below when ready.
+explain the observation limits. Independent review reproduced that normal travel
+refresh erased supplier stations outside the shortlist. Supplier identities now
+survive that refresh and resolve freshly before actual travel, including relocated
+stations; missing/out-of-policy destinations remain blocked without outward movement.
+
+Stable-tree validation: typecheck and all 94 Node tests pass, plus all 41 SpaceMolt
+Python tests in 11 files through the required runner and specified Hermes Python.
+The new Python test exercises actual AIAgent registration, native Logistics guidance,
+BridgeClient and ExecutionHost dispatch with temporary HERMES_HOME; historical
+supplier evidence survives while assets, home, context and catalog remain unchanged.
+This is scripted offline integration, not real model inference or live supply.
+The readiness and pending-command fixes are committed as `038741790d`; discovery
+is ready for its own local milestone commit. The real local oMLX model probe and
+Hermes imports pass. Next: recheck controllers/locks, start a fresh bounded real-Hermes
+passenger objective with a 10,000-credit host preparation allocation, and verify
+the resulting supply/capacity/delivery or precise blocker plus serviced stop.
 
 ## Validation and completion record
 
