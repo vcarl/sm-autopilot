@@ -2202,6 +2202,17 @@ Kvothe; do not delete it without an explicit request. Exact next action: start a
 session for Kvothe and verify a normal model reply; if direct SpaceMolt operation is still wanted,
 install the repaired native plugin into Kvothe only after checking the gateway/controller state.
 
+## Scoped SpaceMolt development guide — 2026-09-11
+
+Added `spacemolt/AGENTS.md` as the project-specific companion to the root Hermes guide. It maps
+the direct native-plugin bundle, fixed model-facing catalog, skills, Python service, JSONL bridge,
+TypeScript execution host, controller ownership, session handoffs, receipts, live safety rules,
+oMLX profile routing, and required validation. It explicitly separates the legacy standalone
+runner from the gateway-owned service and prohibits reviving MCP, raw model-facing game commands,
+or a competing bridge. `git diff --check` passed; this documentation-only change needs no test
+run. Exact next action remains a fresh Kvothe Discord session/model reply, followed by a
+controller-state check before any direct SpaceMolt plugin install.
+
 Follow the repository's required test workflow. Existing useful checks from the repository root are:
 
 ```sh
