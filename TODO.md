@@ -2168,6 +2168,14 @@ a new Discord thread/session so its immutable tool catalog and prompt are built 
 plugin. The user must verify the Discord reply; no productive game command should be sent until
 the fresh session can call `spacemolt_observe` and return its authoritative receipt.
 
+After Tired, `hermes gateway stop` stopped the profile gateway; process inspection found no
+SpaceMolt bridge process and the controller lock was absent. The persisted gateway status receipt
+still reported its old `connected: true`/PID22338 values, so it is historical rather than terminal
+proof. Before reinstalling, an unexpected foreground command in the user's `ttys013` terminal was
+found running `./hermes profile delete spacemolt` (parent fish PID21113). It was not interrupted or
+raced. Exact next action is to wait for the user's resolution of that profile-delete command,
+then re-check whether the profile still exists before any plugin installation or gateway restart.
+
 Follow the repository's required test workflow. Existing useful checks from the repository root are:
 
 ```sh
