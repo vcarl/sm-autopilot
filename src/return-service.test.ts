@@ -68,3 +68,55 @@ test('return waits for observed shield recovery, bounds stalled recovery, and ne
   assert.equal(unquoted.status,'blocked');assert.match(unquoted.error,/repair quote/);
   assert.ok(!damaged.calls.some(c=>c.key==='spacemolt/repair'));
 });
+
+test('service revalidates readiness and preserves assets after shield waits and before any purchase on a changed ship',async t=>{
+  const changes=[
+    (state:any)=>{state.ship.cpu_used=state.ship.cpu_capacity+1;},
+    (state:any)=>{state.ship.incapacitated=true;},
+    (state:any)=>{state.player.credits=1;},
+    (state:any)=>{state.cargo=[];},
+    (state:any)=>{state.modules=[];},
+  ];
+  for(const change of changes) {
+    const f=executionFixture(t);await f.choose();
+    f.state.modules.push({module_id:'kept',type_id:'utility',slot:'utility',cpu_usage:0,power_usage:0});
+    f.state.ship.shield=10;
+    f.execution.deps.combat!.sleep=async()=>{f.state.ship.shield=f.state.ship.max_shield;change(f.state);};
+    const receipt:any=await f.execution.dispatch('return_to_base');
+    assert.equal(receipt.status,'blocked');
+    assert.ok(!f.calls.some(c=>['spacemolt/refuel','spacemolt/repair'].includes(c.key)));
+    assert.equal(f.state.location.docked_at,'base');
+  }
+  const returning=executionFixture(t);await returning.choose();
+  returning.state.location={system_id:'system',poi_id:'belt',docked_at:null};
+  delete returning.state.ship.cpu_capacity;
+  const docked:any=await returning.execution.dispatch('return_to_base');
+  assert.equal(docked.status,'blocked');
+  assert.equal(returning.state.location.docked_at,'base');
+  assert.ok(returning.calls.some(c=>c.key==='spacemolt/dock'));
+  assert.ok(!returning.calls.some(c=>c.key==='spacemolt/refuel'));
+  const replaced=executionFixture(t);await replaced.choose();replaced.state.ship.fuel--;
+  const send=replaced.account.send.bind(replaced.account);
+  replaced.account.send=async(tool,action,params)=>{
+    const response=await send(tool,action,params);
+    if(action==='get_base'){replaced.state.ship.id='replacement';replaced.state.location.docked_at='other';}
+    return response;
+  };
+  const receipt:any=await replaced.execution.dispatch('return_to_base');
+  assert.equal(receipt.status,'blocked');
+  assert.match(receipt.error,/Ship or docking changed/);
+  assert.ok(!replaced.calls.some(c=>c.key==='spacemolt/refuel'));
+  const drift=executionFixture(t);drift.execution.context.limits.max_spend=60;await drift.choose();
+  drift.state.ship.fuel=100;
+  const originalSend=drift.account.send.bind(drift.account);
+  let quoted=false;
+  drift.account.send=async(tool,action,params)=>{
+    const reply=await originalSend(tool,action,params);
+    if(action==='get_base')quoted=true;
+    return reply;
+  };
+  drift.account.refresh=async()=>{if(quoted){quoted=false;drift.state.ship.fuel=90;}return drift.state;};
+  const changedQuote:any=await drift.execution.dispatch('return_to_base');
+  assert.equal(changedQuote.status,'blocked');
+  assert.ok(!drift.calls.some(c=>c.key==='spacemolt/refuel'));
+});

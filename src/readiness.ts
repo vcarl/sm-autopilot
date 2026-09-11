@@ -15,22 +15,47 @@ export interface ReadinessAction { action: string; params: Record<string, unknow
 export interface ReadinessPlan { ready: boolean; blockers: string[]; actions: ReadinessAction[] }
 export interface ReadinessAccount { state: GameState; refresh(): Promise<unknown> }
 export type ReadinessCommand = (action: string, params: Record<string, unknown>) => Promise<unknown>;
+const finite=(value:unknown):value is number=>typeof value==='number'&&Number.isFinite(value)&&value>=0;
+const identity=(value:unknown)=>typeof value==='string'&&value.length>0;
+
+export function canonicalReadinessBlockers(state:GameState):string[] {
+  const {ship,location,cargo,modules,player}=state??{};
+  if(!ship||!location||!Array.isArray(cargo)||!Array.isArray(modules)||!player)return ['Canonical ship, location, cargo, modules and player state required'];
+  const blockers:string[]=[];
+  if(!identity(ship.id)||!finite(player.credits))blockers.push('Canonical ship identity and wallet required');
+  if(!modules.every(row=>identity(row?.module_id)&&identity(row?.type_id)&&identity(row?.slot)&&(row.size===undefined||finite(row.size)))||new Set(modules.map(row=>row?.module_id)).size!==modules.length||
+    !cargo.every(row=>identity(row?.item_id)&&Number.isInteger(row?.quantity)&&row.quantity>=0&&(row.size===undefined||finite(row.size))))blockers.push('Canonical module and cargo custody required');
+  const resources=[
+    [ship.cpu_used,ship.cpu_capacity],[ship.power_used,ship.power_capacity],[ship.cargo_used,ship.cargo_capacity],
+    [ship.fuel,ship.max_fuel],[ship.hull,ship.max_hull],[ship.shield,ship.max_shield],
+  ];
+  if(resources.some(([used,max])=>!finite(used)||!finite(max)||used>max)||!finite(ship.utility_slots)||!Number.isInteger(ship.utility_slots)||
+    modules.filter(row=>row?.slot==='utility').length>ship.utility_slots)blockers.push('Canonical ship capacities unavailable or exceeded');
+  if(ship.incapacitated!==undefined&&typeof ship.incapacitated!=='boolean')blockers.push('Canonical crew condition required');
+  else if(ship.incapacitated)blockers.push('Ship crew incapacitated');
+  return blockers;
+}
 
 function validate(options: ReadinessOptions) {
-  for (const [key, value] of Object.entries({...options, ...options.serviceQuotes})) {
-    if (typeof value === 'number' && (!Number.isFinite(value) || value < 0)) throw new Error(`Invalid readiness ${key}`);
+  if(!options||typeof options!=='object'||Array.isArray(options))throw new Error('Invalid readiness options');
+  if(options.requireMining!==undefined&&typeof options.requireMining!=='boolean')throw new Error('Invalid readiness requireMining');
+  for(const key of ['minFreeCargo','minFuel','minHull','creditReserve','maxServiceSpend'] as const)
+    if(options[key]!==undefined&&!finite(options[key]))throw new Error(`Invalid readiness ${key}`);
+  if(options.serviceQuotes!==undefined) {
+    if(!options.serviceQuotes||typeof options.serviceQuotes!=='object'||Array.isArray(options.serviceQuotes))throw new Error('Invalid readiness serviceQuotes');
+    for(const key of ['refuel','repair'] as const)if(options.serviceQuotes[key]!==undefined&&!finite(options.serviceQuotes[key]))throw new Error(`Invalid readiness ${key}`);
   }
 }
 
 export function inspectReadiness(state: GameState, options: ReadinessOptions = {}): ReadinessPlan {
   validate(options);
-  const blockers: string[] = [];
+  const blockers = canonicalReadinessBlockers(state);
   const actions: ReadinessAction[] = [];
+  if(blockers.length)return {ready:false,blockers,actions};
   const {ship, location, cargo, modules, player} = state;
   if (!ship || !location || !cargo || !modules || !player) return {ready:false, blockers:['Canonical ship, location, cargo, modules and player state required'], actions};
-  if (ship.incapacitated) blockers.push('Ship crew incapacitated');
   let projectedFree = ship.cargo_capacity - ship.cargo_used;
-  const mining = modules.some(m => Number(m.stats?.mining_power ?? 0) > 0);
+  const mining = modules.some(m => finite(m.stats?.mining_power) && m.stats!.mining_power! > 0);
   if (options.requireMining && !mining) {
     if (!location.docked_at) blockers.push('Dock at a refit station before installing mining equipment');
     else {
@@ -85,32 +110,58 @@ export async function ensureReadiness(account: ReadinessAccount, command: Readin
   const completed: ReadinessAction[] = [];
   if (!execute || plan.blockers.length || plan.ready) return {plan, completed, verification:plan};
   let spent=0;
+  const shipId=account.state.ship!.id,dock=account.state.location!.docked_at,system=account.state.location!.system_id;
+  const expectedModules=new Map(account.state.modules!.map(module=>[module.module_id,module.type_id]));
+  const expectedCargo=new Map<string,number>();
+  for(const row of account.state.cargo!)expectedCargo.set(row.item_id,(expectedCargo.get(row.item_id)??0)+row.quantity);
+  const held=(id:string)=>account.state.cargo!.filter(row=>row.item_id===id).reduce((sum,row)=>sum+row.quantity,0);
+  const verify=()=>{
+    const blockers=canonicalReadinessBlockers(account.state);
+    if(blockers.length)throw new Error(blockers.join('; '));
+    if(account.state.ship!.id!==shipId||account.state.location!.docked_at!==dock||account.state.location!.system_id!==system||account.state.location!.in_transit)throw new Error('Ship or docking changed during readiness');
+    for(const [id,type] of expectedModules)if(!account.state.modules!.some(module=>module.module_id===id&&module.type_id===type))throw new Error('Readiness module custody was not preserved');
+    for(const [id,quantity] of expectedCargo)if(held(id)<quantity)throw new Error('Readiness cargo custody was not preserved');
+  };
   for (const step of plan.actions) {
+    verify();
     if (!account.state.location?.docked_at) throw new Error('Readiness stopped: ship is no longer docked');
     const service = step.action === 'spacemolt/refuel' ? 'refuel' : step.action === 'spacemolt/repair' ? 'repair' : null;
     const quote = service ? options.serviceQuotes?.[service] ?? 0 : 0;
     const availableCredits = account.state.player?.credits;
-    if (availableCredits === undefined || availableCredits - quote < (options.creditReserve ?? 0)
+    if (!finite(availableCredits) || availableCredits - quote < (options.creditReserve ?? 0)
       || spent + quote > (options.maxServiceSpend ?? 0)) {
       throw new Error('Readiness stopped: remaining service would breach budget or reserve');
     }
     const removed = step.action === 'spacemolt/uninstall_mod'
       ? account.state.modules?.find(m => m.module_id === step.params.id) : undefined;
-    const previousCargo = removed ? account.state.cargo?.find(i => i.item_id === removed.type_id)?.quantity ?? 0 : 0;
+    const previousCargo = removed ? held(removed.type_id) : 0;
+    const installing=step.action==='spacemolt/install_mod';
+    const laserBefore=installing?held('mining_laser_i'):0;
+    const moduleIds=new Set(account.state.modules!.map(module=>module.module_id));
     const reply=await command(step.action, step.params);
     const cost=requireCommandSpend(step.action,reply);
     spent+=cost;
     completed.push(step);
     await account.refresh();
+    const blockers=canonicalReadinessBlockers(account.state);
+    if(blockers.length)throw new Error(blockers.join('; '));
     if (removed && (account.state.modules?.some(m => m.module_id === removed.module_id)
-      || (account.state.cargo?.find(i => i.item_id === removed.type_id)?.quantity ?? 0) <= previousCargo)) {
+      || held(removed.type_id)!==previousCargo+1)) {
       throw new Error('Readiness stopped: removed equipment was not verified preserved in cargo');
     }
-    if (step.action === 'spacemolt/install_mod' && !account.state.modules?.some(m => m.type_id === 'mining_laser_i' && Number(m.stats?.mining_power ?? 0) > 0)) {
-      throw new Error('Readiness stopped: mining module installation not verified');
+    if(removed) {
+      expectedModules.delete(removed.module_id);
+      expectedCargo.set(removed.type_id,(expectedCargo.get(removed.type_id)??0)+1);
     }
+    if(installing) {
+      const fitted=account.state.modules!.filter(module=>!moduleIds.has(module.module_id)&&module.type_id==='mining_laser_i'&&module.slot==='utility'&&finite(module.stats?.mining_power)&&module.stats!.mining_power!>0);
+      if(fitted.length!==1||laserBefore<1||held('mining_laser_i')!==laserBefore-1)throw new Error('Readiness stopped: exact mining module installation and cargo consumption not verified');
+      expectedModules.set(fitted[0]!.module_id,fitted[0]!.type_id);
+      expectedCargo.set('mining_laser_i',expectedCargo.get('mining_laser_i')!-1);
+    }
+    verify();
     const credits = account.state.player?.credits;
-    if (credits === undefined || credits < (options.creditReserve ?? 0) || spent > (options.maxServiceSpend ?? 0) || cost>quote) {
+    if (!finite(credits) || credits < (options.creditReserve ?? 0) || spent > (options.maxServiceSpend ?? 0) || cost>quote) {
       throw new Error('Readiness stopped: canonical spending breached budget or reserve');
     }
   }

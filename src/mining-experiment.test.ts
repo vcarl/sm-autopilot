@@ -4,7 +4,7 @@ import type {GameState} from '@spacemolt/lib';
 import {miningExperiment} from './mining-experiment.ts';
 
 function fixture(yieldQuantity:number) {
-  const state={player:{credits:1000},location:{docked_at:'base',poi_id:'station',system_id:'system'},ship:{fuel:120,max_fuel:120,hull:80,max_hull:80,cargo_capacity:100,cargo_used:10,utility_slots:2},cargo:[{item_id:'ore',quantity:10,size:1}],modules:[{type_id:'mining_laser_i',stats:{mining_power:10}}]} as unknown as GameState;
+  const state={player:{credits:1000},location:{docked_at:'base',poi_id:'station',system_id:'system'},ship:{id:'ship',cpu_used:2,cpu_capacity:20,power_used:5,power_capacity:20,fuel:120,max_fuel:120,hull:80,max_hull:80,shield:0,max_shield:0,cargo_capacity:100,cargo_used:10,utility_slots:2},cargo:[{item_id:'ore',quantity:10,size:1}],modules:[{module_id:'laser',type_id:'mining_laser_i',slot:'utility',cpu_usage:2,power_usage:5,stats:{mining_power:10}}]} as unknown as GameState;
   const calls:{action:string;params:Record<string,unknown>}[]=[];
   const account={state,async refresh(){}};
   const command=async(action:string,params:Record<string,unknown>)=> {
@@ -15,7 +15,7 @@ function fixture(yieldQuantity:number) {
     if(action==='spacemolt/dock')state.location!.docked_at='base';
     if(action==='spacemolt/mine'){state.cargo![0]!.quantity+=yieldQuantity;state.ship!.cargo_used+=yieldQuantity;state.ship!.fuel--;return {command:'mine',tick:123,delta:{cargo:state.cargo}};}
     if(action==='spacemolt_market/view_market')return {structuredContent:{items:[{item_id:'ore',buy_orders:[{quantity:5,price:10}]}]}};
-    if(action==='spacemolt/sell'){state.cargo![0]!.quantity-=Number(params.quantity);state.player!.credits+=Number(params.quantity)*10;}
+    if(action==='spacemolt/sell'){state.cargo![0]!.quantity-=Number(params.quantity);state.ship!.cargo_used-=Number(params.quantity);state.player!.credits+=Number(params.quantity)*10;}
     if(action==='spacemolt/refuel'){const cost=(120-state.ship!.fuel)*3;state.player!.credits-=cost;state.ship!.fuel=120;return {cost,fuel:120,source:'station'};}
     return {};
   };
@@ -60,6 +60,7 @@ test('canonical mixed-resource gains are measured when mine response has no deta
       const cargo=f.account.state.cargo!;
       const carbon=cargo.find(i=>i.item_id==='carbon_ore');
       if(carbon)carbon.quantity++;else cargo.push({item_id:'carbon_ore',item_name:'Carbon Ore',quantity:1,size:1});
+      f.account.state.ship!.cargo_used++;
     }
     return reply;
   };
@@ -82,6 +83,7 @@ test('retaining crafting inputs deposits only new ore and does not book stored s
       deposits.push(params);
       stored+=Number(params.quantity);
       f.account.state.cargo![0]!.quantity-=Number(params.quantity);
+      f.account.state.ship!.cargo_used-=Number(params.quantity);
       return {};
     }
     return f.command(action,params);

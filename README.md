@@ -195,6 +195,13 @@ keep admission `obligations`, fresh terminal `obligations_after`, and an explici
 `obligation_verification`. Missing terminal observations block success. A production
 job disappearing from the queue does not itself prove that output was settled.
 
+Readiness uses shared validation of resource capacities, crew, wallet and cargo/module
+custody. Servicing pins the ship and dock, preserves starting assets, and rechecks
+current conditions after shield waits. A changed fuel deficit invalidates its quote
+before purchase. Invalid readiness still permits a defensive return to dock, but
+cannot produce a serviced terminal receipt. Mining refits must retain removed
+equipment and verify both the new module and consumption of the owned input.
+
 Private full command checkpoints and home live under `runtime/pilots/`. These are
 separate from per-conversation history. Public station discovery does not establish
 access. Unreachable home, missing fuel quotes, damaged hull without verified repair

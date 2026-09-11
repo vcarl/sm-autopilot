@@ -1131,6 +1131,61 @@ delivery, the other unfinished stance consumers and the full acceptance grid rem
 open. This record and its evidence form the final checkpoint commit; source
 milestones and skill/README changes are committed with no unfinished source edits.
 
+## Shared readiness and service lifecycle verification — 2026-09-11
+
+Closed the concrete S4 validation gap left by the live passenger checkpoint.
+`readiness.ts` now supplies canonical capacity/custody validation reused by shared
+servicing and passenger fitting. Missing, malformed or exceeded resource fields,
+invalid inventory/module identities, nonnumeric mining capability and invalid
+safety-option types cannot establish readiness. The mining refit pins ship/dock,
+preserves original assets and removed scanner through all later steps, and verifies
+the exact newly installed laser plus consumption of one owned cargo unit.
+
+Independent review reproduced additional failures in the real service functions:
+a shield wait could finish ready after crew incapacitation or wallet depletion;
+an internal refresh could change ship/dock before spending; and a changed fuel
+deficit could exceed the allocation before post-purchase rejection. `servicing.ts`
+now checks captured identity and retained assets before/after commands, revalidates
+current readiness after waits, and rejects changed fuel quote inputs before refuel.
+Return movement remains available when readiness metadata is incomplete: a shared
+test reaches home dock but correctly reports servicing blocked without purchase.
+Defense ownership, session prompts/catalogs and remembered home are unchanged.
+
+Evidence: new/extended behavioral regressions were proven failing against unfixed
+code, then passed with the implementation. The real Hermes registry → Python
+BridgeClient → ExecutionHost regression in `tests/test_spacemolt_readiness.py`
+uses temporary HERMES_HOME: invalid capacity/cargo blocks preparation and terminal
+serviced status despite planner prose claiming ready; valid state succeeds. The
+shared and historical mining fixtures now contain complete canonical ship/module
+data and consistent cargo effects rather than weakening production validation.
+
+Checks run: `npm run typecheck && npm test` passes all 97 Node tests; the required
+Python runner with `HERMES_PYTHON=/Users/vcarl/workspace/testbench/hermes-agent/.venv/bin/python`
+passes all 44 tests across 12 SpaceMolt files. Final targeted return tests also pass,
+including return with missing capacity and the quote-drift rejection. A recorded-data
+replay of the actual authenticated snapshot at
+`shared-live-passengers-20260911-02/observations/4ee642a8317347798008342b775e0d02.json`
+passes the stricter readiness checks. This is fixture/integration and recorded-data
+evidence; no new model inference, game connection or live servicing is claimed.
+Independent review confirmed the original lifecycle and quote-drift reproductions
+are fixed. README records the new completion conditions; VISION is unchanged.
+
+Checkpoint: baseline commit `8f111a3c83`; this milestone includes readiness/service,
+passenger validator reuse, their tests/fixtures, README and this TODO record. All
+changes are local and will be committed together; no push. No controller was started
+in this increment. Last tracked live handle `21109` exited 0; its runtime and terminal
+checkpoint remain `spacemolt/runtime/shared-live-passengers-20260911-02`. Last verified
+pilot state is still the 07:09:45Z receipt above: serviced at Frontier Station / Deep
+Range, 197,968 credits, unchanged cargo, no freight/passengers/production and three
+unresolved distress missions. Treat it as historical until a new authenticated query.
+
+Remaining: all-stance S4 and acceptance remain open, including authoritative repair
+pricing and future consumers. Exact next action is to assess a non-faction cabin
+acquisition path using existing Industry production/retained-output mechanics and
+actual recipe prerequisites, before implementing or launching another passenger
+attempt. No same-state faction-intel retry, invented supply, expanded route bounds
+or implicit faction membership is justified by the previous live blocker.
+
 ## Validation and completion record
 
 Follow the repository's required test workflow. Existing useful checks from the repository root are:

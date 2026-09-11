@@ -1,22 +1,12 @@
 import type {Account} from '@spacemolt/lib';
 import {details,type IndustryCommand} from './industry.ts';
 import {requireCommandSpend} from './spending.ts';
+import {canonicalReadinessBlockers} from './readiness.ts';
 
 type Wire=Record<string,any>;
 const cabin='economy_passenger_cabin';
 const quantity=(rows:Wire[],id:string)=>rows.filter(row=>row.item_id===id).reduce((sum,row)=>sum+row.quantity,0);
 const finite=(value:unknown):value is number=>typeof value==='number'&&Number.isFinite(value)&&value>=0;
-const identity=(value:unknown)=>typeof value==='string'&&value.length>0;
-function validCustody(modules:Wire[],cargo:Wire[]) {
-  return modules.every(row=>identity(row?.module_id)&&identity(row?.type_id)&&identity(row?.slot))&&
-    new Set(modules.map(row=>row.module_id)).size===modules.length&&
-    cargo.every(row=>identity(row?.item_id)&&Number.isInteger(row?.quantity)&&row.quantity>=0&&(row.size===undefined||finite(row.size)));
-}
-function validCapacities(ship:Wire,modules:Wire[]) {
-  return [ship.cpu_used,ship.cpu_capacity,ship.power_used,ship.power_capacity,ship.cargo_used,ship.cargo_capacity,ship.utility_slots].every(finite)&&
-    Number.isInteger(ship.utility_slots)&&ship.cpu_used<=ship.cpu_capacity&&ship.power_used<=ship.power_capacity&&
-    ship.cargo_used<=ship.cargo_capacity&&modules.filter(row=>row.slot==='utility').length<=ship.utility_slots&&!ship.incapacitated;
-}
 export interface PassengerFitParams {execute?:boolean;max_spend?:number;credit_reserve?:number}
 function completeQuote(quote:Wire) {
   return quote.quantity_requested===1&&quote.unfilled===0&&finite(quote.available)&&quote.available>=1&&
@@ -37,8 +27,8 @@ export async function preparePassengers(params:PassengerFitParams,account:Accoun
   if(!ship||!location?.docked_at||!Array.isArray(modules)||!Array.isArray(cargo)||!finite(account.credits)) {
     blockers.push('Observed docked ship, modules, cargo and credits required');return blocked();
   }
-  if(!validCustody(modules,cargo)){blockers.push('Canonical module and cargo custody unavailable');return blocked();}
-  if(!validCapacities(ship,modules)){blockers.push('Canonical fitting capacities unavailable, exceeded or crew incapacitated');return blocked();}
+  blockers.push(...canonicalReadinessBlockers(account.state));
+  if(blockers.length)return blocked();
   const passengers=details(await command('spacemolt/list_passengers',{}));
   const classes=['economy','business','first'];
   const validBerths=(berths:Wire)=>classes.every(key=>Number.isInteger(berths?.[key]?.total)&&berths[key].total>=0&&Number.isInteger(berths[key].free)&&berths[key].free>=0&&berths[key].free<=berths[key].total);
@@ -80,8 +70,9 @@ export async function preparePassengers(params:PassengerFitParams,account:Accoun
   const verify=()=>{
     const current=account.ship,fit=account.state.modules,held=account.cargo;
     if(!current||current.id!==shipId||account.location?.docked_at!==station||!Array.isArray(fit)||!Array.isArray(held))throw new Error('Passenger fitting ship, dock or custody changed');
-    if(!validCustody(fit,held))throw new Error('Passenger fitting module or cargo custody no longer verified');
-    if(!validCapacities(current,fit)||!skills())throw new Error('Passenger fitting requirements or capacities no longer verified');
+    const invalid=canonicalReadinessBlockers(account.state);
+    if(invalid.length)throw new Error(invalid.join('; '));
+    if(!skills())throw new Error('Passenger fitting requirements no longer verified');
     for(const module of originalModules)if(!(removedVerified&&module.module_id===removed?.module_id)&&!fit.some(row=>row.module_id===module.module_id&&row.type_id===module.type_id))throw new Error('Unrelated fitted equipment was not preserved');
     for(const row of originalCargo)if(quantity(held,row.item_id)<quantity(originalCargo,row.item_id)-(installed&&row.item_id===cabin?1:0))throw new Error('Starting cargo was not preserved');
     if(removedVerified&&quantity(held,'mining_laser_i')!==quantity(originalCargo,'mining_laser_i')+1)throw new Error('Removed mining laser custody lost');
