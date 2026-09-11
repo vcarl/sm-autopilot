@@ -2182,6 +2182,26 @@ defense, verification, cleanup, and recovery. It records that planning changes r
 session and that Tired preserves obligations through script-owned return. This documentation-only
 change needs no runtime validation.
 
+## Kvothe oMLX configuration — 2026-09-11
+
+The user clarified that the active `kvothe` profile, rather than the deleted/recreated
+`spacemolt` profile, must use oMLX. `kvothe` already selected `custom:omlx` and the exact served
+Qwen model but lacked the corresponding named provider stanza and did not define
+`OPENAI_API_KEY`; it therefore could not authenticate through the intended route. Its profile
+configuration now has `providers.omlx` pointing at `http://127.0.0.1:8000/v1` with
+`key_env: OPENAI_API_KEY`, `transport: chat_completions`, and the served
+`mlx-community--Qwen3.6-35B-A3B-4bit` default. The existing oMLX `auth.api_key` was copied only
+to `~/.hermes/profiles/kvothe/.env` as `OPENAI_API_KEY`; no secret entered the repository or
+output.
+
+A real forked Hermes request using `-p kvothe` returned `OMLX_AUTHENTICATED`, establishing the
+authenticated model path. The launchd-supervised Kvothe gateway was then restarted and reported
+PID25014. This changes no SpaceMolt plugin, bridge, controller, pilot state, or obligations. An
+unused newly created `spacemolt` profile remains because the user redirected configuration to
+Kvothe; do not delete it without an explicit request. Exact next action: start a new Discord
+session for Kvothe and verify a normal model reply; if direct SpaceMolt operation is still wanted,
+install the repaired native plugin into Kvothe only after checking the gateway/controller state.
+
 Follow the repository's required test workflow. Existing useful checks from the repository root are:
 
 ```sh
