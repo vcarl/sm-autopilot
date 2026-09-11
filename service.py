@@ -37,7 +37,7 @@ class SpaceMoltService:
         self._bridge: BridgeClient | None = None
         self._context = self._load_context()
         self._broken: str | None = None
-        self._handoff_session_id: str | None = None
+        self._handoff_session_id = self._load_handoff_session()
         self._monitor_stop = threading.Event()
         self._monitor: threading.Thread | None = None
         self._seen_control: str | None = None
@@ -59,6 +59,31 @@ class SpaceMoltService:
         temporary.write_text(json.dumps(self._context, indent=2))
         os.chmod(temporary, 0o600)
         temporary.replace(target)
+
+    def _load_handoff_session(self) -> str | None:
+        try:
+            value = json.loads((self.runtime / "pending-handoff.json").read_text())
+            session_id = value.get("session_id") if isinstance(value, dict) else None
+            return session_id if isinstance(session_id, str) and session_id else None
+        except (OSError, ValueError):
+            return None
+
+    def _save_handoff_session(self) -> None:
+        target = self.runtime / "pending-handoff.json"
+        if self._handoff_session_id is None:
+            target.unlink(missing_ok=True)
+            return
+        temporary = target.with_suffix(".tmp")
+        temporary.write_text(json.dumps({"session_id": self._handoff_session_id}))
+        os.chmod(temporary, 0o600)
+        temporary.replace(target)
+
+    def _configure_payload(self) -> dict[str, Any]:
+        permissions = self._context.get("permissions") if isinstance(self._context.get("permissions"), dict) else {}
+        authority = self._context.get("authority") if isinstance(self._context.get("authority"), dict) else {}
+        return {**self._context, "wildlife": bool(permissions.get("wildlife", self._context.get("wildlife", False))),
+                "lock_stance": bool(authority.get("stance", self._context.get("lock_stance", False))),
+                "lock_mood": bool(authority.get("mood", self._context.get("lock_mood", False)))}
 
     def _write_status(self) -> None:
         target = self.runtime / "gateway-status.json"
@@ -103,7 +128,7 @@ class SpaceMoltService:
             env = os.environ.copy()
             env["SPACEMOLT_RUNTIME_DIR"] = str(self.runtime / "runtime")
             self._bridge = BridgeClient(timeout=1800, cwd=self.source, env=env)
-            configured = self._bridge.request("execution/configure", self._context)
+            configured = self._bridge.request("execution/configure", self._configure_payload())
             if not configured.get("ok"):
                 self._broken = str(configured.get("error", "execution configuration failed"))
                 raise RuntimeError(self._broken)
@@ -130,6 +155,7 @@ class SpaceMoltService:
     def call(self, operation: str, arguments: dict[str, Any], *, session_id: str | None = None) -> dict[str, Any]:
         if self._handoff_session_id is not None and session_id and session_id != self._handoff_session_id:
             self._handoff_session_id = None
+            self._save_handoff_session()
         if (self._handoff_session_id is not None and session_id == self._handoff_session_id
                 and operation not in {"observe", "reconcile", "stop"}):
             return {"status": "handoff_required", "next_session_required": True,
@@ -150,6 +176,7 @@ class SpaceMoltService:
                     self._context = {**self._context, **context}
                     self._save_context()
                 self._handoff_session_id = session_id
+                self._save_handoff_session()
                 return {"observed": observed, "plan": planned, "next_session_required": True}
             return {"observed": observed, "plan": planned}
         actions = {

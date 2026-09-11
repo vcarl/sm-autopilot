@@ -42,6 +42,8 @@ def test_service_owns_one_bridge_and_handoffs_plans_to_the_next_session(monkeypa
 
     planned = service.call("plan", {"stance": "Industry", "objective": "one job"}, session_id="old")
     blocked = service.call("assess", {"kind": "freight"}, session_id="old")
+    resumed = service_mod.SpaceMoltService(service.home)
+    assert resumed.call("assess", {"kind": "freight"}, session_id="old")["status"] == "handoff_required"
     assessed = service.call("assess", {"kind": "freight"}, session_id="new")
     stopped = service.call("stop", {"reason": "Tired"}, session_id="old")
 
@@ -55,6 +57,7 @@ def test_service_owns_one_bridge_and_handoffs_plans_to_the_next_session(monkeypa
         "execution/configure", "job/observe", "job/plan", "execution/handoff", "job/assess", "control/stop",
     ]
     assert json.loads((service.runtime / "service-context.json").read_text())["stance"] == "Industry"
+    assert len(created) == 1
 
 
 def test_native_plugin_registers_static_high_level_tools_through_real_registry(monkeypatch, tmp_path):

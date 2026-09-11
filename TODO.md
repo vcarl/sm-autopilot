@@ -2050,9 +2050,10 @@ Follow-up direct-dispatch invariant: after `spacemolt_plan` returns its handoff 
 service records the originating Hermes session ID and refuses further productive calls from that
 same session. A different session clears the gate; observe, reconciliation and Tired remain
 available while the handoff is pending. The service test proves this route using the real handler
-contract's `session_id`. Focused required Python plugin tests and Node typecheck pass after this
-change. This guard is in-process; gateway restart during a pending handoff still needs a durable
-handoff marker before it can be claimed as complete recovery behavior.
+contract's `session_id`. The pending-session marker is profile-durable, so a replacement service
+still blocks that prior session; saved host permissions and stance/mood locks are reconstructed
+when a bridge reconnects. Focused required Python plugin/runner tests pass after this change. This
+is still development evidence, not a live gateway restart or Discord session.
 
 No live controller was opened, no Discord gateway was restarted, and no schedule was created.
 The gateway PID37628 and historical Frontier/Kvothe checkpoint described above remain unchanged;
