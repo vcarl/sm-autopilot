@@ -1614,6 +1614,75 @@ experiment and script-owned pending/completed settlement; after terminal control
 exit, obtain canonical cabin storage custody and fit/berth proof before passenger
 acceptance. Full vision remains open. Workshop completion is not implied by this fix.
 
+## Live retained cabin completed — 2026-09-11, 08:40Z
+
+Workshop accounting/recovery fix committed as `f0f4def658`; materials evidence is
+`74e5f742f3`. Real Hermes/oMLX sessions03,04,05 each selected the original persisted
+experiment63fb6218-3bd3-440c-b5cf-30fec213c792. Scripts polled and settled the same
+server jobc711344461b35498e31c07b6442fd4a9, with no new craft, purchase or sale.
+Session05 verified queue absence AND economy_passenger_cabin1 above starting personal
+storage at Frontier Station. Original cargo/storage assets were preserved. Production
+spent0, earned0, crafting XP145→160. Purchased setup inputs cost4308 separately
+(life support3838 +polymer470); those capital inputs are not free or sale earnings.
+
+This is real-model live retained production and later model-selected settlement,
+with the explicitly documented manual historical counter-baseline repair between
+acceptance and recovery. It is not proof that the old receipt recovered unaided.
+Evidence: `spacemolt/evidence/shared-live-cabin-workshop-recovery.json`; full private
+runs shared-live-cabin-retain-20260911-01/recovery/03/04/05. Node106/Python46 validations
+from f0f4def658 remain current; no production code changed after those checks.
+
+All production controllers are terminal:03 handle52520/PID6907 exited0;
+04 handle67118/PID7099 exited0;05 handle36359/PID7247 exited0. Each actual process
+exit and released lock was checked before another connection. Final authoritative
+state: credits194149, fuel120/120, hull105/105, shield35/35, cargo11/120, original
+modules intact, docked frontier_station/mobile_capital/deep_range. Cabin1 remains in
+personal storage, not fitted. Queue empty, no passengers or freight. Three active
+Unknown Edge distress missions remain:2a23e470f63feb5b23c1be98a5bcf466,
+5d71554aad53fcbbd6551bc2dadab278,f854b7a203c7c7089f144c4521a8cf9b. Other mission
+disappearance is not proof of completion. Remembered Frontier home identity remains
+unchanged. User asked whether connected; fresh process and lock inspection confirmed
+no controller at that point.
+
+Next acceptance was launched after another ownership check:
+`spacemolt/runtime/shared-live-passengers-cabin-20260911-01`, handle54408, real Hermes
+via local oMLX, Logistics/Focused, max_spend100. Objective fits the owned cabin with
+mining-laser custody preserved, verifies berths, then assesses and performs one
+supported passenger destination under shared return policy. No equipment purchase,
+crafting, asset sale or freight is authorized by this run's objective. Follow this
+handle; do not reconnect in parallel. Exact next action: inspect actual fit/assessment
+receipts and continue this process to verified delivery or precise blocker plus
+serviced terminal state. Passenger acceptance, complete Logistics integration and
+full VISION remain open. Commit this completed retained-output evidence locally;
+only evidence/TODO edits exist beyond f0f4def658, and nothing is pushed.
+
+## Owned cabin fitting completed — 2026-09-11
+
+Real Hermes Logistics run shared-live-passengers-cabin-20260911-01 completed fitting:
+withdrew cabin1 from personal Frontier storage, removed only mining_laser_i and
+verified it in cargo, installed economy_passenger_cabin, and verified12 free/total
+economy berths. Other modules and original cargo preserved; cost0. Fresh passenger
+assessment at Frontier had no destination filter and no waiting passengers, so no
+transport was attempted. Scripts returned/serviced and stopped. Handle54408 exited0,
+bridge PID7617 absent and lock released. Credits194149, fuel120/hull105/shield35,
+cargo21/120 including preserved laser, Frontier dock. No passengers/freight/queue.
+
+A direct read-only confirmation at codex-passenger-boarding-20260911 verified12
+berths and a current zero-jump route to Deep Range Outpost. No movement or paid
+command was sent; handle51349/PID7730 exited0. Shared Logistics already supports
+travel to that station while preserving remembered home, so the next Hermes run can
+exercise integrated travel and passenger discovery instead of requiring direct
+positioning. Evidence will be recorded in shared-live-passenger-fit.json.
+
+Retained production evidence now includes terminal03/04/05 and completed cabin
+custody, rather than only a pending checkpoint. No production code changed since
+f0f4def658's106Node/46Python verification; this increment validates actual live effects
+and JSON/diff consistency. Commit TODO plus completed workshop evidence now. Exact
+next action: fresh Logistics run to inspect the observed Outpost, deliver one feasible
+passenger destination if offered, then return/service at remembered Frontier. Recheck
+controller ownership first. Passenger acceptance remains open, not blocked globally
+by Frontier's local empty board. Nothing is pushed; VISION remains verbatim.
+
 ## Validation and completion record
 
 Follow the repository's required test workflow. Existing useful checks from the repository root are:

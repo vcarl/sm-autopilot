@@ -1,0 +1,481 @@
+{
+  "classification": "Live retained cabin production completed through real Hermes/oMLX continuation after a manually restored historical accounting baseline; not fully autonomous end-to-end recovery.",
+  "date": "2026-09-11",
+  "original_run": {
+    "private_runtime": "spacemolt/runtime/shared-live-cabin-retain-20260911-01",
+    "tool_process_handle": 31474,
+    "exit_code": 1,
+    "model": "mlx-community--Qwen3.6-35B-A3B-4bit",
+    "shared_job_id": "6d12fa84-4702-469d-a2de-78b74c625134",
+    "experiment_id": "63fb6218-3bd3-440c-b5cf-30fec213c792",
+    "craft_submissions": 1,
+    "accepted_craft": {
+      "action": "craft",
+      "kind": "job",
+      "job_id": "c711344461b35498e31c07b6442fd4a9",
+      "recipe": "Build Economy Passenger Cabin",
+      "mode": "craft",
+      "venue": "Station Workshop",
+      "venue_type": "workshop",
+      "runs": 1,
+      "effective_time_per_run": 83.33333333333333,
+      "est_completion_tick": 1852877,
+      "produces": [
+        {
+          "item_id": "economy_passenger_cabin",
+          "quantity": 1
+        }
+      ],
+      "escrowed": {
+        "inputs": [
+          {
+            "item_id": "titanium_alloy",
+            "quantity": 4
+          },
+          {
+            "item_id": "flex_polymer",
+            "quantity": 6
+          },
+          {
+            "item_id": "life_support_unit",
+            "quantity": 2
+          }
+        ]
+      }
+    },
+    "missing_accepted_fields": [
+      "escrowed.labor",
+      "escrowed.fee"
+    ],
+    "outcome": "needs_reconciliation: accepted job retained; missing monetary fields were not treated as zero."
+  },
+  "direct_reconciliation": {
+    "private_runtime": "spacemolt/runtime/codex-cabin-reconciliation-20260911",
+    "bridge_pid": 6594,
+    "exit_code": 0,
+    "source_get_status": "001.json",
+    "source_queue": "002.json",
+    "same_player_identity_verified": true,
+    "counter_before": 38059,
+    "counter_after": 38059,
+    "observed_debit_interval": 0,
+    "queue": {
+      "total_jobs": 1,
+      "jobs": [
+        {
+          "job_id": "c711344461b35498e31c07b6442fd4a9",
+          "base_id": "frontier_station",
+          "deliver_to": "storage",
+          "progress": 0.20400000000000004,
+          "eta_ticks": 67,
+          "runs_done": 0,
+          "runs_remaining": 1,
+          "runs_total": 1,
+          "status": "queued",
+          "venue": "Station Workshop",
+          "produces": [
+            {
+              "item_id": "economy_passenger_cabin",
+              "quantity": 1
+            }
+          ]
+        }
+      ]
+    },
+    "cabin_in_storage": false,
+    "materials_absent_from_current_storage": true
+  },
+  "historical_evidence_restoration": {
+    "classification": "Manual restoration of missing historical counter baseline, not autonomous recovery evidence",
+    "source": "spacemolt/runtime/codex-passenger-polymer-20260911/017.json",
+    "verified_against": "spacemolt/runtime/codex-cabin-reconciliation-20260911/001.json",
+    "before_counter": 38059,
+    "reason": "Baseline recorded before the craft; no intervening paid commands. Fresh unchanged counter verifies zero debit for the whole interval.",
+    "backup": "spacemolt/runtime/codex-cabin-reconciliation-20260911/pilot-before-evidence-restoration.json",
+    "prior_sha256": "5a6da700828591f41e222f706b99e4720fd01038736148bfd58d368a51a878c0",
+    "backup_hash_verified": true
+  },
+  "script_recovery": {
+    "private_runtime": "spacemolt/runtime/shared-live-cabin-retain-20260911-recovery",
+    "tool_process_handle": 32997,
+    "exit_code": 0,
+    "shared_job_status": "interrupted",
+    "production": {
+      "experiment_id": "63fb6218-3bd3-440c-b5cf-30fec213c792",
+      "job_id": "c711344461b35498e31c07b6442fd4a9",
+      "station": "frontier_station",
+      "status": "pending",
+      "spent": 0,
+      "earned": 0,
+      "disposition": "retain",
+      "sold": {},
+      "withdrawn": {},
+      "sales": []
+    },
+    "accepted_spending_metadata": {
+      "source": "lifetime_credits_spent_interval",
+      "phase": "refreshed",
+      "before": 38059,
+      "after": 38059
+    },
+    "original_job_craft_submissions_after_recovery": 1,
+    "gross_recorded_spend": 0,
+    "final": {
+      "status": "returned_to_base",
+      "credits": 194149,
+      "location": {
+        "system_id": "deep_range",
+        "poi_id": "mobile_capital",
+        "docked_at": "frontier_station"
+      },
+      "ship_condition": {
+        "hull": 105,
+        "max_hull": 105,
+        "shield": 35,
+        "max_shield": 35,
+        "fuel": 120,
+        "max_fuel": 120
+      },
+      "production_queue": {
+        "total_jobs": 1,
+        "jobs": [
+          {
+            "job_id": "c711344461b35498e31c07b6442fd4a9",
+            "base_id": "frontier_station",
+            "deliver_to": "storage",
+            "progress": 0.4080000000000002,
+            "eta_ticks": 50,
+            "runs_done": 0,
+            "runs_remaining": 1,
+            "runs_total": 1,
+            "status": "queued",
+            "venue": "Station Workshop",
+            "produces": [
+              {
+                "item_id": "economy_passenger_cabin",
+                "quantity": 1
+              }
+            ]
+          }
+        ]
+      },
+      "obligation_verification": {
+        "status": "observed",
+        "reason": "Outstanding commitments are recorded, not declared delivered or settled"
+      }
+    }
+  },
+  "limits": [
+    "The before counter for original acceptance was manually restored from the recorded preceding refuel; later reconciliation/settlement used actual scripts. Do not claim fully autonomous historical recovery.",
+    "Zero production debit is proven by unchanged counter evidence; it does not make the staged materials free. Direct material purchases4308 remain separate.",
+    "Completion evidence combines the same accepted job, empty final queue, new cabin1 above baseline0, preserved custody and craftingXP+15. No passenger fitting or delivery is established by this production evidence."
+  ],
+  "real_model_settlement_03": {
+    "classification": "Real Hermes/oMLX selected the persisted experiment; scripts polled the original live queue within their wait bound. Workshop completion remains pending.",
+    "private_runtime": "spacemolt/runtime/shared-live-cabin-retain-20260911-03",
+    "controller": {
+      "tool_process_handle": 52520,
+      "bridge_pid": 6907,
+      "exit_code": 0,
+      "exit_observation": "Parent controller owner observed terminal handle, absent bridge PID and released lock before the subsequent run."
+    },
+    "model": "mlx-community--Qwen3.6-35B-A3B-4bit",
+    "actual_model_tool_calls": [
+      {
+        "name": "job__produce",
+        "arguments": {
+          "experiment_id": "63fb6218-3bd3-440c-b5cf-30fec213c792"
+        }
+      }
+    ],
+    "shared_job_id": "e62dab8b-4270-4ebd-8eaf-4eb66586d435",
+    "shared_job_status": "blocked",
+    "budget_owner_id": "6d12fa84-4702-469d-a2de-78b74c625134",
+    "production": {
+      "experiment_id": "63fb6218-3bd3-440c-b5cf-30fec213c792",
+      "job_id": "c711344461b35498e31c07b6442fd4a9",
+      "station": "frontier_station",
+      "status": "pending",
+      "spent": 0,
+      "earned": 0,
+      "disposition": "retain"
+    },
+    "new_craft_submissions": 0,
+    "queue_before": {
+      "job_id": "c711344461b35498e31c07b6442fd4a9",
+      "progress": 0.48000000000000026,
+      "eta_ticks": 44,
+      "runs_done": 0,
+      "runs_remaining": 1,
+      "status": "queued"
+    },
+    "queue_after": {
+      "job_id": "c711344461b35498e31c07b6442fd4a9",
+      "progress": 0.6240000000000003,
+      "eta_ticks": 32,
+      "runs_done": 0,
+      "runs_remaining": 1,
+      "status": "queued"
+    },
+    "gross_recorded_spend": 0,
+    "final": {
+      "status": "returned_to_base",
+      "credits": 194149,
+      "location": {
+        "system_id": "deep_range",
+        "poi_id": "mobile_capital",
+        "docked_at": "frontier_station"
+      },
+      "ship_condition": {
+        "fuel": 120,
+        "max_fuel": 120,
+        "hull": 105,
+        "max_hull": 105,
+        "shield": 35,
+        "max_shield": 35
+      }
+    }
+  },
+  "real_model_settlement_04_05": [
+    {
+      "run": "04",
+      "private_runtime": "spacemolt/runtime/shared-live-cabin-retain-20260911-04",
+      "controller": {
+        "tool_process_handle": 67118,
+        "bridge_pid": 7099,
+        "exit_code": 0,
+        "exit_observation": "Parent controller owner verified terminal handle and absent bridge PID;05 also had no controller locks."
+      },
+      "actual_model_tool_calls": [
+        {
+          "name": "job__produce",
+          "arguments": {
+            "experiment_id": "63fb6218-3bd3-440c-b5cf-30fec213c792",
+            "max_wait_seconds": 120
+          }
+        }
+      ],
+      "shared_job_id": "c165528b-99fd-49dd-abcb-73f7f482325d",
+      "shared_job_status": "blocked",
+      "budget_owner_id": "6d12fa84-4702-469d-a2de-78b74c625134",
+      "production": {
+        "experiment_id": "63fb6218-3bd3-440c-b5cf-30fec213c792",
+        "job_id": "c711344461b35498e31c07b6442fd4a9",
+        "station": "frontier_station",
+        "status": "pending",
+        "spent": 0,
+        "earned": 0,
+        "disposition": "retain"
+      },
+      "queue_after": {
+        "total_jobs": 1,
+        "jobs": [
+          {
+            "job_id": "c711344461b35498e31c07b6442fd4a9",
+            "progress": 0.8520000000000005,
+            "eta_ticks": 13,
+            "runs_done": 0,
+            "runs_remaining": 1,
+            "status": "queued"
+          }
+        ]
+      },
+      "gross_spend": 0,
+      "final": {
+        "status": "returned_to_base",
+        "credits": 194149,
+        "location": {
+          "system_id": "deep_range",
+          "poi_id": "mobile_capital",
+          "docked_at": "frontier_station"
+        },
+        "ship_condition": {
+          "fuel": 120,
+          "max_fuel": 120,
+          "hull": 105,
+          "max_hull": 105,
+          "shield": 35,
+          "max_shield": 35
+        },
+        "freight_count": 0,
+        "passenger_count": 0,
+        "obligation_verification": {
+          "status": "observed",
+          "reason": "Outstanding commitments are recorded, not declared delivered or settled"
+        }
+      }
+    },
+    {
+      "run": "05",
+      "private_runtime": "spacemolt/runtime/shared-live-cabin-retain-20260911-05",
+      "controller": {
+        "tool_process_handle": 36359,
+        "bridge_pid": 7247,
+        "exit_code": 0,
+        "exit_observation": "Parent controller owner verified terminal handle and absent bridge PID;05 also had no controller locks."
+      },
+      "actual_model_tool_calls": [
+        {
+          "name": "job__produce",
+          "arguments": {
+            "experiment_id": "63fb6218-3bd3-440c-b5cf-30fec213c792"
+          }
+        }
+      ],
+      "shared_job_id": "49344820-668e-491b-aedd-981421652da4",
+      "shared_job_status": "completed",
+      "budget_owner_id": "6d12fa84-4702-469d-a2de-78b74c625134",
+      "production": {
+        "experiment_id": "63fb6218-3bd3-440c-b5cf-30fec213c792",
+        "job_id": "c711344461b35498e31c07b6442fd4a9",
+        "station": "frontier_station",
+        "status": "complete",
+        "spent": 0,
+        "earned": 0,
+        "disposition": "retain",
+        "retained": {
+          "economy_passenger_cabin": 1
+        },
+        "retained_location": {
+          "base_id": "frontier_station",
+          "source": "personal_storage"
+        },
+        "retention_verification": {
+          "status": "observed",
+          "basis": "recorded job absent from queue and outputs verified above protected starting storage"
+        }
+      },
+      "queue_after": {
+        "total_jobs": 0,
+        "jobs": []
+      },
+      "gross_spend": 0,
+      "final": {
+        "status": "returned_to_base",
+        "credits": 194149,
+        "location": {
+          "system_id": "deep_range",
+          "poi_id": "mobile_capital",
+          "docked_at": "frontier_station"
+        },
+        "ship_condition": {
+          "fuel": 120,
+          "max_fuel": 120,
+          "hull": 105,
+          "max_hull": 105,
+          "shield": 35,
+          "max_shield": 35
+        },
+        "freight_count": 0,
+        "passenger_count": 0,
+        "obligation_verification": {
+          "status": "observed",
+          "reason": "Outstanding commitments are recorded, not declared delivered or settled"
+        }
+      }
+    }
+  ],
+  "completed_retained_output": {
+    "classification": "Live retained cabin production completed through real Hermes/oMLX continuation after a manually restored historical accounting baseline; not fully autonomous end-to-end recovery.",
+    "same_experiment_id": "63fb6218-3bd3-440c-b5cf-30fec213c792",
+    "same_server_job_id": "c711344461b35498e31c07b6442fd4a9",
+    "accepted_crafts_across_runs_deduplicated_by_shared_job_and_action_index": [
+      {
+        "shared_job_id": "6d12fa84-4702-469d-a2de-78b74c625134",
+        "action_index": 13,
+        "params": {
+          "id": "build_economy_passenger_cabin",
+          "quantity": 1,
+          "preset": "workshop"
+        }
+      }
+    ],
+    "accepted_craft_count": 1,
+    "sale_submissions": 0,
+    "storage_before_cabin": 0,
+    "storage_after_cabin": 1,
+    "retained": {
+      "economy_passenger_cabin": 1
+    },
+    "retained_location": {
+      "base_id": "frontier_station",
+      "source": "personal_storage"
+    },
+    "original_storage_preserved_except_escrowed_recipe_inputs": true,
+    "original_cargo_preserved": true,
+    "final_storage": [
+      {
+        "item_id": "energy_crystal",
+        "quantity": 61,
+        "size": 1
+      },
+      {
+        "item_id": "carbon_ore",
+        "quantity": 18,
+        "size": 1
+      },
+      {
+        "item_id": "aluminum_ore",
+        "quantity": 33,
+        "size": 1
+      },
+      {
+        "item_id": "tungsten_ore",
+        "quantity": 9,
+        "size": 2
+      },
+      {
+        "item_id": "standard_rounds_box",
+        "quantity": 3,
+        "size": 1
+      },
+      {
+        "item_id": "economy_passenger_cabin",
+        "quantity": 1,
+        "size": 10
+      }
+    ],
+    "final_cargo": [
+      {
+        "item_id": "standard_rounds_box",
+        "quantity": 1,
+        "size": 1
+      },
+      {
+        "item_id": "creature_carapace",
+        "quantity": 1,
+        "size": 1
+      },
+      {
+        "item_id": "phase_pearl",
+        "quantity": 2,
+        "size": 1
+      },
+      {
+        "item_id": "carbon_ore",
+        "quantity": 6,
+        "size": 1
+      },
+      {
+        "item_id": "platinum_ore",
+        "quantity": 1,
+        "size": 1
+      }
+    ],
+    "crafting_xp": {
+      "level_before": 2,
+      "before": 145,
+      "after": 160,
+      "gain": 15
+    },
+    "production_spent": 0,
+    "production_earned": 0,
+    "upstream_direct_material_purchases": {
+      "gross_spend": 4308,
+      "life_support_units": 3838,
+      "flex_polymer": 470,
+      "titanium": "Previously owned inventory; no purchase debit in these staging receipts.",
+      "scope": "Separate direct setup acquisition, excluded from production job spend. Travel/service costs and input opportunity value are separate."
+    }
+  }
+}
