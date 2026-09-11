@@ -5,6 +5,7 @@ import {transportReceipt} from './execution-logistics.ts';
 
 function itineraryFixture(t:any,unexpectedBurn=false) {
   const f=passengerFixture(t),systems=['system','middle','target'];
+  let serverTick=1;
   const distance=(from:string,to:string)=>Math.abs(systems.indexOf(from)-systems.indexOf(to));
   f.execution.deps.locations=async(origin,params)=>{
     const stations=[{base_id:'base',id:'base',poi_id:'station',system_id:'system',system_name:'Home',station_name:'Home',services:['refuel'],hops:distance(origin!,'system')},
@@ -14,6 +15,7 @@ function itineraryFixture(t:any,unexpectedBurn=false) {
   const send=f.account.send.bind(f.account);
   f.account.send=async(tool,action,params:any={})=>{
     const reply=await send(tool,action,params);
+    if(tool==='spacemolt_shipping'&&action==='active')return {structuredContent:{action:'active',tick:serverTick,shipments:[]}} as any;
     if(action==='find_route') {
       const start=systems.indexOf(f.state.location.system_id),end=systems.indexOf(params.id),direction=Math.sign(end-start),steps=distance(f.state.location.system_id,params.id);
       const perJump=f.state.ship.cargo_used>1?30:10;
@@ -28,11 +30,24 @@ function itineraryFixture(t:any,unexpectedBurn=false) {
     if(action==='jump') {
       const burn=unexpectedBurn&&f.state.location.system_id==='system'&&params.id==='middle'?80:10;
       f.state.ship.fuel-=burn;f.state.location={system_id:params.id,poi_id:'arrival-'+params.id,docked_at:null};
+      if(params.id==='middle')serverTick=10;
     }
     return reply;
   };
   return f;
 }
+
+test('a late accepted leg blocks the next productive leg while preserving custody and recording overrun',async t=>{
+  const f=itineraryFixture(t);await f.choose();f.execution.context.limits.max_ticks=5;
+  const job:any=await f.execution.dispatch('transport',{kind:'passengers',destination:'other'});
+  assert.notEqual(job.status,'completed');assert.equal(f.passengers().length,1);
+  const timing=job.transport_progress_checks.map((row:any)=>row.timing).filter(Boolean);
+  const blocked=timing.find((row:any)=>row.status==='blocked');
+  assert.ok(blocked);assert.equal(blocked.start_tick,1);assert.equal(blocked.elapsed_ticks,9);assert.equal(blocked.overrun_ticks,4);
+  const jumps=f.calls.filter(row=>row.key==='spacemolt/jump').map(row=>row.params.id);
+  assert.deepEqual(jumps,['middle','system'],'Only the accepted outward leg and defensive return ran');
+  assert.ok(job.transport_progress_checks.some((row:any)=>row.deadlines?.selected?.length));
+});
 
 test('boarding-induced load changes invalidate the full fuel itinerary before any productive travel',async t=>{
   const f=itineraryFixture(t);await f.choose();
