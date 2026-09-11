@@ -147,6 +147,11 @@ this evidence separately: simultaneous same-resource gains cannot be separated.
 Unrelated or refresh-only gains remain unattributed, and inconsistent identity or
 retention stops extraction.
 
+If idle recovery finishes before startup reconciliation, the runner imports the
+updated stopped-run receipts and verifies cleanup without restarting inference.
+This keeps recovery costs and outcomes in the final report even when the explicit
+reconcile request finds no remaining unfinished job.
+
 Hunt sorties refuse onboard passengers and carrier freight until those commitments
 are resolved. Return preserves them; it does not deliver or cancel them. Receipts
 keep admission `obligations`, fresh terminal `obligations_after`, and an explicit

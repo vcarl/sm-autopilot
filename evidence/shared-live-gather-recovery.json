@@ -1,0 +1,130 @@
+{
+  "scope": "Live real Hermes gathering followed by interrupted docking and explicit runner resume; recovery did not repeat mining",
+  "commit": "163d1e4317",
+  "private_runtime": "spacemolt/runtime/shared-live-industry-20260911-02",
+  "first_runner_exit_code": 1,
+  "resumed_runner_exit_code": 0,
+  "controller_lock_released": true,
+  "stance": "Industry",
+  "mood": "Focused",
+  "cycles_requested": 2,
+  "cycles_completed": 2,
+  "yields": {
+    "platinum_ore": 1,
+    "carbon_ore": 3
+  },
+  "retained_cargo": {
+    "platinum_ore": 1,
+    "carbon_ore": 3
+  },
+  "yield_measurements": [
+    {
+      "source": "command_state_delta",
+      "yields": {
+        "platinum_ore": 1
+      },
+      "tick": 1851569,
+      "note": "Site-resource gains in the accepted mine command delta, corroborated by current cargo. Detailed extraction attribution is unavailable; simultaneous same-resource gains cannot be separated."
+    },
+    {
+      "source": "command_state_delta",
+      "yields": {
+        "carbon_ore": 3
+      },
+      "tick": 1851570,
+      "note": "Site-resource gains in the accepted mine command delta, corroborated by current cargo. Detailed extraction attribution is unavailable; simultaneous same-resource gains cannot be separated."
+    }
+  ],
+  "starting_cargo": {
+    "standard_rounds_box": 1,
+    "creature_carapace": 1,
+    "phase_pearl": 2,
+    "carbon_ore": 3
+  },
+  "mine_commands": 2,
+  "dock_commands": 1,
+  "gross_spend_from_current_journal": 6,
+  "cash_delta_from_current_journal": -6,
+  "final": {
+    "location": {
+      "system_id": "deep_range",
+      "poi_id": "mobile_capital",
+      "docked_at": "frontier_station"
+    },
+    "credits": 197773,
+    "condition": {
+      "hull": 105,
+      "max_hull": 105,
+      "shield": 35,
+      "max_shield": 35,
+      "fuel": 120,
+      "max_fuel": 120
+    },
+    "cargo": [
+      {
+        "item_id": "standard_rounds_box",
+        "item_name": "Standard Rounds Box",
+        "quantity": 1,
+        "size": 1
+      },
+      {
+        "item_id": "creature_carapace",
+        "item_name": "Creature Carapace",
+        "quantity": 1,
+        "size": 1
+      },
+      {
+        "item_id": "phase_pearl",
+        "item_name": "Phase Pearl",
+        "quantity": 2,
+        "size": 1
+      },
+      {
+        "item_id": "carbon_ore",
+        "item_name": "Carbon Ore",
+        "quantity": 6,
+        "size": 1
+      },
+      {
+        "item_id": "platinum_ore",
+        "item_name": "Platinum Ore",
+        "quantity": 1,
+        "size": 1
+      }
+    ],
+    "obligation_verification": {
+      "status": "observed",
+      "reason": "Outstanding commitments are recorded, not declared delivered or settled"
+    }
+  },
+  "reconciliation": [
+    {
+      "outcome": "needs_reconciliation",
+      "error": "Error: Library reconnect has not authenticated within 30 seconds; retry reconciliation after connection recovery",
+      "decisions": [],
+      "obligation_verification": null
+    },
+    {
+      "outcome": "interrupted",
+      "error": null,
+      "decisions": [
+        {
+          "action_index": 23,
+          "action": "spacemolt/dock",
+          "resolved": true,
+          "reason": "Authoritative state confirms the requested destination or active quarry"
+        }
+      ],
+      "obligation_verification": {
+        "status": "observed",
+        "reason": "Outstanding commitments remain unfinished after recovery"
+      }
+    }
+  ],
+  "reported_spend_before_fix": 0,
+  "limitations": [
+    "Job terminal status remains interrupted, despite both extraction cycles and eventual cleanup verified. No uninterrupted full Industry acceptance claimed.",
+    "Idle recovery finished before explicit runner reconciliation; outdated public receipt showed0 rather than6 spent and inference ran unnecessarily. Original report preserved; race fix tested separately.",
+    "Automatic reconnect did not reauthenticate within30 seconds; an explicit same-checkpoint process resume was used."
+  ]
+}

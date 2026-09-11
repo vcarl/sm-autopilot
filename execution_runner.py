@@ -69,12 +69,25 @@ def _run_execution(args, bridge, agent_class, registry, base_url, api_key, write
         raise RuntimeError(grant.get("error", "Execution configuration failed"))
     lifecycle["configured"] = True
     recovery = bridge.request("execution/reconcile")
+    recovered_state = recovery.get("result") or {}
+    for job in recovered_state.get("receipts", []):
+        capture_receipt(lifecycle["receipts"], {"ok": True, "result": job})
     if not recovery.get("ok") or recovery.get("result", {}).get("status") != "no_unfinished_job":
         lifecycle.update(cleanup_attempted=True, receipt=recovery)
         capture_receipt(lifecycle["receipts"], recovery)
         write_json(args.runtime / "recovery-receipt.json", recovery)
         write_json(args.runtime / "verified-report.json", receipt_report(lifecycle["receipts"], recovery))
         return 0 if recovery.get("result", {}).get("status") in {"interrupted", "returned_to_base"} else 1
+    if recovered_state.get("stopping_reason"):
+        lifecycle["cleanup_attempted"] = True
+        receipt = finish_execution(bridge)
+        lifecycle["receipt"] = receipt
+        capture_receipt(lifecycle["receipts"], receipt)
+        write_json(args.runtime / "return-receipt.json", receipt)
+        report = receipt_report(lifecycle["receipts"], receipt)
+        write_json(args.runtime / "verified-report.json", report)
+        print(json.dumps({"report": report}))
+        return 0 if receipt.get("result", {}).get("status") in {"interrupted", "returned_to_base"} else 1
     if prior and prior.get("context") != grant["result"]["context"]:
         raise ValueError("Persisted home or grant changed; start a new runtime to preserve cached context")
     monitor_done = threading.Event()

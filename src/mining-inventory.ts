@@ -16,7 +16,9 @@ export function miningYield(before:Record<string,number>,after:Record<string,num
 }
 
 /** Accept a detailed pilot yield or the correlated mine command's state delta.
- * A later refresh alone cannot attribute incoming cargo to mining.
+ * A later refresh alone cannot attribute incoming cargo to mining. The caller
+ * checks current ship/site identity before and after the command; omitted delta
+ * sections mean unchanged under the library protocol.
  */
 export function measureMineYield(before:Record<string,number>,after:Record<string,number>,reply:any,
   site:{ship_id:string;system_id:string;poi_id:string},resourceIds:Set<string>) {
@@ -28,8 +30,9 @@ export function measureMineYield(before:Record<string,number>,after:Record<strin
   }
   const delta=reply?.delta,location=delta?.location;
   if(reply?.command!=='mine'||!Number.isInteger(reply.tick)||reply.tick<0||reply.structuredContent!==undefined||
-    !delta||delta.details!==undefined||delta.ship?.id!==site.ship_id||location?.system_id!==site.system_id||
-    location?.poi_id!==site.poi_id||location.in_transit||location.docked_at||!Array.isArray(delta.cargo))return {source:'unverified',yields:{},note:'No matching pilot yield or correlated mine state delta.'};
+    !delta||delta.details!==undefined||(delta.ship!==undefined&&delta.ship?.id!==site.ship_id)||
+    (location!==undefined&&(location?.system_id!==site.system_id||location?.poi_id!==site.poi_id||location?.in_transit||location?.docked_at))||
+    !Array.isArray(delta.cargo))return {source:'unverified',yields:{},note:'No matching pilot yield or correlated mine state delta.'};
   const accepted=miningInventory({cargo:delta.cargo} as GameState);
   if(Object.entries(before).some(([item,quantity])=>(accepted[item]??0)<quantity))return {source:'unverified',yields:{},note:'Mine delta does not preserve the starting inventory.'};
   const measured=miningYield(before,accepted);

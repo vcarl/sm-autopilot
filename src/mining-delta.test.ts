@@ -15,6 +15,9 @@ test('recorded live mine delta verifies only site-resource gains retained from i
   assert.match(measured.note,/simultaneous same-resource gains cannot be separated/);
   const increased={...after,carbon_ore:after.carbon_ore!+100};
   assert.deepEqual(measureMineYield(before,increased,replay.accepted_mine,site,resources).yields,measured.yields);
+  const unchangedIdentity=structuredClone(replay.accepted_mine);
+  delete unchangedIdentity.delta.ship;delete unchangedIdentity.delta.location;
+  assert.deepEqual(measureMineYield(before,after,unchangedIdentity,site,resources).yields,measured.yields);
   for(const change of [
     (r:any)=>{r.command='trade';},
     (r:any)=>{r.delta.ship.id='other_ship';},

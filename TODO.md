@@ -281,6 +281,34 @@ budget reauthorization workflow remains future work. Independent review reproduc
 the original boundary defect, but the reviewing IC hit a usage limit before final
 patch review; final implementation review and validation were completed locally.
 
+## Live gathering recovery and startup receipt race — 2026-09-11
+
+After `163d1e4317`, a fresh real Hermes Industry run completed both requested
+extraction cycles: platinum ore1 and carbon ore3, measured in correlated mine
+deltas and retained. The connection closed during docking. Automatic reconciliation
+could not reauthenticate within30 seconds; an explicit same-checkpoint process
+resume then verified docking without replay, refueled, and returned serviced.
+Exactly two mines and one dock were submitted. Final Frontier Station/Deep Range:
+197,773 credits, full105 hull/35 shields/120 fuel; gross cost6. The productive job
+remains `interrupted`, with verified yield and later cleanup. Neither uninterrupted
+Industry acceptance nor autonomous process-level recovery is claimed. Evidence:
+`spacemolt/evidence/shared-live-gather-recovery.json`.
+
+Idle recovery completed before the runner's explicit reconcile call. That call
+returned only `no_unfinished_job`, losing the updated receipt; the runner restarted
+inference and its final report used the old job status and zero spending. The fix
+returns the stopped run's authoritative receipts and stopping reason even when
+reconciliation is already complete. Startup imports them before reporting, skips
+inference, and still verifies final cleanup. The prior live report is preserved.
+An actual Python bridge/Node execution regression reproduces recovery-before-startup
+and asserts no agent construction, no repeated service purchase, and correct gross
+and net costs. Tired resume tests now require the same inference-free cleanup.
+
+The mine-delta adapter also honors the pinned library's documented omitted-section
+semantics: absent ship/location sections mean unchanged, while conflicting supplied
+identities remain invalid. The executor still verifies identity before/after mining.
+Validation: typecheck, 69 Node tests and 30 Python tests through the required runner.
+
 ## Live gathering receipt correction — 2026-09-11
 
 Real Hermes/oMLX Industry/Focused retained the chosen Frontier Station home, assessed

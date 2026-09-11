@@ -286,7 +286,8 @@ export class Execution {
   async reconcile() {
     if(this.active)throw new Error('Wait for current command ownership before reconciliation');
     const job=this.store.unresolved();
-    if(!job)return {status:'no_unfinished_job'};
+    if(!job)return {status:'no_unfinished_job',stopping_reason:this.stopping?(this.store.data.stop??'Tired'):undefined,
+      receipts:this.stopping?structuredClone(this.store.runJobs()):[]};
     this.signal('Recovery: productive work remains stopped');
     const nextContext=this.context;
     this.context=job.context;this.active=job;
