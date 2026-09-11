@@ -161,3 +161,18 @@ test('gather honors resolved cycle bounds, stops or defends after persisted yiel
   assert.equal(recovered.after.location.docked_at,'base');
   assert.deepEqual((new ExecutionStore(lost.directory,'pilot').data.jobs.at(-1)?.result as any).partial.gather,progress.gather);
 });
+
+test('Industry mood defaults bound omitted gathering cycles before each mine',async t=>{
+  for(const mood of moods.filter(mood=>mood!=='Tired')) {
+    const f=gatherFixture(t);
+    f.execution.context=resolveContext({stance:'Industry',mood,objective:'Gather only within the resolved mood allowance'},f.execution.context);
+    await f.choose();
+    const job:any=await f.execution.dispatch('gather',{poi_id:'belt'});
+    const expected=f.execution.context.limits.max_gather_cycles;
+    assert.equal(job.result.gather.cycles_requested,expected,mood);
+    assert.equal(job.result.gather.cycles_completed,expected,mood);
+    assert.equal(f.calls.filter(call=>call.key==='spacemolt/mine').length,expected,mood);
+  }
+  const tired=resolveContext({stance:'Industry',mood:'Tired',objective:'Return without productive work'});
+  assert.equal('gather' in executionCatalog(tired),false);
+});

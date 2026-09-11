@@ -2070,12 +2070,19 @@ the already-tested `ExecutionHost` job names; raw SpaceMolt primitives remain ab
 plugin/runner tests pass after this expansion. Trade, Explore and Salvage still have no concrete
 executor and therefore remain absent rather than being presented as superficial support.
 
+D7/X3 evidence advanced for the existing Industry consumer: a behavior test now runs omitted
+`gather` cycles under every productive mood and proves that the resolved `max_gather_cycles`
+becomes both the requested/completed cycle count and the number of actual mine calls. It also
+proves Tired's Industry catalog has no gather entry. `npm run typecheck && npm test` passed with
+124 Node tests after this addition. This covers gathering only; the remaining numerical policy
+consumers, including the Logistics route and liability limits, still need comparable evidence.
+
 No live controller was opened, no Discord gateway was restarted, and no schedule was created.
 The gateway PID37628 and historical Frontier/Kvothe checkpoint described above remain unchanged;
 their current state must be observed before any live operation. Untracked `credentials.kvothe.txt`
-and `players/` were preserved. Exact next action: commit this packaging milestone, then add a
-gateway-owned Discord/cron acceptance run only after a dedicated profile is configured and no
-competing controller exists.
+and `players/` were preserved. Exact next action: commit the Industry policy evidence, then
+audit profile-scoped secret handling before a gateway-owned Discord/cron acceptance run. A
+dedicated profile and no competing controller are required before that live acceptance.
 
 Follow the repository's required test workflow. Existing useful checks from the repository root are:
 
