@@ -14,6 +14,7 @@ import {reconcileJob} from './recovery.ts';
 import {observeObligations,admitProductiveSortie,ObligationObservationError,type Obligations} from './obligations.ts';
 import {ExecutionStore,type Job} from './execution-store.ts';
 import {admissionBlocker,terminalStoppingReason} from './execution-stopping.ts';
+import {isPaidCommand,jobSpending,jobBudget,requireCommandSpend} from './spending.ts';
 import {ensureReadiness} from './readiness.ts';
 import {observeGathering,assessGathering,gatherResources,verifyGatherInventory,type GatherReceipt} from './gather.ts';
 
@@ -99,16 +100,34 @@ export class Execution {
       if(await this.defend())throw new DefenseInterruption('Unexpected combat invalidated the pending operation; return before reconsidering work');
     }
     if(this.stopping&&['spacemolt/hunt','spacemolt/mine','spacemolt/buy','spacemolt/install_mod','spacemolt/uninstall_mod','spacemolt_storage/withdraw','spacemolt_salvage/loot','spacemolt/scan'].includes(action))throw new StopWork('Stop requested before productive command');
+    if(this.active&&isPaidCommand(action)) {
+      const spending=jobBudget(this.active,this.store.data.jobs);
+      if(spending.gross_spend===null)throw new Error('Unpriced paid command prevents further spending until reconciliation');
+      if(spending.gross_spend>spending.max_spend)throw new Error('Gross spending already exceeded the job budget');
+    }
     const entry:Job['actions'][number]={action,params,status:'pending',before:this.snapshot()};
     this.active?.actions.push(entry);this.store.save();
+    let value:unknown;
     try {
-      const value=await this.boundary.run(async(sent,completed)=>{sent();return sendAndRefresh(this.account,action,params,result=>{completed();entry.accepted_result=result;this.store.save();});});
-      entry.status='confirmed';entry.result=value;this.store.save();return value;
+      value=await this.boundary.run(async(sent,completed)=>{sent();return sendAndRefresh(this.account,action,params,result=>{
+        completed();entry.accepted_result=result;
+        if(this.active){this.active.spending=jobSpending(this.active);this.active.budget_spending=jobBudget(this.active,this.store.data.jobs);}
+        this.store.save();
+      });});
+      entry.status='confirmed';entry.result=value;this.store.save();
     } catch(error) {
       const status=this.boundary.status(error);
       this.uncertain ||= status.fatal;
       entry.status=status.fatal?'uncertain':'confirmed';entry.result={error:String(error),...status};this.store.save();throw error;
     }
+    // An accepted command with missing cost is not an unaccepted command. Keep
+    // the healthy boundary available for defensive return, but block more spend.
+    if(this.active&&isPaidCommand(action)) {
+      requireCommandSpend(action,value);
+      const spending=jobBudget(this.active,this.store.data.jobs);
+      if(spending.known_gross_spend>spending.max_spend||this.account.credits!<spending.credit_reserve)throw new Error('Accepted command exceeded gross job spending budget or wallet reserve');
+    }
+    return value;
   };
   async observe(includeGathering=true) {
     await this.account.refresh();
@@ -184,11 +203,13 @@ export class Execution {
     if(this.account.location!.docked_at!==home.base_id)throw new Error('Docking identity not verified');
   }
   private async service() {
-    return serviceShip(this.account,this.command,{maxSpend:this.remainingSpend(),creditReserve:this.context.limits.credit_reserve},async()=>{await this.defend();},this.deps.combat);
+    const creditReserve=this.active?jobBudget(this.active,this.store.data.jobs).credit_reserve:this.context.limits.credit_reserve;
+    return serviceShip(this.account,this.command,{maxSpend:this.remainingSpend(),creditReserve},async()=>{await this.defend();},this.deps.combat);
   }
   private remainingSpend() {
-    const before=(this.active?.before as Wire)?.credits??this.account.credits!;
-    return Math.max(0,this.context.limits.max_spend-Math.max(0,before-this.account.credits!));
+    if(!this.active)return this.context.limits.max_spend;
+    const spending=jobBudget(this.active,this.store.data.jobs);
+    return spending.gross_spend===null?0:Math.max(0,spending.max_spend-spending.gross_spend);
   }
   private async returnHome() {
     for(let replan=0;;replan++) {
@@ -277,6 +298,8 @@ export class Execution {
     const allowanceBlocker=admissionBlocker(action,this.store.runJobs());
     await this.account.refresh();
     const job:Job={id:randomUUID(),action,status:'running',context:structuredClone(this.context),started_at:new Date().toISOString(),before:this.snapshot(),actions:[]};
+    const predecessor=this.store.runJobs().at(-1);
+    if(action==='return_to_base'&&predecessor)job.budget_owner_id=predecessor.budget_owner_id??predecessor.id;
     this.active=job;this.store.data.jobs.push(job);this.store.save();
     let result:any;
     try {
@@ -344,6 +367,10 @@ export class Execution {
         }
       }
       job.after=this.snapshot();job.cash_delta=this.account.credits!-(job.before as Wire).credits;
+      job.spending=jobSpending(job);
+      job.budget_spending=jobBudget(job,this.store.data.jobs);
+      if(job.budget_spending.gross_spend===null)job.status='needs_reconciliation';
+      else if(job.budget_spending.gross_spend>job.budget_spending.max_spend)job.status='blocked';
       const stoppingReason=this.store.data.stop??terminalStoppingReason(job);
       if(stoppingReason){this.signal(stoppingReason);job.stopping_reason=stoppingReason;}
       this.store.save();this.active=undefined;

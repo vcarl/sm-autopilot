@@ -1,5 +1,6 @@
 import type {Account} from '@spacemolt/lib';
 import {details, type IndustryCommand} from './industry.ts';
+import {requireCommandSpend} from './spending.ts';
 
 export class CombatBlocked extends Error {}
 
@@ -77,12 +78,14 @@ export async function prepareCombat(params:FitParams, account:Account, command:I
   }
   if(cost>maxSpend||before-cost<reserve)throw new CombatBlocked('Fitting quote exceeds spending budget or wallet reserve');
   if(!params.execute)return {status:'quoted',plan,estimated_spend:cost,max_spend:maxSpend,credit_reserve:reserve,ship};
+  let spent=0;
   for(const step of plan) {
     if(step.source==='buy') {
       const quote=details(await command('spacemolt_market/estimate_purchase',{item_id:step.id,quantity:step.quantity??1}));
-      if(quote.unfilled!==0||!Number.isFinite(quote.total_cost)||quote.total_cost<0||before-account.credits!+quote.total_cost>maxSpend||account.credits!-quote.total_cost<reserve)throw new Error('Fresh fitting quote exceeds remaining budget');
-      await command('spacemolt/buy',{id:step.id,quantity:step.quantity??1,auto_list:false});
-      if(before-account.credits!>maxSpend||account.credits!<reserve)throw new Error('Actual fitting spend exceeded quote; stop and reconcile');
+      if(quote.unfilled!==0||!Number.isFinite(quote.total_cost)||quote.total_cost<0||spent+quote.total_cost>maxSpend||account.credits!-quote.total_cost<reserve)throw new Error('Fresh fitting quote exceeds remaining budget');
+      const receipt=await command('spacemolt/buy',{id:step.id,quantity:step.quantity??1,auto_list:false});
+      const cost=requireCommandSpend('spacemolt/buy',receipt);spent+=cost;
+      if(spent>maxSpend||cost>quote.total_cost||account.credits!<reserve)throw new Error('Actual fitting spend exceeded quote or budget; stop and reconcile');
     }
     if(step.source==='storage')await command('spacemolt_storage/withdraw',{item_id:step.id,quantity:step.quantity??1});
     if(!(account.cargo??[]).some(i=>i.item_id===step.id&&i.quantity>=(step.quantity??1)))throw new Error('Purchased/withdrawn equipment not verified in cargo');
@@ -96,6 +99,6 @@ export async function prepareCombat(params:FitParams, account:Account, command:I
     if(Number((fitted as any).current_ammo??0)<100)await command('spacemolt_battle/reload',{id:fitted.module_id,target:ammoId});
     if(Number((account.state.modules?.find(m=>m.module_id===fitted.module_id) as any)?.current_ammo??0)<100)throw new Error('Loaded magazine not verified');
   }
-  return {status:'fitted',plan,actual_spend:before-account.credits!,ship:account.ship,modules:account.state.modules,
+  return {status:'fitted',plan,actual_spend:spent,cash_delta:account.credits!-before,ship:account.ship,modules:account.state.modules,
     next:'Restore hull, shields and fuel before scouting or hunting. Purchases are equipment capital, not hunting profit.'};
 }

@@ -3,6 +3,7 @@ import {join} from 'node:path';
 import type {ExecutionContext,Home} from './execution-policy.ts';
 import type {Account} from '@spacemolt/lib';
 import {terminalStoppingReason} from './execution-stopping.ts';
+import type {SpendingEvidence,BudgetSpending} from './spending.ts';
 export interface Job {
   id:string; action:string; status:'running'|'completed'|'blocked'|'interrupted'|'returned_to_base'|'needs_reconciliation';
   context:ExecutionContext; started_at:string; before:unknown; after?:unknown; obligations?:unknown;
@@ -11,6 +12,9 @@ export interface Job {
   obligations_after?:unknown;
   obligation_verification?:{status:'observed'|'unavailable';reason:string};
   result?:unknown; error?:string; cash_delta?:number; stopping_reason?:string;
+  spending?:SpendingEvidence;
+  budget_owner_id?:string;
+  budget_spending?:BudgetSpending;
   reconciliation?:Record<string,any>[];
   defense?:Record<string,any>[];
   return_reassessments?:Record<string,any>[];

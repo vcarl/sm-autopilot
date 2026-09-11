@@ -53,6 +53,14 @@ The existing assessment's accuracy, incoming-damage and escape margins remain in
 force. All retain a minimum 150,000-credit wallet reserve. Default per-job spending
 is 1,000 credits (host resolver permits 0–10,000); overrides never enlarge host
 spending. Preparation and cleanup share the job budget, using canonical expenditure.
+Accepted refuel/repair `cost` and purchase `total_cost` supply gross expenditure;
+income never replenishes it and tax components are not added to these totals.
+Automatic return jobs retain the preceding job's budget owner across reconnects
+and repeated returns. Their own costs remain separate for reporting. Missing paid
+cost evidence prevents further spending and keeps reconciliation outstanding.
+An exhausted allocation may leave service blocked; `--new-run` requires readiness
+and is not a way to fund unfinished cleanup. Host budget reauthorization for that
+case remains unimplemented.
 Service APIs lack an atomic price cap; preflight quote and post-action actual checks
 are both required. Missing all-in repair pricing is a blocker.
 

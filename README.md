@@ -127,6 +127,12 @@ tables. Mission snapshots retain their changing fields as explicit overrides. A
 candidate assessments and scans, obligations, accepted uncertain responses, and
 observed skill/loadout/ship changes remain available for planning.
 
+Verified reports distinguish gross spending from net wallet change. Preparation
+and cleanup use one per-job allocation; automatic return keeps that allocation
+even across repeated calls or reconnects. Unknown paid costs block more spending.
+Exhausting the allocation can leave servicing blocked, and `--new-run` cannot
+clear that condition because it requires an already serviced ship.
+
 Hunt sorties refuse onboard passengers and carrier freight until those commitments
 are resolved. Return preserves them; it does not deliver or cancel them. Receipts
 keep admission `obligations`, fresh terminal `obligations_after`, and an explicit

@@ -1,4 +1,5 @@
 import type { GameState } from '@spacemolt/lib';
+import {requireCommandSpend} from './spending.ts';
 
 export interface ReadinessOptions {
   requireMining?: boolean;
@@ -83,20 +84,22 @@ export async function ensureReadiness(account: ReadinessAccount, command: Readin
   const plan = inspectReadiness(account.state, options);
   const completed: ReadinessAction[] = [];
   if (!execute || plan.blockers.length || plan.ready) return {plan, completed, verification:plan};
-  const beforeCredits = account.state.player!.credits;
+  let spent=0;
   for (const step of plan.actions) {
     if (!account.state.location?.docked_at) throw new Error('Readiness stopped: ship is no longer docked');
     const service = step.action === 'spacemolt/refuel' ? 'refuel' : step.action === 'spacemolt/repair' ? 'repair' : null;
     const quote = service ? options.serviceQuotes?.[service] ?? 0 : 0;
     const availableCredits = account.state.player?.credits;
     if (availableCredits === undefined || availableCredits - quote < (options.creditReserve ?? 0)
-      || beforeCredits - availableCredits + quote > (options.maxServiceSpend ?? 0)) {
+      || spent + quote > (options.maxServiceSpend ?? 0)) {
       throw new Error('Readiness stopped: remaining service would breach budget or reserve');
     }
     const removed = step.action === 'spacemolt/uninstall_mod'
       ? account.state.modules?.find(m => m.module_id === step.params.id) : undefined;
     const previousCargo = removed ? account.state.cargo?.find(i => i.item_id === removed.type_id)?.quantity ?? 0 : 0;
-    await command(step.action, step.params);
+    const reply=await command(step.action, step.params);
+    const cost=requireCommandSpend(step.action,reply);
+    spent+=cost;
     completed.push(step);
     await account.refresh();
     if (removed && (account.state.modules?.some(m => m.module_id === removed.module_id)
@@ -107,9 +110,9 @@ export async function ensureReadiness(account: ReadinessAccount, command: Readin
       throw new Error('Readiness stopped: mining module installation not verified');
     }
     const credits = account.state.player?.credits;
-    if (credits === undefined || credits < (options.creditReserve ?? 0) || beforeCredits - credits > (options.maxServiceSpend ?? 0)) {
+    if (credits === undefined || credits < (options.creditReserve ?? 0) || spent > (options.maxServiceSpend ?? 0) || cost>quote) {
       throw new Error('Readiness stopped: canonical spending breached budget or reserve');
     }
   }
-  return {plan, completed, verification:inspectReadiness(account.state, options)};
+  return {plan, completed, actual_spend:spent, verification:inspectReadiness(account.state, options)};
 }

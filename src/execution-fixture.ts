@@ -30,7 +30,7 @@ export function executionFixture(t:any) {
     if(key==='spacemolt/undock')state.location.docked_at=null;
     if(key==='spacemolt/travel'){state.location.poi_id=params.id;state.ship.fuel--;}
     if(key==='spacemolt/dock')state.location.docked_at=state.location.poi_id==='other'?'other':'base';
-    if(key==='spacemolt/refuel'){state.player.credits-=(120-state.ship.fuel)*3;state.ship.fuel=120;}
+    if(key==='spacemolt/refuel'){const cost=(120-state.ship.fuel)*3;state.player.credits-=cost;state.ship.fuel=120;result={cost,fuel:120,source:'station'};}
     return {structuredContent:result};
   }} as unknown as Account;
   const store=new ExecutionStore(directory,'pilot');

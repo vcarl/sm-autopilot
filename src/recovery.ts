@@ -5,6 +5,7 @@ import type {ExecutionStore,Job} from './execution-store.ts';
 import {observeObligations,ObligationObservationError} from './obligations.ts';
 import type {ServiceClock} from './servicing.ts';
 import {verifyGatherInventory,type GatherReceipt} from './gather.ts';
+import {jobSpending,jobBudget} from './spending.ts';
 
 type Wire=Record<string,any>;
 export function reconcileAction(action:Job['actions'][number],state:Wire,battle:Wire|null) {
@@ -109,6 +110,15 @@ export async function reconcileJob(account:Account,store:ExecutionStore,job:Job,
     evidence.outcome=job.status;
   } finally {
     job.after=ops.snapshot();job.cash_delta=account.credits!-(job.before as Wire).credits;
+    job.spending=jobSpending(job);
+    job.budget_spending=jobBudget(job,store.data.jobs);
+    if(job.budget_spending.gross_spend===null) {
+      job.status='needs_reconciliation';
+      evidence.error='Paid command cost remains unverified; acceptance is not permission to repeat it';
+    } else if(job.budget_spending.gross_spend>job.budget_spending.max_spend) {
+      job.status='blocked';evidence.error='Recorded gross spending exceeded the job budget';
+    }
+    evidence.outcome=job.status;
     store.save();
   }
   return structuredClone(job);

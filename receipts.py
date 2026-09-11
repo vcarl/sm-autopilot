@@ -32,6 +32,11 @@ def receipt_report(receipts, cleanup_response=None):
             row["error"] = job["error"]
         if job.get("stopping_reason"):
             row["stopping_reason"] = job["stopping_reason"]
+        if isinstance(job.get("spending"), dict):
+            row["spending"] = deepcopy(job["spending"])
+        for key in ("budget_owner_id", "budget_spending"):
+            if key in job:
+                row[key] = deepcopy(job[key])
         result = job.get("result")
         sortie = work_result(result, "sortie")
         if "skill_progress" in sortie:
@@ -60,6 +65,12 @@ def receipt_report(receipts, cleanup_response=None):
     report = {"source": "Script job receipts; assessment estimates and model narrative excluded",
               "jobs": jobs, "recorded_jobs_cash_delta": sum(deltas) if known_cash else None,
               "final": None}
+    for field, output in (("gross_spend", "recorded_jobs_gross_spend"),
+                          ("known_gross_spend", "recorded_jobs_known_gross_spend")):
+        amounts = [job.get("spending", {}).get(field) for job in jobs]
+        known = all(isinstance(value, (int, float)) and not isinstance(value, bool)
+                    and math.isfinite(value) and value >= 0 for value in amounts)
+        report[output] = sum(amounts) if known else None
     if cleanup_response is not None:
         cleanup = cleanup_response.get("result")
         report["cleanup_outcome"] = cleanup.get("status") if isinstance(cleanup, dict) else None

@@ -250,6 +250,37 @@ attempts are recorded in `spacemolt/evidence/shared-receipt-compaction.json`.
 
 Next: enforce gross spending independently of income before another economic job.
 
+## Gross spending enforcement — 2026-09-10
+
+The per-job limit remains the contract in `DECISIONS.md`: preparation and cleanup
+share one allocation, independently of wallet income. Accepted command costs must
+be counted once; refuel `cost` already includes tax. Missing cost evidence must not
+authorize another purchase. Net `cash_delta` remains a separate observed outcome.
+
+Independent review also reproduced a cleanup ownership bypass without income:
+gather spends its 12-credit budget preparing, blocks on 9-credit cleanup, then the
+runner's automatic separate return receives a fresh budget and spends the 9.
+`spending.ts` now derives costs once from durable accepted commands and carries the
+original allocation across return chains through `budget_owner_id`. Readiness and
+fitting use the same authoritative cost fields; their local quote checks no longer
+use net wallet loss. Safe movement and defense remain available. Unpriced costs
+keep reconciliation outstanding without replaying the accepted action.
+
+Each receipt exposes its own `spending` and aggregate `budget_spending`; the public
+report sums only distinct jobs' own costs, separately from cash change. Historical
+receipts without cost evidence remain unknown. Policy version is `one-job-gross-1`.
+Validation: typecheck and 65 Node tests; 27 Python tests through the required runner.
+The real Python bridge/Node dispatch/final-cleanup/report regression records gross12,
+net+88 after income100, retained ore2, and blocked cleanup with only one refuel.
+Recovery tests verify accepted cost counted once after refresh failure, missing cost
+blocking subsequent service/new-run, and tax not double-counted. Offline only.
+
+Limitation: exhausted cleanup can leave an under-serviced stopped ship. The existing
+new-run readiness gate correctly refuses to erase that liability; an explicit host
+budget reauthorization workflow remains future work. Independent review reproduced
+the original boundary defect, but the reviewing IC hit a usage limit before final
+patch review; final implementation review and validation were completed locally.
+
 ## Wind-down handoff — live run, 2026-09-10
 
 Resumed at the user's request. The next slice implements the first two follow-ups

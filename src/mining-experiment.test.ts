@@ -16,7 +16,7 @@ function fixture(yieldQuantity:number) {
     if(action==='spacemolt/mine'){state.cargo![0]!.quantity+=yieldQuantity;state.ship!.cargo_used+=yieldQuantity;state.ship!.fuel--;return {command:'mine',tick:123,delta:{cargo:state.cargo}};}
     if(action==='spacemolt_market/view_market')return {structuredContent:{items:[{item_id:'ore',buy_orders:[{quantity:5,price:10}]}]}};
     if(action==='spacemolt/sell'){state.cargo![0]!.quantity-=Number(params.quantity);state.player!.credits+=Number(params.quantity)*10;}
-    if(action==='spacemolt/refuel'){state.player!.credits-=(120-state.ship!.fuel)*3;state.ship!.fuel=120;}
+    if(action==='spacemolt/refuel'){const cost=(120-state.ship!.fuel)*3;state.player!.credits-=cost;state.ship!.fuel=120;return {cost,fuel:120,source:'station'};}
     return {};
   };
   return {account,command,calls};
