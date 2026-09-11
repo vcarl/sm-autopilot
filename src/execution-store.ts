@@ -6,6 +6,7 @@ import {terminalStoppingReason} from './execution-stopping.ts';
 import type {SpendingEvidence,BudgetSpending} from './spending.ts';
 import type {ServiceFuelQuote} from './servicing.ts';
 import type {TransportCleanupAllocation} from './transport-budget.ts';
+import type {TransportTimeBudget} from './transport-time.ts';
 export interface Job {
   id:string; action:string; status:'running'|'completed'|'blocked'|'interrupted'|'returned_to_base'|'needs_reconciliation';
   context:ExecutionContext; started_at:string; before:unknown; after?:unknown; obligations?:unknown;
@@ -24,6 +25,8 @@ export interface Job {
   service_fuel_quotes?:ServiceFuelQuote[];
   transport_cleanup_allocation?:TransportCleanupAllocation;
   transport_itinerary_checks?:Record<string,any>[];
+  transport_time_budget?:TransportTimeBudget;
+  transport_progress_checks?:Record<string,any>[];
   return_plan?:{home?:Home;destination:Home;temporary:boolean;reason?:string;home_location_source?:string;reused_from_job_id?:string};
 }
 export interface PilotRecord {pilot_id:string;home?:Home;context?:ExecutionContext;stop?:string;run_start_job:number;jobs:Job[]}

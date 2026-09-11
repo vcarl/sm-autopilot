@@ -25,6 +25,8 @@ import {logisticsPolicy} from './logistics-policy.ts';
 import {validateTransportReturn,transportReceipt} from './execution-logistics.ts';
 import {planTransportCleanup,remainingTransportCleanup} from './transport-budget.ts';
 import {planTransportFuel} from './transport-itinerary.ts';
+import {observeTransportDeadlines} from './transport-deadlines.ts';
+import {checkTransportTime} from './transport-time.ts';
 import {observeGathering,assessGathering,gatherResources,verifyGatherInventory,type GatherReceipt} from './gather.ts';
 import {assessProduction,productionWaitSeconds,productionExperiments,productionReceipt,unfinishedProduction,retainProductionAcceptance} from './shared-production.ts';
 
@@ -394,6 +396,7 @@ export class Execution {
       const owner=this.store.data.jobs.find(previous=>previous.id===params.resume_job_id&&previous.action==='transport');
       if(!owner)throw new Error('Unknown transport job');
       job.budget_owner_id=owner.budget_owner_id??owner.id;
+      job.transport_time_budget=owner.transport_time_budget;
     }
     this.active=job;this.store.data.jobs.push(job);this.store.save();
     let result:any;
@@ -591,6 +594,18 @@ export class Execution {
             this.store.save();
             if(cleanup.status!=='ready')throw new Error(cleanup.blockers.join('; '));
           }
+        }
+        const transport=transportReceipt(this.active?.result);
+        const deadlines=await observeTransportDeadlines(this.account,this.command,transport);
+        this.active!.transport_progress_checks??=[];
+        this.active!.transport_progress_checks.push({checked_at:new Date().toISOString(),deadlines});
+        if(deadlines.status==='blocked') { this.store.save(); throw new Error(deadlines.blockers.join('; ')); }
+        if(deadlines.status==='ready'||deadlines.status==='not_applicable') {
+          const timing=checkTransportTime(deadlines.observed_tick,this.context.limits.max_ticks,this.active!.transport_time_budget,!resume||!this.active!.transport_time_budget);
+          this.active!.transport_time_budget=timing.budget;
+          this.active!.transport_progress_checks.push({checked_at:new Date().toISOString(),timing});
+          this.store.save();
+          if(timing.status!=='ready')throw new Error(timing.reason??'Transport elapsed tick allocation exhausted');
         }
       },
       travel:async(id:string)=>{

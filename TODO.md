@@ -1945,6 +1945,56 @@ must be checked between legs. This does not justify a preflight ETA guarantee.
 Then revisit broader travel hazards/access and route allocations before fresh live
 passenger acceptance. S5/S14/A6 and the full VISION remain unfinished.
 
+## Timing work checkpoint and daemon discussion — 2026-09-11
+
+Last completed milestone is `15627807cf`. Timing integration is unfinished and
+uncommitted: execution-store.ts adds optional transport time/progress fields;
+transport-time.ts/test checks persistent elapsed budgets and regressed/unknown ticks;
+transport-deadlines.ts/test observes selected custody/deadlines and a fresh clock.
+Execution now wires these checks into transport admission, post-load validation and
+the before-leg movement callback. No already-submitted transit is cancelled or
+replayed; a late arrival is recorded and prevents the next productive leg.
+
+Pinned source audit corrected the initial clock plan: Account.currentTick is only
+a high-water mark for top-level tick-bearing frames. account.refresh/get_status do
+not guarantee a fresh clock. Existing shipping/active has a required response.tick;
+use that authenticated read for precommit and per-leg checks, including passengers.
+The deadline helper queries it even without custody, retains its clock evidence,
+and does not require equality with stale Account.currentTick. Selected passenger
+and personal freight identities, current ship and positive deadlines are verified.
+Legacy resume may derive a conservative original baseline from recorded admission
+obligations.freight.tick or accepted commitment envelope.tick; absent evidence must
+not initialize a new elapsed allowance. Authenticated arrived settlement and
+script-owned defensive return remain available despite time-planning blockers.
+
+User asked whether Hermes can run as a daemon, schedule fixed tasks and accept
+Discord inquiries/direction. Local Hermes supports a macOS launchd gateway,
+gateway-hosted cron, Discord DM/channel sessions and scheduled delivery. Our
+SpaceMolt tools are currently registered by execution_runner inside its dedicated
+process; installing the general gateway alone does not expose them. Proposed
+integration: dedicated Hermes profile/gateway plus one serialized SpaceMolt worker,
+with scheduled and Discord intents queued through a plugin/skill boundary. Queries
+use receipts or serialized fresh observations; urgent Tired reaches active scripts,
+normal policy changes use handoff. Cron/chat session lifetimes must not own or kill
+an active movement/cleanup. No daemon installed, schedules created, Discord messages
+sent, or game connections opened by this discussion.
+
+Integration coverage now includes a late first leg/no second leg, preserved custody,
+resumed original allowance and fresh selected-custody deadline checks. The deadline
+observer uses shipping/active.tick rather than stale Account.currentTick. Daemon/Discord integration is a user interest,
+not yet implemented or configured; concrete schedules and Discord configuration
+have not been supplied. Preserve these helper files while continuing.
+
+Tests for this increment: typecheck and npm test passed123 Node tests; required
+Python runner passed50 tests across12 SpaceMolt/native-skill files. Logs:
+/tmp/spacemolt-timing-node.log and /tmp/spacemolt-timing-python.log. git diff --check
+passed. Previous full completed milestone remains118 Node/50 Python tests.
+No Python implementation changed in this increment and no new Python tests run.
+Live state unchanged/historical: last runtime shared-live-passengers-outpost-20260911-02,
+handle6801 exited0, PID8141 absent at last verification. Credits194137, serviced
+Frontier dock,12 free economy berths, cargo21/120, no passenger/freight/crafting
+custody; six listed distress missions remain. No new authoritative pilot observation.
+
 ## Validation and completion record
 
 Follow the repository's required test workflow. Existing useful checks from the repository root are:

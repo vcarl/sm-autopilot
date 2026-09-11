@@ -19,7 +19,7 @@ export function freightFixture(t:any,options:{hiddenSize?:boolean;failedWithdraw
     if(key==='spacemolt_shipping/profile')result={action:'profile',debt_blocks_acceptance:false,debts:[],capacity:{active_contracts:contract.status==='in_transit'?1:0,active_contracts_unlimited:false,active_contract_limit:2,liability_unlimited:false,remaining_aggregate_liability:10000,single_package_liability_limit:10000},profile:{successful_deliveries:contract.status==='delivered'?1:0,outstanding_debt:0}};
     if(key==='spacemolt_shipping/list')result={action:'list',shipments:contract.status==='posted'?[{contract:structuredClone(contract),eligible:true,deadline_ticks:100}]:[]};
     if(key==='spacemolt_shipping/get')result={action:'get',contract:structuredClone(contract)};
-    if(key==='spacemolt_shipping/active')result={action:'active',tick:0,shipments:contract.status==='in_transit'?[{contract:structuredClone(contract),role:'carrier',package_in_your_cargo:aboard(),ticks_to_deadline:100,late:false}]:[]};
+    if(key==='spacemolt_shipping/active')result={action:'active',tick:1,shipments:contract.status==='in_transit'?[{contract:structuredClone(contract),role:'carrier',package_in_your_cargo:aboard(),ticks_to_deadline:100,late:false}]:[]};
     if(key==='spacemolt/inspect'&&params.id==='package:box') {
       if(options.hiddenSize)throw new SpacemoltError('not_found','Package not visible before acceptance');
       result={kind:'package',package:{package_id:'box',size:10}};
