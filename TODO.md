@@ -2213,6 +2213,9 @@ or a competing bridge. `git diff --check` passed; this documentation-only change
 run. Exact next action remains a fresh Kvothe Discord session/model reply, followed by a
 controller-state check before any direct SpaceMolt plugin install.
 
+Added root `CLAUDE.md` with pointers to the root and scoped SpaceMolt agent instructions. This is
+a documentation-only discovery file; `git diff --check` is the required validation.
+
 Follow the repository's required test workflow. Existing useful checks from the repository root are:
 
 ```sh
