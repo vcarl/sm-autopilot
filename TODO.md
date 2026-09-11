@@ -2176,6 +2176,12 @@ found running `./hermes profile delete spacemolt` (parent fish PID21113). It was
 raced. Exact next action is to wait for the user's resolution of that profile-delete command,
 then re-check whether the profile still exists before any plugin installation or gateway restart.
 
+The direct daemon guide now includes a terse division of responsibilities: SpaceMolt skills guide
+Hermes's planning and high-level `spacemolt_*` calls, while scripts own mechanics, immediate
+defense, verification, cleanup, and recovery. It records that planning changes require a new
+session and that Tired preserves obligations through script-owned return. This documentation-only
+change needs no runtime validation.
+
 Follow the repository's required test workflow. Existing useful checks from the repository root are:
 
 ```sh
