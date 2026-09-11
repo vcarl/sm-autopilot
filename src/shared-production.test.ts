@@ -5,6 +5,52 @@ import {productionFixture} from './production-fixture.ts';
 import {Execution} from './execution.ts';
 import {ExecutionStore} from './execution-store.ts';
 import {productionReceipt,productionExperiments} from './shared-production.ts';
+import {ExecutionHost} from './execution-host.ts';
+
+test('accepted unpriced craft resumes only from durable counter evidence, without replay or duplicate accounting',async t=>{
+  for(const historical of [false,true]) {
+    const f=productionFixture(t,{queued:true,missingCraftCost:true,noDemand:true});
+    const host=new ExecutionHost(f.account,f.directory,f.execution.deps);
+    await host.dispatch('execution/configure',{stance:'Industry',mood:'Focused',objective:'Retain owned production'});
+    await host.dispatch('job/observe');
+    await host.dispatch('job/plan',{home_base_id:'base',home_rationale:'Observed workshop and services'});
+    await host.dispatch('execution/handoff');
+    const send=f.account.send.bind(f.account),refresh=f.account.refresh.bind(f.account);
+    let accepted=false,failed=false;
+    f.account.send=async(tool,action,params:any)=>{const reply=await send(tool,action,params);if(action==='craft'&&params?.id&&!params.dry_run)accepted=true;return reply;};
+    f.account.refresh=async()=>{if(accepted&&!failed){failed=true;throw new Error('Refresh lost after accepted craft');}return refresh();};
+    const first:any=await host.dispatch('job/produce',{recipe_id:'refine',disposition:'retain',max_wait_seconds:0});
+    const production=productionReceipt(first.result)!;
+    assert.equal(first.status,'needs_reconciliation');
+    const saved=new ExecutionStore(f.directory,'pilot');
+    if(historical) {
+      const craft=saved.data.jobs.find(job=>job.id===first.id)!.actions.find(entry=>entry.action==='spacemolt/craft'&&(entry.params as any).id&&!(entry.params as any).dry_run)!;
+      delete (craft.accepted_result as any).structuredContent._hermes_spending;
+      saved.save();
+    }
+    // Another debit in the unknown interval must count, even alongside unrelated income.
+    f.state.player.stats.credits_spent+=2;f.state.player.credits+=98;
+    const recovery=new ExecutionHost(f.account,f.directory,f.execution.deps);
+    await recovery.dispatch('execution/configure',{stance:'Industry',mood:'Focused',objective:'Reconcile existing retained craft'});
+    const recovered:any=await recovery.dispatch('execution/reconcile');
+    const crafts=()=>f.calls.filter(call=>call.key==='spacemolt/craft'&&call.params.id&&!call.params.dry_run).length;
+    assert.equal(crafts(),1);
+    if(historical) {assert.equal(recovered.status,'needs_reconciliation');assert.equal(recovered.spending.gross_spend,null);continue;}
+    assert.equal(recovered.spending.gross_spend,5);
+    assert.equal(productionReceipt(recovered.result)!.spent,5);
+    assert.equal(productionReceipt(recovered.result)!.pending_action,undefined);
+    await recovery.dispatch('execution/reconcile');
+    const restored=new ExecutionStore(f.directory,'pilot');
+    assert.equal(productionExperiments(restored.data.jobs)[0]!.spent,5);
+    f.finish();await restored.startNewRun(f.account);
+    const resumed=new Execution(f.account,restored,f.execution.context,f.execution.deps);
+    const result:any=await resumed.dispatch('produce',{experiment_id:production.experiment_id,max_wait_seconds:0});
+    assert.equal(result.result.production.status,'complete');
+    assert.equal(result.result.production.spent,5);assert.equal(result.budget_spending.gross_spend,5);
+    assert.equal(result.budget_owner_id,first.id);assert.deepEqual(result.result.production.retained,{metal:2});
+    assert.equal(crafts(),1);assert.equal(f.calls.some(call=>call.key==='spacemolt/sell'),false);
+  }
+});
 
 test('shared production quotes, sources, settles and stops with receipt accounting and no mining fit',async t=>{
   for(const buyInputs of [false,true]) {
@@ -42,6 +88,7 @@ test('shared production quotes, sources, settles and stops with receipt accounti
 test('pending and partial production resume only settlement in a new run while unknown acceptance never replays',async t=>{
   for(const scenario of ['queued','partialSale','missingCraftCost','missingSaleProceeds'] as const) {
     const f=productionFixture(t,{[scenario]:true});await f.choose();
+    if(scenario==='missingCraftCost')delete f.state.player.stats.credits_spent;
     const first:any=await f.execution.dispatch('produce',{recipe_id:'refine',max_wait_seconds:0});
     const production=productionReceipt(first.result)!;
     const unknown=scenario.startsWith('missing');

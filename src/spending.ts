@@ -10,8 +10,16 @@ export interface BudgetSpending extends SpendingEvidence {owner_job_id:string;ma
 export const isPaidCommand=(action:string,params:unknown={})=>action in paidFields||
   (action==='spacemolt/craft'&&params!==null&&typeof params==='object'&&
     'id' in params&&typeof params.id==='string'&&(!('dry_run' in params)||params.dry_run!==true));
-const costEvidence=(action:string)=>action==='spacemolt/buy'?'accepted lifetime credits_spent counter interval covering the market subtotal':paidFields[action]??'escrowed.labor and escrowed.fee';
+const costEvidence=(action:string)=>action==='spacemolt/buy'?'accepted lifetime credits_spent counter interval covering the market subtotal':paidFields[action]??'escrowed.labor and escrowed.fee or refreshed lifetime credits_spent counter interval';
 const validCost=(cost:unknown):cost is number=>typeof cost==='number'&&Number.isFinite(cost)&&cost>=0;
+
+export function withCraftSpendEvidence(reply:any,before:unknown,after?:unknown,phase:'accepted'|'refreshed'='accepted'):any {
+  const result=reply?.structuredContent??reply?.delta?.details??reply;
+  if(!result||typeof result!=='object')return reply;
+  const receipt={...result,_hermes_spending:{source:'lifetime_credits_spent_interval',phase,before,after}};
+  return reply.structuredContent?{...reply,structuredContent:receipt}:
+    reply.delta?.details?{...reply,delta:{...reply.delta,details:receipt}}:receipt;
+}
 
 /** Buy total_cost excludes sales tax. Count the full observed debit interval conservatively. */
 export function commandSpend(action:string,reply:any,params:unknown={}):number|null {
@@ -28,9 +36,17 @@ export function commandSpend(action:string,reply:any,params:unknown={}):number|n
   }
   if(action==='spacemolt/craft') {
     const escrow=result?.escrowed;
-    if(result?.kind!=='job'||!validCost(escrow?.labor)||!validCost(escrow?.fee))return null;
-    const total=escrow.labor+escrow.fee;
-    return validCost(total)?total:null;
+    if(result?.kind!=='job'||!escrow||typeof escrow!=='object')return null;
+    if(('labor' in escrow&&!validCost(escrow.labor))||('fee' in escrow&&!validCost(escrow.fee)))return null;
+    if(validCost(escrow.labor)&&validCost(escrow.fee)) {
+      const total=escrow.labor+escrow.fee;
+      return validCost(total)?total:null;
+    }
+    const evidence=result._hermes_spending;
+    if(evidence?.source!=='lifetime_credits_spent_interval'||evidence.phase!=='refreshed'||
+      !validCost(evidence.before)||!validCost(evidence.after))return null;
+    const total=evidence.after-evidence.before,known=(escrow.labor??0)+(escrow.fee??0);
+    return validCost(total)&&total>=known?total:null;
   }
   const cost=result?.[field!];
   return validCost(cost)?cost:null;

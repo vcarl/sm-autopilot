@@ -2,6 +2,8 @@ import type {Job} from './execution-store.ts';
 import {details,executeIndustry,type IndustryContext,type IndustryCommand} from './industry.ts';
 import type {Account} from '@spacemolt/lib';
 import {getIndustryCatalog} from './persistent-catalog.ts';
+import {isDeepStrictEqual} from 'node:util';
+import {commandSpend} from './spending.ts';
 
 type Wire=Record<string,any>;
 export const productionWaitSeconds=120;
@@ -37,6 +39,26 @@ export function retainProductionAcceptance(job:Job) {
   if(pending.action==='spacemolt/craft'&&receipt.job_id)production.job_id=receipt.job_id;
   production.status='needs_reconciliation';
   // Acceptance is not settlement or complete accounting; retain the pending action.
+}
+
+/** Resolve only a recorded craft acceptance; sourcing and output custody remain separate. */
+export function reconcileProductionAcceptance(job:Job) {
+  const production=productionReceipt(job.result);
+  const pending=production?.pending_action??production?.accounting_unverified;
+  if(!production||pending?.action!=='spacemolt/craft'||!production.job_id)return;
+  const matches=job.actions.filter(entry=>entry.action===pending.action&&isDeepStrictEqual(entry.params,pending.params)&&entry.accepted_result!==undefined);
+  if(matches.length!==1)return;
+  const entry=matches[0]!,receipt=details(entry.accepted_result);
+  if(receipt.kind!=='job'||receipt.job_id!==production.job_id)return;
+  const cost=commandSpend(entry.action,entry.accepted_result,entry.params);
+  if(cost===null||!Number.isFinite(production.spent)||production.spent<0)return;
+  if(production.accounting_unverified&&(!isDeepStrictEqual(production.accounting_unverified.params,pending.params)||production.accounting_unverified.action!==pending.action))return;
+  production.spent+=cost;
+  production.last_receipt=receipt;
+  delete production.pending_action;
+  delete production.accounting_unverified;
+  delete production.reason;
+  production.status='pending';
 }
 
 

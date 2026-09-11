@@ -1,4 +1,5 @@
 import { ACTIONS } from '@spacemolt/lib';
+import {commandSpend,isPaidCommand,withCraftSpendEvidence} from './spending.ts';
 
 interface GameAccount {
   readonly state?:{player?:{stats?:unknown}};
@@ -21,8 +22,16 @@ export async function sendAndRefresh(account:GameAccount, key:string, params:Rec
         result.delta?.details?{...result,delta:{...result.delta,details:priced}}:priced;
     }
   }
+  const pendingCraft=key==='spacemolt/craft'&&isPaidCommand(key,params)&&commandSpend(key,result,params)===null;
+  if(pendingCraft)result=withCraftSpendEvidence(result,before);
   executed(result);
   // Dock outcomes omit mission changes on the live server.
   if (ACTIONS[key]?.kind === 'mutation' || key === 'spacemolt/get_status') await account.refresh();
+  if(pendingCraft) {
+    const refreshed=account.state?.player?.stats;
+    const after=refreshed&&typeof refreshed==='object'&&'credits_spent' in refreshed?refreshed.credits_spent:undefined;
+    result=withCraftSpendEvidence(result,before,after,'refreshed');
+    executed(result);
+  }
   return result;
 }

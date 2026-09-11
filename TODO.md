@@ -1564,6 +1564,56 @@ unfinished. Exact next action: finish and verify that fix, reconcile this origin
 job, then let real Hermes select its persisted experiment and verify retained cabin
 custody. Fit and canonical berths/passenger demonstration remain unfinished.
 
+## Workshop spending and accepted-craft recovery fix — 2026-09-11
+
+Material staging evidence committed as `74e5f742f3`. The live workshop mismatch is
+fixed without treating omitted fees or a quote as actual spending. sendAndRefresh
+persists accepted craft with its before counter, then enriches the same action with
+an authoritative counter after refresh. Missing/decreasing counters remain unknown;
+explicit escrow costs remain supported. Reconciliation completes before-only evidence
+from a fresh canonical counter, includes unrelated interval debits conservatively,
+and resolves the exact saved craft/job identity into its experiment once. It clears
+only that accounted pending marker and leaves output settlement unfinished.
+
+Verified regressions were red on prior implementation. `npm run typecheck && npm test`
+passes106 Node tests. Required Python runner with specified HERMES_PYTHON and all
+SpaceMolt/native-skill test files passes46 tests across12 files. Coverage includes
+actual Hermes imports/registry/BridgeClient/ExecutionHost, refresh loss, preserved
+acceptance, repeated reconciliation without duplicate cost/craft, original allocation,
+and retained output custody. README documents the accounting contract. VISION unchanged.
+
+For the already accepted historical job, root backed up the private pilot checkpoint
+at codex-cabin-reconciliation-20260911/pilot-before-evidence-restoration.json and restored
+only its missing before-counter evidence from the recorded accepted refuel receipt.
+Same-pilot baseline38059 and later authoritative38059 were verified. The action records
+source paths, reason and pre-edit SHA256 in operator_evidence_restoration. This is
+manual historical evidence restoration, not proof of autonomous old-receipt migration.
+No job ID, production status, stop latch or cost was manually rewritten.
+
+An attempted fresh --new-run at shared-live-cabin-retain-20260911-02 correctly rejected
+the unreconciled state before productive dispatch, exiting1. The ordinary recovery
+run at shared-live-cabin-retain-20260911-recovery, handle32997 exited0, then used actual
+script recovery: original shared job becomes interrupted, gross spending0, production
+pending with the same job ID and no pending_action/accounting_unverified marker.
+Final return receipt verifies docked serviced Frontier state. All involved controller
+locks cleared before the next connection. No cabin custody is claimed yet.
+
+Active real Hermes/oMLX resume attempt:
+`spacemolt/runtime/shared-live-cabin-retain-20260911-03`, handle52520. It must observe
+and select the saved experiment, never enqueue a replacement. Follow this process
+handle through completion; no competing connection. The accepted workshop obligation
+remains c711344461b35498e31c07b6442fd4a9; last direct queue observation was eta67ticks,
+20.4percent progress, materials consumed and no cabin yet. Last verified credits194149,
+full fuel120/hull105/shield35, original cargo11, Frontier dock; remembered home preserved.
+
+Source milestone files: execute.ts/test, spending.ts, recovery.ts,
+shared-production.ts/test, README and this TODO. Commit locally after evidence/diff
+review as `Reconcile workshop spending from authoritative counter intervals`. No push.
+Exact next action: follow active Hermes handle52520, verify it selects the original
+experiment and script-owned pending/completed settlement; after terminal controller
+exit, obtain canonical cabin storage custody and fit/berth proof before passenger
+acceptance. Full vision remains open. Workshop completion is not implied by this fix.
+
 ## Validation and completion record
 
 Follow the repository's required test workflow. Existing useful checks from the repository root are:

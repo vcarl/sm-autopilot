@@ -178,7 +178,12 @@ from immediately before the command and its accepted response. The observed debi
 interval includes tax and cannot be reduced by concurrent income; any unrelated
 spending within that interval also consumes the allocation. It is not a promise of
 exact purchase-only attribution. Missing or inconsistent counter evidence leaves
-the all-in purchase cost unknown and blocks further spending.
+the all-in purchase cost unknown and blocks further spending. Workshop acceptance
+can omit monetary escrow fields; when it does, scripts retain the pre-command
+spending counter before refreshing and price the observed interval after a successful
+refresh. A lost refresh preserves acceptance and its baseline for reconciliation.
+Recovery updates that same craft once and resumes its saved experiment without
+queuing a replacement. A quote alone never establishes actual spending.
 Exhausting the allocation can leave servicing blocked, and `--new-run` cannot
 clear that condition because it requires an already serviced ship.
 

@@ -5,7 +5,8 @@ import type {ExecutionStore,Job} from './execution-store.ts';
 import {observeObligations,ObligationObservationError} from './obligations.ts';
 import type {ServiceClock} from './servicing.ts';
 import {verifyGatherInventory,type GatherReceipt} from './gather.ts';
-import {jobSpending,jobBudget} from './spending.ts';
+import {jobSpending,jobBudget,withCraftSpendEvidence} from './spending.ts';
+import {reconcileProductionAcceptance} from './shared-production.ts';
 
 type Wire=Record<string,any>;
 export function reconcileAction(action:Job['actions'][number],state:Wire,battle:Wire|null) {
@@ -77,6 +78,15 @@ export async function reconcileJob(account:Account,store:ExecutionStore,job:Job,
     }
     await account.refresh();
     const state=ops.snapshot();evidence.state=state;
+    for(const action of job.actions) {
+      const receipt=details(action.accepted_result);
+      const spending=receipt?._hermes_spending;
+      const after=(account.state.player?.stats as Wire)?.credits_spent;
+      if(action.action==='spacemolt/craft'&&receipt?.kind==='job'&&spending?.source==='lifetime_credits_spent_interval'&&spending.phase==='accepted'&&
+        typeof spending.before==='number'&&Number.isFinite(spending.before)&&spending.before>=0&&typeof after==='number'&&Number.isFinite(after)&&after>=spending.before) {
+        action.accepted_result=withCraftSpendEvidence(action.accepted_result,spending.before,after,'refreshed');
+      }
+    }
     if(state.ship?.id!==(job.before as Wire)?.ship?.id)throw new Error('Ship changed since job admission; reconcile loss before returning');
     if(state.location?.in_transit)throw new Error('Transit still active; do not replay movement');
     for(const action of pending) {
@@ -87,6 +97,7 @@ export async function reconcileJob(account:Account,store:ExecutionStore,job:Job,
     }
     store.save();
     if(evidence.decisions.some((d:Wire)=>!d.resolved))throw new Error('Unresolved action effect; inspect the recorded evidence before any productive retry');
+    reconcileProductionAcceptance(job);store.save();
     ops.resetBoundary();
     evidence.cleanup_attempted=true;store.save();
     evidence.cleanup=await ops.returnHome();
