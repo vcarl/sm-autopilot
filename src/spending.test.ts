@@ -53,3 +53,25 @@ test('service totals include tax once and an overquote stops further service des
   },{minFuel:120,maxServiceSpend:12,serviceQuotes:{refuel:9,repair:3}},true),/spending breached/);
   assert.deepEqual(actions,['spacemolt/refuel']);
 });
+
+test('craft reads are free while accepted enqueue escrow remains priced exactly once across recovery',()=>{
+  const action='spacemolt/craft',params={id:'metal',quantity:1};
+  const receipt={kind:'job',job_id:'craft-job',escrowed:{labor:7,fee:2}};
+  assert.equal(commandSpend(action,{kind:'quote',credits_total:9},{...params,dry_run:true}),0);
+  assert.equal(commandSpend(action,{kind:'queue',jobs:[]},{}),0);
+  assert.equal(commandSpend(action,receipt,params),9);
+  const job:any={id:'production',actions:[
+    {action,params:{},status:'confirmed',result:{kind:'queue',jobs:[]}},
+    {action,params:{...params,dry_run:true},status:'confirmed',result:{kind:'quote',credits_total:9}},
+    {action,params,status:'uncertain',accepted_result:receipt,result:{error:'refresh lost'}},
+  ]};
+  assert.equal(jobSpending(job).gross_spend,9);
+  job.actions[2].status='confirmed';job.actions[2].result=receipt;
+  assert.equal(jobSpending(job).gross_spend,9);
+  for(const escrowed of [{labor:7},{fee:2},{labor:-1,fee:2},{labor:7,fee:NaN}]) {
+    job.actions[2].accepted_result={...receipt,escrowed};
+    assert.equal(jobSpending(job).gross_spend,null);
+    assert.equal(jobSpending(job).unpriced_actions[0]?.action_index,2);
+  }
+  assert.equal(commandSpend(action,{kind:'quote',credits_total:9},params),null);
+});

@@ -281,6 +281,29 @@ budget reauthorization workflow remains future work. Independent review reproduc
 the original boundary defect, but the reviewing IC hit a usage limit before final
 patch review; final implementation review and validation were completed locally.
 
+## Production accounting and settlement integration — 2026-09-11
+
+S12 production integration is in progress. The existing Industry executor now accepts
+shared durable experiment storage and execution checkpoints, including waits of at
+most two seconds. Accepted mutation identity is saved before accounting validation;
+interrupted settlement retains queued work or partial output instead of replaying it.
+
+Production accounting uses accepted `buy.total_cost`, craft `escrowed.labor` plus
+`escrowed.fee`, and direct-sale `total_earned`. Quotes and queue reads are free;
+wallet changes remain separate cash observations. The pinned library does not define
+omitted escrow components as zero, so incomplete escrow evidence blocks further paid
+work. Queue contents cannot reconstruct a missing enqueue charge. Sales keep
+`auto_list:false` to avoid creating untracked listings.
+
+Offline checks cover durable callbacks, interrupted waits/withdrawals, enqueue costs
+with unrelated income, and missing escrow without duplicate production. Shared
+spending journals count retained accepted craft responses once across recovery.
+Production reporting preserves partial custody/accounting evidence and excludes
+quoted profit. These changes alone do not complete the shared `produce` tool or S12;
+tool dispatch, settlement continuation, skills, and real-Hermes acceptance are being
+integrated next. Validation: typecheck, 72 Node tests, and 31 Python tests through
+the required runner pass. No new live game controller was started for this increment.
+
 ## Live gathering recovery and startup receipt race — 2026-09-11
 
 After `163d1e4317`, a fresh real Hermes Industry run completed both requested

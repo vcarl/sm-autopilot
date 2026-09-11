@@ -101,7 +101,7 @@ export class Execution {
       if(await this.defend())throw new DefenseInterruption('Unexpected combat invalidated the pending operation; return before reconsidering work');
     }
     if(this.stopping&&['spacemolt/hunt','spacemolt/mine','spacemolt/buy','spacemolt/install_mod','spacemolt/uninstall_mod','spacemolt_storage/withdraw','spacemolt_salvage/loot','spacemolt/scan'].includes(action))throw new StopWork('Stop requested before productive command');
-    if(this.active&&isPaidCommand(action)) {
+    if(this.active&&isPaidCommand(action,params)) {
       const spending=jobBudget(this.active,this.store.data.jobs);
       if(spending.gross_spend===null)throw new Error('Unpriced paid command prevents further spending until reconciliation');
       if(spending.gross_spend>spending.max_spend)throw new Error('Gross spending already exceeded the job budget');
@@ -123,8 +123,8 @@ export class Execution {
     }
     // An accepted command with missing cost is not an unaccepted command. Keep
     // the healthy boundary available for defensive return, but block more spend.
-    if(this.active&&isPaidCommand(action)) {
-      requireCommandSpend(action,value);
+    if(this.active&&isPaidCommand(action,params)) {
+      requireCommandSpend(action,value,params);
       const spending=jobBudget(this.active,this.store.data.jobs);
       if(spending.known_gross_spend>spending.max_spend||this.account.credits!<spending.credit_reserve)throw new Error('Accepted command exceeded gross job spending budget or wallet reserve');
     }

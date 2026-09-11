@@ -7,19 +7,29 @@ export interface SpendingEvidence {
   unpriced_actions:{job_id:string;action_index:number;action:string;reason:string}[];
 }
 export interface BudgetSpending extends SpendingEvidence {owner_job_id:string;max_spend:number;credit_reserve:number}
-export const isPaidCommand=(action:string)=>action in paidFields;
+export const isPaidCommand=(action:string,params:unknown={})=>action in paidFields||
+  (action==='spacemolt/craft'&&params!==null&&typeof params==='object'&&
+    'id' in params&&typeof params.id==='string'&&(!('dry_run' in params)||params.dry_run!==true));
+const costEvidence=(action:string)=>paidFields[action]??'escrowed.labor and escrowed.fee';
+const validCost=(cost:unknown):cost is number=>typeof cost==='number'&&Number.isFinite(cost)&&cost>=0;
 
 /** These pinned response fields are totals. Refuel tax is already in cost. */
-export function commandSpend(action:string,reply:any):number|null {
+export function commandSpend(action:string,reply:any,params:unknown={}):number|null {
   const field=paidFields[action];
-  if(!field)return 0;
+  if(!isPaidCommand(action,params))return 0;
   const result=reply?.structuredContent??reply?.delta?.details??reply;
-  const cost=result?.[field];
-  return typeof cost==='number'&&Number.isFinite(cost)&&cost>=0?cost:null;
+  if(action==='spacemolt/craft') {
+    const escrow=result?.escrowed;
+    if(result?.kind!=='job'||!validCost(escrow?.labor)||!validCost(escrow?.fee))return null;
+    const total=escrow.labor+escrow.fee;
+    return validCost(total)?total:null;
+  }
+  const cost=result?.[field!];
+  return validCost(cost)?cost:null;
 }
-export function requireCommandSpend(action:string,reply:unknown):number {
-  const cost=commandSpend(action,reply);
-  if(cost===null)throw new Error(`Unpriced accepted ${action}: authoritative ${paidFields[action]} required before further spending`);
+export function requireCommandSpend(action:string,reply:unknown,params:unknown={}):number {
+  const cost=commandSpend(action,reply,params);
+  if(cost===null)throw new Error(`Unpriced accepted ${action}: authoritative ${costEvidence(action)} required before further spending`);
   return cost;
 }
 
@@ -28,11 +38,11 @@ export function jobSpending(job:Job):SpendingEvidence {
   let known=0;
   const unpriced:SpendingEvidence['unpriced_actions']=[];
   job.actions.forEach((entry,action_index)=>{
-    if(!isPaidCommand(entry.action))return;
+    if(!isPaidCommand(entry.action,entry.params))return;
     const result=entry.result as Record<string,unknown>|undefined;
     if(entry.accepted_result===undefined&&entry.status==='confirmed'&&result?.fatal===false&&result.action_completed===false&&result.outcome_unknown===false)return;
-    const cost=commandSpend(entry.action,entry.accepted_result??entry.result);
-    if(cost===null)unpriced.push({job_id:job.id,action_index,action:entry.action,reason:`Authoritative ${paidFields[entry.action]} unavailable; wallet changes are not cost evidence`});
+    const cost=commandSpend(entry.action,entry.accepted_result??entry.result,entry.params);
+    if(cost===null)unpriced.push({job_id:job.id,action_index,action:entry.action,reason:`Authoritative ${costEvidence(entry.action)} unavailable; wallet changes are not cost evidence`});
     else known+=cost;
   });
   return {gross_spend:unpriced.length?null:known,known_gross_spend:known,unpriced_actions:unpriced};

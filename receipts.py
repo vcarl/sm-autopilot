@@ -57,6 +57,16 @@ def receipt_report(receipts, cleanup_response=None):
                                    "unattributed_cargo_gains", "inventory_verification") if key in gather}
             if "skill_progress" in gather:
                 row["observed_skill_progress"] = deepcopy(gather["skill_progress"])
+        production = work_result(result, "production")
+        if production:
+            row["production_work"] = {key: deepcopy(production[key]) for key in
+                                      ("experiment_id", "job_id", "station", "status", "reason",
+                                       "spent", "earned", "accounting_unverified", "pending_action",
+                                       "sold", "withdrawn", "deposited", "sales", "after",
+                                       "retained_assets_note", "realized_credit_delta",
+                                       "incremental_profit_after_input_opportunity") if key in production}
+            if "skill_progress" in production:
+                row["observed_skill_progress"] = deepcopy(production["skill_progress"])
         jobs.append(row)
     deltas = [job["cash_delta"] for job in jobs]
     known_cash = (all(job["status"] not in {"running", "needs_reconciliation"} for job in jobs)

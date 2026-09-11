@@ -11,9 +11,18 @@ import { surveyMarkets } from './survey.ts';
 import { getIndustryCatalog } from './persistent-catalog.ts';
 import { screenCatalog } from './catalog-screen.ts';
 import { stationSnapshot } from './station-snapshot.ts';
+import type {ServiceClock} from './servicing.ts';
+import {requireCommandSpend} from './spending.ts';
 
 type Wire = Record<string, any>;
 export type IndustryCommand = (action:string, params?:Record<string,unknown>)=>Promise<unknown>;
+export interface IndustryControls extends ServiceClock {checkpoint?:()=>Promise<void>}
+export interface IndustryContext extends IndustryControls {
+  snapshot?:ReturnType<typeof stationSnapshot>;
+  catalog?:ReturnType<typeof getIndustryCatalog>;
+  record?:(event:Wire)=>void;
+  existing_experiments?:Wire[];
+}
 const ledger = new URL('../runtime/industry.jsonl',import.meta.url);
 export const details = (reply:any):Wire => reply?.structuredContent ?? reply?.delta?.details ?? reply ?? {};
 const record = (event:Wire) => appendFileSync(ledger, JSON.stringify({at:new Date().toISOString(),...event})+'\n',{mode:0o600});
@@ -96,27 +105,29 @@ export async function industry(action:string, params:Wire, account:Account, comm
   return compactIndustryReply(action,await executeIndustry(action,params,account,command));
 }
 
-export async function executeIndustry(action:string, params:Wire, account:Account, command:IndustryCommand, context:{snapshot?:ReturnType<typeof stationSnapshot>;catalog?:ReturnType<typeof getIndustryCatalog>;record?:(event:Wire)=>void}={}):Promise<unknown> {
+export async function executeIndustry(action:string, params:Wire, account:Account, command:IndustryCommand, context:IndustryContext={}):Promise<unknown> {
   const observe=context.record??record;
+  const existing=()=>context.existing_experiments??experiments();
+  const now=context.now??Date.now;
   const credits=()=>{if(account.credits===undefined)throw new Error('Canonical credits unavailable');return account.credits;};
   const station = account.location?.docked_at;
   if(action==='history'||action==='recommend') {
-    const rows=existsSync(ledger)?readFileSync(ledger,'utf8').trim().split('\n').filter(Boolean).map(l=>JSON.parse(l)):[];
+    const rows=context.existing_experiments??records();
     const miningFile=new URL('../runtime/mining-experiments.jsonl',import.meta.url);
     const miningRows=existsSync(miningFile)?readFileSync(miningFile,'utf8').trim().split('\n').filter(Boolean).map(l=>JSON.parse(l)).filter(r=>r.event==='mining_experiment'):[];
     const mining=[...new Map(miningRows.map(r=>[r.id,r])).values()].slice(-20);
-    if(action==='recommend')return recommendStrategy([...rows,...miningRows],credits(),{creditReserve:Number(params.credit_reserve??150000),initialExplorationBudget:Number(params.exploration_budget??1000),reinvestFraction:Number(params.reinvest_fraction??0.25),maxExperimentSpend:Number(params.max_spend??1000),nowMs:Date.now(),maxLearningLoss:Number(params.max_learning_loss??0),currentSkillContext:{skills:snapshotSkills(account.state)}});
-    return {mining_experiments:mining.map(r=>({id:r.id,at:r.at,status:r.status,measurement_note:r.measurement_note,skill_context:r.skill_context,skill_progress:r.skill_progress,yields:r.yields,retained:r.retained,unsold:r.unsold,seconds:r.seconds,hull_liability_units:r.hull_liability_units,source_measurements:r.source_measurements,origin_station:r.origin_station,poi_id:r.poi_id,cash_delta:r.cash_delta,realized_profit:r.realized_profit,fuel_liability_units:r.fuel_liability_units})),experiments:experiments().slice(-30).map(r=>({experiment_id:r.experiment_id,key:r.key,station:r.station,status:r.status,reason:r.reason,job_id:r.job_id,recipe_id:r.quote?.recipe_id,source:r.quote?.source,quantity:r.quote?.quantity,expected_profit:r.quote?.evaluation?.expectedProfit,expected_processing_advantage:r.quote?.evaluation?.processingAdvantage,realized_credit_delta:r.realized_credit_delta,incremental_profit_after_input_opportunity:r.incremental_profit_after_input_opportunity,spent:r.spent,earned:r.earned,seconds:r.seconds,skill_context:r.skill_context,skill_progress:r.skill_progress,learning_policy:r.learning_policy})),observations:rows.filter(r=>r.event==='screen').map(r=>({at:r.at,station:r.station,candidates:r.candidates,exploration_candidates:r.exploration_candidates})).slice(-10),guidance:'Revalidate stale prices. Exploit positive realized loops to replenish exploration funds; cap each unfamiliar experiment by max_spend and maintain the credit reserve.'};
+    if(action==='recommend')return recommendStrategy([...rows,...miningRows],credits(),{creditReserve:Number(params.credit_reserve??150000),initialExplorationBudget:Number(params.exploration_budget??1000),reinvestFraction:Number(params.reinvest_fraction??0.25),maxExperimentSpend:Number(params.max_spend??1000),nowMs:now(),maxLearningLoss:Number(params.max_learning_loss??0),currentSkillContext:{skills:snapshotSkills(account.state)}});
+    return {mining_experiments:mining.map(r=>({id:r.id,at:r.at,status:r.status,measurement_note:r.measurement_note,skill_context:r.skill_context,skill_progress:r.skill_progress,yields:r.yields,retained:r.retained,unsold:r.unsold,seconds:r.seconds,hull_liability_units:r.hull_liability_units,source_measurements:r.source_measurements,origin_station:r.origin_station,poi_id:r.poi_id,cash_delta:r.cash_delta,realized_profit:r.realized_profit,fuel_liability_units:r.fuel_liability_units})),experiments:existing().slice(-30).map(r=>({experiment_id:r.experiment_id,key:r.key,station:r.station,status:r.status,reason:r.reason,job_id:r.job_id,recipe_id:r.quote?.recipe_id,source:r.quote?.source,quantity:r.quote?.quantity,expected_profit:r.quote?.evaluation?.expectedProfit,expected_processing_advantage:r.quote?.evaluation?.processingAdvantage,realized_credit_delta:r.realized_credit_delta,incremental_profit_after_input_opportunity:r.incremental_profit_after_input_opportunity,spent:r.spent,earned:r.earned,seconds:r.seconds,skill_context:r.skill_context,skill_progress:r.skill_progress,learning_policy:r.learning_policy})),observations:rows.filter(r=>r.event==='screen').map(r=>({at:r.at,station:r.station,candidates:r.candidates,exploration_candidates:r.exploration_candidates})).slice(-10),guidance:'Revalidate stale prices. Exploit positive realized loops to replenish exploration funds; cap each unfamiliar experiment by max_spend and maintain the credit reserve.'};
   }
   if(action==='locations')return industryLocations(account.location?.system_id,params);
   if(!station) return {status:'blocked',reason:'Dock at the target station first; location is an experiment variable.'};
   if(action==='discover')return discoverMarket(params,{screen:async p=>await executeIndustry('screen',p,account,command,context) as Wire,quote:async p=>await executeIndustry('quote',p,account,command,context) as Wire,record:observe});
-  if(action==='survey')return surveyMarkets({...params,station_ids:params.station_ids},account,command,()=>executeIndustry('discover',{},account,command));
+  if(action==='survey')return surveyMarkets({...params,station_ids:params.station_ids},account,command,()=>executeIndustry('discover',{},account,command,{...context,snapshot:undefined}));
   if(action==='prepare_mining')return ensureReadiness(account,command,{requireMining:true,minFreeCargo:Number(params.min_free_cargo??20),minFuel:Number(params.min_fuel??10),creditReserve:Number(params.credit_reserve??150000)},params.execute===true);
   if(action==='settle') {
-    const experiment=experiments().find(e=>params.experiment_id ? e.experiment_id===params.experiment_id : params.job_id && e.job_id===params.job_id);
+    const experiment=existing().find(e=>params.experiment_id ? e.experiment_id===params.experiment_id : params.job_id && e.job_id===params.job_id);
     if(!experiment)return {status:'blocked',reason:'Unknown experiment_id/job_id; consult history.'};
-    return settleExperiment(experiment,params,account,command);
+    return settleExperiment(experiment,params,account,command,observe,context);
   }
   context.catalog??=getIndustryCatalog();
   const catalogState=await context.catalog;
@@ -144,7 +155,7 @@ export async function executeIndustry(action:string, params:Wire, account:Accoun
   if(params.source!==undefined && !['buy','inventory'].includes(params.source))return {status:'blocked',reason:'source must be buy or inventory'};
   const source=params.source==='buy'?'buy':'inventory';
   if(action==='produce') {
-    const unfinished=experiments().find(e=>e.station===station && !['complete','aborted'].includes(e.status));
+    const unfinished=existing().find(e=>e.station===station && !['complete','aborted'].includes(e.status));
     if(unfinished)return {status:'blocked',reason:'Settle the existing experiment before producing again.',experiment_id:unfinished.experiment_id,job_id:unfinished.job_id,status_existing:unfinished.status};
   }
   const craft=details(await command('spacemolt/craft',{id:recipe.id,quantity,dry_run:true,preset:'cheap'}));
@@ -181,8 +192,8 @@ export async function executeIndustry(action:string, params:Wire, account:Accoun
   const advantage=source==='inventory'?evaluation.processingAdvantage:evaluation.expectedProfit;
   if(!evaluation.feasible||advantage===null||advantage<minProfit||plannedSpend>maxSpend||credits()-plannedSpend<reserve)return {status:'blocked',reason:'Quote fails feasibility, profit or budget requirement',quote};
   const before={credits:credits(),cargo:structuredClone(account.cargo),storage:stock,skills:snapshotSkills(account.state)};
-  const experiment:Wire={event:'experiment',experiment_id:randomUUID(),station,key:evaluation.id,quote,before,skill_context,learning_policy:learningPolicy,skill_progress:[],started:Date.now(),status:'purchasing',spent:0,earned:0,sales:[],sold:{},withdrawn:{}};
-  record(experiment);
+  const experiment:Wire={event:'experiment',experiment_id:randomUUID(),station,key:evaluation.id,quote,before,skill_context,learning_policy:learningPolicy,skill_progress:[],started:now(),status:'purchasing',spent:0,earned:0,sales:[],sold:{},withdrawn:{}};
+  observe(experiment);
   const revalidateProfit=async(remaining:number,labor:number)=>{
     const current=details(await command('spacemolt_market/view_market',{}));
     if(!Array.isArray(current.items))throw new Error('Current output market unavailable');
@@ -202,7 +213,7 @@ export async function executeIndustry(action:string, params:Wire, account:Accoun
       let remaining=q.total_cost;
       for(const later of purchases.slice(index+1)){const estimate=details(await command('spacemolt_market/estimate_purchase',{item_id:later.item_id,quantity:later.quantity}));if(estimate.unfilled!==0||!Number.isFinite(estimate.total_cost))throw new Error('Remaining input supply unavailable');remaining+=estimate.total_cost;}
       await revalidateProfit(remaining,craft.credits_total);
-      const receipt=await experimentCommand(experiment,command,'spacemolt/buy',{id:i.item_id,quantity:i.quantity,deliver_to:'storage',auto_list:false},account);
+      const receipt=await experimentCommand(experiment,command,'spacemolt/buy',{id:i.item_id,quantity:i.quantity,deliver_to:'storage',auto_list:false},account,observe,context);
       if(receipt.unfilled>0||receipt.delivered_to_storage!==i.quantity)throw new Error('Input purchase did not fully fill into storage; existing inventory must not cover it');
       if(experiment.spent+craft.credits_total>maxSpend||credits()-craft.credits_total<reserve)throw new Error('Actual purchase exceeds remaining budget; no further spending');
     }
@@ -213,7 +224,7 @@ export async function executeIndustry(action:string, params:Wire, account:Accoun
       if(plan.some(input=>input.missing>0))throw new Error('Owned recipe inputs no longer available in storage and cargo');
       for(const input of plan.filter(input=>input.deposit_from_cargo>0)) {
         const carriedBefore=amount(account.cargo??[],input.item_id);
-        await experimentCommand(experiment,command,'spacemolt_storage/deposit',{item_id:input.item_id,quantity:input.deposit_from_cargo},account);
+        await experimentCommand(experiment,command,'spacemolt_storage/deposit',{item_id:input.item_id,quantity:input.deposit_from_cargo},account,observe,context);
         const verified=details(await command('spacemolt_storage/view',{})).items;
         if(!Array.isArray(verified)||amount(verified,input.item_id)-input.stored!==input.deposit_from_cargo||carriedBefore-amount(account.cargo??[],input.item_id)!==input.deposit_from_cargo)throw new Error('Recipe input deposit not verified in personal storage and cargo');
       }
@@ -223,25 +234,26 @@ export async function executeIndustry(action:string, params:Wire, account:Accoun
     const fresh=details(await command('spacemolt/craft',{id:recipe.id,quantity,dry_run:true,...craftRouting(craft)}));
     if(fresh.kind!=='quote'||fresh.have_inputs!==true||fresh.have_capacity===false||fresh.have_credits===false||!Number.isFinite(fresh.credits_total)||fresh.credits_total>craft.credits_total||fresh.runs!==craft.runs||!Array.isArray(fresh.cost?.inputs)||!Array.isArray(fresh.produces)||!sameQuantities(fresh.cost.inputs,craft.cost.inputs)||!sameQuantities(fresh.produces,craft.produces))throw new Error('Craft quote changed or is not ready');
     experiment.input_opportunity_at_enqueue=await revalidateProfit(0,fresh.credits_total);
-    const job=await experimentCommand(experiment,command,'spacemolt/craft',{id:recipe.id,quantity,...craftRouting(craft)},account);
+    const job=await experimentCommand(experiment,command,'spacemolt/craft',{id:recipe.id,quantity,...craftRouting(craft)},account,observe,context);
     if(!job.job_id)throw new Error('Craft returned no job id; inspect queue before any new production');
-    experiment.job_id=job.job_id;experiment.status='pending';record(experiment);
-    if(experiment.spent>maxSpend||credits()<reserve) {experiment.budget_breach=true;record(experiment);}
-    return settleExperiment(experiment,params,account,command);
+    experiment.job_id=job.job_id;experiment.status='pending';observe(experiment);
+    if(experiment.spent>maxSpend||credits()<reserve) {experiment.budget_breach=true;observe(experiment);}
+    return settleExperiment(experiment,params,account,command,observe,context);
   } catch(error) {
-    experiment.status=experiment.pending_action?'needs_reconciliation':experiment.job_id?'pending':'aborted';
+    experiment.status=experiment.pending_action||experiment.accounting_unverified?'needs_reconciliation':experiment.job_id?'pending':'aborted';
     if(experiment.status==='aborted'){experiment.realized_credit_delta=experiment.earned-experiment.spent;experiment.incremental_profit_after_input_opportunity=experiment.realized_credit_delta;experiment.retained_assets_note='Any purchased inputs remain in storage. Unliquidated assets are not credited to the exploration fund.';}
-    experiment.reason=error instanceof Error?error.message:String(error);record(experiment);return experiment;
+    experiment.reason=error instanceof Error?error.message:String(error);observe(experiment);return experiment;
   }
 }
 
-async function experimentCommand(experiment:Wire,command:IndustryCommand,action:string,params:Wire,account:Account,save:(event:Wire)=>void=record):Promise<Wire> {
+async function experimentCommand(experiment:Wire,command:IndustryCommand,action:string,params:Wire,account:Account,save:(event:Wire)=>void=record,controls:IndustryControls={}):Promise<Wire> {
+  await controls.checkpoint?.();
   experiment.pending_action={action,params};save(experiment);
-  const before=account.credits;
   const receipt=details(await command(action,params));
-  if(before===undefined||account.credits===undefined)throw new Error('Credits unavailable after mutation');
-  const delta=account.credits-before;
-  experiment.spent+=Math.max(0,-delta);experiment.earned+=Math.max(0,delta);
+  // Retain acceptance evidence before validating its quantities or accounting.
+  experiment.last_receipt=receipt;
+  if(action==='spacemolt/craft'&&receipt.job_id)experiment.job_id=receipt.job_id;
+  save(experiment);
   if(action==='spacemolt_storage/deposit'){experiment.deposited??={};experiment.deposited[params.item_id]=(experiment.deposited[params.item_id]??0)+params.quantity;}
   if(action==='spacemolt_storage/withdraw')experiment.withdrawn[params.item_id]=(experiment.withdrawn[params.item_id]??0)+params.quantity;
   if(action==='spacemolt/sell') {
@@ -251,28 +263,48 @@ async function experimentCommand(experiment:Wire,command:IndustryCommand,action:
   if(action==='spacemolt/craft') {if(!receipt.job_id)throw new Error('Craft response missing job id; reconcile queue before retry');experiment.job_id=receipt.job_id;}
   experiment.skills_after=snapshotSkills(account.state);
   experiment.skill_progress=skillProgress(experiment.before.skills??{},experiment.skills_after);
-  experiment.last_receipt=receipt;delete experiment.pending_action;save(experiment);
+  delete experiment.pending_action;
+  try {
+    experiment.spent+=requireCommandSpend(action,receipt,params);
+    if(action==='spacemolt/sell') {
+      if(typeof receipt.total_earned!=='number'||!Number.isFinite(receipt.total_earned)||receipt.total_earned<0)throw new Error('Accepted sale omitted authoritative total_earned');
+      experiment.earned+=receipt.total_earned;
+    }
+  } catch(error) {
+    experiment.accounting_unverified={action,params,reason:error instanceof Error?error.message:String(error)};
+    save(experiment);throw error;
+  }
+  save(experiment);
+  await controls.checkpoint?.();
   return receipt;
 }
 
-export async function settleExperiment(experiment:Wire,params:Wire,account:Account,command:IndustryCommand,save:(event:Wire)=>void=record):Promise<Wire> {
+export async function settleExperiment(experiment:Wire,params:Wire,account:Account,command:IndustryCommand,save:(event:Wire)=>void=record,controls:IndustryControls={}):Promise<Wire> {
   if(experiment.station!==account.location?.docked_at)return {status:'blocked',reason:'Return to experiment station',station:experiment.station};
   if(['complete','aborted'].includes(experiment.status))return experiment;
+  if(experiment.accounting_unverified)return {...experiment,status:'needs_reconciliation',reason:'Accepted action has unresolved monetary evidence; automatic settlement is disabled.'};
   if(experiment.pending_action||!experiment.job_id)return {...experiment,status:'needs_reconciliation',reason:'Unresolved mutation: inspect action log/queue/storage; automatic replay is disabled.'};
   const wait=Number(params.max_wait_seconds??300);
   if(!Number.isFinite(wait)||wait<0||wait>600)return {status:'blocked',reason:'max_wait_seconds must be 0..600'};
-  const deadline=Date.now()+wait*1000;
+  const now=controls.now??Date.now,sleep=controls.sleep??(ms=>new Promise(resolve=>setTimeout(resolve,ms)));
+  const deadline=now()+wait*1000;
+  let pendingInQueue=false;
   try {
     while(true) {
+      await controls.checkpoint?.();
       const queue=details(await command('spacemolt/craft',{}));
       // Live empty queues use null, while the generated schema declares an array.
       if(queue.kind==='queue'&&queue.total_jobs===0&&queue.jobs===null)queue.jobs=[];
       if(queue.kind!=='queue'||!Array.isArray(queue.jobs))throw new Error('Malformed crafting queue response');
-      if(!queue.jobs.some((j:Wire)=>j.job_id===experiment.job_id))break;
-      if(Date.now()>=deadline){experiment.status='pending';save(experiment);return experiment;}
-      await new Promise(resolve=>setTimeout(resolve,Math.min(10000,deadline-Date.now())));
+      pendingInQueue=queue.jobs.some((j:Wire)=>j.job_id===experiment.job_id);
+      if(!pendingInQueue)break;
+      if(now()>=deadline){experiment.status='pending';save(experiment);return experiment;}
+      await controls.checkpoint?.();
+      await sleep(Math.min(2000,Math.max(0,deadline-now())));
+      await controls.checkpoint?.();
     }
     for(const output of experiment.quote.evaluation.outputs) {
+      await controls.checkpoint?.();
       const stock=details(await command('spacemolt_storage/view',{})).items;
       if(!Array.isArray(stock))throw new Error('Storage unavailable');
       const sold=experiment.sold[output.item_id]??0,withdrawn=experiment.withdrawn[output.item_id]??0;
@@ -289,10 +321,10 @@ export async function settleExperiment(experiment:Wire,params:Wire,account:Accou
           if(!ship||!Number.isFinite(size)||size<=0)throw new Error('Output cargo size unavailable');
           chunk=Math.min(remaining,Math.floor((ship.cargo_capacity-ship.cargo_used)/size));
           if(chunk<1)throw new Error('No cargo room for output; free cargo then settle again');
-          await experimentCommand(experiment,command,'spacemolt_storage/withdraw',{item_id:output.item_id,quantity:chunk},account,save);
+          await experimentCommand(experiment,command,'spacemolt_storage/withdraw',{item_id:output.item_id,quantity:chunk},account,save,controls);
 
         }
-        const receipt=await experimentCommand(experiment,command,'spacemolt/sell',{id:output.item_id,quantity:chunk,auto_list:false},account,save);
+        const receipt=await experimentCommand(experiment,command,'spacemolt/sell',{id:output.item_id,quantity:chunk,auto_list:false},account,save,controls);
         if(!Number.isInteger(receipt.quantity_sold)||receipt.quantity_sold<0||receipt.quantity_sold>chunk)throw new Error('Invalid sale receipt');
 
         remaining-=receipt.quantity_sold;
@@ -303,9 +335,9 @@ export async function settleExperiment(experiment:Wire,params:Wire,account:Accou
     experiment.skill_progress=skillProgress(experiment.before.skills??{},experiment.skills_after);
     experiment.after={skills:experiment.skills_after,credits:account.credits,cargo:account.cargo,storage:details(await command('spacemolt_storage/view',{})).items};
     const realized=experiment.earned-experiment.spent;
-    Object.assign(experiment,{status:'complete',seconds:(Date.now()-experiment.started)/1000,realized_credit_delta:realized,incremental_profit_after_input_opportunity:realized-(experiment.quote.source==='inventory'?(experiment.input_opportunity_at_enqueue??experiment.quote.evaluation.rawSaleCredits??0):0),prediction_error:realized-(experiment.quote.evaluation.expectedProfit??0)});
+    Object.assign(experiment,{status:'complete',seconds:(now()-experiment.started)/1000,realized_credit_delta:realized,incremental_profit_after_input_opportunity:realized-(experiment.quote.source==='inventory'?(experiment.input_opportunity_at_enqueue??experiment.quote.evaluation.rawSaleCredits??0):0),prediction_error:realized-(experiment.quote.evaluation.expectedProfit??0)});
     delete experiment.reason;save(experiment);return experiment;
   } catch(error) {
-    experiment.status=experiment.pending_action?'needs_reconciliation':'partial';experiment.reason=error instanceof Error?error.message:String(error);save(experiment);return experiment;
+    experiment.status=experiment.pending_action||experiment.accounting_unverified?'needs_reconciliation':pendingInQueue?'pending':'partial';experiment.reason=error instanceof Error?error.message:String(error);save(experiment);return experiment;
   }
 }
