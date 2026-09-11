@@ -97,7 +97,7 @@ def write_json(path: Path, value) -> None:
 class BridgeClient:
     """One outstanding request; uncertain mutations are never replayed."""
 
-    def __init__(self, command=None, timeout=1800):
+    def __init__(self, command=None, timeout=1800, *, cwd=None, env=None):
         self.timeout = timeout
         self.lock = threading.Lock()
         self.write_lock = threading.Lock()
@@ -105,7 +105,8 @@ class BridgeClient:
         self.counter = 0
         self.broken = False
         self.process = subprocess.Popen(
-            command or ["node", str(HERE / "src/bridge.ts")], cwd=HERE,
+            command or ["node", str(HERE / "src/bridge.ts")], cwd=cwd or HERE,
+            env=env or os.environ.copy(),
             stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True, bufsize=1,
         )
         threading.Thread(target=self._read, daemon=True).start()

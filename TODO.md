@@ -2014,6 +2014,45 @@ custody; six listed distress missions remain. No new authoritative pilot observa
 
 ## Validation and completion record
 
+## Direct native plugin packaging — 2026-09-11
+
+The prior MCP scaffold was deliberately removed. SpaceMolt is now packaged at the repository's
+`spacemolt/` root as a native Hermes plugin (`plugin.yaml`, `__init__.py`, `service.py`, and
+`cli.py`) that can be installed from the monorepo subdirectory with
+`hermes plugins install OWNER/hermes-spacemolt/spacemolt --enable`. This keeps the capability
+outside Hermes core while using its normal Discord gateway and cron sessions. It is a direct
+agent boundary: the fixed `spacemolt` toolset registers `observe`, `plan`, `assess`, `prepare`,
+`transport`, `return`, `reconcile`, and urgent `stop` handlers against one profile-scoped Python
+service. The service owns one serialized `BridgeClient`; it configures the existing TypeScript
+`ExecutionHost` and only dispatches existing `execution/*` and `job/*` contracts. It does not
+reimplement game mechanics or expose raw game commands.
+
+Normal planning records `next_session_required` after the bridge handoff, so stable Discord/cron
+session prompts and schemas do not mutate. Urgent Tired goes through the bridge control frame.
+The external `hermes spacemolt stop` command writes a durable profile control request; it never
+starts a second bridge. The gateway-owned service polls that request and signals active scripts.
+Its bridge and controller runtime now live below the active `HERMES_HOME` rather than this source
+checkout. `SPACEMOLT_CREDENTIALS_FILE` is required and must point to an existing secret file;
+the historical hard-coded Kvothe credential fallback was removed. `hermes spacemolt install`
+performs the explicit pinned `npm ci`; no `node_modules` are packaged or installed implicitly.
+
+Development validation only: `npm run typecheck && npm test` passed 123 Node tests. The required
+`HERMES_PYTHON=/Users/vcarl/workspace/testbench/hermes-agent/.venv/bin/python scripts/run_tests.sh`
+passed 54 tests across 13 SpaceMolt/native-skill files. New behavioral tests prove a single
+service bridge through configure/plan/handoff/assess, real temp-`HERMES_HOME` native-plugin
+discovery and registry tool definitions, and a separate-process Tired request without a bridge.
+A separate temporary-profile invocation of the fork's real
+`python -m hermes_cli.main spacemolt setup` loaded the packaged plugin and verified existing
+credentials, Node and npm without opening the game. This is not a Discord, live-model, or
+live-game run.
+
+No live controller was opened, no Discord gateway was restarted, and no schedule was created.
+The gateway PID37628 and historical Frontier/Kvothe checkpoint described above remain unchanged;
+their current state must be observed before any live operation. Untracked `credentials.kvothe.txt`
+and `players/` were preserved. Exact next action: commit this packaging milestone, then add a
+gateway-owned Discord/cron acceptance run only after a dedicated profile is configured and no
+competing controller exists.
+
 Follow the repository's required test workflow. Existing useful checks from the repository root are:
 
 ```sh

@@ -1,0 +1,16 @@
+name: spacemolt
+version: 0.2.0
+description: "Direct, receipt-driven SpaceMolt player for Hermes."
+author: Hermes SpaceMolt
+kind: standalone
+requires_env:
+  - SPACEMOLT_CREDENTIALS_FILE
+provides_tools:
+  - spacemolt_observe
+  - spacemolt_plan
+  - spacemolt_assess
+  - spacemolt_prepare
+  - spacemolt_transport
+  - spacemolt_return
+  - spacemolt_reconcile
+  - spacemolt_stop

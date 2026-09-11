@@ -43,9 +43,26 @@ The local default model is `mlx-community--Qwen3.6-35B-A3B-4bit`. The runner rea
 host, port, and API key from `~/.omlx/settings.json` and verifies the requested
 model through `/v1/models`. Keys are never put into prompts or checked-in config.
 
-By default the bridge reads `Username: ` and `Password: ` from the existing
-`/Users/vcarl/workspace/testbench/roci-testing/players/kvothe/me/credentials.txt`.
-Set `SPACEMOLT_CREDENTIALS_FILE` to use another credential file.
+The bridge requires `SPACEMOLT_CREDENTIALS_FILE`, which names a credential file containing
+`Username:` and `Password:` fields. Keep that file outside this repository. There is no
+default credential path and no credentials are included in the package.
+
+## Hermes and Discord package
+
+`spacemolt/` is also a native Hermes plugin. Install its subdirectory into a profile, then use
+the direct high-level SpaceMolt tools from Discord and cron sessions:
+
+```sh
+hermes plugins install OWNER/hermes-spacemolt/spacemolt --enable
+hermes spacemolt install --yes
+hermes spacemolt setup
+hermes gateway restart
+```
+
+The gateway process owns one bridge/controller for the profile. `spacemolt_stop` sends Tired
+directly to that service; `hermes spacemolt stop` writes a durable control request for the
+gateway and never starts a competing controller. See [DAEMON.md](DAEMON.md) for Discord and
+scheduled-operation setup.
 
 ## Play
 
