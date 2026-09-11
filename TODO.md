@@ -962,6 +962,27 @@ or passenger delivery has yet occurred; S14/A6 remain open. Next: live oMLX plan
 with an explicit fitting allocation, fresh cabin availability/quote and observed
 passenger destinations.
 
+## Wind-down checkpoint — 2026-09-11
+
+The live passenger objective through local Hermes/oMLX assessed economy cabin
+availability at Frontier Station, then independently traveled to Deep Range Outpost
+and reassessed. Both authoritative purchase estimates reported zero available and
+one unfilled; no cabin was bought, installed, or passenger boarded. Hermes selected
+return; the user then requested wind-down. Tired reached the active execution path,
+which finished return and refueling before the process exited 0. Total fuel spending
+6, cash change −6; final credits197,968, docked Frontier Station in Deep Range,
+hull105/105, shields35/35, fuel120/120, original cargo retained. No freight,
+passengers or production queue. [Live evidence](spacemolt/evidence/shared-live-passenger-preparation.json).
+
+No live controller should be resumed from this terminal run; check processes and
+locks again before another connection. The next useful work is finding cabin supply
+and resolving observed passenger destination tokens against public directory IDs.
+A delegated partial implementation in `locations.ts` and `passengers.ts` is preserved
+in the working tree: bounded exact public-directory matches and distinct wire versus
+canonical destination identity. It still needs Execution integration, behavioral
+coverage and review before use; it is not completion evidence. Do not discard it or
+claim the mapping feature complete. No live cabin fitting or passenger delivery yet.
+
 ## Validation and completion record
 
 Follow the repository's required test workflow. Existing useful checks from the repository root are:

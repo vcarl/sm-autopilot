@@ -1,0 +1,956 @@
+{
+  "classification": "Live Hermes/oMLX passenger preparation scouting; no cabin available or passenger delivery",
+  "implementation_commit": "76340ad296",
+  "runtime": "spacemolt/runtime/shared-live-passengers-20260911-01",
+  "operator_stop": "User requested wind down; Tired delivered during return; process exited 0 after serviced cleanup",
+  "fitting_assessments": [
+    {
+      "observed_at": "2026-09-11T06:16:34.772277+00:00",
+      "arguments": {
+        "kind": "passenger_fit"
+      },
+      "result": {
+        "status": "blocked",
+        "blockers": [
+          "Complete economy cabin purchase quote unavailable"
+        ],
+        "plan": [
+          {
+            "action": "spacemolt/buy",
+            "item_id": "economy_passenger_cabin",
+            "quantity": 1,
+            "quote": {
+              "action": "estimate_purchase",
+              "available": 0,
+              "fills": [],
+              "item": "Economy Passenger Cabin",
+              "message": "0 of 1 available. Subtotal 0 credits + 0 sales tax = 0 total. 1 units not available.",
+              "quantity_requested": 1,
+              "sales_tax": 0,
+              "sales_tax_rate_bps": 50,
+              "subtotal": 0,
+              "total_cost": 0,
+              "unfilled": 1
+            }
+          },
+          {
+            "action": "spacemolt/uninstall_mod",
+            "id": "b37867937d9b738ea7fad199dd8eba8c",
+            "preserve_in_cargo": "mining_laser_i"
+          },
+          {
+            "action": "spacemolt/install_mod",
+            "id": "economy_passenger_cabin"
+          }
+        ],
+        "estimated_spend": 0
+      }
+    },
+    {
+      "observed_at": "2026-09-11T06:17:42.772670+00:00",
+      "arguments": {
+        "kind": "passenger_fit"
+      },
+      "result": {
+        "status": "blocked",
+        "blockers": [
+          "Complete economy cabin purchase quote unavailable"
+        ],
+        "plan": [
+          {
+            "action": "spacemolt/buy",
+            "item_id": "economy_passenger_cabin",
+            "quantity": 1,
+            "quote": {
+              "action": "estimate_purchase",
+              "available": 0,
+              "fills": [],
+              "item": "Economy Passenger Cabin",
+              "message": "No sellers for Economy Passenger Cabin at this station.",
+              "quantity_requested": 1,
+              "sales_tax": 0,
+              "sales_tax_rate_bps": 50,
+              "subtotal": 0,
+              "total_cost": 0,
+              "unfilled": 1
+            }
+          },
+          {
+            "action": "spacemolt/uninstall_mod",
+            "id": "b37867937d9b738ea7fad199dd8eba8c",
+            "preserve_in_cargo": "mining_laser_i"
+          },
+          {
+            "action": "spacemolt/install_mod",
+            "id": "economy_passenger_cabin"
+          }
+        ],
+        "estimated_spend": 0
+      }
+    }
+  ],
+  "report": {
+    "source": "Script job receipts; assessment estimates and model narrative excluded",
+    "jobs": [
+      {
+        "id": "f12f4f75-e6ba-45ba-94bc-116b138beeba",
+        "action": "travel",
+        "status": "completed",
+        "cash_delta": -3,
+        "objective": "Establish passenger transport capability if feasible within the host allocation, then complete one suitable passenger delivery and return home serviced. Consider whether remembered home supports this work. Assess fresh cabin availability and fitting requirements if needed, and observed passenger destinations, capacity, route and deadlines. Preserve unrelated cargo and equipment. Report cabin capital cost separately from delivery earnings. If preparation or delivery is blocked, report the observed blocker and stop serviced.",
+        "stance": "Logistics",
+        "mood": "Focused",
+        "policy_version": "one-job-gross-home-1",
+        "home": {
+          "system_id": "horizon",
+          "system_name": "Horizon",
+          "hops": 0,
+          "station_name": "Frontier Station",
+          "base_id": "frontier_station",
+          "poi_id": "mobile_capital",
+          "services": [
+            "crafting",
+            "marine_training",
+            "market",
+            "medical",
+            "missions",
+            "personnel",
+            "refuel",
+            "repair",
+            "salvage_yard",
+            "shipyard",
+            "storage"
+          ],
+          "rationale": "Docked here with full fuel and services. One jump to First Step (also has distress missions), two jumps to Last Light systems with distress targets. Keep Horizon as home while scouting nearby systems for viable wildlife.",
+          "observed_at": "2026-09-10T15:48:16.321Z"
+        },
+        "spending": {
+          "gross_spend": 3,
+          "known_gross_spend": 3,
+          "unpriced_actions": []
+        },
+        "budget_spending": {
+          "owner_job_id": "f12f4f75-e6ba-45ba-94bc-116b138beeba",
+          "max_spend": 10000,
+          "credit_reserve": 150000,
+          "gross_spend": 3,
+          "known_gross_spend": 3,
+          "unpriced_actions": []
+        }
+      },
+      {
+        "id": "b6f958dd-bd75-49a8-8afd-ed60ee6eb10b",
+        "action": "return_to_base",
+        "status": "returned_to_base",
+        "cash_delta": -3,
+        "objective": "Establish passenger transport capability if feasible within the host allocation, then complete one suitable passenger delivery and return home serviced. Consider whether remembered home supports this work. Assess fresh cabin availability and fitting requirements if needed, and observed passenger destinations, capacity, route and deadlines. Preserve unrelated cargo and equipment. Report cabin capital cost separately from delivery earnings. If preparation or delivery is blocked, report the observed blocker and stop serviced.",
+        "stance": "Logistics",
+        "mood": "Focused",
+        "policy_version": "one-job-gross-home-1",
+        "home": {
+          "system_id": "horizon",
+          "system_name": "Horizon",
+          "hops": 0,
+          "station_name": "Frontier Station",
+          "base_id": "frontier_station",
+          "poi_id": "mobile_capital",
+          "services": [
+            "crafting",
+            "marine_training",
+            "market",
+            "medical",
+            "missions",
+            "personnel",
+            "refuel",
+            "repair",
+            "salvage_yard",
+            "shipyard",
+            "storage"
+          ],
+          "rationale": "Docked here with full fuel and services. One jump to First Step (also has distress missions), two jumps to Last Light systems with distress targets. Keep Horizon as home while scouting nearby systems for viable wildlife.",
+          "observed_at": "2026-09-10T15:48:16.321Z"
+        },
+        "stopping_reason": "Tired",
+        "spending": {
+          "gross_spend": 3,
+          "known_gross_spend": 3,
+          "unpriced_actions": []
+        },
+        "budget_owner_id": "f12f4f75-e6ba-45ba-94bc-116b138beeba",
+        "budget_spending": {
+          "owner_job_id": "f12f4f75-e6ba-45ba-94bc-116b138beeba",
+          "max_spend": 10000,
+          "credit_reserve": 150000,
+          "gross_spend": 6,
+          "known_gross_spend": 6,
+          "unpriced_actions": []
+        },
+        "return_plan": {
+          "home": {
+            "system_id": "horizon",
+            "system_name": "Horizon",
+            "hops": 0,
+            "station_name": "Frontier Station",
+            "base_id": "frontier_station",
+            "poi_id": "mobile_capital",
+            "services": [
+              "crafting",
+              "marine_training",
+              "market",
+              "medical",
+              "missions",
+              "personnel",
+              "refuel",
+              "repair",
+              "salvage_yard",
+              "shipyard",
+              "storage"
+            ],
+            "rationale": "Docked here with full fuel and services. One jump to First Step (also has distress missions), two jumps to Last Light systems with distress targets. Keep Horizon as home while scouting nearby systems for viable wildlife.",
+            "observed_at": "2026-09-10T15:48:16.321Z"
+          },
+          "destination": {
+            "base_id": "frontier_station",
+            "rationale": "Docked here with full fuel and services. One jump to First Step (also has distress missions), two jumps to Last Light systems with distress targets. Keep Horizon as home while scouting nearby systems for viable wildlife.",
+            "system_id": "deep_range",
+            "poi_id": "mobile_capital",
+            "observed_at": "2026-09-11T06:17:52.593Z"
+          },
+          "temporary": false,
+          "home_location_source": "station_directory"
+        }
+      },
+      {
+        "id": "47978dc6-5279-412a-b72e-4c56379fffb7",
+        "action": "return_to_base",
+        "status": "returned_to_base",
+        "cash_delta": 0,
+        "objective": "Establish passenger transport capability if feasible within the host allocation, then complete one suitable passenger delivery and return home serviced. Consider whether remembered home supports this work. Assess fresh cabin availability and fitting requirements if needed, and observed passenger destinations, capacity, route and deadlines. Preserve unrelated cargo and equipment. Report cabin capital cost separately from delivery earnings. If preparation or delivery is blocked, report the observed blocker and stop serviced.",
+        "stance": "Logistics",
+        "mood": "Focused",
+        "policy_version": "one-job-gross-home-1",
+        "home": {
+          "system_id": "horizon",
+          "system_name": "Horizon",
+          "hops": 0,
+          "station_name": "Frontier Station",
+          "base_id": "frontier_station",
+          "poi_id": "mobile_capital",
+          "services": [
+            "crafting",
+            "marine_training",
+            "market",
+            "medical",
+            "missions",
+            "personnel",
+            "refuel",
+            "repair",
+            "salvage_yard",
+            "shipyard",
+            "storage"
+          ],
+          "rationale": "Docked here with full fuel and services. One jump to First Step (also has distress missions), two jumps to Last Light systems with distress targets. Keep Horizon as home while scouting nearby systems for viable wildlife.",
+          "observed_at": "2026-09-10T15:48:16.321Z"
+        },
+        "stopping_reason": "Tired",
+        "spending": {
+          "gross_spend": 0,
+          "known_gross_spend": 0,
+          "unpriced_actions": []
+        },
+        "budget_owner_id": "f12f4f75-e6ba-45ba-94bc-116b138beeba",
+        "budget_spending": {
+          "owner_job_id": "f12f4f75-e6ba-45ba-94bc-116b138beeba",
+          "max_spend": 10000,
+          "credit_reserve": 150000,
+          "gross_spend": 6,
+          "known_gross_spend": 6,
+          "unpriced_actions": []
+        },
+        "return_plan": {
+          "home": {
+            "system_id": "horizon",
+            "system_name": "Horizon",
+            "hops": 0,
+            "station_name": "Frontier Station",
+            "base_id": "frontier_station",
+            "poi_id": "mobile_capital",
+            "services": [
+              "crafting",
+              "marine_training",
+              "market",
+              "medical",
+              "missions",
+              "personnel",
+              "refuel",
+              "repair",
+              "salvage_yard",
+              "shipyard",
+              "storage"
+            ],
+            "rationale": "Docked here with full fuel and services. One jump to First Step (also has distress missions), two jumps to Last Light systems with distress targets. Keep Horizon as home while scouting nearby systems for viable wildlife.",
+            "observed_at": "2026-09-10T15:48:16.321Z"
+          },
+          "destination": {
+            "base_id": "frontier_station",
+            "rationale": "Docked here with full fuel and services. One jump to First Step (also has distress missions), two jumps to Last Light systems with distress targets. Keep Horizon as home while scouting nearby systems for viable wildlife.",
+            "system_id": "deep_range",
+            "poi_id": "mobile_capital",
+            "observed_at": "2026-09-11T06:18:38.126Z"
+          },
+          "temporary": false,
+          "home_location_source": "authenticated_home_dock"
+        }
+      }
+    ],
+    "recorded_jobs_cash_delta": -6,
+    "final": {
+      "receipt_id": "47978dc6-5279-412a-b72e-4c56379fffb7",
+      "status": "returned_to_base",
+      "location": {
+        "connections": [
+          "frontier",
+          "horizon"
+        ],
+        "docked_at": "frontier_station",
+        "empire": "outerrim",
+        "nearby_empire_npc_count": 51,
+        "nearby_empire_npcs": [
+          {
+            "empire": "outerrim",
+            "fleet_name": "2nd Frontier Expeditionary Force",
+            "in_combat": false,
+            "name": "Loose Change",
+            "npc_id": "2ed59bdba40ba22d2d834e418b6e6018",
+            "role": "fleet_outerrim_battle_fleet_beta"
+          },
+          {
+            "empire": "outerrim",
+            "fleet_name": "2nd Frontier Expeditionary Force",
+            "in_combat": false,
+            "name": "No Refunds I",
+            "npc_id": "2c5e0c152e54b2b0b23937d067b3e986",
+            "role": "fleet_outerrim_battle_fleet_beta"
+          },
+          {
+            "empire": "outerrim",
+            "fleet_name": "Outer Rim Explorers Reserve",
+            "in_combat": false,
+            "name": "Cobble",
+            "npc_id": "65e5e4fe47d323791b4223c7ebcfb223",
+            "role": "",
+            "ship_class": "cobble",
+            "ship_name": "ORE-1d35ba5b"
+          },
+          {
+            "empire": "outerrim",
+            "fleet_name": "1st Frontier Expeditionary Force",
+            "in_combat": false,
+            "name": "Baling Wire",
+            "npc_id": "f91e93fb5c45e42be3f24c5646c0ab5b",
+            "role": "fleet_outerrim_battle_fleet_alpha",
+            "ship_class": "baling_wire",
+            "ship_name": "Baling Wire"
+          },
+          {
+            "empire": "outerrim",
+            "fleet_name": "2nd Frontier Expeditionary Force",
+            "in_combat": false,
+            "name": "Loose Change",
+            "npc_id": "27d171c92ecb325a4275df314269935a",
+            "role": "fleet_outerrim_battle_fleet_beta",
+            "ship_class": "loose_change",
+            "ship_name": "Pocket Change"
+          },
+          {
+            "empire": "outerrim",
+            "fleet_name": "1st Frontier Expeditionary Force",
+            "in_combat": false,
+            "name": "Baling Wire",
+            "npc_id": "0b4767be4896a369aceba62825fd58ae",
+            "role": "fleet_outerrim_battle_fleet_alpha",
+            "ship_class": "baling_wire",
+            "ship_name": "[POLICE] Rim Ranger III - Deep Range Outpost"
+          },
+          {
+            "empire": "outerrim",
+            "fleet_name": "1st Frontier Expeditionary Force",
+            "in_combat": false,
+            "name": "Peer Review",
+            "npc_id": "ca40a522637b128738dea54161a52673",
+            "role": "fleet_outerrim_battle_fleet_alpha",
+            "ship_class": "peer_review",
+            "ship_name": "ORE-29cd3481"
+          },
+          {
+            "empire": "outerrim",
+            "fleet_name": "1st Frontier Expeditionary Force",
+            "in_combat": false,
+            "name": "Peer Review",
+            "npc_id": "c5b7c22c8b3f2bd7b0e0905fd48f4977",
+            "role": "fleet_outerrim_battle_fleet_alpha",
+            "ship_class": "peer_review",
+            "ship_name": "ORE-b2460615"
+          },
+          {
+            "empire": "outerrim",
+            "fleet_name": "1st Frontier Expeditionary Force",
+            "in_combat": false,
+            "name": "Finders Keepers",
+            "npc_id": "d2ff6bcd789a5e11258537c8efdd04c6",
+            "role": "fleet_outerrim_battle_fleet_alpha",
+            "ship_class": "finders_keepers",
+            "ship_name": "ORE-bc515e44"
+          },
+          {
+            "empire": "outerrim",
+            "fleet_name": "1st Frontier Expeditionary Force",
+            "in_combat": false,
+            "name": "Finders Keepers",
+            "npc_id": "c41ad016cc4bb34c6ce83e46e796d033",
+            "role": "fleet_outerrim_battle_fleet_alpha",
+            "ship_class": "finders_keepers",
+            "ship_name": "Salvage Rights"
+          },
+          {
+            "empire": "outerrim",
+            "fleet_name": "1st Frontier Expeditionary Force",
+            "in_combat": false,
+            "name": "No Refunds II",
+            "npc_id": "aa5835b33f1c5cb0b49a16db97a2a9b7",
+            "role": "fleet_outerrim_battle_fleet_alpha",
+            "ship_class": "no_refunds",
+            "ship_name": "ORE-dad09e92"
+          },
+          {
+            "empire": "outerrim",
+            "fleet_name": "2nd Frontier Expeditionary Force",
+            "in_combat": false,
+            "name": "No Refunds I",
+            "npc_id": "aa09393a594c26c8ee4422a0f05022b8",
+            "role": "fleet_outerrim_battle_fleet_beta",
+            "ship_class": "no_refunds",
+            "ship_name": "Locked In"
+          },
+          {
+            "empire": "outerrim",
+            "fleet_name": "1st Frontier Expeditionary Force",
+            "in_combat": false,
+            "name": "No Refunds II",
+            "npc_id": "b6350e1b2edb99d8b10ddf204041455a",
+            "role": "fleet_outerrim_battle_fleet_alpha",
+            "ship_class": "no_refunds",
+            "ship_name": "Point of No Return"
+          },
+          {
+            "empire": "outerrim",
+            "fleet_name": "2nd Frontier Expeditionary Force",
+            "in_combat": false,
+            "name": "No Refunds II",
+            "npc_id": "ac98c7a0c715a363d969f57cda4156c2",
+            "role": "fleet_outerrim_battle_fleet_beta",
+            "ship_class": "no_refunds",
+            "ship_name": "Terminal"
+          },
+          {
+            "empire": "outerrim",
+            "fleet_name": "2nd Frontier Expeditionary Force",
+            "in_combat": false,
+            "name": "No Refunds II",
+            "npc_id": "f1be03c11a46014acc86c427d5c906d5",
+            "role": "fleet_outerrim_battle_fleet_beta",
+            "ship_class": "no_refunds",
+            "ship_name": "ORE-39851909"
+          },
+          {
+            "empire": "outerrim",
+            "fleet_name": "1st Frontier Expeditionary Force",
+            "in_combat": false,
+            "name": "No Refunds I",
+            "npc_id": "6023903049fda2e920951bfc3b4ccc34",
+            "role": "fleet_outerrim_battle_fleet_alpha",
+            "ship_class": "no_refunds",
+            "ship_name": "ORE-9cb7a25b"
+          },
+          {
+            "empire": "outerrim",
+            "fleet_name": "1st Frontier Expeditionary Force",
+            "in_combat": false,
+            "name": "No Refunds I",
+            "npc_id": "f6f8203e0abda96144b8c98c7eeb48b1",
+            "role": "fleet_outerrim_battle_fleet_alpha",
+            "ship_class": "no_refunds",
+            "ship_name": "No Quarter"
+          },
+          {
+            "empire": "outerrim",
+            "fleet_name": "2nd Frontier Expeditionary Force",
+            "in_combat": false,
+            "name": "Hell's Bells",
+            "npc_id": "97d199b62dd7bcf63601c1a680054dcc",
+            "role": "fleet_outerrim_battle_fleet_beta",
+            "ship_class": "hells_bells",
+            "ship_name": "Hell's Bells"
+          },
+          {
+            "empire": "outerrim",
+            "fleet_name": "1st Frontier Expeditionary Force",
+            "in_combat": false,
+            "name": "Hell's Bells",
+            "npc_id": "18c51a138abc6219d0a0630eccff30d1",
+            "role": "fleet_outerrim_battle_fleet_alpha",
+            "ship_class": "hells_bells",
+            "ship_name": "Warning Shot"
+          },
+          {
+            "empire": "outerrim",
+            "fleet_name": "1st Frontier Expeditionary Force",
+            "in_combat": false,
+            "name": "Yard Sale",
+            "npc_id": "046891cfa6ca0e3092a9675f7d88dddc",
+            "role": "fleet_outerrim_battle_fleet_alpha",
+            "ship_class": "yard_sale",
+            "ship_name": "Scavenger's Due"
+          }
+        ],
+        "nearby_pirate_count": 0,
+        "nearby_pirates": [],
+        "nearby_player_count": 15,
+        "nearby_players": [
+          {
+            "faction_tag": "CRFT",
+            "in_combat": false,
+            "player_id": "99bc0f2f16677abcfd544e217d1d9965",
+            "ship_class": "prospector",
+            "username": "Garrison 'Gear' Grant"
+          },
+          {
+            "faction_tag": "IRLC",
+            "in_combat": false,
+            "player_id": "0aa902c7731521c5d7a2eb2a5e7f2166",
+            "ship_class": "futures",
+            "username": "ILC Sojourn"
+          },
+          {
+            "clan_tag": "FATE",
+            "faction_tag": "FATE",
+            "in_combat": false,
+            "player_id": "fc3ba154f6d956bfa4c596d8f99e304d",
+            "ship_class": "cobble",
+            "username": "LiveWire"
+          },
+          {
+            "faction_tag": "IRLC",
+            "in_combat": false,
+            "player_id": "d25677b6a1655a17af3db6bf65f67f0b",
+            "ship_class": "futures",
+            "username": "ILC Comet"
+          },
+          {
+            "faction_tag": "HELP",
+            "in_combat": false,
+            "player_id": "3725b120812b7ad0d5b3fa4fd016042e",
+            "ship_class": "capacity",
+            "username": "shipside_assist_frontier"
+          },
+          {
+            "clan_tag": "NOIR",
+            "faction_tag": "NOIR",
+            "in_combat": false,
+            "player_id": "a3a06264ccbdfa4be0d166e92a1b982f",
+            "ship_class": "futures",
+            "username": "Shackleton"
+          },
+          {
+            "faction_tag": "CRFT",
+            "in_combat": false,
+            "player_id": "86953d253647b9493f8956dd1aff9739",
+            "ship_class": "prospector",
+            "username": "Harrison 'Handiwork' Hay"
+          },
+          {
+            "in_combat": false,
+            "player_id": "95dc4d03bbe736db313c89691742298d",
+            "ship_class": "cobble",
+            "username": "Distant Light"
+          },
+          {
+            "clan_tag": "HEXC",
+            "faction_tag": "HEXC",
+            "in_combat": false,
+            "player_id": "6d6650f30e49bbc58a243f01c739392d",
+            "ship_class": "frankenhauler",
+            "username": "ObiTwo"
+          },
+          {
+            "faction_tag": "IRLC",
+            "in_combat": false,
+            "player_id": "ada69a64301d7cc535b9a30ed7f26229",
+            "ship_class": "ledger",
+            "username": "ILC Venture"
+          },
+          {
+            "clan_tag": "NOIR",
+            "faction_tag": "NOIR",
+            "in_combat": false,
+            "player_id": "ee4d5c804c3e3fc51ae3141cbcef73b4",
+            "ship_class": "dust_devil",
+            "username": "Arbiter47"
+          },
+          {
+            "faction_tag": " DB ",
+            "in_combat": false,
+            "player_id": "543b6017966eb4098323dc0f02f403ef",
+            "ship_class": "cobble",
+            "username": "marketbot_frontier"
+          },
+          {
+            "faction_tag": "IRLC",
+            "in_combat": false,
+            "player_id": "3b7ef52037540bf6d1cfc2e6e8b68266",
+            "ship_class": "futures",
+            "username": "ILC Mainliner"
+          },
+          {
+            "faction_tag": "ENDL",
+            "in_combat": false,
+            "player_id": "0778682a5cddd66f84642f81566135c5",
+            "ship_class": "prospect",
+            "username": "Rockefeller"
+          },
+          {
+            "clan_tag": "REGO",
+            "in_combat": false,
+            "player_id": "ba6c3e3a08dc33c6fbf009b90691b255",
+            "ship_class": "prospect",
+            "username": "e039279d45eefa288b1c7717"
+          }
+        ],
+        "nearby_prize_count": 0,
+        "nearby_prizes": [],
+        "offline_collapsed": 254,
+        "poi_id": "mobile_capital",
+        "poi_name": "Mobile Capital",
+        "poi_type": "station",
+        "resources": [],
+        "security_status": "High Security (active police patrols)",
+        "system_id": "deep_range",
+        "system_name": "Deep Range"
+      },
+      "credits": 197968,
+      "ship_condition": {
+        "id": "b76179e1db2326d9bf0de8c5401149da",
+        "hull": 105,
+        "max_hull": 105,
+        "shield": 35,
+        "max_shield": 35,
+        "fuel": 120,
+        "max_fuel": 120
+      },
+      "retained_cargo": [
+        {
+          "item_id": "standard_rounds_box",
+          "item_name": "Standard Rounds Box",
+          "quantity": 1,
+          "size": 1
+        },
+        {
+          "item_id": "creature_carapace",
+          "item_name": "Creature Carapace",
+          "quantity": 1,
+          "size": 1
+        },
+        {
+          "item_id": "phase_pearl",
+          "item_name": "Phase Pearl",
+          "quantity": 2,
+          "size": 1
+        },
+        {
+          "item_id": "carbon_ore",
+          "item_name": "Carbon Ore",
+          "quantity": 6,
+          "size": 1
+        },
+        {
+          "item_id": "platinum_ore",
+          "item_name": "Platinum Ore",
+          "quantity": 1,
+          "size": 1
+        }
+      ],
+      "observed_skills": {
+        "crafting": {
+          "category": "Industry",
+          "level": 2,
+          "max_level": 100,
+          "name": "Crafting",
+          "next_level_xp": 340,
+          "xp": 145
+        },
+        "deep_core_mining": {
+          "category": "Industry",
+          "level": 2,
+          "max_level": 100,
+          "name": "Deep Core Mining",
+          "next_level_xp": 340,
+          "xp": 225
+        },
+        "engineering": {
+          "category": "Engineering",
+          "level": 0,
+          "max_level": 100,
+          "name": "Engineering",
+          "next_level_xp": 60,
+          "xp": 5
+        },
+        "exploration": {
+          "category": "Exploration",
+          "level": 4,
+          "max_level": 100,
+          "name": "Exploration",
+          "next_level_xp": 900,
+          "xp": 515
+        },
+        "gunnery": {
+          "category": "Combat",
+          "level": 1,
+          "max_level": 100,
+          "name": "Gunnery",
+          "next_level_xp": 165,
+          "xp": 18
+        },
+        "leadership": {
+          "category": "Combat",
+          "level": 2,
+          "max_level": 100,
+          "name": "Leadership",
+          "next_level_xp": 340,
+          "xp": 255
+        },
+        "mining": {
+          "category": "Industry",
+          "level": 2,
+          "max_level": 100,
+          "name": "Mining",
+          "next_level_xp": 340,
+          "xp": 94
+        },
+        "navigation": {
+          "category": "Ships",
+          "level": 4,
+          "max_level": 100,
+          "name": "Navigation",
+          "next_level_xp": 900,
+          "xp": 189
+        },
+        "piloting": {
+          "category": "Ships",
+          "level": 4,
+          "max_level": 100,
+          "name": "Piloting",
+          "next_level_xp": 900,
+          "xp": 587
+        },
+        "refining": {
+          "category": "Industry",
+          "level": 2,
+          "max_level": 100,
+          "name": "Refining",
+          "next_level_xp": 340,
+          "xp": 100
+        },
+        "salvaging": {
+          "category": "Industry",
+          "level": 1,
+          "max_level": 100,
+          "name": "Salvaging",
+          "next_level_xp": 165,
+          "xp": 20
+        },
+        "scanning": {
+          "category": "Ships",
+          "level": 3,
+          "max_level": 100,
+          "name": "Scanning",
+          "next_level_xp": 585,
+          "xp": 59
+        },
+        "tactics": {
+          "category": "Combat",
+          "level": 0,
+          "max_level": 100,
+          "name": "Tactics",
+          "next_level_xp": 60,
+          "xp": 52
+        },
+        "trading": {
+          "category": "Commerce",
+          "level": 3,
+          "max_level": 100,
+          "name": "Trading",
+          "next_level_xp": 585,
+          "xp": 66
+        },
+        "weapons": {
+          "category": "Combat",
+          "level": 0,
+          "max_level": 100,
+          "name": "Weapons",
+          "next_level_xp": 60,
+          "xp": 26
+        },
+        "wormhole_navigation": {
+          "category": "Wormholes",
+          "level": 1,
+          "max_level": 100,
+          "name": "Wormhole Navigation",
+          "next_level_xp": 165,
+          "xp": 30
+        },
+        "xenobiology": {
+          "category": "Wildlife",
+          "level": 1,
+          "max_level": 100,
+          "name": "Xenobiology",
+          "next_level_xp": 165,
+          "xp": 47
+        }
+      },
+      "obligations": {
+        "observed_at": "2026-09-11T06:18:38.874Z",
+        "missions": {
+          "active": [
+            {
+              "accepted_at": "2026-09-11T05:36:45Z",
+              "description": "MAYDAY: Wexler XNK-D3 is stranded at Probability Cloud \u2014 Distant Light in Distant Light with 2/120 fuel! Any pilots nearby, please help!",
+              "difficulty": 5,
+              "expires_in_ticks": 828,
+              "giver": {
+                "name": "Wexler XNK-D3",
+                "title": "Emergency Broadcast"
+              },
+              "issuing_base": "",
+              "issuing_system_id": "distant_light",
+              "issuing_system_name": "Distant Light",
+              "mission_id": "4d5b499cf8d7ed23b83c98def0a3746d",
+              "objectives": [
+                {
+                  "completed": false,
+                  "current": 0,
+                  "description": "Investigate distress call in Distant Light",
+                  "required": 1,
+                  "system_id": "distant_light",
+                  "system_name": "Distant Light",
+                  "type": "visit_system"
+                }
+              ],
+              "percent_complete": 0,
+              "rewards": {
+                "credits": 0,
+                "skill_xp": {
+                  "piloting": 25
+                }
+              },
+              "title": "Distress: Wexler XNK-D3 in Distant Light",
+              "type": "distress_response"
+            },
+            {
+              "accepted_at": "2026-09-11T05:48:26Z",
+              "description": "MAYDAY: Wexler E1W-PS is stranded at Starfall Salvage Station in Starfall with 4/120 fuel! Any pilots nearby, please help!",
+              "difficulty": 5,
+              "expires_in_ticks": 898,
+              "giver": {
+                "name": "Wexler E1W-PS",
+                "title": "Emergency Broadcast"
+              },
+              "issuing_base": "",
+              "issuing_system_id": "starfall",
+              "issuing_system_name": "Starfall",
+              "mission_id": "fff0b7ce092ff4f0d31ebd19977b803f",
+              "objectives": [
+                {
+                  "completed": false,
+                  "current": 0,
+                  "description": "Investigate distress call in Starfall",
+                  "required": 1,
+                  "system_id": "starfall",
+                  "system_name": "Starfall",
+                  "type": "visit_system"
+                }
+              ],
+              "percent_complete": 0,
+              "rewards": {
+                "credits": 0,
+                "skill_xp": {
+                  "piloting": 25
+                }
+              },
+              "title": "Distress: Wexler E1W-PS in Starfall",
+              "type": "distress_response"
+            },
+            {
+              "accepted_at": "2026-09-11T05:50:07Z",
+              "description": "MAYDAY: Wexler V6U-PA is stranded at Void Gate Outpost in Void Gate with 3/120 fuel! Any pilots nearby, please help!",
+              "difficulty": 5,
+              "expires_in_ticks": 908,
+              "giver": {
+                "name": "Wexler V6U-PA",
+                "title": "Emergency Broadcast"
+              },
+              "issuing_base": "",
+              "issuing_system_id": "void_gate",
+              "issuing_system_name": "Void Gate",
+              "mission_id": "a5d91118259cb9ce131c5f1027cddce1",
+              "objectives": [
+                {
+                  "completed": false,
+                  "current": 0,
+                  "description": "Investigate distress call in Void Gate",
+                  "required": 1,
+                  "system_id": "void_gate",
+                  "system_name": "Void Gate",
+                  "type": "visit_system"
+                }
+              ],
+              "percent_complete": 0,
+              "rewards": {
+                "credits": 0,
+                "skill_xp": {
+                  "piloting": 25
+                }
+              },
+              "title": "Distress: Wexler V6U-PA in Void Gate",
+              "type": "distress_response"
+            }
+          ],
+          "max_missions": 5
+        },
+        "freight": {
+          "action": "active",
+          "message": "You have no live freight contracts as carrier, shipper, recipient, or invited carrier.",
+          "shipments": [],
+          "tick": 1852024
+        },
+        "passengers": {
+          "count": 0,
+          "passengers": []
+        },
+        "production": {
+          "action": "queue",
+          "jobs": null,
+          "kind": "queue",
+          "total_jobs": 0
+        }
+      },
+      "obligation_verification": {
+        "status": "observed",
+        "reason": "Outstanding commitments are recorded, not declared delivered or settled"
+      },
+      "condition_note": "Observed endpoint condition; not a measurement of damage taken or resources consumed during the job"
+    },
+    "recorded_jobs_gross_spend": 6,
+    "recorded_jobs_known_gross_spend": 6,
+    "cleanup_outcome": "returned_to_base"
+  }
+}
