@@ -2,9 +2,31 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {assessFreight,transportFreight,type FreightReceipt} from './logistics.ts';
 import {freightFixture} from './logistics-fixture.ts';
-import {Execution} from './execution.ts';
+import {Execution,executionCatalog} from './execution.ts';
 import {ExecutionStore} from './execution-store.ts';
+import {moods,resolveContext} from './execution-policy.ts';
 import {transportReceipt} from './execution-logistics.ts';
+import {logisticsPolicy} from './logistics-policy.ts';
+
+test('Logistics mood policy reaches freight admission and Tired removes transport',async t=>{
+  for(const mood of moods) {
+    const f=freightFixture(t);
+    f.execution.context=resolveContext({stance:'Logistics',mood,objective:'Deliver only within the resolved allocation'},f.execution.context);
+    if(mood==='Tired') {
+      assert.equal('transport' in executionCatalog(f.execution.context),false);
+      continue;
+    }
+    await f.choose();
+    const policy=logisticsPolicy(f.execution.context);
+    f.contract.failure_debt=policy.max_liability;
+    const within:any=await f.execution.dispatch('assess',{kind:'freight',shipment_id:'freight'});
+    assert.equal(within.status,'ready_to_accept',mood);
+    f.contract.failure_debt=policy.max_liability+1;
+    const over:any=await f.execution.dispatch('assess',{kind:'freight',shipment_id:'freight'});
+    assert.equal(over.status,'blocked',mood);
+    assert.ok(over.blockers.some((reason:string)=>reason.includes('liability allocation')),mood);
+  }
+});
 
 test('personal freight accepts, verifies sealed custody and delivery, and separates payout from wallet income',async t=>{
   for(const hiddenSize of [false,true]) {
