@@ -126,5 +126,16 @@
     "Job terminal status remains interrupted, despite both extraction cycles and eventual cleanup verified. No uninterrupted full Industry acceptance claimed.",
     "Idle recovery finished before explicit runner reconciliation; outdated public receipt showed0 rather than6 spent and inference ran unnecessarily. Original report preserved; race fix tested separately.",
     "Automatic reconnect did not reauthenticate within30 seconds; an explicit same-checkpoint process resume was used."
-  ]
+  ],
+  "fixed_runner_live_recheck": {
+    "commit": "3d461df536",
+    "runner_exit_code": 0,
+    "model_inference_calls": 0,
+    "gross_spend": 6,
+    "cash_delta": -6,
+    "final_status": "returned_to_base",
+    "new_movement_or_extraction_or_spending_commands": 0,
+    "controller_lock_released": true,
+    "prior_reports_preserved_at": "spacemolt/runtime/shared-live-industry-20260911-02/before-report-recheck"
+  }
 }

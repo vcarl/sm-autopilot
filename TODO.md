@@ -309,6 +309,17 @@ semantics: absent ship/location sections mean unchanged, while conflicting suppl
 identities remain invalid. The executor still verifies identity before/after mining.
 Validation: typecheck, 69 Node tests and 30 Python tests through the required runner.
 
+Fixed-runner live recheck after `3d461df536`: resumed the same stopped checkpoint,
+verified final cleanup, published the corrected gross6/net−6 and recovered job
+status, then exited0 and released its lock. No model inference, new extraction,
+movement or spending occurred. Original reports are archived before the recheck.
+The reviewed live evidence above includes both the defect and this verification.
+
+Next practical milestone: complete S12 production/settlement using the existing
+Industry executor and ledger, then Logistics. Keep the remaining general recovery
+and all-stance acceptance conditions open; do not repeat gathering merely to erase
+the useful interrupted-job evidence or call production complete from mined cargo.
+
 ## Live gathering receipt correction — 2026-09-11
 
 Real Hermes/oMLX Industry/Focused retained the chosen Frontier Station home, assessed
