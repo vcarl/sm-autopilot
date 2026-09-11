@@ -109,3 +109,36 @@ test('unknown recipe assessment supplies exposed discovery recovery with actual 
     assert.equal(f.calls.some(call=>['spacemolt/buy','spacemolt/sell','spacemolt_storage/withdraw'].includes(call.key)||call.key==='spacemolt/craft'&&call.params.id&&!call.params.dry_run),false);
   }
 });
+
+test('retained output ignores absent sale demand and queued settlement preserves disposition and original budget',async t=>{
+  for(const queued of [false,true]) {
+    const f=productionFixture(t,{noDemand:true,queued});await f.choose();
+    const quote:any=await f.execution.dispatch('assess',{recipe_id:'refine',disposition:'retain'});
+    assert.equal(quote.evaluation.feasible,true);
+    assert.equal(quote.next_action.action,'produce');
+    assert.equal(quote.next_action.params.experiment_id,undefined);
+    const first:any=await f.execution.dispatch(quote.next_action.action,{...quote.next_action.params,max_wait_seconds:0});
+    let finished=first;
+    if(queued) {
+      assert.equal(first.status,'blocked');assert.equal(productionReceipt(first.result)?.status,'pending');
+      const restored=new ExecutionStore(f.directory,'pilot');f.finish();await restored.startNewRun(f.account);
+      const next=new Execution(f.account,restored,f.execution.context,f.execution.deps);
+      const experimentId=productionReceipt(first.result)!.experiment_id;
+      const callsBefore=f.calls.length;
+      await assert.rejects(next.dispatch('produce',{experiment_id:experimentId,disposition:'sell'}),/only experiment_id/);
+      assert.equal(f.calls.length,callsBefore);
+      finished=await next.dispatch('produce',{experiment_id:experimentId,max_wait_seconds:0});
+      assert.equal(finished.budget_owner_id,first.id);
+      assert.equal(finished.budget_spending.gross_spend,first.spending.gross_spend);
+    }
+    const output=productionReceipt(finished.result)!;
+    assert.equal(finished.status,'completed');assert.equal(output.disposition,'retain');
+    assert.deepEqual(output.retained,{metal:2});assert.equal(output.retained_location.base_id,'base');
+    assert.equal(output.earned,0);assert.equal(output.realized_credit_delta,-output.spent);
+    assert.equal(output.incremental_profit_after_input_opportunity,null);
+    assert.deepEqual(f.stock(),{ore:0,metal:2});
+    assert.deepEqual(f.state.cargo,[{item_id:'original',quantity:1,size:1}]);
+    assert.equal(f.calls.filter(call=>call.key==='spacemolt/craft'&&call.params.id&&!call.params.dry_run).length,1);
+    assert.equal(f.calls.some(call=>['spacemolt/sell','spacemolt_storage/withdraw'].includes(call.key)),false);
+  }
+});

@@ -1240,8 +1240,46 @@ craft. Review reproduced an existing input/output overlap ambiguity: unchanged o
 refunded original stock could masquerade as produced output. Such recipes require
 an explicit blocker until job-specific completion attribution exists.
 
-Validation and final commit/checkpoint details will be recorded after integration.
-S12/S14 and A4/A6 remain open; live cabin production is blocked on material supply.
+Prerequisite evidence committed locally as `0307abbd2f`. Retained production is now
+integrated through the shared tool catalog, worker, persisted settlement, native
+Industry skill and verified reports. Default selling is preserved. Retained outcomes
+have zero sale earnings, actual spending/cash delta, null economic profit, personal
+storage location and an explicit observation basis. Own-use quotes/outcomes do not
+become trading recommendations or economic losses in strategy funding; wallet
+headroom still constrains spending. Contradictory queue counts and input/output
+overlap cannot prove completion. Explicit authoritative zero workshop cost is
+accepted without inventing absent fee components. Pending resumption retains the
+original allocation and cannot craft twice or change purpose.
+
+Final validation run: `npm run typecheck && npm test` passes101 Node tests. Required
+Python runner with the specified HERMES_PYTHON passes46 tests across all12 SpaceMolt
+files, including actual Hermes imports/registry/BridgeClient/ExecutionHost and native
+skill loading in temporary HERMES_HOME. Retained custody, queued resume and economic
+strategy regressions failed before their fixes. Diff check passes; VISION unchanged.
+These are fixtures/integration checks, not live retained-production acceptance.
+
+First real Hermes/oMLX offline production attempt reached retained discovery/quote
+but confused a quote comparison key with an experiment ID, then stopped without
+crafting or spending. This prompted explicit quote-only guidance and valid new-job
+parameters, plus skill guidance. Its runtime
+`spacemolt/runtime/shared-retained-production-model-ye8170sd`, tool handle26601,
+exited0; a fresh model-fixture retry is tracked separately. Retained production is an
+optional capability, not a requirement to obtain a cabin. The user explicitly
+clarified that Codex itself may play Kvothe to discover needs and alternatives.
+
+Direct Codex exploration is active at runtime
+`spacemolt/runtime/codex-exploration-20260911`, tool handle45882, bridge PID3593.
+No competing game controller was present before login. Kvothe visited Deep Range
+Outpost from Frontier Station and found no cabin sellers, differing equipment stock,
+a struggling station and construction short2850 lead shielding. Five current
+unresolved distress missions are now observed. Accepted return freight
+`cace55e0d6f6b93a802a8bdf3c45b367` for549 credits, package
+`ef3295a02b890c7814ec47ac4d13cb6e`, verified withdrawal from station storage into
+cargo (100volume;111/120 used), and is returning to Frontier Station. This is direct
+Codex gameplay, not Hermes live acceptance. Exact immediate action: follow existing
+handle45882 travel to mobile_capital, dock, deliver once, verify payout and emptied
+obligation, resupply with current quote, then close and save final checkpoint.
+S12/S14 and A4/A6 remain open; live retained production is not demonstrated.
 
 ## Validation and completion record
 

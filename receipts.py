@@ -66,6 +66,7 @@ def receipt_report(receipts, cleanup_response=None):
             row["production_work"] = {key: deepcopy(production[key]) for key in
                                       ("experiment_id", "job_id", "station", "status", "reason",
                                        "spent", "earned", "accounting_unverified", "pending_action",
+                                       "disposition", "retained", "retained_location", "retention_verification",
                                        "sold", "withdrawn", "deposited", "sales", "after",
                                        "retained_assets_note", "realized_credit_delta",
                                        "incremental_profit_after_input_opportunity") if key in production}

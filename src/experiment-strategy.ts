@@ -12,6 +12,7 @@ export interface StrategyOptions {
 }
 type Row = Record<string, any>;
 const finite = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value);
+const retained = (row: Row) => (row.disposition ?? row.quote?.disposition) === 'retain';
 const identity = (row: Row) => row.key ?? [row.station ?? row.origin_station, row.recipe_id ?? row.quote?.recipe_id ?? row.poi_id, row.source ?? row.quote?.source ?? 'mine'].join('/');
 
 export function recommendStrategy(history: readonly Row[], wallet: number, options: StrategyOptions = {}) {
@@ -41,6 +42,8 @@ export function recommendStrategy(history: readonly Row[], wallet: number, optio
   const sampleCounts = new Map<string, number>();
   const observedLearning=new Map<string,Row>();
   for (const row of latest.values()) {
+    // Own-use custody has no realized economic margin; wallet headroom still applies.
+    if (retained(row)) { excludedOutcomes++; continue; }
     attempted.add(identity(row));
     const mining = row.event === 'mining_experiment';
     const settled = ['complete', 'completed', 'aborted'].includes(row.status) && !row.pending_action;
@@ -63,7 +66,7 @@ export function recommendStrategy(history: readonly Row[], wallet: number, optio
   const availableExploration = Math.min(explorationFund, liquidHeadroom);
   const nextExperimentCap = Math.min(availableExploration, maxExperimentSpend);
   const quotes = new Map<string, Row>();
-  for (const row of history) if (row.event === 'quote') quotes.set(identity(row), row);
+  for (const row of history) if (row.event === 'quote' && !retained(row)) quotes.set(identity(row), row);
   const candidates = [...quotes.values()].filter(row => !attempted.has(identity(row))).map(row => {
     const timestamp = typeof row.at === 'number' ? row.at : Date.parse(row.at);
     const quoteAgeMs = options.nowMs !== undefined && finite(timestamp) && timestamp <= options.nowMs ? options.nowMs - timestamp : null;

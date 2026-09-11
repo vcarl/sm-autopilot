@@ -47,13 +47,13 @@ export function executionCatalog(context:ExecutionContext):Record<string,any> {
     if(canHunt(context))common.hunt=combatCatalog['combat/hunt'];
   }
   if(context.stance==='Industry') {
-    common.assess=meta('With poi_id assess gathering. With recipe_id quote local production; without either discover local economic candidates. Inventory inputs have opportunity cost; quotes are not realized profit.',[
-      parameter('poi_id','string','Observed local asteroid belt POI'),parameter('recipe_id','string','Recipe to quote'),parameter('source','string','inventory (default) or buy'),parameter('quantity','number','Output count for a single production run')]);
+    common.assess=meta('With poi_id assess gathering. With recipe_id quote local production; without either discover local economic candidates. disposition retain assesses owned output without requiring a profitable sale. Inventory inputs have opportunity cost; quotes are not realized profit.',[
+      parameter('poi_id','string','Observed local asteroid belt POI'),parameter('recipe_id','string','Recipe to quote'),parameter('source','string','inventory (default) or buy'),parameter('quantity','number','Output count for a single production run'),parameter('disposition','string','sell (default) or retain in personal station storage'),parameter('output_search','string','With disposition retain and no recipe_id, discover up to six recipes matching an output item ID or name; 1..80 characters')]);
     common.prepare=meta('Service and install owned mining equipment where supported, preserving displaced equipment. No purchases.');
     if(context.limits.max_gather_cycles>0)common.gather=meta('Gather for bounded cycles at a local asteroid belt, retain all new cargo, return home and service. Records partial yield and blockers.',[
       parameter('poi_id','string','Observed local asteroid belt POI',true),parameter('cycles','number','Optional cycle count, only tighter than resolved max_gather_cycles')]);
-    common.produce=meta('At home, source inputs and execute one economically assessed production run, settle output sales, and service. Pending/partial work is unfinished. In a later operating run, pass only experiment_id to continue known settlement without crafting again.',[
-      parameter('recipe_id','string','Recipe for new production'),parameter('source','string','inventory (default) or buy'),parameter('quantity','number','Output count; only one recipe run is supported'),parameter('experiment_id','string','Known unfinished experiment to settle, exclusive with recipe/source/quantity'),parameter('max_wait_seconds','number','Queue waiting bound, 0..120 seconds (default 120)')]);
+    common.produce=meta('At home, source inputs and execute one assessed production run, verify sold output or retained personal-storage output, and service. Pending/partial work is unfinished. In a later operating run, pass experiment_id to continue recorded settlement without crafting again or changing disposition.',[
+      parameter('recipe_id','string','Recipe for new production'),parameter('source','string','inventory (default) or buy'),parameter('quantity','number','Output count; only one recipe run is supported'),parameter('disposition','string','sell (default) or retain in personal station storage; fixed for the experiment'),parameter('experiment_id','string','Known unfinished experiment to settle, exclusive with recipe/source/quantity/disposition'),parameter('max_wait_seconds','number','Queue waiting bound, 0..120 seconds (default 120)')]);
   }
   if(context.stance==='Logistics') {
     common.assess=meta('Observe freight and passenger opportunities, or assess a selected shipment/destination. Eligibility does not guarantee capacity, timely delivery or profit.',[
@@ -357,17 +357,19 @@ export class Execution {
     if(params.max_ticks!==undefined&&(!Number.isInteger(params.max_ticks)||params.max_ticks<1||params.max_ticks>limits.max_ticks))throw new Error('max_ticks exceeds resolved policy');
     if(params.retreat_hull_fraction!==undefined&&(!Number.isFinite(params.retreat_hull_fraction)||params.retreat_hull_fraction<limits.retreat_hull_fraction||params.retreat_hull_fraction>0.95))throw new Error('Withdrawal override exceeds resolved policy');
     if(params.source!==undefined&&!['inventory','buy'].includes(params.source))throw new Error('source must be inventory or buy');
+    if(params.disposition!==undefined&&!['sell','retain'].includes(params.disposition))throw new Error('disposition must be sell or retain');
+    if(params.output_search!==undefined&&(action!=='assess'||params.disposition!=='retain'||params.recipe_id||params.poi_id||params.output_search.length>80))throw new Error('output_search requires retained-output assessment without recipe_id or poi_id, at most 80 characters');
     if(params.quantity!==undefined&&(!Number.isInteger(params.quantity)||params.quantity<1||params.quantity>1000))throw new Error('quantity must be an integer 1..1000');
     if(params.max_wait_seconds!==undefined&&(!Number.isFinite(params.max_wait_seconds)||params.max_wait_seconds<0||params.max_wait_seconds>productionWaitSeconds))throw new Error('max_wait_seconds must be 0..120');
     if(action==='assess') {
       if(params.poi_id) {
-        if(params.recipe_id||params.source||params.quantity!==undefined)throw new Error('Assess gathering or production separately');
+        if(params.recipe_id||params.source||params.quantity!==undefined||params.disposition!==undefined)throw new Error('Assess gathering or production separately');
         return assessGathering(this.account,this.command,{...this.context,home:(await this.homeLocation()).destination},{poi_id:params.poi_id,cycles:limits.max_gather_cycles});
       }
       await this.account.refresh();
       return assessProduction(params,this.account,this.command,{...this.deps.industry,record:()=>{},existing_experiments:productionExperiments(this.store.data.jobs)});
     }
-    if(action==='produce'&&((!params.recipe_id&&!params.experiment_id)||(params.experiment_id&&(params.recipe_id||params.source||params.quantity!==undefined))))throw new Error('Provide recipe_id for new production or only experiment_id for settlement');
+    if(action==='produce'&&((!params.recipe_id&&!params.experiment_id)||(params.experiment_id&&(params.recipe_id||params.source||params.quantity!==undefined||params.disposition!==undefined))))throw new Error('Provide recipe_id for new production or only experiment_id for settlement');
     if(action==='return_to_base')this.signal();
     const allowanceBlocker=admissionBlocker(action,this.store.runJobs());
     await this.account.refresh();

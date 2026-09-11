@@ -82,8 +82,14 @@ and XP from cash spent on servicing.
 Industry also exposes `job__produce` for one recipe run at the chosen home. Economic
 `job__assess` discovers candidates or quotes a `recipe_id` with inventory/bought
 inputs. Production stages inputs, rechecks economics, queues once, verifies output,
-sells it directly, and services. It does not install mining equipment. A pending
-queue or partial sale stays unfinished; a later explicit operating run can call
+sells it directly, and services. It does not install mining equipment. With
+`disposition: retain`, output stays in verified
+personal station storage for later use, with spending reported separately from
+earnings. Find recipes through `job__assess` with `disposition: retain` and a short
+`output_search`, then quote the observed recipe ID. Current inputs and crafting
+costs still need complete evidence; retained output needs no sale market. The
+disposition persists through interrupted settlement and cannot be changed on resume.
+A pending queue or partial sale stays unfinished; a later explicit operating run can call
 `job__produce` with the recorded `experiment_id` to continue settlement without
 another craft. Queue waits are bounded to 120 seconds. Missing acceptance, custody,
 or accounting evidence prevents replay. Shared receipts live in the pilot job store;

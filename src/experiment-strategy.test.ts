@@ -75,3 +75,20 @@ test('earlier losses remain learning evidence and changed skills require reevalu
   assert.equal(probe.expected_learning_loss,3);assert.equal(probe.within_learning_loss_cap,true);
   assert.ok(result.nextActions.some(row=>row.action==='reevaluate_learning_probe'));
 });
+
+test('own-use costs and quotes do not become economic losses or sale recommendations',()=>{
+  const quote={event:'quote',station:'home',recipe_id:'equipment',source:'buy',disposition:'retain',
+    evaluation:{purchaseCredits:7,feasible:true,expectedProfit:null},inputQuotes:[{total_cost:7}],craft:{credits_total:0}};
+  const receipt={experiment_id:'owned-equipment',status:'complete',quote,disposition:'retain',
+    realized_credit_delta:-7,incremental_profit_after_input_opportunity:null,retained:{equipment:1}};
+  const baseline=recommendStrategy([],150050);
+  for(const history of [[quote],[receipt],[quote,receipt]]) {
+    const result=recommendStrategy(history,150050);
+    assert.equal(result.budget.realizedLosses,baseline.budget.realizedLosses);
+    assert.equal(result.budget.explorationFund,baseline.budget.explorationFund);
+    assert.equal(result.budget.liquidHeadroom,50);
+    assert.deepEqual(result.explorationCandidates,[]);
+    assert.deepEqual(result.learningCandidates,[]);
+    assert.deepEqual(result.repeatCandidates,[]);
+  }
+});

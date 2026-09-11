@@ -15,7 +15,7 @@ metadata:
 
 Choose Industry for resource gathering, including mining, and production objectives.
 The executors support bounded local gathering with retained output and single-run
-production with direct output sales at home. Queued output and partial sales remain
+production with direct output sales or retained output at home. Queued output and partial sales remain
 unfinished work until settlement is verified.
 
 ## When to Use
@@ -53,6 +53,16 @@ and quotes are planning evidence, not completed production or earned credits.
 `inventory` includes personal station storage as well as carried cargo; read
 `input_locations` instead of inferring shortages from the ship hold alone.
 
+For equipment or materials needed for use, choose `disposition: retain`. Find an
+observed recipe with `output_search` (a short output name or item ID fragment), then
+quote its returned `recipe_id` with the same disposition and chosen input source.
+Catalog matches do not establish current availability or crafting eligibility.
+A quote evaluation ID is a comparison key, not an experiment ID. Start new work
+with the quoted recipe/source/disposition; use `experiment_id` only when a prior
+production job returned that field for unfinished work.
+Retained production requires complete acquisition/crafting costs and capacity, but
+does not require a profitable sale. Missing inputs or quotes remain blockers.
+
 ## Tool: job__prepare
 
 Use `job__prepare` docked to service the ship and prepare mining capability through
@@ -71,8 +81,10 @@ resource mix or quantity. Zero yield does not satisfy a collection objective.
 
 Use `job__produce` at the chosen home with `recipe_id`, `source` (`inventory` by
 default), and optionally `quantity`. Only one recipe run is supported. The script
-services the ship, revalidates economics, stages or buys inputs, submits crafting,
-verifies resulting inventory, and sells only the produced output directly. It
+services the ship, revalidates the chosen purpose, stages or buys inputs, submits crafting,
+and verifies resulting inventory. `disposition: sell` is the default and sells only
+the produced output directly. `disposition: retain` keeps verified output in personal
+station storage for later use; it records spending without claiming sale earnings. It
 preserves unrelated assets and reports unsold output. Preparation for production
 does not require a mining refit. Once you choose a feasible quote for an execution
 objective, call the tool and read its receipt. A final message announcing that you
@@ -82,7 +94,8 @@ Queue waits are bounded to 120 seconds; `max_wait_seconds` can reduce that bound
 A pending queue or partial sale ends with unfinished evidence, not success. After
 an explicit new operating run, pass the observed `experiment_id` to the same tool
 to continue settlement without sourcing or crafting again. Do not also provide
-recipe, source, or quantity. Unknown acceptance or accounting must be reconciled
+recipe, source, quantity or a new disposition. The original sell/retain choice persists.
+Unknown acceptance or accounting must be reconciled
 before settlement; never create a replacement job to work around the blocker.
 
 ## Quick Reference
@@ -121,3 +134,6 @@ For production, read the experiment status, confirmed spending and sale proceeds
 sold/withdrawn quantities, remaining inventory and unresolved accounting. A queue
 entry disappearing does not prove output exists or was sold. Gross spending comes
 from accepted transaction receipts; unrelated wallet income does not reduce it.
+For retained production, verify `retained` and `retained_location` alongside the
+terminal status. A later stance uses those items through its normal preparation
+tools after session handoff; storage output is not automatically fitted equipment.

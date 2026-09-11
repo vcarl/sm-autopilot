@@ -42,11 +42,33 @@ export function retainProductionAcceptance(job:Job) {
 
 /** Shared assessment names only actions exposed in the current tool catalog. */
 export async function assessProduction(params:Wire,account:Account,command:IndustryCommand,context:IndustryContext) {
+  if(params.output_search!==undefined&&(params.disposition!=='retain'||params.recipe_id||typeof params.output_search!=='string'||params.output_search.trim().length<1||params.output_search.length>80))throw new Error('output_search requires retain disposition, no recipe_id, and 1..80 characters');
+  if(params.disposition==='retain'&&!params.recipe_id&&params.output_search===undefined)return {status:'blocked',reason:'Supply output_search text to discover observed recipes for retained own-use production'};
   context.catalog??=getIndustryCatalog();
   const catalog=await context.catalog;
+  if(params.disposition==='retain'&&!params.recipe_id) {
+    const metadata={freshness:catalog.freshness,fetchedAt:catalog.fetchedAt,retryAt:catalog.retryAt,reason:catalog.reason};
+    if(!catalog.cache)return {status:'blocked',disposition:'retain',catalog:metadata,candidates:[],reason:'Catalog unavailable; wait for its retry before choosing a recipe'};
+    const search=params.output_search.trim().toLocaleLowerCase('en-US');
+    const items=new Map(catalog.cache.items.map(item=>[item.id,item]));
+    const matches=catalog.cache.recipes.filter(recipe=>!recipe.hidden&&recipe.outputs.some(output=>
+      output.item_id.toLocaleLowerCase('en-US').includes(search)||items.get(output.item_id)?.name?.toLocaleLowerCase('en-US').includes(search)));
+    const candidates=matches.slice(0,6).map(recipe=>({recipe_id:recipe.id,name:recipe.name,disposition:'retain',
+      inputs:recipe.inputs.map(row=>({item_id:row.item_id,quantity:row.quantity})),outputs:recipe.outputs.map(row=>({item_id:row.item_id,name:items.get(row.item_id)?.name,quantity:row.quantity})),
+      readiness:'fresh_quote_required',estimated_spend:null}));
+    return {disposition:'retain',output_search:params.output_search,catalog:metadata,candidates,more_matches:matches.length>candidates.length,
+      decision:candidates.length?'candidates_available':'no_matching_recipe',
+      guidance:'These catalog recipes are observations, not current capability or price quotes. Assess a returned recipe_id with disposition retain and source inventory or buy before producing. Output stays in personal storage; no sale earnings are assumed.'};
+  }
   const recipe=params.recipe_id&&catalog.cache?.recipe(params.recipe_id);
   const unknown=Boolean(params.recipe_id&&catalog.cache&&(!recipe||!recipe.outputs.length));
-  if(params.recipe_id&&!unknown)return executeIndustry('quote',params,account,command,context);
+  if(params.recipe_id&&!unknown) {
+    const quote=await executeIndustry('quote',params,account,command,context) as Wire;
+    if(!quote.evaluation)return quote;
+    return {...quote,guidance:'This is a quote only; no production job or experiment_id exists yet. evaluation.id is a comparison key, never an experiment_id. Start a new job with recipe_id, source, disposition and quantity. Only a pending execution receipt supplies an experiment_id for later settlement.',
+      ...(quote.evaluation.feasible?{next_action:{action:'produce',params:{recipe_id:quote.recipe_id,source:quote.source,disposition:quote.disposition,quantity:quote.quantity}}}:{})};
+  }
+  if(unknown&&params.disposition==='retain')return {status:'blocked',disposition:'retain',requested_recipe_id:params.recipe_id,reason:'Requested recipe is absent from the catalog; assess disposition retain with output_search to discover observed candidates'};
   const discovery=await executeIndustry('discover',{},account,command,context) as Wire;
   const available=Array.isArray(discovery.income_candidates)&&discovery.income_candidates.length>0;
   const assessment={...discovery,decision:available?'candidates_available':'no_profitable_candidate',
