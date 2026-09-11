@@ -914,6 +914,24 @@ stations. Behavioral coverage verifies an eligible contract becomes locally bloc
 when its destination is absent, without hiding that listing. Typecheck and 84 Node
 tests pass. Another live attempt is needed; S14/A6 remain open.
 
+## First complete shared live freight job — 2026-09-11
+
+Real Hermes through local oMLX selected the Frontier Station → Deep Range Outpost
+contract from a broad objective containing no station or contract IDs. The shared
+executor assessed current eligibility and route, accepted once, verified a sealed
+100-unit package in cargo, delivered once, and verified the terminal contract and
+207-credit payout. It returned to remembered Frontier Station, resolved at its
+current Deep Range position, and refueled for 6 credits: net wallet change +201.
+Final credits 197,974; full hull, shields and fuel; original cargo retained; no live
+freight, passengers or production queue. Existing distress missions remain reported.
+[Live receipts and action trace](spacemolt/evidence/shared-live-freight.json).
+
+This proves the freight half of A6 through the real Hermes path and shared cleanup.
+A6/S14 stay open for passenger completion and remaining recovery/feasibility work.
+The model still called transport directly after board comparison; the script itself
+performed targeted admission assessment. No combat or disconnect occurred. Process
+exited successfully; no controller remains active from this run.
+
 ## Validation and completion record
 
 Follow the repository's required test workflow. Existing useful checks from the repository root are:
