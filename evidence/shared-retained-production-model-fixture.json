@@ -1,0 +1,357 @@
+{
+  "validation_level": "Real local oMLX model and Hermes AIAgent through actual ExecutionHost with offline productionFixture(noDemand:true); no game connection",
+  "model": "mlx-community--Qwen3.6-35B-A3B-4bit",
+  "date": "2026-09-11",
+  "attempts": [
+    {
+      "private_runtime": "/Users/vcarl/workspace/testbench/hermes-spacemolt/spacemolt/runtime/shared-retained-production-model-ye8170sd",
+      "job_requests": [
+        {
+          "action": "job/observe",
+          "params": {}
+        },
+        {
+          "action": "job/plan",
+          "params": {
+            "home_base_id": "base",
+            "home_rationale": "Currently docked here; same system as other station (hops 0); has refuel services; supports Industry operations.",
+            "objective": "Produce and retain useful metal for later equipment construction"
+          }
+        },
+        {
+          "action": "job/observe",
+          "params": {}
+        },
+        {
+          "action": "job/assess",
+          "params": {
+            "output_search": "metal",
+            "disposition": "retain"
+          }
+        },
+        {
+          "action": "job/assess",
+          "params": {
+            "disposition": "retain",
+            "recipe_id": "refine",
+            "source": "inventory"
+          }
+        },
+        {
+          "action": "job/produce",
+          "params": {
+            "disposition": "retain",
+            "experiment_id": "base/refine/inventory/retain",
+            "quantity": 2,
+            "recipe_id": "refine"
+          }
+        },
+        {
+          "action": "job/produce",
+          "params": {
+            "disposition": "retain",
+            "experiment_id": "base/refine/inventory/retain"
+          }
+        },
+        {
+          "action": "job/produce",
+          "params": {
+            "experiment_id": "base/refine/inventory/retain"
+          }
+        },
+        {
+          "action": "job/return_to_base",
+          "params": {}
+        }
+      ],
+      "production_jobs": [
+        {
+          "action": "produce",
+          "status": "blocked",
+          "production_work": null,
+          "spending": {
+            "gross_spend": 0,
+            "known_gross_spend": 0,
+            "unpriced_actions": []
+          },
+          "cash_delta": 0
+        }
+      ],
+      "craft_submissions": 0,
+      "sale_submissions": 0,
+      "withdrawal_submissions": 0,
+      "initial_storage": {
+        "ore": 2,
+        "metal": 0
+      },
+      "final_storage": {
+        "ore": 2,
+        "metal": 0
+      },
+      "starting_cargo_preserved": true,
+      "gross_spend": 0,
+      "wallet_delta": 0,
+      "final": {
+        "status": "returned_to_base",
+        "location": {
+          "system_id": "system",
+          "poi_id": "station",
+          "docked_at": "base"
+        },
+        "credits": 200000,
+        "ship_condition": {
+          "id": "ship",
+          "hull": 105,
+          "max_hull": 105,
+          "shield": 35,
+          "max_shield": 35,
+          "fuel": 120,
+          "max_fuel": 120
+        },
+        "retained_cargo": [
+          {
+            "item_id": "original",
+            "quantity": 1,
+            "size": 1
+          }
+        ],
+        "obligations": {
+          "observed_at": "2026-09-11T07:34:06.539Z",
+          "missions": {
+            "active": [
+              {
+                "id": "existing-obligation"
+              }
+            ]
+          },
+          "freight": {
+            "action": "active",
+            "shipments": [],
+            "tick": 0
+          },
+          "passengers": {
+            "count": 0,
+            "passengers": []
+          },
+          "production": {
+            "kind": "queue",
+            "total_jobs": 0,
+            "jobs": []
+          }
+        },
+        "obligation_verification": {
+          "status": "observed",
+          "reason": "Outstanding commitments are recorded, not declared delivered or settled"
+        }
+      },
+      "exit_code": 0,
+      "finding": "Hermes selected home, discovered metal recipe and quoted owned-input retention, but treated evaluation comparison ID as an existing experiment ID. Script rejected before any craft and returned serviced."
+    },
+    {
+      "private_runtime": "/Users/vcarl/workspace/testbench/hermes-spacemolt/spacemolt/runtime/shared-retained-production-model-ihdkiiia",
+      "job_requests": [
+        {
+          "action": "job/observe",
+          "params": {}
+        },
+        {
+          "action": "job/plan",
+          "params": {
+            "home_base_id": "base",
+            "home_rationale": "Already docked, has refuel service, no travel cost, supports production workflow",
+            "objective": "Produce and retain useful metal for later equipment construction",
+            "stance": "Industry"
+          }
+        },
+        {
+          "action": "job/observe",
+          "params": {}
+        },
+        {
+          "action": "job/assess",
+          "params": {
+            "output_search": "metal",
+            "disposition": "retain",
+            "source": "inventory"
+          }
+        },
+        {
+          "action": "job/assess",
+          "params": {
+            "disposition": "retain",
+            "recipe_id": "refine",
+            "source": "inventory"
+          }
+        },
+        {
+          "action": "job/produce",
+          "params": {
+            "disposition": "retain",
+            "experiment_id": "base/refine/inventory/retain",
+            "recipe_id": "refine",
+            "source": "inventory",
+            "quantity": 2
+          }
+        },
+        {
+          "action": "job/produce",
+          "params": {
+            "disposition": "retain",
+            "quantity": 2,
+            "recipe_id": "refine",
+            "source": "inventory"
+          }
+        },
+        {
+          "action": "job/return_to_base",
+          "params": {}
+        }
+      ],
+      "production_jobs": [
+        {
+          "action": "produce",
+          "status": "completed",
+          "production_work": {
+            "experiment_id": "5ac46a36-278c-404d-a17e-5993d7ac26c6",
+            "job_id": "craft-job",
+            "station": "base",
+            "status": "complete",
+            "spent": 3,
+            "earned": 0,
+            "disposition": "retain",
+            "retained": {
+              "metal": 2
+            },
+            "retained_location": {
+              "base_id": "base",
+              "source": "personal_storage"
+            },
+            "retention_verification": {
+              "status": "observed",
+              "basis": "recorded job absent from queue and outputs verified above protected starting storage"
+            },
+            "sold": {},
+            "withdrawn": {},
+            "sales": [],
+            "after": {
+              "skills": {
+                "crafting": {
+                  "level": 1,
+                  "xp": 10
+                },
+                "trading": {
+                  "level": 1,
+                  "xp": 0
+                }
+              },
+              "credits": 200097,
+              "cargo": [
+                {
+                  "item_id": "original",
+                  "quantity": 1,
+                  "size": 1
+                }
+              ],
+              "storage": [
+                {
+                  "item_id": "ore",
+                  "quantity": 0,
+                  "size": 1
+                },
+                {
+                  "item_id": "metal",
+                  "quantity": 2,
+                  "size": 1
+                }
+              ]
+            },
+            "retained_assets_note": "Own-use output remains in personal storage; retained assets are not sale earnings or realized economic profit.",
+            "realized_credit_delta": -3,
+            "incremental_profit_after_input_opportunity": null,
+            "accounting_scope": "Cumulative experiment amounts at this receipt; do not sum repeated experiment_id snapshots"
+          },
+          "spending": {
+            "gross_spend": 3,
+            "known_gross_spend": 3,
+            "unpriced_actions": []
+          },
+          "cash_delta": 97
+        }
+      ],
+      "craft_submissions": 1,
+      "sale_submissions": 0,
+      "withdrawal_submissions": 0,
+      "initial_storage": {
+        "ore": 2,
+        "metal": 0
+      },
+      "final_storage": {
+        "ore": 0,
+        "metal": 2
+      },
+      "starting_cargo_preserved": true,
+      "gross_spend": 3,
+      "wallet_delta": 97,
+      "final": {
+        "status": "returned_to_base",
+        "location": {
+          "system_id": "system",
+          "poi_id": "station",
+          "docked_at": "base"
+        },
+        "credits": 200097,
+        "ship_condition": {
+          "id": "ship",
+          "hull": 105,
+          "max_hull": 105,
+          "shield": 35,
+          "max_shield": 35,
+          "fuel": 120,
+          "max_fuel": 120
+        },
+        "retained_cargo": [
+          {
+            "item_id": "original",
+            "quantity": 1,
+            "size": 1
+          }
+        ],
+        "obligations": {
+          "observed_at": "2026-09-11T07:40:57.824Z",
+          "missions": {
+            "active": [
+              {
+                "id": "existing-obligation"
+              }
+            ]
+          },
+          "freight": {
+            "action": "active",
+            "shipments": [],
+            "tick": 0
+          },
+          "passengers": {
+            "count": 0,
+            "passengers": []
+          },
+          "production": {
+            "kind": "queue",
+            "total_jobs": 0,
+            "jobs": []
+          }
+        },
+        "obligation_verification": {
+          "status": "observed",
+          "reason": "Outstanding commitments are recorded, not declared delivered or settled"
+        }
+      },
+      "exit_code": 0,
+      "finding": "Hermes chose home, discovered metal output and quoted inventory retention. It first included the comparison ID as experiment_id, then corrected the rejected call to new-job parameters and completed one retained-output craft. Explicit guidance improved recovery but did not eliminate the initial identifier mistake.",
+      "unrelated_fixture_income": 100,
+      "production_cash_delta": -3
+    }
+  ],
+  "completion_verified": true,
+  "remaining": "Live production acceptance, input sourcing chains and extended workshop completion remain open. The successful model still needed one rejected malformed production call before correcting its parameters.",
+  "verified_scope": "Real local inference selects and completes one retained-output Industry job with no buyer demand. Uses owned inputs, gross3, earned0, metal2 retained, full final readiness and no queued production. Wallet+97 includes unrelated fixture income100 and is not production profit."
+}

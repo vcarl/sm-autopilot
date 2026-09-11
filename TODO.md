@@ -1281,6 +1281,74 @@ handle45882 travel to mobile_capital, dock, deliver once, verify payout and empt
 obligation, resupply with current quote, then close and save final checkpoint.
 S12/S14 and A4/A6 remain open; live retained production is not demonstrated.
 
+## Direct Kvothe exploration and retained-model evidence — 2026-09-11
+
+Implementation milestone committed locally as `586ecd4500`; prerequisite observation
+is `0307abbd2f`. The implementation commit includes all source, skill, report and
+behavioral regression changes listed above. Nothing was pushed; VISION is verbatim.
+
+Actual Hermes/oMLX retry completed an offline retained job at
+`spacemolt/runtime/shared-retained-production-model-ihdkiiia`; tool handle51985
+exited0. It selected home, searched an output name, quoted observed recipe `refine`,
+consumed owned ore2, crafted once, and retained metal2 in personal storage. Gross
+cost3, earnings0, production cash delta-3; wallet+97 included unrelated fixture
+income100 and is not production profit. Original cargo survived, queue is empty and
+final readiness is full. Hermes initially included a comparison ID as experiment_id,
+then corrected the rejected request; guidance improved recovery but has not eliminated
+this planning mistake. Both failed and successful attempts are preserved in
+`spacemolt/evidence/shared-retained-production-model-fixture.json`. This proves real
+inference through the offline game fixture, not a live retained-production job.
+
+Direct Codex gameplay completed a distinct live exploration and return freight job.
+At Deep Range Outpost, observed equipment asks differ materially from Frontier:
+cargo expander II2154 versus4988, armor plate I1222 versus1679, damage control4977
+versus10459. These are acquisition observations, not arbitrage profits; output buyer
+depth was not established. No cabin sellers were quoted there either. Station
+condition is struggling (66 percent infrastructure satisfaction); construction of an
+enriched uranium extraction unit awaits2850 lead shielding. These support broader
+needs/supplier reconnaissance instead of treating crafting a cabin as mandatory.
+
+Return freight `cace55e0d6f6b93a802a8bdf3c45b367` was delivered intact at Frontier
+Station, with authoritative carrier payout549, cargo package removed, active freight
+empty and zero debt/liability. Fuel fell120→118 over the round trip, and current
+station all-in quote3/unit was verified against refuel receipt6 (market4+tax2).
+Net wallet gain543; final credits198511. Original cargo/modules unchanged, hull105/105,
+shield35/35, fuel120/120, cargo11/120, docked Frontier Station / Deep Range /
+mobile_capital. No passengers or production queue remain. Five distress missions
+remain unresolved, including the earlier three and newly observed
+`7e90e5674cdef9743cf85984c776e640` and `b440eef2ecb1d76c0abd0f31074fa979` in Starfall.
+Remembered home was never changed by the temporary Outpost visit.
+
+Private runtime `spacemolt/runtime/codex-exploration-20260911` stores requests001–033,
+ready state and terminal.json. Direct-controller tool handle45882 and bridge PID3593
+both exited0 after final authoritative observations. Process review afterward found
+no game controller. No active runtime requires continuation. This is Codex gameplay,
+not Hermes playing; its market/freight evidence is separate from model acceptance.
+
+Tests actually run after final worker changes: typecheck plus101 Node tests; required
+Python runner with specified HERMES_PYTHON passes46 tests in12 SpaceMolt files. The
+returned quote next_action is also exercised by the targeted4 shared-production
+tests. Git diff check passes. No further source edits followed those checks.
+
+Exact next action: implement a complete bounded requisition trip through existing
+`prepare`, following S3/S4/S5 dependencies. Hermes chooses an observed item/shortfall
+and up to three candidate stations; scripts verify routes and local supply, acquire
+only the authorized shortfall under one purchase/travel/service allocation, verify
+custody, return/service and record dated coverage and retained goods. Reuse locations,
+shared travel/defense/journal/recovery/servicing and existing purchase accounting.
+Do not expose legacy surveyMarkets unchanged: it lacks shared cleanup/recovery and
+leaves unpriced fuel liability. Precise unavailable supply is not global absence;
+construction needs do not prove paying demand. This supports both Logistics equipment
+and Industry inputs without mandatory crafting or superficial Explore support.
+Broader purchasing opportunities (including First Step and other reachable markets)
+remain unobserved. Live retained-production and passenger acceptance, extended
+workshop settlement and full-vision stance work remain open. Any next live connection
+must check controller ownership and query fresh state.
+
+Shareable direct-game evidence: `spacemolt/evidence/codex-market-exploration.json`.
+Final evidence/TODO checkpoint will be committed separately from implementation;
+no other uncommitted source work remains.
+
 ## Validation and completion record
 
 Follow the repository's required test workflow. Existing useful checks from the repository root are:

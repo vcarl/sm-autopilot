@@ -1,0 +1,753 @@
+{
+  "classification": "Live direct Codex station exploration and completed return freight; not Hermes gameplay or shared-executor acceptance",
+  "runtime": "spacemolt/runtime/codex-exploration-20260911",
+  "controller": {
+    "tool_handle": 45882,
+    "bridge_pid": 3593,
+    "exit_code": 0,
+    "root_process_exit_code": 0,
+    "root_process_exit_source": "Root controller-owner confirmation"
+  },
+  "scope": "Visited Deep Range Outpost from Frontier Station, compared observed station markets and opportunities, accepted a return freight contract, delivered intact at Frontier Station and refueled. No cabin or ship purchase occurred.",
+  "route": [
+    {
+      "record": "009.json",
+      "request": {
+        "action": "spacemolt/undock"
+      },
+      "verified_location": {
+        "system_id": "deep_range",
+        "poi_id": "mobile_capital",
+        "docked_at": null
+      },
+      "fuel": 120
+    },
+    {
+      "record": "010.json",
+      "request": {
+        "action": "spacemolt/travel",
+        "params": {
+          "id": "deep_range_outpost"
+        }
+      },
+      "verified_location": {
+        "system_id": "deep_range",
+        "poi_id": "deep_range_outpost",
+        "docked_at": null
+      },
+      "fuel": 119
+    },
+    {
+      "record": "011.json",
+      "request": {
+        "action": "spacemolt/dock"
+      },
+      "verified_location": {
+        "system_id": "deep_range",
+        "poi_id": "deep_range_outpost",
+        "docked_at": "deep_range_outpost"
+      },
+      "fuel": 119
+    },
+    {
+      "record": "022.json",
+      "request": {
+        "action": "spacemolt/undock"
+      },
+      "verified_location": {
+        "system_id": "deep_range",
+        "poi_id": "deep_range_outpost",
+        "docked_at": null
+      },
+      "fuel": 119
+    },
+    {
+      "record": "023.json",
+      "request": {
+        "action": "spacemolt/travel",
+        "params": {
+          "id": "mobile_capital"
+        }
+      },
+      "verified_location": {
+        "system_id": "deep_range",
+        "poi_id": "mobile_capital",
+        "docked_at": null
+      },
+      "fuel": 118
+    },
+    {
+      "record": "024.json",
+      "request": {
+        "action": "spacemolt/dock"
+      },
+      "verified_location": {
+        "system_id": "deep_range",
+        "poi_id": "mobile_capital",
+        "docked_at": "frontier_station"
+      },
+      "fuel": 118
+    }
+  ],
+  "market_observations": [
+    {
+      "record": "004.json",
+      "station": "Frontier Station",
+      "base_id": "frontier_station",
+      "tick": 1852484,
+      "returned_item_count": 181,
+      "selected_items": [
+        {
+          "item_id": "afterburner_i",
+          "best_sell": 0,
+          "best_sell_qty": 0,
+          "sell_quantity": 0,
+          "best_buy": 1100,
+          "best_buy_qty": 1,
+          "buy_quantity": 101
+        },
+        {
+          "item_id": "armor_plate_i",
+          "best_sell": 1679,
+          "best_sell_qty": 1,
+          "sell_quantity": 3,
+          "best_buy": 2,
+          "best_buy_qty": 101,
+          "buy_quantity": 101
+        },
+        {
+          "item_id": "cargo_expander_ii",
+          "best_sell": 4988,
+          "best_sell_qty": 5,
+          "sell_quantity": 5,
+          "best_buy": 2,
+          "best_buy_qty": 96,
+          "buy_quantity": 96
+        },
+        {
+          "item_id": "damage_control_system",
+          "best_sell": 10459,
+          "best_sell_qty": 1,
+          "sell_quantity": 1,
+          "best_buy": 2,
+          "best_buy_qty": 101,
+          "buy_quantity": 101
+        },
+        {
+          "item_id": "economy_passenger_cabin",
+          "best_sell": 0,
+          "best_sell_qty": 0,
+          "sell_quantity": 0,
+          "best_buy": 2,
+          "best_buy_qty": 101,
+          "buy_quantity": 101
+        }
+      ]
+    },
+    {
+      "record": "012.json",
+      "station": "Deep Range Outpost",
+      "base_id": "deep_range_outpost",
+      "tick": 1852491,
+      "returned_item_count": 33,
+      "selected_items": [
+        {
+          "item_id": "afterburner_i",
+          "best_sell": 2828,
+          "best_sell_qty": 1,
+          "sell_quantity": 1,
+          "best_buy": 0,
+          "best_buy_qty": 0,
+          "buy_quantity": 0
+        },
+        {
+          "item_id": "armor_plate_i",
+          "best_sell": 1222,
+          "best_sell_qty": 1,
+          "sell_quantity": 6,
+          "best_buy": 0,
+          "best_buy_qty": 0,
+          "buy_quantity": 0
+        },
+        {
+          "item_id": "cargo_expander_ii",
+          "best_sell": 2154,
+          "best_sell_qty": 8,
+          "sell_quantity": 8,
+          "best_buy": 0,
+          "best_buy_qty": 0,
+          "buy_quantity": 0
+        },
+        {
+          "item_id": "damage_control_system",
+          "best_sell": 4977,
+          "best_sell_qty": 1,
+          "sell_quantity": 1,
+          "best_buy": 0,
+          "best_buy_qty": 0,
+          "buy_quantity": 0
+        }
+      ]
+    }
+  ],
+  "market_interpretation": "Stations offer different items, stock and prices. These are observed order-book prices and quantities, not all-in purchase quotes, proven arbitrage profit or guarantees of future fills. A zero best_sell beside zero sell quantity is absence of offered stock, not a free item.",
+  "cabin_availability": {
+    "frontier": "Economy cabin listed with sell_quantity0 and best_sell0; no local offered supply established by market observation004.",
+    "deep_range_quote": {
+      "action": "estimate_purchase",
+      "available": 0,
+      "fills": [],
+      "item": "Economy Passenger Cabin",
+      "message": "No sellers for Economy Passenger Cabin at this station.",
+      "quantity_requested": 1,
+      "sales_tax": 0,
+      "sales_tax_rate_bps": 50,
+      "subtotal": 0,
+      "total_cost": 0,
+      "unfilled": 1
+    },
+    "conclusion": "Neither observed station established available economy cabin stock. This is bounded local evidence, not a global absence claim."
+  },
+  "station_needs": [
+    {
+      "record": "017.json",
+      "base_id": "deep_range_outpost",
+      "condition": {
+        "condition": "struggling",
+        "condition_text": "Multiple systems running on emergency reserves. Lights flicker in the corridors.",
+        "satisfaction_pct": 66,
+        "satisfied_count": 12,
+        "total_service_infra": 18
+      },
+      "unmet_construction": [
+        {
+          "definition_id": "enriched_uranium_rod_extraction_unit",
+          "status": "waiting_for_materials",
+          "missing_materials": [
+            {
+              "item_id": "lead_shielding",
+              "quantity_required": 2850,
+              "quantity_in_storage": 0,
+              "quantity_missing": 2850
+            }
+          ]
+        }
+      ],
+      "interpretation": "Observed unmet station requirements are opportunity leads, not purchase orders or verified profit."
+    },
+    {
+      "record": "026.json",
+      "base_id": "frontier_station",
+      "condition": {
+        "condition": "struggling",
+        "condition_text": "Multiple systems running on emergency reserves. Lights flicker in the corridors.",
+        "satisfaction_pct": 73,
+        "satisfied_count": 14,
+        "total_service_infra": 19
+      },
+      "unmet_construction": [
+        {
+          "definition_id": "shield_emitter_production_line",
+          "status": "waiting_for_materials",
+          "missing_materials": [
+            {
+              "item_id": "control_node",
+              "quantity_required": 50,
+              "quantity_in_storage": 48,
+              "quantity_missing": 2
+            }
+          ]
+        }
+      ],
+      "interpretation": "Observed unmet station requirements are opportunity leads, not purchase orders or verified profit."
+    }
+  ],
+  "freight": {
+    "contract": {
+      "id": "cace55e0d6f6b93a802a8bdf3c45b367",
+      "package_id": "ef3295a02b890c7814ec47ac4d13cb6e",
+      "origin_base_id": "deep_range_outpost",
+      "destination_base_id": "frontier_station",
+      "status": "delivered",
+      "terminal_reason": "delivered_intact",
+      "accepted_at": "2026-09-11T07:37:15.42789Z",
+      "delivered_at": "2026-09-11T07:39:46.183334287Z",
+      "settled_at": "2026-09-11T07:39:46.183334287Z",
+      "target_tick": 1852886,
+      "deadline_tick": 1853216,
+      "failure_debt": 500,
+      "reserved_exposure": 7880,
+      "carrier_payout": 549
+    },
+    "acceptance": {
+      "record": "019.json",
+      "status": "in_transit",
+      "tick": 1852496
+    },
+    "custody": {
+      "storage_before_withdrawal": {
+        "item_id": "package:ef3295a02b890c7814ec47ac4d13cb6e",
+        "quantity": 1,
+        "size": 100
+      },
+      "withdrawal_receipt": {
+        "action": "withdraw_items",
+        "item_id": "package:ef3295a02b890c7814ec47ac4d13cb6e",
+        "quantity": 1,
+        "storage_remaining": 0,
+        "cargo_total": 1,
+        "cargo_space": 9
+      },
+      "cargo_after_withdrawal": {
+        "item_id": "package:ef3295a02b890c7814ec47ac4d13cb6e",
+        "quantity": 1,
+        "size": 100
+      },
+      "cargo_used_after_withdrawal": 111,
+      "cargo_capacity": 120,
+      "package_absent_after_delivery": true
+    },
+    "delivery": {
+      "record": "025.json",
+      "tick": 1852511,
+      "carrier_payout": 549
+    },
+    "final_active_contracts": [],
+    "final_outstanding_debt": 0,
+    "final_successful_deliveries": 9
+  },
+  "accounting": {
+    "initial_credits": 197968,
+    "credits_after_delivery": 198517,
+    "final_credits": 198511,
+    "carrier_payout": 549,
+    "refuel_quote": {
+      "fuel_price": 2,
+      "fuel_price_all_in": 3,
+      "fuel_tax_per_unit": 1
+    },
+    "refuel_receipt": {
+      "action": "refuel",
+      "source": "station",
+      "fuel": 2,
+      "cost": 6,
+      "market_cost": 4,
+      "tax_amount": 2
+    },
+    "gross_service_spend": 6,
+    "wallet_change": 543,
+    "payout_less_service": 543,
+    "tax_note": "Refuel cost6 already includes market_cost4 and tax_amount2; tax is not added again."
+  },
+  "final_state": {
+    "location": {
+      "system_id": "deep_range",
+      "poi_id": "mobile_capital",
+      "docked_at": "frontier_station"
+    },
+    "ship": {
+      "id": "b76179e1db2326d9bf0de8c5401149da",
+      "hull": 105,
+      "max_hull": 105,
+      "shield": 35,
+      "max_shield": 35,
+      "fuel": 120,
+      "max_fuel": 120,
+      "cargo_used": 11,
+      "cargo_capacity": 120,
+      "cpu_used": 8,
+      "cpu_capacity": 12,
+      "power_used": 11,
+      "power_capacity": 24
+    },
+    "cargo": [
+      {
+        "item_id": "standard_rounds_box",
+        "quantity": 1,
+        "size": 1
+      },
+      {
+        "item_id": "creature_carapace",
+        "quantity": 1,
+        "size": 1
+      },
+      {
+        "item_id": "phase_pearl",
+        "quantity": 2,
+        "size": 1
+      },
+      {
+        "item_id": "carbon_ore",
+        "quantity": 6,
+        "size": 1
+      },
+      {
+        "item_id": "platinum_ore",
+        "quantity": 1,
+        "size": 1
+      }
+    ],
+    "starting_cargo_preserved": true,
+    "modules_unchanged": true,
+    "passengers": {
+      "count": 0,
+      "passengers": []
+    },
+    "production": {
+      "action": "queue",
+      "jobs": null,
+      "kind": "queue",
+      "total_jobs": 0
+    },
+    "missions": [
+      {
+        "mission_id": "fff0b7ce092ff4f0d31ebd19977b803f",
+        "type": "distress_response",
+        "issuing_system_id": "starfall",
+        "expires_in_ticks": 405,
+        "percent_complete": 0
+      },
+      {
+        "mission_id": "a5d91118259cb9ce131c5f1027cddce1",
+        "type": "distress_response",
+        "issuing_system_id": "void_gate",
+        "expires_in_ticks": 415,
+        "percent_complete": 0
+      },
+      {
+        "mission_id": "2a23e470f63feb5b23c1be98a5bcf466",
+        "type": "distress_response",
+        "issuing_system_id": "unknown_edge",
+        "expires_in_ticks": 726,
+        "percent_complete": 0
+      },
+      {
+        "mission_id": "7e90e5674cdef9743cf85984c776e640",
+        "type": "distress_response",
+        "issuing_system_id": "starfall",
+        "expires_in_ticks": 974,
+        "percent_complete": 0
+      },
+      {
+        "mission_id": "b440eef2ecb1d76c0abd0f31074fa979",
+        "type": "distress_response",
+        "issuing_system_id": "starfall",
+        "expires_in_ticks": 975,
+        "percent_complete": 0
+      }
+    ],
+    "mission_count": 5,
+    "remembered_home": "Unchanged; direct legacy exploration did not invoke plan/home mutation."
+  },
+  "action_trace": [
+    {
+      "record": "001.json",
+      "request": {
+        "action": "catalog"
+      },
+      "ok": true,
+      "tick": null
+    },
+    {
+      "record": "002.json",
+      "request": {
+        "action": "spacemolt/get_system"
+      },
+      "ok": true,
+      "tick": null
+    },
+    {
+      "record": "003.json",
+      "request": {
+        "action": "industry/locations",
+        "params": {
+          "max_jumps": 2,
+          "limit": 15
+        }
+      },
+      "ok": true,
+      "tick": null
+    },
+    {
+      "record": "004.json",
+      "request": {
+        "action": "spacemolt_market/view_market",
+        "params": {
+          "category": "module"
+        }
+      },
+      "ok": true,
+      "tick": null
+    },
+    {
+      "record": "005.json",
+      "request": {
+        "action": "spacemolt_ship/browse_ships",
+        "params": {
+          "max_price": 47000
+        }
+      },
+      "ok": true,
+      "tick": null
+    },
+    {
+      "record": "006.json",
+      "request": {
+        "action": "spacemolt_shipping/active"
+      },
+      "ok": true,
+      "tick": null
+    },
+    {
+      "record": "007.json",
+      "request": {
+        "action": "spacemolt/list_passengers"
+      },
+      "ok": true,
+      "tick": null
+    },
+    {
+      "record": "008.json",
+      "request": {
+        "action": "spacemolt/craft"
+      },
+      "ok": true,
+      "tick": 0
+    },
+    {
+      "record": "009.json",
+      "request": {
+        "action": "spacemolt/undock"
+      },
+      "ok": true,
+      "tick": 1852486
+    },
+    {
+      "record": "010.json",
+      "request": {
+        "action": "spacemolt/travel",
+        "params": {
+          "id": "deep_range_outpost"
+        }
+      },
+      "ok": true,
+      "tick": 1852488
+    },
+    {
+      "record": "011.json",
+      "request": {
+        "action": "spacemolt/dock"
+      },
+      "ok": true,
+      "tick": 1852490
+    },
+    {
+      "record": "012.json",
+      "request": {
+        "action": "spacemolt_market/view_market",
+        "params": {
+          "category": "module"
+        }
+      },
+      "ok": true,
+      "tick": null
+    },
+    {
+      "record": "013.json",
+      "request": {
+        "action": "spacemolt_ship/browse_ships",
+        "params": {
+          "max_price": 10000
+        }
+      },
+      "ok": true,
+      "tick": null
+    },
+    {
+      "record": "014.json",
+      "request": {
+        "action": "spacemolt_shipping/list"
+      },
+      "ok": true,
+      "tick": null
+    },
+    {
+      "record": "015.json",
+      "request": {
+        "action": "spacemolt/list_station_passengers"
+      },
+      "ok": true,
+      "tick": null
+    },
+    {
+      "record": "016.json",
+      "request": {
+        "action": "spacemolt_shipping/get",
+        "params": {
+          "shipment_id": "cace55e0d6f6b93a802a8bdf3c45b367"
+        }
+      },
+      "ok": true,
+      "tick": null
+    },
+    {
+      "record": "017.json",
+      "request": {
+        "action": "spacemolt/get_base"
+      },
+      "ok": true,
+      "tick": null
+    },
+    {
+      "record": "018.json",
+      "request": {
+        "action": "spacemolt_market/estimate_purchase",
+        "params": {
+          "item_id": "economy_passenger_cabin",
+          "quantity": 1
+        }
+      },
+      "ok": true,
+      "tick": null
+    },
+    {
+      "record": "019.json",
+      "request": {
+        "action": "spacemolt_shipping/accept",
+        "params": {
+          "shipment_id": "cace55e0d6f6b93a802a8bdf3c45b367"
+        }
+      },
+      "ok": true,
+      "tick": 1852496
+    },
+    {
+      "record": "020.json",
+      "request": {
+        "action": "spacemolt_storage/view"
+      },
+      "ok": true,
+      "tick": null
+    },
+    {
+      "record": "021.json",
+      "request": {
+        "action": "spacemolt_storage/withdraw",
+        "params": {
+          "item_id": "package:ef3295a02b890c7814ec47ac4d13cb6e",
+          "quantity": 1
+        }
+      },
+      "ok": true,
+      "tick": 1852500
+    },
+    {
+      "record": "022.json",
+      "request": {
+        "action": "spacemolt/undock"
+      },
+      "ok": true,
+      "tick": 1852502
+    },
+    {
+      "record": "023.json",
+      "request": {
+        "action": "spacemolt/travel",
+        "params": {
+          "id": "mobile_capital"
+        }
+      },
+      "ok": true,
+      "tick": 1852505
+    },
+    {
+      "record": "024.json",
+      "request": {
+        "action": "spacemolt/dock"
+      },
+      "ok": true,
+      "tick": 1852509
+    },
+    {
+      "record": "025.json",
+      "request": {
+        "action": "spacemolt_shipping/deliver",
+        "params": {
+          "shipment_id": "cace55e0d6f6b93a802a8bdf3c45b367"
+        }
+      },
+      "ok": true,
+      "tick": 1852511
+    },
+    {
+      "record": "026.json",
+      "request": {
+        "action": "spacemolt/get_base"
+      },
+      "ok": true,
+      "tick": null
+    },
+    {
+      "record": "027.json",
+      "request": {
+        "action": "spacemolt_shipping/active"
+      },
+      "ok": true,
+      "tick": null
+    },
+    {
+      "record": "028.json",
+      "request": {
+        "action": "spacemolt_shipping/profile"
+      },
+      "ok": true,
+      "tick": null
+    },
+    {
+      "record": "029.json",
+      "request": {
+        "action": "spacemolt/refuel"
+      },
+      "ok": true,
+      "tick": 1852516
+    },
+    {
+      "record": "030.json",
+      "request": {
+        "action": "state"
+      },
+      "ok": true,
+      "tick": null
+    },
+    {
+      "record": "031.json",
+      "request": {
+        "action": "spacemolt/list_passengers"
+      },
+      "ok": true,
+      "tick": null
+    },
+    {
+      "record": "032.json",
+      "request": {
+        "action": "spacemolt/craft"
+      },
+      "ok": true,
+      "tick": 0
+    },
+    {
+      "record": "033.json",
+      "request": {
+        "action": "spacemolt/get_active_missions"
+      },
+      "ok": true,
+      "tick": null
+    }
+  ],
+  "acceptance_limits": [
+    "Direct Codex executed this exploration and freight; it does not close any real-Hermes stance acceptance condition.",
+    "No passenger cabin fitting, boarding or passenger delivery occurred.",
+    "No market goods were bought or sold; market price differences remain observations.",
+    "Five existing distress missions remain unresolved; mission bodies, nearby player details and chat content were omitted."
+  ]
+}
