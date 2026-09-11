@@ -34,7 +34,17 @@ export async function assessFreight(account:Account,command:IndustryCommand,para
   const board=details(await command('spacemolt_shipping/list',{eligible_as:'player',per_page:50,sort:'distance'}));
   if(!Array.isArray(board.shipments))throw new Error('Shipping board unavailable');
   const reference=(id:string)=>policy.stations.find(station=>station.base_id===id);
-  if(!params.shipment_id)return {status:'observed',profile,policy,candidates:board.shipments.map((row:Wire)=>({...row,origin:reference(row.contract?.origin_base_id),destination:reference(row.contract?.destination_base_id)})),limitation:'First 50 board entries only; eligibility is not a route or custody guarantee. Assess one ID before acceptance.'};
+  if(!params.shipment_id)return {status:'observed',profile,policy,candidates:board.shipments.map((row:Wire)=>{
+    const origin=reference(row.contract?.origin_base_id),destination=reference(row.contract?.destination_base_id);
+    const blockers:string[]=[];
+    if(!origin||!destination)blockers.push('Origin or destination is absent from observed station directory');
+    if(origin&&origin.base_id!==account.location?.docked_at)blockers.push('Start docked at contract origin');
+    if(row.eligible===false)blockers.push(row.reason??'Carrier is not eligible');
+    if(!finite(row.contract?.failure_debt)||row.contract.failure_debt>policy.max_liability)blockers.push('Contract exceeds resolved contingent-liability allocation');
+    return {...row,origin,destination,blockers,readiness:blockers.length?'blocked':'requires_targeted_assessment',
+      observed_same_system:origin&&destination?origin.system_id===destination.system_id:undefined,
+      next_action:blockers.length?'Resolve blockers or compare another candidate':'Call job__assess with kind freight and this shipment_id before transport'};
+  }),limitation:'First 50 board entries only; server eligibility is not local readiness. Stored contract route_hops may be stale for mobile stations. Targeted assessment verifies current route, capacity and obligations before acceptance.'};
   const contract=details(await command('spacemolt_shipping/get',{shipment_id:params.shipment_id})).contract;
   if(!contract||contract.id!==params.shipment_id||typeof contract.package_id!=='string')throw new Error('Contract identity unavailable');
   const blockers:string[]=[],unknowns:string[]=[];

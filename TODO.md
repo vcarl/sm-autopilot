@@ -900,6 +900,20 @@ debt without accepting. Typecheck and all 84 Node tests pass; the required Pytho
 runner passes 15 tests across runner and Logistics integration. A corrected live run
 is still needed; S14/A6 remain open.
 
+## Freight board readiness after live planning — 2026-09-11
+
+The corrected debt-policy live run still completed no delivery: Hermes selected a
+higher-paying contract to unobserved Ramen's Rest directly from the board, skipping
+targeted assessment. The script rejected it before acceptance, then stopped serviced
+with zero spending. [Recorded live result](spacemolt/evidence/shared-live-logistics-planning.json).
+The board now distinguishes server eligibility from local readiness: missing observed
+stations, wrong origin, server rejection and excessive failure debt are explicit
+blockers; remaining candidates require targeted assessment. Same-system observations
+are explicit, and stored contract hop counts are labeled potentially stale for mobile
+stations. Behavioral coverage verifies an eligible contract becomes locally blocked
+when its destination is absent, without hiding that listing. Typecheck and 84 Node
+tests pass. Another live attempt is needed; S14/A6 remain open.
+
 ## Validation and completion record
 
 Follow the repository's required test workflow. Existing useful checks from the repository root are:

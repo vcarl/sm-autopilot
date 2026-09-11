@@ -11,6 +11,12 @@ test('personal freight accepts, verifies sealed custody and delivery, and separa
     const f=freightFixture(t,{hiddenSize});
     f.contract.reserved_exposure=5000;
     const board=await assessFreight(f.account,f.command,{},f.policy);assert.equal(board.candidates[0].destination.base_id,'other');
+    assert.equal(board.candidates[0].readiness,'requires_targeted_assessment');
+    assert.equal(board.candidates[0].observed_same_system,true);
+    const unresolved=await assessFreight(f.account,f.command,{}, {...f.policy,stations:f.policy.stations.filter(station=>station.base_id!=='other')});
+    assert.equal(unresolved.candidates[0].eligible,true);
+    assert.equal(unresolved.candidates[0].readiness,'blocked');
+    assert.ok(unresolved.candidates[0].blockers.some((text:string)=>text.includes('station directory')));
     const assessed=await assessFreight(f.account,f.command,{shipment_id:'freight'},f.policy);
     assert.equal(assessed.status,'ready_to_accept');assert.equal(assessed.liability.failure_debt,100);
     if(hiddenSize)assert.ok(assessed.unknowns.some((text:string)=>text.includes('size unverified')));
