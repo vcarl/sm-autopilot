@@ -68,6 +68,19 @@ def receipt_report(receipts, cleanup_response=None):
             row["production_work"]["accounting_scope"] = "Cumulative experiment amounts at this receipt; do not sum repeated experiment_id snapshots"
             if "skill_progress" in production:
                 row["observed_skill_progress"] = deepcopy(production["skill_progress"])
+        transport = work_result(result, "transport")
+        if transport:
+            row["transport_work"] = {key: deepcopy(transport[key]) for key in
+                                     ("kind", "status", "reason", "shipment_id", "package_id", "origin",
+                                      "destination", "ship_id", "acceptance", "custody", "delivery",
+                                      "payout", "accounting_unverified", "pending_action", "loaded",
+                                      "delivered", "onboard", "fare_collected", "obligations_after", "profile_after")
+                                     if key in transport}
+            policy = work_result(result, "transport_policy")
+            if policy:
+                row["transport_policy"] = deepcopy(policy)
+            if "skill_progress" in transport:
+                row["observed_skill_progress"] = deepcopy(transport["skill_progress"])
         jobs.append(row)
     deltas = [job["cash_delta"] for job in jobs]
     known_cash = (all(job["status"] not in {"running", "needs_reconciliation"} for job in jobs)

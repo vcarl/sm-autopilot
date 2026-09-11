@@ -165,9 +165,9 @@ Every stance skill must cover the seven common sections in VISION.md: selection,
 - [x] **K0 — Shared SpaceMolt operations skill is installed and loadable.** It explains the common tools, authoritative state, choosing home, transitions, obligations, receipts, and Tired; its procedure agrees with executable policy.
 - [ ] **K1 — Combat skill is installed and loadable.** It teaches guard versus engage, defensive objectives, threat assessment, and escalation/withdrawal interpretation.
 - [x] **K2 — Hunt skill is installed and loadable.** It teaches tracking, intelligence limits, quarry selection, training/harvesting goals, and escaped-target outcomes.
-- [ ] **K3 — Industry skill is installed and loadable.** It treats gathering and production together, including mine-versus-buy decisions, input allocation, pending work, and settlement.
+- [x] **K3 — Industry skill is installed and loadable.** It treats gathering and production together, including mine-versus-buy decisions, input allocation, pending work, and settlement.
 - [ ] **K4 — Trade skill is installed and loadable.** It teaches opportunity comparison, market depth, inventory exposure, switching costs, and realized accounting.
-- [ ] **K5 — Logistics skill is installed and loadable.** It covers both freight and passengers, capacity/admission, routes, deadlines, and verified delivery.
+- [x] **K5 — Logistics skill is installed and loadable.** It covers both freight and passengers, capacity/admission, routes, deadlines, and verified delivery.
 - [ ] **K6 — Explore skill is installed and loadable.** It teaches discovery objectives, coverage, information value, and observations relevant to home selection.
 - [ ] **K7 — Salvage skill is installed and loadable.** It teaches suitability, recovery limits, threats, capacity, and aftermath.
 - [ ] **K8 — Skills influence the real agent path correctly.**
@@ -280,6 +280,48 @@ new-run readiness gate correctly refuses to erase that liability; an explicit ho
 budget reauthorization workflow remains future work. Independent review reproduced
 the original boundary defect, but the reviewing IC hit a usage limit before final
 patch review; final implementation review and validation were completed locally.
+
+## Shared freight and passenger jobs — 2026-09-11
+
+S14 now has concrete single-destination workers: `logistics.ts` for one personal
+freight contract and `passengers.ts` for one passenger destination. `Execution`
+provides the small Logistics assessment/transport catalog, shared service, serialized
+commands, journaled docking replies, cleanup, one-job stopping and budget ownership.
+`logistics-policy.ts` enforces the route/liability allocations below; an actual
+route test distinguishes Cautious from Focused without broadening authorization.
+
+Freight verifies contract/contractor identity, contingent liability, inspected or
+postaccept storage package size, cargo/storage custody, delivery and payout. Unknown
+preaccept size remains an explicit commitment risk, not a fabricated number. A clean
+interruption can continue the same accepted contract without a second acceptance or
+withdrawal. Passengers preserve exact boarded identities, berth capacity and observed
+deadlines, consume dock-triggered delivery receipts before unloading, verify fares
+and retain unrelated cargo/passengers. Expired observed deadlines stop further
+productive execution; no guaranteed travel-time estimate is invented.
+
+A later operating run can use `resume_job_id` for verified unfinished transport;
+uncertain effects/accounting remain needs-reconciliation even after generic cleanup.
+Resume retains the original gross spending owner and applies current route/reserve
+constraints. Public reports expose transport receipts separately from net wallet
+changes. The Logistics skill loads through native skill_view and filters correctly
+for Tired. K3 and K5 packaging/skill-content conditions are now checked with real
+native loading tests; they do not imply live stance acceptance.
+
+Offline evidence: worker behavioral tests, `shared-logistics.test.ts`, and actual
+Hermes registry → Python subprocess → ExecutionHost tests for both delivery types
+under temporary HERMES_HOME. Freight fixture reports payout80, grossfuel6 and
+netwallet174 with unrelated income100; passenger fixture reports fare7/gross6 and
+net101 with unrelated income100. Tired continuation submits one acceptance/boarding,
+keeps custody, and returns serviced after delivery. Failure tests cover missing
+payment, unknown acceptance, failed pickup, missing/expired passenger deadlines,
+missing arrival evidence and repeated-action prevention. Independent IC review
+found and fixed the expired-deadline gap; no remaining concrete integration blocker
+was found. Typecheck, 84 Node tests, and 36 Python tests pass.
+
+No new live Logistics or local-model Logistics run was performed. S14/A6 remain open
+for representative live freight and passenger jobs, broader transport recovery,
+capacity acquisition and stronger deadline feasibility evidence. This slice uses
+existing equipment and observed station identities with at most two normal jumps.
 
 ## Corrected live economic planning and next Logistics slice — 2026-09-11
 

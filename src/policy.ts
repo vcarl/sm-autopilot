@@ -9,6 +9,7 @@ export const combatActions = new Set([
 ]);
 export const allowed = new Set([
   ...combatActions,
+  'spacemolt/list_station_passengers', 'spacemolt/load_passenger', 'spacemolt/unload_passenger',
   'spacemolt/list_passengers', 'spacemolt/get_status', 'spacemolt/get_active_missions', 'spacemolt/get_missions',
   'spacemolt/get_system', 'spacemolt/get_poi', 'spacemolt/get_base', 'spacemolt/find_route',
   'spacemolt/get_skills', 'spacemolt/get_guide', 'spacemolt/completed_missions',

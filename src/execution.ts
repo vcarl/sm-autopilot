@@ -17,6 +17,10 @@ import {admissionBlocker,terminalStoppingReason} from './execution-stopping.ts';
 import {isPaidCommand,jobSpending,jobBudget,requireCommandSpend} from './spending.ts';
 import {locateHome} from './home-location.ts';
 import {ensureReadiness} from './readiness.ts';
+import {assessFreight,transportFreight,type FreightReceipt} from './logistics.ts';
+import {assessPassengers,transportPassengers,type PassengerReceipt} from './passengers.ts';
+import {logisticsPolicy} from './logistics-policy.ts';
+import {validateTransportRoute,transportReceipt} from './execution-logistics.ts';
 import {observeGathering,assessGathering,gatherResources,verifyGatherInventory,type GatherReceipt} from './gather.ts';
 import {assessProduction,productionWaitSeconds,productionExperiments,productionReceipt,unfinishedProduction,retainProductionAcceptance} from './shared-production.ts';
 
@@ -48,6 +52,13 @@ export function executionCatalog(context:ExecutionContext):Record<string,any> {
       parameter('poi_id','string','Observed local asteroid belt POI',true),parameter('cycles','number','Optional cycle count, only tighter than resolved max_gather_cycles')]);
     common.produce=meta('At home, source inputs and execute one economically assessed production run, settle output sales, and service. Pending/partial work is unfinished. In a later operating run, pass only experiment_id to continue known settlement without crafting again.',[
       parameter('recipe_id','string','Recipe for new production'),parameter('source','string','inventory (default) or buy'),parameter('quantity','number','Output count; only one recipe run is supported'),parameter('experiment_id','string','Known unfinished experiment to settle, exclusive with recipe/source/quantity'),parameter('max_wait_seconds','number','Queue waiting bound, 0..120 seconds (default 120)')]);
+  }
+  if(context.stance==='Logistics') {
+    common.assess=meta('Observe freight and passenger opportunities, or assess a selected shipment/destination. Eligibility does not guarantee capacity, timely delivery or profit.',[
+      parameter('kind','string','freight or passengers; omit to compare both'),parameter('shipment_id','string','Freight contract ID'),parameter('destination','string','Observed passenger destination base ID')]);
+    common.prepare=meta('Service the existing ship. No berth or cargo-equipment purchases.');
+    common.transport=meta('Carry one freight contract or passengers for one destination, verify delivery/payment, then return and service. Records unfinished custody. Resume a known interrupted job only by resume_job_id.',[
+      parameter('kind','string','freight or passengers'),parameter('shipment_id','string','Freight contract ID'),parameter('destination','string','Passenger destination base ID'),parameter('resume_job_id','string','Prior transport job, exclusive with other fields')]);
   }
   return common;
 }
@@ -105,7 +116,7 @@ export class Execution {
     if(this.active&&this.dangerPending&&!this.defending&&!action.startsWith('spacemolt_battle/')) {
       if(await this.defend())throw new DefenseInterruption('Unexpected combat invalidated the pending operation; return before reconsidering work');
     }
-    if(this.stopping&&(['spacemolt/hunt','spacemolt/mine','spacemolt/buy','spacemolt/sell','spacemolt/install_mod','spacemolt/uninstall_mod','spacemolt_storage/deposit','spacemolt_storage/withdraw','spacemolt_salvage/loot','spacemolt/scan'].includes(action)||(action==='spacemolt/craft'&&params.id!==undefined&&params.dry_run!==true)))throw new StopWork('Stop requested before productive command');
+    if(this.stopping&&(['spacemolt_shipping/accept','spacemolt_shipping/deliver','spacemolt/load_passenger','spacemolt/unload_passenger','spacemolt/hunt','spacemolt/mine','spacemolt/buy','spacemolt/sell','spacemolt/install_mod','spacemolt/uninstall_mod','spacemolt_storage/deposit','spacemolt_storage/withdraw','spacemolt_salvage/loot','spacemolt/scan'].includes(action)||(action==='spacemolt/craft'&&params.id!==undefined&&params.dry_run!==true)))throw new StopWork('Stop requested before productive command');
     if(this.active&&isPaidCommand(action,params)) {
       const spending=jobBudget(this.active,this.store.data.jobs);
       if(spending.gross_spend===null)throw new Error('Unpriced paid command prevents further spending until reconciliation');
@@ -305,6 +316,8 @@ export class Execution {
       retainProductionAcceptance(job);
       const production=productionReceipt(job.result);
       if(production?.pending_action||production?.accounting_unverified)job.status='needs_reconciliation';
+      const transport=transportReceipt(job.result);
+      if(transport?.pending_action||transport?.accounting_unverified)job.status='needs_reconciliation';
       job.stopping_reason=this.store.data.stop;this.store.save();return structuredClone(job);
     } finally {this.context=nextContext;this.active=undefined;}
   }
@@ -317,14 +330,21 @@ export class Execution {
     if(!(action in executionCatalog(this.context)))throw new Error('Tool unavailable under current stance, mood or permission');
     if(this.store.unresolved())throw new Error('An unfinished job requires reconciliation; observe it without replay');
     if(this.stopping&&action!=='return_to_base')throw new Error('Stop latched: productive admission closed');
-    if(action==='assess'&&this.context.stance!=='Industry')return combat('assess',params,this.account,this.command,this.deps.combat);
-    if(!this.context.home&&action!=='return_to_base'&&!(action==='assess'&&this.context.stance==='Industry'&&!params.poi_id))throw new Error('Observe and choose home before work');
+    if(action==='assess'&&!['Industry','Logistics'].includes(this.context.stance))return combat('assess',params,this.account,this.command,this.deps.combat);
+    if(!this.context.home&&action!=='return_to_base'&&!(action==='assess'&&(this.context.stance==='Logistics'||this.context.stance==='Industry'&&!params.poi_id)))throw new Error('Observe and choose home before work');
     if(Object.keys(params).some(k=>!((executionCatalog(this.context)[action].params??[]) as any[]).some(p=>p.name===k)))throw new Error('Unsupported job parameter');
     for(const field of executionCatalog(this.context)[action].params??[]) {
       const value=params[field.name];
       if(value===undefined&&!field.required)continue;
       const valid=field.type==='string[]'?Array.isArray(value)&&value.every(v=>typeof v==='string'&&v.trim()):field.type==='string'?typeof value==='string'&&Boolean(value.trim()):typeof value===field.type;
       if(!valid)throw new Error(`Invalid or missing ${field.name}`);
+    }
+    if(this.context.stance==='Logistics') {
+      if(params.kind!==undefined&&!['freight','passengers'].includes(params.kind))throw new Error('kind must be freight or passengers');
+      if(params.resume_job_id&&Object.keys(params).some(key=>key!=='resume_job_id'))throw new Error('Resume uses only resume_job_id');
+      if(params.kind==='freight'&&params.destination||params.kind==='passengers'&&params.shipment_id)throw new Error('Select one transport kind');
+      if(action==='transport'&&!params.resume_job_id&&(!params.kind||params.kind==='freight'&&!params.shipment_id||params.kind==='passengers'&&!params.destination))throw new Error('Select a freight shipment or passenger destination');
+      if(action==='assess')return this.assessLogistics(params);
     }
     const limits=this.context.limits;
     if(params.cycles!==undefined&&(!Number.isInteger(params.cycles)||params.cycles<1||params.cycles>limits.max_gather_cycles))throw new Error('cycles exceeds resolved gathering policy');
@@ -351,6 +371,11 @@ export class Execution {
     if(action==='produce'&&params.experiment_id) {
       const owner=this.store.data.jobs.find(previous=>productionReceipt(previous.result)?.experiment_id===params.experiment_id);
       if(owner)job.budget_owner_id=owner.budget_owner_id??owner.id;
+    }
+    if(action==='transport'&&params.resume_job_id) {
+      const owner=this.store.data.jobs.find(previous=>previous.id===params.resume_job_id&&previous.action==='transport');
+      if(!owner)throw new Error('Unknown transport job');
+      job.budget_owner_id=owner.budget_owner_id??owner.id;
     }
     this.active=job;this.store.data.jobs.push(job);this.store.save();
     let result:any;
@@ -380,6 +405,7 @@ export class Execution {
         track:()=>this.sortie('scout',params),hunt:()=>this.sortie('hunt',params),
         gather:()=>this.gather(params),
         produce:()=>this.produce(params,obligations!),
+        transport:()=>this.transport(params,obligations!),
       };
       if(this.stopping&&action!=='return_to_base')throw new StopWork('Stop requested before work');
       if(['hunt','track','gather','produce'].includes(action))admitProductiveSortie(obligations!,this.context.stance);
@@ -387,7 +413,7 @@ export class Execution {
       job.result=result;
       if(result?.status==='blocked'&&action!=='return_to_base'&&!job.return_plan)throw new Error(result.reason??'Job returned a blocker');
       if(this.stopping&&action!=='return_to_base'&&!job.return_plan)throw new StopWork('Productive work suspended; return and service before stopping');
-      job.status=action==='produce'&&result?.production?.status!=='complete'?(result?.production?.status==='needs_reconciliation'?'needs_reconciliation':'blocked'):result?.status==='blocked'?'blocked':this.stopping?'returned_to_base':action==='hunt'&&!result?.sortie?.fight?.verified_victory?'blocked':'completed';
+      job.status=action==='transport'&&result?.transport?.status!=='completed'?(result?.transport?.status==='needs_reconciliation'?'needs_reconciliation':'blocked'):action==='produce'&&result?.production?.status!=='complete'?(result?.production?.status==='needs_reconciliation'?'needs_reconciliation':'blocked'):result?.status==='blocked'?'blocked':this.stopping?'returned_to_base':action==='hunt'&&!result?.sortie?.fight?.verified_victory?'blocked':'completed';
     } catch(error) {
       job.error=error instanceof Error?error.message:String(error);
       try {
@@ -425,6 +451,9 @@ export class Execution {
       job.after=this.snapshot();job.cash_delta=this.account.credits!-(job.before as Wire).credits;
       job.spending=jobSpending(job);
       job.budget_spending=jobBudget(job,this.store.data.jobs);
+      const transport=transportReceipt(job.result);
+      if(transport?.pending_action||transport?.accounting_unverified)job.status='needs_reconciliation';
+      else if(action==='transport'&&transport?.status!=='completed'&&job.status!=='needs_reconciliation')job.status='blocked';
       const production=productionReceipt(job.result);
       if(production?.pending_action||production?.accounting_unverified)job.status='needs_reconciliation';
       else if(action==='produce'&&production?.status!=='complete'&&job.status!=='needs_reconciliation')job.status='blocked';
@@ -466,6 +495,44 @@ export class Execution {
     const cleanup=await this.returnHome();
     verifyGatherInventory(gathered,this.account);
     return {gather:gathered,cleanup,status:gathered.status};
+  }
+  private async assessLogistics(params:Wire) {
+    await this.observe(false);
+    const policy={...logisticsPolicy(this.context),stations:this.stations};
+    if(params.kind==='freight'||params.shipment_id)return assessFreight(this.account,this.command,params,policy);
+    if(params.kind==='passengers'||params.destination)return assessPassengers(this.account,this.command,params,policy);
+    return {policy,freight:await assessFreight(this.account,this.command,{},policy),passengers:await assessPassengers(this.account,this.command,{},policy)};
+  }
+  private async transport(params:Wire,obligations:Obligations) {
+    const previous=params.resume_job_id?this.store.data.jobs.find(job=>job.id===params.resume_job_id):undefined;
+    const resume=previous?transportReceipt(previous.result):undefined;
+    if(previous&&(!resume||resume.pending_action||resume.accounting_unverified||resume.status==='completed'))throw new Error('Transport must have verified unfinished custody before resuming');
+    if(!resume)admitProductiveSortie(obligations,'Transport');
+    await this.service();
+    const policy=logisticsPolicy(this.context),kind=resume?.kind??params.kind;
+    const destination=(id:string)=>{
+      const station=this.stations.find(row=>row.base_id===id);
+      if(!station)throw new Error('Observe transport destination before departure');
+      return station;
+    };
+    const controls={
+      checkpoint:async()=>{await this.defend();if(this.stopping)throw new StopWork('Transport suspended; preserve cargo and passenger obligations');},
+      record:(receipt:any)=>{this.active!.result={transport:{...receipt,kind},transport_policy:policy};this.store.save();},
+      validateRoute:(id:string)=>validateTransportRoute(this.account,this.command,destination(id),this.context),
+      travel:async(id:string)=>{
+        const start=this.active!.actions.length;
+        await this.travel(destination(id),true);
+        return {dock_receipts:this.active!.actions.slice(start).filter(entry=>entry.action==='spacemolt/dock').map(entry=>entry.accepted_result??entry.result)};
+      },
+    };
+    let receipt:any;
+    if(kind==='passengers')receipt=await transportPassengers(this.account,this.command,{destination:resume?.destination??params.destination,resume:resume as PassengerReceipt|undefined},controls);
+    else {
+      const assessment=resume?.assessment??await assessFreight(this.account,this.command,params,{...policy,stations:this.stations});
+      receipt=await transportFreight(this.account,this.command,{shipment_id:resume?.shipment_id??params.shipment_id,...(resume?{resume:resume as FreightReceipt,policy:{...policy,stations:this.stations}}: {})},assessment,controls);
+    }
+    controls.record(receipt);
+    return {transport:{...receipt,kind},transport_policy:policy,cleanup:await this.returnHome()};
   }
   private async produce(params:Wire,obligations:Obligations) {
     const home=(await this.homeLocation()).destination;

@@ -3,7 +3,8 @@
 This local Hermes fork runs the real `AIAgent` loop against omlx and a persistent
 `@spacemolt/lib` WebSocket connection. The model chooses plans and complete jobs; scripts handle mechanical
 execution, urgent controls, return, servicing and verified receipts. The first new
-execution interface supports Hunt and bounded local Industry gathering and production.
+execution interface supports Hunt, bounded local Industry gathering/production,
+and single-destination Logistics freight/passenger jobs.
 Remaining stance work and acceptance are tracked in root TODO.md. Shared live scout
 and gathering evidence is in `evidence/shared-live-*.json`; production currently has
 offline integration evidence. Historical workflows are distinguished below.
@@ -88,6 +89,16 @@ another craft. Queue waits are bounded to 120 seconds. Missing acceptance, custo
 or accounting evidence prevents replay. Shared receipts live in the pilot job store;
 `--industry` continues to select the separate legacy workflows.
 
+Use `--stance Logistics` for one personal freight contract or passengers for one
+destination. `job__assess` compares observed opportunities; `job__transport` accepts
+`kind: freight` and `shipment_id`, or `kind: passengers` and destination base ID.
+The script checks custody and payment, preserves docking-triggered passenger
+settlement, then returns and services. A later operating run can resume verified
+unfinished transport with only `resume_job_id`, retaining its spending owner.
+Uncertain acceptance/delivery/payment remains blocked without replay. Existing cargo
+capacity and passenger berths are required; no capacity purchases are automated.
+Logistics currently has offline real-Hermes dispatch evidence, not live acceptance.
+
 To request Tired during a live run, create `stop.json` in that run's runtime:
 
 ```sh
@@ -103,7 +114,7 @@ Tired also interrupts active model inference; script return and reconciliation s
 retain ownership of any already-submitted game command.
 
 The `one_job` operating allowance permits one optional Hunt scout and one hunting
-attempt, or one Industry gathering/production attempt. An admitted blocker or a scout without
+attempt, or one Industry gathering/production or Logistics transport attempt. An admitted blocker or a scout without
 an eligible quarry ends the run. Script receipts carry `stopping_reason`, which ends
 the model loop without changing the historical prompt or tool catalog. Handoffs and
 reconnects retain the allowance; only a verified explicit `--new-run` resets it.
