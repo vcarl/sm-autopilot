@@ -2,7 +2,7 @@ import {SpacemoltError,type Account} from '@spacemolt/lib';
 import {details,type IndustryCommand} from './industry.ts';
 import type {Home} from './execution-policy.ts';
 import {observeObligations,admitProductiveSortie} from './obligations.ts';
-import {routeSteps} from './survey.ts';
+import {routeSteps} from './normal-route.ts';
 import {miningInventory as cargoInventory} from './mining-inventory.ts';
 import {snapshotSkills,skillProgress} from './progression.ts';
 
@@ -75,7 +75,7 @@ export async function assessFreight(account:Account,command:IndustryCommand,para
   let route:Wire|undefined;
   if(destination&&account.location?.system_id!==destination.system_id) {
     route=details(await command('spacemolt/find_route',{id:destination.system_id}));
-    try {if(routeSteps(route,account.location!.system_id,destination.system_id).length>policy.max_route_jumps)blockers.push('Route exceeds resolved jump allocation');}
+    try {if(routeSteps(route,account.location!.system_id,destination.system_id,2).length>policy.max_route_jumps)blockers.push('Route exceeds resolved jump allocation');}
     catch(error){blockers.push(String(error));}
     if(!ship||!finite(route.estimated_fuel)||ship.fuel<route.estimated_fuel+17)blockers.push('Outbound route breaches fuel reserve');
   }

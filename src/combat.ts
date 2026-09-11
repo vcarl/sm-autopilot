@@ -4,7 +4,7 @@ import {randomUUID} from 'node:crypto';
 import {details, type IndustryCommand} from './industry.ts';
 import {CombatBlocked, prepareCombat, type FitParams} from './combat-fit.ts';
 import {snapshotSkills, skillProgress} from './progression.ts';
-import {routeSteps} from './survey.ts';
+import {routeSteps} from './normal-route.ts';
 import {assessNearby, nearbyContacts, selfEstimate, targetUnavailable} from './combat-assessment.ts';
 import {assessEngagement, type ContactEstimate} from './threat-assessment.ts';
 
@@ -142,7 +142,7 @@ async function executeCombat(action:string,params:Wire,account:Account,command:I
   const jumpTo=async(target:string,reserve:number)=>{
     if(account.location!.system_id===target)return;
     const quote=details(await command('spacemolt/find_route',{id:target}));
-    const steps=routeSteps(quote,account.location!.system_id,target);
+    const steps=routeSteps(quote,account.location!.system_id,target,2);
     const required=quote.estimated_fuel+reserve+2;
     if(account.ship!.fuel<required)throw new Error('Bounded hunting route would breach return fuel reserve');
     if(account.location!.docked_at)await command('spacemolt/undock',{});

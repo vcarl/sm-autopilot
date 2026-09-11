@@ -1,6 +1,7 @@
 import {fetchStations, type StationList, type StationSummary} from '@spacemolt/lib';
 import {appendFileSync,mkdirSync} from 'node:fs';
 import type {ReadinessAccount,ReadinessCommand} from './readiness.ts';
+import {routeSteps} from './normal-route.ts';
 
 export interface SurveyParams {
   station_ids:string[];
@@ -15,12 +16,6 @@ const recordDefault=(row:Record<string,unknown>)=>{
   mkdirSync(new URL('../runtime/',import.meta.url),{recursive:true});
   appendFileSync(new URL('../runtime/surveys.jsonl',import.meta.url),JSON.stringify(row)+'\n',{mode:0o600});
 };
-export function routeSteps(route:any,from:string,to:string):string[] {
-  if(route.found!==true||route.target_system!==to||!Number.isInteger(route.total_jumps)||route.total_jumps<0||route.total_jumps>2||!Array.isArray(route.route))throw new Error('Survey route must contain 0..2 normal jumps');
-  if(route.route.length!==route.total_jumps+1||route.route[0]?.system_id!==from||route.route.at(-1)?.system_id!==to||route.route.some((r:any,i:number)=>r.via_wormhole||r.jumps!==i||typeof r.system_id!=='string'))throw new Error('Survey route is inconsistent or uses a wormhole');
-  if(!Number.isFinite(route.estimated_fuel)||route.estimated_fuel<0||!Number.isFinite(route.fuel_per_jump)||route.fuel_per_jump<0)throw new Error('Survey route lacks a fuel quote');
-  return route.route.slice(1).map((r:any)=>r.system_id);
-}
 
 /** Discovery is a caller-provided read-only query routine using the same account.
  * No trade, service purchase, retry or failure-recovery movement occurs here. */
@@ -55,7 +50,7 @@ export async function surveyMarkets(params:SurveyParams,account:ReadinessAccount
   const quote=async(destination:typeof home)=>{
     if(account.state.location!.system_id===destination.system_id)return {steps:[] as string[],fuel:0,perJump:0};
     const result=details(await command('spacemolt/find_route',{id:destination.poi_id}));
-    const steps=routeSteps(result,account.state.location!.system_id,destination.system_id);
+    const steps=routeSteps(result,account.state.location!.system_id,destination.system_id,2);
     if(result.target_poi!==destination.poi_id)throw new Error('Survey route did not resolve target station POI');
     return {steps,fuel:result.estimated_fuel,perJump:result.fuel_per_jump};
   };

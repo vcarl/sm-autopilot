@@ -4,7 +4,7 @@ import {combat,battleStatus,controlHunt} from './combat.ts';
 import {combatCatalog} from './combat-metadata.ts';
 import {details,executeIndustry,type IndustryCommand,type IndustryContext} from './industry.ts';
 import {industryLocations,type DestinationResolution} from './locations.ts';
-import {routeSteps} from './survey.ts';
+import {routeSteps} from './normal-route.ts';
 import {serviceShip} from './servicing.ts';
 import {CommandBoundary} from './command-boundary.ts';
 import {sendAndRefresh} from './execute.ts';
@@ -200,7 +200,7 @@ export class Execution {
     if(this.account.location!.system_id!==home.system_id) {
       const quote=details(await this.command('spacemolt/find_route',{id:home.system_id}));
       let steps:string[];
-      try {steps=routeSteps(quote,this.account.location!.system_id,home.system_id);}
+      try {steps=routeSteps(quote,this.account.location!.system_id,home.system_id,2);}
       catch(error) {throw new TravelBlocked(String(error));}
       if(!Number.isFinite(quote.estimated_fuel)||this.account.ship!.fuel<quote.estimated_fuel+17)throw new TravelBlocked('Route breaches fuel reserve');
       if(this.account.location!.docked_at)await this.command('spacemolt/undock',{});

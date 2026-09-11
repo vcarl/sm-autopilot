@@ -2,7 +2,7 @@ import type {Account} from '@spacemolt/lib';
 import type {Home,ExecutionContext} from './execution-policy.ts';
 import type {IndustryCommand} from './industry.ts';
 import {details} from './industry.ts';
-import {routeSteps} from './survey.ts';
+import {routeSteps} from './normal-route.ts';
 import {logisticsPolicy} from './logistics-policy.ts';
 
 /** Revalidated after boarding/loading, when cargo can change route fuel cost. */
@@ -15,7 +15,7 @@ export async function validateTransportRoute(account:Account,command:IndustryCom
     return;
   }
   const route=details(await command('spacemolt/find_route',{id:destination.system_id}));
-  const steps=routeSteps(route,location.system_id,destination.system_id);
+  const steps=routeSteps(route,location.system_id,destination.system_id,2);
   if(steps.length>logisticsPolicy(context).max_route_jumps)throw new Error('Transport route exceeds resolved mood jump allocation');
   if(!Number.isFinite(ship.fuel)||ship.fuel<route.estimated_fuel+17)throw new Error('Transport route breaches fuel reserve');
 }

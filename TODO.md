@@ -23,7 +23,7 @@ At handoff these systems were unimplemented. The first shared/Hunt slice is now 
 | Combat and preparation | [combat.ts](spacemolt/src/combat.ts), [combat-fit.ts](spacemolt/src/combat-fit.ts), [combat guide](spacemolt/COMBAT.md) | Working hunting sorties; servicing/recovery still incomplete as shared contracts |
 | Generic threat assessment | [threat-assessment.ts](spacemolt/src/threat-assessment.ts), [combat-assessment.ts](spacemolt/src/combat-assessment.ts) | Generic encounter evaluator; reviewed wildlife intelligence covers the observed Phase-Lurker/loadout combination |
 | Industry and gathering | [industry.ts](spacemolt/src/industry.ts), [mining-experiment.ts](spacemolt/src/mining-experiment.ts), [industry guide](spacemolt/INDUSTRY.md) | Existing bounded experiments and settlement; not yet consolidated under the new job policy |
-| Locations and travel | [locations.ts](spacemolt/src/locations.ts), [survey.ts](spacemolt/src/survey.ts) | Reusable route and station discovery; no agent-selected persistent home workflow |
+| Locations and travel | [locations.ts](spacemolt/src/locations.ts), [normal-route.ts](spacemolt/src/normal-route.ts), [survey.ts](spacemolt/src/survey.ts) | Reusable route and station discovery; no agent-selected persistent home workflow |
 | Action uncertainty and receipts | [command-boundary.ts](spacemolt/src/command-boundary.ts), [execute.ts](spacemolt/src/execute.ts), [progression.ts](spacemolt/src/progression.ts) | Stops after uncertain actions and records measured changes; does not autonomously recover every job |
 | Prior live evidence | [freight progress](spacemolt/evidence/PROGRESS.md), [combat proof](spacemolt/evidence/combat-proof.json), [training](spacemolt/evidence/combat-training.json), [assessment replay](spacemolt/evidence/threat-assessment.json) | Historical proofs, not current state or acceptance of the redesigned system |
 
@@ -1770,6 +1770,42 @@ survey's explicit existing cap. Pinned find_route accepts only destination (no f
 origin) and reports fuel/jumps but no duration; future-origin return routes and ETA
 must remain qualified estimates/unknowns unless grounded in actual map/timing data. Passenger live delivery, universal route/defense
 integration, general requisition (still paused) and full VISION remain unfinished.
+
+## Route validation separated from survey allocation — 2026-09-11
+
+Baseline checkpoint commit `5af166a899` records the live passenger-discovery correction.
+Development only this increment; Kvothe remains disconnected. Extracted routeSteps
+from survey.ts into normal-route.ts with a required caller maxJumps allocation. All
+five existing consumers explicitly retain2; no route policy or live admission was
+widened. Normal path endpoints, count/index consistency, wormhole exclusion and fuel
+field validity remain checked. Survey retains its own cap rather than imposing it
+implicitly on all consumers. The separate mining-experiment local validator has a
+different existing contract and remains unchanged.
+
+Typecheck +109Node tests pass, including new caller-allocation and malformed-route
+invariants. Required Python runner with specified HERMES_PYTHON passes46 tests across
+12 SpaceMolt/native-skill files. Real imports/registry/BridgeClient/ExecutionHost paths
+remain covered; this is fixture/integration validation, not a live longer route.
+Source milestone files: normal-route.ts/test, import/call updates in survey.ts,
+execution.ts, execution-logistics.ts, logistics.ts and combat.ts, plus this TODO.
+Commit locally as `Separate normal route validation from caller jump allocations`.
+VISION unchanged; no push. No unrelated uncommitted work exists.
+
+Mechanics audit found no pinned formula for local-travel fuel/duration or passenger
+mass effects. find_route estimates exclude local travel; recorded same-Cobble trips
+showed jump2 and local1, but those observations are not universal upper bounds.
+Forward routes also do not prove reverse edges. Preserve explicit uncertainty and
+post-loading revalidation; do not invent a guaranteed ETA or global max fuel burn.
+
+Next concrete integration closes a preboarding return-reachability gap: an admitted
+outbound route can fit2 jumps while its destination lies more than2 jumps from home,
+which the actual cleanup executor cannot traverse. Resolve the remembered home from
+the destination using the existing fresh directed-map/directory provider before
+accepting or boarding, repeat after loading to catch mobile-home changes, and retain
+that scoped evidence. This is reachability only, not complete fuel/service/deadline
+admission. Broader itinerary economics, timing and longer-route policy remain open.
+Last verified pilot and outstanding missions remain the194137-credit serviced
+Frontier checkpoint above; no controller or new game observation this increment.
 
 ## Validation and completion record
 
