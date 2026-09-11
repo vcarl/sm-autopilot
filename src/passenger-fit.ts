@@ -10,7 +10,9 @@ export interface PassengerFitParams {execute?:boolean;max_spend?:number;credit_r
 function completeQuote(quote:Wire) {
   return quote.quantity_requested===1&&quote.unfilled===0&&finite(quote.available)&&quote.available>=1&&
     [quote.total_cost,quote.subtotal,quote.sales_tax].every(finite)&&Array.isArray(quote.fills)&&
-    quote.fills.every((fill:Wire)=>finite(fill.quantity)&&finite(fill.price_each))&&quote.fills.reduce((sum:number,fill:Wire)=>sum+fill.quantity,0)===1;
+    quote.fills.every((fill:Wire)=>finite(fill?.quantity)&&finite(fill?.price_each))&&quote.fills.reduce((sum:number,fill:Wire)=>sum+fill.quantity,0)===1&&
+    quote.subtotal===quote.fills.reduce((sum:number,fill:Wire)=>sum+fill.quantity*fill.price_each,0)&&
+    quote.total_cost===quote.subtotal+quote.sales_tax;
 }
 
 /** Only the named economy cabin and known basic mining laser replacement are authorized. */
@@ -19,7 +21,7 @@ export async function preparePassengers(params:PassengerFitParams,account:Accoun
   if(!finite(maxSpend)||!finite(reserve))throw new Error('Invalid passenger fitting budget');
   await account.refresh();
   const blockers:string[]=[],plan:Wire[]=[];
-  const blocked=()=>({status:'blocked',blockers,plan,estimated_spend:0});
+  const blocked=()=>({status:'blocked',blockers,plan,estimated_spend:null});
   const ship=account.ship,location=account.location,modules=account.state.modules,cargo=account.cargo;
   if(!ship||!location?.docked_at||!Array.isArray(modules)||!Array.isArray(cargo)||!finite(account.credits)) {
     blockers.push('Observed docked ship, modules, cargo and credits required');return blocked();
@@ -59,7 +61,7 @@ export async function preparePassengers(params:PassengerFitParams,account:Accoun
   plan.push({action:source==='cargo'?'use_cargo':source==='storage'?'spacemolt_storage/withdraw':'spacemolt/buy',item_id:cabin,quantity:1,quote});
   if(removed)plan.push({action:'spacemolt/uninstall_mod',id:removed.module_id,preserve_in_cargo:removed.type_id});
   plan.push({action:'spacemolt/install_mod',id:cabin});
-  const estimatedSpend=source==='buy'&&completeQuote(quote!)?quote!.total_cost:0;
+  const estimatedSpend=source==='buy'?(completeQuote(quote!)?quote!.total_cost:null):0;
   if(blockers.length||params.execute!==true)return {status:blockers.length?'blocked':'quoted',blockers,plan,estimated_spend:estimatedSpend};
   const originalModules=structuredClone(modules),originalCargo=structuredClone(cargo),shipId=ship.id,station=location.docked_at;
   let spent=0,removedVerified=false,installed=false;

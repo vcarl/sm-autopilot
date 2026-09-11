@@ -1005,6 +1005,34 @@ behavioral/integration tests, not live destination acceptance. No controller was
 started for this task. Next session: fresh cabin supply and passenger observations;
 live passenger completion remains open under S14/A6.
 
+## Passenger quote verification — 2026-09-11
+
+Cabin preparation previously reported an unavailable purchase as `estimated_spend:0`
+and accepted contradictory quote totals. Unknown source/quote costs now remain
+`null`; filled quantities and prices must reconcile with the supplied subtotal,
+and subtotal plus supplied tax must equal the total before either initial admission
+or the final purchase. No tax rate or rounding estimate is invented. Owned stock
+still has zero acquisition spending. Two behavioral regressions were proven failing
+against the original implementation and passing with the fix.
+
+Validation: `npm run typecheck && npm test` passes all 90 Node tests.
+The required Python runner with the specified `HERMES_PYTHON` passes 27 tests across
+runner, Logistics, resume and native Logistics skill loading. These are offline
+fixtures/integration, not a live cabin purchase. The Codex skill quick-validator
+rejects Hermes-specific frontmatter (`author`, `platforms`, `version`); the actual
+Hermes native-load/catalog tests pass, and required Hermes metadata is preserved.
+
+Checkpoint: this milestone changes `passenger-fit.ts`, `passenger-fit.test.ts` and
+this record. Supplier-discovery implementation and README/Logistics guidance remain
+separate uncommitted work. No controller was launched; process inspection found no
+matching SpaceMolt controller and no controller lock was present. Last verified
+pilot state remains the historical passenger wind-down receipt above (197,968
+credits, serviced at Frontier Station/Deep Range, no freight/passengers/production;
+distress missions retained), not a fresh game observation. Next: integrate bounded
+faction trade-intel supplier leads, validate real Hermes dispatch, then attempt live
+passenger preparation/delivery if fresh supply permits. Existing-berth readiness is
+under separate shared-path review; S14/A6 remain open.
+
 ## Validation and completion record
 
 Follow the repository's required test workflow. Existing useful checks from the repository root are:

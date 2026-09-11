@@ -69,3 +69,44 @@ test('fit blockers prevent purchases and a nominal successful install without ca
   assert.equal(noEffect.calls.filter(call=>call.key==='spacemolt/install_mod').length,1);
   assert.ok(noEffect.state.cargo.some((row:any)=>row.item_id==='economy_passenger_cabin'));
 });
+
+test('unknown passenger fitting costs remain unknown instead of being reported as free',async t=>{
+  for(const unavailable of ['quote','storage'] as const) {
+    const f=fixture(t);
+    const send=f.account.send.bind(f.account);
+    f.account.send=async(tool,action,params)=>{
+      const reply=await send(tool,action,params);
+      if(unavailable==='quote'&&action==='estimate_purchase')return {structuredContent:{quantity_requested:1,available:0,unfilled:1,total_cost:0,subtotal:0,sales_tax:0,fills:[]}} as any;
+      if(unavailable==='storage'&&tool==='spacemolt_storage'&&action==='view')return {structuredContent:{}} as any;
+      return reply;
+    };
+    const assessed:any=await f.execution.dispatch('assess',{kind:'passenger_fit'});
+    assert.equal(assessed.status,'blocked');assert.equal(assessed.estimated_spend,null);
+    assert.equal(f.calls.some(call=>call.key==='spacemolt/buy'),false);
+  }
+});
+
+test('contradictory cabin quote components prevent purchase at assessment and fresh execution quotation',async t=>{
+  for(const inconsistent of [{total_cost:0},{subtotal:70,total_cost:75}]) {
+    for(const freshOnly of [false,true]) {
+      const f=fixture(t);
+      const send=f.account.send.bind(f.account);
+      let estimates=0;
+      f.account.send=async(tool,action,params)=>{
+        const reply:any=await send(tool,action,params);
+        if(action==='estimate_purchase'&&(!freshOnly||++estimates===2))Object.assign(reply.structuredContent,inconsistent);
+        return reply;
+      };
+      if(freshOnly) {
+        await f.choose();
+        const result:any=await f.execution.dispatch('prepare',{kind:'passengers'});
+        assert.notEqual(result.status,'completed');
+        assert.match(result.error,/Fresh cabin purchase quote/);
+      } else {
+        const result:any=await f.execution.dispatch('assess',{kind:'passenger_fit'});
+        assert.equal(result.status,'blocked');assert.equal(result.estimated_spend,null);
+      }
+      assert.equal(f.calls.some(call=>['spacemolt/buy','spacemolt/uninstall_mod','spacemolt/install_mod'].includes(call.key)),false);
+    }
+  }
+});
