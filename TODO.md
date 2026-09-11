@@ -1213,6 +1213,36 @@ must guide whether to implement or launch the retained-output acquisition path.
 No live call or new controller occurred during this audit; the terminal live checkpoint
 and outstanding missions remain those recorded above. S12/S14 and A4/A6 remain open.
 
+## Retained production implementation — 2026-09-11
+
+Baseline local commit `ed4285ad39` records the cabin audit. A fresh authenticated
+read-only prerequisite probe now confirms the station workshop quotes the cabin:
+four titanium alloy, six flex polymer and two life-support units, one cabin, zero
+craft fee, about 84 ticks while docked. Titanium and life-support purchase quotes
+have no supply; polymer six costs 470 including tax. Missing acquisition costs
+remain unknown, not zero. No purchase, craft, fitting or movement occurred. Evidence:
+`spacemolt/evidence/cabin-craft-prerequisite.json`; private runtime
+`spacemolt/runtime/cabin-craft-prerequisite-20260911`, bridge PID2250 exited0. The
+initial sandbox network attempt failed before WebSocket open and exited before the
+successful authorized retry. This is a script prerequisite observation, not Hermes
+inference or completed production. Last verified pilot remains docked at Frontier
+Station / Deep Range / mobile_capital, 197,968 credits, full fuel120, hull105,
+shield35, unchanged cargo/modules; the three historical distress missions remain
+unresolved. Remembered home identity is unchanged.
+
+Implementation in progress extends the existing Industry executor with persisted
+`sell` (default) or `retain` disposition. Retain requires complete current input and
+craft costs and verified personal-storage output, with no invented sale earnings or
+profit. Shared assessment will discover actual recipe IDs using an output-name/ID
+search, then quote them; later Logistics fitting still requires normal session
+handoff. Pending workshop work must resume the original experiment without another
+craft. Review reproduced an existing input/output overlap ambiguity: unchanged or
+refunded original stock could masquerade as produced output. Such recipes require
+an explicit blocker until job-specific completion attribution exists.
+
+Validation and final commit/checkpoint details will be recorded after integration.
+S12/S14 and A4/A6 remain open; live cabin production is blocked on material supply.
+
 ## Validation and completion record
 
 Follow the repository's required test workflow. Existing useful checks from the repository root are:

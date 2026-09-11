@@ -1,0 +1,219 @@
+{
+  "classification": "Live read-only prerequisite observation through authenticated library bridge; no Hermes inference or completed production job",
+  "date": "2026-09-11",
+  "private_runtime": "spacemolt/runtime/cabin-craft-prerequisite-20260911",
+  "bridge_pid": 2250,
+  "bridge_exit_code": 0,
+  "query_actions": [
+    {
+      "action": "spacemolt/craft",
+      "params": {
+        "id": "build_economy_passenger_cabin",
+        "quantity": 1,
+        "dry_run": true,
+        "source": "storage",
+        "deliver_to": "storage"
+      },
+      "ok": true
+    },
+    {
+      "action": "spacemolt_storage/view",
+      "params": {},
+      "ok": true
+    },
+    {
+      "action": "spacemolt_market/estimate_purchase",
+      "params": {
+        "item_id": "titanium_alloy",
+        "quantity": 4
+      },
+      "ok": true
+    },
+    {
+      "action": "spacemolt_market/estimate_purchase",
+      "params": {
+        "item_id": "flex_polymer",
+        "quantity": 6
+      },
+      "ok": true
+    },
+    {
+      "action": "spacemolt_market/estimate_purchase",
+      "params": {
+        "item_id": "life_support_unit",
+        "quantity": 2
+      },
+      "ok": true
+    },
+    {
+      "action": "state",
+      "params": {},
+      "ok": true
+    }
+  ],
+  "craft_quote": {
+    "kind": "quote",
+    "dry_run": true,
+    "recipe": "Build Economy Passenger Cabin",
+    "quantity": 1,
+    "runs": 1,
+    "credits_total": 0,
+    "have_credits": true,
+    "have_inputs": false,
+    "effective_time_per_run": 83.33333333333333,
+    "est_completion_tick": 1852504,
+    "venue": "Station Workshop",
+    "venue_type": "workshop"
+  },
+  "inputs": [
+    {
+      "item_id": "titanium_alloy",
+      "quantity": 4
+    },
+    {
+      "item_id": "flex_polymer",
+      "quantity": 6
+    },
+    {
+      "item_id": "life_support_unit",
+      "quantity": 2
+    }
+  ],
+  "outputs": [
+    {
+      "item_id": "economy_passenger_cabin",
+      "quantity": 1
+    }
+  ],
+  "workshop_constraint": "Server quote states progress advances only while docked here and pauses on undock. About 84 ticks for this quoted run; not a guaranteed elapsed-time completion.",
+  "local_input_quotes": [
+    {
+      "item_id": "titanium_alloy",
+      "quantity_requested": 4,
+      "available": 0,
+      "unfilled": 4,
+      "subtotal": 0,
+      "sales_tax": 0,
+      "total_cost": 0,
+      "executable_acquisition_cost": null,
+      "fills": []
+    },
+    {
+      "item_id": "flex_polymer",
+      "quantity_requested": 6,
+      "available": 6,
+      "unfilled": 0,
+      "subtotal": 468,
+      "sales_tax": 2,
+      "total_cost": 470,
+      "executable_acquisition_cost": 470,
+      "fills": [
+        {
+          "quantity": 6,
+          "price_each": 78,
+          "subtotal": 468
+        }
+      ]
+    },
+    {
+      "item_id": "life_support_unit",
+      "quantity_requested": 2,
+      "available": 0,
+      "unfilled": 2,
+      "subtotal": 0,
+      "sales_tax": 0,
+      "total_cost": 0,
+      "executable_acquisition_cost": null,
+      "fills": []
+    }
+  ],
+  "local_storage": {
+    "base_id": "frontier_station",
+    "items": [
+      {
+        "item_id": "energy_crystal",
+        "quantity": 61,
+        "size": 1
+      },
+      {
+        "item_id": "carbon_ore",
+        "quantity": 18,
+        "size": 1
+      },
+      {
+        "item_id": "aluminum_ore",
+        "quantity": 33,
+        "size": 1
+      },
+      {
+        "item_id": "tungsten_ore",
+        "quantity": 9,
+        "size": 2
+      },
+      {
+        "item_id": "standard_rounds_box",
+        "quantity": 3,
+        "size": 1
+      }
+    ]
+  },
+  "final_state": {
+    "credits": 197968,
+    "location": {
+      "system_id": "deep_range",
+      "poi_id": "mobile_capital",
+      "docked_at": "frontier_station"
+    },
+    "ship": {
+      "fuel": 120,
+      "max_fuel": 120,
+      "hull": 105,
+      "max_hull": 105,
+      "shield": 35,
+      "max_shield": 35,
+      "cargo_used": 11,
+      "cargo_capacity": 120
+    },
+    "cargo": [
+      {
+        "item_id": "standard_rounds_box",
+        "quantity": 1,
+        "size": 1
+      },
+      {
+        "item_id": "creature_carapace",
+        "quantity": 1,
+        "size": 1
+      },
+      {
+        "item_id": "phase_pearl",
+        "quantity": 2,
+        "size": 1
+      },
+      {
+        "item_id": "carbon_ore",
+        "quantity": 6,
+        "size": 1
+      },
+      {
+        "item_id": "platinum_ore",
+        "quantity": 1,
+        "size": 1
+      }
+    ]
+  },
+  "verification": {
+    "cash_delta": 0,
+    "ship_unchanged": true,
+    "cargo_unchanged": true,
+    "modules_unchanged": true,
+    "location_unchanged": true,
+    "no_mutating_command_submitted": true
+  },
+  "blockers": [
+    "No local Titanium Alloy stock was quoted for the required four units.",
+    "No local Life Support Unit stock was quoted for the required two units.",
+    "The zero craft fee excludes missing input acquisition; complete production cost is unknown."
+  ],
+  "remaining": "Resolve input supply or a bounded production chain; implement retained-output Industry disposition, verified storage output and resumable workshop settlement before a real Hermes crafting attempt. No cabin created, fitted or passenger delivered in this probe."
+}
