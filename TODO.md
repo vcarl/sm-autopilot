@@ -2119,6 +2119,28 @@ before the proposed live acceptance. The next action is to create/configure the 
 from the documented fork command, check gateway and controller ownership, then run one bounded
 Hermes/Discord observation and record its gateway process handle and verified receipt.
 
+## Dedicated profile oMLX repair — 2026-09-11
+
+The user configured the documented dedicated `spacemolt` profile and reported a 401. Direct,
+secret-redacted evidence established that oMLX at `http://127.0.0.1:8000/v1` accepts the token in
+`~/.omlx/settings.json` and serves the selected `mlx-community--Qwen3.6-35B-A3B-4bit` model. The
+profile `.env` value under `OPENAI_API_KEY` matched that token, but its initial bare
+`model.provider: custom` route treated loopback as keyless and sent Hermes's
+`no-key-required` placeholder. The profile was corrected outside the repository to a named
+`providers.omlx` entry with `key_env: OPENAI_API_KEY`, `transport: chat_completions`, the local
+endpoint, and `model.provider: custom:omlx`; the default model was replaced with the exact served
+ID. A profile-local runtime resolution then matched the oMLX token, and a real Hermes one-shot
+returned `OMLX_AUTHENTICATED`. This is genuine local model acceptance, but it did not invoke any
+SpaceMolt tool or open a game connection.
+
+Before the profile gateway restart, `spacemolt status` reported no gateway-owned bridge and the
+profile runtime contained no controller lock. `gateway restart` completed; the replacement
+launchd service is PID22225. No SpaceMolt bridge/controller, Discord conversation, or live game
+action was started. Current next action: the user sends the documented observation-only Discord
+message, then records the reply/tool receipt; controller and pilot state must be newly observed
+before any productive instruction. Untracked `credentials.kvothe.txt` and `players/` remain
+preserved.
+
 Follow the repository's required test workflow. Existing useful checks from the repository root are:
 
 ```sh
