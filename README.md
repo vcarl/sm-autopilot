@@ -59,6 +59,11 @@ hermes spacemolt setup
 hermes gateway restart
 ```
 
+When running this fork itself, activate a Python 3.11+ virtual environment for this checkout and
+use `./hermes`, rather than a separately installed Hermes command. [DAEMON.md](DAEMON.md) gives
+the exact fork bootstrap, isolated `spacemolt` profile, local `file://$PWD#spacemolt` install,
+Discord setup, gateway lifecycle, and cron command.
+
 The gateway process owns one bridge/controller for the profile. `spacemolt_stop` sends Tired
 directly to that service; `hermes spacemolt stop` writes a durable control request for the
 gateway and never starts a competing controller. See [DAEMON.md](DAEMON.md) for Discord and

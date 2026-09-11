@@ -2084,10 +2084,16 @@ The required runner passed 18 focused plugin/bridge tests, including a two-crede
 test proving the spawned bridge receives the active profile's path. This is still local process
 evidence; it is not a multi-profile gateway or Discord connection.
 
+Operator documentation now distinguishes this fork from an unrelated installed `hermes` binary.
+It gives the Python 3.11+ editable-install bootstrap, an isolated `spacemolt` profile, and the
+validated local plugin identifier `file://$PWD#spacemolt`, followed by profile-qualified direct
+setup, gateway, Discord, and cron commands. The documented profile deliberately starts empty;
+model, Discord, and SpaceMolt secrets must be configured there before live use.
+
 No live controller was opened, no Discord gateway was restarted, and no schedule was created.
 The gateway PID37628 and historical Frontier/Kvothe checkpoint described above remain unchanged;
 their current state must be observed before any live operation. Untracked `credentials.kvothe.txt`
-and `players/` were preserved. Exact next action: commit the profile-scoped credential handling,
+and `players/` were preserved. Exact next action: commit the fork/profile operator instructions,
 then prepare a gateway-owned Discord/cron acceptance run. A
 dedicated profile and no competing controller are required before that live acceptance.
 

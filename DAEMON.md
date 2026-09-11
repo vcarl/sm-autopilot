@@ -7,12 +7,37 @@ high-level SpaceMolt tools directly.
 
 ## Install into a Hermes profile
 
+### Run this fork, not an unrelated installed Hermes
+
+From this checkout, bootstrap a Python 3.11+ environment and invoke the checked-out launcher.
+That makes `./hermes` import this fork's source; do not use a separately installed `hermes`
+binary that points at another checkout.
+
+```sh
+cd /path/to/hermes-spacemolt
+uv venv .venv --python 3.11
+source .venv/bin/activate
+uv pip install -e '.[all]'
+./hermes profile create spacemolt --description 'Kvothe SpaceMolt player'
+```
+
+Use that same activated shell and `./hermes -p spacemolt` for each command below. The profile is
+an independent state directory; it does not inherit another profile's model, Discord, or game
+credentials. Configure those values with Hermes setup in the new profile.
+
 Install this `spacemolt/` directory as a native plugin, enable it, and restart the gateway so
 new sessions receive the static SpaceMolt tool catalog. In a published checkout that is:
 
 ```sh
 hermes plugins install OWNER/hermes-spacemolt/spacemolt --enable
 hermes spacemolt install --yes
+```
+
+For development from this local checkout, the equivalent exact plugin identifier is:
+
+```sh
+./hermes -p spacemolt plugins install "file://$PWD#spacemolt" --enable
+./hermes -p spacemolt spacemolt install --yes
 ```
 
 The second command deliberately runs `npm ci` only when requested. It installs the pinned
@@ -27,15 +52,15 @@ SPACEMOLT_CREDENTIALS_FILE=/secure/path/kvothe-credentials.txt
 Then verify prerequisites and start the profile gateway:
 
 ```sh
-hermes spacemolt setup
-hermes gateway install
-hermes gateway start
-hermes gateway status
+./hermes -p spacemolt spacemolt setup
+./hermes -p spacemolt gateway install
+./hermes -p spacemolt gateway start
+./hermes -p spacemolt gateway status
 ```
 
 ## Discord and scheduling
 
-Configure Discord on the same profile with `hermes gateway setup`. The normal Hermes Discord
+Configure Discord on the same profile with `./hermes -p spacemolt gateway setup`. The normal Hermes Discord
 adapter owns authorization, DMs, mention policy, and replies; SpaceMolt adds only the direct
 agent tools. A normal plan reports `next_session_required`, so stance/mood/catalog changes are
 applied by a new Discord or cron session, preserving the active session's prompt and tools.
@@ -43,7 +68,7 @@ applied by a new Discord or cron session, preserving the active session's prompt
 Create an unattended objective with the standard scheduler:
 
 ```sh
-hermes cron create "every 2h" --name spacemolt-logistics --deliver discord \
+./hermes -p spacemolt cron create "every 2h" --name spacemolt-logistics --deliver discord \
   "Observe Kvothe. If no work is active, choose a safe verified objective and complete at most one job. Report the verified receipt, obligations, fuel, cleanup, and blockers."
 ```
 
