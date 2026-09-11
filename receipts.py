@@ -38,6 +38,10 @@ def receipt_report(receipts, cleanup_response=None):
             if key in job:
                 row[key] = deepcopy(job[key])
         result = job.get("result")
+        if job.get("action") == "prepare" and isinstance(result, dict) and "berths" in result:
+            row["passenger_preparation"] = {key: deepcopy(result[key]) for key in
+                                            ("status", "module_id", "berths", "actual_spend", "blockers")
+                                            if key in result}
         sortie = work_result(result, "sortie")
         if "skill_progress" in sortie:
             row["observed_skill_progress"] = deepcopy(sortie["skill_progress"])

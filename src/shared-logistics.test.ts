@@ -10,6 +10,14 @@ import {resolveContext} from './execution-policy.ts';
 test('shared Logistics delivers freight and passengers once, preserves spending and stops after serviced return',async t=>{
   for(const kind of ['freight','passengers']) {
     const f=kind==='freight'?freightFixture(t):passengerFixture(t);await f.choose();
+    if(kind==='passengers') {
+      const fit:any=await f.execution.dispatch('assess',{kind:'passenger_fit'});
+      assert.equal(fit.status,'ready');
+      const prepared:any=await f.execution.dispatch('prepare',{kind:'passengers'});
+      assert.equal(prepared.status,'completed');
+      assert.equal(prepared.result.status,'ready');
+      assert.equal(f.calls.some(call=>['spacemolt/buy','spacemolt/install_mod','spacemolt/uninstall_mod'].includes(call.key)),false);
+    }
     const job:any=await f.execution.dispatch('transport',kind==='freight'?{kind,shipment_id:'freight'}:{kind,destination:'other'});
     assert.equal(job.status,'completed',JSON.stringify(job.result));
     assert.equal(transportReceipt(job.result)?.status,'completed');

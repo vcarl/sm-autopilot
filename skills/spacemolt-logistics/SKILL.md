@@ -26,7 +26,7 @@ packages or passengers as income before verified delivery.
 ## Prerequisites
 
 Consider home using observed locations. Begin docked with an existing serviceable
-ship and sufficient cargo or passenger berth capacity. The current jobs do not buy
+ship and sufficient cargo or passenger berth capacity. Transport jobs do not buy
 ships or install passenger cabins. Unrelated commitments can block new work; their
 identities and deadlines remain visible on return.
 
@@ -45,9 +45,18 @@ base ID, for focused assessment. A board listing alone does not prove route read
 or guarantee a fare. Passenger deadlines are observed after boarding; no route
 estimate guarantees punctuality.
 
+If economy berths are missing, use `kind: passenger_fit` to assess cabin preparation.
+Compare the live quote and fitting blockers before committing. Catalog value is not
+a purchase quote, and cabin capital cost is not delivery profit. A fitting allocation
+comes from the host; the model cannot raise its spending limit.
+
 ## Tool: job__prepare
 
-Use `job__prepare` for shared servicing. It does not purchase capacity or equipment.
+Use `job__prepare` without parameters for shared servicing. With `kind: passengers`,
+it prepares an economy cabin using owned stock or a freshly quoted purchase within
+the host budget. If utility slots are full, it may replace an observed mining laser,
+preserving that equipment in cargo. Other equipment remains fitted. Read the verified
+berth result before selecting passengers; blocked fitting is not usable capacity.
 Unavailable services or unverified repair prices remain explicit blockers.
 
 ## Tool: job__transport

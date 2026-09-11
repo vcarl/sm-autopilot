@@ -244,6 +244,8 @@ def main(argv=None):
     parser.add_argument("--iterations", type=int, default=30)
     parser.add_argument("--seconds-per-cycle", type=float, default=1800)
     parser.add_argument("--max-tokens", type=int, default=4096)
+    parser.add_argument("--max-spend", type=float, default=None,
+                        help="Shared job gross spending allocation, 0..10000 credits; omitted keeps the default or saved allocation")
     parser.add_argument("--bridge-timeout", type=float, default=1800)
     parser.add_argument("--runtime", type=Path, default=HERE / "runtime/agent")
     parser.add_argument("--resume", action="store_true")
@@ -258,6 +260,10 @@ def main(argv=None):
     parser.add_argument("--allow-wildlife", action="store_true", help="Authorize assessed wildlife initiation independently of mood")
     parser.add_argument("--objective", default=None)
     args = parser.parse_args(argv)
+    if args.max_spend is not None and not 0 <= args.max_spend <= 10000:
+        parser.error("--max-spend must be finite and between 0 and 10000 credits")
+    if args.industry and args.max_spend is not None:
+        parser.error("--max-spend applies to the shared job runner, not legacy --industry")
     if args.objective is None:
         args.objective = ("Prepare for wildlife hunting, discover an assessable nearby creature, complete one guarded hunt, and return docked. Report the verified battle outcome, retained loot, costs and skill progress."
                           if args.combat else "Earn repeatable net profit. Complete a productive economic cycle and report its realized results.")

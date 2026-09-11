@@ -96,8 +96,13 @@ The script checks custody and payment, preserves docking-triggered passenger
 settlement, then returns and services. A later operating run can resume verified
 unfinished transport with only `resume_job_id`, retaining its spending owner.
 Uncertain acceptance/delivery/payment remains blocked without replay. Existing cargo
-capacity and passenger berths are required; no capacity purchases are automated.
-Logistics currently has offline real-Hermes dispatch evidence, not live acceptance.
+capacity and passenger berths are required for boarding. Assess `kind: passenger_fit`
+to quote economy cabin preparation; prepare `kind: passengers` to execute the fit
+within the host allocation, preserving a displaced mining laser in cargo. The host
+can set `--max-spend` (0..10,000 credits; default 1,000) for a new shared session.
+Catalog values are not purchase quotes; cabin capital costs remain separate from fares.
+The [shared live freight receipt](evidence/shared-live-freight.json) verifies delivery,
+207 credits paid and a serviced return costing 6. Live passenger acceptance remains open.
 
 To request Tired during a live run, create `stop.json` in that run's runtime:
 

@@ -932,6 +932,36 @@ The model still called transport directly after board comparison; the script its
 performed targeted admission assessment. No combat or disconnect occurred. Process
 exited successfully; no controller remains active from this run.
 
+## Passenger preparation consumer — 2026-09-11
+
+Logistics now exposes economy berth assessment through `job__assess` with
+`kind: passenger_fit` and execution through `job__prepare` with `kind: passengers`.
+The bounded worker inspects the named economy cabin, verifies skills and fitting
+capacity, prefers owned cargo/storage, otherwise requires fresh complete purchase
+quotes, and uses the shared command journal and gross spending checks. It can replace
+only an observed Mining Laser I when utility slots are full, preserving the laser in
+cargo. Actual module identity, cargo consumption and canonical berth capacity prove
+completion. A nominal accepted installation without its effect cannot complete.
+Omitted berth data on an empty no-accommodation ship is handled according to the pinned
+API, while malformed supplied capacity remains blocked.
+
+The host can supply `--max-spend` in 0..10,000 credits for shared execution; default
+1,000 remains unchanged. Changing the saved allocation on resume is rejected before
+configuration. This makes the existing host policy usable for cabin capital costs
+without granting the model a budget-raising tool. Fresh live quotes, not catalog
+values, determine whether fitting is possible. Preparation receipts report verified
+berths and actual spend independently of subsequent delivery fares.
+
+Validation: typecheck and 86 Node tests; 27 Python tests through the required runner
+(runner, resume, Logistics real imports/dispatch, native skill loading). Node shared
+execution covers buy/storage/cargo sourcing, preservation, readonly quotation, blocked
+replacement and ineffective installation. Python uses temporary HERMES_HOME and
+actual ExecutionHost configuration, including default/zero/larger host allocations
+and resume invariants. This is offline integration evidence. No live cabin purchase
+or passenger delivery has yet occurred; S14/A6 remain open. Next: live oMLX planning
+with an explicit fitting allocation, fresh cabin availability/quote and observed
+passenger destinations.
+
 ## Validation and completion record
 
 Follow the repository's required test workflow. Existing useful checks from the repository root are:

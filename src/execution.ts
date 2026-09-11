@@ -19,6 +19,7 @@ import {locateHome} from './home-location.ts';
 import {ensureReadiness} from './readiness.ts';
 import {assessFreight,transportFreight,type FreightReceipt} from './logistics.ts';
 import {assessPassengers,transportPassengers,type PassengerReceipt} from './passengers.ts';
+import {preparePassengers} from './passenger-fit.ts';
 import {logisticsPolicy} from './logistics-policy.ts';
 import {validateTransportRoute,transportReceipt} from './execution-logistics.ts';
 import {observeGathering,assessGathering,gatherResources,verifyGatherInventory,type GatherReceipt} from './gather.ts';
@@ -55,8 +56,9 @@ export function executionCatalog(context:ExecutionContext):Record<string,any> {
   }
   if(context.stance==='Logistics') {
     common.assess=meta('Observe freight and passenger opportunities, or assess a selected shipment/destination. Eligibility does not guarantee capacity, timely delivery or profit.',[
-      parameter('kind','string','freight or passengers; omit to compare both'),parameter('shipment_id','string','Freight contract ID'),parameter('destination','string','Observed passenger destination base ID')]);
-    common.prepare=meta('Service the existing ship. No berth or cargo-equipment purchases.');
+      parameter('kind','string','freight or passengers; omit to compare both; passenger_fit quotes economy berth preparation'),parameter('shipment_id','string','Freight contract ID'),parameter('destination','string','Observed passenger destination base ID')]);
+    common.prepare=meta('Service ship. With kind passengers, fit an economy cabin within the host budget, preserving a displaced mining laser in cargo. Quote first with assess kind passenger_fit.',[
+      parameter('kind','string','passengers to prepare economy berths; omit for servicing only')]);
     common.transport=meta('Carry one freight contract or passengers for one destination, verify delivery/payment, then return and service. Records unfinished custody. Resume a known interrupted job only by resume_job_id.',[
       parameter('kind','string','freight or passengers'),parameter('shipment_id','string','Freight contract ID'),parameter('destination','string','Passenger destination base ID'),parameter('resume_job_id','string','Prior transport job, exclusive with other fields')]);
   }
@@ -340,7 +342,9 @@ export class Execution {
       if(!valid)throw new Error(`Invalid or missing ${field.name}`);
     }
     if(this.context.stance==='Logistics') {
-      if(params.kind!==undefined&&!['freight','passengers'].includes(params.kind))throw new Error('kind must be freight or passengers');
+      const kinds=action==='assess'?['freight','passengers','passenger_fit']:action==='prepare'?['passengers']:['freight','passengers'];
+      if(params.kind!==undefined&&!kinds.includes(params.kind))throw new Error('Unsupported Logistics kind for this tool');
+      if(params.kind==='passenger_fit'&&(params.shipment_id||params.destination))throw new Error('Passenger fitting assessment takes no shipment or destination');
       if(params.resume_job_id&&Object.keys(params).some(key=>key!=='resume_job_id'))throw new Error('Resume uses only resume_job_id');
       if(params.kind==='freight'&&params.destination||params.kind==='passengers'&&params.shipment_id)throw new Error('Select one transport kind');
       if(action==='transport'&&!params.resume_job_id&&(!params.kind||params.kind==='freight'&&!params.shipment_id||params.kind==='passengers'&&!params.destination))throw new Error('Select a freight shipment or passenger destination');
@@ -401,7 +405,7 @@ export class Execution {
           if(!destination)throw new Error('Observe destination before travel');
           await this.travel(destination,true);return {destination,service:await this.service()};
         },
-        prepare:()=>this.prepare(),
+        prepare:()=>this.prepare(params),
         track:()=>this.sortie('scout',params),hunt:()=>this.sortie('hunt',params),
         gather:()=>this.gather(params),
         produce:()=>this.produce(params,obligations!),
@@ -465,9 +469,14 @@ export class Execution {
     }
     return structuredClone(job);
   }
-  private async prepare():Promise<any> {
+  private async prepare(params:Wire={}):Promise<any> {
     await this.service();
     const limits=this.context.limits;
+    if(this.context.stance==='Logistics'&&params.kind==='passengers') {
+      admitProductiveSortie(await observeObligations(this.account,this.command),'Passenger fitting');
+      const fit=await preparePassengers({execute:true,max_spend:this.remainingSpend(),credit_reserve:limits.credit_reserve},this.account,this.command);
+      return {...fit,...(fit.status==='blocked'?{reason:fit.blockers.join('; ')}:{})};
+    }
     if(this.context.stance==='Industry') {
       if(this.stopping)throw new StopWork('Stop requested before mining preparation');
       const readiness=await ensureReadiness(this.account,this.command,{requireMining:true,minFreeCargo:10,creditReserve:limits.credit_reserve},true);
@@ -499,6 +508,7 @@ export class Execution {
   private async assessLogistics(params:Wire) {
     await this.observe(false);
     const policy={...logisticsPolicy(this.context),stations:this.stations};
+    if(params.kind==='passenger_fit')return preparePassengers({max_spend:this.context.limits.max_spend,credit_reserve:this.context.limits.credit_reserve},this.account,this.command);
     if(params.kind==='freight'||params.shipment_id)return assessFreight(this.account,this.command,params,policy);
     if(params.kind==='passengers'||params.destination)return assessPassengers(this.account,this.command,params,policy);
     return {policy,freight:await assessFreight(this.account,this.command,{},policy),passengers:await assessPassengers(this.account,this.command,{},policy)};

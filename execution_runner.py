@@ -50,6 +50,15 @@ def _run_execution(args, bridge, agent_class, registry, base_url, api_key, write
         raise ValueError("Use a new runtime for the job interface; legacy history has different tools")
     context = prior.get("context") or {"stance": args.stance or "Hunt", "mood": args.mood or "Cautious",
                                        "objective": args.objective}
+    max_spend = getattr(args, "max_spend", None)
+    if max_spend is not None:
+        if isinstance(max_spend, bool) or not isinstance(max_spend, (int, float)) or not 0 <= max_spend <= 10000:
+            raise ValueError("max_spend must be finite and between 0 and 10000 credits")
+        if prior:
+            if context.get("limits", {}).get("max_spend") != max_spend:
+                raise ValueError("Resume must retain max_spend; use a fresh runtime for a new host allocation")
+        else:
+            context = {**context, "limits": {"max_spend": max_spend}}
     if prior and (prior.get("model") != args.model or
                   (args.stance and args.stance != context["stance"]) or
                   (args.mood and args.mood != context["mood"])):
