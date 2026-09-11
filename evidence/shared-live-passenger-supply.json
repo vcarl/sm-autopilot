@@ -1,0 +1,426 @@
+{
+  "classification": "Live real Hermes/oMLX passenger feasibility and cabin supply assessment; blocked supply, no passenger delivery",
+  "implementation_commit": "eaaf50fe1d",
+  "runtime": "spacemolt/runtime/shared-live-passengers-20260911-02",
+  "model": "mlx-community--Qwen3.6-35B-A3B-4bit",
+  "source_artifacts": [
+    "checkpoint.json",
+    "observations/25164d0ad4534839ad4054fc0e3df260.json",
+    "observations/4ee642a8317347798008342b775e0d02.json",
+    "verified-report.json",
+    "return-receipt.json",
+    "spacemolt/runtime/gameplay.jsonl"
+  ],
+  "model_choices": {
+    "inference_tool_call_turns": 3,
+    "evidence_note": "Counted recorded assistant tool-call turns, excluding the synthetic terminal assistant entry; model prose is not outcome evidence.",
+    "calls": [
+      {
+        "name": "job__assess",
+        "arguments": {
+          "kind": "passengers"
+        }
+      },
+      {
+        "name": "job__assess",
+        "arguments": {
+          "kind": "passenger_fit"
+        }
+      },
+      {
+        "name": "job__return_to_base",
+        "arguments": {}
+      }
+    ],
+    "home_choice": "Retained remembered Frontier Station; no plan/handoff call in this run."
+  },
+  "host_policy": {
+    "stance": "Logistics",
+    "mood": "Focused",
+    "max_spend": 10000,
+    "credit_reserve": 150000
+  },
+  "passenger_assessment": {
+    "observed_at": "2026-09-11T07:09:29.834334+00:00",
+    "status": "blocked",
+    "station": "frontier_station",
+    "candidates": [
+      {
+        "destination": "2e8caabbf604606db0692b3f71751ded",
+        "resolution": {
+          "requested_id": "2e8caabbf604606db0692b3f71751ded",
+          "station": {
+            "id": "2e8caabbf604606db0692b3f71751ded",
+            "base_id": "2e8caabbf604606db0692b3f71751ded",
+            "poi_id": "b6007ea0d1b905492a17dcd5d3e72286",
+            "system_id": "alzirr",
+            "station_name": "Event Horizon Relay",
+            "rationale": "Observed passenger destination matched to public station identity",
+            "observed_at": "2026-09-11T07:09:29.833Z"
+          },
+          "status": "outside_route_limit"
+        },
+        "waiting_count": 1,
+        "blockers": [
+          "Destination resolution: outside_route_limit",
+          "Passenger berth capacity unavailable"
+        ]
+      },
+      {
+        "destination": "cca9e51e6eaf8dada77f698ccc4a09c7",
+        "resolution": {
+          "requested_id": "cca9e51e6eaf8dada77f698ccc4a09c7",
+          "station": {
+            "id": "cca9e51e6eaf8dada77f698ccc4a09c7",
+            "base_id": "cca9e51e6eaf8dada77f698ccc4a09c7",
+            "poi_id": "a356fc2c1744c0425cf6cf47f48def92",
+            "system_id": "arneb",
+            "station_name": "The Obsidian Well",
+            "rationale": "Observed passenger destination matched to public station identity",
+            "observed_at": "2026-09-11T07:09:29.833Z"
+          },
+          "status": "outside_route_limit"
+        },
+        "waiting_count": 3,
+        "blockers": [
+          "Destination resolution: outside_route_limit",
+          "Passenger berth capacity unavailable"
+        ]
+      },
+      {
+        "destination": "b495c6003fc83e18f6d8cecbe6929133",
+        "resolution": {
+          "requested_id": "b495c6003fc83e18f6d8cecbe6929133",
+          "station": {
+            "id": "b495c6003fc83e18f6d8cecbe6929133",
+            "base_id": "b495c6003fc83e18f6d8cecbe6929133",
+            "poi_id": "98eba8b1a7ad0520d6a7c8ea44b2d6aa",
+            "system_id": "dheneb",
+            "station_name": "Hex Star",
+            "rationale": "Observed passenger destination matched to public station identity",
+            "observed_at": "2026-09-11T07:09:29.833Z"
+          },
+          "status": "outside_route_limit"
+        },
+        "waiting_count": 1,
+        "blockers": [
+          "Destination resolution: outside_route_limit",
+          "Passenger berth capacity unavailable"
+        ]
+      }
+    ]
+  },
+  "cabin_assessment": {
+    "observed_at": "2026-09-11T07:09:36.002533+00:00",
+    "status": "blocked",
+    "blockers": [
+      "Complete economy cabin purchase quote unavailable"
+    ],
+    "local_purchase_quote": {
+      "action": "estimate_purchase",
+      "available": 0,
+      "fills": [],
+      "item": "Economy Passenger Cabin",
+      "message": "0 of 1 available. Subtotal 0 credits + 0 sales tax = 0 total. 1 units not available.",
+      "quantity_requested": 1,
+      "sales_tax": 0,
+      "sales_tax_rate_bps": 50,
+      "subtotal": 0,
+      "total_cost": 0,
+      "unfilled": 1
+    },
+    "estimated_spend": null,
+    "supply_discovery": {
+      "item_id": "economy_passenger_cabin",
+      "source": "faction_trade_intel",
+      "observed_at": "2026-09-11T07:09:35.921Z",
+      "max_route_jumps": 2,
+      "candidates": [],
+      "rejected": [],
+      "limitation": "Faction reports may be stale or incomplete. Current availability, taxes, travel cost and docking access are unknown. Obtain a fresh onsite purchase quote before fitting; no travel or purchase is performed by discovery.",
+      "status": "unavailable",
+      "reason": "Faction item trade intelligence unavailable: not_in_faction: You must be in a faction to query trade intel."
+    },
+    "plan_is_not_execution": "The returned buy/uninstall/install plan was blocked. No prepare, purchase, module mutation or boarding was submitted."
+  },
+  "bridge_requests": [
+    {
+      "at": "2026-09-11T07:09:16.845Z",
+      "action": "execution/configure",
+      "params": {
+        "stance": "Logistics",
+        "mood": "Focused",
+        "new_run": true
+      },
+      "ok": true
+    },
+    {
+      "at": "2026-09-11T07:09:16.863Z",
+      "action": "execution/reconcile",
+      "params": {},
+      "ok": true
+    },
+    {
+      "at": "2026-09-11T07:09:17.560Z",
+      "action": "job/observe",
+      "params": {},
+      "ok": true
+    },
+    {
+      "at": "2026-09-11T07:09:29.833Z",
+      "action": "job/assess",
+      "params": {
+        "kind": "passengers"
+      },
+      "ok": true
+    },
+    {
+      "at": "2026-09-11T07:09:36.002Z",
+      "action": "job/assess",
+      "params": {
+        "kind": "passenger_fit"
+      },
+      "ok": true
+    },
+    {
+      "at": "2026-09-11T07:09:43.637Z",
+      "action": "job/return_to_base",
+      "params": {},
+      "ok": true
+    },
+    {
+      "at": "2026-09-11T07:09:43.653Z",
+      "action": "execution/reconcile",
+      "params": {},
+      "ok": true
+    },
+    {
+      "at": "2026-09-11T07:09:45.326Z",
+      "action": "job/return_to_base",
+      "params": {},
+      "ok": true
+    }
+  ],
+  "job_command_evidence": [
+    {
+      "job_id": "5ad6a5ae-26c1-4ef7-a0c9-e6562bf1b788",
+      "action": "return_to_base",
+      "status": "returned_to_base",
+      "commands": [
+        {
+          "action": "spacemolt_shipping/active",
+          "params": {},
+          "status": "confirmed"
+        },
+        {
+          "action": "spacemolt/list_passengers",
+          "params": {},
+          "status": "confirmed"
+        },
+        {
+          "action": "spacemolt/craft",
+          "params": {},
+          "status": "confirmed"
+        },
+        {
+          "action": "spacemolt_battle/status",
+          "params": {},
+          "status": "confirmed"
+        },
+        {
+          "action": "spacemolt_battle/status",
+          "params": {},
+          "status": "confirmed"
+        },
+        {
+          "action": "spacemolt_battle/status",
+          "params": {},
+          "status": "confirmed"
+        },
+        {
+          "action": "spacemolt/get_base",
+          "params": {},
+          "status": "confirmed"
+        },
+        {
+          "action": "spacemolt_shipping/active",
+          "params": {},
+          "status": "confirmed"
+        },
+        {
+          "action": "spacemolt/list_passengers",
+          "params": {},
+          "status": "confirmed"
+        },
+        {
+          "action": "spacemolt/craft",
+          "params": {},
+          "status": "confirmed"
+        }
+      ]
+    },
+    {
+      "job_id": "f6d64c73-4163-423a-9269-dcaafb262c6e",
+      "action": "return_to_base",
+      "status": "returned_to_base",
+      "commands": [
+        {
+          "action": "spacemolt_shipping/active",
+          "params": {},
+          "status": "confirmed"
+        },
+        {
+          "action": "spacemolt/list_passengers",
+          "params": {},
+          "status": "confirmed"
+        },
+        {
+          "action": "spacemolt/craft",
+          "params": {},
+          "status": "confirmed"
+        },
+        {
+          "action": "spacemolt_battle/status",
+          "params": {},
+          "status": "confirmed"
+        },
+        {
+          "action": "spacemolt_battle/status",
+          "params": {},
+          "status": "confirmed"
+        },
+        {
+          "action": "spacemolt_battle/status",
+          "params": {},
+          "status": "confirmed"
+        },
+        {
+          "action": "spacemolt/get_base",
+          "params": {},
+          "status": "confirmed"
+        },
+        {
+          "action": "spacemolt_shipping/active",
+          "params": {},
+          "status": "confirmed"
+        },
+        {
+          "action": "spacemolt/list_passengers",
+          "params": {},
+          "status": "confirmed"
+        },
+        {
+          "action": "spacemolt/craft",
+          "params": {},
+          "status": "confirmed"
+        }
+      ]
+    }
+  ],
+  "effects": {
+    "movement_submitted": false,
+    "cabin_purchase_submitted": false,
+    "module_mutation_submitted": false,
+    "passenger_boarding_submitted": false,
+    "passenger_delivery_completed": false,
+    "gross_spend": 0,
+    "cash_delta": 0,
+    "initial_credits": 197968,
+    "final_credits": 197968,
+    "cargo_unchanged": true,
+    "modules_unchanged": true,
+    "retained_cargo": [
+      {
+        "item_id": "standard_rounds_box",
+        "quantity": 1
+      },
+      {
+        "item_id": "creature_carapace",
+        "quantity": 1
+      },
+      {
+        "item_id": "phase_pearl",
+        "quantity": 2
+      },
+      {
+        "item_id": "carbon_ore",
+        "quantity": 6
+      },
+      {
+        "item_id": "platinum_ore",
+        "quantity": 1
+      }
+    ],
+    "retained_module_types": [
+      "cargo_expander_ii",
+      "mining_laser_i",
+      "autocannon_i",
+      "hull_reinforcement_i"
+    ]
+  },
+  "final": {
+    "observed_at": "2026-09-11T07:09:45.253Z",
+    "status": "returned_to_base",
+    "location": {
+      "system_id": "deep_range",
+      "poi_id": "mobile_capital",
+      "docked_at": "frontier_station"
+    },
+    "ship_condition": {
+      "id": "b76179e1db2326d9bf0de8c5401149da",
+      "hull": 105,
+      "max_hull": 105,
+      "shield": 35,
+      "max_shield": 35,
+      "fuel": 120,
+      "max_fuel": 120
+    },
+    "home_base_id": "frontier_station",
+    "home_location_source": "authenticated_home_dock",
+    "obligations": {
+      "freight_count": 0,
+      "passenger_count": 0,
+      "production_jobs": 0,
+      "missions": [
+        {
+          "mission_id": "fff0b7ce092ff4f0d31ebd19977b803f",
+          "type": "distress_response",
+          "system_id": "starfall",
+          "expires_in_ticks": 592,
+          "percent_complete": 0
+        },
+        {
+          "mission_id": "a5d91118259cb9ce131c5f1027cddce1",
+          "type": "distress_response",
+          "system_id": "void_gate",
+          "expires_in_ticks": 602,
+          "percent_complete": 0
+        },
+        {
+          "mission_id": "2a23e470f63feb5b23c1be98a5bcf466",
+          "type": "distress_response",
+          "system_id": "unknown_edge",
+          "expires_in_ticks": 913,
+          "percent_complete": 0
+        }
+      ]
+    },
+    "obligation_verification": {
+      "status": "observed",
+      "reason": "Outstanding commitments are recorded, not declared delivered or settled"
+    }
+  },
+  "limits": [
+    "Supply intelligence was denied because the pilot is not in a faction; no remote supplier was established.",
+    "Zero local availability and unavailable faction intelligence do not prove cabins are unavailable elsewhere.",
+    "All offered destinations were outside the current route bound; no destination travel or delivery was attempted.",
+    "This run verifies bounded assessment and serviced stopping, not live cabin fitting, supplier travel or passenger completion.",
+    "Three existing distress missions remain recorded and unresolved; message bodies and unrelated nearby players are omitted."
+  ],
+  "controller": {
+    "process_handle": 21109,
+    "exit_code": 0,
+    "remaining_processes_or_locks": false,
+    "verification_source": "Root controller owner verified tool completion and subsequent process/lock checks; reviewer opened no connection."
+  }
+}

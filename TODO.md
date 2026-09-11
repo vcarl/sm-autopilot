@@ -1087,6 +1087,50 @@ Hermes imports pass. Next: recheck controllers/locks, start a fresh bounded real
 passenger objective with a 10,000-credit host preparation allocation, and verify
 the resulting supply/capacity/delivery or precise blocker plus serviced stop.
 
+## Live passenger supply checkpoint — 2026-09-11
+
+Supplier discovery is committed locally as `eaaf50fe1d`, following `babe13c48a`
+(quote integrity/unknown costs) and `038741790d` (passenger readiness and pending
+command uncertainty). No commits were pushed. VISION.md remains unchanged.
+
+Real Hermes through local oMLX ran the broad passenger objective with Logistics /
+Focused locks and a 10,000-credit host allocation. It assessed current passengers,
+assessed cabin fitting, and chose return/stop in three recorded model tool-call turns. The live
+quote had zero cabins available and one unfilled; estimated preparation spending
+correctly remained unknown. The actual faction-intel query returned `not_in_faction`.
+The three observed destination identities resolved against the directory but were
+outside the two-jump route allowance. No purchase, installation, boarding, outward
+travel or delivery occurred. This establishes live blocker handling and safe stop,
+not passenger acceptance or a globally unavailable cabin market.
+
+Runtime: `spacemolt/runtime/shared-live-passengers-20260911-02`; process handle
+`21109` exited 0. Fresh process inspection found no runner/bridge; controller lock
+released. Saved checkpoint and final return/report are terminal; do not resume this
+run as productive work. Final authenticated receipt at 2026-09-11T07:09:45Z:
+Frontier Station / Deep Range, 197,968 credits, hull105/105, shields35/35,
+fuel120/120, unchanged cargo (rounds1, carapace1, phase pearls2, carbon ore6,
+platinum ore1). Gross spending0, net cash0. No freight, onboard passengers or queued
+production; three active distress missions remain recorded and unresolved.
+Reviewed evidence: `spacemolt/evidence/shared-live-passenger-supply.json`.
+
+Checks actually run on the final implementation: `npm run typecheck && npm test`
+(94 Node tests); the required Python runner with the specified `HERMES_PYTHON`
+(41 tests across all 11 SpaceMolt Python/native-skill files); `git diff --check`;
+real oMLX model discovery and Hermes imports. Fixture failures during development
+were corrected and all final checks pass. No source edits occurred during live play.
+
+Remaining work / exact next action: close the independently reproduced generic
+servicing capacity/custody-validation gap in S4 through shared readiness and return
+tests, then continue the TODO dependencies. Passenger preparation now validates
+these inputs, but generic service/return still needs the same invariant. For S14/A6,
+the pilot needs cabin supply and a reachable passenger offer: use a bounded
+non-faction acquisition/discovery workflow with fresh local quotes or future actual
+stock; do not rerun the same blocked intel query as if it might establish supply,
+join a faction implicitly, or relax route/cost limits. Successful live passenger
+delivery, the other unfinished stance consumers and the full acceptance grid remain
+open. This record and its evidence form the final checkpoint commit; source
+milestones and skill/README changes are committed with no unfinished source edits.
+
 ## Validation and completion record
 
 Follow the repository's required test workflow. Existing useful checks from the repository root are:
