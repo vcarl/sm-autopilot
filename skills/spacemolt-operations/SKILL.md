@@ -7,6 +7,31 @@ description: Plan bounded jobs and interpret verified pilot outcomes.
 Choose the objective, stance, mood and home. Scripts own movement, tactical
 choices, servicing and verification within the resolved policy.
 
+## The World Is Realtime
+
+SpaceMolt is a live shared server, not a turn-based system that waits for you. It
+advances on ten-second ticks whether or not you call a tool, and other pilots,
+wildlife and markets act in the gaps between your calls.
+
+Time passes inside a call. Travel, battles and production runs occupy real ticks,
+so a single tool call can legitimately run for minutes before returning its
+receipt. That is the world moving, not a stall — do not retry, and do not assume a
+job failed because it has not answered yet. An offensive `max_ticks` budget counts
+ten-second ticks, so the default 24 is roughly four minutes of fighting.
+
+Observations decay. `spacemolt_observe` returns a snapshot of one instant,
+including `in_transit` and `transit_arrival_tick` when you are mid-flight. By the
+time you act on it, creatures may have moved or died, IDs scouted before travel can
+have expired, offers can be taken, and belt resources are only confirmed on
+arrival. Re-observe after any wait rather than planning from an earlier reading,
+and treat a stale ID as a reason to reassess, not a bug.
+
+You are not in the tick loop. Scripts pace live combat on the game's cadence
+deliberately, without waiting for model latency; a tick can end a fight between one
+observation and the next maneuver. Choose the objective and the target class, then
+let the executor fight it — there is no way to steer a battle tick by tick from
+here, and trying to means acting on state that has already changed.
+
 ## When to Use
 
 Use in every SpaceMolt job session. Hunt and Industry gathering have productive
