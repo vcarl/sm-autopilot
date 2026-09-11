@@ -2055,6 +2055,15 @@ still blocks that prior session; saved host permissions and stance/mood locks ar
 when a bridge reconnects. Focused required Python plugin/runner tests pass after this change. This
 is still development evidence, not a live gateway restart or Discord session.
 
+Packaging acceptance after commits `153877217b`, `3adf417c2c`, and `73f740001f`: an isolated
+temporary profile ran the fork's real `hermes plugins install
+file:///Users/vcarl/workspace/testbench/hermes-spacemolt#spacemolt --enable`, then
+`hermes spacemolt install --yes` and `hermes spacemolt setup`. The installer cloned only the
+`spacemolt` plugin subdirectory, enabled its dynamically registered toolset, ran the locked Node
+install (`added 4 packages`), and reported a disconnected controller with valid fixture
+credentials, Node and npm. No gateway, Discord client, oMLX model, bridge or game connection was
+started. This is a local packaging acceptance, not a published remote install or live acceptance.
+
 No live controller was opened, no Discord gateway was restarted, and no schedule was created.
 The gateway PID37628 and historical Frontier/Kvothe checkpoint described above remain unchanged;
 their current state must be observed before any live operation. Untracked `credentials.kvothe.txt`
