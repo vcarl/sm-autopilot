@@ -1,0 +1,141 @@
+{
+  "evidence_kind": "real Hermes via local oMLX; live completed passenger fitting and live empty-market observation",
+  "runtime": "spacemolt/runtime/shared-live-passengers-cabin-20260911-01",
+  "source_files": [
+    "spacemolt/runtime/shared-live-passengers-cabin-20260911-01/checkpoint.json",
+    "spacemolt/runtime/shared-live-passengers-cabin-20260911-01/return-receipt.json",
+    "spacemolt/runtime/shared-live-passengers-cabin-20260911-01/verified-report.json",
+    "spacemolt/runtime/shared-live-passengers-cabin-20260911-01/observations/b74605b308a646f29b7603a54c2d939c.json"
+  ],
+  "model": "mlx-community--Qwen3.6-35B-A3B-4bit",
+  "model_calls": [
+    {
+      "tool": "job__prepare",
+      "arguments": {
+        "kind": "passengers"
+      }
+    },
+    {
+      "tool": "job__assess",
+      "arguments": {}
+    },
+    {
+      "tool": "job__return_to_base",
+      "arguments": {}
+    }
+  ],
+  "process": {
+    "handle": 54408,
+    "pid": 7617,
+    "exit_code": 0,
+    "pid_absent": true,
+    "controller_lock_absent": true,
+    "verification_source": "initiating agent process-handle and lock checks"
+  },
+  "fitting": {
+    "started_at": "2026-09-11T08:56:33.369Z",
+    "status": "completed",
+    "source": "Frontier Station personal storage",
+    "cabin_storage_before": 1,
+    "cabin_withdrawn": 1,
+    "cabin_storage_after": 0,
+    "mutations": [
+      "withdraw economy_passenger_cabin 1",
+      "uninstall mining_laser_i to cargo",
+      "install economy_passenger_cabin"
+    ],
+    "same_ship_verified": true,
+    "original_cargo": {
+      "standard_rounds_box": 1,
+      "creature_carapace": 1,
+      "phase_pearl": 2,
+      "carbon_ore": 6,
+      "platinum_ore": 1
+    },
+    "final_cargo": {
+      "standard_rounds_box": 1,
+      "creature_carapace": 1,
+      "phase_pearl": 2,
+      "carbon_ore": 6,
+      "platinum_ore": 1,
+      "mining_laser_i": 1
+    },
+    "unchanged_original_module_types": [
+      "cargo_expander_ii",
+      "autocannon_i",
+      "hull_reinforcement_i"
+    ],
+    "new_module_type": "economy_passenger_cabin",
+    "economy_berths": {
+      "free": 12,
+      "total": 12
+    },
+    "gross_spend": 0,
+    "cash_delta": 0
+  },
+  "passenger_assessment": {
+    "arguments": {},
+    "station": "frontier_station",
+    "waiting_passengers": [],
+    "candidates": [],
+    "status": "blocked",
+    "reason": "No waiting passengers observed locally; no destination filter was supplied. No passengers boarded and no delivery completed."
+  },
+  "terminal": {
+    "status": "returned_to_base",
+    "stopping_reason": "Tired",
+    "location": {
+      "system_id": "deep_range",
+      "poi_id": "mobile_capital",
+      "docked_at": "frontier_station"
+    },
+    "remembered_home_base_id": "frontier_station",
+    "temporary_service_stop": false,
+    "credits": 194149,
+    "fuel": [
+      120,
+      120
+    ],
+    "hull": [
+      105,
+      105
+    ],
+    "shield": [
+      35,
+      35
+    ],
+    "onboard_passengers": 0,
+    "live_freight_contracts": 0,
+    "production_queue_jobs": 0,
+    "preexisting_missions_remaining": 3,
+    "mission_note": "Existing distress-response missions remain recorded; not passenger or freight obligations accepted during this run."
+  },
+  "direct_read_only_reconfirmation": {
+    "runtime": "spacemolt/runtime/codex-passenger-boarding-20260911",
+    "sources": [
+      "001.json",
+      "002.json",
+      "terminal.json"
+    ],
+    "handle": 51349,
+    "pid": 7730,
+    "exit_code": 0,
+    "process_evidence_source": "terminal.json and initiating agent process-handle check",
+    "mutations": [],
+    "route": {
+      "action": "spacemolt/find_route",
+      "destination": "deep_range_outpost",
+      "found": true,
+      "total_jumps": 0,
+      "estimated_jump_fuel": 0,
+      "note": "Same-system route still requires local travel; no travel executed."
+    },
+    "passengers": {
+      "action": "spacemolt/list_passengers",
+      "economy_berths_total": 12,
+      "economy_berths_free": 12,
+      "onboard": 0
+    }
+  },
+  "remaining_acceptance": "A live completed passenger transport with boarding, deadline/custody checks, fare receipt and serviced return remains unproven."
+}
