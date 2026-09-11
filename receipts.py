@@ -53,7 +53,7 @@ def receipt_report(receipts, cleanup_response=None):
         if gather:
             row["gather_work"] = {key: deepcopy(gather[key]) for key in
                                   ("status", "poi_id", "cycles_requested", "cycles_completed",
-                                   "stop_reason", "yields", "retained_cargo",
+                                   "stop_reason", "yields", "yield_measurements", "retained_cargo",
                                    "unattributed_cargo_gains", "inventory_verification") if key in gather}
             if "skill_progress" in gather:
                 row["observed_skill_progress"] = deepcopy(gather["skill_progress"])

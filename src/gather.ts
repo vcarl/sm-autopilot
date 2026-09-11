@@ -1,7 +1,7 @@
 import type {Account} from '@spacemolt/lib';
 import {details,type IndustryCommand} from './industry.ts';
 import {inspectReadiness} from './readiness.ts';
-import {miningInventory,miningYield} from './mining-inventory.ts';
+import {miningInventory,miningYield,measureMineYield} from './mining-inventory.ts';
 import {snapshotSkills,skillProgress,type SkillSnapshot} from './progression.ts';
 import type {ExecutionContext} from './execution-policy.ts';
 
@@ -14,6 +14,7 @@ export interface GatherReceipt {
   poi_id:string;system_id:string;ship_id:string;cycles_requested:number;cycles_completed:number;stop_reason:string;
   yields:Record<string,number>;retained_cargo:Record<string,number>;starting_cargo:Record<string,number>;
   unattributed_cargo_gains:Record<string,number>;
+  yield_measurements:ReturnType<typeof measureMineYield>[];
   skills_before:SkillSnapshot;skill_progress:ReturnType<typeof skillProgress>;
   assessment:Wire;resource_observation?:Wire;inventory_verification?:string;
 }
@@ -66,7 +67,7 @@ export async function gatherResources(account:Account,command:IndustryCommand,pa
   controls:{checkpoint:()=>Promise<void>;save:(receipt:GatherReceipt)=>void}) {
   const receipt:GatherReceipt={status:'running',poi_id:params.poi_id,system_id:account.location!.system_id,ship_id:account.ship!.id,
     cycles_requested:params.cycles,cycles_completed:0,stop_reason:'in_progress',yields:{},retained_cargo:{},unattributed_cargo_gains:{},
-    starting_cargo:miningInventory(account.state),skills_before:snapshotSkills(account.state),skill_progress:[],assessment};
+    starting_cargo:miningInventory(account.state),skills_before:snapshotSkills(account.state),skill_progress:[],assessment,yield_measurements:[]};
   const shipId=account.ship!.id;
   const save=()=>controls.save(structuredClone(receipt));
   save();
@@ -93,20 +94,20 @@ export async function gatherResources(account:Account,command:IndustryCommand,pa
       const readiness=inspectReadiness(account.state,{requireMining:true,minFreeCargo:freeCargo,minFuel:fuelReserve+2,creditReserve:assessment.credit_reserve});
       if(!knownCondition(account)||!readiness.ready||account.ship!.shield<account.ship!.max_shield){receipt.stop_reason='ship_reserve';break;}
       const before=miningInventory(account.state);
-      let result:Wire;
-      try {result=details(await command('spacemolt/mine',{}));}
+      let reply:unknown;
+      try {reply=await command('spacemolt/mine',{});}
       catch(error) {
         const code=String((error as {code?:unknown})?.code??'');
         if(!['resource_depleted','no_resources','cargo_full'].includes(code))throw error;
         receipt.stop_reason=code;break;
       }
       if(!atTarget())throw new Error('Gather location or ship changed after mine; yield attribution is unverified');
+      const result=details(reply);
       receipt.cycles_completed++;
       const changes=miningYield(before,miningInventory(account.state));
-      // Canonical gains establish custody, not provenance: rewards or drones can
-      // change cargo during a tick. Only a matching pilot mine receipt is yield.
-      const verified=result.kind==='yield'&&!result.drone_id&&typeof result.resource_id==='string'&&Number.isFinite(result.quantity)&&result.quantity>0&&(changes[result.resource_id]??0)>=result.quantity;
-      const gained:Record<string,number>=verified?{[result.resource_id]:result.quantity}:{};
+      const measurement=measureMineYield(before,miningInventory(account.state),reply,receipt,new Set(resources.map((resource:Wire)=>resource.resource_id)));
+      receipt.yield_measurements.push(measurement);
+      const gained:Record<string,number>=measurement.yields;
       for(const [item,quantity] of Object.entries(changes)) {
         const unattributed=quantity-(gained[item]??0);
         if(unattributed>0)receipt.unattributed_cargo_gains[item]=(receipt.unattributed_cargo_gains[item]??0)+unattributed;

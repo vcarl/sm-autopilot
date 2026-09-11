@@ -140,6 +140,13 @@ Return receipts distinguish the chosen home from the observed destination. Final
 cleanup reuses a fallback already reached under the same job budget, checking
 current ship condition and obligations again rather than repeating a failed route.
 
+Gather receipts record `yield_measurements`. Detailed pilot extraction receipts
+are preferred; when the server omits details, a correlated `mine` state delta can
+measure retained gains of resources observed at that site. The receipt labels
+this evidence separately: simultaneous same-resource gains cannot be separated.
+Unrelated or refresh-only gains remain unattributed, and inconsistent identity or
+retention stops extraction.
+
 Hunt sorties refuse onboard passengers and carrier freight until those commitments
 are resolved. Return preserves them; it does not deliver or cancel them. Receipts
 keep admission `obligations`, fresh terminal `obligations_after`, and an explicit

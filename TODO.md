@@ -281,6 +281,31 @@ budget reauthorization workflow remains future work. Independent review reproduc
 the original boundary defect, but the reviewing IC hit a usage limit before final
 patch review; final implementation review and validation were completed locally.
 
+## Live gathering receipt correction — 2026-09-11
+
+Real Hermes/oMLX Industry/Focused retained the chosen Frontier Station home, assessed
+a local belt in Deep Range, and submitted one mine. The actual response omitted
+`delta.details` but supplied a correlated `command: mine`, tick and canonical state
+delta showing three carbon ore. The detailed-yield-only verifier blocked its second
+cycle. It returned to the mobile home's current location, serviced, stopped, and
+performed no extra movement/spending in final cleanup. Cost6; full ship condition;
+starting cargo plus carbon ore3 retained; runner exited0 and released its lock.
+Evidence and a reduced recorded-command replay fixture:
+`spacemolt/evidence/shared-live-gather-delta.json`. This validates the mobile-home
+correction live; it is not a completed two-cycle gathering acceptance.
+
+`mining-inventory.ts` now measures either detailed pilot yield or retained site-resource
+gains in the accepted mine state delta. Command/tick, ship/site identity, observed
+resource IDs and current custody must corroborate the delta; a refresh alone cannot
+establish yield. Detailed filtered/drone results never fall through to this path.
+`yield_measurements` exposes the source and the delta path's attribution limit:
+simultaneous gains of the same resource cannot be separated. Other cargo gains remain
+unattributed. Raw journals and the recorded blocked run are not rewritten.
+
+Validation: recorded-command replay, typecheck, 69 Node tests and 29 Python tests.
+The real Hermes registry/Node gathering integration now exercises both response
+forms. No successful new live two-cycle run is claimed yet; production remains open.
+
 ## Mobile-home and final-cleanup correction — 2026-09-11
 
 `home-location.ts` resolves the chosen base ID using current authenticated docking

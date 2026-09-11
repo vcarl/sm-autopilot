@@ -1,0 +1,411 @@
+{
+  "scope": "Live Hermes Industry attempt; blocked on missing detailed yield response, followed by verified return and stop",
+  "private_runtime": "spacemolt/runtime/shared-live-industry-20260911-01",
+  "runner_exit_code": 0,
+  "initial_credits": 197785,
+  "final": {
+    "credits": 197779,
+    "location": {
+      "system_id": "deep_range",
+      "poi_id": "mobile_capital",
+      "docked_at": "frontier_station"
+    },
+    "ship_condition": {
+      "id": "b76179e1db2326d9bf0de8c5401149da",
+      "hull": 105,
+      "max_hull": 105,
+      "shield": 35,
+      "max_shield": 35,
+      "fuel": 120,
+      "max_fuel": 120
+    },
+    "retained_cargo": [
+      {
+        "item_id": "standard_rounds_box",
+        "item_name": "Standard Rounds Box",
+        "quantity": 1,
+        "size": 1
+      },
+      {
+        "item_id": "creature_carapace",
+        "item_name": "Creature Carapace",
+        "quantity": 1,
+        "size": 1
+      },
+      {
+        "item_id": "phase_pearl",
+        "item_name": "Phase Pearl",
+        "quantity": 2,
+        "size": 1
+      },
+      {
+        "item_id": "carbon_ore",
+        "item_name": "Carbon Ore",
+        "quantity": 3,
+        "size": 1
+      }
+    ],
+    "obligation_verification": {
+      "status": "observed",
+      "reason": "Outstanding commitments are recorded, not declared delivered or settled"
+    }
+  },
+  "gross_spend": 6,
+  "cash_delta": -6,
+  "mine_commands": 1,
+  "observed_new_cargo": {
+    "carbon_ore": 3
+  },
+  "reported_yield": {},
+  "home_choice_preserved": true,
+  "home_destination": {
+    "base_id": "frontier_station",
+    "rationale": "Docked here with full fuel and services. One jump to First Step (also has distress missions), two jumps to Last Light systems with distress targets. Keep Horizon as home while scouting nearby systems for viable wildlife.",
+    "system_id": "deep_range",
+    "poi_id": "mobile_capital",
+    "observed_at": "2026-09-11T04:56:05.126Z"
+  },
+  "final_return_mutations": [],
+  "replay": {
+    "before": {
+      "ship": {
+        "armor": 3,
+        "cargo_capacity": 120,
+        "cargo_used": 4,
+        "class_id": "cobble",
+        "class_name": "Cobble",
+        "cpu_capacity": 12,
+        "cpu_used": 8,
+        "crew_efficiency": 1,
+        "defense_slots": 1,
+        "effective_crew_capacity": 1,
+        "effective_marine_capacity": 0,
+        "fuel": 119,
+        "hull": 105,
+        "id": "b76179e1db2326d9bf0de8c5401149da",
+        "incapacitated": false,
+        "max_fuel": 120,
+        "max_hull": 105,
+        "max_shield": 35,
+        "minimum_crew": 1,
+        "name": "Cobble",
+        "operational_speed": 2,
+        "personnel": {
+          "fit_crew": 1,
+          "fit_marines": 0,
+          "injured_crew": 0,
+          "injured_marines": 0
+        },
+        "power_capacity": 24,
+        "power_used": 11,
+        "shield": 35,
+        "shield_recharge": 1,
+        "speed": 2,
+        "utility_slots": 2,
+        "weapon_slots": 1
+      },
+      "cargo": [
+        {
+          "item_id": "standard_rounds_box",
+          "item_name": "Standard Rounds Box",
+          "quantity": 1,
+          "size": 1
+        },
+        {
+          "item_id": "creature_carapace",
+          "item_name": "Creature Carapace",
+          "quantity": 1,
+          "size": 1
+        },
+        {
+          "item_id": "phase_pearl",
+          "item_name": "Phase Pearl",
+          "quantity": 2,
+          "size": 1
+        }
+      ],
+      "location": {
+        "system_id": "deep_range",
+        "poi_id": "deep_range_mineral_fields",
+        "docked_at": null
+      }
+    },
+    "accepted_mine": {
+      "command": "mine",
+      "tick": 1851529,
+      "delta": {
+        "ship": {
+          "id": "b76179e1db2326d9bf0de8c5401149da",
+          "class_id": "cobble",
+          "class_name": "Cobble",
+          "name": "Cobble",
+          "hull": 105,
+          "max_hull": 105,
+          "shield": 35,
+          "max_shield": 35,
+          "shield_recharge": 1,
+          "armor": 3,
+          "speed": 2,
+          "fuel": 119,
+          "max_fuel": 120,
+          "cargo_used": 7,
+          "cargo_capacity": 120,
+          "cpu_used": 8,
+          "cpu_capacity": 12,
+          "power_used": 11,
+          "power_capacity": 24,
+          "weapon_slots": 1,
+          "defense_slots": 1,
+          "utility_slots": 2,
+          "personnel": {
+            "fit_crew": 1,
+            "injured_crew": 0,
+            "fit_marines": 0,
+            "injured_marines": 0
+          },
+          "effective_crew_capacity": 1,
+          "minimum_crew": 1,
+          "effective_marine_capacity": 0,
+          "crew_efficiency": 1,
+          "operational_speed": 2,
+          "incapacitated": false
+        },
+        "cargo": [
+          {
+            "item_id": "standard_rounds_box",
+            "item_name": "Standard Rounds Box",
+            "quantity": 1,
+            "size": 1
+          },
+          {
+            "item_id": "creature_carapace",
+            "item_name": "Creature Carapace",
+            "quantity": 1,
+            "size": 1
+          },
+          {
+            "item_id": "phase_pearl",
+            "item_name": "Phase Pearl",
+            "quantity": 2,
+            "size": 1
+          },
+          {
+            "item_id": "carbon_ore",
+            "item_name": "Carbon Ore",
+            "quantity": 3,
+            "size": 1
+          }
+        ],
+        "skills": {
+          "crafting": {
+            "name": "Crafting",
+            "category": "Industry",
+            "level": 2,
+            "max_level": 100,
+            "xp": 145,
+            "next_level_xp": 340
+          },
+          "deep_core_mining": {
+            "name": "Deep Core Mining",
+            "category": "Industry",
+            "level": 2,
+            "max_level": 100,
+            "xp": 221,
+            "next_level_xp": 340
+          },
+          "engineering": {
+            "name": "Engineering",
+            "category": "Engineering",
+            "level": 0,
+            "max_level": 100,
+            "xp": 5,
+            "next_level_xp": 60
+          },
+          "exploration": {
+            "name": "Exploration",
+            "category": "Exploration",
+            "level": 4,
+            "max_level": 100,
+            "xp": 515,
+            "next_level_xp": 900
+          },
+          "gunnery": {
+            "name": "Gunnery",
+            "category": "Combat",
+            "level": 1,
+            "max_level": 100,
+            "xp": 18,
+            "next_level_xp": 165
+          },
+          "leadership": {
+            "name": "Leadership",
+            "category": "Combat",
+            "level": 2,
+            "max_level": 100,
+            "xp": 255,
+            "next_level_xp": 340
+          },
+          "mining": {
+            "name": "Mining",
+            "category": "Industry",
+            "level": 2,
+            "max_level": 100,
+            "xp": 90,
+            "next_level_xp": 340
+          },
+          "navigation": {
+            "name": "Navigation",
+            "category": "Ships",
+            "level": 4,
+            "max_level": 100,
+            "xp": 182,
+            "next_level_xp": 900
+          },
+          "piloting": {
+            "name": "Piloting",
+            "category": "Ships",
+            "level": 4,
+            "max_level": 100,
+            "xp": 578,
+            "next_level_xp": 900
+          },
+          "refining": {
+            "name": "Refining",
+            "category": "Industry",
+            "level": 2,
+            "max_level": 100,
+            "xp": 100,
+            "next_level_xp": 340
+          },
+          "salvaging": {
+            "name": "Salvaging",
+            "category": "Industry",
+            "level": 1,
+            "max_level": 100,
+            "xp": 20,
+            "next_level_xp": 165
+          },
+          "scanning": {
+            "name": "Scanning",
+            "category": "Ships",
+            "level": 3,
+            "max_level": 100,
+            "xp": 59,
+            "next_level_xp": 585
+          },
+          "tactics": {
+            "name": "Tactics",
+            "category": "Combat",
+            "level": 0,
+            "max_level": 100,
+            "xp": 52,
+            "next_level_xp": 60
+          },
+          "trading": {
+            "name": "Trading",
+            "category": "Commerce",
+            "level": 3,
+            "max_level": 100,
+            "xp": 66,
+            "next_level_xp": 585
+          },
+          "weapons": {
+            "name": "Weapons",
+            "category": "Combat",
+            "level": 0,
+            "max_level": 100,
+            "xp": 26,
+            "next_level_xp": 60
+          },
+          "wormhole_navigation": {
+            "name": "Wormhole Navigation",
+            "category": "Wormholes",
+            "level": 1,
+            "max_level": 100,
+            "xp": 30,
+            "next_level_xp": 165
+          },
+          "xenobiology": {
+            "name": "Xenobiology",
+            "category": "Wildlife",
+            "level": 1,
+            "max_level": 100,
+            "xp": 47,
+            "next_level_xp": 165
+          }
+        },
+        "location": {
+          "system_id": "deep_range",
+          "poi_id": "deep_range_mineral_fields",
+          "docked_at": null
+        }
+      }
+    },
+    "resources": [
+      {
+        "depletion_percent": 98.30666666666666,
+        "max_remaining": 30000,
+        "name": "Carbon Ore",
+        "remaining": 508,
+        "remaining_display": "508 units",
+        "resource_id": "carbon_ore",
+        "richness": 65,
+        "supported_power": 25
+      },
+      {
+        "depletion_percent": 98.324,
+        "max_remaining": 25000,
+        "name": "Vanadium Ore",
+        "remaining": 419,
+        "remaining_display": "419 units",
+        "resource_id": "vanadium_ore",
+        "richness": 41,
+        "supported_power": 20
+      },
+      {
+        "depletion_percent": 98.188,
+        "max_remaining": 25000,
+        "name": "Tungsten Ore",
+        "remaining": 453,
+        "remaining_display": "453 units",
+        "resource_id": "tungsten_ore",
+        "richness": 45,
+        "supported_power": 22
+      },
+      {
+        "depletion_percent": 94.27499999999999,
+        "max_remaining": 8000,
+        "name": "Platinum Ore",
+        "remaining": 458,
+        "remaining_display": "458 units",
+        "resource_id": "platinum_ore",
+        "richness": 20,
+        "supported_power": 22
+      },
+      {
+        "depletion_percent": 57.33333333333333,
+        "max_remaining": 300,
+        "name": "Dark Matter Residue",
+        "remaining": 128,
+        "remaining_display": "128 units",
+        "resource_id": "dark_matter_residue",
+        "richness": 5,
+        "supported_power": 6
+      },
+      {
+        "depletion_percent": 79.75,
+        "max_remaining": 2000,
+        "name": "Osmium Ore",
+        "remaining": 405,
+        "remaining_display": "405 units",
+        "resource_id": "osmium_ore",
+        "richness": 9,
+        "supported_power": 20
+      }
+    ]
+  },
+  "limitations": [
+    "The recorded run did not complete its requested two cycles; receipt normalization remains to be fixed.",
+    "Replay fixture retains original command/tick, ship, cargo and skill delta; location reduced to identity fields and unrelated delta sections omitted."
+  ]
+}
