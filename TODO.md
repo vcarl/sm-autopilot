@@ -1033,6 +1033,45 @@ faction trade-intel supplier leads, validate real Hermes dispatch, then attempt 
 passenger preparation/delivery if fresh supply permits. Existing-berth readiness is
 under separate shared-path review; S14/A6 remain open.
 
+## Pending-command rejection correction — 2026-09-11
+
+Independent review reproduced a shared command-boundary bypass: a nominal known
+game rejection carrying `pendingCommand:buy` allowed a following operation to start.
+`command-boundary.ts` now treats that marker as unresolved regardless of the rejection
+code. The existing uncertain-send invariant uses the real pinned `SpacemoltError`
+and proves the next send is blocked; the regression failed before the one-line fix.
+Both targeted boundary tests pass, including recovery from an ordinary unflagged
+known rejection. This is offline command-boundary evidence, not a live disconnect.
+
+## Existing passenger berth readiness — 2026-09-11
+
+The shared prepare path could report `completed/ready` for an installed cabin despite
+excess CPU/power, missing cargo capacity or malformed cargo/module custody. Passenger
+preparation now validates canonical capacity and custody before its existing-berth
+shortcut and during fitting. A valid installed cabin still needs no purchase,
+catalog or storage discovery. The shared regression was proven failing before the
+fix; six targeted preparation tests pass. The passenger integration fixture now
+supplies realistic canonical fitting fields and an installed cabin rather than only
+a synthetic berth response. Shared Logistics Node integration and both required
+Python Logistics tests pass. Generic servicing's broader capacity-validation gap
+remains outside this passenger consumer fix; all-stance S4 is still open.
+
+## Cabin supplier discovery integration — 2026-09-11
+
+Quote-verification milestone committed locally as `babe13c48a` (no push).
+The pinned 14.2.0 API has no global stock search or remote `estimate_purchase`:
+`view_market` and purchase estimates are local. The concrete remote source is
+item-filtered faction trade intelligence, requiring the faction's Commerce Terminal
+capability. Its reports are historical leads, not fresh stock or all-in quotes.
+
+The next increment uses that source only after observed local cabin supply is
+unavailable, matches exact current public station identities within the Logistics
+route limit, and retains the report tick, unknown current stock/cost, rejected
+matches and explicit unavailable-intel result. It uses the existing passenger-fit
+assessment and shared travel, preserving home and session prompt/catalog. No faction
+mutations or remote purchase primitive are added. README and Logistics guidance
+explain the observation limits. Validation and live results follow below when ready.
+
 ## Validation and completion record
 
 Follow the repository's required test workflow. Existing useful checks from the repository root are:

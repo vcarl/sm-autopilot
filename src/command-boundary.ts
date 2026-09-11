@@ -1,7 +1,7 @@
 import {SpacemoltError} from '@spacemolt/lib';
 
 const uncertainCodes=new Set(['mutation_timeout','query_timeout','connect_timeout','connection_closed','disconnected','invalid_response','action_pending']);
-const knownRejection=(error:unknown)=>error instanceof SpacemoltError&&!uncertainCodes.has(error.code);
+const knownRejection=(error:unknown)=>error instanceof SpacemoltError&&!error.pendingCommand&&!uncertainCodes.has(error.code);
 
 /** A composite operation cannot swallow an ambiguous send and then continue. */
 export class CommandBoundary {

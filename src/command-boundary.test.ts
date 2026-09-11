@@ -5,7 +5,7 @@ import {CommandBoundary} from './command-boundary.ts';
 import {sendAndRefresh} from './execute.ts';
 
 test('a swallowed uncertain later substep prevents subsequent sends and outer success',async()=>{
-  for(const error of [new Error('transport failure'),new ConnectionClosedError('socket closed',1006),new SpacemoltError('mutation_timeout','no result')]){
+  for(const error of [new Error('transport failure'),new ConnectionClosedError('socket closed',1006),new SpacemoltError('mutation_timeout','no result'),new SpacemoltError('facility_required','Request rejected while another command is pending',{pendingCommand:'buy'})]){
     const boundary=new CommandBoundary();let sends=0;
     await boundary.run(async(sent,completed)=>{sent();sends++;completed();});
     await boundary.run(async(sent)=>{sent();sends++;throw error;}).catch(()=>({partial:true}));

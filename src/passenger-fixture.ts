@@ -5,6 +5,8 @@ import {resolveContext} from './execution-policy.ts';
 export function passengerFixture(t:any,options:{autoDeliver?:boolean;missingFare?:boolean;destination?:string}={}) {
   const f=executionFixture(t);
   f.execution.context=resolveContext({stance:'Logistics',mood:'Focused',objective:'Deliver passengers to one observed destination and return serviced'},f.execution.context);
+  Object.assign(f.state.ship,{cpu_used:3,cpu_capacity:20,power_used:4,power_capacity:20,utility_slots:2});
+  f.state.modules.push({module_id:'passenger-cabin',type_id:'economy_passenger_cabin',slot:'utility',size:10,cpu_usage:3,power_usage:4,passenger_economy_berths:2});
   const passenger={citizen_id:'passenger',name:'Passenger',bio:'Fixture citizen',destination:options.destination??'other',destination_name:'Other',destination_system:'system',class:'economy',ticks_remaining:30,base_fare:8};
   let rows:any[]=[],onBoard:(()=>void)|undefined;
   const send=f.account.send.bind(f.account);

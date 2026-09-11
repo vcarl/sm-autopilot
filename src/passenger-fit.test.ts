@@ -110,3 +110,39 @@ test('contradictory cabin quote components prevent purchase at assessment and fr
     }
   }
 });
+
+test('existing passenger berths require canonical capacities and custody before shared preparation completes',async t=>{
+  const corruptions=[
+    (state:any)=>{state.ship.cpu_used=state.ship.cpu_capacity+1;},
+    (state:any)=>{state.ship.power_used=state.ship.power_capacity+1;},
+    (state:any)=>{delete state.ship.cargo_capacity;},
+    (state:any)=>{state.ship.utility_slots=1;},
+    (state:any)=>{state.cargo[0].quantity='unknown';},
+    (state:any)=>{state.cargo[0].quantity=-1;},
+    (state:any)=>{delete state.modules[1].module_id;},
+  ];
+  for(const corrupt of corruptions) {
+    const f=fixture(t);
+    f.state.modules[0].type_id='economy_passenger_cabin';
+    corrupt(f.state);
+    await f.choose();
+    const result:any=await f.execution.dispatch('prepare',{kind:'passengers'});
+    assert.equal(result.status,'blocked');assert.match(result.error,/capacities|custody/);
+    assert.equal(f.calls.some(call=>['spacemolt/buy','spacemolt/uninstall_mod','spacemolt/install_mod'].includes(call.key)),false);
+  }
+});
+
+test('valid installed passenger accommodation is ready without purchase or catalog discovery',async t=>{
+  const f=fixture(t);
+  f.state.modules[0].type_id='economy_passenger_cabin';
+  const send=f.account.send.bind(f.account);
+  f.account.send=async(tool,action,params)=>{
+    if(['inspect','estimate_purchase'].includes(action)||tool==='spacemolt_storage')throw new Error('Purchase discovery unavailable');
+    return send(tool,action,params);
+  };
+  await f.choose();
+  const result:any=await f.execution.dispatch('prepare',{kind:'passengers'});
+  assert.equal(result.status,'completed');assert.equal(result.result.status,'ready');
+  assert.equal(result.spending.gross_spend,0);
+  assert.equal(f.calls.some(call=>['spacemolt/buy','spacemolt/uninstall_mod','spacemolt/install_mod'].includes(call.key)),false);
+});
