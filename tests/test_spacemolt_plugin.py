@@ -111,6 +111,63 @@ def test_profile_plugin_discovery_loads_the_packaged_direct_toolset(monkeypatch,
     assert {entry["function"]["name"] for entry in definitions} >= {"spacemolt_observe", "spacemolt_reconcile"}
 
 
+def test_chat_is_gated_and_surfaced_exactly_like_its_sibling_game_tools(monkeypatch, tmp_path):
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path / "hermes-home"))
+    credentials = tmp_path / "credentials.txt"
+    credentials.write_text("Username: fixture\nPassword: fixture\n")
+    monkeypatch.setenv("SPACEMOLT_CREDENTIALS_FILE", str(credentials))
+    from hermes_cli.plugins import PluginContext, PluginManager, PluginManifest
+    from model_tools import get_tool_definitions
+    from spacemolt import register
+    from spacemolt.service import TOOL_DEFINITIONS
+
+    by_name = {entry["name"]: entry for entry in TOOL_DEFINITIONS}
+    chat, sibling = by_name["spacemolt_chat"], by_name["spacemolt_observe"]
+
+    assert chat["toolset"] == sibling["toolset"]
+    assert chat["requires_env"] == sibling["requires_env"]
+    assert chat["check_fn"]() == sibling["check_fn"]()
+
+    manager = PluginManager()
+    register(PluginContext(PluginManifest(name="spacemolt"), manager))
+    names = {entry["function"]["name"] for entry in get_tool_definitions(
+        enabled_toolsets=["spacemolt"], quiet_mode=True, skip_tool_search_assembly=True)}
+
+    assert ("spacemolt_chat" in names) == ("spacemolt_observe" in names)
+    assert "spacemolt_chat" in manager._system_prompt_sections["spacemolt.operations"].content
+
+
+def test_chat_routes_to_inbox_without_content_and_to_send_with_content(monkeypatch, tmp_path):
+    from spacemolt import service as service_mod
+
+    calls = []
+
+    class Bridge:
+        def __init__(self, **kwargs):
+            self.process = type("Process", (), {"pid": 42})()
+
+        def request(self, action, arguments):
+            calls.append((action, arguments))
+            return {"ok": True, "result": {"messages": []} if action == "social/inbox" else {"sent": True}}
+
+        def close(self):
+            pass
+
+    credentials = tmp_path / "credentials.txt"
+    credentials.write_text("Username: fixture\nPassword: fixture\n")
+    monkeypatch.setenv("SPACEMOLT_CREDENTIALS_FILE", str(credentials))
+    monkeypatch.setattr(service_mod.shutil, "which", lambda name: "/node" if name == "node" else None)
+    monkeypatch.setattr(service_mod, "BridgeClient", Bridge)
+    service = service_mod.SpaceMoltService(tmp_path / "profile")
+
+    read = service.call("chat", {"target": "local", "limit": 5})
+    sent = service.call("chat", {"target": "private", "target_id": "pilot-1", "content": "docking in five"})
+
+    assert read == {"messages": []}
+    assert sent == {"sent": True}
+    assert [action for action, _ in calls if action.startswith("social/")] == ["social/inbox", "social/send"]
+
+
 def test_cross_process_stop_writes_control_without_creating_a_bridge(monkeypatch, tmp_path):
     monkeypatch.setenv("HERMES_HOME", str(tmp_path / "hermes-home"))
     from spacemolt.service import persisted_status, request_stop

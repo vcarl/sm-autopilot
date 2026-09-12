@@ -17,4 +17,5 @@ provides_tools:
   - spacemolt_produce
   - spacemolt_return
   - spacemolt_reconcile
+  - spacemolt_chat
   - spacemolt_stop
