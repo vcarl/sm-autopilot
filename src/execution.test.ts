@@ -51,6 +51,22 @@ test('resolved policy gates stale tools and real Hunt dispatch verifies return/s
   await assert.rejects(broken.execution.dispatch('hunt',{poi_id:'belt'}),/reconciliation/);
 });
 
+test('a plan that restates the current context keeps the session productive; a real change still hands off',async t=>{
+  const f=fixture(t);await f.choose();
+  const restated:any=await f.execution.dispatch('plan',{objective:'One verified hunt',mood:'Aggressive'});
+  assert.equal(restated.status,'unchanged');
+  assert.equal(f.execution.pending as unknown,undefined);
+  const rehomed:any=await f.execution.dispatch('plan',{home_base_id:'base',home_rationale:'Services near wildlife and existing storage'});
+  assert.equal(rehomed.status,'unchanged');
+  assert.equal(f.execution.pending as unknown,undefined);
+  const visit:any=await f.execution.dispatch('travel',{base_id:'other'});
+  assert.equal(visit.status,'completed');
+  const changed:any=await f.execution.dispatch('plan',{objective:'Gather instead'});
+  assert.equal(changed.status,'handoff_required');
+  assert.equal((f.execution.pending as any)?.objective,'Gather instead');
+  await assert.rejects(f.execution.dispatch('travel',{base_id:'base'}),/handoff required/);
+});
+
 test('urgent input reaches an active script while ordinary frames remain serialized; Tired changes live combat without inference',async t=>{
   const input=new PassThrough(),lines=createInterface({input});
   let release!:()=>void,entered!:()=>void;

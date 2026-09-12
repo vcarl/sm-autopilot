@@ -160,7 +160,18 @@ export class Execution {
     this.stations=(locations.stations??[]).map((s:any)=>({...s,rationale:'',observed_at:new Date().toISOString()}));
     const obligations=await observeObligations(this.account,this.command);
     const gathering=includeGathering&&this.context.stance==='Industry'?await observeGathering(this.account,this.command):undefined;
-    return {observed_at:new Date().toISOString(),source:'authenticated account and public station directory',state:this.snapshot(),locations,home_location:locateHome(this.context.home,this.account.location,this.stations),obligations,production_experiments:productionExperiments(this.store.data.jobs),gathering,context:this.context,stop:this.store.data.stop,receipts:this.store.data.jobs.slice(-5)};
+    return {observed_at:new Date().toISOString(),source:'authenticated account and public station directory',state:this.snapshot(),locations,home_location:locateHome(this.context.home,this.account.location,this.stations),obligations,production_experiments:productionExperiments(this.store.data.jobs),gathering,presence:await this.presence(),context:this.context,stop:this.store.data.stop,receipts:this.store.data.jobs.slice(-5)};
+  }
+  /** Who is actually at this POI. Best effort: absent presence is not an observation failure. */
+  private async presence() {
+    const observed_at=new Date().toISOString();
+    try {
+      const nearby=details(await this.command('spacemolt/get_nearby',{}));
+      return {observed_at,players:nearby.players??[]};
+    } catch(error) {
+      if(error instanceof StopWork)throw error;
+      return {observed_at,unavailable:String(error)};
+    }
   }
   plan(params:Wire) {
     if(this.active)throw new Error('Wait for the active job receipt before a normal transition');
@@ -172,6 +183,10 @@ export class Execution {
       if(!observed||typeof params.home_rationale!=='string'||!params.home_rationale.trim())throw new Error('Observe stations first and give a home rationale');
       next.home={...observed,rationale:params.home_rationale};
     }
+    // A plan that restates the current context is not a transition. Latching a handoff here
+    // would close every productive tool for the rest of the session over a no-op.
+    if(next.stance===this.context.stance&&next.mood===this.context.mood&&next.objective===this.context.objective&&
+      next.home?.base_id===this.context.home?.base_id&&next.home?.rationale===this.context.home?.rationale)return {status:'unchanged',context:next};
     this.store.data.home=next.home;this.store.data.context=next;this.store.save();
     this.pending=next;
     return {status:'handoff_required',context:next};
