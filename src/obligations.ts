@@ -1,3 +1,4 @@
+import {evaluateRules,requireAllowed} from './rules.ts';
 import type {Account} from '@spacemolt/lib';
 import {details,type IndustryCommand} from './industry.ts';
 
@@ -26,10 +27,10 @@ export async function observeObligations(account:Account,command:IndustryCommand
       station_offers:{status:'not_observed',reason:'This count covers passengers aboard our ship. It does not establish whether passengers are waiting at the station.'}},production});
 }
 
+export function hasTransportCustody(obligations:Obligations):boolean {
+  return obligations.freight.shipments.some((s:Record<string,any>)=>
+    s.package_in_your_cargo!==false||!['shipper','recipient','invited_carrier'].includes(s.role))||obligations.passengers.passengers.length>0;
+}
 export function admitProductiveSortie(obligations:Obligations,activity:string) {
-  const transporting=obligations.freight.shipments.some((s:Record<string,any>)=>
-    s.package_in_your_cargo!==false||!['shipper','recipient','invited_carrier'].includes(s.role));
-  if(transporting||obligations.passengers.passengers.length) {
-    throw new Error(`${activity} sortie blocked by active freight or onboard passengers; resolve transport commitments before productive sorties. Return preserves them but does not deliver them.`);
-  }
+  return requireAllowed(evaluateRules({phase:'obligation',action:activity,custody:hasTransportCustody(obligations)}));
 }

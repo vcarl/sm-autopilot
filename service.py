@@ -36,6 +36,12 @@ def credentials_configured() -> bool:
     return credentials_file() is not None
 
 
+class PolicyDenied(RuntimeError):
+    def __init__(self, message: str, decision: dict[str, Any]):
+        super().__init__(message)
+        self.decision = decision
+
+
 class SpaceMoltService:
     """The sole bridge owner for one Hermes profile in one process."""
 
@@ -163,6 +169,8 @@ class SpaceMoltService:
                 self._write_status()
                 raise
             if not reply.get("ok"):
+                if isinstance(reply.get("policy_decision"), dict):
+                    raise PolicyDenied(str(reply.get("error", "SpaceMolt policy denied the request")), reply["policy_decision"])
                 raise RuntimeError(str(reply.get("error", "SpaceMolt request failed")))
             return reply.get("result")
 
@@ -260,7 +268,11 @@ def persisted_status() -> dict[str, Any]:
 
 def _handler(operation: str):
     def handle(arguments: dict[str, Any], session_id: str | None = None, **_: Any) -> str:
-        return json.dumps(service().call(operation, arguments, session_id=session_id), separators=(",", ":"))
+        try:
+            result = service().call(operation, arguments, session_id=session_id)
+        except PolicyDenied as error:
+            result = {"status": "denied", "error": str(error), "policy_decision": error.decision}
+        return json.dumps(result, separators=(",", ":"))
     return handle
 
 

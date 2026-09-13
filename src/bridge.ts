@@ -1,3 +1,4 @@
+import {PolicyDenied} from './rules.ts';
 import {controllerLock} from './controller-lock.ts';
 import {createHash} from 'node:crypto';
 import {Execution} from './execution.ts';
@@ -98,7 +99,7 @@ try {
       emit(response);
     } catch(error) {
       const code = error && typeof error === 'object' && 'code' in error ? String(error.code) : undefined;
-      const response = {id:request?.id,ok:false,error:error instanceof Error ? error.message : String(error),code,state:state(),...boundary.status(error)};
+      const response = {id:request?.id,ok:false,error:error instanceof Error ? error.message : String(error),code,state:state(),...(error instanceof PolicyDenied?{policy_decision:error.decision}:{}),...boundary.status(error)};
       emit(response);
       try { appendFileSync(runtimePath('gameplay.jsonl'), JSON.stringify({at:new Date().toISOString(),event:'error',request,...response})+'\n', {mode:0o600}); }
       catch(logError) { console.error('Could not record gameplay error'); fatal=true;input.close(); }

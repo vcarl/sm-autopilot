@@ -1,7 +1,9 @@
+import {evaluateRules,requireAllowed,type Decision,type RuleFacts} from './rules.ts';
 import type { GameState } from '@spacemolt/lib';
 import {requireCommandSpend} from './spending.ts';
 
 export interface ReadinessOptions {
+  decided?:(decision:Decision,phase?:RuleFacts['phase'])=>void;
   requireMining?: boolean;
   minFreeCargo?: number;
   minFuel?: number;
@@ -12,7 +14,7 @@ export interface ReadinessOptions {
   serviceQuotes?: { refuel?: number; repair?: number };
 }
 export interface ReadinessAction { action: string; params: Record<string, unknown>; reason: string }
-export interface ReadinessPlan { ready: boolean; blockers: string[]; actions: ReadinessAction[] }
+export interface ReadinessPlan { decision:Decision; ready: boolean; blockers: string[]; actions: ReadinessAction[] }
 export interface ReadinessAccount { state: GameState; refresh(): Promise<unknown> }
 export type ReadinessCommand = (action: string, params: Record<string, unknown>) => Promise<unknown>;
 const finite=(value:unknown):value is number=>typeof value==='number'&&Number.isFinite(value)&&value>=0;
@@ -47,13 +49,18 @@ function validate(options: ReadinessOptions) {
   }
 }
 
+const readinessPlan=(blockers:string[],actions:ReadinessAction[]):ReadinessPlan=>{
+  const decision=evaluateRules({phase:'checkpoint',action:'prepare',readiness:blockers});
+  return {decision,ready:decision.allowed&&actions.length===0,blockers,actions};
+};
+
 export function inspectReadiness(state: GameState, options: ReadinessOptions = {}): ReadinessPlan {
   validate(options);
   const blockers = canonicalReadinessBlockers(state);
   const actions: ReadinessAction[] = [];
-  if(blockers.length)return {ready:false,blockers,actions};
+  if(blockers.length)return readinessPlan(blockers,actions);
   const {ship, location, cargo, modules, player} = state;
-  if (!ship || !location || !cargo || !modules || !player) return {ready:false, blockers:['Canonical ship, location, cargo, modules and player state required'], actions};
+  if (!ship || !location || !cargo || !modules || !player) return readinessPlan(['Canonical ship, location, cargo, modules and player state required'],actions);
   let projectedFree = ship.cargo_capacity - ship.cargo_used;
   const mining = modules.some(m => finite(m.stats?.mining_power) && m.stats!.mining_power! > 0);
   if (options.requireMining && !mining) {
@@ -97,7 +104,7 @@ export function inspectReadiness(state: GameState, options: ReadinessOptions = {
   }
   if (quotedSpend > (options.maxServiceSpend ?? 0)) blockers.push('Quoted services exceed the service budget');
   if (player.credits - quotedSpend < (options.creditReserve ?? 0)) blockers.push('Services would breach the credit reserve');
-  return {ready:blockers.length === 0 && actions.length === 0, blockers, actions};
+  return readinessPlan(blockers,actions);
 }
 
 /** The callback must use the caller's existing serialized, audited connection.
@@ -107,8 +114,10 @@ export function inspectReadiness(state: GameState, options: ReadinessOptions = {
 export async function ensureReadiness(account: ReadinessAccount, command: ReadinessCommand, options: ReadinessOptions = {}, execute = false) {
   await account.refresh();
   const plan = inspectReadiness(account.state, options);
+  const policy_decisions:Decision[]=[plan.decision];options.decided?.(plan.decision,'checkpoint');
+  const enforce=(facts:RuleFacts)=>{const decision=evaluateRules(facts);policy_decisions.push(decision);options.decided?.(decision,facts.phase);return requireAllowed(decision);};
   const completed: ReadinessAction[] = [];
-  if (!execute || plan.blockers.length || plan.ready) return {plan, completed, verification:plan};
+  if (!execute || !plan.decision.allowed || plan.ready) return {plan,policy_decisions, completed, verification:plan};
   let spent=0;
   const shipId=account.state.ship!.id,dock=account.state.location!.docked_at,system=account.state.location!.system_id;
   const expectedModules=new Map(account.state.modules!.map(module=>[module.module_id,module.type_id]));
@@ -128,10 +137,7 @@ export async function ensureReadiness(account: ReadinessAccount, command: Readin
     const service = step.action === 'spacemolt/refuel' ? 'refuel' : step.action === 'spacemolt/repair' ? 'repair' : null;
     const quote = service ? options.serviceQuotes?.[service] ?? 0 : 0;
     const availableCredits = account.state.player?.credits;
-    if (!finite(availableCredits) || availableCredits - quote < (options.creditReserve ?? 0)
-      || spent + quote > (options.maxServiceSpend ?? 0)) {
-      throw new Error('Readiness stopped: remaining service would breach budget or reserve');
-    }
+    enforce({phase:'command',action:step.action,affordability:{amount:quote,available:(options.maxServiceSpend??0)-spent,credits:availableCredits,reserve:options.creditReserve??0}});
     const removed = step.action === 'spacemolt/uninstall_mod'
       ? account.state.modules?.find(m => m.module_id === step.params.id) : undefined;
     const previousCargo = removed ? held(removed.type_id) : 0;
@@ -161,9 +167,8 @@ export async function ensureReadiness(account: ReadinessAccount, command: Readin
     }
     verify();
     const credits = account.state.player?.credits;
-    if (!finite(credits) || credits < (options.creditReserve ?? 0) || spent > (options.maxServiceSpend ?? 0) || cost>quote) {
-      throw new Error('Readiness stopped: canonical spending breached budget or reserve');
-    }
+    enforce({phase:'spent',action:step.action,paid:true,budget:{gross_spend:spent,max_spend:options.maxServiceSpend??0,credit_reserve:options.creditReserve??0},credits});
+    if(cost>quote)throw new Error('Readiness stopped: canonical spending breached the accepted quote');
   }
-  return {plan, completed, actual_spend:spent, verification:inspectReadiness(account.state, options)};
+  return {plan,policy_decisions, completed, actual_spend:spent, verification:inspectReadiness(account.state, options)};
 }

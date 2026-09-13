@@ -44,7 +44,7 @@ authoritative starting conditions and any changing game conditions. Compare veri
 productive outcomes, return/service, retained assets and obligations, blockers,
 tool/model usage and elapsed time. A fixture pass or an accepted command is not a
 completed live task. S5 validation alone does not satisfy this later comparison;
-neither comparison run has been performed in this session.
+the initial live diagnostic did not complete either workload; final paired runs remain pending.
 
 Record the resolution and its rationale beside each item or link a decision document. The selected vocabulary above is the starting agreement; remaining work is to define its contracts and edge cases.
 
@@ -222,6 +222,60 @@ These are project-level demonstrations under the new interface, not substitutes 
 - [ ] **A15 — Completion evidence:** Final reports expose independently checkable costs, obligations, location, condition, progression, and outcome, including unsold inventory and unresolved work.
 - [ ] **A16 — Fresh-session reproducibility:** Setup and run instructions are current, required checks pass, and another session can reproduce representative workflows without relying on this conversation's hidden context.
 
+## Rules-engine proof of concept — active, 2026-09-13
+
+The active goal now continues beyond S5: a proof-of-concept rules engine must
+entirely replace the prior policy/admission implementation, and the real Hermes
+Industry/Logistics tasks must be verified before and after it. The previous goal
+turn made progress by completing S5; the current turn is implementing the full
+policy replacement, auditing all consumers, and preparing the comparison driver.
+Do not treat S5 or green isolated rules tests as completion of this goal.
+
+The complete pre-engine SpaceMolt source (including verified S5 changes) is frozen
+at `/var/folders/_4/1kmc70zj6s18v8ls6cxn81m40000gn/T/spacemolt-rules-before-8hwhdo_g/spacemolt`.
+Its sibling `source-manifest.json` hashes the captured files; every hash was checked
+unchanged and the baseline passed typecheck. The candidate is the current workspace.
+Use the same configured Kvothe oMLX model, instructions, permissions and limits for
+both arms, each comprising Industry then Logistics with independent bounded jobs.
+Record source hashes, canonical starting/terminal state, verified job receipts,
+gross costs, retained assets/custody, model/tool usage and elapsed time. Produce a
+comparison report after both actual Hermes runs, not a scripted-planner substitute.
+
+The existing Kvothe gateway was gracefully paused for the comparison and ownership
+checks found no competing gateway, bridge or controller lock. Restore its existing
+installation when live tests finish; no candidate installation or deployment is authorized.
+The configured local oMLX model is available. An actual baseline diagnostic is preserved
+at `/tmp/spacemolt-rules-ab/before`: Altais/frontier_station has no local gathering
+candidates, and Hermes stopped before targeted freight assessment or transport. Neither
+workload completed. Pilot remained docked and fully serviced, credits 193637, cargo 21/120,
+with no productive mutation or new custody from that trial. Nearby observed stations
+will be checked as mechanical test setup, separately from model acceptance.
+
+The native comparison driver now supplies bounded normal follow-up turns for premature
+prose, and immediately honors native plan handoffs in fresh sessions. Freeze this same
+protocol for both final arms and preserve the diagnostic. Rules review is completing
+prospective fitting, service and production admission migration before final validation.
+S5 is committed as `b72215ac34`. Rules audit passed all requested policy families;
+final typecheck and 132 Node tests passed, Python resume retained strict context/cache
+identity (10/10), and the other 13 Python files passed in the preceding full check.
+The comparison harness and runner pass 15 tests. Rules and denial propagation are
+ready for a local checkpoint commit; live acceptance is still incomplete.
+
+The next baseline diagnostic at `/tmp/spacemolt-rules-ab-final/before` ended both
+workloads blocked. Industry requires replacing a fitted economy cabin with the carried
+mining laser; no asset was discarded. Logistics accepted contract
+`71e521e6f4ddf08629c97c6589581830`, job `84b2aa11-8556-4cdf-8440-1bf57791987a`,
+package `b87c597c1aad42dd71fb3d6d65d63340`, then correctly blocked because its
+100-unit package exceeds 99 free cargo. It remains in personal storage at Unknown Edge
+Waystation. Its 20-tick job allowance has expired, so do not reset it or replay acceptance.
+Root is preparing explicit origin return/settlement, preserving the original diagnostic.
+Both diagnostic processes exited; gateway remains paused. Before a successful paired
+run, establish the same verified fit/capacity and resolve all freight custody. Version identifiers stay fixed under Carl's restriction;
+source hashes and rule IDs identify executable semantics. Exact next action: establish
+a viable observed start, run the frozen baseline with the final protocol, finish and
+validate the rules candidate, repeat both actual Hermes workloads and write the report.
+Keep the goal active until full replacement and the agreed real-agent evidence are proven.
+
 ## Shared travel borrowing milestone — 2026-09-13
 
 Completed the first bounded milestone selected from SETPOINT-BORROWING.md. New
@@ -274,7 +328,7 @@ Hermes or game acceptance. No bridge, gateway, model session or game controller 
 started; pilot state and obligations remain historical and need fresh observation.
 No active runtime handles were created.
 
-The patch is uncommitted and unstaged. Milestone files: `TODO.md`,
+The verified S5 patch was committed as `b72215ac34`. Milestone files: `TODO.md`,
 `spacemolt/session_skills.py`, `tests/test_spacemolt_runner.py`, and
 `spacemolt/src/{travel.ts,travel.test.ts,execution-arrival.test.ts,execution.ts,
 combat.ts,survey.ts,execution-fixture.ts,combat.test.ts,survey.test.ts,

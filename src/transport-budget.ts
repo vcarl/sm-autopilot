@@ -1,3 +1,4 @@
+import {evaluateRules,deniedTexts} from './rules.ts';
 import type {Account} from '@spacemolt/lib';
 import type {Job} from './execution-store.ts';
 import type {Home} from './execution-policy.ts';
@@ -18,21 +19,21 @@ export function planTransportCleanup(account:Account,home:Home|undefined,job:Job
   const quote=previous?.quote??runJobs.flatMap(row=>row.service_fuel_quotes??[]).filter(row=>row.base_id===home?.base_id).at(-1);
   const blockers:string[]=[];
   if(!home||!quote||quote.base_id!==home.base_id||quote.ship_id!==account.ship?.id||quote.max_fuel!==account.ship?.max_fuel||!finite(quote.unit_price)||!Number.isFinite(Date.parse(quote.observed_at)))blockers.push('Observed home fuel price for this ship and capacity required; service at home before a new transport commitment');
-  if(budget.gross_spend===null)blockers.push('Unpriced job expenditure prevents cleanup allocation');
   const spentSinceAllocation=previous&&budget.gross_spend!==null?budget.gross_spend-previous.gross_spend_at_allocation:0;
   const estimate=quote&&finite(quote.unit_price)&&finite(requiredFuel)&&finite(account.ship?.fuel)
     ?(quote.max_fuel-account.ship.fuel+requiredFuel)*quote.unit_price:NaN;
   const amount=Math.max(previous?.amount??0,spentSinceAllocation+estimate);
   if(!finite(amount))blockers.push('Itinerary cleanup allocation is unknown');
   const remaining=amount-spentSinceAllocation;
-  if(!finite(spentSinceAllocation)||!finite(remaining)||budget.gross_spend===null||budget.max_spend-budget.gross_spend<remaining)blockers.push('Remaining gross job budget cannot fund the cleanup allocation');
-  if(!finite(account.credits)||account.credits-budget.credit_reserve<remaining)blockers.push('Wallet headroom cannot fund cleanup without anticipated delivery income');
-  const allocation:TransportCleanupAllocation|undefined=blockers.length?undefined:previous?{...previous,amount}:{
+  if(!finite(spentSinceAllocation))blockers.push('Cleanup spending interval is unverified');
+  const policy_decision=evaluateRules({phase:'command',action:'transport',paid:true,budget,readiness:blockers,affordability:{amount:remaining,available:budget.gross_spend===null?NaN:budget.max_spend-budget.gross_spend,credits:account.credits,reserve:budget.credit_reserve}});
+  blockers.push(...deniedTexts(policy_decision).filter(reason=>!blockers.includes(reason)));
+  const allocation:TransportCleanupAllocation|undefined=!policy_decision.allowed?undefined:previous?{...previous,amount}:{
     owner_job_id:budget.owner_job_id,allocated_at:new Date().toISOString(),amount,
     gross_spend_at_allocation:budget.gross_spend!,quote:quote!,
     limitation:'Itinerary fuel estimate plus local/escape allowance priced at the observed home rate; a planning reservation, not a physical or price guarantee. Actual cleanup is requoted against the original gross job budget and wallet reserve, with any planning overrun reported. Future repair costs and remote services remain unknown.',
   };
-  return {status:blockers.length?'blocked':'ready',blockers,quote,allocation,remaining_cleanup_allowance:finite(remaining)?remaining:null,budget};
+  return {status:policy_decision.allowed?'ready':'blocked',policy_decision,blockers,quote,allocation,remaining_cleanup_allowance:finite(remaining)?remaining:null,budget};
 }
 
 /** Linked returns consume the original allocation; neither income nor resume refills it. */

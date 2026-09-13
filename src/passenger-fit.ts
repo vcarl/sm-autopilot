@@ -1,3 +1,4 @@
+import {evaluateRules,requireAllowed,deniedTexts,type Decision,type RuleFacts} from './rules.ts';
 import type {Account} from '@spacemolt/lib';
 import {details,type IndustryCommand} from './industry.ts';
 import {requireCommandSpend} from './spending.ts';
@@ -21,8 +22,10 @@ export async function preparePassengers(params:PassengerFitParams,account:Accoun
   const maxSpend=params.max_spend??0,reserve=params.credit_reserve??150000;
   if(!finite(maxSpend)||!finite(reserve))throw new Error('Invalid passenger fitting budget');
   await account.refresh();
-  const blockers:string[]=[],plan:Wire[]=[];
-  const blocked=()=>({status:'blocked',blockers,plan,estimated_spend:null});
+  const blockers:string[]=[],plan:Wire[]=[],policy_decisions:Decision[]=[];
+  const decide=(facts:RuleFacts)=>{const decision=evaluateRules(facts);policy_decisions.push(decision);return decision;};
+  const costDecision=(amount:number,spent=0)=>decide({phase:'command',action:'spacemolt/buy',paid:true,budget:{gross_spend:spent,max_spend:maxSpend,credit_reserve:reserve},affordability:{amount,available:maxSpend-spent,credits:account.credits,reserve}});
+  const blocked=()=>{const policy_decision=decide({phase:'checkpoint',action:'prepare',readiness:blockers});return {status:policy_decision.allowed?'quoted':'blocked',policy_decisions,blockers,plan,estimated_spend:null};};
   const ship=account.ship,location=account.location,modules=account.state.modules,cargo=account.cargo;
   if(!ship||!location?.docked_at||!Array.isArray(modules)||!Array.isArray(cargo)||!finite(account.credits)) {
     blockers.push('Observed docked ship, modules, cargo and credits required');return blocked();
@@ -37,7 +40,7 @@ export async function preparePassengers(params:PassengerFitParams,account:Accoun
     blockers.push('Authoritative passenger berth capacity unavailable');return blocked();
   }
   // The pinned optional berths block is absent on ships with no accommodation.
-  if(passengers.berths?.economy.total>0)return {status:'ready',blockers,plan,estimated_spend:0,actual_spend:0,berths:passengers.berths};
+  if(passengers.berths?.economy.total>0){decide({phase:'checkpoint',action:'prepare',readiness:blockers});return {status:'ready',policy_decisions,blockers,plan,estimated_spend:0,actual_spend:0,berths:passengers.berths};}
   const item=details(await command('spacemolt/inspect',{id:cabin})).catalog?.items?.find((row:Wire)=>row.id===cabin);
   if(!item||item.slot!=='utility'||![item.size,item.cpu_usage,item.power_usage].every(finite)||!Number.isInteger(item.passenger_economy_berths)||item.passenger_economy_berths<=0) {
     blockers.push('Economy cabin identity, utility slot, berth capacity or fitting requirements unavailable');return blocked();
@@ -58,13 +61,14 @@ export async function preparePassengers(params:PassengerFitParams,account:Accoun
   if(source==='buy') {
     quote=details(await command('spacemolt_market/estimate_purchase',{item_id:cabin,quantity:1}));
     if(!completeQuote(quote))blockers.push('Complete economy cabin purchase quote unavailable');
-    else if(quote.total_cost>maxSpend||account.credits!-quote.total_cost<reserve)blockers.push('Cabin purchase exceeds spending budget or wallet reserve');
+    else blockers.push(...deniedTexts(costDecision(quote.total_cost)));
   }
   plan.push({action:source==='cargo'?'use_cargo':source==='storage'?'spacemolt_storage/withdraw':'spacemolt/buy',item_id:cabin,quantity:1,quote});
   if(removed)plan.push({action:'spacemolt/uninstall_mod',id:removed.module_id,preserve_in_cargo:removed.type_id});
   plan.push({action:'spacemolt/install_mod',id:cabin});
   const estimatedSpend=source==='buy'?(completeQuote(quote!)?quote!.total_cost:null):0;
-  if(blockers.length||params.execute!==true)return {status:blockers.length?'blocked':'quoted',blockers,plan,estimated_spend:estimatedSpend};
+  const admission=decide({phase:'checkpoint',action:'prepare',readiness:blockers});
+  if(!admission.allowed||params.execute!==true)return {status:admission.allowed?'quoted':'blocked',policy_decisions,blockers,plan,estimated_spend:estimatedSpend};
   const originalModules=structuredClone(modules),originalCargo=structuredClone(cargo),shipId=ship.id,station=location.docked_at;
   let spent=0,removedVerified=false,installed=false;
   const verify=()=>{
@@ -76,14 +80,15 @@ export async function preparePassengers(params:PassengerFitParams,account:Accoun
     for(const module of originalModules)if(!(removedVerified&&module.module_id===removed?.module_id)&&!fit.some(row=>row.module_id===module.module_id&&row.type_id===module.type_id))throw new Error('Unrelated fitted equipment was not preserved');
     for(const row of originalCargo)if(quantity(held,row.item_id)<quantity(originalCargo,row.item_id)-(installed&&row.item_id===cabin?1:0))throw new Error('Starting cargo was not preserved');
     if(removedVerified&&quantity(held,'mining_laser_i')!==quantity(originalCargo,'mining_laser_i')+1)throw new Error('Removed mining laser custody lost');
-    if(!finite(account.credits)||account.credits<reserve||spent>maxSpend)throw new Error('Passenger fitting spending or wallet reserve breached');
+    requireAllowed(costDecision(0,spent));
   };
   verify();
   const cabinBefore=quantity(account.cargo!,cabin);
   if(source!=='cargo'&&account.ship!.cargo_used+item.size>account.ship!.cargo_capacity)throw new Error('Cabin staging cargo capacity changed');
   if(source==='buy') {
     const fresh=details(await command('spacemolt_market/estimate_purchase',{item_id:cabin,quantity:1}));
-    if(!completeQuote(fresh)||fresh.total_cost>maxSpend||account.credits!-fresh.total_cost<reserve)throw new Error('Fresh cabin purchase quote exceeds available budget');
+    if(!completeQuote(fresh))requireAllowed(decide({phase:'checkpoint',action:'prepare',readiness:['Fresh cabin purchase quote is incomplete']}));
+    requireAllowed(costDecision(fresh.total_cost,spent));
     verify();
     const reply=await command('spacemolt/buy',{id:cabin,quantity:1,deliver_to:'cargo',auto_list:false});
     spent+=requireCommandSpend('spacemolt/buy',reply);await account.refresh();verify();
@@ -110,5 +115,5 @@ export async function preparePassengers(params:PassengerFitParams,account:Accoun
   installed=true;verify();
   const after=details(await command('spacemolt/list_passengers',{}));
   if(!validBerths(after.berths)||after.berths.economy.total<item.passenger_economy_berths)throw new Error('Installed economy cabin did not establish passenger berths');
-  return {status:'fitted',blockers,plan,estimated_spend:estimatedSpend,actual_spend:spent,module_id:fitted[0]!.module_id,berths:after.berths};
+  return {status:'fitted',policy_decisions,blockers,plan,estimated_spend:estimatedSpend,actual_spend:spent,module_id:fitted[0]!.module_id,berths:after.berths};
 }

@@ -1,3 +1,5 @@
+import {resolveContext} from './execution-policy.ts';
+import {evaluateRules,requireAllowed,PolicyDenied,type Decision,type RuleFacts} from './rules.ts';
 import {SpacemoltError, type Account, type CreatureInfo} from '@spacemolt/lib';
 import {appendFileSync, existsSync, readFileSync} from 'node:fs';
 import {randomUUID} from 'node:crypto';
@@ -12,7 +14,7 @@ type Wire=Record<string,any>;
 const habitats=new Set(['asteroid_belt','gas_cloud','ice_field','nebula']);
 const ledger=new URL('../runtime/combat.jsonl',import.meta.url);
 const noBattle=(error:unknown)=>error instanceof SpacemoltError&&['not_in_battle','no_battle','no_active_battle'].includes(error.code);
-interface CombatDeps {travelCheckpoint?:(settled?:boolean)=>Promise<void>;stopped?:()=>boolean; save?:(event:Wire)=>void; sleep?:(ms:number)=>Promise<void>; now?:()=>number}
+interface CombatDeps {decided?:(decision:Decision,phase?:RuleFacts['phase'])=>void;travelCheckpoint?:(settled?:boolean)=>Promise<void>;stopped?:()=>boolean; save?:(event:Wire)=>void; sleep?:(ms:number)=>Promise<void>; now?:()=>number}
 const snapshot=(account:Account)=>structuredClone({credits:account.credits,ship:account.ship,cargo:account.cargo,location:account.location,skills:snapshotSkills(account.state)});
 
 export async function battleStatus(command:IndustryCommand):Promise<Wire|null> {
@@ -26,34 +28,32 @@ export async function battleStatus(command:IndustryCommand):Promise<Wire|null> {
   }
 }
 
-async function ready(account:Account,command:IndustryCommand) {
+async function ready(account:Account,command:IndustryCommand,decided:CombatDeps['decided'],reserve:number) {
   await account.refresh();
-  const ship=account.ship;
-  if(!ship||!account.location?.docked_at)throw new CombatBlocked('Start the sortie docked with authoritative ship state');
-  if(![ship.hull,ship.max_hull,ship.shield,ship.max_shield,ship.fuel,ship.cargo_capacity,ship.cargo_used,account.credits].every(Number.isFinite))throw new CombatBlocked('Ship readiness data is incomplete');
-  if(ship.incapacitated||ship.hull<ship.max_hull||ship.shield<ship.max_shield||ship.fuel<30)throw new CombatBlocked('Restore hull/shields and carry at least 30 fuel before departure');
-  if((account.credits??0)<150000)throw new CombatBlocked('Preserve the 150000-credit hunting reserve');
-  if(await battleStatus(command))throw new CombatBlocked('An existing battle needs reconciliation before a new sortie');
+  const ship=account.ship,blockers:string[]=[];
+  const admission=()=>{const decision=evaluateRules({phase:'checkpoint',action:'prepare',readiness:blockers,affordability:{amount:0,available:0,credits:account.credits,reserve}});decided?.(decision,'checkpoint');return requireAllowed(decision);};
+  if(!ship||!account.location?.docked_at){blockers.push('Start the sortie docked with authoritative ship state');admission();return;}
+  if(![ship.hull,ship.max_hull,ship.shield,ship.max_shield,ship.fuel,ship.cargo_capacity,ship.cargo_used,account.credits].every(Number.isFinite))blockers.push('Ship readiness data is incomplete');
+  if(ship.incapacitated||ship.hull<ship.max_hull||ship.shield<ship.max_shield||ship.fuel<30)blockers.push('Restore hull/shields and carry at least 30 fuel before departure');
+  if(await battleStatus(command))blockers.push('An existing battle needs reconciliation before a new sortie');
   const weapons=(account.state.modules??[]).filter(m=>m.slot==='weapon');
-  if(!weapons.length)throw new CombatBlocked('Fit a combat weapon before scouting or hunting');
+  if(!weapons.length)blockers.push('Fit a combat weapon before scouting or hunting');
   for(const weapon of weapons) {
     const item=details(await command('spacemolt/inspect',{id:weapon.type_id})).catalog?.items?.find((i:Wire)=>i.id===weapon.type_id);
-    if(!item||!(item.damage>0))throw new CombatBlocked('Starter controller requires verified damage weapons');
-    if(item.ammo_type&&(item.ammo_type!=='autocannon'||Number((weapon as any).current_ammo??0)<100))throw new CombatBlocked('Load at least 100 autocannon rounds before departing; other ammunition weapons are unsupported');
+    if(!item||!(item.damage>0))blockers.push('Starter controller requires verified damage weapons');
+    if(item?.ammo_type&&(item.ammo_type!=='autocannon'||Number((weapon as any).current_ammo??0)<100))blockers.push('Load at least 100 autocannon rounds before departing; other ammunition weapons are unsupported');
   }
-  if(ship.cargo_capacity-ship.cargo_used<10)throw new CombatBlocked('Leave at least 10 cargo units for loot');
+  if(ship.cargo_capacity-ship.cargo_used<10)blockers.push('Leave at least 10 cargo units for loot');
+  admission();
 }
 
 /** A retreat decision stays in force even if shields regenerate or the model budget expires. */
-export function battleDecision(status:Wire,playerId:string,targetId:string,retreat:boolean,hullFraction:number,assessment?:ReturnType<typeof assessEngagement>) {
+export function battleDecision(status:Wire,playerId:string,targetId:string,retreat:boolean,hullFraction:number,assessment?:ReturnType<typeof assessEngagement>,resources:Partial<NonNullable<RuleFacts['battle']>>={}) {
   const own=status.participants?.find((p:Wire)=>p.player_id===playerId);
   const target=status.participants?.find((p:Wire)=>p.player_id===targetId);
   const strangers=status.participants?.some((p:Wire)=>p.player_id!==playerId&&p.player_id!==targetId);
-  const bail=retreat||!own||!target||(assessment?assessment.decision!=='engage':strangers)||!status.combat_state
-    ||!Number.isFinite(own.hull_pct)||own.hull_pct<=hullFraction*100;
-  if(bail)return {retreat:true,stance:'flee',advance:false};
-  // Closing to point blank improves hit chance; a reach check alone stalls at 5% accuracy.
-  return {retreat:false,stance:'fire',advance:own.zone!=='engaged'};
+  const decision=evaluateRules({phase:'battle',battle:{retreat,own,target,strangers,combatState:Boolean(status.combat_state),assessment:assessment?.decision,hullFraction,...resources}});
+  return {retreat:!decision.allowed,stance:decision.allowed?'fire':'flee',advance:decision.allowed&&own.zone!=='engaged',decision};
 }
 
 export async function controlHunt(account:Account,command:IndustryCommand,targetId:string,params:Wire,deps:CombatDeps={}) {
@@ -85,11 +85,12 @@ export async function controlHunt(account:Account,command:IndustryCommand,target
         retreatHullFraction:params.retreat_hull_fraction,approachTicks:({outer:3,mid:2,inner:1,engaged:0} as Record<string,number>)[own.zone]??3});
     }
     const emptyWeapon=(account.state.modules??[]).some((m:any)=>m.slot==='weapon'&&m.current_ammo!==undefined&&m.current_ammo<=0);
-    const decision=battleDecision(status,playerId,targetId,retreat||Boolean(deps.stopped?.())||emptyWeapon||(account.ship?.fuel??0)<15||now()-start>=params.max_ticks*10000,params.retreat_hull_fraction,assessment);
+    const decision=battleDecision(status,playerId,targetId,retreat,params.retreat_hull_fraction,assessment,{stopped:Boolean(deps.stopped?.()),emptyWeapon,fuel:account.ship?.fuel??0,elapsed:now()-start,maxTicks:params.max_ticks});
+    deps.decided?.(decision.decision);
     // Live tick_duration can stay unchanged while combat advances. Pace maneuvers
     // by the game's ten-second cadence, but react immediately to a new retreat.
     if(now()-lastManeuver>=10000||(decision.retreat&&!retreat)) {
-      deps.save?.({event:'battle_tick',battle_id:battleId,status,assessment});
+      deps.save?.({event:'battle_tick',battle_id:battleId,status,assessment,policy_decision:decision.decision});
       lastManeuver=now();
       retreat=decision.retreat;
       try {
@@ -112,7 +113,7 @@ export async function controlHunt(account:Account,command:IndustryCommand,target
 export async function combat(action:string,params:Wire,account:Account,command:IndustryCommand,deps:CombatDeps={}) {
   try { return await executeCombat(action,params,account,command,deps); }
   catch(error) {
-    if(error instanceof CombatBlocked)return {status:'blocked',reason:error.message};
+    if(error instanceof CombatBlocked||error instanceof PolicyDenied)return {status:'blocked',reason:error.message,...(error instanceof PolicyDenied?{policy_decision:error.decision}:{})};
     throw error;
   }
 }
@@ -120,7 +121,7 @@ export async function combat(action:string,params:Wire,account:Account,command:I
 async function executeCombat(action:string,params:Wire,account:Account,command:IndustryCommand,deps:CombatDeps={}) {
   const save=deps.save??(event=>appendFileSync(ledger,JSON.stringify({at:new Date().toISOString(),...event})+'\n',{mode:0o600}));
   if(action==='prepare') {
-    const result=await prepareCombat(params as FitParams,account,command);
+    const result=await prepareCombat(params as FitParams,account,command,deps.decided);
     save({event:'fitting',...result});return result;
   }
   if(action==='history')return existsSync(ledger)?readFileSync(ledger,'utf8').trim().split('\n').map(l=>JSON.parse(l)).filter(r=>r.event!=='battle_tick').slice(-10):[];
@@ -134,9 +135,11 @@ async function executeCombat(action:string,params:Wire,account:Account,command:I
     };
   }
   if(!['scout','hunt'].includes(action))throw new Error('Unknown combat workflow');
-  const maxTicks=params.max_ticks??24,fraction=params.retreat_hull_fraction??0.8;
-  if(!Number.isInteger(maxTicks)||maxTicks<1||maxTicks>24||!Number.isFinite(fraction)||fraction<0.8||fraction>0.95)throw new Error('Invalid combat withdrawal budget');
-  await ready(account,command);
+  const defaults=resolveContext({stance:'Hunt',mood:'Aggressive',objective:'Bounded wildlife sortie'});
+  const bounds=evaluateRules({phase:'bounds',context:defaults,params,policyLimits:{credit_reserve:params.credit_reserve??defaults.limits.credit_reserve}});
+  deps.decided?.(bounds,'bounds');requireAllowed(bounds);
+  const maxTicks=params.max_ticks??defaults.limits.max_ticks,fraction=params.retreat_hull_fraction??defaults.limits.retreat_hull_fraction;
+  await ready(account,command,deps.decided,bounds.limits.credit_reserve!);
   const before=snapshot(account),origin=account.location!.poi_id!,originBase=account.location!.docked_at!,system=account.location!.system_id;
   const destination=params.target_system_id??system;
   const move=async(target:{system_id:string;poi_id?:string;base_id?:string},reserve:number,productive=true)=>travelTo(account,command,target,{

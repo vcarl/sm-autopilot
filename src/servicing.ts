@@ -1,9 +1,10 @@
+import type {Decision,RuleFacts} from './rules.ts';
 import type {Account} from '@spacemolt/lib';
 import {details,type IndustryCommand} from './industry.ts';
 import {canonicalReadinessBlockers,ensureReadiness,inspectReadiness} from './readiness.ts';
 
 export interface ServiceBudget {maxSpend:number;creditReserve:number}
-export interface ServiceClock {now?:()=>number;sleep?:(ms:number)=>Promise<void>}
+export interface ServiceClock {decided?:(decision:Decision,phase?:RuleFacts['phase'])=>void;now?:()=>number;sleep?:(ms:number)=>Promise<void>}
 export interface ServiceFuelQuote {
   observed_at:string;base_id:string;system_id:string;poi_id:string;ship_id:string;
   max_fuel:number;unit_price:number|null;
@@ -52,7 +53,7 @@ export async function serviceShip(account:Account,command:IndustryCommand,budget
   const price=fuel_quote.unit_price;
   const refuel=price===null?undefined:(ship.max_fuel-ship.fuel)*price;
   const result=await ensureReadiness(account,checkedCommand,{minFuel:ship.max_fuel,minHull:ship.max_hull,
-    creditReserve:budget.creditReserve,maxServiceSpend:budget.maxSpend,serviceQuotes:{refuel}},true);
+    creditReserve:budget.creditReserve,maxServiceSpend:budget.maxSpend,serviceQuotes:{refuel},decided:clock.decided},true);
   if(!result.verification.ready)throw new Error(result.verification.blockers.join('; ')||'Servicing did not reach readiness');
   // The pinned get_base contract has no all-in ship-repair price. Never guess one.
   const now=clock.now??Date.now,sleep=clock.sleep??(ms=>new Promise(resolve=>setTimeout(resolve,ms)));

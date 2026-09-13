@@ -1,3 +1,4 @@
+import {evaluateRules,requireAllowed} from './rules.ts';
 /** Canonical counters only: XP may reset on level-up, so cross-level deltas are unknown. */
 export interface SkillCounter { level: number | null; xp: number | null; next_level_xp?: number }
 export type SkillSnapshot = Record<string,SkillCounter>;
@@ -25,10 +26,9 @@ export function skillProgress(before:SkillSnapshot,after:SkillSnapshot) {
 }
 export function productionMarginPolicy(params:{learning_goal?:unknown;max_learning_loss?:unknown;min_profit?:unknown}) {
   const minProfit=Number(params.min_profit??1),loss=Number(params.max_learning_loss??0);
-  if(!Number.isFinite(minProfit)||minProfit<0||!Number.isFinite(loss)||loss<0)throw new Error('Invalid production profit or learning loss budget');
   if(params.learning_goal!==undefined&&typeof params.learning_goal!=='string')throw new Error('learning_goal must be text');
   const goal=typeof params.learning_goal==='string'?params.learning_goal.trim():'';
-  if(loss>0&&!goal)throw new Error('A nonempty learning_goal is required for a predicted learning loss allowance');
-  return {mode:goal&&loss>0?'learning':'income',learning_goal:goal||undefined,max_learning_loss:loss,minimum_economic_margin:goal&&loss>0?-loss:minProfit,
+  const policy_decision=requireAllowed(evaluateRules({phase:'bounds',learning:{goal,loss,minimum:minProfit}}));
+  return {policy_decision,mode:goal&&loss>0?'learning':'income',learning_goal:goal||undefined,max_learning_loss:loss,minimum_economic_margin:policy_decision.limits.minimum_economic_margin!,
     allowance_note:goal&&loss>0?'Predicted loss allowance; actual market execution and measured progression are recorded separately.':undefined};
 }

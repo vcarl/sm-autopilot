@@ -1,45 +1,11 @@
 import { ACTIONS } from '@spacemolt/lib';
-// Tactical commands are internal to the bounded wildlife controller, not model tools.
-export const combatActions = new Set([
-  'spacemolt/hunt', 'spacemolt/scan', 'spacemolt_battle/status',
-  'spacemolt_battle/stance', 'spacemolt_battle/advance', 'spacemolt_battle/retreat',
-  'spacemolt_battle/target', 'spacemolt_battle/summary', 'spacemolt_battle/log',
-  'spacemolt_battle/reload',
-  'spacemolt_salvage/wrecks', 'spacemolt_salvage/loot',
-]);
-export const allowed = new Set([
-  'spacemolt_intel/query_trade_intel',
-  ...combatActions,
-  'spacemolt/list_station_passengers', 'spacemolt/load_passenger', 'spacemolt/unload_passenger',
-  'spacemolt/list_passengers', 'spacemolt/get_status', 'spacemolt/get_active_missions', 'spacemolt/get_missions',
-  'spacemolt/get_system', 'spacemolt/get_poi', 'spacemolt/get_base', 'spacemolt/find_route',
-  'spacemolt/get_skills', 'spacemolt/get_guide', 'spacemolt/completed_missions',
-  'spacemolt/get_ship', 'spacemolt_market/analyze_market',
-  'spacemolt/survey_system', 'spacemolt/get_tax_estimate',
-  'spacemolt/install_mod', 'spacemolt/uninstall_mod', 'spacemolt/get_nearby', 'spacemolt/inspect',
-  'spacemolt_ship/browse_ships', 'spacemolt_ship/buy_listed_ship',
-  'spacemolt_shipping/list', 'spacemolt_shipping/profile', 'spacemolt_shipping/get',
-  'spacemolt_shipping/active', 'spacemolt_shipping/accept', 'spacemolt_shipping/deliver', 'spacemolt_shipping/return',
-  'spacemolt/undock', 'spacemolt/dock', 'spacemolt/travel', 'spacemolt/jump',
-  'spacemolt/mine', 'spacemolt/buy', 'spacemolt/sell', 'spacemolt/refuel', 'spacemolt/repair',
-  'spacemolt/craft', 'spacemolt_facility/list', 'spacemolt_facility/owned',
-  'spacemolt/accept_mission', 'spacemolt/complete_mission', 'spacemolt/abandon_mission',
-  'spacemolt_market/view_market', 'spacemolt_market/estimate_purchase',
-  'spacemolt_storage/view', 'spacemolt_storage/deposit', 'spacemolt_storage/withdraw',
-]);
+import {evaluateRules,requireAllowed} from './rules.ts';
+export {allowed,combatActions} from './rules-actions.ts';
 export function validateAction(action: string, params: Record<string, unknown> = {}) {
-  if (!allowed.has(action) || !(action in ACTIONS)) throw new Error('Action is outside the enabled gameplay toolset');
-  if (action === 'spacemolt/craft') {
-    const fields = ['id','quantity','dry_run','preset','facility_id','job_id','source','deliver_to'];
-    if (Object.keys(params).some(key => !fields.includes(key))) throw new Error('Use one personal crafting job per request');
-    if (['source','deliver_to'].some(key => params[key] !== undefined && params[key] !== 'storage')) throw new Error('Crafting uses personal station storage');
-  }
-  if (action.startsWith('spacemolt_storage/') && ['target','source','credits','message'].some(key => params[key] !== undefined)) throw new Error('Only personal item storage is enabled');
-  if (['spacemolt/refuel','spacemolt/repair'].includes(action) && params.target !== undefined) throw new Error('Only servicing your own ship is enabled');
-  if (action.startsWith('spacemolt_shipping/') && params.carrier !== undefined && params.carrier !== 'player') throw new Error('Only personal freight contracts are enabled');
+  return requireAllowed(evaluateRules({phase:'raw',action,params,raw:{known:action in ACTIONS}}));
 }
 export function catalog() {
-  return Object.fromEntries(Object.entries(ACTIONS).filter(([key]) => allowed.has(key) && !combatActions.has(key) && key!=='spacemolt_intel/query_trade_intel').map(([key,value]) => {
+  return Object.fromEntries(Object.entries(ACTIONS).filter(([key]) => evaluateRules({phase:'raw',action:key,raw:{known:true,catalog:true}}).allowed).map(([key,value]) => {
     const forbidden = key.startsWith('spacemolt_storage/') ? ['target','source','credits','message'] : ['spacemolt/refuel','spacemolt/repair'].includes(key) ? ['target'] : [];
     const craftFields = ['id','quantity','dry_run','preset','facility_id','job_id','source','deliver_to'];
     return [key, {...value, summary:key === 'spacemolt/craft' ? 'Quote (dry_run=true) or queue one recipe by id using personal station storage. quantity is output count. No id lists queued jobs; job_id cancels that job. Output arrives later in storage; never resubmit pending work.' : key.startsWith('spacemolt_storage/') ? 'Manage your personal items at station storage' : value.summary, params:value.params.filter(p => !forbidden.includes(p.name) && (key !== 'spacemolt/craft' || craftFields.includes(p.name)))}];

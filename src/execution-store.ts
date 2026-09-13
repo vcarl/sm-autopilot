@@ -1,3 +1,4 @@
+import {evaluateRules,requireAllowed,type Decision,type RuleFacts} from './rules.ts';
 import {mkdirSync,existsSync,readFileSync,writeFileSync,renameSync} from 'node:fs';
 import {join} from 'node:path';
 import type {ExecutionContext,Home} from './execution-policy.ts';
@@ -11,6 +12,7 @@ export interface Job {
   id:string; action:string; status:'running'|'completed'|'blocked'|'interrupted'|'returned_to_base'|'needs_reconciliation';
   context:ExecutionContext; started_at:string; before:unknown; after?:unknown; obligations?:unknown;
   actions:{action:string; params:unknown; status:'pending'|'confirmed'|'uncertain'; result?:unknown;before?:unknown;accepted_result?:unknown;reconciled_by?:string}[];
+  decisions?:{phase:RuleFacts['phase'];action?:string;decision:Decision}[];
   obligation_admission_error?:string;
   obligations_after?:unknown;
   obligation_verification?:{status:'observed'|'unavailable';reason:string};
@@ -29,7 +31,7 @@ export interface Job {
   transport_progress_checks?:Record<string,any>[];
   return_plan?:{home?:Home;destination:Home;temporary:boolean;reason?:string;home_location_source?:string;reused_from_job_id?:string};
 }
-export interface PilotRecord {pilot_id:string;home?:Home;context?:ExecutionContext;stop?:string;run_start_job:number;jobs:Job[]}
+export interface PilotRecord {pilot_id:string;home?:Home;context?:ExecutionContext;stop?:string;run_start_job:number;run_decision?:Decision;jobs:Job[]}
 /** One bridge owns this pilot's file. Every command is checkpointed before send. */
 export class ExecutionStore {
   readonly path:string;
@@ -55,7 +57,8 @@ export class ExecutionStore {
     const ship=account.ship,location=account.location;
     const ready=ship&&ship.id&&!ship.incapacitated&&[ship.hull,ship.max_hull,ship.fuel,ship.max_fuel,ship.shield,ship.max_shield].every(value=>Number.isFinite(value)&&value>=0)
       &&ship.hull===ship.max_hull&&ship.fuel===ship.max_fuel&&ship.shield===ship.max_shield;
-    if(this.unresolved()||this.data.jobs.some(job=>job.status==='running')||!location?.docked_at||location.in_transit||!ready)throw new Error('Cannot start a new run before reconciled, docked and fully serviced state');
+    const decision=requireAllowed(evaluateRules({phase:'checkpoint',action:'prepare',newRun:{unresolved:Boolean(this.unresolved()),running:this.data.jobs.some(job=>job.status==='running'),docked:Boolean(location?.docked_at&&!location.in_transit),serviced:Boolean(ready)}}));
+    this.data.run_decision=decision;
     this.data.run_start_job=this.data.jobs.length;
     delete this.data.stop;this.save();
   }

@@ -1,3 +1,4 @@
+import {evaluateRules,requireAllowed,PolicyDenied,type RuleFacts,type Decision} from './rules.ts';
 import type { Account } from '@spacemolt/lib';
 import { randomUUID, createHash } from 'node:crypto';
 import { appendFileSync, existsSync, readFileSync } from 'node:fs';
@@ -84,7 +85,8 @@ export function craftRouting(quote:Wire):Wire {
 }
 export function viableSpend(values:{spent:number;remaining:number;labor:number;revenue:number;opportunity:number;wallet:number;reserve:number;maxSpend:number;minProfit:number}):boolean {
   const {spent,remaining,labor,revenue,opportunity,wallet,reserve,maxSpend,minProfit}=values;
-  return Object.values(values).every(Number.isFinite)&&spent+remaining+labor<=maxSpend&&wallet-remaining-labor>=reserve&&revenue-spent-remaining-labor-opportunity>=minProfit;
+  return evaluateRules({phase:'command',action:'spacemolt/craft',affordability:{amount:remaining+labor,available:maxSpend-spent,credits:wallet,reserve},
+    production:{feasible:Object.values(values).every(Number.isFinite),retaining:false,margin:revenue-spent-remaining-labor-opportunity,minimum:minProfit}}).allowed;
 }
 
 const pick=(value:Wire,keys:string[]):Wire=>Object.fromEntries(keys.filter(key=>value[key]!==undefined).map(key=>[key,value[key]]));
@@ -97,13 +99,13 @@ const compactEvaluation=(row:Wire)=>({
 });
 const compactCandidate=(row:Wire)=>({...pick(row,['id','recipe_id','source','venue','gross_margin','blockers','unknowns','inputs_needed','raw_sale_benchmark','potential_conversion_margin','output_sale_credits','benchmark_note']),inputs:itemAmounts(row.inputs),outputs:itemAmounts(row.outputs)});
 const compactQuote=(quote:Wire)=>({
-  ...pick(quote,['station','catalog','recipe_id','source','disposition','quantity','market_tick','output_scaling','assumptions','skill_context','input_locations']),
+  ...pick(quote,['policy_decisions','station','catalog','recipe_id','source','disposition','quantity','market_tick','output_scaling','assumptions','skill_context','input_locations']),
   evaluation:quote.evaluation?compactEvaluation(quote.evaluation):undefined,
   craft:quote.craft?pick(quote.craft,['kind','runs','credits_total','facility_id','venue','have_inputs','have_capacity','have_credits','est_completion_tick']):undefined,
   inputQuotes:quote.inputQuotes?.map((q:Wire)=>pick(q,['item_id','quantity_requested','available','unfilled','subtotal','sales_tax','total_cost'])),
 });
 const compactExperiment=(row:Wire)=>({
-  ...pick(row,['experiment_id','key','station','status','reason','job_id','disposition','retained','retained_location','retention_verification','spent','earned','seconds','realized_credit_delta','incremental_profit_after_input_opportunity','prediction_error','budget_breach','retained_assets_note','pending_action','skill_context','skill_progress','learning_policy']),
+  ...pick(row,['policy_decisions','experiment_id','key','station','status','reason','job_id','disposition','retained','retained_location','retention_verification','spent','earned','seconds','realized_credit_delta','incremental_profit_after_input_opportunity','prediction_error','budget_breach','retained_assets_note','pending_action','skill_context','skill_progress','learning_policy']),
   ...pick(row.quote??{},['recipe_id','source','quantity']),
   expected_profit:row.quote?.evaluation?.expectedProfit,
   expected_processing_advantage:row.quote?.evaluation?.processingAdvantage,
@@ -129,7 +131,7 @@ export function compactIndustryReply(action:string,result:any):unknown {
   if(action==='recommend')return {...pick(result,['budget','limitations','current_skill_context']),learningCandidates:result.learningCandidates?.slice(0,15),repeatCandidates:result.repeatCandidates,explorationCandidates:result.explorationCandidates?.slice(0,15),explorationCandidateCount:result.explorationCandidates?.length,
     discoveryCandidates:result.discoveryCandidates?.slice(0,15),discoveryCandidateCount:result.discoveryCandidates?.length,
     nextActions:result.nextActions?.slice(0,20)};
-  if(result.craft)return {...pick(result,['status','reason']),craft:pick(result.craft,['kind','message','runs','credits_total','have_inputs','have_capacity','have_credits'])};
+  if(result.craft)return {...pick(result,['status','reason','policy_decision','policy_decisions']),craft:pick(result.craft,['kind','message','runs','credits_total','have_inputs','have_capacity','have_credits'])};
   return result;
 }
 
@@ -138,7 +140,22 @@ export async function industry(action:string, params:Wire, account:Account, comm
 }
 
 export async function executeIndustry(action:string, params:Wire, account:Account, command:IndustryCommand, context:IndustryContext={}):Promise<unknown> {
+  const policy_decisions:Decision[]=[];
+  const forwarded:IndustryContext={...context,decided:(decision,phase)=>{policy_decisions.push(decision);context.decided?.(decision,phase);},
+    record:event=>(context.record??record)({...event,...(policy_decisions.length?{policy_decisions:[...policy_decisions]}:{})})};
+  // Nested discovery calls share the same in-flight station/catalog observations.
+  for(const key of ['snapshot','catalog'] as const)Object.defineProperty(forwarded,key,{enumerable:true,get:()=>context[key],set:value=>{context[key]=value;}});
+  try {
+    const result=await executeIndustryBody(action,params,account,command,forwarded);
+    return policy_decisions.length&&result&&typeof result==='object'&&!Array.isArray(result)?{...result,policy_decisions}:result;
+  } catch(error) {
+    if(error instanceof PolicyDenied)return {status:'blocked',reason:error.message,policy_decision:error.decision,policy_decisions};
+    throw error;
+  }
+}
+async function executeIndustryBody(action:string, params:Wire, account:Account, command:IndustryCommand, context:IndustryContext):Promise<unknown> {
   const observe=context.record??record;
+  const decide=(facts:RuleFacts)=>{const decision=evaluateRules(facts);context.decided?.(decision,facts.phase);return decision;};
   const existing=()=>context.existing_experiments??experiments();
   const now=context.now??Date.now;
   const credits=()=>{if(account.credits===undefined)throw new Error('Canonical credits unavailable');return account.credits;};
@@ -224,22 +241,21 @@ export async function executeIndustry(action:string, params:Wire, account:Accoun
   if(action==='quote')return quote;
   if(action!=='produce')return {status:'blocked',reason:'Unknown industry action'};
   if(craft.runs>1)return {status:'blocked',reason:'Multi-run output scaling is not yet verified; use a single production run.',quote};
-  const reserve=Number(params.credit_reserve??150000),maxSpend=Number(params.max_spend??1000);
-  if(retaining&&![params.credit_reserve??150000,params.max_spend??1000].every(finite))return {status:'blocked',reason:'Invalid retained-production budget'};
-  let learningPolicy;
-  try{if(!retaining)learningPolicy=productionMarginPolicy(params);}catch(error){return {status:'blocked',reason:error instanceof Error?error.message:String(error)};}
+  const allocation=requireAllowed(decide({phase:'bounds',budgetConfig:{kind:'production',maxSpend:params.max_spend===undefined?undefined:retaining?params.max_spend:Number(params.max_spend),reserve:params.credit_reserve===undefined?undefined:retaining?params.credit_reserve:Number(params.credit_reserve)}}));
+  const reserve=allocation.limits.credit_reserve!,maxSpend=allocation.limits.max_spend!;
+  const learningPolicy=retaining?undefined:productionMarginPolicy(params);
+  if(learningPolicy)context.decided?.(learningPolicy.policy_decision,'bounds');
   const minProfit=learningPolicy?.minimum_economic_margin??0;
-  if(![reserve,maxSpend].every(Number.isFinite)||reserve<0||maxSpend<0)return {status:'blocked',reason:'Invalid budget'};
-  if(craft.have_capacity===false||craft.have_credits===false)return {status:'blocked',reason:'Craft capacity or credits unavailable',quote};
   const plannedSpend=inputQuotes.reduce((n,q)=>n+q.total_cost,0)+craft.credits_total;
   const advantage=source==='inventory'?evaluation.processingAdvantage:evaluation.expectedProfit;
-  if(!evaluation.feasible||(!retaining&&(advantage===null||advantage<minProfit))||!finite(plannedSpend)||!finite(credits())||plannedSpend>maxSpend||credits()-plannedSpend<reserve)return {status:'blocked',reason:retaining?'Quote fails input feasibility or budget requirement':'Quote fails feasibility, profit or budget requirement',quote};
+  const afford=(amount:number,spent=0)=>requireAllowed(decide({phase:'command',action:'spacemolt/craft',paid:true,budget:{gross_spend:spent,max_spend:maxSpend,credit_reserve:reserve},affordability:{amount,available:maxSpend-spent,credits:credits(),reserve}}));
+  requireAllowed(decide({phase:'command',action:'spacemolt/craft',production:{feasible:evaluation.feasible&&craft.have_capacity!==false&&craft.have_credits!==false,retaining,margin:advantage,minimum:minProfit},affordability:{amount:plannedSpend,available:maxSpend,credits:credits(),reserve}}));
   const before={credits:credits(),cargo:structuredClone(account.cargo),storage:stock,skills:snapshotSkills(account.state)};
   const experiment:Wire={event:'experiment',experiment_id:randomUUID(),station,key:evaluation.id,disposition,quote,before,skill_context,learning_policy:learningPolicy,skill_progress:[],started:now(),status:'purchasing',spent:0,earned:0,sales:[],sold:{},withdrawn:{}};
   observe(experiment);
   const revalidateProfit=async(remaining:number,labor:number)=>{
     if(retaining) {
-      if(![experiment.spent,remaining,labor,credits()].every(finite)||experiment.spent+remaining+labor>maxSpend||credits()-remaining-labor<reserve)throw new Error('Retained production exceeds remaining budget or wallet reserve');
+      afford(remaining+labor,experiment.spent);
       return null;
     }
     const current=details(await command('spacemolt_market/view_market',{}));
@@ -248,7 +264,7 @@ export async function executeIndustry(action:string, params:Wire, account:Accoun
     let revenue=0,opportunity=0;
     for(const output of evaluation.outputs){const fill=quoteDepth(currentBooks.get(output.item_id)?.buy_orders??[],output.quantity,'sell');if(!fill.complete)throw new Error('Output demand no longer covers production');revenue+=fill.credits;}
     if(source==='inventory')for(const input of evaluation.inputs)opportunity+=quoteDepth(currentBooks.get(input.item_id)?.buy_orders??[],input.quantity,'sell').credits;
-    if(!viableSpend({spent:experiment.spent,remaining,labor,revenue,opportunity,wallet:credits(),reserve,maxSpend,minProfit}))throw new Error('Current prices fail profit or remaining budget requirement');
+    requireAllowed(decide({phase:'command',action:'spacemolt/craft',production:{feasible:[experiment.spent,remaining,labor,revenue,opportunity,credits()].every(finite),retaining:false,margin:revenue-experiment.spent-remaining-labor-opportunity,minimum:minProfit},affordability:{amount:remaining+labor,available:maxSpend-experiment.spent,credits:credits(),reserve}}));
     return opportunity;
   };
   try {
@@ -257,7 +273,8 @@ export async function executeIndustry(action:string, params:Wire, account:Accoun
       const i=purchases[index];
       const q=details(await command('spacemolt_market/estimate_purchase',{item_id:i.item_id,quantity:i.quantity}));
       if(retaining&&!completePurchase(q,i.quantity))throw new Error('Fresh complete input purchase quote unavailable');
-      if(q.unfilled!==0||!Number.isFinite(q.total_cost)||experiment.spent+q.total_cost+craft.credits_total>maxSpend||credits()-q.total_cost-craft.credits_total<reserve)throw new Error('Fresh purchase estimate fails depth or remaining budget');
+      requireAllowed(decide({phase:'checkpoint',action:'produce',readiness:q.unfilled!==0||!finite(q.total_cost)?['Fresh purchase estimate fails depth']:[]}));
+      afford(q.total_cost+craft.credits_total,experiment.spent);
       let remaining=q.total_cost;
       for(const later of purchases.slice(index+1)){const estimate=details(await command('spacemolt_market/estimate_purchase',{item_id:later.item_id,quantity:later.quantity}));if(estimate.unfilled!==0||!Number.isFinite(estimate.total_cost)||(retaining&&!completePurchase(estimate,later.quantity)))throw new Error('Remaining input supply unavailable');remaining+=estimate.total_cost;}
       await revalidateProfit(remaining,craft.credits_total);
@@ -272,7 +289,7 @@ export async function executeIndustry(action:string, params:Wire, account:Accoun
         }
       }
       if(receipt.unfilled>0||receipt.delivered_to_storage!==i.quantity)throw new Error('Input purchase did not fully fill into storage; existing inventory must not cover it');
-      if(experiment.spent+craft.credits_total>maxSpend||credits()-craft.credits_total<reserve)throw new Error('Actual purchase exceeds remaining budget; no further spending');
+      afford(craft.credits_total,experiment.spent);
     }
     if(source==='inventory') {
       const currentStorage=details(await command('spacemolt_storage/view',{})).items;
@@ -295,7 +312,8 @@ export async function executeIndustry(action:string, params:Wire, account:Accoun
     const job=await experimentCommand(experiment,command,'spacemolt/craft',{id:recipe.id,quantity,...craftRouting(craft)},account,observe,context);
     if(!job.job_id)throw new Error('Craft returned no job id; inspect queue before any new production');
     experiment.job_id=job.job_id;experiment.status='pending';observe(experiment);
-    if(experiment.spent>maxSpend||credits()<reserve||(retaining&&requireCommandSpend('spacemolt/craft',job,{id:recipe.id})>fresh.credits_total)) {experiment.budget_breach=true;observe(experiment);}
+    const expenditure=decide({phase:'spent',action:'spacemolt/craft',paid:true,budget:{gross_spend:experiment.spent,max_spend:maxSpend,credit_reserve:reserve},credits:credits()});
+    if(!expenditure.allowed||(retaining&&requireCommandSpend('spacemolt/craft',job,{id:recipe.id})>fresh.credits_total)) {experiment.budget_breach=true;observe(experiment);}
     return settleExperiment(experiment,params,account,command,observe,context);
   } catch(error) {
     experiment.status=experiment.pending_action||experiment.accounting_unverified?'needs_reconciliation':experiment.job_id?'pending':'aborted';

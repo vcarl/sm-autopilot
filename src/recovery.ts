@@ -1,3 +1,4 @@
+import {evaluateRules,deniedTexts} from './rules.ts';
 import {ACTIONS,type Account} from '@spacemolt/lib';
 import {battleStatus,controlHunt} from './combat.ts';
 import {details,type IndustryCommand} from './industry.ts';
@@ -123,11 +124,11 @@ export async function reconcileJob(account:Account,store:ExecutionStore,job:Job,
     job.after=ops.snapshot();job.cash_delta=account.credits!-(job.before as Wire).credits;
     job.spending=jobSpending(job);
     job.budget_spending=jobBudget(job,store.data.jobs);
-    if(job.budget_spending.gross_spend===null) {
-      job.status='needs_reconciliation';
-      evidence.error='Paid command cost remains unverified; acceptance is not permission to repeat it';
-    } else if(job.budget_spending.gross_spend>job.budget_spending.max_spend) {
-      job.status='blocked';evidence.error='Recorded gross spending exceeded the job budget';
+    const decision=evaluateRules({phase:'spent',paid:true,budget:job.budget_spending,credits:account.credits});
+    job.decisions??=[];job.decisions.push({phase:'spent',action:job.action,decision});
+    if(!decision.allowed) {
+      job.status=decision.reasons.some(reason=>reason.id==='spend.unknown')?'needs_reconciliation':'blocked';
+      evidence.error=deniedTexts(decision).join('; ');
     }
     evidence.outcome=job.status;
     store.save();
