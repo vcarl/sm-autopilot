@@ -2,6 +2,7 @@ import {fetchStations, type StationList, type StationSummary} from '@spacemolt/l
 import {appendFileSync,mkdirSync} from 'node:fs';
 import type {ReadinessAccount,ReadinessCommand} from './readiness.ts';
 import {routeSteps} from './normal-route.ts';
+import {travelTo} from './travel.ts';
 
 export interface SurveyParams {
   station_ids:string[];
@@ -66,20 +67,10 @@ export async function surveyMarkets(params:SurveyParams,account:ReadinessAccount
     const move=async(destination:typeof home,route:Awaited<ReturnType<typeof quote>>,reserveJumps:number)=>{
       checkShip();
       if(jumps+route.steps.length+reserveJumps>maxJumps||account.state.ship!.fuel<route.fuel+reserveJumps*perJump+fuelReserve+2)throw new Error('Survey leg exceeds remaining jump or fuel budget');
-      if(account.state.location!.docked_at===destination.base_id)return;
-      await command('spacemolt/undock',{});
-      for(const [index,next] of route.steps.entries()){
-        checkShip();
-        if(account.state.ship!.fuel<(route.steps.length-index+reserveJumps)*Math.max(perJump,route.perJump)+fuelReserve+2)throw new Error('Survey jump would breach remaining fuel reserve');
-        const system=details(await command('spacemolt/get_system',{})).system;
-        if(!(system?.connections??[]).some((c:any)=>(typeof c==='string'?c:c.system_id)===next))throw new Error('Survey jump is not a verified normal connection');
-        await command('spacemolt/jump',{id:next});jumps++;
-        if(account.state.location!.system_id!==next||account.state.location!.in_transit)throw new Error('Survey jump arrival not verified');
-      }
-      if(account.state.location!.poi_id!==destination.poi_id)await command('spacemolt/travel',{id:destination.poi_id});
-      if(account.state.location!.poi_id!==destination.poi_id)throw new Error('Survey station arrival not verified');
-      await command('spacemolt/dock',{});
-      if(account.state.location!.docked_at!==destination.base_id)throw new Error('Survey docking not verified');
+      await travelTo(account,command,destination,{
+        reserve:reserveJumps*perJump+fuelReserve+2,maxJumps:Math.min(2,maxJumps-jumps-reserveJumps),
+        checkMove:checkShip,onJump:()=>{jumps++;},
+      });
     };
     for(const target of targets){
       const route=await quote(target),homeJumps=returnHome?originQuotes.get(target.base_id)!.steps.length:0;

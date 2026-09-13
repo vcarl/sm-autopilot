@@ -33,6 +33,19 @@ Suggested order: resolve decisions and shared foundations first; then Hunt, Indu
 
 ## Decisions — D1–D10
 
+Session scope confirmed 2026-09-13: complete the S5 travel borrowing milestone from
+[SETPOINT-BORROWING.md](SETPOINT-BORROWING.md) first. Rules, repetition, additional
+stances and drones remain subsequent work. The proof of concept is complete only
+after Hermes demonstrates the specified tasks still work and a report compares two
+Hermes runs before/after the rules engine. Carl selected Industry and Logistics on
+Kvothe using its configured model. Use the same bounded task instructions, model,
+permissions and limits for both comparison runs; record the code/model identities,
+authoritative starting conditions and any changing game conditions. Compare verified
+productive outcomes, return/service, retained assets and obligations, blockers,
+tool/model usage and elapsed time. A fixture pass or an accepted command is not a
+completed live task. S5 validation alone does not satisfy this later comparison;
+neither comparison run has been performed in this session.
+
 Record the resolution and its rationale beside each item or link a decision document. The selected vocabulary above is the starting agreement; remaining work is to define its contracts and edge cases.
 
 Decisions are recorded in [DECISIONS.md](spacemolt/DECISIONS.md). D7 has a working numerical Hunt policy; opportunity-switching economics and other stance consumers remain deferred. Documented contracts below do not imply implementation of every stance.
@@ -76,8 +89,8 @@ Decisions are recorded in [DECISIONS.md](spacemolt/DECISIONS.md). D7 has a worki
 
 - [ ] **S5 — Shared travel reaches and verifies its destination.** Depends on S1, S3, and D9.
   - [ ] Route selection and movement account for cargo, fuel, destination access, hazards, and return/fallback requirements.
-  - [ ] Arrival and docking are verified against authoritative state; a pending or ambiguous movement is never blindly replayed.
-  - [ ] Tired, new danger, and destination unavailability are handled at documented execution checkpoints without confusing transit with arrival.
+  - [x] Arrival and docking are verified against authoritative state; a pending or ambiguous movement is never blindly replayed. Shared travel borrowing evidence below (2026-09-13; offline).
+  - [x] Tired, new danger, and destination unavailability are handled at documented execution checkpoints without confusing transit with arrival. Shared travel plus existing bounded return/fallback tests pass; live acceptance remains separate.
 
 - [ ] **S6 — Agents choose and persist home.** Depends on D4, S3, and S5.
   - [ ] A broad objective prompts the agent to consider home and compare observed locations using access, services, storage, activity, and travel costs.
@@ -208,6 +221,71 @@ These are project-level demonstrations under the new interface, not substitutes 
 - [ ] **A14 — Handoff:** Stance and mood transitions preserve the objective and state, deliver the correct new catalog/skills, and do not rebuild the historical prompt prefix.
 - [ ] **A15 — Completion evidence:** Final reports expose independently checkable costs, obligations, location, condition, progression, and outcome, including unsold inventory and unresolved work.
 - [ ] **A16 — Fresh-session reproducibility:** Setup and run instructions are current, required checks pass, and another session can reproduce representative workflows without relying on this conversation's hidden context.
+
+## Shared travel borrowing milestone — 2026-09-13
+
+Completed the first bounded milestone selected from SETPOINT-BORROWING.md. New
+`spacemolt/src/travel.ts` owns movement for Execution, Hunt and station surveys.
+It verifies exact system/POI arrival and docking, forces an Account.refresh live
+read at least every 30 seconds while polling, and bounds arrival waiting at 600
+seconds. Unrelated fresh cargo/hull pushes cannot postpone that read. Only a narrow
+set of definitive server rejections permits one replan; timeouts, connection loss
+and pending commands never replay movement. Unresolved accepted arrival leaves a
+durable needs_reconciliation job.
+
+Each leg, including return, uses current find_route fuel and cargo evidence plus
+the caller's reserve. State is revalidated before departure. Tank capacity, original
+gross spending and wallet reserve remain hard bounds. Docked refuel attempts a full
+tank under the installed library/server contract, so Execution authorizes the full
+live station quote, not an invented partial price. Survey retains no fuel purchases,
+its per-leg two-jump cap and total allocation; Hunt retains its existing reserves.
+Home fallback stays bounded, explicit and separate from remembered home. Future
+return projections and local fuel allowances remain estimates; the API cannot quote
+an arbitrary remote origin. Broader hazard/access planning keeps the S5 parent open.
+
+Tired waits for accepted transit to settle, then stops further productive movement.
+Defense still probes battle at stable departure/arrival boundaries, including when
+an event was missed; during polling it responds to events without repeatedly querying
+battle status. Defense relocation invalidates the old route and uses the existing
+bounded defensive return reassessment. Transport deadline and custody callbacks,
+command journaling and cleanup budget ownership remain on the actual caller path.
+
+Two behavioral tests in `execution-arrival.test.ts` and `travel.test.ts` exercise
+delayed arrival with unrelated fresh state, Tired, defense relocation, unresolved
+arrival, actual Execution refill spending, unaffordable refill, asymmetric return
+fuel, tank capacity and bounded rejection versus uncertainty. The arrival assertion
+was copied into an isolated archive of baseline `d08ce3a880`; the actual old
+Execution failed it with blocked / POI arrival not verified while still in transit.
+That same assertion passes after the change. Evidence: `/tmp/s5-baseline-red.log`.
+
+Required baseline Python validation also exposed an existing guidance regression:
+the standalone runner filtered old job__ headings after bundled skills changed to
+native spacemolt_* names, dropping every tool section. `session_skills.py` now adapts
+native names to the standalone runner's actual immutable catalog while preserving
+bundled native guidance and installed resume content. The real skill_view/temp-home
+runner test covers the repaired filtering, translation and resume behavior.
+
+Final validation: `cd spacemolt && npm run typecheck && npm test` passed all 130
+Node tests; the required `scripts/run_tests.sh` with the documented HERMES_PYTHON
+passed 57 tests across all 13 SpaceMolt Python/skill test files. Logs are
+`/tmp/spacemolt-s5-node-final.log` and `/tmp/spacemolt-s5-python-final.log`.
+`git diff --check` passed. These are fixture/process integration results, not live
+Hermes or game acceptance. No bridge, gateway, model session or game controller was
+started; pilot state and obligations remain historical and need fresh observation.
+No active runtime handles were created.
+
+The patch is uncommitted and unstaged. Milestone files: `TODO.md`,
+`spacemolt/session_skills.py`, `tests/test_spacemolt_runner.py`, and
+`spacemolt/src/{travel.ts,travel.test.ts,execution-arrival.test.ts,execution.ts,
+combat.ts,survey.ts,execution-fixture.ts,combat.test.ts,survey.test.ts,
+home-location.test.ts}`. Pre-existing changes to `CLAUDE.md`, `.claude/` and
+`SETPOINT-BORROWING.md` were preserved. VISION and versions are unchanged.
+
+Exact next action: review the completed S5 borrowing patch. Before changing rules,
+capture the agreed pre-engine Hermes Industry/Logistics run on Kvothe after checking
+single-controller ownership and authoritative pilot state. Implement the rules
+milestone, repeat the same bounded workload and produce the comparison report.
+Neither that report nor proof-of-concept acceptance is claimed by this milestone.
 
 ## Executable stopping and live receipt compaction — 2026-09-10
 

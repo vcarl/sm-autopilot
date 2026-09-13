@@ -22,7 +22,7 @@ function fixture() {
     }
     if(action==='spacemolt/inspect')result={catalog:{items:[{id:params.id,slot:'weapon',damage:10,cpu_usage:2,power_usage:5,size:10}]}};
     if(action==='spacemolt/get_system')result={system:{pois:[{id:'belt',type:'asteroid_belt'}],connections:[{system_id:state.location.system_id==='system'?'remote':'system'}]}};
-    if(action==='spacemolt/find_route')result={found:true,target_system:params.id,total_jumps:1,estimated_fuel:2,fuel_per_jump:2,route:[{system_id:state.location.system_id,jumps:0},{system_id:params.id,jumps:1}]};
+    if(action==='spacemolt/find_route'){const steps=state.location.system_id===params.id?[]:[{system_id:params.id,jumps:1}];result={found:true,target_system:params.id,total_jumps:steps.length,estimated_fuel:2*steps.length,fuel_per_jump:2,route:[{system_id:state.location.system_id,jumps:0},...steps]};}
     if(action==='spacemolt/jump'){state.location.system_id=params.id;state.ship.fuel-=2;}
     if(action==='spacemolt/undock')state.location.docked_at=null;
     if(action==='spacemolt/travel'){state.location.poi_id=params.id;state.ship.fuel--;}

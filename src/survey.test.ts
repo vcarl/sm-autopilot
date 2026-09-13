@@ -12,7 +12,7 @@ function fixture(){
     const state=account.state;
     if(action==='spacemolt/find_route'){
       const to=String(params.id).slice(0,1),from=state.location!.system_id;
-      return {structuredContent:{found:true,target_system:to,target_poi:params.id,total_jumps:1,estimated_fuel:2,fuel_per_jump:2,route:[{system_id:from,jumps:0},{system_id:to,jumps:1}]}};
+      return {structuredContent:{found:true,target_system:to,target_poi:params.id,total_jumps:from===to?0:1,estimated_fuel:from===to?0:2,fuel_per_jump:2,route:from===to?[{system_id:from,jumps:0}]:[{system_id:from,jumps:0},{system_id:to,jumps:1}]}};
     }
     if(action==='spacemolt/get_system')return {structuredContent:{system:{connections:[{system_id:state.location!.system_id==='a'?'b':'a'}]}}};
     if(action==='spacemolt/undock')state.location!.docked_at=null;

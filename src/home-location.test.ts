@@ -18,7 +18,7 @@ test('mobile home resolves by base identity for return and Industry without muta
     assert.equal(receipt.return_plan.destination.base_id,home!.base_id);
     assert.equal(receipt.return_plan.destination.system_id,'system');
     assert.equal(receipt.return_plan.home_location_source,docked?'authenticated_home_dock':'station_directory');
-    assert.ok(!f.calls.some(c=>c.key==='spacemolt/jump'||c.key==='spacemolt/find_route'));
+    assert.ok(!f.calls.some(c=>c.key==='spacemolt/jump'||c.key==='spacemolt/find_route'&&c.params.id==='old_system'));
     assert.deepEqual(f.store.data.home,home);
     assert.equal(JSON.stringify(f.execution.context),context);
   }

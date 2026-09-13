@@ -4,7 +4,7 @@ import {combat,battleStatus,controlHunt} from './combat.ts';
 import {combatCatalog} from './combat-metadata.ts';
 import {details,executeIndustry,type IndustryCommand,type IndustryContext} from './industry.ts';
 import {industryLocations,type DestinationResolution} from './locations.ts';
-import {routeSteps} from './normal-route.ts';
+import {travelTo,waitForArrival,TravelBlocked,ArrivalUnresolved} from './travel.ts';
 import {serviceShip,observeServiceFuelQuote} from './servicing.ts';
 import {CommandBoundary} from './command-boundary.ts';
 import {sendAndRefresh} from './execute.ts';
@@ -71,7 +71,6 @@ export function executionCatalog(context:ExecutionContext):Record<string,any> {
 }
 export class StopWork extends Error {}
 class DefenseInterruption extends StopWork {}
-class TravelBlocked extends Error {}
 export interface ExecutionDeps {
   locations?:typeof industryLocations;
   combat?:Parameters<typeof combat>[4];
@@ -212,39 +211,34 @@ export class Execution {
       return true;
     } finally {this.defending=false;}
   }
+  private travelCheckpoint=async(settled=false)=>{
+    if(!settled&&!this.dangerPending&&!this.observedDanger)return;
+    if(!await this.defend())return;
+    if(this.account.location?.in_transit)await waitForArrival(this.account,state=>Boolean(state.location?.system_id&&!state.location.in_transit),this.deps.combat);
+    throw new DefenseInterruption('Unexpected combat invalidated the pending travel plan');
+  };
   private async travel(home:Home,productive=false,beforeMove?:()=>Promise<void>) {
-    await this.account.refresh();
-    await this.defend();
-    if(this.account.location?.in_transit)throw new Error('Transit needs reconciliation; no movement replay');
-    if(this.account.location!.system_id!==home.system_id) {
-      const quote=details(await this.command('spacemolt/find_route',{id:home.system_id}));
-      let steps:string[];
-      try {steps=routeSteps(quote,this.account.location!.system_id,home.system_id,2);}
-      catch(error) {throw new TravelBlocked(String(error));}
-      if(!Number.isFinite(quote.estimated_fuel)||this.account.ship!.fuel<quote.estimated_fuel+17)throw new TravelBlocked('Route breaches fuel reserve');
-      if(beforeMove)await beforeMove();
-      if(this.account.location!.docked_at)await this.command('spacemolt/undock',{});
-      for(const [index,next] of steps.entries()) {
-        if(productive&&this.stopping)throw new StopWork('Return requested during travel');
-        if(beforeMove&&index>0)await beforeMove();
-        const system=details(await this.command('spacemolt/get_system',{})).system;
-        if(!system?.connections?.some((c:any)=>(typeof c==='string'?c:c.system_id)===next))throw new TravelBlocked('Route is not a verified normal connection');
-        await this.command('spacemolt/jump',{id:next});
-        if(this.account.location!.system_id!==next||this.account.location!.in_transit)throw new Error('Jump not verified');
-        await this.defend();
-      }
-    }
-    if(productive&&this.stopping)throw new StopWork('Return requested during travel');
-    if(this.account.location!.poi_id!==home.poi_id) {
-      if(beforeMove)await beforeMove();
-      if(this.account.location!.docked_at)await this.command('spacemolt/undock',{});
-      await this.command('spacemolt/travel',{id:home.poi_id});await this.defend();
-    }
-    if(productive&&this.stopping)throw new StopWork('Return requested after travel checkpoint');
-    if(this.account.location!.poi_id!==home.poi_id||this.account.location!.in_transit)throw new Error('POI arrival not verified');
-    if(!this.account.location!.docked_at)await this.command('spacemolt/dock',{});
-    if(this.account.location!.docked_at!==home.base_id)throw new Error('Docking identity not verified');
+    return travelTo(this.account,this.command,home,{
+      ...this.deps.combat,reserve:17,maxJumps:2,
+      checkpoint:this.travelCheckpoint,
+      checkMove:()=>{if(productive&&this.stopping)throw new StopWork('Return requested during travel');},
+      beforeMove,
+      refuel:minimum=>this.refuelForTravel(minimum),
+    });
   }
+  private async refuelForTravel(minimum:number) {
+    const quote=await observeServiceFuelQuote(this.account,this.command);
+    const ship=this.account.ship!,quotedFuel=ship.fuel;
+    if(quote.unit_price===null)throw new TravelBlocked('fuel_below_route_minimum: station fuel price unavailable');
+    const creditReserve=this.active?jobBudget(this.active,this.store.data.jobs).credit_reserve:this.context.limits.credit_reserve;
+    const result=await ensureReadiness(this.account,async(action,params)=>{
+      if(this.account.ship?.fuel!==quotedFuel||this.account.ship?.id!==quote.ship_id||this.account.location?.docked_at!==quote.base_id)throw new TravelBlocked('Fuel or station changed after refuel quote');
+      return this.command(action,params);
+    },{minFuel:minimum,minHull:ship.hull,creditReserve,maxServiceSpend:this.remainingSpend(),
+      serviceQuotes:{refuel:(ship.max_fuel-ship.fuel)*quote.unit_price}},true);
+    if(!result.verification.ready)throw new TravelBlocked(`fuel_below_route_minimum: ${result.verification.blockers.join('; ')}`);
+  }
+
   private async service() {
     const creditReserve=this.active?jobBudget(this.active,this.store.data.jobs).credit_reserve:this.context.limits.credit_reserve;
     const cleanup=this.active?remainingTransportCleanup(this.active,this.store.data.jobs):undefined;
@@ -461,7 +455,9 @@ export class Execution {
       job.status=action==='transport'&&result?.transport?.status!=='completed'?(result?.transport?.status==='needs_reconciliation'?'needs_reconciliation':'blocked'):action==='produce'&&result?.production?.status!=='complete'?(result?.production?.status==='needs_reconciliation'?'needs_reconciliation':'blocked'):result?.status==='blocked'?'blocked':this.stopping?'returned_to_base':action==='hunt'&&!result?.sortie?.fight?.verified_victory?'blocked':'completed';
     } catch(error) {
       job.error=error instanceof Error?error.message:String(error);
+      if(error instanceof ArrivalUnresolved)this.uncertain=true;
       try {
+        if(this.uncertain)throw error;
         this.boundary.assertHealthy();
         job.status='blocked';
         // Known failures and urgent exits still owe return and servicing.
@@ -469,6 +465,7 @@ export class Execution {
         job.result={partial:result??job.result,cleanup:await this.returnHome()};
         if(this.stopping)job.status='returned_to_base';
       } catch(cleanupError) {
+        if(cleanupError instanceof ArrivalUnresolved)this.uncertain=true;
         job.result={partial:result??job.result,cleanup_error:String(cleanupError)};
         job.status=this.uncertain?'needs_reconciliation':'blocked';
       }
@@ -677,7 +674,7 @@ export class Execution {
   private async sortie(action:string,params:Wire) {
     await this.service();
     const limits=this.context.limits;
-    const sortie:any=await combat(action,{...params,max_ticks:params.max_ticks??limits.max_ticks,retreat_hull_fraction:params.retreat_hull_fraction??limits.retreat_hull_fraction},this.account,this.command,{...this.deps.combat,stopped:this.stopped});
+    const sortie:any=await combat(action,{...params,max_ticks:params.max_ticks??limits.max_ticks,retreat_hull_fraction:params.retreat_hull_fraction??limits.retreat_hull_fraction},this.account,this.command,{...this.deps.combat,stopped:this.stopped,travelCheckpoint:this.travelCheckpoint});
     if(this.active){this.active.result={sortie};this.store.save();}
     return {sortie,cleanup:await this.returnHome(),status:sortie.status};
   }

@@ -3,6 +3,20 @@ import json
 from pathlib import Path
 
 
+_NATIVE_TO_JOB_ACTION = {
+    "spacemolt_observe": "observe",
+    "spacemolt_plan": "plan",
+    "spacemolt_assess": "assess",
+    "spacemolt_prepare": "prepare",
+    "spacemolt_transport": "transport",
+    "spacemolt_track": "track",
+    "spacemolt_hunt": "hunt",
+    "spacemolt_gather": "gather",
+    "spacemolt_produce": "produce",
+    "spacemolt_return": "return_to_base",
+}
+
+
 def session_skills(context, catalog, home, resume=False):
     from tools.skills_tool import skill_view
     names = ["spacemolt-operations"]
@@ -17,8 +31,12 @@ def session_skills(context, catalog, home, resume=False):
             lines, include = [], True
             for line in source.splitlines():
                 if line.startswith("## "):
-                    include = not line.startswith("## Tool: ") or line.removeprefix("## Tool: job__") in catalog
+                    native_name = line.removeprefix("## Tool: ")
+                    action = _NATIVE_TO_JOB_ACTION.get(native_name)
+                    include = not line.startswith("## Tool: ") or action in catalog
                 if include:
+                    for native_name, action in _NATIVE_TO_JOB_ACTION.items():
+                        line = line.replace(native_name, "job__" + action)
                     lines.append(line)
             destination.parent.mkdir(parents=True, exist_ok=True)
             destination.write_text("\n".join(lines) + "\n")

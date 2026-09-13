@@ -15,6 +15,7 @@ export function executionFixture(t:any) {
     if(key==='spacemolt_shipping/active')result={action:'active',shipments:[],tick:1};
     if(key==='spacemolt/list_passengers')result={count:0,passengers:[]};
     if(key==='spacemolt/craft')result={kind:'queue',jobs:null,total_jobs:0};
+    if(key==='spacemolt/find_route')result={found:true,target_system:params.id,total_jumps:0,estimated_fuel:0,fuel_per_jump:2,fuel_available:state.ship.fuel,cargo_used:state.ship.cargo_used,route:[{system_id:state.location.system_id,jumps:0}]};
     if(key==='spacemolt/get_base')result={fuel_price_all_in:3};
     if(key==='spacemolt/inspect')result={catalog:{items:[{id:params.id,damage:10}]}};
     if(key==='spacemolt/get_system')result={system:{pois:[{id:'belt',type:'asteroid_belt'}]}};

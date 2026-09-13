@@ -4,7 +4,7 @@ import {randomUUID} from 'node:crypto';
 import {details, type IndustryCommand} from './industry.ts';
 import {CombatBlocked, prepareCombat, type FitParams} from './combat-fit.ts';
 import {snapshotSkills, skillProgress} from './progression.ts';
-import {routeSteps} from './normal-route.ts';
+import {travelTo} from './travel.ts';
 import {assessNearby, nearbyContacts, selfEstimate, targetUnavailable} from './combat-assessment.ts';
 import {assessEngagement, type ContactEstimate} from './threat-assessment.ts';
 
@@ -12,7 +12,7 @@ type Wire=Record<string,any>;
 const habitats=new Set(['asteroid_belt','gas_cloud','ice_field','nebula']);
 const ledger=new URL('../runtime/combat.jsonl',import.meta.url);
 const noBattle=(error:unknown)=>error instanceof SpacemoltError&&['not_in_battle','no_battle','no_active_battle'].includes(error.code);
-interface CombatDeps {stopped?:()=>boolean; save?:(event:Wire)=>void; sleep?:(ms:number)=>Promise<void>; now?:()=>number}
+interface CombatDeps {travelCheckpoint?:(settled?:boolean)=>Promise<void>;stopped?:()=>boolean; save?:(event:Wire)=>void; sleep?:(ms:number)=>Promise<void>; now?:()=>number}
 const snapshot=(account:Account)=>structuredClone({credits:account.credits,ship:account.ship,cargo:account.cargo,location:account.location,skills:snapshotSkills(account.state)});
 
 export async function battleStatus(command:IndustryCommand):Promise<Wire|null> {
@@ -139,21 +139,10 @@ async function executeCombat(action:string,params:Wire,account:Account,command:I
   await ready(account,command);
   const before=snapshot(account),origin=account.location!.poi_id!,originBase=account.location!.docked_at!,system=account.location!.system_id;
   const destination=params.target_system_id??system;
-  const jumpTo=async(target:string,reserve:number)=>{
-    if(account.location!.system_id===target)return;
-    const quote=details(await command('spacemolt/find_route',{id:target}));
-    const steps=routeSteps(quote,account.location!.system_id,target,2);
-    const required=quote.estimated_fuel+reserve+2;
-    if(account.ship!.fuel<required)throw new Error('Bounded hunting route would breach return fuel reserve');
-    if(account.location!.docked_at)await command('spacemolt/undock',{});
-    for(const next of steps) {
-      if(target!==system&&deps.stopped?.())throw new CombatBlocked('Return requested during outward travel');
-      const local=details(await command('spacemolt/get_system',{})).system;
-      if(!local?.connections?.some((c:Wire|string)=>(typeof c==='string'?c:c.system_id)===next))throw new Error('Hunting route is not a verified normal connection');
-      await command('spacemolt/jump',{id:next});
-      if(account.location!.system_id!==next||account.location!.in_transit)throw new Error('Jump arrival not verified');
-    }
-  };
+  const move=async(target:{system_id:string;poi_id?:string;base_id?:string},reserve:number,productive=true)=>travelTo(account,command,target,{
+    ...deps,reserve,maxJumps:2,checkpoint:deps.travelCheckpoint,
+    checkMove:()=>{if(productive&&deps.stopped?.())throw new CombatBlocked('Return requested during outward travel');},
+  });
   if(params.creature_id!==undefined&&(typeof params.creature_id!=='string'||!params.creature_id))throw new CombatBlocked('creature_id must be a nonempty identifier');
   if(params.species!==undefined&&(typeof params.species!=='string'||!params.species))throw new CombatBlocked('species must be a nonempty identifier');
   const id=randomUUID(),observations:Wire[]=[],loot:Wire[]=[];
@@ -161,7 +150,7 @@ async function executeCombat(action:string,params:Wire,account:Account,command:I
   save({event:'sortie_started',id,action,before,target_system_id:destination,params});
   try {
     // Budget two loaded return jumps plus local travel before leaving the station.
-    await jumpTo(destination,30+2*Math.max(2,Math.ceil(account.ship!.cargo_capacity/10)));
+    await move({system_id:destination},32+2*Math.max(2,Math.ceil(account.ship!.cargo_capacity/10)));
     const info=details(await command('spacemolt/get_system',{}));
     const choices:Wire[]=(info.system?.pois??[]).filter((p:Wire)=>habitats.has(p.type));
     const ids=action==='hunt'?[params.poi_id]:params.poi_ids??choices.slice(0,3).map(p=>p.id);
@@ -169,9 +158,7 @@ async function executeCombat(action:string,params:Wire,account:Account,command:I
     for(const poi of ids) {
       if(deps.stopped?.())break;
       if(account.ship!.fuel<20)throw new Error('Return fuel reserve reached');
-      if(account.location!.docked_at)await command('spacemolt/undock',{});
-      await command('spacemolt/travel',{id:poi});
-      if(account.location!.system_id!==destination||account.location!.poi_id!==poi)throw new Error('Arrival not verified');
+      await move({system_id:destination,poi_id:poi},20);
       if(await battleStatus(command)) {
         fight=await controlHunt(account,command,'',{max_ticks:maxTicks,retreat_hull_fraction:fraction,force_retreat:true},{...deps,save});
         break;
@@ -220,10 +207,7 @@ async function executeCombat(action:string,params:Wire,account:Account,command:I
         }
       }
     }
-    await jumpTo(system,15);
-    if(account.location!.poi_id!==origin)await command('spacemolt/travel',{id:origin});
-    if(!account.location!.docked_at)await command('spacemolt/dock',{});
-    if(account.location!.docked_at!==originBase)throw new Error('Return station changed; verify docking');
+    await move({system_id:system,poi_id:origin,base_id:originBase},17,false);
     const after=snapshot(account);
     const result={event:'sortie_completed',id,action,before,after,observations,fight,loot,
       skill_progress:skillProgress(before.skills,after.skills),cash_delta:after.credits!-before.credits!,
