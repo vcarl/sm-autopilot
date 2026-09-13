@@ -64,6 +64,12 @@ use `./hermes`, rather than a separately installed Hermes command. [DAEMON.md](D
 the exact fork bootstrap, isolated `spacemolt` profile, local `file://$PWD#spacemolt` install,
 Discord setup, gateway lifecycle, and cron command.
 
+The native service applies a changed plan before returning `status: applied`; Hermes can
+assess and execute in the same Discord conversation. Each message is a turn, and the durable
+productive-job allowance is independent of conversation identity. The native prompt and full
+tool catalog remain fixed throughout. The standalone runner described below manages its own
+fresh-session transitions when its selected catalog changes.
+
 The gateway process owns one bridge/controller for the profile. `spacemolt_stop` sends Tired
 directly to that service; `hermes spacemolt stop` writes a durable control request for the
 gateway and never starts a competing controller. See [DAEMON.md](DAEMON.md) for Discord and

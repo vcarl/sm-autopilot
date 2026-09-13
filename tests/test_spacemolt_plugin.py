@@ -6,58 +6,122 @@ from pathlib import Path
 import shutil
 
 
-def test_service_owns_one_bridge_and_handoffs_plans_to_the_next_session(monkeypatch, tmp_path):
+def test_native_plan_applies_handoff_and_continues_in_the_same_conversation(monkeypatch, tmp_path):
+    from spacemolt import service as service_mod
+    from hermes_cli.plugins import PluginContext, PluginManager, PluginManifest
+    from model_tools import get_tool_definitions, handle_function_call
+    from spacemolt import register
+    from spacemolt.runner import BridgeClient
+
+    source = Path(__file__).parents[1] / "spacemolt" / "src"
+    fixture = tmp_path / "native-handoff-host.ts"
+    fixture.write_text(
+        "import {createInterface} from 'node:readline';\n"
+        f"import {{gatherFixture}} from {json.dumps((source / 'gather-fixture.ts').as_uri())};\n"
+        f"import {{ExecutionHost}} from {json.dumps((source / 'execution-host.ts').as_uri())};\n"
+        "const cleanup=[];const f=gatherFixture({after:fn=>cleanup.push(fn)});\n"
+        "const host=new ExecutionHost(f.account,f.directory,f.execution.deps);\n"
+        "console.log(JSON.stringify({event:'ready'}));\n"
+        "for await(const line of createInterface({input:process.stdin})) {\n"
+        " const r=JSON.parse(line);\n"
+        " if(r.action==='control/stop')continue;\n"
+        " try {console.log(JSON.stringify({id:r.id,ok:true,result:await host.dispatch(r.action,r.params)}));}\n"
+        " catch(error){console.log(JSON.stringify({id:r.id,ok:false,error:error.message,policy_decision:error.decision}));}\n"
+        "}\n"
+        "for(const fn of cleanup)fn();\n"
+    )
+
+    credentials = tmp_path / "credentials.txt"
+    credentials.write_text("Username: fixture\nPassword: fixture\n")
+    monkeypatch.setenv("SPACEMOLT_CREDENTIALS_FILE", str(credentials))
+    monkeypatch.setattr(service_mod.shutil, "which", lambda name: "/node" if name == "node" else None)
+    monkeypatch.setattr(service_mod, "BridgeClient", lambda **kwargs: BridgeClient(["node", str(fixture)], timeout=10))
+    service = service_mod.SpaceMoltService(tmp_path / "profile")
+    monkeypatch.setattr(service_mod, "service", lambda: service)
+    manager = PluginManager()
+    register(PluginContext(PluginManifest(name="spacemolt"), manager))
+    definitions = get_tool_definitions(enabled_toolsets=["spacemolt"], quiet_mode=True,
+                                       skip_tool_search_assembly=True)
+    prompt = manager._system_prompt_sections["spacemolt.operations"].content
+
+    def call(name, arguments):
+        schema = next(entry["function"]["parameters"] for entry in definitions
+                      if entry["function"]["name"] == name)
+        assert arguments.keys() <= schema["properties"].keys()
+        return json.loads(handle_function_call(name, arguments, session_id="discord-thread",
+                                               enabled_toolsets=["spacemolt"]))
+
+    try:
+        planned = call("spacemolt_plan", {"stance": "Industry", "objective": "Gather one local ore cycle",
+                                           "home_base_id": "base", "home_rationale": "Nearby services and storage"})
+        assessed = call("spacemolt_assess", {"poi_id": "belt"})
+        gathered = call("spacemolt_gather", {"poi_id": "belt", "cycles": 1})
+        changed = call("spacemolt_plan", {"objective": "Gather another local ore cycle"})
+        repeated = call("spacemolt_gather", {"poi_id": "belt", "cycles": 1})
+
+        assert planned["status"] == "applied"
+        assert planned["plan"]["status"] == "applied"
+        assert planned["execution_handoff"] == {"status": "completed", "continuation": "current_conversation"}
+        assert planned["context"]["stance"] == "Industry"
+        assert "next_session_required" not in planned
+        assert assessed["status"] == "ready_to_verify_resources"
+        assert gathered["status"] == "completed"
+        assert gathered["result"]["gather"]["cycles_completed"] == 1
+        assert gathered["result"]["gather"]["yields"] == {"ore": 2}
+        assert sum(action["action"] == "spacemolt/mine" for action in gathered["actions"]) == 1
+        assert changed["status"] == "denied"
+        assert repeated["status"] == "denied"
+        assert repeated["policy_decision"]["allowed"] is False
+        assert any(reason["denied"] for reason in repeated["policy_decision"]["reasons"])
+        assert json.loads((service.runtime / "service-context.json").read_text())["stance"] == "Industry"
+        assert get_tool_definitions(enabled_toolsets=["spacemolt"], quiet_mode=True,
+                                    skip_tool_search_assembly=True) == definitions
+        assert manager._system_prompt_sections["spacemolt.operations"].content == prompt
+    finally:
+        service.close()
+
+
+def test_legacy_pending_handoff_resumes_persisted_context_without_starting_a_new_run(monkeypatch, tmp_path):
     from spacemolt import service as service_mod
 
-    calls, created = [], []
+    calls = []
 
     class Bridge:
         def __init__(self, **kwargs):
-            created.append(kwargs)
             self.process = type("Process", (), {"pid": 42})()
 
         def request(self, action, arguments):
             calls.append((action, arguments))
-            responses = {
-                "execution/configure": {"context": {"stance": "Logistics", "mood": "Focused", "objective": "one job"}},
-                "job/observe": {"state": {"credits": 10}},
-                "job/plan": {"status": "handoff_required"},
-                "execution/handoff": {"context": {"stance": "Industry", "mood": "Focused", "objective": "one job"}},
+            results = {
+                "execution/configure": {"context": arguments},
                 "job/assess": {"status": "assessed"},
+                "job/gather": {"status": "completed"},
             }
-            return {"ok": True, "result": responses[action]}
-
-        def signal_stop(self, reason):
-            calls.append(("control/stop", {"reason": reason}))
-
-        def close(self):
-            calls.append(("close", {}))
+            return {"ok": True, "result": results[action]}
 
     credentials = tmp_path / "credentials.txt"
     credentials.write_text("Username: fixture\nPassword: fixture\n")
     monkeypatch.setenv("SPACEMOLT_CREDENTIALS_FILE", str(credentials))
     monkeypatch.setattr(service_mod.shutil, "which", lambda name: "/node" if name == "node" else None)
     monkeypatch.setattr(service_mod, "BridgeClient", Bridge)
-    service = service_mod.SpaceMoltService(tmp_path / "profile")
+    runtime = tmp_path / "profile" / "spacemolt"
+    runtime.mkdir(parents=True)
+    context = {"stance": "Industry", "mood": "Focused", "objective": "one job", "stop_condition": "one_job"}
+    (runtime / "service-context.json").write_text(json.dumps(context))
+    pending = runtime / "pending-handoff.json"
+    pending.write_text(json.dumps({"session_id": "discord-thread"}))
 
-    planned = service.call("plan", {"stance": "Industry", "objective": "one job"}, session_id="old")
-    blocked = service.call("assess", {"kind": "freight"}, session_id="old")
-    resumed = service_mod.SpaceMoltService(service.home)
-    assert resumed.call("assess", {"kind": "freight"}, session_id="old")["status"] == "handoff_required"
-    assessed = service.call("assess", {"kind": "freight"}, session_id="new")
-    stopped = service.call("stop", {"reason": "Tired"}, session_id="old")
+    resumed = service_mod.SpaceMoltService(tmp_path / "profile")
+    assessed = resumed.call("assess", {"kind": "gathering"}, session_id="discord-thread")
+    gathered = resumed.call("gather", {"poi_id": "belt"}, session_id="discord-thread")
 
-    assert planned["next_session_required"] is True
-    assert planned["observed"]["state"]["credits"] == 10
-    assert blocked["status"] == "handoff_required"
     assert assessed["status"] == "assessed"
-    assert stopped == {"status": "stop_requested", "reason": "Tired"}
-    assert len(created) == 1
-    assert [action for action, _ in calls] == [
-        "execution/configure", "job/observe", "job/plan", "execution/handoff", "job/assess", "control/stop",
-    ]
-    assert json.loads((service.runtime / "service-context.json").read_text())["stance"] == "Industry"
-    assert len(created) == 1
+    assert gathered["status"] == "completed"
+    assert calls[0][0] == "execution/configure"
+    assert calls[0][1]["objective"] == "one job"
+    assert calls[0][1]["stop_condition"] == "one_job"
+    assert "new_run" not in calls[0][1]
+    assert not pending.exists()
 
 
 def test_native_plugin_registers_static_high_level_tools_through_real_registry(monkeypatch, tmp_path):

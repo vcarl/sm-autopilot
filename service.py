@@ -53,7 +53,6 @@ class SpaceMoltService:
         self._bridge: BridgeClient | None = None
         self._context = self._load_context()
         self._broken: str | None = None
-        self._handoff_session_id = self._load_handoff_session()
         self._monitor_stop = threading.Event()
         self._monitor: threading.Thread | None = None
         self._seen_control: str | None = None
@@ -76,23 +75,8 @@ class SpaceMoltService:
         os.chmod(temporary, 0o600)
         temporary.replace(target)
 
-    def _load_handoff_session(self) -> str | None:
-        try:
-            value = json.loads((self.runtime / "pending-handoff.json").read_text())
-            session_id = value.get("session_id") if isinstance(value, dict) else None
-            return session_id if isinstance(session_id, str) and session_id else None
-        except (OSError, ValueError):
-            return None
-
-    def _save_handoff_session(self) -> None:
-        target = self.runtime / "pending-handoff.json"
-        if self._handoff_session_id is None:
-            target.unlink(missing_ok=True)
-            return
-        temporary = target.with_suffix(".tmp")
-        temporary.write_text(json.dumps({"session_id": self._handoff_session_id}))
-        os.chmod(temporary, 0o600)
-        temporary.replace(target)
+    def _clear_legacy_handoff(self) -> None:
+        (self.runtime / "pending-handoff.json").unlink(missing_ok=True)
 
     def _configure_payload(self) -> dict[str, Any]:
         permissions = self._context.get("permissions") if isinstance(self._context.get("permissions"), dict) else {}
@@ -156,6 +140,7 @@ class SpaceMoltService:
             if isinstance(context, dict):
                 self._context = context
                 self._save_context()
+            self._clear_legacy_handoff()
             self._start_control_monitor()
             self._write_status()
         return self._bridge
@@ -175,41 +160,35 @@ class SpaceMoltService:
             return reply.get("result")
 
     def call(self, operation: str, arguments: dict[str, Any], *, session_id: str | None = None) -> dict[str, Any]:
-        if self._handoff_session_id is not None and session_id and session_id != self._handoff_session_id:
-            self._handoff_session_id = None
-            self._save_handoff_session()
-        if (self._handoff_session_id is not None and session_id == self._handoff_session_id
-                and operation not in {"observe", "reconcile", "stop"}):
-            return {"status": "handoff_required", "next_session_required": True,
-                    "reason": "The plan changed context; continue in a new session."}
-        if operation == "stop":
-            with self._lock:
+        with self._lock:
+            if operation == "stop":
                 bridge = self._ensure_bridge()
                 bridge.signal_stop(str(arguments.get("reason") or "Tired"))
                 self._write_status()
                 return {"status": "stop_requested", "reason": str(arguments.get("reason") or "Tired")}
-        if operation == "plan":
-            observed = self._request("job/observe", {})
-            planned = self._request("job/plan", arguments)
-            if planned.get("status") == "handoff_required":
-                handoff = self._request("execution/handoff", {})
-                context = handoff.get("context")
-                if isinstance(context, dict):
-                    self._context = {**self._context, **context}
-                    self._save_context()
-                self._handoff_session_id = session_id
-                self._save_handoff_session()
-                return {"observed": observed, "plan": planned, "next_session_required": True}
-            return {"observed": observed, "plan": planned}
-        if operation == "chat":
-            return self._request("social/send" if arguments.get("content") is not None else "social/inbox", arguments)
-        actions = {
-            "observe": "job/observe", "assess": "job/assess", "prepare": "job/prepare",
-            "transport": "job/transport", "return": "job/return_to_base",
-            "reconcile": "execution/reconcile", "track": "job/track", "hunt": "job/hunt",
-            "gather": "job/gather", "produce": "job/produce",
-        }
-        return self._request(actions[operation], arguments)
+            if operation == "plan":
+                observed = self._request("job/observe", {})
+                planned = self._request("job/plan", arguments)
+                if planned.get("status") == "handoff_required":
+                    handoff = self._request("execution/handoff", {})
+                    context = handoff.get("context")
+                    if isinstance(context, dict):
+                        self._context = {**self._context, **context}
+                        self._save_context()
+                    self._clear_legacy_handoff()
+                    return {"status": "applied", "observed": observed,
+                            "plan": {**planned, "status": "applied"}, "context": dict(self._context),
+                            "execution_handoff": {"status": "completed", "continuation": "current_conversation"}}
+                return {"observed": observed, "plan": planned}
+            if operation == "chat":
+                return self._request("social/send" if arguments.get("content") is not None else "social/inbox", arguments)
+            actions = {
+                "observe": "job/observe", "assess": "job/assess", "prepare": "job/prepare",
+                "transport": "job/transport", "return": "job/return_to_base",
+                "reconcile": "execution/reconcile", "track": "job/track", "hunt": "job/hunt",
+                "gather": "job/gather", "produce": "job/produce",
+            }
+            return self._request(actions[operation], arguments)
 
     def status(self) -> dict[str, Any]:
         with self._lock:
@@ -288,8 +267,8 @@ TOOL_DEFINITIONS = tuple(
      "requires_env": ["SPACEMOLT_CREDENTIALS_FILE"], "description": description, "emoji": "🚀"}
     for name, operation, description, properties in (
         ("spacemolt_observe", "observe", "Observe authoritative SpaceMolt state and obligations.", _EMPTY),
-        ("spacemolt_plan", "plan", "Choose stance, mood, objective, and observed home. Takes effect next session.", {"stance": {"type": "string"}, "mood": {"type": "string"}, "objective": {"type": "string"}, "home_base_id": {"type": "string"}, "home_rationale": {"type": "string"}}),
-        ("spacemolt_assess", "assess", "Assess verified SpaceMolt opportunities or readiness.", {"kind": {"type": "string"}, "shipment_id": {"type": "string"}, "destination": {"type": "string"}}),
+        ("spacemolt_plan", "plan", "Choose and apply stance, mood, objective, and observed home, then continue in the current conversation.", {"stance": {"type": "string"}, "mood": {"type": "string"}, "objective": {"type": "string"}, "home_base_id": {"type": "string"}, "home_rationale": {"type": "string"}}),
+        ("spacemolt_assess", "assess", "Assess verified SpaceMolt opportunities or readiness.", {"kind": {"type": "string"}, "shipment_id": {"type": "string"}, "destination": {"type": "string"}, "poi_id": {"type": "string", "description": "Observed local resource POI for Industry assessment."}}),
         ("spacemolt_prepare", "prepare", "Run verified servicing or passenger preparation.", {"kind": {"type": "string"}}),
         ("spacemolt_transport", "transport", "Execute or resume one verified transport job.", {"kind": {"type": "string"}, "shipment_id": {"type": "string"}, "destination": {"type": "string"}, "resume_job_id": {"type": "string"}}),
         ("spacemolt_track", "track", "Scout one bounded wildlife habitat sortie and return serviced.", {"target_system_id": {"type": "string"}, "poi_ids": {"type": "array", "items": {"type": "string"}}}),

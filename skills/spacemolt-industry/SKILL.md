@@ -112,8 +112,9 @@ Compare observed resources with the requested inputs and remaining cargo capacit
 After each receipt, distinguish collected materials from remaining demand. Consider
 home again if the useful sites, station access or services no longer support the
 objective; a temporary resupply stop never changes it automatically. Change objective,
-stance or mood through the normal session handoff when additional capabilities are
-needed. Do not keep gathering merely because the prior attempt was executable.
+stance or mood with `spacemolt_plan` when needed. An applied native plan completes its
+execution handoff in this conversation; continue only within the remaining job allowance.
+Do not keep gathering merely because the prior attempt was executable.
 
 ## Pitfalls
 
@@ -136,4 +137,4 @@ entry disappearing does not prove output exists or was sold. Gross spending come
 from accepted transaction receipts; unrelated wallet income does not reduce it.
 For retained production, verify `retained` and `retained_location` alongside the
 terminal status. A later stance uses those items through its normal preparation
-tools after session handoff; storage output is not automatically fitted equipment.
+tools after the plan is applied; storage output is not automatically fitted equipment.

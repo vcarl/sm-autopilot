@@ -222,59 +222,106 @@ These are project-level demonstrations under the new interface, not substitutes 
 - [ ] **A15 — Completion evidence:** Final reports expose independently checkable costs, obligations, location, condition, progression, and outcome, including unsold inventory and unresolved work.
 - [ ] **A16 — Fresh-session reproducibility:** Setup and run instructions are current, required checks pass, and another session can reproduce representative workflows without relying on this conversation's hidden context.
 
-## Rules-engine proof of concept — active, 2026-09-13
+## Rules-engine proof of concept — complete, 2026-09-13
 
-The active goal now continues beyond S5: a proof-of-concept rules engine must
-entirely replace the prior policy/admission implementation, and the real Hermes
-Industry/Logistics tasks must be verified before and after it. The previous goal
-turn made progress by completing S5; the current turn is implementing the full
-policy replacement, auditing all consumers, and preparing the comparison driver.
-Do not treat S5 or green isolated rules tests as completion of this goal.
+The selected shared-travel borrowing milestone and complete replacement of the prior
+policy/admission decisions are implemented and verified. Checkpoints: travel `b72215ac34`,
+rules engine `fd4c2957e8`. This completes the agreed proof of concept, not the broader roadmap
+through additional stances or drones. VISION and version identifiers remain unchanged.
 
-The complete pre-engine SpaceMolt source (including verified S5 changes) is frozen
-at `/var/folders/_4/1kmc70zj6s18v8ls6cxn81m40000gn/T/spacemolt-rules-before-8hwhdo_g/spacemolt`.
-Its sibling `source-manifest.json` hashes the captured files; every hash was checked
-unchanged and the baseline passed typecheck. The candidate is the current workspace.
-Use the same configured Kvothe oMLX model, instructions, permissions and limits for
-both arms, each comprising Industry then Logistics with independent bounded jobs.
-Record source hashes, canonical starting/terminal state, verified job receipts,
-gross costs, retained assets/custody, model/tool usage and elapsed time. Produce a
-comparison report after both actual Hermes runs, not a scripted-planner substitute.
+The [before/after report](spacemolt/evidence/rules-engine-comparison.md) records actual Kvothe
+Hermes Industry and Logistics runs, executed through the native registry/service/bridge with
+its configured `custom:omlx` Qwen model. Both workloads completed before and after the rules
+engine, with canonical productive receipts and fully serviced returns. The protocol and runtime
+objects match; all 117 baseline source hashes match the travel checkpoint and all 120 candidate
+hashes match the rules checkpoint. The pre-engine source remains frozen at
+`/var/folders/_4/1kmc70zj6s18v8ls6cxn81m40000gn/T/spacemolt-rules-before-8hwhdo_g/spacemolt`.
 
-The existing Kvothe gateway was gracefully paused for the comparison and ownership
-checks found no competing gateway, bridge or controller lock. Restore its existing
-installation when live tests finish; no candidate installation or deployment is authorized.
-The configured local oMLX model is available. An actual baseline diagnostic is preserved
-at `/tmp/spacemolt-rules-ab/before`: Altais/frontier_station has no local gathering
-candidates, and Hermes stopped before targeted freight assessment or transport. Neither
-workload completed. Pilot remained docked and fully serviced, credits 193637, cargo 21/120,
-with no productive mutation or new custody from that trial. Nearby observed stations
-will be checked as mechanical test setup, separately from model acceptance.
+- Industry: one gather cycle each, retaining 1 Iridium Ore before and 3 Carbon Ore after;
+  each spent 6 credits and returned to Unknown Edge Waystation. Evidence:
+  `/tmp/spacemolt-rules-ab-verified/{before,after}/industry`.
+- Logistics: two equal invited-self freight offers, Nova Terra Central to Sirius Observatory,
+  each carrying one Iron Ore in a sealed 100-unit package. Each delivered intact, received
+  10 credits from its own reward escrow, spent 48 on service, preserved ten Steel Plate,
+  and returned to Nova Terra Central. Evidence:
+  `/tmp/spacemolt-rules-ab-controlled/{before,after}/logistics`.
+- Combined comparison: `/tmp/spacemolt-rules-ab-completed/comparison.json`. Baseline Logistics
+  made two transport calls: its first was rejected before admission, then it corrected the
+  plan and completed exactly one productive job. This violates the prompt's one-call limit;
+  the report discloses it and makes no causal performance claim from these single live pairs.
 
-The native comparison driver now supplies bounded normal follow-up turns for premature
-prose, and immediately honors native plan handoffs in fresh sessions. Freeze this same
-protocol for both final arms and preserve the diagnostic. Rules review is completing
-prospective fitting, service and production admission migration before final validation.
-S5 is committed as `b72215ac34`. Rules audit passed all requested policy families;
-final typecheck and 132 Node tests passed, Python resume retained strict context/cache
-identity (10/10), and the other 13 Python files passed in the preceding full check.
-The comparison harness and runner pass 15 tests. Rules and denial propagation are
-ready for a local checkpoint commit; live acceptance is still incomplete.
+Excluded Logistics setup spent 1166 credits, including 20 reward escrow; its asset purchases,
+manufacturing, travel, refit and contract preparation are separate from measured runs. Setup
+receipt: `/tmp/spacemolt-controlled-freight-nova.json`. Earlier diagnostics remain preserved
+under `/tmp/spacemolt-rules-ab`, `/tmp/spacemolt-rules-ab-final`, and the unused verified-root
+baseline Logistics directory. The failed capacity trial's package was returned intact at its
+origin; fresh observations proved no shipping debt or wallet loss. No uncertain action was
+replayed or expired job allowance reset.
 
-The next baseline diagnostic at `/tmp/spacemolt-rules-ab-final/before` ended both
-workloads blocked. Industry requires replacing a fitted economy cabin with the carried
-mining laser; no asset was discarded. Logistics accepted contract
-`71e521e6f4ddf08629c97c6589581830`, job `84b2aa11-8556-4cdf-8440-1bf57791987a`,
-package `b87c597c1aad42dd71fb3d6d65d63340`, then correctly blocked because its
-100-unit package exceeds 99 free cargo. It remains in personal storage at Unknown Edge
-Waystation. Its 20-tick job allowance has expired, so do not reset it or replay acceptance.
-Root is preparing explicit origin return/settlement, preserving the original diagnostic.
-Both diagnostic processes exited; gateway remains paused. Before a successful paired
-run, establish the same verified fit/capacity and resolve all freight custody. Version identifiers stay fixed under Carl's restriction;
-source hashes and rule IDs identify executable semantics. Exact next action: establish
-a viable observed start, run the frozen baseline with the final protocol, finish and
-validate the rules candidate, repeat both actual Hermes workloads and write the report.
-Keep the goal active until full replacement and the agreed real-agent evidence are proven.
+Final benchmark state: Nova Terra Central, 192374 credits, cargo ten Steel Plate (10/120),
+fuel120/120, hull105/105, shields35/35, no freight custody or active shipments, no onboard
+passengers and no queued production. Earlier ores, mining laser and other preserved assets
+remain in personal storage at Unknown Edge; the owned passenger cabin is fitted. Both model
+workers and their bridge/controller locks exited. The original gateway installation was
+restored and verified supervised by launchd, PID80501. This is the benchmark's final observed
+state; later gateway activity may change it. No candidate install, push, merge, deployment,
+or version change occurred.
+
+Validation: TypeScript typecheck and 132 Node tests passed (`/tmp/spacemolt-rules-node-final.log`);
+required Python runner passed 61 tests across 15 files with zero failures
+(`/tmp/spacemolt-rules-python-acceptance.log`, `/tmp/spacemolt-rules-skills-acceptance.log`).
+Independent audits verified source identities, policy coverage, custody, delivery/payment,
+service costs, terminal state, and the comparison protocol. The native driver and its behavioral
+tests accompany the report. Preserve unrelated `CLAUDE.md`, `.claude/`, and
+`SETPOINT-BORROWING.md`. The next product gate is review of the completed work before any release;
+there is no remaining implementation or live acceptance work in this agreed proof of concept.
+
+
+## Native Discord plan handoff — verified repair, release pending, 2026-09-13
+
+The deployed plugin treated a Hermes conversation ID as an execution handoff barrier.
+Kvothe's recorded Discord conversation `20260913_173251_416fad6b` contained five user messages
+sharing that ID, so later productive calls remained `handoff_required`; observation still
+worked. The previous rules comparison explicitly created fresh agent sessions and therefore
+did not establish Discord continuation correctness.
+
+The native service now serializes observe/plan/execution-handoff as one operation, persists
+the applied context and returns `status: applied` with a completed handoff. The same Discord
+conversation can immediately assess and work. Its full tool catalog and cached prompt remain
+fixed; the standalone runner retains its separate fresh-session/catalog behavior. Obsolete
+`pending-handoff.json` is removed only after successful configuration or handoff. No planning
+or conversation transition resets the durable `one_job` allowance. Native assessment now exposes
+its existing Industry `poi_id` argument, so the tested call is reachable by the model.
+Prompt, skill and operator documentation describe this contract consistently.
+
+Verification crosses the actual registry, handler, Python service, JSONL BridgeClient and
+Node ExecutionHost with a simulated gathering account. Same-session planning and gathering
+complete; a second productive attempt remains denied. Legacy migration preserves the saved
+context without `new_run`. Cached prompt and schema objects remain identical across planning.
+The old lifecycle failed the two regression contracts before the repair. Final checks passed:
+62 Python tests across 15 files (`/tmp/spacemolt-native-handoff-python.log`), TypeScript typecheck
+and 132 Node tests (`/tmp/spacemolt-native-handoff-node.log`), plus diff checking.
+
+The configured Kvothe Qwen Hermes model also passed a two-turn Discord-mode check with one
+session ID and unchanged nonempty cached prompt/schema hashes. It applied a plan on turn one,
+then completed one cycle yielding two ore and returned fully serviced on turn two. It corrected
+an invalid assessment `kind` argument before proceeding. All nine checks passed in
+`/tmp/spacemolt-native-handoff-model-check.json`. This uses real Hermes and a simulated game;
+it is not Discord message delivery or a new live SpaceMolt acceptance run. No gateway/profile
+or live pilot state was changed during the repair.
+
+Release artifact: `/tmp/spacemolt-native-handoff-plugin.tar.gz`, with its file/hash manifest
+beside it. Carl approved local commits. The remaining release gate is explicit permission to
+install the reviewed plugin into Kvothe and restart its gateway; normal plan changes afterward
+require no new conversation. Start a fresh conversation once after the plugin upgrade to load
+the revised static instructions without rewriting an existing cached prefix. The currently
+installed plugin still has the old handoff behavior until that approved upgrade occurs.
+Carl clarified that standing approval covers staging and committing our own repository work,
+at all times; do not request repeated approval for those local actions. This supersedes the
+previous per-instance staging interpretation, and automatic review accepted the reviewed
+14-file staging set. Installation into Kvothe and gateway restart remain a separate release
+gate. The prepared package and its validation are ready for that approval.
+Preserve unrelated `CLAUDE.md`, `.claude/`, and `SETPOINT-BORROWING.md`.
 
 ## Shared travel borrowing milestone — 2026-09-13
 

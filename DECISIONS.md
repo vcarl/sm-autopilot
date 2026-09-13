@@ -120,8 +120,9 @@ Observe public nearby stations and authenticated current state. The agent compar
 services, access, storage, proximity to work and travel costs, then chooses an observed
 base identity with rationale. Persist pilot ID, system, POI, base ID, observation time
 and rationale independently of conversation runtime. Directory access is provisional;
-travel verifies arrival and docking. Only plan deliberately replaces home, through a
-fresh-session handoff. A temporary station visit never writes home.
+travel verifies arrival and docking. Only plan deliberately replaces home, through an
+execution handoff. The native service completes it within the same conversation; the standalone
+runner creates a fresh agent session when changing its catalog. A temporary station visit never writes home.
 
 The chosen base ID is stable; its waypoint may move. Observations and scripts resolve
 the same base from authenticated docking first, then the public station directory.
@@ -177,7 +178,7 @@ outside inference. Urgent Tired interrupts planning and signals active scripts d
 | Productive work + stop | No new productive admission/first strike; finish command ownership, return/service |
 | Fighting + stop | Next tactical poll (normally two seconds) latches fleeing; observe battle end before return |
 | Model iterations/time exhausted | Synchronous script still owns its result; runner performs final return outside inference budget |
-| Normal plan change | Finish job first, archive old session, create new agent with fresh prompt/catalog and authoritative observations |
+| Normal plan change | Finish job first and apply an execution handoff. Native service keeps the conversation and fixed prompt/catalog; standalone runner creates a fresh agent session for its changed catalog. Neither resets the operating run. |
 | Worker death or uncertain command | Pending checkpoint survives; block new jobs and do not replay |
 | Unavailable supplies/home | Durable blocked receipt with service/return liability; never substitute success |
 

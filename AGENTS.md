@@ -37,7 +37,7 @@ Discord / cron / CLI Hermes session
 ```
 
 `service.py` is the boundary between Hermes and scripts. It serializes normal calls, owns one
-bridge per `HERMES_HOME`, persists context and plan handoffs, and marks the bridge broken after a
+bridge per `HERMES_HOME`, persists context and completes execution handoffs, and marks the bridge broken after a
 timeout, fatal error, or unknown outcome. Never replay an uncertain mutation. Reconcile it from
 authoritative state first.
 
@@ -58,7 +58,7 @@ path to finish, verify the terminal receipt and controller exit, then save the r
 - `plugin.yaml` declares the standalone native plugin and its stable tool names.
 - `__init__.py` registers tools, plugin skills, a static system-prompt section, CLI command, slash
   command, and cleanup hook.
-- `service.py` contains the profile-scoped service, direct schemas, handoff state, and control
+- `service.py` contains the profile-scoped service, direct schemas, execution handoff, and control
   channel.
 - `cli.py` implements `hermes spacemolt setup|install|status|stop`. `status` reads a receipt;
   only the gateway-owned process may own the bridge.
@@ -115,11 +115,14 @@ The plugin skills are in `skills/`:
 - `spacemolt-industry`: bounded gathering and production settlement.
 - `spacemolt-logistics`: freight/passenger capacity, custody, deadlines, and payments.
 
-Keep the prompt and tool catalog byte-stable for a session. Planning changes return
-`next_session_required`; the originating session may observe, reconcile, or stop, but productive
-calls wait for a new session. New skills/tools/config normally require a session handoff, not a
-mid-conversation catalog mutation. Static initiating-agent stance/mood locks may remain for the
-session. Temporary service stops never silently redefine remembered home.
+Keep the prompt and tool catalog byte-stable for a conversation. The native plugin registers all
+its tools up front; planning changes only execution state. The service completes the private
+`execution/handoff` before returning an applied plan, so the same Discord conversation can
+assess and work immediately. Discord messages are turns, not new conversation sessions or job
+allowances. Never gate native work on a changed conversation ID or reset `one_job` during a plan.
+The standalone runner still creates fresh agent sessions when its stance-specific catalog changes.
+New skills/tools/config normally require a fresh session, not a mid-conversation prompt mutation.
+Temporary service stops never silently redefine remembered home.
 
 ## Receipts, policy, and safety
 
