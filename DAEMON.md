@@ -18,6 +18,18 @@ by assessment and work in the same conversation. No terminal or code-execution c
 Use `spacemolt_stop` when tired; scripts return and protect
 existing obligations.
 
+Native replies put status, errors, stopping reason, and job outcomes first. Outcomes
+distinguish measured yield, cash change, known and unknown spending, retained custody,
+and terminal ship/cleanup verification. Missing metrics are not reported as zero.
+Mechanical command journals and repeated historical snapshots stay in the complete
+reply referenced by `full_receipt` under the active profile's `spacemolt/tool-receipts/`.
+Those private, content-addressed JSON files preserve the original reply for inspection;
+the model receives the outcome and supporting decision evidence inline.
+Observe, plan, and reconcile include the latest historical receipt, latest blocker,
+and every unresolved job or command, with counts for omitted closed history. Current
+observations, candidates, and obligations remain available inline. The execution store
+and standalone runner retain their existing contracts.
+
 ## Install into a Hermes profile
 
 ### Run this fork, not an unrelated installed Hermes

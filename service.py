@@ -12,6 +12,7 @@ from agent.secret_scope import UnscopedSecretError, get_secret
 from hermes_constants import get_hermes_home
 
 from .runner import BridgeClient
+from .native_receipts import native_response
 
 _DEFAULT_CONTEXT = {
     "stance": "Logistics", "mood": "Focused",
@@ -247,11 +248,12 @@ def persisted_status() -> dict[str, Any]:
 
 def _handler(operation: str):
     def handle(arguments: dict[str, Any], session_id: str | None = None, **_: Any) -> str:
+        owner = service()
         try:
-            result = service().call(operation, arguments, session_id=session_id)
+            result = owner.call(operation, arguments, session_id=session_id)
         except PolicyDenied as error:
             result = {"status": "denied", "error": str(error), "policy_decision": error.decision}
-        return json.dumps(result, separators=(",", ":"))
+        return json.dumps(native_response(result, owner.runtime), separators=(",", ":"))
     return handle
 
 

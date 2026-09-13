@@ -13,6 +13,35 @@ This is the working checklist for [VISION.md](VISION.md), which preserves the pl
 
 ## Starting point for a fresh session
 
+### Native receipt output and operator laser retrieval — 2026-09-13
+
+The native handler was returning entire executor journals: the user's blocked gather was
+280,426 bytes, including 246,584 bytes of command history and thirteen repeated 13,370-byte
+snapshots. Reconciliation returned five complete jobs and reached 1,199,225 bytes. The native
+boundary now uses semantic receipt projection, puts outcome/blocker first, retains all unresolved
+evidence and current decision inputs, bounds closed historical receipts, and saves the exact
+original reply privately with a file/hash reference. Raw service and executor contracts are
+unchanged. Independent replay reduced those replies to approximately 13.5 KB and 19.1 KB.
+Evidence and limits: [native receipt repair](spacemolt/evidence/native-receipt-output.md).
+
+Required tests passed 60 cases across 14 SpaceMolt files. Kvothe's configured Hermes model passed
+all nine continuation/receipt checks against a simulated game, reporting verified yield, XP,
+service spending and unfinished obligations. It supplied one invalid assessment kind; this is
+disclosed in the report. No plugin installation or new repetition/run-renewal feature is included.
+
+Carl explicitly requested retrieval of the owned mining laser. The original Kvothe gateway was
+gracefully stopped (`gateway stop`), its processes and controller lock verified gone, and the
+operator trip is currently active via `/tmp/spacemolt-retrieve-mining-laser.py` and `.mjs`.
+The first read-only preflight found a ten-jump route (20 quoted fuel) exceeding the script's
+arbitrary eight-jump limit; the bound was corrected to the observed route before departure.
+That preflight receipt is `/tmp/spacemolt-retrieve-mining-laser-route-preflight.json`.
+The live receipt is `/tmp/spacemolt-retrieve-mining-laser.json`. Starting state was Nova Terra
+Central, 192352 credits, ten Steel Plate, fitted passenger cabin and fully serviced ship.
+Next action: follow the existing operator process, verify laser withdrawal/refit with cabin and
+cargo preserved, return and service, then restore the same installed Kvothe gateway. Do not
+start a second pilot controller or reset the durable one_job allowance. Preserve unrelated
+CLAUDE.md, .claude/ and SETPOINT-BORROWING.md. Local commits have standing approval.
+
 The agreed starting vocabulary is seven stances (Combat, Hunt, Industry, Trade, Logistics, Explore, Salvage) and six moods (Relaxed, Cautious, Focused, Opportunistic, Aggressive, Tired). Mining belongs to Industry. Logistics includes passengers as well as freight. The agent chooses home; it is not a station ID the user must supply. Tired means return and resupply regardless of stance.
 
 At handoff these systems were unimplemented. The first shared/Hunt slice is now integrated and tested offline; see the dated implementation record below. Existing live evidence remains historical. Parent milestones stay open where fallback, recovery, universal defense or live acceptance is incomplete.

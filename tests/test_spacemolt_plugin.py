@@ -68,7 +68,9 @@ def test_native_plan_applies_handoff_and_continues_in_the_same_conversation(monk
         assert gathered["status"] == "completed"
         assert gathered["result"]["gather"]["cycles_completed"] == 1
         assert gathered["result"]["gather"]["yields"] == {"ore": 2}
-        assert sum(action["action"] == "spacemolt/mine" for action in gathered["actions"]) == 1
+        journal = json.loads(Path(gathered["full_receipt"]["path"]).read_text())
+        assert sum(action["action"] == "spacemolt/mine" for action in journal["actions"]) == 1
+        assert "actions" not in gathered
         assert changed["status"] == "denied"
         assert repeated["status"] == "denied"
         assert repeated["policy_decision"]["allowed"] is False

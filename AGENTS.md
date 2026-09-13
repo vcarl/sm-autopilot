@@ -60,6 +60,9 @@ path to finish, verify the terminal receipt and controller exit, then save the r
   command, and cleanup hook.
 - `service.py` contains the profile-scoped service, direct schemas, execution handoff, and control
   channel.
+- `native_receipts.py` projects native model replies and persists complete private forensic
+  replies under the profile runtime. Keep raw service/bridge results and durable executor jobs
+  intact; never infer completion, zero yield, or settled custody from missing evidence.
 - `cli.py` implements `hermes spacemolt setup|install|status|stop`. `status` reads a receipt;
   only the gateway-owned process may own the bridge.
 - `runner.py` is the earlier standalone Hermes runner and reusable `BridgeClient` implementation.
