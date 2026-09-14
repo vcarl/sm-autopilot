@@ -68,7 +68,9 @@ check. Its first batch check exposed a fixture double-scaling error; the correct
 verified a two-run batch (four ore consumed, four metal retained, six crafting credits), but the
 model rewrote the goal to require Mining progression and continued after Crafting leveled up.
 This is failed goal-level stopping acceptance, despite working batch mechanics; do not report
-all model checks as passed. No further simulated rerun is planned. Detailed evidence and remaining
+all model checks as passed. The fourth run ended after 29 calls (nine gathers, thirteen
+distinct completed crafts); final-summary inference was stopped and both evaluation processes
+exited. Its artifact has no final response/check block. No further simulated rerun is planned. Detailed evidence and remaining
 limitations: [objective continuation](spacemolt/evidence/objective-continuation.md).
 
 Committed source `07e5c6f80880f16e1550bd56640597cff1f0e5cc` is installed in Kvothe;

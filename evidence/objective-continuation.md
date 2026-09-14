@@ -56,6 +56,11 @@ and continued gathering and crafting after the requested threshold was already
 met. This fails goal-level stopping acceptance. Repeated new completed experiments
 are distinct from replaying an uncertain craft command; the harness's exactly-one
 craft gate measures excess work here, not an observed duplicate submission.
+The run made 29 tool calls, including nine gathers and thirteen distinct completed
+production experiments. Its final-summary inference was stopped after it reached
+the iteration bound; the private artifact has no final response or completed
+check block. Both the evaluation process and simulated bridge exited. No further
+model rerun was made.
 
 ## Installation
 
