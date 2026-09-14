@@ -14,8 +14,8 @@ metadata:
 # SpaceMolt Industry Skill
 
 Choose Industry for resource gathering, including mining, and production objectives.
-The executors support bounded local gathering with retained output and single-run
-production with direct output sales or retained output at home. Queued output and partial sales remain
+The executors support bounded local gathering with retained output and assessed
+production batches with direct output sales or retained output at home. Queued output and partial sales remain
 unfinished work until settlement is verified.
 
 ## When to Use
@@ -80,19 +80,21 @@ resource mix or quantity. Zero yield does not satisfy a collection objective.
 ## Tool: spacemolt_produce
 
 Use `spacemolt_produce` at the chosen home with `recipe_id`, `source` (`inventory` by
-default), and optionally `quantity`. Only one recipe run is supported. The script
-services the ship, revalidates the chosen purpose, stages or buys inputs, submits crafting,
+default), and optionally `quantity`. Quantity is the desired output item count and is
+rounded up to complete recipe runs. The authoritative quote reports total inputs, cost,
+and output for the full batch. The script services the ship, revalidates the chosen purpose, stages or buys inputs, submits crafting,
 and verifies resulting inventory. `disposition: sell` is the default and sells only
 the produced output directly. `disposition: retain` keeps verified output in personal
 station storage for later use; it records spending without claiming sale earnings. It
 preserves unrelated assets and reports unsold output. Preparation for production
 does not require a mining refit. Once you choose a feasible quote for an execution
-objective, call the tool and read its receipt. A final message announcing that you
-intend to produce does not execute the job.
+objective, call the tool and read its receipt. Continue assessed gathering and production
+jobs until the objective is verified, blocked, stopped, or needs reconciliation. A final
+message announcing that you intend to produce does not execute the job.
 
 Queue waits are bounded to 120 seconds; `max_wait_seconds` can reduce that bound.
 A pending queue or partial sale ends with unfinished evidence, not success. After
-an explicit new operating run, pass the observed `experiment_id` to the same tool
+re-observing the unfinished work, pass its `experiment_id` to the same tool
 to continue settlement without sourcing or crafting again. Do not also provide
 recipe, source, quantity or a new disposition. The original sell/retain choice persists.
 Unknown acceptance or accounting must be reconciled
@@ -113,8 +115,8 @@ After each receipt, distinguish collected materials from remaining demand. Consi
 home again if the useful sites, station access or services no longer support the
 objective; a temporary resupply stop never changes it automatically. Change objective,
 stance or mood with `spacemolt_plan` when needed. An applied native plan completes its
-execution handoff in this conversation; continue only within the remaining job allowance.
-Do not keep gathering merely because the prior attempt was executable.
+execution handoff in this conversation; continue toward the objective within the remaining
+cumulative budget. Do not keep gathering merely because the prior attempt was executable.
 
 ## Pitfalls
 
@@ -133,7 +135,11 @@ Partial yield remains useful evidence even if cleanup fails. A safe return is di
 from achieving the requested collection objective, and retained materials are not cash.
 For production, read the experiment status, confirmed spending and sale proceeds,
 sold/withdrawn quantities, remaining inventory and unresolved accounting. A queue
-entry disappearing does not prove output exists or was sold. Gross spending comes
+entry disappearing does not prove output exists or was sold. A request's quantity is
+not proof of output. Report verified `consumed_inputs`,
+`retained_output`, retention verification, actual spend and earnings from the outcome
+summary; if consumption is unknown, say so. The terminal cargo summary is remaining
+inventory, not evidence of what the recipe consumed or produced. Gross spending comes
 from accepted transaction receipts; unrelated wallet income does not reduce it.
 For retained production, verify `retained` and `retained_location` alongside the
 terminal status. A later stance uses those items through its normal preparation

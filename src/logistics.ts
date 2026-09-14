@@ -11,7 +11,7 @@ type Wire=Record<string,any>;
 const finite=(value:unknown):value is number=>typeof value==='number'&&Number.isFinite(value)&&value>=0;
 const packageItem=(id:string)=>id.startsWith('package:')?id:`package:${id}`;
 const count=(items:Wire[],id:string)=>items.filter(item=>item.item_id===id).reduce((sum,item)=>sum+item.quantity,0);
-export interface FreightPolicy {stations:Home[];credit_reserve:number;max_route_jumps:number;max_liability:number}
+export interface FreightPolicy {stations:Home[];credit_reserve:number;max_route_jumps:number|null;max_liability:number}
 export interface FreightControls {
   checkpoint:()=>Promise<void>;
   record:(receipt:FreightReceipt)=>void;
@@ -29,7 +29,7 @@ export interface FreightReceipt {
 
 /** Missing package visibility does not erase its liability; size is checked after acceptance. */
 export async function assessFreight(account:Account,command:IndustryCommand,params:{shipment_id?:string},policy:FreightPolicy):Promise<Wire> {
-  if(!finite(policy.credit_reserve)||!finite(policy.max_liability)||!Number.isInteger(policy.max_route_jumps)||policy.max_route_jumps<0)throw new Error('Invalid resolved freight policy');
+  if(!finite(policy.credit_reserve)||!finite(policy.max_liability)||(policy.max_route_jumps!==null&&(!Number.isSafeInteger(policy.max_route_jumps)||policy.max_route_jumps<0)))throw new Error('Invalid resolved freight policy');
   await account.refresh();
   const profile=details(await command('spacemolt_shipping/profile',{carrier:'player'}));
   const board=details(await command('spacemolt_shipping/list',{eligible_as:'player',per_page:50,sort:'distance'}));
@@ -76,12 +76,12 @@ export async function assessFreight(account:Account,command:IndustryCommand,para
   let route:Wire|undefined,jumps=0;
   if(destination&&account.location?.system_id!==destination.system_id) {
     route=details(await command('spacemolt/find_route',{id:destination.system_id}));
-    try {jumps=routeSteps(route,account.location!.system_id,destination.system_id,2).length;}
+    try {jumps=routeSteps(route,account.location!.system_id,destination.system_id,policy.max_route_jumps).length;}
     catch(error){blockers.push(String(error));}
     if(!ship||!finite(route.estimated_fuel)||ship.fuel<route.estimated_fuel+17)blockers.push('Outbound route breaches fuel reserve');
   }
   const obligations=await observeObligations(account,command);
-  const policy_decision=evaluateRules({phase:'obligation',action:'transport',custody:hasTransportCustody(obligations),policyLimits:{credit_reserve:policy.credit_reserve,max_liability:policy.max_liability,max_route_jumps:policy.max_route_jumps},logistics:{liability:contract.failure_debt,exposure:contract.reserved_exposure,credits:account.credits,jumps},readiness:blockers});
+  const policy_decision=evaluateRules({phase:'obligation',action:'transport',custody:hasTransportCustody(obligations),policyLimits:{credit_reserve:policy.credit_reserve,max_liability:policy.max_liability,...(policy.max_route_jumps===null?{}:{max_route_jumps:policy.max_route_jumps})},logistics:{liability:contract.failure_debt,exposure:contract.reserved_exposure,credits:account.credits,jumps},readiness:blockers});
   blockers.push(...deniedTexts(policy_decision).filter(reason=>!blockers.includes(reason)));
   return {status:policy_decision.allowed?'ready_to_accept':'blocked',policy_decision,blockers,unknowns,contract,origin,destination,profile,package_size:packageSize,route,policy,obligations,
     deadline_ticks:listing?.deadline_ticks,liability:{failure_debt:contract.failure_debt,reserved_exposure:contract.reserved_exposure},

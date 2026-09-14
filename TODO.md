@@ -27,20 +27,50 @@ Evidence and limits: [native receipt repair](spacemolt/evidence/native-receipt-o
 Required tests passed 60 cases across 14 SpaceMolt files. Kvothe's configured Hermes model passed
 all nine continuation/receipt checks against a simulated game, reporting verified yield, XP,
 service spending and unfinished obligations. It supplied one invalid assessment kind; this is
-disclosed in the report. No plugin installation or new repetition/run-renewal feature is included.
+disclosed in the report. That receipt-only checkpoint did not install the plugin; subsequent lifecycle work follows below.
 
 Carl explicitly requested retrieval of the owned mining laser. The original Kvothe gateway was
 gracefully stopped (`gateway stop`), its processes and controller lock verified gone, and the
-operator trip is currently active via `/tmp/spacemolt-retrieve-mining-laser.py` and `.mjs`.
+operator trip ran via `/tmp/spacemolt-retrieve-mining-laser.py` and `.mjs` until Carl stopped it.
 The first read-only preflight found a ten-jump route (20 quoted fuel) exceeding the script's
 arbitrary eight-jump limit; the bound was corrected to the observed route before departure.
 That preflight receipt is `/tmp/spacemolt-retrieve-mining-laser-route-preflight.json`.
 The live receipt is `/tmp/spacemolt-retrieve-mining-laser.json`. Starting state was Nova Terra
 Central, 192352 credits, ten Steel Plate, fitted passenger cabin and fully serviced ship.
-Next action: follow the existing operator process, verify laser withdrawal/refit with cabin and
-cargo preserved, return and service, then restore the same installed Kvothe gateway. Do not
-start a second pilot controller or reset the durable one_job allowance. Preserve unrelated
-CLAUDE.md, .claude/ and SETPOINT-BORROWING.md. Local commits have standing approval.
+Carl subsequently stopped the operator trip so Hermes can complete the goal itself. Node88451
+received SIGTERM; both operator processes exited and their exact stale controller lock was
+removed after process verification. A fresh authenticated read at 23:55:10 UTC confirmed
+Unknown Edge Waystation POI, undocked and out of transit, 99/120 fuel, full hull/shields, unchanged
+192352 credits, ten Steel Plate and fitted cabin. The laser remains unwithdrawn. Evidence:
+`/tmp/spacemolt-operator-handoff-observation.json`. The gateway remains paused pending installation.
+
+Carl explicitly authorized installing the changes and requested an instruction to give Hermes.
+The active goal now includes fixing the permanent one_job latch and blockers to the supplied
+retrieval/gathering/crafting tasks. Native objective mode now supports successive jobs, explicit
+non-Tired resumption, cumulative spending and durable uncertainty protection. Readiness failure
+does not permanently latch work; old stops resume through explicit planning without journal or
+budget deletion. Owned-laser retrieval/refit uses existing prepare, and the native assessment
+schema exposes the implemented production fields. Objective travel resolves observed routes
+using fuel/reserve evidence instead of mood hop ceilings; explicitly bounded host runs retain
+one_job/numeric route caps. Requested gathering batches can exceed mood defaults.
+
+Crafting now supports multi-run batches and removes the arbitrary 1000-output ceiling.
+Authoritative per-run outputs are multiplied by the quoted run count exactly once; inputs and
+credits remain batch totals. The 120-second tool wait limits polling, not batch size. Pending
+work resumes settlement without re-enqueueing. Native summaries separate requested quantity,
+verified retained output, consumed inputs, and remaining cargo.
+
+Verification: Node typecheck and 141 tests passed (`/tmp/spacemolt-multirun-green.log`);
+66 Python tests across 16 files passed (`/tmp/spacemolt-objective-final-python-batch.log`).
+The batch invariant fails against the old executor (`/tmp/spacemolt-multirun-red.log`).
+The actual configured Hermes model passed the full simulated goal with single-run production
+(`/tmp/spacemolt-objective-model-check-second.json`); multi-run model acceptance is in progress.
+The initial model check exposed inaccurate final quantity claims; explicit verified accounting
+in receipts corrected those. The third run exposed a separate fixture double-scaling error;
+the fixture is being corrected before accepting its batch result.
+Next action: verify the corrected multi-run model result, install the committed source into
+Kvothe, restore its gateway, and give Carl the objective instruction for a fresh conversation. Preserve unrelated CLAUDE.md,
+.claude/ and SETPOINT-BORROWING.md. Local commits and this installation have explicit approval.
 
 The agreed starting vocabulary is seven stances (Combat, Hunt, Industry, Trade, Logistics, Explore, Salvage) and six moods (Relaxed, Cautious, Focused, Opportunistic, Aggressive, Tired). Mining belongs to Industry. Logistics includes passengers as well as freight. The agent chooses home; it is not a station ID the user must supply. Tired means return and resupply regardless of stance.
 
@@ -163,7 +193,7 @@ Each job must use the shared context, lifecycle, defense, receipts, and relevant
 
 - [ ] **S12 — Industry includes gathering and complete production.** Depends on shared foundations and the Industry skill.
   - [x] `gather` handles assessed resource collection, preserving starting assets and verifying yield, storage/sale policy, return, and servicing. Local retained-output consumer: `gather.ts`, `gather.test.ts`, real Hermes dispatch tests and [offline real-model receipt](spacemolt/evidence/shared-industry-model-fixture.json). Live acceptance and cross-system collection remain open.
-  - [x] `produce` handles input sourcing/staging, quotes, craft submission, pending output, settlement, and explicit unsold inventory or remaining obligations. Local single-run consumer at chosen home: `execution.ts`, `industry.ts`, `shared-production.test.ts`, `production-custody.test.ts`, and real Hermes registry/ExecutionHost integration in `tests/test_spacemolt_production.py`. Live production acceptance remains open.
+  - [x] `produce` handles input sourcing/staging, quotes, craft submission, pending output, settlement, and explicit unsold inventory or remaining obligations. Local recipe-batch consumer at chosen home: `execution.ts`, `industry.ts`, `shared-production.test.ts`, `production-custody.test.ts`, and real Hermes registry/ExecutionHost integration in `tests/test_spacemolt_production.py`. Live production acceptance remains open.
   - [ ] Focused ignores unrelated opportunities; Opportunistic diversions include switching costs and pending work; Tired starts no new extraction or production.
   - [ ] Representative real-Hermes gathering and production jobs each finish with verified outputs, costs, servicing, and obligations under the new contract.
 

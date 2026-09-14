@@ -19,10 +19,10 @@ export async function planTransportFuel(account:Account,command:IndustryCommand,
       ![ship.fuel,ship.max_fuel,ship.cargo_used,ship.cargo_capacity].every(finite)||ship.fuel>ship.max_fuel||ship.cargo_used>ship.cargo_capacity)throw new Error('Transport fuel planning requires canonical ship fuel, cargo and stable location');
     evidence.current={ship_id:ship.id,system_id:location.system_id,poi_id:location.poi_id,docked_at:location.docked_at,
       fuel:ship.fuel,max_fuel:ship.max_fuel,cargo_used:ship.cargo_used,cargo_capacity:ship.cargo_capacity};
-    if(!destination.base_id||!destination.system_id||!destination.poi_id||!context.home?.base_id||homeObserved?.base_id!==context.home.base_id||!homeObserved.system_id||!homeObserved.poi_id||!Number.isInteger(homeObserved.hops)||homeObserved.hops!<0||homeObserved.hops!>2)throw new Error('Transport fuel planning requires freshly resolved destination and remembered home within the shared return bound');
+    if(!destination.base_id||!destination.system_id||!destination.poi_id||!context.home?.base_id||homeObserved?.base_id!==context.home.base_id||!homeObserved.system_id||!homeObserved.poi_id||!Number.isInteger(homeObserved.hops)||homeObserved.hops!<0||(context.stop_condition!=='objective'&&homeObserved.hops!>2))throw new Error('Transport fuel planning requires freshly resolved destination and remembered home within the explicit return bound');
     if((homeObserved.system_id===destination.system_id)!==(homeObserved.hops===0))throw new Error('Return home system and hop evidence disagree');
     evidence.destination=destination;evidence.home=homeObserved;
-    const quote=async(target:string,maxJumps:number)=>{
+    const quote=async(target:string,maxJumps:number|null)=>{
       const result=details(await command('spacemolt/find_route',{id:target}));
       evidence.route_quotes.push({target_system:target,result});
       const steps=routeSteps(result,location.system_id,target,maxJumps);
@@ -31,7 +31,7 @@ export async function planTransportFuel(account:Account,command:IndustryCommand,
     };
     if(location.system_id===destination.system_id) {
       evidence.outbound={kind:'same_system',fuel:0,jumps:0};
-      evidence.return=homeObserved.system_id===location.system_id?{kind:'same_system',fuel:0,jumps:0}:await quote(homeObserved.system_id,2);
+      evidence.return=homeObserved.system_id===location.system_id?{kind:'same_system',fuel:0,jumps:0}:await quote(homeObserved.system_id,context.stop_condition==='objective'?null:2);
     } else {
       evidence.outbound=await quote(destination.system_id,logisticsPolicy(context).max_route_jumps);
       const average=evidence.outbound.fuel/evidence.outbound.jumps;

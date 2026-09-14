@@ -7,11 +7,11 @@ const unavailableCodes=new Set(['not_in_faction','facility_required','insufficie
 const finite=(value:unknown):value is number=>typeof value==='number'&&Number.isFinite(value)&&value>=0;
 
 /** Intel is a dated lead, never a remote purchase quote or proof of current stock. */
-export async function discoverPassengerSupply(systemId:string|undefined,maxJumps:number,command:IndustryCommand,locations=industryLocations) {
+export async function discoverPassengerSupply(systemId:string|undefined,maxJumps:number|null,command:IndustryCommand,locations=industryLocations) {
   const candidates:Record<string,unknown>[]=[],rejected:{base_id?:string;reason:string}[]=[];
   const evidence={item_id:cabin,source:'faction_trade_intel',observed_at:new Date().toISOString(),max_route_jumps:maxJumps,candidates,rejected,
     limitation:'Faction reports may be stale or incomplete. Current availability, taxes, travel cost and docking access are unknown. Obtain a fresh onsite purchase quote before fitting; no travel or purchase is performed by discovery.'};
-  if(!systemId||!Number.isInteger(maxJumps)||maxJumps<1||maxJumps>2)return {...evidence,status:'unavailable',reason:'Current system and productive Logistics route allowance required'};
+  if(!systemId||(maxJumps!==null&&(!Number.isSafeInteger(maxJumps)||maxJumps<1)))return {...evidence,status:'unavailable',reason:'Current system and productive Logistics route allowance required'};
   let intel:Record<string,any>;
   try {intel=details(await command('spacemolt_intel/query_trade_intel',{item_id:cabin,limit:6}));}
   catch(error) {
@@ -28,7 +28,7 @@ export async function discoverPassengerSupply(systemId:string|undefined,maxJumps
     let reason:string|undefined;
     if(!match||match.status!=='resolved'||!station||station.base_id!==row.base_id)reason=`Station identity unresolved: ${match?.status??'missing'}`;
     else if(row.system_id!==station.system_id)reason='Intel system conflicts with current station directory';
-    else if(!Number.isInteger(station.hops)||station.hops!>maxJumps||station.hops!<0)reason='Station exceeds current Logistics route allowance';
+    else if(!Number.isInteger(station.hops)||(maxJumps!==null&&station.hops!>maxJumps)||station.hops!<0)reason='Station exceeds current Logistics route allowance';
     else if(item.length!==1||!finite(item[0].sell_volume)||item[0].sell_volume<1||!finite(item[0].best_sell)||item[0].best_sell<=0||!Number.isInteger(row.submitted_at_tick)||row.submitted_at_tick<0)reason='No complete dated cabin sell-side supply report';
     if(reason){rejected.push({base_id:row?.base_id,reason});continue;}
     candidates.push({base_id:station!.base_id,poi_id:station!.poi_id,system_id:station!.system_id,station_name:station!.station_name,hops:station!.hops,

@@ -85,6 +85,31 @@ test('shared production quotes, sources, settles and stops with receipt accounti
   assert.equal(constrained.state.ship.fuel,120);
 });
 
+test('multi-run output quantity is aggregated once through sale and queued retained settlement',async t=>{
+  const large=productionFixture(t);await large.choose();
+  const largeQuote:any=await large.execution.dispatch('assess',{recipe_id:'refine',quantity:1001,disposition:'retain'});
+  assert.equal(largeQuote.craft.runs,501);assert.deepEqual(largeQuote.evaluation.outputs,[{item_id:'metal',quantity:1002}]);
+  assert.equal(large.calls.filter(call=>call.key==='spacemolt/craft'&&call.params.id&&!call.params.dry_run).length,0);
+
+  const sold=productionFixture(t,{buyInputs:true});await sold.choose();
+  const sale:any=await sold.execution.dispatch('produce',{recipe_id:'refine',quantity:3,source:'buy'});
+  assert.equal(sale.status,'completed');assert.equal(sale.result.production.spent,14);assert.equal(sale.result.production.earned,80);
+  assert.equal(sale.result.production.quote.quantity,3);assert.equal(sale.result.production.quote.craft.runs,2);assert.deepEqual(sale.result.production.quote.craft.produces,[{item_id:'metal',quantity:2}]);
+  assert.deepEqual(sale.result.production.quote.evaluation.outputs.map((row:any)=>({item_id:row.item_id,quantity:row.quantity,sale_credits:row.sale.credits})),[{item_id:'metal',quantity:4,sale_credits:80}]);
+  assert.equal(sold.state.skills.crafting.xp,20);assert.equal(sold.state.skills.trading.xp,4);assert.deepEqual(sold.stock(),{ore:0,metal:0});
+
+  const retained=productionFixture(t,{queued:true,noDemand:true,startingOre:4});await retained.choose();
+  const pending:any=await retained.execution.dispatch('produce',{recipe_id:'refine',quantity:4,disposition:'retain',max_wait_seconds:0});
+  assert.equal(pending.status,'blocked');assert.equal(productionReceipt(pending.result)!.status,'pending');
+  assert.deepEqual(productionReceipt(pending.result)!.quote.evaluation.outputs,[{item_id:'metal',quantity:4}]);
+  retained.finish();const store=new ExecutionStore(retained.directory,'pilot');await store.startNewRun(retained.account);
+  const resumed=new Execution(retained.account,store,retained.execution.context,retained.execution.deps);
+  const settled:any=await resumed.dispatch('produce',{experiment_id:productionReceipt(pending.result)!.experiment_id,max_wait_seconds:0});
+  assert.equal(settled.status,'completed');assert.equal(settled.result.production.spent,6);
+  assert.deepEqual(settled.result.production.retained,{metal:4});assert.deepEqual(retained.stock(),{ore:0,metal:4});
+  assert.equal(retained.calls.filter(call=>call.key==='spacemolt/craft'&&call.params.id&&!call.params.dry_run).length,1);
+});
+
 test('pending and partial production resume only settlement in a new run while unknown acceptance never replays',async t=>{
   for(const scenario of ['queued','partialSale','missingCraftCost','missingSaleProceeds'] as const) {
     const f=productionFixture(t,{[scenario]:true});await f.choose();

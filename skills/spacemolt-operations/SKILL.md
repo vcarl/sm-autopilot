@@ -60,12 +60,15 @@ mining) and produces; Trade buys and sells; Logistics moves freight/passengers;
 Explore discovers; Salvage recovers wrecks. A stance choice does not grant permission.
 Tired overrides all of them and admits no productive jobs.
 
-The current `one_job` stop condition permits one productive attempt. Hunt can use
-one scouting sortie first. A blocked admitted job or a completed productive attempt
-ends the operating run; follow the receipt's stopping reason. Observing, planning and
-assessing do not each consume a productive attempt. Discord messages are turns within a
-conversation, not jobs. Execution handoffs, new conversations and changed plans do not
-reset the allowance. A new operating run is a separate host decision.
+Native execution continues bounded jobs until the objective is satisfied or a receipt
+reports a blocker, Tired, or an uncertain outcome. Observing, planning and assessing do
+not consume execution budget. Discord messages are turns within a conversation, not
+jobs. Execution handoffs, new conversations and changed plans preserve cumulative
+spending and completed work.
+
+Tired remains latched across observations and new Discord turns. After checking that no
+uncertain job needs reconciliation, explicitly plan a non-Tired mood to resume a requested
+objective; do not treat a new message as an automatic reset.
 
 ## Procedure
 

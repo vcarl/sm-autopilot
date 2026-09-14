@@ -107,7 +107,7 @@ arrival; remote POI listings do not prove deposits or safety. Gather retains new
 materials and preserves starting cargo. Its receipt distinguishes measured yield
 and XP from cash spent on servicing.
 
-Industry also exposes `job__produce` for one recipe run at the chosen home. Economic
+Industry also exposes `job__produce` for an assessed recipe batch at the chosen home. Economic
 `job__assess` discovers candidates or quotes a `recipe_id` with inventory/bought
 inputs. Production stages inputs, rechecks economics, queues once, verifies output,
 sells it directly, and services. It does not install mining equipment. With
@@ -178,11 +178,17 @@ files are deliberately persistent. A final return runs outside the model budget.
 Tired also interrupts active model inference; script return and reconciliation still
 retain ownership of any already-submitted game command.
 
-The `one_job` operating allowance permits one optional Hunt scout and one hunting
+The standalone runner's explicit `one_job` operating allowance permits one optional Hunt scout and one hunting
 attempt, or one Industry gathering/production or Logistics transport attempt. An admitted blocker or a scout without
 an eligible quarry ends the run. Script receipts carry `stopping_reason`, which ends
 the model loop without changing the historical prompt or tool catalog. Handoffs and
 reconnects retain the allowance; only a verified explicit `--new-run` resets it.
+
+The native Discord/CLI plugin instead uses objective continuation, allowing preparation,
+gathering and production to advance one goal across calls with cumulative spending. Completed
+jobs and known readiness blockers do not latch a permanent stop. Explicit non-Tired planning
+resumes a stopped objective after reconciliation; messages and reconnects do not grant new
+spending. See [the native lifecycle contract](DAEMON.md#discord-and-scheduling).
 
 Use `--resume` only with an existing checkpoint and unchanged session/model/grant.
 Saved wildlife permission and stance/mood locks persist without repeating their flags.

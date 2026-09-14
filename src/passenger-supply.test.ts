@@ -87,6 +87,9 @@ test('supply rejects stale identity, excessive routes and incomplete reports; kn
   const command:any=async()=>({structuredContent:{intel_level:2,total:entries.length,entries}});
   const result=await discoverPassengerSupply('origin',1,command,locations);
   assert.deepEqual(result.candidates.map(row=>row.base_id),['valid']);assert.equal(result.rejected.length,entries.length-1);
+  const objective=await discoverPassengerSupply('origin',null,command,locations);
+  assert.deepEqual(objective.candidates.map(row=>row.base_id),['valid','far']);
+  assert.ok(objective.candidates.every(row=>row.availability==='unknown'&&row.all_in_cost===null));
   for(const code of ['not_in_faction','facility_required']){
     const denied=await discoverPassengerSupply('origin',1,async()=>{throw new SpacemoltError(code,'Unavailable');},locations);
     assert.equal(denied.status,'unavailable');assert.equal(denied.candidates.length,0);

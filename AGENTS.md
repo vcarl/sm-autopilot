@@ -122,7 +122,10 @@ Keep the prompt and tool catalog byte-stable for a conversation. The native plug
 its tools up front; planning changes only execution state. The service completes the private
 `execution/handoff` before returning an applied plan, so the same Discord conversation can
 assess and work immediately. Discord messages are turns, not new conversation sessions or job
-allowances. Never gate native work on a changed conversation ID or reset `one_job` during a plan.
+allowances. Native conversations use `stop_condition: objective`: successive jobs can advance
+the goal without replenishing its spending allowance. An explicit non-Tired plan resumes a
+stopped objective only after unresolved work is reconciled. Never gate native work on a changed
+conversation ID. Explicit `one_job` mode remains available to bounded host/standalone runs.
 The standalone runner still creates fresh agent sessions when its stance-specific catalog changes.
 New skills/tools/config normally require a fresh session, not a mid-conversation prompt mutation.
 Temporary service stops never silently redefine remembered home.

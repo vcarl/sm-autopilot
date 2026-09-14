@@ -49,3 +49,30 @@ test('travel re-quotes actual remaining fuel, bounds definitive retries, and nev
     }
   }
 });
+
+test('objective travel admits a longer finite quoted route while retaining fuel limits and refusing an expanding reroute',async()=>{
+  for(const mode of ['arrive','fuel','expanded']) {
+    const systems=['a','b','c','d'];
+    const state:any={location:{system_id:'a',poi_id:'gate',docked_at:null},ship:{id:'ship',fuel:100,max_fuel:100,cargo_used:0}};
+    const account:ReadinessAccount={state,async refresh(){}};
+    const moved:string[]=[];
+    const command=async(action:string,params:Record<string,unknown>)=>{
+      if(action==='spacemolt/find_route') {
+        const route=mode==='expanded'&&moved.length?['b','x','c','d']:systems.slice(systems.indexOf(state.location.system_id));
+        return {found:true,target_system:'d',total_jumps:route.length-1,estimated_fuel:mode==='fuel'?95:(route.length-1)*10,fuel_per_jump:10,
+          fuel_available:state.ship.fuel,cargo_used:0,route:route.map((system_id,jumps)=>({system_id,jumps}))};
+      }
+      if(action==='spacemolt/get_system')return {system:{connections:systems}};
+      if(action==='spacemolt/jump') {
+        moved.push(String(params.id));state.location.system_id=params.id;state.ship.fuel-=10;
+      }
+      return {};
+    };
+    const trip=travelTo(account,command,{system_id:'d'},{maxJumps:null,reserve:17});
+    if(mode==='arrive') {await trip;assert.deepEqual(moved,['b','c','d']);}
+    else {
+      await assert.rejects(trip,mode==='fuel'?/tank capacity/:/normal jumps/);
+      assert.deepEqual(moved,mode==='fuel'?[]:['b']);
+    }
+  }
+});

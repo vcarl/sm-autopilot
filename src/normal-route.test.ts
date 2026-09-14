@@ -8,6 +8,7 @@ const quote=(systems:string[])=>({found:true,target_system:systems.at(-1),total_
 test('normal route validation obeys explicit caller allocation without imposing a hidden two-jump cap',()=>{
   const route=quote(['origin','one','two','destination']);
   assert.deepEqual(routeSteps(route,'origin','destination',3),['one','two','destination']);
+  assert.deepEqual(routeSteps(route,'origin','destination',null),['one','two','destination']);
   assert.throws(()=>routeSteps(route,'origin','destination',2),/normal jumps/);
   assert.deepEqual(routeSteps(quote(['origin']),'origin','origin',0),[]);
   for(const allocation of [undefined,-1,1.5,Infinity,NaN])assert.throws(()=>routeSteps(route,'origin','destination',allocation as number),/allocation/);

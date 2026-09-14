@@ -90,8 +90,23 @@ adapter owns authorization, DMs, mention policy, and replies; SpaceMolt adds onl
 agent tools. A normal changed plan reports `status: applied` and a completed execution handoff.
 Continue with the next tool in that conversation; another Discord message is not a fresh session.
 The full native catalog and prompt remain fixed while the scripts enforce the updated plan.
-An unchanged plan needs no handoff. Neither planning nor a new message resets the durable
-`one_job` allowance; repeated productive jobs require a separately authorized operating run.
+An unchanged plan needs no handoff. Native conversations use objective continuation: prepare,
+gather, produce and transport may advance the same goal across successive calls. A completed
+job or a known readiness blocker does not permanently close productive work. Every job retains
+the original cumulative spending allowance; changing a plan or sending a new message does not
+replenish it. Explicit Tired and uncertain commands still stop work. To resume a stopped
+objective, reconcile uncertain work and explicitly plan a non-Tired mood. Old native `one_job`
+state is handled through that same explicit resumption; no journal deletion is needed.
+
+Industry assessment exposes production recipes and `kind: mining_equipment`. Equipment
+preparation accepts an observed `equipment_base_id`, verifies the owned laser at that station,
+preserves a displaced passenger cabin and cargo, fits the laser, and returns serviced. The
+agent may reconsider home through normal planning before requesting the trip.
+
+Objective routes use observed normal connections and fuel/reserve evidence instead of a mood
+jump ceiling. A route remains bounded by its initial verified length during execution; a changed
+route needs reassessment. Explicit gathering batches may exceed the old mood cycle default;
+physical readiness, cargo, spending and stop signals still govern execution.
 
 Create an unattended objective with the standard scheduler:
 

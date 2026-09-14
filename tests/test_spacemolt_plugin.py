@@ -42,6 +42,13 @@ def test_native_plan_applies_handoff_and_continues_in_the_same_conversation(monk
     register(PluginContext(PluginManifest(name="spacemolt"), manager))
     definitions = get_tool_definitions(enabled_toolsets=["spacemolt"], quiet_mode=True,
                                        skip_tool_search_assembly=True)
+    assess_schema = next(entry["function"]["parameters"] for entry in definitions
+                         if entry["function"]["name"] == "spacemolt_assess")
+    assert {"poi_id", "recipe_id", "source", "quantity", "disposition", "output_search"} <= set(
+        assess_schema["properties"])
+    prepare_schema = next(entry["function"]["parameters"] for entry in definitions
+                          if entry["function"]["name"] == "spacemolt_prepare")
+    assert "equipment_base_id" in prepare_schema["properties"]
     prompt = manager._system_prompt_sections["spacemolt.operations"].content
 
     def call(name, arguments):
@@ -56,7 +63,7 @@ def test_native_plan_applies_handoff_and_continues_in_the_same_conversation(monk
                                            "home_base_id": "base", "home_rationale": "Nearby services and storage"})
         assessed = call("spacemolt_assess", {"poi_id": "belt"})
         gathered = call("spacemolt_gather", {"poi_id": "belt", "cycles": 1})
-        changed = call("spacemolt_plan", {"objective": "Gather another local ore cycle"})
+        changed = call("spacemolt_plan", {"objective": "Gather another local ore cycle", "mood": "Focused"})
         repeated = call("spacemolt_gather", {"poi_id": "belt", "cycles": 1})
 
         assert planned["status"] == "applied"
@@ -71,10 +78,10 @@ def test_native_plan_applies_handoff_and_continues_in_the_same_conversation(monk
         journal = json.loads(Path(gathered["full_receipt"]["path"]).read_text())
         assert sum(action["action"] == "spacemolt/mine" for action in journal["actions"]) == 1
         assert "actions" not in gathered
-        assert changed["status"] == "denied"
-        assert repeated["status"] == "denied"
-        assert repeated["policy_decision"]["allowed"] is False
-        assert any(reason["denied"] for reason in repeated["policy_decision"]["reasons"])
+        assert changed["status"] == "applied"
+        assert repeated["status"] == "completed"
+        second_journal = json.loads(Path(repeated["full_receipt"]["path"]).read_text())
+        assert sum(action["action"] == "spacemolt/mine" for action in second_journal["actions"]) == 1
         assert json.loads((service.runtime / "service-context.json").read_text())["stance"] == "Industry"
         assert get_tool_definitions(enabled_toolsets=["spacemolt"], quiet_mode=True,
                                     skip_tool_search_assembly=True) == definitions
@@ -121,7 +128,7 @@ def test_legacy_pending_handoff_resumes_persisted_context_without_starting_a_new
     assert gathered["status"] == "completed"
     assert calls[0][0] == "execution/configure"
     assert calls[0][1]["objective"] == "one job"
-    assert calls[0][1]["stop_condition"] == "one_job"
+    assert calls[0][1]["stop_condition"] == "objective"
     assert "new_run" not in calls[0][1]
     assert not pending.exists()
 

@@ -46,13 +46,17 @@ function completeRetainedCraft(craft:Wire) {
     craft.produces.every((row:Wire)=>row.quantity>0)&&[craft.credits_total,craft.effective_time_per_run].every(finite)&&
     [craft.cost.labor,craft.cost.fee].every(value=>value===undefined||finite(value))&&
     craft.credits_total>=(craft.cost.labor??0)+(craft.cost.fee??0)&&
-    (craft.cost.labor===undefined||craft.cost.fee===undefined||craft.credits_total===craft.cost.labor+craft.cost.fee)&&Number.isInteger(craft.runs)&&craft.runs>0&&
+    (craft.cost.labor===undefined||craft.cost.fee===undefined||craft.credits_total===craft.cost.labor+craft.cost.fee)&&Number.isSafeInteger(craft.runs)&&craft.runs>0&&
     typeof craft.have_inputs==='boolean'&&typeof craft.have_credits==='boolean'&&
     (craft.have_capacity===undefined||typeof craft.have_capacity==='boolean');
 }
+function aggregateCraftOutputs(craft:Wire) {
+  if(!Number.isSafeInteger(craft.runs)||craft.runs<1||!validStock(craft.produces)||craft.produces.some((row:Wire)=>row.quantity<=0))throw new Error('Craft output scaling unavailable');
+  return inventoryInputPlan(craft.produces,[],[]).map(row=>{const quantity=row.required*craft.runs;if(!Number.isSafeInteger(quantity)||quantity<1)throw new Error('Craft output scaling unavailable');return {item_id:row.item_id,quantity};});
+}
 function retainedEvaluation(id:string,craft:Wire,source:string,quotes:Wire[],stock:Wire[],cargo:Wire[]) {
   const inputs=inventoryInputPlan(craft.cost.inputs,stock,cargo).map(row=>({item_id:row.item_id,quantity:row.required,source}));
-  const outputs=inventoryInputPlan(craft.produces,[],[]).map(row=>({item_id:row.item_id,quantity:row.required}));
+  const outputs=aggregateCraftOutputs(craft);
   const blockers:string[]=[];
   if(source==='inventory'&&inventoryInputPlan(craft.cost.inputs,stock,cargo).some(row=>row.missing>0))blockers.push('Owned recipe inputs unavailable');
   if(source==='buy'&&inputs.some(row=>!completePurchase(quotes.find(q=>q.item_id===row.item_id)??{},row.quantity)))blockers.push('Complete input purchase quotes unavailable');
@@ -206,7 +210,8 @@ async function executeIndustryBody(action:string, params:Wire, account:Account, 
   if(retaining&&((params.min_profit!==undefined&&params.min_profit!==1)||(params.max_learning_loss!==undefined&&params.max_learning_loss!==0)||
     (params.learning_goal!==undefined&&(typeof params.learning_goal!=='string'||params.learning_goal.trim()!==''))))return {status:'blocked',reason:'Retained own-use production cannot honor sale-profit or learning-loss policy overrides'};
   if(retaining&&(!validStock(storage.items)||!validStock(account.cargo)))return {status:'blocked',reason:'Canonical personal storage and cargo quantities required for retained production'};
-  const quantity=bounded(params.quantity,recipe.outputs[0]!.quantity,1000);
+  const quantity=Number(params.quantity??recipe.outputs[0]!.quantity);
+  if(!Number.isSafeInteger(quantity)||quantity<1)throw new Error('Expected a positive safe integer output quantity');
   if(params.source!==undefined && !['buy','inventory'].includes(params.source))return {status:'blocked',reason:'source must be buy or inventory'};
   const source=params.source==='buy'?'buy':'inventory';
   if(action==='produce') {
@@ -228,7 +233,7 @@ async function executeIndustryBody(action:string, params:Wire, account:Account, 
     inputQuotes.push({...q,item_id:i.item_id});purchaseTax+=q.sales_tax;
   }
   if(!Array.isArray(craft.produces)||!craft.produces.length)return {status:'blocked',reason:'Craft quote omitted outputs',craft};
-  const quotedRecipe={id:recipe.id,inputs:craft.cost.inputs,outputs:craft.produces};
+  const quotedRecipe={id:recipe.id,inputs:craft.cost.inputs,outputs:aggregateCraftOutputs(craft)};
   const evaluation:Wire=retaining?retainedEvaluation(`${station}/${recipe.id}/${source}/retain`,craft,source,inputQuotes,stock,account.cargo!):evaluateLoop({id:`${station}/${recipe.id}/${source}`,recipe:quotedRecipe,batches:1,
     inputs:quotedRecipe.inputs.map((i:Wire)=>({item_id:i.item_id,source,asks:source==='buy'?inputQuotes.find(q=>q.item_id===i.item_id)?.fills:books.get(i.item_id)?.sell_orders??[],rawSaleBids:books.get(i.item_id)?.buy_orders??[],availableQuantity:amount(stock,i.item_id)+amount(account.cargo??[],i.item_id)})),
     outputMarkets:quotedRecipe.outputs.map((i:Wire)=>({item_id:i.item_id,bids:books.get(i.item_id)?.buy_orders??[]})),
@@ -236,11 +241,10 @@ async function executeIndustryBody(action:string, params:Wire, account:Account, 
   const currentSkills=snapshotSkills(account.state);
   const required=(recipe as Wire).required_skills??{};
   const skill_context={skills:Object.fromEntries(Object.entries(currentSkills).filter(([id])=>['crafting','refining','trading',...Object.keys(required)].includes(id))),required_skills:required};
-  const quote={catalog:catalogMetadata,skill_context,input_locations:inventoryInputPlan(craft.cost.inputs,stock,account.cargo??[]),station,recipe_id:recipe.id,source,disposition,quantity,evaluation,craft,inputQuotes,market_tick:market.current_tick,output_scaling:craft.runs>1?'unverified: produces may be per run; quote conservatively uses it once':'single run',assumptions:retaining?['Own-use output remains in personal storage. Retained inventory is not sale revenue or realized economic profit.','Same-station production; fresh input and crafting quotes bound spending.']:['Immediate sale to observed buy orders; future fills can change.','Same-station processing; travel is zero here.','Seller proceeds use book prices; compare actual receipts.']};
+  const quote={catalog:catalogMetadata,skill_context,input_locations:inventoryInputPlan(craft.cost.inputs,stock,account.cargo??[]),station,recipe_id:recipe.id,source,disposition,quantity,evaluation,craft,inputQuotes,market_tick:market.current_tick,output_scaling:'Server produces are per run; evaluated and settled outputs multiply each item by craft.runs exactly once.',assumptions:retaining?['Own-use output remains in personal storage. Retained inventory is not sale revenue or realized economic profit.','Same-station production; fresh input and crafting quotes bound spending.']:['Immediate sale to observed buy orders; future fills can change.','Same-station processing; travel is zero here.','Seller proceeds use book prices; compare actual receipts.']};
   observe({event:'quote',...quote});
   if(action==='quote')return quote;
   if(action!=='produce')return {status:'blocked',reason:'Unknown industry action'};
-  if(craft.runs>1)return {status:'blocked',reason:'Multi-run output scaling is not yet verified; use a single production run.',quote};
   const allocation=requireAllowed(decide({phase:'bounds',budgetConfig:{kind:'production',maxSpend:params.max_spend===undefined?undefined:retaining?params.max_spend:Number(params.max_spend),reserve:params.credit_reserve===undefined?undefined:retaining?params.credit_reserve:Number(params.credit_reserve)}}));
   const reserve=allocation.limits.credit_reserve!,maxSpend=allocation.limits.max_spend!;
   const learningPolicy=retaining?undefined:productionMarginPolicy(params);

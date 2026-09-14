@@ -19,6 +19,7 @@ export interface Job {
   result?:unknown; error?:string; cash_delta?:number; stopping_reason?:string;
   spending?:SpendingEvidence;
   budget_owner_id?:string;
+  budget_scope_start_id?:string;
   budget_spending?:BudgetSpending;
   reconciliation?:Record<string,any>[];
   defense?:Record<string,any>[];
@@ -45,7 +46,7 @@ export class ExecutionStore {
     this.data.run_start_job??=0;
     if(!Number.isInteger(this.data.run_start_job)||this.data.run_start_job<0||this.data.run_start_job>this.data.jobs.length)throw new Error('Invalid operating-run checkpoint');
     for(const job of this.data.jobs)if(job.status==='running') {job.status='needs_reconciliation';job.error='Worker ended before terminal verification; inspect authoritative state before any replay';}
-    this.data.stop??=this.runJobs().map(terminalStoppingReason).find(Boolean);
+    if(this.data.context?.stop_condition!=='objective')this.data.stop??=this.runJobs().map(terminalStoppingReason).find(Boolean);
     this.save();
   }
   save() {writeFileSync(this.path+'.tmp',JSON.stringify(this.data,null,2),{mode:0o600});renameSync(this.path+'.tmp',this.path);}

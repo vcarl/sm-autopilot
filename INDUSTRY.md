@@ -1,8 +1,8 @@
 # Industry experiments
 
 The shared `--stance Industry` interface now composes these production mechanics
-through `job__produce` and the durable pilot job lifecycle. It supports one recipe
-run at the chosen home, with input sourcing, output sales, return/service, and
+through `job__produce` and the durable pilot job lifecycle. It supports assessed
+recipe batches at the chosen home, with input sourcing, output sales, return/service, and
 explicit later settlement by `experiment_id`. Shared queue waits are at most
 120 seconds and check urgent control at most two seconds apart. The legacy tool
 names and longer wait bounds below describe `--industry`, not the shared catalog.
@@ -112,10 +112,10 @@ then deposits only the recipe shortfall from cargo, verifying both balances.
 Income experiments must beat selling that stock raw; an explicit learning
 allowance can fund a measured exception.
 
-Execution currently permits only one production run per experiment. Live quotes
-for multiple runs have ambiguous per-run versus total output quantities, so the
-executor rejects them until that behavior is verified. Choose an output quantity
-no greater than one recipe run produces; larger batches are not supported yet.
+Production accepts bounded multi-run batches. `quantity` is the desired output item
+count and is rounded up to complete recipe runs, so the verified output may slightly
+exceed the request. Use the authoritative quote's total batch inputs, cost, run count,
+and output for admission and accounting.
 
 Change one or more observed variables deliberately: recipe, source, quantity,
 production venue, station sale depth, or mining POI. Compare actual receipts to
@@ -156,7 +156,7 @@ positive `max_learning_loss` to `industry/produce`. Together they permit a
 predicted economic margin down to the negative of that allowance. A missing or
 blank goal cannot authorize a positive loss allowance; a goal alone or a zero
 allowance keeps the usual income threshold. Spending and wallet reserves,
-single-run limits, supply availability, and output demand checks still apply.
+authoritative batch totals, supply availability, and output demand checks still apply.
 The saved `learning_policy` records the planned allowance. Actual loss can
 differ as markets change, so verify receipts and skill progress before repeating.
 

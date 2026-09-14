@@ -14,7 +14,7 @@ import {resolveContext,type ExecutionContext,type Home} from './execution-policy
 import {reconcileJob} from './recovery.ts';
 import {observeObligations,hasTransportCustody,ObligationObservationError,type Obligations} from './obligations.ts';
 import {ExecutionStore,type Job} from './execution-store.ts';
-import {terminalDecision} from './execution-stopping.ts';
+import {terminalDecision,terminalStoppingReason} from './execution-stopping.ts';
 import {isPaidCommand,jobSpending,jobBudget} from './spending.ts';
 import {locateHome} from './home-location.ts';
 import {ensureReadiness} from './readiness.ts';
@@ -30,6 +30,7 @@ import {observeTransportDeadlines} from './transport-deadlines.ts';
 import {checkTransportTime} from './transport-time.ts';
 import {observeGathering,assessGathering,gatherResources,verifyGatherInventory,type GatherReceipt} from './gather.ts';
 import {assessProduction,productionWaitSeconds,productionExperiments,productionReceipt,unfinishedProduction,retainProductionAcceptance} from './shared-production.ts';
+import {assessOwnedMiningEquipment,retrieveOwnedMiningEquipment,type EquipmentStation} from './equipment-retrieval.ts';
 
 type Wire=Record<string,any>;
 const parameter=(name:string,type:string,description:string,required=false)=>({name,type,description,required});
@@ -37,7 +38,7 @@ const meta=(summary:string,params:unknown[]=[])=>({summary,params});
 export function executionCatalog(context:ExecutionContext):Record<string,any> {
   const common:Record<string,any>={
     'observe':meta('Refresh authoritative pilot, obligations, nearby stations and recent receipts. No game mutation.'),
-    'plan':meta('Choose stance, mood, objective, or an observed home with rationale. Stance/mood changes request a new session; no game mutation.',[
+    'plan':meta('Choose stance, mood, objective, or an observed home with rationale. The native service applies the execution handoff internally; no game mutation.',[
       parameter('stance','string','Stance name'),parameter('mood','string','Mood name'),parameter('objective','string','Objective'),parameter('home_base_id','string','Observed station base ID'),parameter('home_rationale','string','Why this home suits the objective')]),
   };
   Object.assign(common,{
@@ -47,17 +48,18 @@ export function executionCatalog(context:ExecutionContext):Record<string,any> {
     return_to_base:meta('Latch stop, return and service; preserves home and unfinished obligations.'),
   });
   {
-    common.track={...(combatCatalog['combat/scout'] as Wire),summary:'One optional scouting sortie for this operating run: visit up to three habitats in one destination system, assess quarry, return and service. No eligible quarry or a blocker stops the run; another tracking sortie is not allowed.'};
+    common.track={...(combatCatalog['combat/scout'] as Wire),summary:'Scout up to three habitats in one destination system, assess quarry, return and service. Objective continuation may reassess another sortie; explicit one_job mode permits only one scouting sortie.'};
     common.hunt=combatCatalog['combat/hunt'];
   }
   {
-    if(context.stance==='Industry')common.assess=meta('With poi_id assess gathering. With recipe_id quote local production; without either discover local economic candidates. disposition retain assesses owned output without requiring a profitable sale. Inventory inputs have opportunity cost; quotes are not realized profit.',[
-      parameter('poi_id','string','Observed local asteroid belt POI'),parameter('recipe_id','string','Recipe to quote'),parameter('source','string','inventory (default) or buy'),parameter('quantity','number','Output count for a single production run'),parameter('disposition','string','sell (default) or retain in personal station storage'),parameter('output_search','string','With disposition retain and no recipe_id, discover up to six recipes matching an output item ID or name; 1..80 characters')]);
-    if(context.stance==='Industry')common.prepare=meta('Service and install owned mining equipment where supported, preserving displaced equipment. No purchases.');
+    if(context.stance==='Industry')common.assess=meta('With kind mining_equipment find observed personal-storage candidates for an owned laser. With poi_id assess gathering. With recipe_id quote local production; without either discover local economic candidates. Remote storage contents remain unverified until arrival.',[
+      parameter('kind','string','mining_equipment to find owned-equipment retrieval candidates'),parameter('poi_id','string','Observed local asteroid belt POI'),parameter('recipe_id','string','Recipe to quote'),parameter('source','string','inventory (default) or buy'),parameter('quantity','number','Desired output count, rounded up to whole recipe runs; quote totals cover the full batch'),parameter('disposition','string','sell (default) or retain in personal station storage'),parameter('output_search','string','With disposition retain and no recipe_id, discover up to six recipes matching an output item ID or name; 1..80 characters')]);
+    if(context.stance==='Industry')common.prepare=meta('Service and install owned mining equipment. With equipment_base_id, retrieve an owned laser from an assessed personal-storage candidate, preserve a displaced passenger cabin and all cargo, then return to remembered home fully serviced. No purchases.',[
+      parameter('equipment_base_id','string','Exact observed station base ID or candidate from assess kind mining_equipment; storage contents are verified after docking')]);
     common.gather=meta('Gather for bounded cycles at a local asteroid belt, retain all new cargo, return home and service. Records partial yield and blockers.',[
-      parameter('poi_id','string','Observed local asteroid belt POI',true),parameter('cycles','number','Optional cycle count, only tighter than resolved max_gather_cycles')]);
-    common.produce=meta('At home, source inputs and execute one assessed production run, verify sold output or retained personal-storage output, and service. Pending/partial work is unfinished. In a later operating run, pass experiment_id to continue recorded settlement without crafting again or changing disposition.',[
-      parameter('recipe_id','string','Recipe for new production'),parameter('source','string','inventory (default) or buy'),parameter('quantity','number','Output count; only one recipe run is supported'),parameter('disposition','string','sell (default) or retain in personal station storage; fixed for the experiment'),parameter('experiment_id','string','Known unfinished experiment to settle, exclusive with recipe/source/quantity/disposition'),parameter('max_wait_seconds','number','Queue waiting bound, 0..120 seconds (default 120)')]);
+      parameter('poi_id','string','Observed local asteroid belt POI',true),parameter('cycles','number','Optional positive cycle batch; omitted uses the resolved bounded default and physical reserves still stop work')]);
+    common.produce=meta('At home, source inputs and execute one assessed production run, verify sold output or retained personal-storage output, and service. Pending/partial work is unfinished. During objective continuation, pass experiment_id to continue recorded settlement without crafting again or changing disposition.',[
+      parameter('recipe_id','string','Recipe for new production'),parameter('source','string','inventory (default) or buy'),parameter('quantity','number','Desired output count, rounded up to whole recipe runs; authoritative batch inputs, cost, and output come from the quote'),parameter('disposition','string','sell (default) or retain in personal station storage; fixed for the experiment'),parameter('experiment_id','string','Known unfinished experiment to settle during objective continuation, exclusive with recipe/source/quantity/disposition'),parameter('max_wait_seconds','number','Queue waiting bound, 0..120 seconds (default 120)')]);
   }
   {
     if(context.stance==='Logistics')common.assess=meta('Observe freight and passenger opportunities, or assess a selected shipment/destination. Eligibility does not guarantee capacity, timely delivery or profit.',[
@@ -79,6 +81,7 @@ export interface ExecutionDeps {
 export class Execution {
   context:ExecutionContext;
   pending?:ExecutionContext;
+  private pendingResume=false;
   active?:Job;
   private stations:Home[]=[];
   private passengerSuppliers=new Set<string>();
@@ -97,7 +100,7 @@ export class Execution {
     store.data.context=this.context;store.save();
     this.stopping=Boolean(store.data.stop)||context.mood==='Tired';
   }
-  signal(reason='Tired') {this.stopping=true;this.store.data.stop??=reason;this.store.save();}
+  signal(reason='Tired') {this.pendingResume=false;this.stopping=true;this.store.data.stop??=reason;this.store.save();}
   stopped=()=>this.stopping;
   requestDefense() {this.dangerPending=true;}
   async respondToDanger() {
@@ -186,7 +189,7 @@ export class Execution {
   }
   plan(params:Wire) {
     if(this.active)throw new Error('Wait for the active job receipt before a normal transition');
-    this.enforce({phase:'catalog',action:'plan'});
+    this.enforce({phase:'catalog',action:'plan',params,unresolved:Boolean(this.store.unresolved())});
     if(Object.keys(params).some(k=>!['stance','mood','objective','home_base_id','home_rationale'].includes(k)))throw new Error('Unsupported plan field; permissions and budgets are host controlled');
     const next=resolveContext(params,this.context);
     if(params.home_base_id!==undefined) {
@@ -196,15 +199,21 @@ export class Execution {
     }
     // A plan that restates the current context is not a transition. Latching a handoff here
     // would close every productive tool for the rest of the session over a no-op.
-    if(next.stance===this.context.stance&&next.mood===this.context.mood&&next.objective===this.context.objective&&
+    const resume=this.context.stop_condition==='objective'&&this.stopping&&params.mood!==undefined&&params.mood!=='Tired';
+    if(!resume&&next.stance===this.context.stance&&next.mood===this.context.mood&&next.objective===this.context.objective&&
       next.home?.base_id===this.context.home?.base_id&&next.home?.rationale===this.context.home?.rationale)return {status:'unchanged',context:next};
     this.store.data.home=next.home;this.store.data.context=next;this.store.save();
     this.pending=next;
+    this.pendingResume=resume;
     return {status:'handoff_required',context:next};
   }
   handoff() {
     if(this.active)throw new Error('Cannot hand off an active job');
-    if(this.pending) {this.context=this.pending;this.pending=undefined;if(this.context.mood==='Tired')this.signal();}
+    if(this.pending) {
+      this.context=this.pending;this.pending=undefined;
+      if(this.pendingResume){this.stopping=false;delete this.store.data.stop;this.pendingResume=false;this.store.save();}
+      if(this.context.mood==='Tired')this.signal();
+    }
     return {context:this.context,catalog:executionCatalog(this.context),run_decision:this.store.data.run_decision};
   }
   private async defend() {
@@ -231,7 +240,7 @@ export class Execution {
   };
   private async travel(home:Home,productive=false,beforeMove?:()=>Promise<void>) {
     return travelTo(this.account,this.command,home,{
-      ...this.deps.combat,reserve:17,maxJumps:2,
+      ...this.deps.combat,reserve:17,maxJumps:this.context.stop_condition==='objective'?null:2,
       checkpoint:this.travelCheckpoint,
       checkMove:()=>{if(productive)this.enforce({phase:'checkpoint',action:this.active?.action??'travel'});},
       beforeMove,
@@ -387,9 +396,13 @@ export class Execution {
     if(params.source!==undefined&&!['inventory','buy'].includes(params.source))throw new Error('source must be inventory or buy');
     if(params.disposition!==undefined&&!['sell','retain'].includes(params.disposition))throw new Error('disposition must be sell or retain');
     if(params.output_search!==undefined&&(action!=='assess'||params.disposition!=='retain'||params.recipe_id||params.poi_id||params.output_search.length>80))throw new Error('output_search requires retained-output assessment without recipe_id or poi_id, at most 80 characters');
-    if(params.quantity!==undefined&&(!Number.isInteger(params.quantity)||params.quantity<1||params.quantity>1000))throw new Error('quantity must be an integer 1..1000');
+    if(params.quantity!==undefined&&(!Number.isSafeInteger(params.quantity)||params.quantity<1))throw new Error('quantity must be a positive safe integer');
     if(params.max_wait_seconds!==undefined&&(!Number.isFinite(params.max_wait_seconds)||params.max_wait_seconds<0||params.max_wait_seconds>productionWaitSeconds))throw new Error('max_wait_seconds must be 0..120');
     if(action==='assess') {
+      if(params.kind==='mining_equipment') {
+        if(Object.keys(params).some(key=>key!=='kind'))throw new Error('Mining equipment assessment takes only kind');
+        return assessOwnedMiningEquipment(this.account,this.command);
+      }
       if(params.poi_id) {
         if(params.recipe_id||params.source||params.quantity!==undefined||params.disposition!==undefined)throw new Error('Assess gathering or production separately');
         return assessGathering(this.account,this.command,{...this.context,home:(await this.homeLocation()).destination},{poi_id:params.poi_id,cycles:limits.max_gather_cycles});
@@ -398,11 +411,16 @@ export class Execution {
       return assessProduction(params,this.account,this.command,{...this.deps.industry,record:()=>{},existing_experiments:productionExperiments(this.store.data.jobs)});
     }
     if(action==='produce'&&((!params.recipe_id&&!params.experiment_id)||(params.experiment_id&&(params.recipe_id||params.source||params.quantity!==undefined||params.disposition!==undefined))))throw new Error('Provide recipe_id for new production or only experiment_id for settlement');
-    if(action==='return_to_base')this.signal();
+    if(action==='return_to_base'&&this.context.stop_condition==='one_job')this.signal();
     const admission=evaluateRules({phase:'job',context:this.context,action,admitted:this.store.runJobs(),tired:this.stopping});
     await this.account.refresh();
     const job:Job={id:randomUUID(),action,status:'running',context:structuredClone(this.context),started_at:new Date().toISOString(),before:this.snapshot(),actions:[],decisions:[{phase:'job',action,decision:admission}]};
     const predecessor=this.store.runJobs().at(-1);
+    if(this.context.stop_condition==='objective') {
+      const first=this.store.runJobs()[0];
+      if(first){job.budget_owner_id=first.budget_owner_id??first.id;job.budget_scope_start_id=first.id;}
+      else job.budget_scope_start_id=job.id;
+    }
     if(action==='return_to_base'&&predecessor)job.budget_owner_id=predecessor.budget_owner_id??predecessor.id;
     if(action==='produce'&&params.experiment_id) {
       const owner=this.store.data.jobs.find(previous=>productionReceipt(previous.result)?.experiment_id===params.experiment_id);
@@ -459,7 +477,7 @@ export class Execution {
       job.result=result;
       if(result?.status==='blocked'&&action!=='return_to_base'&&!job.return_plan)throw new Error(result.reason??'Job returned a blocker');
       if(!job.return_plan)this.enforce({phase:'checkpoint',action});
-      job.status=action==='transport'&&result?.transport?.status!=='completed'?(result?.transport?.status==='needs_reconciliation'?'needs_reconciliation':'blocked'):action==='produce'&&result?.production?.status!=='complete'?(result?.production?.status==='needs_reconciliation'?'needs_reconciliation':'blocked'):result?.status==='blocked'?'blocked':this.stopping?'returned_to_base':action==='hunt'&&!result?.sortie?.fight?.verified_victory?'blocked':'completed';
+      job.status=action==='transport'&&result?.transport?.status!=='completed'?(result?.transport?.status==='needs_reconciliation'?'needs_reconciliation':'blocked'):action==='produce'&&result?.production?.status!=='complete'?(result?.production?.status==='needs_reconciliation'?'needs_reconciliation':'blocked'):result?.status==='blocked'?'blocked':this.stopping||action==='return_to_base'?'returned_to_base':action==='hunt'&&!result?.sortie?.fight?.verified_victory?'blocked':'completed';
     } catch(error) {
       if(error instanceof PolicyDenied&&!job.decisions?.some(row=>row.decision===error.decision)){job.decisions??=[];job.decisions.push({phase:'checkpoint',action,decision:error.decision});}
       job.error=error instanceof Error?error.message:String(error);
@@ -512,13 +530,30 @@ export class Execution {
       if(!spendingDecision.allowed)job.status=spendingDecision.reasons.some(reason=>reason.id==='spend.unknown')?'needs_reconciliation':'blocked';
       const terminal=terminalDecision(job);
       job.decisions??=[];job.decisions.push({phase:'terminal',action,decision:terminal});
-      const stoppingReason=this.store.data.stop??(terminal.exit==='finish_job'?undefined:terminal.reasons.map(reason=>reason.text).join('; '));
+      const stoppingReason=this.store.data.stop??terminalStoppingReason(job);
       if(stoppingReason){this.signal(stoppingReason);job.stopping_reason=stoppingReason;}
       this.store.save();this.active=undefined;
     }
     return structuredClone(job);
   }
   private async prepare(params:Wire={}):Promise<any> {
+    if(this.context.stance==='Industry'&&params.equipment_base_id) {
+      this.admitCustody(await observeObligations(this.account,this.command),'Industry equipment retrieval');
+      const local=this.stations.find(row=>row.base_id===params.equipment_base_id);
+      let destination:EquipmentStation|undefined=local as EquipmentStation|undefined;
+      if(!destination) {
+        const assessment:any=await assessOwnedMiningEquipment(this.account,this.command);
+        destination=assessment.candidates?.find((row:Wire)=>row.base_id===params.equipment_base_id&&row.status==='contents_unverified')?.destination;
+      }
+      if(!destination)throw new Error('Observe or assess and choose a personal-storage equipment candidate');
+      const home=(await this.homeLocation()).destination as EquipmentStation;
+      return retrieveOwnedMiningEquipment(this.account,this.command,destination,home,{
+        checkpoint:this.workCheckpoint,
+        travel:destination=>this.travel(destination,true),
+        service:()=>this.service(),
+        save:retrieval=>{if(this.active){this.active.result={retrieval};this.store.save();}},
+      });
+    }
     await this.service();
     const limits=this.context.limits;
     if(this.context.stance==='Logistics'&&params.kind==='passengers') {

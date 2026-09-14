@@ -10,14 +10,16 @@ export interface ExecutionContext {
   limits:{max_spend:number; credit_reserve:number; max_ticks:number; retreat_hull_fraction:number; max_gather_cycles:number};
   permissions:{wildlife:boolean}; authority?:{stance?:Stance;mood?:Mood}; policy_version:string;
   policy_decision?:Decision;
-  stop_condition:'one_job'; return_policy:'home_or_explicit_fallback';
+  stop_condition:'one_job'|'objective'; return_policy:'home_or_explicit_fallback';
 }
 export function resolveContext(input:Record<string,any>, previous?:ExecutionContext):ExecutionContext {
   const stance=input.stance??previous?.stance??'Hunt', mood=input.mood??previous?.mood??'Cautious';
   if(!stances.includes(stance)||!moods.includes(mood))throw new Error('Choose a documented stance and mood');
+  const stop_condition=input.stop_condition??previous?.stop_condition??'one_job';
+  if(!['one_job','objective'].includes(stop_condition))throw new Error('Choose a documented stopping condition');
   const context:ExecutionContext={stance,mood,objective:input.objective??previous?.objective,home:previous?.home,
     limits:{} as ExecutionContext['limits'],
-    authority:previous?.authority,permissions:previous?.permissions??{wildlife:false},policy_version:policyVersion,stop_condition:'one_job',return_policy:'home_or_explicit_fallback'};
+    authority:previous?.authority,permissions:previous?.permissions??{wildlife:false},policy_version:policyVersion,stop_condition,return_policy:'home_or_explicit_fallback'};
   const defaults=evaluateRules({phase:'resolve',context,previous});
   Object.assign(context.limits,Object.fromEntries(Object.entries(defaults.limits).filter(([key])=>['max_spend','credit_reserve','max_ticks','retreat_hull_fraction','max_gather_cycles'].includes(key))));
   const decision=requireAllowed(evaluateRules({phase:'resolve',context,input,previous}));

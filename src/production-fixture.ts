@@ -4,18 +4,18 @@ import {resolveContext} from './execution-policy.ts';
 import {normalizeIndustryCatalog} from './persistent-catalog.ts';
 
 /** Offline game only; real shared Execution, Industry and command journal. */
-export function productionFixture(t:any,options:{buyInputs?:boolean;queued?:boolean;partialSale?:boolean;missingCraftCost?:boolean;missingSaleProceeds?:boolean;noDemand?:boolean;buyTax?:number}={}) {
+export function productionFixture(t:any,options:{buyInputs?:boolean;queued?:boolean;partialSale?:boolean;missingCraftCost?:boolean;missingSaleProceeds?:boolean;noDemand?:boolean;buyTax?:number;startingOre?:number}={}) {
   const f=executionFixture(t);
   f.execution.context=resolveContext({stance:'Industry',mood:'Focused',objective:'Complete one profitable local production run and return serviced'},f.execution.context);
   const recipe={id:'refine',name:'Refine metal',category:'refining',description:'',crafting_time:1,inputs:[{item_id:'ore',quantity:2}],outputs:[{item_id:'metal',quantity:2}]};
   const cache=new CatalogCache(normalizeIndustryCatalog({version:'production-fixture',items:[],recipes:[recipe]}));
   f.execution.deps.industry={catalog:Promise.resolve({cache,freshness:'fresh',fetchedAt:0,retryAt:null})};
   f.state.skills={crafting:{level:1,xp:0},trading:{level:1,xp:0}};
-  let ore=options.buyInputs?0:2,metal=0,queued=false,firstSale=true,now=0;
+  let ore=options.startingOre??(options.buyInputs?0:2),metal=0,queued=false,queuedRuns=0,firstSale=true,now=0;
   const sleeps:number[]=[];
   let onSleep:(()=>void)|undefined;
   f.execution.deps.combat={now:()=>now,sleep:async(ms)=>{sleeps.push(ms);now+=ms;onSleep?.();}};
-  const finish=()=>{if(queued){queued=false;metal+=2;f.state.skills.crafting.xp+=10;}};
+  const finish=()=>{if(queued){queued=false;metal+=recipe.outputs[0]!.quantity*queuedRuns;f.state.skills.crafting.xp+=10*queuedRuns;queuedRuns=0;}};
   const market={items:[{item_id:'ore',sell_orders:[{price_each:2,quantity:100}],buy_orders:[{price_each:1,quantity:100}]},{item_id:'metal',sell_orders:[],buy_orders:options.noDemand?[]:[{price_each:20,quantity:100}]}]};
   const send=f.account.send.bind(f.account);
   f.account.send=async(tool,action,params:any={}):Promise<any>=>{
@@ -29,9 +29,13 @@ export function productionFixture(t:any,options:{buyInputs?:boolean;queued?:bool
     if(key==='spacemolt_storage/view')result={items:[{item_id:'ore',quantity:ore,size:1},{item_id:'metal',quantity:metal,size:1}]};
     if(key==='spacemolt/buy'){ore+=params.quantity;f.state.player.credits+=100-params.quantity*2-(options.buyTax??0);f.state.player.stats.credits_spent+=params.quantity*2+(options.buyTax??0);return {command:'buy',delta:{player:{stats:{credits_spent:f.state.player.stats.credits_spent}},details:{total_cost:params.quantity*2,unfilled:0,delivered_to_storage:params.quantity}}};}
     if(key==='spacemolt/craft') {
-      if(params.dry_run)result={kind:'quote',runs:1,credits_total:3,effective_time_per_run:1,have_inputs:ore>=2,have_credits:true,have_capacity:true,cost:{inputs:recipe.inputs,labor:2,fee:1},produces:recipe.outputs,venue_type:'facility',facility_id:'factory',venue:'Fixture factory'};
-      else if(params.id){ore-=2;queued=true;f.state.player.credits+=100-3;f.state.player.stats.credits_spent+=3;result={kind:'job',job_id:'craft-job',escrowed:options.missingCraftCost?{labor:2}:{labor:2,fee:1}};if(!options.queued)finish();}
-      else result={kind:'queue',total_jobs:queued?1:0,jobs:queued?[{job_id:'craft-job',base_id:'base',recipe:'refine',runs_remaining:1}]:[]};
+      if(params.id) {
+        const runs=Math.ceil(params.quantity/recipe.outputs[0]!.quantity);
+        const inputs=recipe.inputs.map(input=>({...input,quantity:input.quantity*runs}));
+        if(params.dry_run)result={kind:'quote',quantity:params.quantity,runs,credits_total:3*runs,effective_time_per_run:1,have_inputs:ore>=inputs[0]!.quantity,have_credits:true,have_capacity:true,cost:{inputs,labor:2*runs,fee:runs},produces:recipe.outputs,venue_type:'facility',facility_id:'factory',venue:'Fixture factory'};
+        else {ore-=inputs[0]!.quantity;queued=true;queuedRuns=runs;f.state.player.credits+=100-3*runs;f.state.player.stats.credits_spent+=3*runs;result={kind:'job',job_id:'craft-job',runs,produces:recipe.outputs,escrowed:options.missingCraftCost?{labor:2*runs}:{labor:2*runs,fee:runs}};if(!options.queued)finish();}
+      }
+      else result={kind:'queue',total_jobs:queued?1:0,jobs:queued?[{job_id:'craft-job',base_id:'base',recipe:'refine',runs_remaining:queuedRuns}]:[]};
     }
     if(key==='spacemolt_storage/withdraw') {
       metal-=params.quantity;f.state.cargo.push({item_id:'metal',quantity:params.quantity,size:1});f.state.ship.cargo_used+=params.quantity;result={};

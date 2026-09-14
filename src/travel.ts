@@ -7,7 +7,7 @@ export class TravelBlocked extends Error {}
 export class ArrivalUnresolved extends Error {}
 export interface TravelDestination {system_id:string;poi_id?:string;base_id?:string}
 export interface TravelOptions {
-  reserve?:number;maxJumps?:number;
+  reserve?:number;maxJumps?:number|null;
   checkpoint?:(settled?:boolean)=>Promise<void>;
   beforeMove?:()=>Promise<void>;
   checkMove?:()=>void;
@@ -43,8 +43,9 @@ const retryable=(error:unknown)=>error instanceof SpacemoltError&&!error.pending
 
 /** One shared movement path; policy, spending and command ownership stay with the caller. */
 export async function travelTo(account:ReadinessAccount,command:ReadinessCommand,destination:TravelDestination,options:TravelOptions={}) {
-  const reserve=options.reserve??17,maxJumps=options.maxJumps??2;
-  if(!destination.system_id||!Number.isFinite(reserve)||reserve<0||!Number.isInteger(maxJumps)||maxJumps<0)throw new TravelBlocked('Invalid travel destination or allocation');
+  const reserve=options.reserve??17;
+  let maxJumps=options.maxJumps===null?null:options.maxJumps??2;
+  if(!destination.system_id||!Number.isFinite(reserve)||reserve<0||(maxJumps!==null&&(!Number.isSafeInteger(maxJumps)||maxJumps<0)))throw new TravelBlocked('Invalid travel destination or allocation');
   const stable=(s:GameState)=>Boolean(s.location?.system_id&&!s.location.in_transit);
   const arrived=(s:GameState)=>stable(s)&&s.location!.system_id===destination.system_id&&
     (!destination.poi_id||s.location!.poi_id===destination.poi_id);
@@ -64,7 +65,7 @@ export async function travelTo(account:ReadinessAccount,command:ReadinessCommand
     if(!stable(account.state)||!ship||!Number.isFinite(ship.fuel))throw new TravelBlocked('Canonical location and fuel required for routing');
     const result=details(await command('spacemolt/find_route',{id:destination.system_id}));
     let steps:string[];
-    try {steps=routeSteps(result,location!.system_id,destination.system_id,maxJumps-jumps);}
+    try {steps=routeSteps(result,location!.system_id,destination.system_id,maxJumps===null?null:maxJumps-jumps);}
     catch(error){throw new TravelBlocked(String(error));}
     await account.refresh();
     const current=account.state;
@@ -72,6 +73,8 @@ export async function travelTo(account:ReadinessAccount,command:ReadinessCommand
       current.location!.docked_at!==location!.docked_at||current.ship?.id!==ship.id||current.ship.fuel!==ship.fuel||current.ship.cargo_used!==ship.cargo_used)
       throw new TravelBlocked('Ship load, fuel or location changed while quoting route');
     if((result.fuel_available!==undefined&&result.fuel_available!==ship.fuel)||(result.cargo_used!==undefined&&result.cargo_used!==ship.cargo_used))throw new TravelBlocked('Route quote does not match current fuel or cargo');
+    // Objective travel admits this finite route, not an unlimited rerouting loop.
+    maxJumps??=steps.length;
     return {steps,required:result.estimated_fuel+reserve,origin:location!,ship};
   };
   while(!arrived(account.state)) {

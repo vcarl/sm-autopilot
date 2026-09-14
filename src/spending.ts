@@ -78,7 +78,9 @@ export function jobBudget(job:Job,jobs:Job[]):BudgetSpending {
   const ownerId=job.budget_owner_id??job.id;
   const owner=jobs.find(candidate=>candidate.id===ownerId);
   if(!owner)throw new Error('Cleanup spending owner is unavailable');
-  const expenses=jobs.filter(candidate=>candidate.id===ownerId||candidate.budget_owner_id===ownerId).map(jobSpending);
+  const scopeStart=job.budget_scope_start_id===undefined?-1:jobs.findIndex(candidate=>candidate.id===job.budget_scope_start_id);
+  if(job.budget_scope_start_id!==undefined&&scopeStart<0)throw new Error('Objective spending checkpoint is unavailable');
+  const expenses=jobs.filter((candidate,index)=>candidate.id===ownerId||candidate.budget_owner_id===ownerId||scopeStart>=0&&index>=scopeStart).map(jobSpending);
   const known=expenses.reduce((total,expense)=>total+expense.known_gross_spend,0);
   const unpriced=expenses.flatMap(expense=>expense.unpriced_actions);
   const policy_decision=evaluateRules({phase:'budget',context:job.context,ownerLimits:owner.context.limits});
