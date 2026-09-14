@@ -36,6 +36,8 @@ The operator can force Tired at any moment, from outside, and that overrides eve
 
 Resupply is not always possible. Credits can be too low for fuel, ammunition can be unavailable, home can be unreachable. A Tired pilot in that position is not stuck; it has a shortlist of permitted recoveries, all inside the operator's standing permissions: sell what it carries to afford the way home, take a cheaper service at a nearer station, dock somewhere that is not home and hold there, ask for help from local players or friends.
 
+The world moves between every look and every act. The ship can be moved with no command behind it, by death, capture, or a fleet that kicks it. A cached state can look fresh because an unrelated field changed. A jump that reports failure has often succeeded. So a script reads before it trusts, and a refusal or a receipt carries what was actually observed, not what was expected. A job is named for what will be true when it ends, and it begins by checking whether that is already so; that is what makes repeating a job safe and what makes a counter mean "have fuel" rather than "issue a purchase."
+
 ## The menu
 
 The agent should choose from options, not guess and be refused.
@@ -46,7 +48,7 @@ The menu is never empty. A pilot idle at a base with no stance, no mood, and not
 
 The menu bounds; it does not command. The agent weighs the options against its goal, its read of the world, and what it has been doing lately, and it may also act outside the menu: attempt something the tools allow that the engine did not suggest, decline everything and move, or rest. Scripts still refuse what they cannot do safely. The distinction that matters is this: an option the agent picked from the menu is accepted under the conditions the menu was built from. The world can move between observation and action, and when it has, the refusal names the changed condition and comes with a fresh menu. A refusal under unchanged conditions means the menu was wrong, and fixing the menu is the fix. An off-menu attempt that a script refuses is the script doing its job, and the refusal should say what would have made it admissible.
 
-The rules engine and the pilot's durable journal are how the pilot stays safe and remembers what it was doing across crashes and reconnects. They are the pilot's own machinery. The agent sees their conclusions, never their internals.
+The rules engine and the pilot's durable journal are how the pilot stays safe and remembers what it was doing across crashes and reconnects. They are the pilot's own machinery. The agent sees their conclusions, never their internals. Nothing that machinery changes on its own is silent: when the runner imposes Tired, cuts a chain short, or takes a recovery, the journal records the change, its reason, and the rule that made it, because a setting changed by a timer with no record becomes a mystery to whoever reads the journal later.
 
 ## Junctures
 
@@ -66,7 +68,7 @@ The tools and guidance in front of the agent match its stance. A hunting pilot h
 
 Skills teach choices, not procedures. The shared skill teaches what the pilot's world is, how to read its state, how to choose home and mood, and how to interpret outcomes. A stance skill teaches how to choose well within that kind of work: what to look for, what a good job looks like, when to reconsider. Those two are loaded into every conversation of the shift and stay for its life. Beyond them, skills are surfaced on demand: what this kind of place offers, how a particular counter works, what a contract of this type promises. The rules engine names which of those apply right now, from the same stance, mood, and place it used to build the menu, and the agent reads them when it needs them.
 
-A skill describes a script by its promise and its outcome, never its branches. Scripts vary inside themselves with the world: a different route under a cautious mood, an earlier return from a contested belt, a shorter run when the hold is nearly full. The agent is never coached about that variation and never asked to account for it. Sequencing and safety are the scripts' job, and a skill that has to explain a state machine is covering for a script that should not need one.
+A skill describes a script by its promise and its outcome, never its branches. What a skill says about a job's options derives from the same definition the runner validates against, so guidance cannot drift from the tools. Scripts vary inside themselves with the world: a different route under a cautious mood, an earlier return from a contested belt, a shorter run when the hold is nearly full. The agent is never coached about that variation and never asked to account for it. Sequencing and safety are the scripts' job, and a skill that has to explain a state machine is covering for a script that should not need one.
 
 ## The operator
 
@@ -86,7 +88,7 @@ The system has four layers, and each one has a job the others must not take over
 
 **Decision-making** is the language model. It reads the present, weighs the menu against its goal, chooses, and at rest reflects. It navigates the world as a player does: by judgment, not by procedure.
 
-**Rules** are one table with several consumers. Given the current world context, stance, mood, place, holdings, obligations, permissions, the same rules decide what goes on the menu, which skills are surfaced, and how a running script behaves. Interlocking means they agree because they are the same rules, not because three systems were kept in step by hand.
+**Rules** are one table with several consumers. They answer one kind of question: what is permitted, selected, or required given these facts. What to do next is never their business. Given the current world context, stance, mood, place, holdings, obligations, permissions, the same rules decide what goes on the menu, which skills are surfaced, and how a running script behaves. Interlocking means they agree because they are the same rules, not because three systems were kept in step by hand.
 
 **Skills** describe how to use what is available. Some are preloaded for the shift; the rest are surfaced on demand, limited by the rules to what fits right now. They teach choices and counters, never internals.
 
@@ -112,7 +114,7 @@ These words are load-bearing. Each names one rung or one moment, and none is a s
 | **Turn** | One model invocation inside a conversation. | runner |
 | **Human turn** | An inquiry or direction in a channel conversation. Not a juncture. | operator |
 | **Menu** | The options at a juncture. | rules |
-| **Outcome** | What a job reports to the agent. The short form of a receipt. | script |
+| **Outcome** | What a job reports to the agent. The short form of a receipt. It answers two questions separately: did the job end, and did the thing happen. | script |
 | **Receipt** | What a job writes to the journal. | script |
 
 Words we do not use for our own work: **plan**, which is only goal plus stance plus mood; **task**, which invites deciding between steps; **mission** and **contract**, which name items on a station board and nothing else; **session**, which belongs to Hermes internals and is a conversation here.

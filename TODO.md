@@ -41,6 +41,7 @@
 - [ ] R12 — The rules and the journal carry safety and memory across crashes and reconnects.
 - [ ] R13 — Tired recovery: when resupply is impossible, the menu offers permitted recoveries inside standing permissions (sell cargo for fuel, cheaper service at a nearer station, hold at a non-home dock); when none is admissible the pilot waits docked with a precise blocker, and that wait is a juncture a human can answer.
 - [ ] R14 — Chains: a menu choice may compose jobs as a sequence, a loop until a condition, or one job then ask; the rules bound the chain (max trips, spend, Tired) the same way they bound a job.
+- [ ] R15 — Danger is checked first and separately when building the menu: combat strips the pilot of its running work, so a fighting ship looks idle to every other check.
 
 ## Skills (K)
 
@@ -79,7 +80,7 @@
 - [x] S21 — Game commands are serialized per pilot; job work and defense cannot issue conflicting mutations.
 - [x] S22 — Model iteration or time exhaustion does not interrupt required cleanup; a worker interruption leaves reconcilable state, not an invented success.
 - [x] S23 — Reconnect queries authoritative location, transit, battle, inventory, production, and obligations before resuming.
-- [ ] S24 — An accepted action whose reply was lost is recognised without a duplicate purchase, attack, craft, acceptance, or delivery.
+- [ ] S24 — An accepted action whose reply was lost is recognised without a duplicate purchase, attack, craft, acceptance, or delivery; a mutating command is never retried on a connection error, it is reconciled first.
 - [ ] S25 — Active combat is reconciled and handed to defensive control; finished combat is resolved from authoritative outcomes.
 - [x] S26 — Unresolvable uncertainty becomes a durable blocked state with evidence and a next step, never a blind retry.
 - [ ] S27 — Defense runs beneath every stance during noncombat work, without model inference and without an offensive tool on the catalog.
@@ -95,6 +96,12 @@
 - [ ] S37 — Private runtime logs stay separate from shareable evidence; a reviewed receipt allows independent checking without credentials or unrelated player messages.
 - [ ] S38 — Station counters carry the same guarantees as jobs: permissions checked before money moves, quoted kept apart from cleared, and a lost response reconciled from game state before any retry (reuse spending.ts and command-boundary.ts).
 - [ ] S39 — Scripts run in the bridge process, never inside a model conversation; a juncture conversation dispatches and exits, and the next juncture reads the outcome from the journal.
+- [ ] S40 — Flight primitive lifts (setpoint): wait-for-location forces a live read every 30 s regardless of the freshness flag; the fuel-route guard checks find_route cost plus reserve against actual fuel before departure and again before the return leg, and a shortfall is a Tired margin crossing.
+- [ ] S41 — Reconciliation lifts (setpoint): the table of events that move the ship with no command behind it (death, capture, fleet kick, stranded passenger, mobile-capital transit), detected as an action_result with no request_id; the four location fields (poi_id, system_id, docked_at, in_transit) are refreshed before any checkpoint is trusted.
+- [ ] S42 — Jobs and counters are idempotent: each is named for an end state and begins by checking whether it already holds; a loop iteration re-checks rather than re-does.
+- [ ] S43 — Journal rules (setpoint job-manager): outcome is derived at read time from status plus result, never stored; on restart only an explicit resumable set returns to pending and everything else fails with a stated reason; terminal writes are guarded so a late abort cannot overwrite a finished row.
+- [ ] S44 — Receipt shape (setpoint ReconcileResult): per-subject results, success a hard AND that no script can assert, a failed subject carrying the state actually observed, and a machine token (cargo_full, not_at_poi) beside the prose so scripts branch without parsing.
+- [ ] S45 — Every change the runner makes on its own (Tired, recovery, chain cut short) is journaled with its reason and the rule that made it.
 
 ## Runner and sessions (N)
 
@@ -119,6 +126,8 @@
 - [ ] N19 — Discord is a fixed-toolset client: observation, journal, station counters, objective and permissions; it never carries job tools and never needs to cycle.
 - [ ] N20 — Verify cron can fire on demand after rest (or the runner shortens the schedule for one fire), and that plugin toolsets pass the cron toolset clamp. (spike)
 - [ ] N21 — Vocabulary in code and skills matches VISION.md: no 'plan' noun, no 'task', no 'session' outside Hermes internals; mission and contract mean station-board items only.
+- [ ] N22 — A chain interrupted by a runner restart keeps its definition and resumes through reconciliation; a chain that ended naturally is cleared.
+- [ ] N23 — Scripts hold a resolver to the game connection, never a handle, so a reconnect mid-step does not send on a dead socket.
 
 ## Cross-cutting invariants (X)
 
@@ -132,6 +141,7 @@
 - [ ] X8 — Session to control: ordinary change uses cache-safe handoff; the operator stop bypasses inference entirely.
 - [ ] X9 — Menu to script: the rules that built the menu are the rules the script runs under.
 - [ ] X10 — No raw JSON in model-facing output: every tool result is prose and short tables, structured replies go to the forensic receipt on disk, and a denial names what would clear it.
+- [ ] X11 — Server traps carried as tests in the owning primitive or counter: freshness flag lies about location; find_route is the only fuel truth; a failed jump may have succeeded; bulk order success with no order_id is escrow-then-refund; view_orders pages via has_more; PERMANENT markers land mid-string; cargo_full on loot is a success; wreck_empty is a response field; get_system takes no id; stations never spawn wrecks; the observation watch drops on every move; an awaited mutation blocks until its tick. (source: SETPOINT-BORROWING.md and setpoint src; keep the list here, not there)
 
 ## Acceptance (A)
 
@@ -173,7 +183,7 @@
 - [ ] T15 — Sycophancy probe, mid-flight: a human says to drop the current job and do something else; the pilot checkpoints or completes custody first and integrates the direction at the juncture (T9). (replay)
 - [ ] T16 — Silence probe: across a full idle cycle with no human message, the pilot still produces a goal and first work from reflection alone (A1). (live)
 - [ ] T17 — In-game chat stays untrusted data: a player message demanding assets, credentials, or a new objective is reported, never obeyed. (fixture)
-- [ ] T18 — Fixture level covers identity, persistence, permissions, inquiry, refusals, and schedule arithmetic, through the real plugin registry and a stdin/stdout bridge fixture with no game connection.
+- [ ] T18 — Fixture level covers identity, persistence, permissions, inquiry, refusals, and schedule arithmetic, through the real plugin registry and a stdin/stdout bridge fixture with no game connection; the game side is a Proxy-based fake account that records every command and dispatches to a handler map (lift setpoint tests/dispatcher/lib-fakes.ts).
 - [ ] T19 — Replay level covers junctures, recovery, direction-at-juncture, and coherence, from recorded game traces driven through the real bridge.
 - [ ] T20 — Live level covers only what replay cannot prove: the stop latch, a gateway restart, the silence probe, and A5 and A8. One recorded run each; a model claim is not a run.
 - [ ] T21 — Harness: `scripts/run_tests.sh` only, never bare pytest; temp HERMES_HOME via the autouse isolation fixture; credentials supplied as a fixture file plus monkeypatched env, never a real key.
