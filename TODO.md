@@ -240,6 +240,36 @@
 - [ ] T27 — Stillness probe, mirror of T16: with a completed bounded objective, wakeups leave goal, stance, and journal unchanged and the pilot says it is done. (fixture)
 - [ ] T28 — Port `spacemolt/ported/setpoint/` (34 files copied verbatim from setpoint ea47eb2, 2026-09-14; see its README): swap bun:test for node:test, retarget imports, delete the frozen-constant test; the Proxy fake account becomes the T18 harness and replaces execution-fixture.ts and the three domain fixtures.
 
+## Capabilities (C)
+
+Each row is a behavior the pilot can perform independently, at a stated evidence level, with one runnable proof. `scripts/codex_workflow.py --capability auto` runs the proofs in order and takes the first failing row as the milestone; a row is ticked only by the workflow when its proof passes. Proofs live in `spacemolt/proofs/` and may be added by a task but never changed afterward. Rows depend on checklist items above; a task pursuing a row ticks those items as it completes them, with evidence. Live rows are for the operator, never the workflow.
+
+- [ ] C1 — Departs only when the quoted route cost plus the mood's reserve fits actual fuel; otherwise refuses with the shortfall in units. (fixture) | proof: `node --test spacemolt/proofs/c01-fuel-guard.test.ts` | depends: S40, R7, T28
+- [ ] C2 — Travels to a POI in the current system and confirms arrival by a live read, waiting out an in-flight transit rather than re-issuing. (fixture) | proof: `node --test spacemolt/proofs/c02-travel-poi.test.ts` | depends: S40, T28
+- [ ] C3 — Jumps a multi-system route to a target system, re-planning once from actual position when a jump reports failure. (fixture) | proof: `node --test spacemolt/proofs/c03-jump-route.test.ts` | depends: S40
+- [ ] C4 — Docks at a station, treats already-docked as satisfied, and resolves a lost dock reply by a live refresh in either direction. (fixture) | proof: `node --test spacemolt/proofs/c04-dock.test.ts` | depends: S24, S40
+- [ ] C5 — Refuels and repairs to the current mood's margins from a verified post-state; a partial fill is not success. (fixture) | proof: `node --test spacemolt/proofs/c05-service.test.ts` | depends: S6, R7
+- [ ] C6 — Re-checks fuel before the return leg with actual fuel and position, and becomes Tired on a shortfall instead of departing. (fixture) | proof: `node --test spacemolt/proofs/c06-return-fuel.test.ts` | depends: S40, R8
+- [ ] C7 — Mines at a POI until the hold is full; cargo_full is success, depletion is distinct from failure, and yield is measured from the cargo delta. (fixture) | proof: `node --test spacemolt/proofs/c07-mine-full.test.ts` | depends: S9, S42
+- [ ] C8 — Sells or deposits cargo at a station, keeping quoted apart from cleared and never selling starting cargo. (fixture) | proof: `node --test spacemolt/proofs/c08-settle-cargo.test.ts` | depends: S38
+- [ ] C9 — One gather job dock to dock: undock, travel, mine to full, return, dock, settle, serviced at the end, outcome verified against state. (fixture) | proof: `node --test spacemolt/proofs/c09-gather-job.test.ts` | depends: C2, C4, C5, C7, C8, S9
+- [ ] C10 — Buys inputs it lacks, crafts, and settles with escrow accounting; a queue that disappears is not settlement. (fixture) | proof: `node --test spacemolt/proofs/c10-craft.test.ts` | depends: S38, S42, K5
+- [ ] C11 — Accepts a freight contract that fits hold and deadline, hauls, delivers, and settles the debt. (fixture) | proof: `node --test spacemolt/proofs/c11-freight.test.ts` | depends: S9, S38
+- [ ] C12 — Boards passengers for a destination on route, carries them, and unloads with exact fares. (fixture) | proof: `node --test spacemolt/proofs/c12-passengers.test.ts` | depends: S9
+- [ ] C13 — Recognizes a move it did not command (death, capture, fleet kick) and reconciles from live state before acting. (fixture) | proof: `node --test spacemolt/proofs/c13-unsolicited-move.test.ts` | depends: S41
+- [ ] C14 — Defends when attacked during travel or mining, retreating within the mood's margins, and resumes or comes home; a fighting ship is never mistaken for idle. (fixture) | proof: `node --test spacemolt/proofs/c14-defend.test.ts` | depends: S27, S30, R15
+- [ ] C15 — A margin crossing flips mood to Tired, the return-and-resupply path runs, and the prior mood is restored on resupply with nothing latched. (fixture) | proof: `node --test spacemolt/proofs/c15-tired-cycle.test.ts` | depends: R8, S16
+- [ ] C16 — C2, C4, and C5 replayed against a sliced gameplay trace with real recorded responses. (replay) | proof: `node --test spacemolt/proofs/c16-replay-movement.test.ts` | depends: S46, C2, C4, C5
+- [ ] C17 — C7 and C8 replayed against a sliced gameplay trace. (replay) | proof: `node --test spacemolt/proofs/c17-replay-gather.test.ts` | depends: S46, C7, C8
+- [ ] C18 — A job interrupted by a restart resumes through reconciliation with no duplicated mutation; a chain interrupted keeps its definition. (fixture) | proof: `node --test spacemolt/proofs/c18-resume.test.ts` | depends: S43, N22
+- [ ] C19 — At a base with stance, mood, and place set, the menu is non-empty, every option carries a reason and bounds, and danger is checked first. (fixture) | proof: `node --test spacemolt/proofs/c19-menu.test.ts` | depends: D7, R3, R4, R9, R15
+- [ ] C20 — A chain of three gather jobs runs with one juncture at the end and one outcome. (fixture) | proof: `node --test spacemolt/proofs/c20-chain.test.ts` | depends: R14, S32, C9
+- [ ] C21 — A cron-fired juncture opens a fresh conversation with the stance's tools, reads the menu, dispatches a job, and exits before the job ends. (fixture, temp HERMES_HOME) | proof: `scripts/run_tests.sh tests/test_spacemolt_juncture.py` | depends: N18, S39
+- [ ] C22 — A Discord inquiry is answered from state and journal with nothing changed; direction lands at the next juncture. (fixture, temp HERMES_HOME) | proof: `scripts/run_tests.sh tests/test_spacemolt_channel.py` | depends: T7, T9, N19
+- [ ] C23 — One full shift on replay: rest, reflect, goal, stance, chain, home, rest, with the journal agreeing with what the pilot says. (replay) | proof: `node --test spacemolt/proofs/c23-shift.test.ts` | depends: N6, N9, C19, C20
+- [ ] C24 — One gather trip on the live game with the operator watching. (live) | proof: `operator` | depends: C9, C16
+- [ ] C25 — One full shift live, then idle through three wakeups with a completed bounded objective. (live) | proof: `operator` | depends: C23, T20
+
 ## Next action
 
 - Run the enumeration session with Carl (D7): which stances, jobs, and station counters the game actually offers.
