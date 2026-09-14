@@ -8,6 +8,7 @@
 - Record progress, decisions, and the next action here before ending work.
 - Reopen an item when later evidence invalidates it.
 - IDs are local to this file. The vision has none; do not invent cross-references to it.
+- Work runs through `scripts/codex_workflow.py` (see `scripts/codex_workflow.md`): the operator names one milestone, usually one item or a few adjacent items from this file, and the fixed checks; while the tree is deliberately broken, checks are task-scoped (`node --test <file>`) or a checked-in script, never the whole suite.
 
 ## Decisions (D)
 
