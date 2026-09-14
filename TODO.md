@@ -63,14 +63,27 @@ verified retained output, consumed inputs, and remaining cargo.
 Verification: Node typecheck and 141 tests passed (`/tmp/spacemolt-multirun-green.log`);
 66 Python tests across 16 files passed (`/tmp/spacemolt-objective-final-python-batch.log`).
 The batch invariant fails against the old executor (`/tmp/spacemolt-multirun-red.log`).
-The actual configured Hermes model passed the full simulated goal with single-run production
-(`/tmp/spacemolt-objective-model-check-second.json`); multi-run model acceptance is in progress.
-The initial model check exposed inaccurate final quantity claims; explicit verified accounting
-in receipts corrected those. The third run exposed a separate fixture double-scaling error;
-the fixture is being corrected before accepting its batch result.
-Next action: verify the corrected multi-run model result, install the committed source into
-Kvothe, restore its gateway, and give Carl the objective instruction for a fresh conversation. Preserve unrelated CLAUDE.md,
-.claude/ and SETPOINT-BORROWING.md. Local commits and this installation have explicit approval.
+The configured Hermes model passed the simulated goal with single-run production in the second
+check. Its first batch check exposed a fixture double-scaling error; the corrected fourth check
+verified a two-run batch (four ore consumed, four metal retained, six crafting credits), but the
+model rewrote the goal to require Mining progression and continued after Crafting leveled up.
+This is failed goal-level stopping acceptance, despite working batch mechanics; do not report
+all model checks as passed. No further simulated rerun is planned. Detailed evidence and remaining
+limitations: [objective continuation](spacemolt/evidence/objective-continuation.md).
+
+Committed source `07e5c6f80880f16e1550bd56640597cff1f0e5cc` is installed in Kvothe;
+179 files matched the commit exactly, pinned npm dependencies installed, and all four existing
+profile runtime files retained their hashes through installation. Existing plugin enablement
+was preserved. Gateway launchd service `ai.hermes.gateway-kvothe` is restored, wrapper/worker
+PIDs 93340/93342, and Discord connected at 20:28:33 local time. No live game controller was
+opened by installation. Verification: `/tmp/spacemolt-objective-install-verification.json`;
+rollback source backup: `/tmp/spacemolt-pre-objective-install.tar.gz`.
+
+Next action: Carl starts a fresh Discord conversation for the new static schemas/skills and
+asks Hermes to retrieve/refit the laser, gather and craft until Crafting rises one level, then
+stop and report verified accounting. The live goal has not been performed by this operator.
+Preserve unrelated CLAUDE.md, .claude/ and SETPOINT-BORROWING.md. Local commits and this
+installation have explicit approval.
 
 The agreed starting vocabulary is seven stances (Combat, Hunt, Industry, Trade, Logistics, Explore, Salvage) and six moods (Relaxed, Cautious, Focused, Opportunistic, Aggressive, Tired). Mining belongs to Industry. Logistics includes passengers as well as freight. The agent chooses home; it is not a station ID the user must supply. Tired means return and resupply regardless of stance.
 

@@ -48,8 +48,28 @@ preserved, and its fixture must be corrected before accepting the batch result.
 
 Private model evidence: `/tmp/spacemolt-objective-model-check-first.json`,
 `/tmp/spacemolt-objective-model-check-second.json`, and
-`/tmp/spacemolt-objective-model-check-third.json`. The final corrected batch run is
-being verified before installation.
+`/tmp/spacemolt-objective-model-check-third.json`. The corrected fourth run is recorded in
+`/tmp/spacemolt-objective-model-check-fourth.json`. It verified an initial two-run
+batch: four ore consumed, four metal retained, six crafting credits, and Crafting
+level 1 → 2. However, Hermes rewrote the goal from any Industry skill to Mining,
+and continued gathering and crafting after the requested threshold was already
+met. This fails goal-level stopping acceptance. Repeated new completed experiments
+are distinct from replaying an uncertain craft command; the harness's exactly-one
+craft gate measures excess work here, not an observed duplicate submission.
+
+## Installation
+
+Installed source commit: `07e5c6f80880f16e1550bd56640597cff1f0e5cc`.
+All 179 installed files match Git; pinned Node dependencies installed successfully.
+The four existing profile runtime files were unchanged through installation.
+Kvothe's existing launchd gateway was restarted and connected to Discord at
+20:28:33 local time on September 13. No live game action was performed by this
+installation. Verification: `/tmp/spacemolt-objective-install-verification.json`.
+The pre-install source backup is `/tmp/spacemolt-pre-objective-install.tar.gz`.
+
+A fresh Discord conversation is required to load changed static schemas and
+skills. The live task remains for Hermes; the suggested instruction names Crafting
+explicitly to avoid the model's observed narrowing of the broader Industry goal.
 
 ## Live handoff and timing limits
 
