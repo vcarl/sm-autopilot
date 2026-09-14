@@ -102,6 +102,7 @@
 - [ ] S43 — Journal rules (setpoint job-manager): outcome is derived at read time from status plus result, never stored; on restart only an explicit resumable set returns to pending and everything else fails with a stated reason; terminal writes are guarded so a late abort cannot overwrite a finished row.
 - [ ] S44 — Receipt shape (setpoint ReconcileResult): per-subject results, success a hard AND that no script can assert, a failed subject carrying the state actually observed, and a machine token (cargo_full, not_at_poi) beside the prose so scripts branch without parsing.
 - [ ] S45 — Every change the runner makes on its own (Tired, recovery, chain cut short) is journaled with its reason and the rule that made it.
+- [ ] S46 — Replay harness over `runtime/gameplay.jsonl` (106 MB, not committed): slice into named per-scenario traces, add a call-index counter for repeated commands, parse the separate error-line shape, reconstruct post-command state from result.delta; movement and gathering first.
 
 ## Runner and sessions (N)
 
@@ -193,6 +194,7 @@
 - [ ] T25 — A Discord session key is per channel and per profile, so two channels are two conversations over one pilot; the coherence and windows checks (A13) exercise both rather than one.
 - [ ] T26 — None of T1 to T25 is a change-detector: each asserts a relation between what the pilot says, what the journal holds, and what the game state shows, never a frozen value.
 - [ ] T27 — Stillness probe, mirror of T16: with a completed bounded objective, wakeups leave goal, stance, and journal unchanged and the pilot says it is done. (fixture)
+- [ ] T28 — Port `spacemolt/ported/setpoint/` (34 files copied verbatim from setpoint ea47eb2, 2026-09-14; see its README): swap bun:test for node:test, retarget imports, delete the frozen-constant test; the Proxy fake account becomes the T18 harness and replaces execution-fixture.ts and the three domain fixtures.
 
 ## Next action
 
