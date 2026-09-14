@@ -242,7 +242,7 @@
 
 ## Capabilities (C)
 
-Each row is a behavior the pilot can perform independently, at a stated evidence level, with one runnable proof. `scripts/codex_workflow.py --capability auto` runs the proofs in order and takes the first failing row as the milestone; a row is ticked only by the workflow when its proof passes. Proofs live in `spacemolt/proofs/` and may be added by a task but never changed afterward. Rows depend on checklist items above; a task pursuing a row ticks those items as it completes them, with evidence. Live rows are for the operator, never the workflow.
+Each row is a behavior the pilot can perform independently, at a stated evidence level, with one runnable proof. `scripts/codex_workflow.py --capability auto` runs the proofs in order and takes the first failing row as the milestone; a row is ticked only by the workflow when its proof passes. Proofs live in `spacemolt/proofs/` and may be added by a task but never changed afterward. Rows depend on checklist items above; a task pursuing a row ticks those items as it completes them, with evidence. Live rows run against the real game with the pilot's credentials; live operation is authorized, one connection per pilot at a time.
 
 - [ ] C1 — Departs only when the quoted route cost plus the mood's reserve fits actual fuel; otherwise refuses with the shortfall in units. (fixture) | proof: `node --test spacemolt/proofs/c01-fuel-guard.test.ts` | depends: S40, R7, T28
 - [ ] C2 — Travels to a POI in the current system and confirms arrival by a live read, waiting out an in-flight transit rather than re-issuing. (fixture) | proof: `node --test spacemolt/proofs/c02-travel-poi.test.ts` | depends: S40, T28
@@ -267,8 +267,8 @@ Each row is a behavior the pilot can perform independently, at a stated evidence
 - [ ] C21 — A cron-fired juncture opens a fresh conversation with the stance's tools, reads the menu, dispatches a job, and exits before the job ends. (fixture, temp HERMES_HOME) | proof: `scripts/run_tests.sh tests/test_spacemolt_juncture.py` | depends: N18, S39
 - [ ] C22 — A Discord inquiry is answered from state and journal with nothing changed; direction lands at the next juncture. (fixture, temp HERMES_HOME) | proof: `scripts/run_tests.sh tests/test_spacemolt_channel.py` | depends: T7, T9, N19
 - [ ] C23 — One full shift on replay: rest, reflect, goal, stance, chain, home, rest, with the journal agreeing with what the pilot says. (replay) | proof: `node --test spacemolt/proofs/c23-shift.test.ts` | depends: N6, N9, C19, C20
-- [ ] C24 — One gather trip on the live game with the operator watching. (live) | proof: `operator` | depends: C9, C16
-- [ ] C25 — One full shift live, then idle through three wakeups with a completed bounded objective. (live) | proof: `operator` | depends: C23, T20
+- [ ] C24 — One gather trip on the live game: undock, mine, return, dock, settle, with the outcome verified against live state and the receipt journaled. (live) | proof: `node --test spacemolt/proofs/c24-live-gather.test.ts` | depends: C9, C16
+- [ ] C25 — One full shift live, then idle through three wakeups with a completed bounded objective. (live) | proof: `node --test spacemolt/proofs/c25-live-shift.test.ts` | depends: C23, T20
 
 ## Next action
 
