@@ -235,14 +235,16 @@ def _direct(arguments: dict[str, Any] | None = None, **_: Any) -> str:
 
 TOOL_DEFINITIONS = (
     {"name": "spacemolt_where", "toolset": "spacemolt_observe", "handler": _where,
-     "description": "Read the ship's live location, fuel, hull and the POIs of the current system.",
+     "description": "Read the ship's live location, fuel, hull, the POIs of this system and the systems it connects to.",
      "schema": _schema("spacemolt_where",
-                       "Read the ship's live location, fuel, hull and the points of interest in the current system.",
+                       "Read the ship's live location, fuel, hull, the points of interest in this system, "
+                       "and connections: the systems a jump reaches from here.",
                        {}, [])},
     {"name": "spacemolt_travel", "toolset": "spacemolt", "handler": _travel,
-     "description": "Fly to a point of interest in the current system.",
+     "description": "Fly to a point of interest in this system or another, jumping as the route needs.",
      "schema": _schema("spacemolt_travel",
-                       "Fly to a point of interest in the current system, undocking first if needed. "
+                       "Fly to a point of interest in this system or another, undocking and jumping as "
+                       "the route needs. The fuel reserve the mood keeps back bounds how far the trip goes. "
                        "Takes real game time: wait for the result. One call per move. "
                        "Returns the arrival confirmed by a live read.",
                        {"poi_id": {"type": "string",

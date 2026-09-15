@@ -15,7 +15,14 @@ const system={id:'sol',name:'Sol',pois:[
   {id:'station',name:'Sol Station',type:'station',position:{x:0,y:0},has_base:true,
     base_id:'sol_base',base_name:'Sol Base'},
   {id:'belt',name:'Inner Belt',type:'asteroid_belt',position:{x:1,y:1}},
-]};
+],connections:[{system_id:'deep_range',name:'Deep Range',distance:4}]};
+// One jump away, so a POI the pilot names may live somewhere it has to fly to.
+const deepRange={id:'deep_range',name:'Deep Range',
+  pois:[{id:'outpost',name:'Deep Range Outpost',type:'station'}],
+  connections:[{system_id:'sol',name:'Sol',distance:4}]};
+// Where each nameable id lives, as the server's find_route answers it.
+const homeOf:Record<string,string>={sol:'sol',station:'sol',belt:'sol',
+  deep_range:'deep_range',outpost:'deep_range'};
 
 function fixture(options:ServeOptions={},services=['refuel','repair']) {
   const account=new FakeLibGoalAccount({
@@ -30,9 +37,19 @@ function fixture(options:ServeOptions={},services=['refuel','repair']) {
   });
   const sent:{action:string;params:Record<string,unknown>}[]=[];
   const handlers:Record<string,(params:Record<string,unknown>)=>unknown>={
-    'spacemolt/get_system':()=>({structuredContent:{kind:'normal',system}}),
-    'spacemolt/find_route':()=>({found:true,target_system:'sol',total_jumps:0,estimated_fuel:7,fuel_per_jump:0,
-      fuel_available:account.server.ship.fuel,cargo_used:account.server.ship.cargo_used,route:[{system_id:'sol',jumps:0}]}),
+    'spacemolt/get_system':()=>({structuredContent:{kind:'normal',
+      system:account.server.location.system_id==='sol'?system:deepRange}}),
+    'spacemolt/find_route':params=>{
+      const target=homeOf[String(params.id)];
+      if(!target)return {found:false,message:`No route to ${params.id}`};
+      const from=account.server.location.system_id;
+      const route=from===target?[from]:[from,target];
+      return {found:true,target_system:target,target_poi:String(params.id),total_jumps:route.length-1,
+        estimated_fuel:7,fuel_per_jump:7,fuel_available:account.server.ship.fuel,
+        cargo_used:account.server.ship.cargo_used,route:route.map((system_id,jumps)=>({system_id,jumps}))};
+    },
+    'spacemolt/jump':params=>{account.server.ship.fuel-=7;account.server.location.system_id=String(params.id);
+      account.server.location.poi_id='gate';return {};},
     'spacemolt/undock':()=>{account.server.location.docked_at=null;return {};},
     'spacemolt/dock':()=>{account.server.location.docked_at='sol_base';return {};},
     // The server settles the move before the next authoritative read, as a same-system hop does.
@@ -85,6 +102,8 @@ test('where reports the live position and the destinations the model may name', 
   assert.deepEqual(observed.fuel,100);
   assert.deepEqual(observed.pois,[{id:'station',name:'Sol Station',type:'station'},
     {id:'belt',name:'Inner Belt',type:'asteroid_belt'}]);
+  // The systems a jump reaches are nameable too, not just this system's POIs.
+  assert.deepEqual(observed.connections,[{system_id:'deep_range',name:'Deep Range',distance:4}]);
   // Every listed destination is nameable and nothing heavier rides along.
   assert.ok(JSON.stringify(observed).length<2048);
   for(const poi of observed.pois)assert.deepEqual(Object.keys(poi),['id','name','type']);
@@ -97,12 +116,32 @@ test('travel undocks, flies to the named poi, and reports the arrival a live rea
   assert.deepEqual(result.location,{system:'sol',poi:'belt',docked_at:null});
   assert.equal(result.fuel,93);
   assert.equal(typeof result.elapsed_s,'number');
+  // One route query says which system holds the poi, the second is travelTo's own fuel quote.
   assert.deepEqual(f.sent.map(call=>call.action),
-    ['spacemolt/find_route','spacemolt/undock','spacemolt/travel']);
+    ['spacemolt/find_route','spacemolt/find_route','spacemolt/undock','spacemolt/travel']);
   assert.deepEqual(f.sent.at(-1)!.params,{id:'belt'});
   assert.equal(f.account.server.location.poi_id,'belt');
   // A destination the model never named must not become a flight.
   await assert.rejects(fixture().dispatch('travel',{}),/poi_id/);
+});
+
+test('travel to a poi in another system jumps there rather than refusing', async () => {
+  const f=fixture();
+  const result=await f.dispatch('travel',{poi_id:'outpost'}) as any;
+  assert.equal(result.arrived,true);
+  assert.deepEqual(result.location,{system:'deep_range',poi:'outpost',docked_at:null});
+  const moves=f.sent.filter(call=>call.action==='spacemolt/jump'||call.action==='spacemolt/travel');
+  assert.deepEqual(moves,[{action:'spacemolt/jump',params:{id:'deep_range'}},
+    {action:'spacemolt/travel',params:{id:'outpost'}}]);
+  assert.equal(f.account.server.location.system_id,'deep_range');
+});
+
+test('a destination with no route is reported, never flown', async () => {
+  const f=fixture();
+  const result=await f.dispatch('travel',{poi_id:'nowhere'}) as any;
+  assert.equal(result.arrived,false);
+  assert.equal(result.reason,'No route to nowhere');
+  assert.deepEqual(f.sent.map(call=>call.action),['spacemolt/find_route']);
 });
 
 test('dock reports the dock the pilot already has and otherwise docks once, live read deciding', async () => {

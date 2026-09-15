@@ -76,16 +76,23 @@ export function serve(account:ReadinessAccount,command:ReadinessCommand,options:
       ...(location?.in_transit?{destination:{system:location.transit_dest_system_id,poi:location.transit_dest_poi_id}}:{}),
       fuel:ship?.fuel,max_fuel:ship?.max_fuel,hull:ship?.hull,max_hull:ship?.max_hull,
       pois,
+      // The systems a jump reaches from here, so a destination elsewhere is nameable.
+      connections:(system?.connections??[]) as Record<string,any>[],
     };
   };
   const travel=async(poiId:string)=>{
-    if(!poiId)throw new Error('travel requires a poi_id from the current system');
+    if(!poiId)throw new Error('travel requires a poi_id');
     await account.refresh();
-    const system=account.state.location?.system_id;
-    if(!system)throw new Error('Current system is unknown; observe before travelling');
+    if(!account.state.location?.system_id)throw new Error('Current system is unknown; observe before travelling');
     const started=Date.now();
+    // The destination names a POI; the server says which system holds it, so a POI in another
+    // system is a route with jumps rather than a refusal.
+    const route=details(await command('spacemolt/find_route',{id:poiId}));
+    if(!route.found)return {arrived:false,reason:String(route.message??`No route to ${poiId}`),elapsed_s:elapsed(started)};
     try {
-      const {location}=await travelTo(account,command,{system_id:system,poi_id:poiId},{mood:'Cautious'});
+      // maxJumps null: the mood's fuel reserve bounds the trip, not a jump count.
+      const {location}=await travelTo(account,command,{system_id:String(route.target_system),poi_id:poiId},
+        {mood:'Cautious',maxJumps:null});
       return {arrived:true,location:{system:location?.system_id,poi:location?.poi_id,docked_at:location?.docked_at??null},
         fuel:account.state.ship?.fuel,elapsed_s:elapsed(started)};
     } catch(error) {

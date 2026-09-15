@@ -102,6 +102,7 @@
 ## Scripts (S)
 
 - [ ] S1 — Every stance carries the same flight primitives: look, travel, dock, service. No stance can strand the pilot.
+  - Travel is no longer system-local (2026-09-15, after the pilot was refused Deep Range Outpost from unknown_edge): the bridge resolves a named POI's system via find_route and hands travelTo the real destination with maxJumps null, so the mood's fuel reserve bounds the trip instead of a jump count; an unroutable id is reported without moving. `where` lists `connections`. Evidence: src/bridge.test.ts. Gather is still home-system by design.
 - [x] S2 — Arrival and docking are verified against authoritative state; a pending or ambiguous move is never blindly replayed.
 - [x] S3 — Tired, new danger, and an unavailable destination are handled at execution checkpoints; transit is never confused with arrival.
 - [ ] S4 — Route selection accounts for cargo, fuel, destination access, hazards, and the return leg.
