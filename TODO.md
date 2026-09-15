@@ -193,7 +193,9 @@
 - [ ] N2 — Discord, cron, and a command line are clients of the runner. None of them owns the pilot.
   - A window answers only from live reads and the journal, holds no job tool, and writes only the pilot record's objective and permissions; `juncture_context` is empty for every platform but cron. Evidence: C22 test. Open: the CLI is a client by config alone.
 - [ ] N3 — A juncture is the objective done or unable to continue: job finished, blocked, came home Tired, or the world changed.
+  - Direction reaches a juncture (2026-09-15, from play): `spacemolt_direct` calls `cron.jobs.trigger_job` on the pilot's juncture job when the runner is idle (creating it if absent), so the next scheduler tick fires a fresh juncture that reads the changed record; the window acts on nothing itself. Evidence: C22 test idle arm. Open: world changes other than direction raise nothing.
 - [ ] N4 — The idle schedule (wakeup) fires only while the pilot is idle; while a job or chain runs, the runner itself raises the juncture at its end.
+  - While a chain runs the nudge is suppressed: `spacemolt_direct` reads bridge `status` and on running says the runner raises the juncture at the chain's end. Evidence: C22 test running arm. Open: that end-of-chain juncture is unbuilt, so a directed pilot mid-chain waits for the 30 min wakeup.
   - A fire on a running chain is a no-op enforced in the bridge (`menu` answers busy, `job` refuses). Evidence: C21 test. Open: flat 30 min schedule still costs one cheap turn; suppression inside the window and the runner raising its own end-of-chain juncture are unbuilt.
 - [ ] N5 — Between junctures the agent is idle and the runner keeps the pilot safe. A job taking many minutes is the world's clock, not a stall.
   - Proved at the bridge: `job` returns while the chain is unresolved and the outcome appears in `last` only when it finishes. Open: the bridge outlives the conversation only because the gateway owns it; surviving a gateway restart is unbuilt.
@@ -278,6 +280,7 @@
   - Pilot record byte-identical across an inquiry turn and `where` the only game action asked (fixture). Journal answers are bounded. Open: stance and mood are only written at rest, unbuilt, so their identity is trivial today.
 - [ ] T8 — An inquiry turn issues no game mutation; only a juncture or a script does. (fixture)
 - [ ] T9 — Direction updates the objective or standing permissions in state and is integrated at the next juncture; a job in flight runs to its terminal outcome first (D10, X4). (replay)
+  - Juncture prompt teaches all four endings (2026-09-15, from play): act directly with as many calls as the move needs (each well inside the 420 s per-call timeout), dispatch when one step runs past a few minutes, hold and watch, or rest at home. Direction integrates at whichever juncture comes next.
   - Half done (fixture): `spacemolt_direct` writes objective and permissions and the next juncture context carries them; an unnamed permission keeps its value. Open: a job in flight running to its terminal outcome first is prose, not enforced.
 - [ ] T10 — The operator stop is the exception and acts immediately: it reaches active scripts without a model turn and only the operator releases it (N14, X8). (live)
 - [ ] T11 — Direction outside standing permissions is refused with what would make it admissible, and the permissions are not widened by the asking (D11, R6). (fixture)

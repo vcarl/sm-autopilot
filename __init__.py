@@ -14,7 +14,8 @@ from typing import Any, Mapping
 
 from pathlib import Path
 
-from .juncture import JUNCTURE_PLATFORM, juncture_context, read_pilot, write_pilot
+from .juncture import (JUNCTURE_PLATFORM, ensure_juncture_job, juncture_context, read_pilot,
+                       write_pilot)
 from .service import available, call, close_bridge, runtime_dir
 from .skills_register import register_skills
 
@@ -40,7 +41,8 @@ _WINDOW_PROMPT = (
     "SpaceMolt: you are a window on a pilot the runner flies; this conversation never owns it. "
     "spacemolt_where reads the ship's live position, fuel and hull, spacemolt_status says "
     "whether a job is running right now, and spacemolt_journal returns the last few things the "
-    "pilot actually did. Answer from those three and never from memory: what you report about "
+    "pilot actually did, and spacemolt_storage reads what it holds at a base without going "
+    "there. Answer from those reads and never from memory: what you report about "
     "progress, cost and position has to be what the game and the journal say. spacemolt_direct "
     "is the operator's — it sets the objective and the standing permissions, which the pilot "
     "takes up at its next juncture rather than now, and a job already under way runs to its "
@@ -143,6 +145,27 @@ def _journal(arguments: dict[str, Any] | None = None, **_: Any) -> str:
     return json.dumps([_journal_row(line) for line in lines if line.strip()], separators=(",", ":"))
 
 
+def _nudge_juncture() -> str:
+    """Ask the runner to bring the juncture on the next scheduler tick, and say so.
+
+    A human turn is not a juncture (N3): the window records direction, the runner raises the
+    juncture because the world changed. Idle, nothing else will raise one until the wakeup
+    schedule comes round, so mark the pilot's cron job due — the same field ``hermes cron run``
+    sets. While a chain runs the runner raises its own juncture at the chain's end (N4), so a
+    nudge here would only double-fire it.
+    """
+    from cron.jobs import trigger_job
+
+    try:
+        running = bool((call("status") or {}).get("running"))
+    except Exception:
+        running = False  # no bridge means nothing is flying; a juncture is safe to ask for
+    if running:
+        return " A chain is running, so the runner raises the juncture when it ends."
+    trigger_job(ensure_juncture_job()["id"])
+    return " The pilot is idle, so that juncture is due on the next scheduler tick."
+
+
 def _direct(arguments: dict[str, Any] | None = None, **_: Any) -> str:
     """Set the objective and the standing permissions. Nothing else in the record moves: stance
     and mood are the pilot's, chosen at rest, and Tired is the stop, not a direction."""
@@ -160,7 +183,9 @@ def _direct(arguments: dict[str, Any] | None = None, **_: Any) -> str:
         record["permissions"] = {**(record.get("permissions") or {}), **permissions}
     write_pilot(record)
     return ("Direction recorded. The pilot takes it up at the next juncture, not now, and a job "
-            "already under way runs to its outcome first. Standing now: "
+            "already under way runs to its outcome first."
+            + _nudge_juncture()
+            + " Standing now: "
             + json.dumps({"objective": record.get("objective"),
                           "permissions": record.get("permissions") or {}},
                          separators=(",", ":"), sort_keys=True))

@@ -31,10 +31,16 @@ Your stance's skill says what kind of evening this is and what makes a trip wort
 ## How to Run
 
 The present, the menu and the last outcome are already in front of you; nothing fetches them.
-Pick one option and act on it once, then say in a line or two what you chose and why, and end
-the turn. Observation is free and commits nothing — `spacemolt_where` answers position, fuel
-and hull from the live ship, and a docked pilot may read any counter without spending — so
-look before you act. Acting is the one thing you do once.
+Observation is free and commits nothing — `spacemolt_where` answers position, fuel and hull
+from the live ship, and a docked pilot may read any counter without spending — so look before
+you act. Then end the juncture one of four ways, and say in a line or two which and why:
+
+- **Act on the menu yourself**, taking as many calls as the move needs — travel, dock, read
+  storage, and whatever else you hold. A call is real game time; wait it out, never retry it.
+- **Dispatch to the runner** when a single step would run past a few minutes, as a gather does.
+  Start it once and end the turn; it runs on without you and raises the next juncture itself.
+- **Hold and watch**, starting nothing, when the world is worth another look first.
+- **Rest at home** when the objective is done.
 
 ## Quick Reference
 
@@ -88,7 +94,7 @@ passengers and facilities are per-station.
    take, and acting on the refusal is often the better move.
 3. Prefer an admissible option. You may go off the menu, but then say in one line why the
    refusal does not apply.
-4. Act once and end the turn.
+4. Take one of the four endings and end the turn.
 
 ## Pitfalls
 
@@ -104,5 +110,5 @@ passengers and facilities are per-station.
 
 ## Verification
 
-The juncture is done when you have taken one act and said why. What it left true reaches you
-at the next juncture as the outcome; there is nothing to check now.
+The juncture is done when you have acted, dispatched, held or rested, and said why. What it
+left true reaches you at the next juncture as the outcome; there is nothing to check now.
