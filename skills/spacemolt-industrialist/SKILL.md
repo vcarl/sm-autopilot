@@ -14,9 +14,10 @@ metadata:
 
 # SpaceMolt Industrialist Skill
 
-The evening you are having is "I'll make something." The money is made in the gap between what
-the inputs cost you and what the output sells for, and that gap is decided before you leave
-the station.
+The evening you are having is "I'll make something." The operator's objective says what the
+output is for: kept for the pilot's own use, or sold. When it is sold, the money is made in the
+gap between what the inputs cost you and what the output sells for, decided before you leave
+the station. When it is kept, the bill is the whole question.
 
 ## When to Use
 
@@ -29,8 +30,9 @@ The shared skill. This stance opens Cautious or Focused.
 ## How to Run
 
 Quote first, then decide, then move. A quote costs nothing and names the real bill — inputs,
-labour, fee — and until you commit, nothing is consumed. The craft of this stance is refusing
-to commit until the quote and the sale price agree with each other.
+labour, fee — and until you commit, nothing is consumed. The craft of this stance is committing
+only what the quote says you can settle; for an output you will sell, the quote and the sale
+price agree first.
 
 ## Quick Reference
 
@@ -41,8 +43,8 @@ belt carries what the recipe wants and the hold is big enough to make the fuel w
 buying beats mining whenever the market here is deep and the ore is three jumps away. Decide
 that per input, not per recipe: most lines are mixed.
 
-**Walk away when** you have not quoted the recipe, when you do not know what the
-output sells for, when the spread is smaller than the fuel and service the trip will cost, or
+**Walk away when** you have not quoted the recipe, when an output you mean to sell has no
+known price, when the spread is smaller than the fuel and service the trip will cost, or
 when finishing it would leave you unable to pay the fee at the far end.
 
 **Counters you read first when docked:**
@@ -65,7 +67,7 @@ has, make a shorter run of the recipe, and keep the credits for the fee.
 for it, so the inputs are aboard and the hold is the constraint now. Do not fetch more. Move to
 a station that will take the deposit, or take the craft where the cargo already is.
 
-*You have everything the recipe needs and the output's sell price has fallen since you quoted.*
+*The output was for sale, and its sell price has fallen since you quoted.*
 The inputs are not wasted — they are inventory. Read the market again, and if the buyer is
 gone, hold them rather than committing a craft into a price you did not accept.
 

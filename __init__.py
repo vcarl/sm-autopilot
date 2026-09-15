@@ -446,7 +446,7 @@ TOOL_DEFINITIONS = (
                                                    "to the base the ship is docked at now."}},
                        [])},
     {"name": "spacemolt_quote", "toolset": "spacemolt_observe", "handler": _quote,
-     "description": "Quote one recipe: the exact bill, the output and this base's buy price for it.",
+     "description": "Quote one recipe: the exact bill, the output and this base's buy price for it. The buy price is information for an output you mean to sell; an output the objective keeps has no margin test.",
      "schema": _schema("spacemolt_quote",
                        "Quote one recipe: the exact bill, output and this base's buy price for "
                        "it. A dry run; nothing is consumed or queued. Quote before committing. "
