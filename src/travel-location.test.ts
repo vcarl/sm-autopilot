@@ -12,7 +12,7 @@ function fixture(resolvePoi:string,resolveAt=2_000) {
     ship:{id:'ship',fuel:100,max_fuel:120,cargo_used:0}};
   const sleeps:number[]=[],settled:number[]=[],quotes:{at:number;state:typeof initial}[]=[];
   const hooks={poll:()=>{},checkpoint:()=>{}};
-  const account=new FakeLibGoalAccount(initial,{spacemolt:{
+  const account:FakeLibGoalAccount<typeof initial>=new FakeLibGoalAccount(initial,{spacemolt:{
     find_route:payload=>{
       assert.deepEqual(payload,{id:'sol'});
       assert.equal(server.location.poi_id,resolvePoi);

@@ -2,7 +2,6 @@ import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {SpacemoltError,ConnectionClosedError} from '@spacemolt/lib';
 import {CommandBoundary} from './command-boundary.ts';
-import {sendAndRefresh} from './execute.ts';
 
 test('a swallowed uncertain later substep prevents subsequent sends and outer success',async()=>{
   for(const error of [new Error('transport failure'),new ConnectionClosedError('socket closed',1006),new SpacemoltError('mutation_timeout','no result'),new SpacemoltError('facility_required','Request rejected while another command is pending',{pendingCommand:'buy'})]){
@@ -24,7 +23,8 @@ test('post-send refresh failures latch, but known game rejections remain recover
   assert.equal(boundary.status(rejection).fatal,false);
   const failure=new Error('canonical refresh lost');let sends=0;
   const account={async send(){sends++;return {};},async refresh(){throw failure;}};
-  await boundary.run(async(sent,completed)=>{sent();return sendAndRefresh(account,'spacemolt/mine',{},completed);}).catch(()=>{});
+  // A send that completed, then a failed canonical refresh: the shape every mutation runs.
+  await boundary.run(async(sent,completed)=>{sent();await account.send();completed();await account.refresh();}).catch(()=>{});
   assert.throws(()=>boundary.assertHealthy(),failure);
   await assert.rejects(boundary.run(async()=>{sends++;}),failure);
   assert.equal(sends,1);

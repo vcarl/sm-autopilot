@@ -8,10 +8,11 @@ import {FakeLibGoalAccount} from './test-support/fake-lib-account.ts';
 function fixture() {
   const destination={system_id:'c'};
   let lossOnUndock=0,lossOnJump=0,invalidQuote=false,moveError:Error|undefined,quotedCost:number|undefined;
-  const account=new FakeLibGoalAccount({
+  const initial={
     location:{system_id:'a',poi_id:'gate',docked_at:'home' as string|null,in_transit:false},
     ship:{id:'ship',fuel:100,max_fuel:120,cargo_used:0},
-  },{spacemolt:{
+  };
+  const account:FakeLibGoalAccount<typeof initial>=new FakeLibGoalAccount(initial,{spacemolt:{
     find_route:()=>{
       assert.deepEqual(account.state,server);
       const path=server.location.system_id==='a'?['a','b','c']:['b','c'];

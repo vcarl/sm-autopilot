@@ -21,7 +21,7 @@ function fixture(kind:'jump'|'travel',mode:'arrived'|'elsewhere'|'fuel'|'timeout
     new SpacemoltError('in_transit','first move rejected');
   if(mode==='pending')Object.assign(firstError,{pendingCommand:{}});
   const secondError=new SpacemoltError('in_transit','second move rejected');
-  const account=new FakeLibGoalAccount(initial,{spacemolt:{
+  const account:FakeLibGoalAccount<typeof initial>=new FakeLibGoalAccount(initial,{spacemolt:{
     find_route:payload=>{
       assert.deepEqual(payload,{id:destination.system_id});
       assert.ok(server.location.system_id,'unknown location cannot be quoted');
