@@ -54,7 +54,11 @@ export async function reflectReport(account:ReadinessAccount,command:ReadinessCo
   const skillRows=await attempt(missing,'skills',async()=>{
     const reply=details(await command('spacemolt/get_skills',{}));
     const rows=reply.skills??account.state.skills;
-    return Array.isArray(rows)?rows as {name?:string;level?:number;max_level?:number}[]:[];
+    // Live get_skills answers with a map keyed by skill id, not a list (C23 replay); the
+    // rows inside carry their own display name, so the map's values are the rows.
+    if(Array.isArray(rows))return rows as {name?:string;level?:number;max_level?:number}[];
+    return rows&&typeof rows==='object'
+      ?Object.values(rows) as {name?:string;level?:number;max_level?:number}[]:[];
   });
   const skills=skillRows?.filter(row=>typeof row?.level==='number')
     .sort((a,b)=>(a.level!-b.level!)||String(a.name).localeCompare(String(b.name)))

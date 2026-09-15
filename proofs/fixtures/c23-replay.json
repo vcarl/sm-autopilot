@@ -1,0 +1,1271 @@
+{
+ "note": "Sliced from runtime/gameplay.jsonl (106 MB, untracked) by proofs/fixtures/slice_gameplay.py. Real request/response pairs from live play at First Step, 2026-09-08. Other players' names and ids and the human-readable `result` text are scrubbed; nothing in the bridge reads either. A reply's own delta is left as recorded, so the mine replies claim a different session's hold \u2014 the job's numbers may only come from authoritative reads.",
+ "observed": {
+  "fuel_price_all_in": 3,
+  "home_base_id": "first_step_memorial_station",
+  "home_poi_id": "first_step_memorial_station",
+  "mine_gain": [
+   {
+    "item_id": "carbon_ore",
+    "quantity": 1
+   }
+  ],
+  "refuel_cost": 21,
+  "refuel_units": 7,
+  "site_poi_id": "colony_debris_field",
+  "system_id": "first_step",
+  "travel_fuel": 1
+ },
+ "responses": {
+  "spacemolt/dock": [
+   {
+    "command": "dock",
+    "delta": {
+     "location": {
+      "connections": [
+       "horizon",
+       "void_gate",
+       "markeb",
+       "the_telescope"
+      ],
+      "docked_at": "first_step_memorial_station",
+      "empire": "outerrim",
+      "nearby_empire_npc_count": 0,
+      "nearby_empire_npcs": [],
+      "nearby_pirate_count": 0,
+      "nearby_pirates": [],
+      "nearby_player_count": 12,
+      "nearby_prize_count": 0,
+      "nearby_prizes": [],
+      "offline_collapsed": 86,
+      "poi_id": "first_step_memorial_station",
+      "poi_name": "First Step Memorial Station",
+      "poi_type": "station",
+      "resources": [],
+      "security_status": "Low Security (slow police response)",
+      "system_id": "first_step",
+      "system_name": "First Step"
+     }
+    },
+    "tick": 1829925
+   }
+  ],
+  "spacemolt/find_route": [
+   {
+    "structuredContent": {
+     "cargo_used": 50,
+     "estimated_fuel": 0,
+     "found": true,
+     "fuel_available": 120,
+     "fuel_per_jump": 2,
+     "message": "You are already at the target system. Then travel to First Step Memorial Station (first_step_memorial_station).",
+     "route": [
+      {
+       "jumps": 0,
+       "name": "First Step",
+       "system_id": "first_step"
+      }
+     ],
+     "target_poi": "first_step_memorial_station",
+     "target_poi_name": "First Step Memorial Station",
+     "target_system": "first_step",
+     "total_jumps": 0
+    }
+   }
+  ],
+  "spacemolt/get_base": [
+   {
+    "structuredContent": {
+     "base": {
+      "armor": 85,
+      "empire": "outerrim",
+      "fuel": 49925,
+      "hull": 225000,
+      "id": "first_step_memorial_station",
+      "max_fuel": 50000,
+      "max_hull": 225000,
+      "max_shield": 50000,
+      "name": "First Step Memorial Station",
+      "poi_id": "first_step_memorial_station",
+      "public_access": true,
+      "shield": 50000,
+      "weapon_dps": 0,
+      "weapon_reach": 0
+     },
+     "fuel_price": 2,
+     "fuel_price_all_in": 3,
+     "fuel_tax_per_unit": 1,
+     "services": [
+      "crafting",
+      "marine_training",
+      "market",
+      "medical",
+      "missions",
+      "personnel",
+      "refuel",
+      "repair",
+      "shipyard",
+      "storage"
+     ]
+    }
+   }
+  ],
+  "spacemolt/get_skills": [
+   {
+    "structuredContent": {
+     "message": "Skills progress",
+     "skills": {
+      "crafting": {
+       "category": "Industry",
+       "level": 2,
+       "max_level": 100,
+       "name": "Crafting",
+       "next_level_xp": 340,
+       "xp": 115
+      },
+      "deep_core_mining": {
+       "category": "Industry",
+       "level": 2,
+       "max_level": 100,
+       "name": "Deep Core Mining",
+       "next_level_xp": 340,
+       "xp": 177
+      },
+      "engineering": {
+       "category": "Engineering",
+       "level": 0,
+       "max_level": 100,
+       "name": "Engineering",
+       "next_level_xp": 60,
+       "xp": 2
+      },
+      "exploration": {
+       "category": "Exploration",
+       "level": 4,
+       "max_level": 100,
+       "name": "Exploration",
+       "next_level_xp": 900,
+       "xp": 510
+      },
+      "leadership": {
+       "category": "Combat",
+       "level": 2,
+       "max_level": 100,
+       "name": "Leadership",
+       "next_level_xp": 340,
+       "xp": 255
+      },
+      "mining": {
+       "category": "Industry",
+       "level": 2,
+       "max_level": 100,
+       "name": "Mining",
+       "next_level_xp": 340,
+       "xp": 64
+      },
+      "navigation": {
+       "category": "Ships",
+       "level": 3,
+       "max_level": 100,
+       "name": "Navigation",
+       "next_level_xp": 585,
+       "xp": 560
+      },
+      "piloting": {
+       "category": "Ships",
+       "level": 4,
+       "max_level": 100,
+       "name": "Piloting",
+       "next_level_xp": 900,
+       "xp": 121
+      },
+      "refining": {
+       "category": "Industry",
+       "level": 2,
+       "max_level": 100,
+       "name": "Refining",
+       "next_level_xp": 340,
+       "xp": 75
+      },
+      "salvaging": {
+       "category": "Industry",
+       "level": 0,
+       "max_level": 100,
+       "name": "Salvaging",
+       "next_level_xp": 60,
+       "xp": 20
+      },
+      "scanning": {
+       "category": "Ships",
+       "level": 3,
+       "max_level": 100,
+       "name": "Scanning",
+       "next_level_xp": 585,
+       "xp": 14
+      },
+      "trading": {
+       "category": "Commerce",
+       "level": 3,
+       "max_level": 100,
+       "name": "Trading",
+       "next_level_xp": 585,
+       "xp": 10
+      },
+      "wormhole_navigation": {
+       "category": "Wormholes",
+       "level": 1,
+       "max_level": 100,
+       "name": "Wormhole Navigation",
+       "next_level_xp": 165,
+       "xp": 30
+      }
+     }
+    }
+   }
+  ],
+  "spacemolt/get_system": [
+   {
+    "structuredContent": {
+     "action": "get_system",
+     "kind": "normal",
+     "poi": {
+      "class": "mixed",
+      "fuel_reserve": 0,
+      "has_base": false,
+      "id": "colony_debris_field",
+      "name": "Colony Debris Field",
+      "online": 2,
+      "position": {
+       "x": 2.5,
+       "y": 0.5
+      },
+      "type": "asteroid_belt"
+     },
+     "security_status": "Low Security (slow police response)",
+     "system": {
+      "connections": [
+       {
+        "distance": 306,
+        "name": "Horizon",
+        "system_id": "horizon"
+       },
+       {
+        "distance": 354,
+        "name": "Void Gate",
+        "system_id": "void_gate"
+       },
+       {
+        "distance": 402,
+        "name": "Markeb",
+        "system_id": "markeb"
+       },
+       {
+        "distance": 518,
+        "name": "The Telescope",
+        "system_id": "the_telescope"
+       }
+      ],
+      "empire": "outerrim",
+      "id": "first_step",
+      "is_stronghold": false,
+      "name": "First Step",
+      "pois": [
+       {
+        "class": "M2Ia",
+        "fuel_reserve": 0,
+        "has_base": false,
+        "id": "betelgeuse_prime_star",
+        "name": "Betelgeuse Prime Star",
+        "online": 1,
+        "position": {
+         "x": 0,
+         "y": 0
+        },
+        "type": "sun"
+       },
+       {
+        "class": "arid",
+        "fuel_reserve": 0,
+        "has_base": false,
+        "id": "first_step_prime",
+        "name": "First Step Prime",
+        "online": 0,
+        "position": {
+         "x": 1.5,
+         "y": 0
+        },
+        "type": "planet"
+       },
+       {
+        "class": "mixed",
+        "fuel_reserve": 0,
+        "has_base": false,
+        "id": "colony_debris_field",
+        "name": "Colony Debris Field",
+        "online": 2,
+        "position": {
+         "x": 2.5,
+         "y": 0.5
+        },
+        "type": "asteroid_belt"
+       },
+       {
+        "class": "derelict",
+        "fuel_reserve": 0,
+        "has_base": false,
+        "id": "colony_station_hulk",
+        "name": "Colony Station Hulk",
+        "online": 0,
+        "position": {
+         "x": 2,
+         "y": -0.3
+        },
+        "type": "relic"
+       },
+       {
+        "base_id": "first_step_memorial_station",
+        "base_name": "First Step Memorial Station",
+        "fuel_capacity": 50000,
+        "fuel_price": 2,
+        "fuel_reserve": 49487,
+        "has_base": true,
+        "id": "first_step_memorial_station",
+        "name": "First Step Memorial Station",
+        "online": 11,
+        "position": {
+         "x": 1,
+         "y": 0.3
+        },
+        "type": "station"
+       }
+      ],
+      "police_level": 55,
+      "security_status": "Low Security (slow police response)"
+     }
+    }
+   }
+  ],
+  "spacemolt/mine": [
+   {
+    "command": "mine",
+    "delta": {
+     "cargo": [
+      {
+       "item_id": "null_matter",
+       "item_name": "Null Matter",
+       "quantity": 2,
+       "size": 2
+      },
+      {
+       "item_id": "titanium_alloy",
+       "item_name": "Titanium Alloy",
+       "quantity": 5,
+       "size": 1
+      },
+      {
+       "item_id": "voidborn_neural_soma",
+       "item_name": "Voidborn Neural Soma",
+       "quantity": 1,
+       "size": 1
+      },
+      {
+       "item_id": "survey_scanner_i",
+       "item_name": "Survey Scanner I",
+       "quantity": 1,
+       "size": 10
+      },
+      {
+       "item_id": "carbon_ore",
+       "item_name": "Carbon Ore",
+       "quantity": 1,
+       "size": 1
+      }
+     ],
+     "location": {
+      "connections": [
+       "horizon",
+       "void_gate",
+       "markeb",
+       "the_telescope"
+      ],
+      "docked_at": null,
+      "empire": "outerrim",
+      "nearby_empire_npc_count": 0,
+      "nearby_empire_npcs": [],
+      "nearby_pirate_count": 0,
+      "nearby_pirates": [],
+      "nearby_player_count": 4,
+      "nearby_prize_count": 0,
+      "nearby_prizes": [],
+      "poi_id": "colony_debris_field",
+      "poi_name": "Colony Debris Field",
+      "poi_type": "asteroid_belt",
+      "resources": [
+       {
+        "item_id": "carbon_ore",
+        "item_name": "Carbon Ore",
+        "remaining": 25645,
+        "richness": 30,
+        "supported_power": 1282
+       },
+       {
+        "item_id": "iron_ore",
+        "item_name": "Iron Ore",
+        "remaining": 99998,
+        "richness": 25,
+        "supported_power": 4999
+       }
+      ],
+      "security_status": "Low Security (slow police response)",
+      "system_id": "first_step",
+      "system_name": "First Step"
+     },
+     "ship": {
+      "armor": 3,
+      "cargo_capacity": 125,
+      "cargo_used": 21,
+      "class_id": "cobble",
+      "class_name": "Cobble",
+      "cpu_capacity": 12,
+      "cpu_used": 4,
+      "crew_efficiency": 1,
+      "defense_slots": 1,
+      "effective_crew_capacity": 1,
+      "effective_marine_capacity": 0,
+      "fuel": 119,
+      "hull": 80,
+      "id": "b76179e1db2326d9bf0de8c5401149da",
+      "incapacitated": false,
+      "max_fuel": 120,
+      "max_hull": 80,
+      "max_shield": 35,
+      "minimum_crew": 1,
+      "name": "Cobble",
+      "operational_speed": 2,
+      "personnel": {
+       "fit_crew": 1,
+       "fit_marines": 0,
+       "injured_crew": 0,
+       "injured_marines": 0
+      },
+      "power_capacity": 24,
+      "power_used": 7,
+      "shield": 35,
+      "shield_recharge": 1,
+      "speed": 2,
+      "utility_slots": 2,
+      "weapon_slots": 1
+     }
+    },
+    "tick": 1830004
+   },
+   {
+    "command": "mine",
+    "delta": {
+     "cargo": [
+      {
+       "item_id": "null_matter",
+       "item_name": "Null Matter",
+       "quantity": 2,
+       "size": 2
+      },
+      {
+       "item_id": "titanium_alloy",
+       "item_name": "Titanium Alloy",
+       "quantity": 5,
+       "size": 1
+      },
+      {
+       "item_id": "voidborn_neural_soma",
+       "item_name": "Voidborn Neural Soma",
+       "quantity": 1,
+       "size": 1
+      },
+      {
+       "item_id": "survey_scanner_i",
+       "item_name": "Survey Scanner I",
+       "quantity": 1,
+       "size": 10
+      },
+      {
+       "item_id": "carbon_ore",
+       "item_name": "Carbon Ore",
+       "quantity": 2,
+       "size": 1
+      }
+     ],
+     "location": {
+      "connections": [
+       "horizon",
+       "void_gate",
+       "markeb",
+       "the_telescope"
+      ],
+      "docked_at": null,
+      "empire": "outerrim",
+      "nearby_empire_npc_count": 1,
+      "nearby_empire_npcs": [
+       {
+        "empire": "outerrim",
+        "in_combat": false,
+        "name": "[POLICE] Rim Ranger VI - Frontier Station",
+        "npc_id": "f1d8af0656709e48907ac98a6d86a868",
+        "role": "police",
+        "ship_class": "last_warning"
+       }
+      ],
+      "nearby_pirate_count": 0,
+      "nearby_pirates": [],
+      "nearby_player_count": 1,
+      "nearby_prize_count": 0,
+      "nearby_prizes": [],
+      "poi_id": "colony_debris_field",
+      "poi_name": "Colony Debris Field",
+      "poi_type": "asteroid_belt",
+      "resources": [
+       {
+        "item_id": "carbon_ore",
+        "item_name": "Carbon Ore",
+        "remaining": 25639,
+        "richness": 30,
+        "supported_power": 1281
+       },
+       {
+        "item_id": "iron_ore",
+        "item_name": "Iron Ore",
+        "remaining": 99999,
+        "richness": 25,
+        "supported_power": 4999
+       }
+      ],
+      "security_status": "Low Security (slow police response)",
+      "system_id": "first_step",
+      "system_name": "First Step"
+     },
+     "ship": {
+      "armor": 3,
+      "cargo_capacity": 125,
+      "cargo_used": 22,
+      "class_id": "cobble",
+      "class_name": "Cobble",
+      "cpu_capacity": 12,
+      "cpu_used": 4,
+      "crew_efficiency": 1,
+      "defense_slots": 1,
+      "effective_crew_capacity": 1,
+      "effective_marine_capacity": 0,
+      "fuel": 119,
+      "hull": 80,
+      "id": "b76179e1db2326d9bf0de8c5401149da",
+      "incapacitated": false,
+      "max_fuel": 120,
+      "max_hull": 80,
+      "max_shield": 35,
+      "minimum_crew": 1,
+      "name": "Cobble",
+      "operational_speed": 2,
+      "personnel": {
+       "fit_crew": 1,
+       "fit_marines": 0,
+       "injured_crew": 0,
+       "injured_marines": 0
+      },
+      "power_capacity": 24,
+      "power_used": 7,
+      "shield": 35,
+      "shield_recharge": 1,
+      "speed": 2,
+      "utility_slots": 2,
+      "weapon_slots": 1
+     }
+    },
+    "tick": 1830026
+   }
+  ],
+  "spacemolt/refuel": [
+   {
+    "command": "refuel",
+    "delta": {
+     "cargo": [
+      {
+       "item_id": "null_matter",
+       "item_name": "Null Matter",
+       "quantity": 2,
+       "size": 2
+      },
+      {
+       "item_id": "titanium_alloy",
+       "item_name": "Titanium Alloy",
+       "quantity": 5,
+       "size": 1
+      },
+      {
+       "item_id": "voidborn_neural_soma",
+       "item_name": "Voidborn Neural Soma",
+       "quantity": 1,
+       "size": 1
+      },
+      {
+       "item_id": "survey_scanner_i",
+       "item_name": "Survey Scanner I",
+       "quantity": 1,
+       "size": 10
+      }
+     ],
+     "details": {
+      "action": "refuel",
+      "cost": 21,
+      "fuel": 7,
+      "market_cost": 14,
+      "source": "station",
+      "tax_amount": 7
+     },
+     "player": {
+      "citizenships": [
+       "outerrim"
+      ],
+      "clan_tag": "",
+      "credits": 201359,
+      "empire": "outerrim",
+      "home_base": "frontier_station",
+      "home_poi": "mobile_capital",
+      "home_system": "void_gate",
+      "id": "pilot",
+      "is_cloaked": false,
+      "primary_color": "#FFFFFF",
+      "secondary_color": "#000000",
+      "standings": {
+       "crimson": {
+        "baseline": 10,
+        "outstanding_bounty": 0,
+        "reputation": 10
+       },
+       "nebula": {
+        "baseline": 10,
+        "outstanding_bounty": 0,
+        "reputation": 10
+       },
+       "outerrim": {
+        "baseline": 20,
+        "outstanding_bounty": 0,
+        "reputation": 20
+       },
+       "pirate_crix": {
+        "baseline": -30,
+        "outstanding_bounty": 0,
+        "reputation": -30
+       },
+       "pirate_dross": {
+        "baseline": -30,
+        "outstanding_bounty": 0,
+        "reputation": -30
+       },
+       "pirate_kael": {
+        "baseline": -30,
+        "outstanding_bounty": 0,
+        "reputation": -30
+       },
+       "pirate_korr": {
+        "baseline": -30,
+        "outstanding_bounty": 0,
+        "reputation": -30
+       },
+       "pirate_mera": {
+        "baseline": -30,
+        "outstanding_bounty": 0,
+        "reputation": -30
+       },
+       "pirate_nyx": {
+        "baseline": -30,
+        "outstanding_bounty": 0,
+        "reputation": -30
+       },
+       "pirate_sable": {
+        "baseline": -30,
+        "outstanding_bounty": 0,
+        "reputation": -30
+       },
+       "pirate_thane": {
+        "baseline": -30,
+        "outstanding_bounty": 0,
+        "reputation": -30
+       },
+       "pirate_voss": {
+        "baseline": -30,
+        "outstanding_bounty": 0,
+        "reputation": -30
+       },
+       "solarian": {
+        "baseline": 10,
+        "outstanding_bounty": 0,
+        "reputation": 10
+       },
+       "voidborn": {
+        "baseline": 10,
+        "outstanding_bounty": 0,
+        "reputation": 18
+       }
+      },
+      "status_message": ""
+     },
+     "ship": {
+      "armor": 3,
+      "cargo_capacity": 125,
+      "cargo_used": 20,
+      "class_id": "cobble",
+      "class_name": "Cobble",
+      "cpu_capacity": 12,
+      "cpu_used": 4,
+      "crew_efficiency": 1,
+      "defense_slots": 1,
+      "effective_crew_capacity": 1,
+      "effective_marine_capacity": 0,
+      "fuel": 120,
+      "hull": 80,
+      "id": "b76179e1db2326d9bf0de8c5401149da",
+      "incapacitated": false,
+      "max_fuel": 120,
+      "max_hull": 80,
+      "max_shield": 35,
+      "minimum_crew": 1,
+      "name": "Cobble",
+      "operational_speed": 2,
+      "personnel": {
+       "fit_crew": 1,
+       "fit_marines": 0,
+       "injured_crew": 0,
+       "injured_marines": 0
+      },
+      "power_capacity": 24,
+      "power_used": 7,
+      "shield": 35,
+      "shield_recharge": 1,
+      "speed": 2,
+      "utility_slots": 2,
+      "weapon_slots": 1
+     }
+    },
+    "tick": 1830000
+   }
+  ],
+  "spacemolt/travel": [
+   {
+    "command": "travel",
+    "delta": {
+     "details": {
+      "action": "arrived",
+      "offline_collapsed": 0,
+      "poi": "Colony Debris Field",
+      "poi_id": "colony_debris_field",
+      "xp_gained": {
+       "navigation": 1,
+       "piloting": 1
+      }
+     },
+     "location": {
+      "connections": [
+       "horizon",
+       "void_gate",
+       "markeb",
+       "the_telescope"
+      ],
+      "docked_at": null,
+      "empire": "outerrim",
+      "nearby_empire_npc_count": 0,
+      "nearby_empire_npcs": [],
+      "nearby_pirate_count": 0,
+      "nearby_pirates": [],
+      "nearby_player_count": 1,
+      "nearby_prize_count": 0,
+      "nearby_prizes": [],
+      "poi_id": "colony_debris_field",
+      "poi_name": "Colony Debris Field",
+      "poi_type": "asteroid_belt",
+      "resources": [
+       {
+        "item_id": "carbon_ore",
+        "item_name": "Carbon Ore",
+        "remaining": 25648,
+        "richness": 30,
+        "supported_power": 1282
+       },
+       {
+        "item_id": "iron_ore",
+        "item_name": "Iron Ore",
+        "remaining": 99998,
+        "richness": 25,
+        "supported_power": 4999
+       }
+      ],
+      "security_status": "Low Security (slow police response)",
+      "system_id": "first_step",
+      "system_name": "First Step"
+     },
+     "ship": {
+      "armor": 3,
+      "cargo_capacity": 125,
+      "cargo_used": 20,
+      "class_id": "cobble",
+      "class_name": "Cobble",
+      "cpu_capacity": 12,
+      "cpu_used": 4,
+      "crew_efficiency": 1,
+      "defense_slots": 1,
+      "effective_crew_capacity": 1,
+      "effective_marine_capacity": 0,
+      "fuel": 119,
+      "hull": 80,
+      "id": "b76179e1db2326d9bf0de8c5401149da",
+      "incapacitated": false,
+      "max_fuel": 120,
+      "max_hull": 80,
+      "max_shield": 35,
+      "minimum_crew": 1,
+      "name": "Cobble",
+      "operational_speed": 2,
+      "personnel": {
+       "fit_crew": 1,
+       "fit_marines": 0,
+       "injured_crew": 0,
+       "injured_marines": 0
+      },
+      "power_capacity": 24,
+      "power_used": 7,
+      "shield": 35,
+      "shield_recharge": 1,
+      "speed": 2,
+      "utility_slots": 2,
+      "weapon_slots": 1
+     }
+    },
+    "tick": 1830003
+   }
+  ],
+  "spacemolt/undock": [
+   {
+    "command": "undock",
+    "delta": {
+     "details": {
+      "action": "undock"
+     },
+     "location": {
+      "connections": [
+       "horizon",
+       "void_gate",
+       "markeb",
+       "the_telescope"
+      ],
+      "docked_at": null,
+      "empire": "outerrim",
+      "nearby_empire_npc_count": 0,
+      "nearby_empire_npcs": [],
+      "nearby_pirate_count": 0,
+      "nearby_pirates": [],
+      "nearby_player_count": 10,
+      "nearby_prize_count": 0,
+      "nearby_prizes": [],
+      "offline_collapsed": 86,
+      "poi_id": "first_step_memorial_station",
+      "poi_name": "First Step Memorial Station",
+      "poi_type": "station",
+      "resources": [],
+      "security_status": "Low Security (slow police response)",
+      "system_id": "first_step",
+      "system_name": "First Step"
+     }
+    },
+    "tick": 1829638
+   }
+  ],
+  "spacemolt_shipping/profile": [
+   {
+    "structuredContent": {
+     "action": "profile",
+     "capacity": {
+      "active_contracts": 0,
+      "active_contracts_unlimited": true,
+      "active_liability": 0,
+      "aggregate_liability_limit": 50000,
+      "liability_unlimited": false,
+      "remaining_aggregate_liability": 50000,
+      "single_package_liability_limit": 25000
+     },
+     "debt_blocks_acceptance": false,
+     "debts": [],
+     "profile": {
+      "active_contracts": 0,
+      "active_liability": 0,
+      "actor": {
+       "id": "pilot",
+       "kind": "player"
+      },
+      "breaches": 0,
+      "defaults": 0,
+      "delivered_value": 31368,
+      "last_consequence_at": "0001-01-01T00:00:00Z",
+      "last_recovery_at": "0001-01-01T00:00:00Z",
+      "late_deliveries": 0,
+      "outstanding_debt": 0,
+      "priority_deliveries": 0,
+      "returns": 0,
+      "successful_deliveries": 4,
+      "tier": "probationary",
+      "updated_at": "2026-09-08T16:14:58.585478802Z"
+     },
+     "progression": {
+      "at_maximum_tier": false,
+      "current_tier": "probationary",
+      "delivered_value": 31368,
+      "next_tier": "licensed",
+      "remaining_delivered_value": 0,
+      "remaining_successful_deliveries": 1,
+      "required_delivered_value": 250,
+      "required_successful_deliveries": 5,
+      "successful_deliveries": 4
+     }
+    }
+   }
+  ],
+  "spacemolt_storage/deposit": [
+   {
+    "command": "storage",
+    "delta": {
+     "cargo": [],
+     "details": {
+      "action": "bulk_deposit",
+      "failed": 0,
+      "requested": 7,
+      "results": [
+       {
+        "item_id": "null_matter",
+        "quantity": 2,
+        "result": {
+         "cargo_remaining": 0,
+         "storage_total": 2
+        },
+        "success": true
+       },
+       {
+        "item_id": "titanium_alloy",
+        "quantity": 5,
+        "result": {
+         "cargo_remaining": 0,
+         "storage_total": 5
+        },
+        "success": true
+       },
+       {
+        "item_id": "voidborn_neural_soma",
+        "quantity": 1,
+        "result": {
+         "cargo_remaining": 0,
+         "storage_total": 1
+        },
+        "success": true
+       },
+       {
+        "item_id": "survey_scanner_i",
+        "quantity": 1,
+        "result": {
+         "cargo_remaining": 0,
+         "storage_total": 1
+        },
+        "success": true
+       },
+       {
+        "item_id": "carbon_ore",
+        "quantity": 1,
+        "result": {
+         "cargo_remaining": 0,
+         "storage_total": 1
+        },
+        "success": true
+       },
+       {
+        "item_id": "silicon_ore",
+        "quantity": 25,
+        "result": {
+         "cargo_remaining": 0,
+         "storage_total": 25
+        },
+        "success": true
+       },
+       {
+        "item_id": "palladium_ore",
+        "quantity": 4,
+        "result": {
+         "cargo_remaining": 0,
+         "storage_total": 4
+        },
+        "success": true
+       }
+      ],
+      "succeeded": 7,
+      "target": "self"
+     },
+     "location": {
+      "connections": [
+       "horizon",
+       "void_gate",
+       "markeb",
+       "the_telescope"
+      ],
+      "docked_at": "first_step_memorial_station",
+      "empire": "outerrim",
+      "nearby_empire_npc_count": 1,
+      "nearby_empire_npcs": [
+       {
+        "empire": "outerrim",
+        "in_combat": false,
+        "name": "[POLICE] Rim Ranger I - First Step Memorial Station",
+        "npc_id": "a9bbbbc50b67bb58c0aa979d7589b8fa",
+        "role": "police",
+        "ship_class": "last_warning",
+        "ship_name": "ORE-2973f314"
+       }
+      ],
+      "nearby_pirate_count": 0,
+      "nearby_pirates": [],
+      "nearby_player_count": 12,
+      "nearby_prize_count": 0,
+      "nearby_prizes": [],
+      "offline_collapsed": 88,
+      "poi_id": "first_step_memorial_station",
+      "poi_name": "First Step Memorial Station",
+      "poi_type": "station",
+      "resources": [],
+      "security_status": "Low Security (slow police response)",
+      "system_id": "first_step",
+      "system_name": "First Step"
+     },
+     "ship": {
+      "armor": 3,
+      "cargo_capacity": 125,
+      "cargo_used": 0,
+      "class_id": "cobble",
+      "class_name": "Cobble",
+      "cpu_capacity": 12,
+      "cpu_used": 4,
+      "crew_efficiency": 1,
+      "defense_slots": 1,
+      "effective_crew_capacity": 1,
+      "effective_marine_capacity": 0,
+      "fuel": 119,
+      "hull": 80,
+      "id": "b76179e1db2326d9bf0de8c5401149da",
+      "incapacitated": false,
+      "max_fuel": 120,
+      "max_hull": 80,
+      "max_shield": 35,
+      "minimum_crew": 1,
+      "name": "Cobble",
+      "operational_speed": 2,
+      "personnel": {
+       "fit_crew": 1,
+       "fit_marines": 0,
+       "injured_crew": 0,
+       "injured_marines": 0
+      },
+      "power_capacity": 24,
+      "power_used": 7,
+      "shield": 35,
+      "shield_recharge": 1,
+      "speed": 2,
+      "utility_slots": 2,
+      "weapon_slots": 1
+     }
+    },
+    "tick": 1837852
+   }
+  ],
+  "spacemolt_storage/view": [
+   {
+    "structuredContent": {
+     "action": "view_storage",
+     "base_id": "first_step_memorial_station",
+     "hint": "176 items in storage at deep_range_outpost, first_step_memorial_station, frontier_station",
+     "items": [
+      {
+       "item_id": "iron_ore",
+       "name": "Iron Ore",
+       "quantity": 24,
+       "size": 1
+      },
+      {
+       "item_id": "palladium_ore",
+       "name": "Palladium Ore",
+       "quantity": 4,
+       "size": 1
+      },
+      {
+       "item_id": "silicon_ore",
+       "name": "Silicon Ore",
+       "quantity": 25,
+       "size": 1
+      },
+      {
+       "item_id": "package:837658f0ef476aec336f7636c81920e5",
+       "name": "Rimward care package: 100x Aluminum Sheet, First Step Memorial Station sending to Frontier Station. Watch the horizon.",
+       "quantity": 1,
+       "size": 100
+      }
+     ],
+     "locations": [
+      {
+       "base_id": "deep_range_outpost",
+       "base_name": "Deep Range Outpost",
+       "item_count": 1,
+       "ship_count": 0,
+       "system": "deep_range",
+       "system_name": "Deep Range"
+      },
+      {
+       "base_id": "first_step_memorial_station",
+       "base_name": "First Step Memorial Station",
+       "item_count": 54,
+       "ship_count": 0,
+       "system": "first_step",
+       "system_name": "First Step"
+      },
+      {
+       "base_id": "frontier_station",
+       "base_name": "Frontier Station",
+       "item_count": 121,
+       "ship_count": 0,
+       "system": "void_gate",
+       "system_name": "Void Gate"
+      }
+     ],
+     "ships": []
+    }
+   }
+  ]
+ },
+ "source": {
+  "file": "spacemolt/runtime/gameplay.jsonl",
+  "line_shapes": {
+   "error": 46,
+   "requested": 1575,
+   "response": 1848
+  },
+  "lines": {
+   "deposit": 1982,
+   "dock": 495,
+   "find_route": 1961,
+   "get_base": 3235,
+   "get_skills": 451,
+   "get_system": 489,
+   "mine": [
+    545,
+    560
+   ],
+   "modules": 511,
+   "refuel": 537,
+   "shipping_profile": 345,
+   "state": 495,
+   "storage_view": 275,
+   "travel": 543,
+   "undock": 281
+  }
+ },
+ "state": {
+  "cargo": [
+   {
+    "item_id": "null_matter",
+    "item_name": "Null Matter",
+    "quantity": 2,
+    "size": 2
+   },
+   {
+    "item_id": "titanium_alloy",
+    "item_name": "Titanium Alloy",
+    "quantity": 5,
+    "size": 1
+   },
+   {
+    "item_id": "mining_laser_i",
+    "item_name": "Mining Laser I",
+    "quantity": 1,
+    "size": 10
+   },
+   {
+    "item_id": "voidborn_neural_soma",
+    "item_name": "Voidborn Neural Soma",
+    "quantity": 1,
+    "size": 1
+   }
+  ],
+  "credits": 201380,
+  "location": {
+   "connections": [
+    "horizon",
+    "void_gate",
+    "markeb",
+    "the_telescope"
+   ],
+   "docked_at": "first_step_memorial_station",
+   "poi_id": "first_step_memorial_station",
+   "resources": [],
+   "security_status": "Low Security (slow police response)",
+   "system_id": "first_step"
+  },
+  "modules": [
+   {
+    "cpu_usage": 2,
+    "module_id": "8988388a5fc4f8940aba433122b4f3c5",
+    "name": "Cargo Expander II",
+    "power_usage": 2,
+    "size": 10,
+    "slot": "utility",
+    "type": "utility",
+    "type_id": "cargo_expander_ii"
+   },
+   {
+    "cpu_usage": 2,
+    "module_id": "b37867937d9b738ea7fad199dd8eba8c",
+    "name": "Mining Laser I",
+    "power_usage": 5,
+    "size": 10,
+    "slot": "utility",
+    "type": "mining",
+    "type_id": "mining_laser_i"
+   }
+  ],
+  "ship": {
+   "armor": 3,
+   "cargo_capacity": 125,
+   "cargo_used": 20,
+   "class_id": "cobble",
+   "class_name": "Cobble",
+   "cpu_capacity": 12,
+   "cpu_used": 5,
+   "crew_efficiency": 1,
+   "defense_slots": 1,
+   "effective_crew_capacity": 1,
+   "effective_marine_capacity": 0,
+   "fuel": 113,
+   "hull": 80,
+   "id": "b76179e1db2326d9bf0de8c5401149da",
+   "incapacitated": false,
+   "max_fuel": 120,
+   "max_hull": 80,
+   "max_shield": 35,
+   "minimum_crew": 1,
+   "name": "Cobble",
+   "operational_speed": 2,
+   "personnel": {
+    "fit_crew": 1,
+    "fit_marines": 0,
+    "injured_crew": 0,
+    "injured_marines": 0
+   },
+   "power_capacity": 24,
+   "power_used": 6,
+   "shield": 35,
+   "shield_recharge": 1,
+   "speed": 2,
+   "utility_slots": 2,
+   "weapon_slots": 1
+  }
+ }
+}
