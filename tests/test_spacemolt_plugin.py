@@ -105,6 +105,8 @@ def test_register_publishes_every_tool_in_the_spacemolt_toolset():
     }
     # The pilot runs scripts; the operator sends a sentence. Each names the other's tool never.
     assert tools["spacemolt_run"][1]["parameters"]["required"] == ["params"]
+    # The jobs a script may compose are named where the script is written, craft among them.
+    assert "craft" in tools["spacemolt_run"][1]["description"]
     assert tools["spacemolt_scripts"][1]["parameters"]["required"] == ["action"]
     assert tools["spacemolt_dispatch"][1]["parameters"]["required"] == ["instruction"]
     assert tools["spacemolt_travel"][1]["parameters"]["required"] == ["poi_id"]

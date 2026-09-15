@@ -13,6 +13,7 @@
  * `gather` is absent because its script is one call to the job of that name, which is here.
  */
 export {Blocked,type Ctx,type JobOutcome} from './ctx.ts';
+export {craft,type CraftParams} from './craft.ts';
 export {gather,type GatherParams} from './gather.ts';
 export {stow,type StowParams} from './stow.ts';
 export {dock,journal,service,storage,travel,where,

@@ -97,6 +97,23 @@ test('the stow script deposits the hold at the counter and says so in the run ou
   } finally {f.close();}
 });
 
+test('the craft script runs one job at the bench and its sentence reaches the run outcome', async () => {
+  const f=runner({cargoUsed:0,services:['refuel','repair','storage','crafting'],
+    store:[{item_id:'iron_ore',quantity:20}]});
+  try {
+    const outcome=await f.run('craft',{recipe_id:'refine_steel',quantity:2});
+    assert.equal(outcome.outcome,'done',outcome.reason);
+    assert.equal(outcome.script,'craft');
+    assert.deepEqual(outcome.jobs.map(job=>[job.job,job.outcome]),[['craft','done']]);
+    assert.match(outcome.reason!,/Refine Steel: 1 run, 2 steel_plate, cost 19 at sol_base/);
+    assert.deepEqual((outcome.result as any).produced,[{item_id:'steel_plate',quantity:2}]);
+    assert.equal((outcome.result as any).job_id,'job-1');
+    // The output is in the store and the inputs are not: the craft sold and withdrew nothing.
+    assert.deepEqual(f.store,[{item_id:'iron_ore',quantity:15},{item_id:'steel_plate',quantity:2}]);
+    assert.equal(f.count('spacemolt/sell'),0);
+  } finally {f.close();}
+});
+
 test('the rules between jobs end the script, with the jobs after it unrun', async () => {
   const f=runner({cargoUsed:0,store:[]});
   try {

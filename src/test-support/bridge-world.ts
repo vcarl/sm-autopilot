@@ -34,6 +34,30 @@ export interface WorldOptions {
   store?:{item_id:string;name?:string;quantity:number}[];
   /** How much ore one mining cycle puts in the hold. */
   minePerCycle?:number;
+  /** The one recipe this world's bench knows, as the server quotes and runs it. */
+  craft?:CraftOptions;
+}
+
+/** A bench with one recipe on it: what a dry run answers, what a commit escrows and queues,
+ * and how many queue reads pass before the output is delivered to the store. */
+export interface CraftOptions {
+  recipe_id?:string;
+  /** The display name the server answers with, which is never the id. */
+  recipe?:string;
+  inputs?:{item_id:string;quantity:number}[];
+  produces?:{item_id:string;quantity:number}[];
+  credits_total?:number;
+  /** The runs the server will do, and the output units it will make: either may be under
+   * what was asked for when the inputs only stretch so far. */
+  runs?:number;
+  quantity?:number;
+  have_inputs?:boolean;
+  have_credits?:boolean;
+  /** Queue reads that still answer `queued` before the job is delivered. */
+  polls?:number;
+  eta_ticks?:number;
+  /** A bench that refuses this recipe: the server's own text, thrown as the game throws it. */
+  refusal?:string;
 }
 
 export function bridgeWorld(options:WorldOptions={}) {
@@ -64,6 +88,20 @@ export function bridgeWorld(options:WorldOptions={}) {
     }
     account.server.ship.cargo_used-=moved;
     return moved;
+  };
+  // The bench: one recipe, a queue the pilot's jobs sit in, and a store the output lands in.
+  const bench:Required<Omit<CraftOptions,'refusal'>>&{refusal?:string}={
+    recipe_id:'refine_steel',recipe:'Refine Steel',
+    inputs:[{item_id:'iron_ore',quantity:5}],produces:[{item_id:'steel_plate',quantity:2}],
+    credits_total:19,runs:1,quantity:2,have_inputs:true,have_credits:true,polls:0,eta_ticks:0,
+    ...options.craft};
+  const queued:Record<string,any>[]=[];
+  let polls=bench.polls;
+  const deliver=(job:Record<string,any>)=>{
+    for(const row of job.produces as {item_id:string;quantity:number}[]) {
+      const held=store.find(current=>current.item_id===row.item_id);
+      if(held)held.quantity+=row.quantity;else store.push({...row});
+    }
   };
   const sent:{action:string;params:Record<string,unknown>}[]=[];
   const handlers:Record<string,(params:Record<string,unknown>)=>unknown>={
@@ -113,6 +151,34 @@ export function bridgeWorld(options:WorldOptions={}) {
       ships:[{ship_id:'spare',class_id:'hauler',cargo_used:0,modules:0}],
       locations:[{base_id:'sol_base',base_name:'Sol Base',item_count:store.length,ship_count:1,
         system:'sol',system_name:'Sol'}]}}),
+    // One action, three replies, as the live server answers it: no id is the queue, dry_run
+    // is a quote that consumes nothing, and anything else commits the escrow.
+    'spacemolt/craft':params=>{
+      if(params.id===undefined) {
+        if(queued.length) {
+          if(polls>0)polls--;
+          else {deliver(queued[0]!);queued.length=0;}
+        }
+        return {delta:{details:{kind:'queue',jobs:structuredClone(queued),total_jobs:queued.length}}};
+      }
+      if(bench.refusal)throw new Error(bench.refusal);
+      if(params.dry_run)return {delta:{details:{kind:'quote',action:'craft',recipe:bench.recipe,
+        cost:{inputs:bench.inputs,labor:10,fee:9},credits_total:bench.credits_total,dry_run:true,
+        have_inputs:bench.have_inputs,have_credits:bench.have_credits,
+        produces:bench.produces,quantity:bench.quantity,runs:bench.runs}}};
+      // A commit escrows: the inputs leave this base's store and the credits leave the wallet.
+      for(const row of bench.inputs) {
+        const held=store.find(current=>current.item_id===row.item_id);
+        if(held)held.quantity-=row.quantity;
+      }
+      account.server.player.credits-=bench.credits_total;
+      queued.push({base_id:'sol_base',job_id:'job-1',recipe:bench.recipe,mode:'craft',
+        deliver_to:'storage',produces:bench.produces,runs_total:bench.runs,runs_done:0,
+        status:'queued',eta_ticks:bench.eta_ticks});
+      return {delta:{details:{kind:'job',action:'craft',job_id:'job-1',recipe:bench.recipe,
+        produces:bench.produces,runs:bench.runs,eta_ticks:bench.eta_ticks,
+        escrowed:{inputs:bench.inputs,labor:10,fee:9}}}};
+    },
     'spacemolt_storage/deposit':params=>{
       const moved=take(String(params.item_id),Number(params.quantity));
       const row=store.find(current=>current.item_id===String(params.item_id));
@@ -125,6 +191,6 @@ export function bridgeWorld(options:WorldOptions={}) {
     assert.ok(Object.hasOwn(handlers,action),`Unexpected command: ${action}`);
     return handlers[action]!(params);
   };
-  return {account,sent,command,store,
+  return {account,sent,command,store,queued,
     count:(action:string)=>sent.filter(call=>call.action===action).length};
 }

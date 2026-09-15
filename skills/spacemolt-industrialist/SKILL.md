@@ -47,7 +47,7 @@ when finishing it would leave you unable to pay the fee at the far end.
 
 **Counters you read first when docked:**
 
-- **Workshop** — `spacemolt_recipes` ranks recipes against this base's storage, which a craft draws from; `spacemolt_quote` prices one.
+- **Workshop** — `spacemolt_recipes` ranks recipes against this base's storage, which a craft draws from; `spacemolt_quote` prices one; the `craft` script runs it.
 - **Market** — what the inputs cost *here*, with depth, and what the output sells for.
 - **Storage** — what you already own, here and at the other stations you have used.
 - **Facilities** — handcrafting needs a workshop; the bigger routes need a facility.
