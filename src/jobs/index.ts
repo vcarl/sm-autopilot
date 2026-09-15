@@ -7,7 +7,7 @@
  * Jobs (`gather`) are the long steps: they check the rules before they start and record
  * their own outcome. Helpers are the short moves between them.
  */
-export {Blocked,type Ctx,type JobOutcome} from './ctx.ts';
+export {Blocked,type Ctx,type JobOutcome,type ScriptResult} from './ctx.ts';
 export {gather,type GatherParams} from './gather.ts';
 export {dock,journal,service,storage,travel,where,
   type DockReport,type TravelReport,type Where} from './helpers.ts';

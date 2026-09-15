@@ -131,6 +131,38 @@ test('a script that fails the lint is refused before any command reaches the gam
   } finally {f.close();rmSync(dir,{recursive:true,force:true});}
 });
 
+test('what a script returns is the run outcome, unless the world already said otherwise', async () => {
+  const dir=mkdtempSync(join(tmpdir(),'script-said-'));
+  const write=(name:string,body:string)=>writeFileSync(join(dir,`${name}.ts`),
+    `export const params={type:'object',properties:{}};\nexport default async ()=>(${body});\n`);
+  write('spoke',"{reason:'twelve ore at sol_base',held:12,skip:()=>1}");
+  write('unhappy',"{outcome:'failed',reason:'the store never filled'}");
+  writeFileSync(join(dir,'denial.ts'),
+    "export const params={type:'object',properties:{}};\n"+
+    "export default async (ctx)=>{ctx.jobs.push({job:'gather',outcome:'blocked',"+
+    "reason:'the site gives no more'});return {outcome:'done',reason:'all fine'};};\n");
+  const f=runner({cargoUsed:0,store:[]});
+  const scriptsDir=pathToFileURL(`${dir}/`);
+  try {
+    // A script's own sentence replaces the derived one, and its numbers reach the juncture.
+    const spoke=await f.run('spoke',{},{scriptsDir});
+    assert.equal(spoke.outcome,'done');
+    assert.equal(spoke.reason,'twelve ore at sol_base');
+    assert.deepEqual(spoke.result,{held:12},'what JSON cannot carry never reaches the agent');
+
+    // A script that ran every job and still calls the run a failure is believed.
+    const unhappy=await f.run('unhappy',{},{scriptsDir});
+    assert.equal(unhappy.outcome,'failed');
+    assert.equal(unhappy.reason,'the store never filled');
+
+    // But a job that did not finish outranks anything the script says about it.
+    const denial=await f.run('denial',{},{scriptsDir});
+    assert.equal(denial.outcome,'blocked');
+    assert.match(denial.reason!,/the site gives no more/);
+    assert.ok(!/all fine/.test(denial.reason!),'the script does not talk over the world');
+  } finally {f.close();rmSync(dir,{recursive:true,force:true});}
+});
+
 test('the wall clock cap ends a run that will not finish', async () => {
   const dir=mkdtempSync(join(tmpdir(),'script-slow-'));
   writeFileSync(join(dir,'forever.ts'),

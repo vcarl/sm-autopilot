@@ -7,7 +7,7 @@
  */
 import {readFileSync,readdirSync} from 'node:fs';
 import {fileURLToPath} from 'node:url';
-import {Blocked,type Ctx,type JobOutcome} from './jobs/ctx.ts';
+import {Blocked,type Ctx,type JobOutcome,type ScriptResult} from './jobs/ctx.ts';
 import {ownHold} from './jobs/gather.ts';
 import {lintScript} from './script-lint.ts';
 import type {ReadinessAccount,ReadinessCommand} from './readiness.ts';
@@ -28,6 +28,8 @@ export interface RunOutcome {
   outcome:'done'|'failed'|'blocked';
   reason?:string;
   jobs:JobOutcome[];
+  /** What the script itself wanted the agent to see beyond its sentence — counts, ids. */
+  result?:Record<string,unknown>;
   /** Carried up from the job that stopped for it, so the runner journals it once (C13). */
   moved?:Reconciliation;
 }
@@ -55,6 +57,20 @@ export interface RunOptions {
 
 const NAME=/^[a-z][a-z0-9-]*$/;
 const message=(error:unknown)=>error instanceof Error?error.message:String(error);
+
+/** The run a script finished on its own terms: what it returned, over the derived sentence.
+ * Everything beyond `outcome` and `reason` travels under `result`, where the juncture reads
+ * it — so it goes through JSON first, which drops the functions a script has no business
+ * handing the agent and is what the run record has to survive anyway. */
+function said(script:string,jobs:JobOutcome[],value:ScriptResult|void):RunOutcome {
+  const {outcome,reason,...rest}=value&&typeof value==='object'?value:{} as ScriptResult;
+  let result:Record<string,unknown>|undefined;
+  try {result=JSON.parse(JSON.stringify(rest)) as Record<string,unknown>;}
+  catch {result=undefined;}
+  return {script,outcome:outcome??'done',jobs,
+    reason:reason??`${script} done: ${jobs.length} job${jobs.length===1?'':'s'}`,
+    ...result&&Object.keys(result).length?{result}:{}};
+}
 
 /** The scripts the dispatch tool may name, with the parameters each one takes. */
 export async function listScripts(dir:URL=SCRIPTS_DIR):Promise<{name:string;params:unknown}[]> {
@@ -107,7 +123,7 @@ async function load(script:string,dir:URL) {
   const lint=lintScript(source,path);
   if(!lint.ok)throw new Error(`Script ${script} is not admissible: ${lint.errors.join('; ')}`);
   const loaded=await import(url.href) as
-    {default?:(ctx:Ctx,params:any)=>Promise<unknown>;params?:unknown};
+    {default?:(ctx:Ctx,params:any)=>Promise<ScriptResult|void>;params?:unknown};
   if(typeof loaded.default!=='function')
     throw new Error(`Script ${script} exports no default function to run`);
   return loaded;
@@ -154,11 +170,13 @@ export async function runScript(options:RunOptions):Promise<RunOutcome> {
   // ponytail: the cap ends the RUN, not the call in flight — a game command cannot be
   // recalled. The next juncture reconciles from live state, which is what it does anyway.
   const ran=await Promise.race([
-    loaded.default!(ctx,params).then(()=>({ok:true as const}),(error:unknown)=>({error})),
+    loaded.default!(ctx,params).then(said=>({said}),(error:unknown)=>({error})),
     cap,
   ]);
   clearTimeout(timer);
 
+  // The precedence, top down: the cap, a throw, a job that did not finish, what the script
+  // returned, the derived sentence. A script speaks for its own run, never over the world's.
   const stopped=jobs.find(job=>job.outcome!=='done');
   const outcome:RunOutcome='cap' in ran
     ?{script,outcome:'failed',reason:`timeout: the run passed its ${Math.round(capMs/1000)} second cap`,jobs}
@@ -168,8 +186,7 @@ export async function runScript(options:RunOptions):Promise<RunOutcome> {
       :stopped
         ?{script,outcome:stopped.outcome,jobs,
           reason:`${script} ${stopped.outcome} at job ${jobs.indexOf(stopped)+1} of ${jobs.length}: ${stopped.reason}`}
-        :{script,outcome:'done',jobs,
-          reason:`${script} done: ${jobs.length} job${jobs.length===1?'':'s'}`};
+        :said(script,jobs,ran.said);
   const moved=(stopped??jobs.at(-1))?.moved;
   if(moved)outcome.moved=moved;
 

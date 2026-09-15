@@ -188,7 +188,7 @@ test('C18: a run interrupted after the mine step resumes at the return, mining n
     assert.equal(status.last.script,'gather-until');
     assert.equal(status.last.outcome,'done',status.last.reason);
     assert.equal(status.last.jobs.length,2);
-    assert.match(status.last.reason,/2 jobs/);
+    assert.match(status.last.reason,/2 trips/);
     assert.equal(w.runLines().length,1,'a run ends once, so the journal says so once');
     assert.equal(w.runLines()[0].outcome,'done');
     assert.equal(w.runLines()[0].started,started.record.started);
@@ -237,7 +237,7 @@ test('C18: a run that ended leaves nothing to resume, and a fresh bridge still r
     assert.equal(status.running,false);
     assert.equal(status.last.script,'gather');
     assert.equal(status.last.outcome,'done');
-    assert.match(status.last.reason,/1 job/);
+    assert.match(status.last.reason,/^gather done: /);
     assert.equal(((await second.dispatch('menu')) as any).last.script,'gather');
 
     const resumed=await second.dispatch('resume') as any;

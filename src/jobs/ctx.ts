@@ -27,6 +27,18 @@ export interface JobOutcome {
   reason?:string;
 }
 
+/** What a script gives back. Every field is optional: a script that returns nothing gets the
+ * outcome the jobs already say. What it does return is the script's own account of the run —
+ * its sentence, and whatever numbers or ids it wants the agent to read at the juncture. It
+ * never overrides the run cap, a throw, or a job that did not finish. */
+export interface ScriptResult {
+  outcome?:'done'|'failed'|'blocked';
+  /** The sentence shown to the agent, in place of the runner's derived one. */
+  reason?:string;
+  /** Anything else, carried to the juncture under the outcome's `result`. JSON only. */
+  [key:string]:unknown;
+}
+
 export interface Ctx {
   readonly account:ReadinessAccount;
   readonly command:ReadinessCommand;

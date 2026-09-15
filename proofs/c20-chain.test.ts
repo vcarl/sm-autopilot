@@ -131,7 +131,7 @@ test('C20: a script of three gather jobs runs with one juncture at the end and o
 
     // One call, one outcome, one juncture — for three trips out and back.
     assert.equal(result.outcome,'done',result.reason);
-    assert.deepEqual(Object.keys(result).sort(),['jobs','outcome','reason','script']);
+    assert.deepEqual(Object.keys(result).sort(),['jobs','outcome','reason','result','script']);
     assert.equal(f.count('spacemolt/undock'),3,'three trips left the dock');
     assert.equal(f.count('spacemolt/dock'),3,'three trips came back');
     assert.equal(f.count('spacemolt/mine'),3*CYCLES_PER_JOB);
@@ -148,7 +148,7 @@ test('C20: a script of three gather jobs runs with one juncture at the end and o
     assert.equal(f.count('spacemolt/sell'),0,'a run of gather jobs never sells');
     assert.equal(f.count('spacemolt_storage/deposit'),3*STOWED_PER_JOB.length);
     assert.deepEqual(f.stored(),STOWED_PER_JOB.map(row=>({...row,quantity:row.quantity*3})));
-    assert.match(result.reason!,/3 jobs/);
+    assert.match(result.reason!,/3 trips/);
 
     // The world agrees: docked at home, hold clear but for what the pilot keeps, serviced.
     assert.equal(f.server.location.docked_at,home.base_id);
@@ -211,7 +211,7 @@ test('C20: the script decides how many trips; the gather script is exactly one',
     assert.equal(result.outcome,'done',result.reason);
     assert.equal(result.jobs.length,3,'the script ran its cap, not its job count');
     assert.equal(f.count('spacemolt/undock'),3);
-    assert.match(result.reason!,/3 jobs/);
+    assert.match(result.reason!,/3 trips/);
   } finally {await f.close();}
 
   const g=await fixture();
@@ -220,7 +220,7 @@ test('C20: the script decides how many trips; the gather script is exactly one',
     assert.equal(result.outcome,'done',result.reason);
     assert.equal(result.jobs.length,1);
     assert.equal(g.count('spacemolt/undock'),1);
-    assert.match(result.reason!,/1 job\b/);
+    assert.match(result.reason!,/^gather done: /);
   } finally {await g.close();}
 });
 

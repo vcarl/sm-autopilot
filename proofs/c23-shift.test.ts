@@ -255,7 +255,7 @@ test('C23: rest, reflect, goal, stance, script, home, rest — and the journal s
     assert.equal(status.last.outcome,'done',status.last.reason);
     assert.equal(status.last.jobs.length,2);
     assert.ok(status.last.jobs.every((job:any)=>job.outcome==='done'));
-    assert.match(status.last.reason,/2 jobs/);
+    assert.match(status.last.reason,/2 trips/);
     const mined=status.last.jobs.reduce((total:number,job:any)=>
       total+job.yield.reduce((sum:number,row:any)=>sum+row.quantity,0),0);
     // Each trip is named for its end state — a full hold — so the take is the room the
