@@ -10,6 +10,8 @@ provides_tools:
   - spacemolt_travel
   - spacemolt_dock
   - spacemolt_gather
+  - spacemolt_run
+  - spacemolt_scripts
   - spacemolt_dispatch
   - spacemolt_status
   - spacemolt_journal

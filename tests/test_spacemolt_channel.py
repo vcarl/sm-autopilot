@@ -152,8 +152,9 @@ def test_the_window_carries_no_job_tools_and_the_juncture_no_direction_tool():
     window = by_toolset["spacemolt_observe"] | by_toolset["spacemolt_operator"]
     fire = by_toolset["spacemolt"] | by_toolset["spacemolt_observe"]
     assert {"spacemolt_where", "spacemolt_status", "spacemolt_journal", "spacemolt_storage",
-            "spacemolt_recipes", "spacemolt_quote", "spacemolt_direct"} == window
-    assert not window & {"spacemolt_dispatch", "spacemolt_travel", "spacemolt_dock", "spacemolt_gather"}
+            "spacemolt_recipes", "spacemolt_quote", "spacemolt_direct", "spacemolt_dispatch"} == window
+    assert not window & {"spacemolt_run", "spacemolt_scripts", "spacemolt_travel",
+                         "spacemolt_dock", "spacemolt_gather"}
     assert "spacemolt_direct" not in fire, "only the operator sets the objective"
     assert juncture.job_fields({"stance": "Prospector"})["enabled_toolsets"] == list(juncture.TOOLSETS)
     # A tool name is global and has exactly one toolset: no tool may claim two homes.
@@ -162,7 +163,8 @@ def test_the_window_carries_no_job_tools_and_the_juncture_no_direction_tool():
     # The window is told about the tools it has, never about the ones it does not.
     window_prompt = spacemolt._prompt({"platform": "discord"})
     assert "spacemolt_journal" in window_prompt
-    assert not any(name in window_prompt for name in ("spacemolt_gather", "spacemolt_dispatch"))
+    assert not any(name in window_prompt for name in ("spacemolt_gather", "spacemolt_run",
+                                                      "spacemolt_scripts"))
 
 
 def test_a_cron_fire_cannot_reach_status_while_the_window_can():
@@ -177,3 +179,6 @@ def test_a_cron_fire_cannot_reach_status_while_the_window_can():
     window = resolve(("spacemolt_observe", "spacemolt_operator"))
     assert "spacemolt_status" not in fire, "a juncture reads the chain from its context"
     assert "spacemolt_status" in window, "the operator's window asks the runner directly"
+    # Direction comes from outside the pilot: the window sends the sentence, the fire reads it.
+    assert "spacemolt_dispatch" not in fire, "a pilot does not instruct itself"
+    assert "spacemolt_dispatch" in window, "the operator's window is where a sentence is sent"

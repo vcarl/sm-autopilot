@@ -72,7 +72,7 @@ def test_an_idle_fire_is_given_the_menu_then_dispatches_and_returns_while_the_sc
     assert juncture.juncture_context({}) == ""
 
     trips = {"poi_id": "belt", "item_id": "ore", "quantity": 36, "max_runs": 3}
-    started = json.loads(spacemolt._dispatch({"script": "gather-until", "params": trips}))
+    started = json.loads(spacemolt._run({"script": "gather-until", "params": trips}))
     assert started["accepted"] is True
     assert started["script"] == "gather-until"
     # The script and its parameters reach the runner exactly as the agent named them.
@@ -85,13 +85,13 @@ def test_an_idle_fire_is_given_the_menu_then_dispatches_and_returns_while_the_sc
 
 
 def test_a_fire_while_a_script_runs_changes_nothing(bridged):
-    spacemolt._dispatch({"script": "gather", "params": {"poi_id": "belt"}})
+    spacemolt._run({"script": "gather", "params": {"poi_id": "belt"}})
 
     busy = juncture.juncture_context({"platform": "cron"})
     assert "gather" in busy and "end the turn" in busy
     assert "J1 Hold full of ore" not in busy, "a busy juncture offers nothing to choose"
 
-    refused = json.loads(spacemolt._dispatch({"script": "gather", "params": {"poi_id": "other"}}))
+    refused = json.loads(spacemolt._run({"script": "gather", "params": {"poi_id": "other"}}))
     assert refused["accepted"] is False
     assert refused["script"] == "gather"
 
@@ -154,7 +154,7 @@ def _menu(cargo_free: int, *, last: dict) -> dict:
     if cargo_free > 0:
         options.append({"job": "J1 Hold full of ore", "reason": "belt quoted", "admissible": True,
                         "bounds": bounds,
-                        "call": {"tool": "spacemolt_dispatch",
+                        "call": {"tool": "spacemolt_run",
                                  "params": {"script": "gather",
                                             "params": {"poi_id": ["belt", "deep-belt"],
                                                        "base_id": "sol_base"}}}})
@@ -189,7 +189,7 @@ def test_every_option_carries_the_call_it_would_be_taken_with(monkeypatch):
         assert option["call"]["tool"] in published, option["job"]
         assert isinstance(option["call"]["params"], dict), option["job"]
     gather = next(option for option in facts["options"]
-                  if (option["call"] or {}).get("tool") == "spacemolt_dispatch")
+                  if (option["call"] or {}).get("tool") == "spacemolt_run")
     # Two mining sites are admissible, so the option offers both: the parameters carry the
     # choice the pilot makes, never a destination chosen for it.
     poi_id = gather["call"]["params"]["params"]["poi_id"]
@@ -203,7 +203,7 @@ def test_a_full_hold_says_what_it_costs_and_why_the_last_gather_came_back_empty(
     context, facts = _rendered(monkeypatch, _menu(0, last=EMPTY_GATHER))
     assert "hold full" in context and "a gather needs free hold" in context
     # The line says the act, not just the cost: stow is what frees the hold here.
-    assert "Dispatch stow" in context and "script stow" in context
+    assert "Run stow" in context and "script stow" in context
     assert facts["present"]["hold_full"]
     assert "hold was full at departure" in facts["last"]["cause"]
 
@@ -211,6 +211,27 @@ def test_a_full_hold_says_what_it_costs_and_why_the_last_gather_came_back_empty(
     _, roomy = _rendered(monkeypatch, _menu(12, last=FULL_GATHER))
     assert "hold_full" not in roomy["present"]
     assert "cause" not in roomy["last"]
+
+
+def test_an_operators_instruction_reaches_the_juncture_and_outranks_the_objective(monkeypatch):
+    """The sentence the operator sent is direction from outside the pilot.
+
+    It travels in the consultation the fire is handed, beside the present it applies to, and
+    the prompt says what weight it carries — a juncture never spends a turn asking for it.
+    """
+    juncture.write_pilot({"name": "kvothe", "stance": "Prospector", "mood": "Focused",
+                          "objective": "fill the hold",
+                          "instruction": {"text": "stay in Sol tonight",
+                                          "at": "2026-09-15T20:00:00Z"}})
+    context, facts = _rendered(monkeypatch, _menu(12, last=FULL_GATHER))
+    assert facts["instruction"] == {"text": "stay in Sol tonight", "at": "2026-09-15T20:00:00Z"}
+    assert "stay in Sol tonight" in context
+    assert "outranks the objective" in juncture.JUNCTURE_PROMPT
+
+    # Nothing said, nothing carried: the field is the operator's, not furniture.
+    juncture.write_pilot({"name": "kvothe", "stance": "Prospector", "mood": "Focused"})
+    _, quiet = _rendered(monkeypatch, _menu(12, last=FULL_GATHER))
+    assert "instruction" not in quiet
 
 
 def test_the_cron_prompt_leaves_the_tools_to_their_own_descriptions():

@@ -110,7 +110,7 @@ const COUNTER_CALLS:Partial<Record<CounterName,Call>>={Storage:{tool:'spacemolt_
  * cannot start without (playtest 2026-09-15: a day of gathers on cargo_free 0). */
 const counterCall=(name:CounterName,facts:Facts):Call|null=>
   name==='Storage'&&facts.holdings.cargo_free===0
-    ?{tool:'spacemolt_dispatch',params:{script:'stow',params:{}}}
+    ?{tool:'spacemolt_run',params:{script:'stow',params:{}}}
     :COUNTER_CALLS[name]??null;
 /** Counters are the base's, shared by every stance (VISION: station tools are neither jobs
  * nor flight primitives); stance guidance points at jobs and skills, never at admissibility
@@ -179,7 +179,7 @@ const RULES:Rule[]=[
     // them, and one site still comes as a list rather than as a destination chosen for it.
     const poi_id=mining.filter((_,index)=>found[index]!.admissible).map(site=>site.poi_id);
     return yes('stance',job,`${found[open]!.reason}; ${facts.holdings.cargo_free} free cargo to fill`,
-      {tool:'spacemolt_dispatch',params:{script:'gather',
+      {tool:'spacemolt_run',params:{script:'gather',
         params:{poi_id,...facts.place.base_id?{base_id:facts.place.base_id}:{}}}});
   }},
   {id:'stance.industrialist.J7',stance:'Industrialist',apply:facts=>{

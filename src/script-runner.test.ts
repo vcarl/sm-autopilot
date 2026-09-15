@@ -7,7 +7,7 @@ import {pathToFileURL} from 'node:url';
 import type {ReadinessAccount} from './readiness.ts';
 import type {Facts} from './rules-table.ts';
 import {readRun,readJournal} from './run-record.ts';
-import {runScript,type RunOptions,type RunOutcome} from './script-runner.ts';
+import {runScript,sourceLabel,type RunOptions,type RunOutcome} from './script-runner.ts';
 import {bridgeWorld,type WorldOptions} from './test-support/bridge-world.ts';
 
 const HOME='sol_base';
@@ -133,6 +133,35 @@ test('a run interrupted by a restart is re-run to completion, mining nothing twi
     assert.deepEqual(f.store,[{item_id:'ore',quantity:12}]);
     // The re-run kept the run's identity: it is the same started stamp, not a new run.
     assert.equal(f.record()!.started,interrupted.started);
+  } finally {f.close();}
+});
+
+test('a run of a script the pilot wrote is re-run from the record after a restart', async () => {
+  // The pilot's own trip: the barrel's gather under a name and a sentence of its own.
+  const source="import {gather,type Ctx,type JobOutcome} from '../jobs/index.ts';\n"+
+    "export const params={type:'object',properties:{poi_id:{type:'string'}},required:['poi_id']};\n"+
+    'export default async (ctx:Ctx,args:{poi_id:string}):Promise<JobOutcome>=>{\n'+
+    "const out=await gather(ctx,args);return {job:'my-run',outcome:out.outcome,reason:'my own trip'};};\n";
+  const label=sourceLabel(source);
+  const f=runner({cargoUsed:0,store:[]});
+  try {
+    const first=await f.run(label,{poi_id:'belt'},{source});
+    assert.equal(first.outcome,'done',first.reason);
+    assert.equal(first.script,label,'a source run is named by its hash, not by its text');
+    const kept=f.record()!;
+    assert.equal(kept.source,source,'the record keeps the script, because nothing else has it');
+    const mined=f.count('spacemolt/mine'),undocks=f.count('spacemolt/undock');
+
+    // The restart: the runner that wrote the file is gone, and so is what it wrote.
+    rmSync(join(f.runtime,'scripts'),{recursive:true,force:true});
+    const interrupted={...kept,ended:false};
+    delete interrupted.outcome;
+    const again=await f.run(label,{poi_id:'belt'},{source:interrupted.source,resume:interrupted});
+    assert.equal(again.outcome,'done',again.reason);
+    assert.equal(again.reason,'my own trip','the very script the record held ran again');
+    assert.equal(f.count('spacemolt/mine'),mined,'and nothing was mined twice');
+    assert.equal(f.count('spacemolt/undock'),undocks,'the re-run never left the dock');
+    assert.equal(f.record()!.started,interrupted.started,'the same run, not a new one');
   } finally {f.close();}
 });
 

@@ -97,12 +97,16 @@ def test_register_publishes_every_tool_in_the_spacemolt_toolset():
     for name, (toolset, *_rest) in tools.items():
         by_toolset.setdefault(toolset, set()).add(name)
     assert by_toolset == {
-        "spacemolt": {"spacemolt_travel", "spacemolt_dock", "spacemolt_gather", "spacemolt_dispatch",
-                      "spacemolt_rest", "spacemolt_reflect"},
+        "spacemolt": {"spacemolt_travel", "spacemolt_dock", "spacemolt_gather", "spacemolt_run",
+                      "spacemolt_scripts", "spacemolt_rest", "spacemolt_reflect"},
         "spacemolt_observe": {"spacemolt_where", "spacemolt_journal", "spacemolt_storage",
                               "spacemolt_recipes", "spacemolt_quote"},
-        "spacemolt_operator": {"spacemolt_direct", "spacemolt_status"},
+        "spacemolt_operator": {"spacemolt_direct", "spacemolt_status", "spacemolt_dispatch"},
     }
+    # The pilot runs scripts; the operator sends a sentence. Each names the other's tool never.
+    assert tools["spacemolt_run"][1]["parameters"]["required"] == ["params"]
+    assert tools["spacemolt_scripts"][1]["parameters"]["required"] == ["action"]
+    assert tools["spacemolt_dispatch"][1]["parameters"]["required"] == ["instruction"]
     assert tools["spacemolt_travel"][1]["parameters"]["required"] == ["poi_id"]
     assert tools["spacemolt_where"][1]["parameters"]["properties"] == {}
     # Docking where the ship already is needs no argument from the model.
@@ -115,6 +119,29 @@ def test_register_publishes_every_tool_in_the_spacemolt_toolset():
     # Credentials gate the tools out of the schema, and unload must release the bridge.
     assert all(kwargs["requires_env"] == ["SPACEMOLT_CREDENTIALS_FILE"] for *_, kwargs in tools.values())
     assert sections and unloads == [service.close_bridge]
+
+
+def test_the_operators_sentence_is_bounded_and_lands_on_the_pilot():
+    """One sentence of direction, and the pilot reads it at its next juncture.
+
+    The cap is the scope of the instruction: what an operator can ask for in 80 characters is
+    direction, and the pilot's own machinery is what carries it out.
+    """
+    from spacemolt import juncture
+
+    juncture.write_pilot({"name": "kvothe", "objective": "fill the hold"})
+    refused = spacemolt._dispatch({"instruction": "x" * 81})
+    assert "81" in refused and "fewer words" in refused
+    assert "instruction" not in juncture.read_pilot(), "nothing over the cap reaches the pilot"
+
+    sentence = "y" * 80
+    answer = spacemolt._dispatch({"instruction": sentence})
+    recorded = juncture.read_pilot()
+    assert recorded["instruction"]["text"] == sentence
+    assert recorded["instruction"]["at"].endswith("Z"), "when it was said, so staleness is readable"
+    assert "next juncture" in answer
+    # Direction is not a setting: the operator's objective is the other tool's to change.
+    assert recorded["objective"] == "fill the hold"
 
 
 def test_the_bench_reads_reach_a_cron_fire():

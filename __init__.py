@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 from collections import deque
+from datetime import datetime, timezone
 from typing import Any, Mapping
 
 from pathlib import Path
@@ -22,24 +23,9 @@ from .skills_register import register_skills
 
 _JOURNAL_DEFAULT, _JOURNAL_CAP, _RESULT_CHARS = 10, 50, 120
 
-#: The scripts the runner ships, mirrored from ``src/scripts/`` the way STANCES is mirrored
-#: from the rules table: a tool schema cannot read TypeScript, and a schema built by asking a
-#: live bridge at plugin load would spawn one for every session. The bridge's ``scripts``
-#: action is the runtime source of truth — it validates every dispatch against the script's
-#: own schema, and a refusal comes back carrying the same list.
-SCRIPTS = {
-    "gather": "poi_id (the mining site), optional base_id (where the take is stowed)",
-    "gather-until": "poi_id, item_id, quantity and max_runs: gather trip after trip until "
-                    "the home store holds that much of that item, or the cap is reached; "
-                    "optional base_id",
-    "stock-up": "poi_id, targets (a list of {item_id, quantity}) and max_runs: gather at "
-                "one site until the store holds each target in turn; optional base_id",
-    "stow": "no parameters: deposit the hold into the store at the base you are docked at, "
-            "which is what frees hold for the next gather; optional items (item ids) and "
-            "base_id (must be the base you are docked at)",
-}
-SCRIPT_HELP = "The scripts and what each one takes:\n" + "\n".join(
-    f"- {name}: {takes}" for name, takes in SCRIPTS.items())
+#: How long an operator's instruction may be. The constraint is the scope of the instruction:
+#: a sentence is direction the pilot reads at its next juncture, not a plan handed down.
+_INSTRUCTION_LIMIT = 80
 
 _FLIGHT_PROMPT = (
     "SpaceMolt: you fly one live ship. When asked where the ship is, call spacemolt_where "
@@ -121,20 +107,39 @@ def _gather(arguments: dict[str, Any] | None = None, **_: Any) -> str:
     return json.dumps(call("gather", params), separators=(",", ":"))
 
 
-def _dispatch(arguments: dict[str, Any] | None = None, **_: Any) -> str:
-    """Start one script in the runner.
+def _run(arguments: dict[str, Any] | None = None, **_: Any) -> str:
+    """Start one script in the runner: one the runner has, or one the pilot just wrote.
 
     The script owns its own parameters, so a script that will not take these says why and
-    this answers with the scripts there are and what each one asks for — one turn to correct,
-    rather than a guess repeated.
+    this answers with the library — one turn to correct, rather than a guess repeated.
     """
     args = arguments or {}
-    params = {"script": str(args.get("script") or ""), "params": args.get("params") or {}}
+    params: dict[str, Any] = {"params": args.get("params") or {}}
+    for name in ("script", "source"):
+        if args.get(name):
+            params[name] = str(args[name])
     try:
         return json.dumps(call("run", params), separators=(",", ":"))
     except Exception as error:  # the runner refuses before anything reaches the game
         return json.dumps({"accepted": False, "reason": str(error),
-                           "scripts": call("scripts")}, separators=(",", ":"))
+                           "scripts": call("scripts", {"action": "list"})}, separators=(",", ":"))
+
+
+def _scripts(arguments: dict[str, Any] | None = None, **_: Any) -> str:
+    """The pilot's library: what it may run, what a script looks like, and what it keeps.
+
+    A saved script outlives the conversation that wrote it, which is what lets the pilot
+    build its own management systems on top of the jobs rather than retype them.
+    """
+    args = arguments or {}
+    params: dict[str, Any] = {"action": str(args.get("action") or "list")}
+    for name in ("name", "source"):
+        if args.get(name):
+            params[name] = str(args[name])
+    try:
+        return json.dumps(call("scripts", params), separators=(",", ":"))
+    except Exception as error:  # the lint refuses a script before it is ever written down
+        return json.dumps({"ok": False, "reason": str(error)}, separators=(",", ":"))
 
 
 def _status(arguments: dict[str, Any] | None = None, **_: Any) -> str:
@@ -268,6 +273,32 @@ def _direct(arguments: dict[str, Any] | None = None, **_: Any) -> str:
                          separators=(",", ":"), sort_keys=True))
 
 
+def _dispatch(arguments: dict[str, Any] | None = None, **_: Any) -> str:
+    """Send the pilot one sentence of direction from the operator's window.
+
+    RISK (Carl, 2026-09-15): this is model-generated text conveying a user's intention, and
+    the pilot parses it as outside instruction that outranks the objective for one juncture.
+    A window that paraphrases badly steers the pilot. What bounds it: the 80 characters cap
+    how much a sentence can ask for; the lint bounds what any script it leads to may reach;
+    the rules check between jobs, the credit reserve and the wall-clock cap bound what a run
+    can do. Pass the operator's words as they were said, shortened by dropping words.
+    """
+    instruction = str((arguments or {}).get("instruction") or "").strip()
+    if not instruction:
+        return ("Nothing sent. Give the pilot one sentence of direction, at most "
+                f"{_INSTRUCTION_LIMIT} characters, in the operator's own words.")
+    if len(instruction) > _INSTRUCTION_LIMIT:
+        return (f"Nothing sent: that is {len(instruction)} characters and the pilot reads at most "
+                f"{_INSTRUCTION_LIMIT}. Say it again in fewer words, keeping the operator's.")
+    record = read_pilot()
+    record["instruction"] = {"text": instruction,
+                             "at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")}
+    write_pilot(record)
+    return (f"Sent: {instruction!r}. The pilot reads it at its next juncture, where it outranks "
+            "the objective, and a job already under way runs to its outcome first."
+            + _nudge_juncture())
+
+
 TOOL_DEFINITIONS = (
     {"name": "spacemolt_where", "toolset": "spacemolt_observe", "handler": _where,
      "description": "Read the ship's live location, fuel, hull, the POIs of this system and the systems it connects to.",
@@ -313,19 +344,49 @@ TOOL_DEFINITIONS = (
                         "keep": {"type": "array", "items": {"type": "string"},
                                  "description": "Optional: item ids that must never be sold."}},
                        ["poi_id"])},
-    {"name": "spacemolt_dispatch", "toolset": "spacemolt", "handler": _dispatch,
-     "description": "Start one script in the runner and return at once.",
-     "schema": _schema("spacemolt_dispatch",
+    {"name": "spacemolt_run", "toolset": "spacemolt", "handler": _run,
+     "description": "Run one script in the runner — a shipped one, one you saved, or one you "
+                    "write here — and return at once.",
+     "schema": _schema("spacemolt_run",
                        "Start the option you chose. The script runs on in the runner after this "
                        "conversation ends, so this returns immediately. After this call, say what "
                        "you started and end the turn. The runner raises the next juncture when the "
-                       "script ends. Refused while another script runs.\n"
-                       + SCRIPT_HELP,
-                       {"script": {"type": "string", "enum": list(SCRIPTS),
-                                   "description": "The script to run."},
+                       "script ends, and runs one script at a time. Name either script or source; "
+                       "spacemolt_scripts lists what there is to name.\n"
+                       "A script you write is one module:\n"
+                       "- it imports from '../jobs/index.ts' alone: gather, stow, travel, dock, "
+                       "where, storage, service, journal, and the scripts gatherUntil and stockUp;\n"
+                       "- `export const params` is the JSON schema of what it takes, checked "
+                       "before it runs;\n"
+                       "- `export default async (ctx, params)` returns a JobOutcome: "
+                       "{job, outcome: done | blocked | failed, reason, result};\n"
+                       "- every job is named for an end state and skips what already holds, so "
+                       "running one twice is safe.",
+                       {"script": {"type": "string",
+                                   "description": "A script the runner ships or you saved."},
+                        "source": {"type": "string",
+                                   "description": "Instead of script: the TypeScript of a script "
+                                                  "you wrote for this run."},
                         "params": {"type": "object",
-                                   "description": "What that script asks for, named above."}},
-                       ["script", "params"])},
+                                   "description": "What that script's own params schema asks for."}},
+                       ["params"])},
+    {"name": "spacemolt_scripts", "toolset": "spacemolt", "handler": _scripts,
+     "description": "The script library: list what can be run, read one, or save one you wrote.",
+     "schema": _schema("spacemolt_scripts",
+                       "Your library. list names every script with the parameters it takes, the "
+                       "runner's own and the ones you saved. read returns one script's source: the "
+                       "shipped scripts are the worked examples to write yours from. save lints a "
+                       "script of yours and keeps it under its name, after which spacemolt_run "
+                       "names it and a restart still has it — this is how the pilot builds systems "
+                       "on top of the jobs.",
+                       {"action": {"type": "string", "enum": ["list", "read", "save"],
+                                   "description": "list the library, read one script, or save one."},
+                        "name": {"type": "string",
+                                 "description": "For read and save: lowercase letters, digits and "
+                                                "hyphens, and your own rather than a shipped one."},
+                        "source": {"type": "string",
+                                   "description": "For save: the TypeScript of the script."}},
+                       ["action"])},
     {"name": "spacemolt_rest", "toolset": "spacemolt", "handler": _rest,
      "description": "End the shift: rest at home, which clears the stance and the mood.",
      "schema": _schema("spacemolt_rest",
@@ -439,6 +500,18 @@ TOOL_DEFINITIONS = (
                                                                "description": "Credits kept back for fuel "
                                                                               "and repair, never spent."}}}},
                        [])},
+    # The operator's sentence becomes the pilot's direction: model-generated text conveying a
+    # user's intention, which the pilot reads as outside instruction. The cap is what bounds
+    # how much one sentence can ask for; see the handler's docstring for the rest of the fence.
+    {"name": "spacemolt_dispatch", "toolset": "spacemolt_operator", "handler": _dispatch,
+     "description": "Send the pilot one sentence of direction from the operator.",
+     "schema": _schema("spacemolt_dispatch",
+                       "Send the pilot one sentence of direction, at most "
+                       f"{_INSTRUCTION_LIMIT} characters. Pass the operator's words as they were "
+                       "said; shorten by dropping words. The pilot reads it at its next juncture.",
+                       {"instruction": {"type": "string", "maxLength": _INSTRUCTION_LIMIT,
+                                        "description": "The operator's sentence, in their words."}},
+                       ["instruction"])},
 )
 
 

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {spawnSync} from 'node:child_process';
-import {existsSync,mkdtempSync,readFileSync,writeFileSync} from 'node:fs';
+import {existsSync,mkdtempSync,readFileSync,rmSync,writeFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {createShutdown,serve,type Pilot,type ServeOptions} from './bridge.ts';
@@ -198,10 +198,10 @@ test('every option carries the call it would be taken with, and the present says
   const menu=await f.dispatch('menu') as any;
   assert.deepEqual([menu.present.storage,menu.present.workshop],[true,true]);
   const tools=new Set(['spacemolt_travel','spacemolt_dock','spacemolt_storage','spacemolt_rest',
-    'spacemolt_dispatch','spacemolt_recipes']);
+    'spacemolt_run','spacemolt_recipes']);
   for(const option of menu.options)
     assert.ok(option.call===null||tools.has(option.call.tool),`${option.job}: ${JSON.stringify(option.call)}`);
-  const gather=menu.options.find((option:any)=>option.call?.tool==='spacemolt_dispatch');
+  const gather=menu.options.find((option:any)=>option.call?.tool==='spacemolt_run');
   assert.ok(gather,'a hold with room is offered the gather');
   assert.equal(gather.call.params.script,'gather');
   // The mining sites to choose among — the station the ship is docked at is not one of them,
@@ -214,7 +214,7 @@ test('the Storage counter offers the deposit when the hold is full, and the read
   // A full hold at a base that takes deposits wants the act: reading the store changes nothing.
   const full=await fixture({pilot:()=>PILOT},['refuel','repair','storage']).dispatch('menu') as any;
   const stowing=full.options.find((option:any)=>option.job==='Counter: Storage');
-  assert.deepEqual(stowing.call,{tool:'spacemolt_dispatch',params:{script:'stow',params:{}}});
+  assert.deepEqual(stowing.call,{tool:'spacemolt_run',params:{script:'stow',params:{}}});
 
   const f=fixture({pilot:()=>PILOT},['refuel','repair','storage']);
   f.account.server.ship.cargo_used=0; // room in the hold: the counter is a read again
@@ -268,7 +268,89 @@ test('a script the runner does not have is refused before anything reaches the g
   assert.deepEqual(await f.dispatch('status'),{running:false,last:null});
 });
 
-test('scripts lists what the dispatch tool may name, each with the parameters it takes', async () => {
+/** A script of the pilot's own: it reaches the barrel, and nothing else, and says what it
+ * saw, so a run of it is visible in the outcome the next juncture reads. */
+const OWN_SCRIPT="import {where,type Ctx,type JobOutcome} from '../jobs/index.ts';\n"+
+  "export const params={type:'object',description:'Look around from the dock.',properties:{}};\n"+
+  'export default async (ctx:Ctx):Promise<JobOutcome>=>{const at=await where(ctx);\n'+
+  "return {job:'look',outcome:'done',reason:`docked at ${at.docked_at?.base_id}`};};\n";
+const SNEAKY="import {readFileSync} from 'node:fs';\n"+
+  "export const params={type:'object',properties:{}};\n"+
+  "export default async ()=>{readFileSync('/etc/passwd');};\n";
+
+/** The run is the runner's own work, so a caller waits for it the way a window does. */
+async function idle(dispatch:Awaited<ReturnType<typeof serve>>) {
+  for(let tries=0;tries<500;tries++) {
+    const status=await dispatch('status') as any;
+    if(!status.running)return status;
+    await settle();
+  }
+  throw new Error('the run never ended');
+}
+const runtimeDir=()=>mkdtempSync(join(tmpdir(),'spacemolt-runtime-'));
+
+test('a script the pilot wrote runs from its source, and the juncture reads its outcome', async () => {
+  const runtime=runtimeDir();
+  const f=fixture({pilot:()=>PILOT,runtime});
+  const started=await f.dispatch('run',{source:OWN_SCRIPT,params:{}}) as any;
+  assert.equal(started.accepted,true);
+  // The run is named by what the script is, not by its text: the journal stays small.
+  assert.match(started.script,/^source:[0-9a-f]{12}$/);
+  const after=await idle(f.dispatch);
+  assert.equal(after.last.script,started.script);
+  assert.equal(after.last.reason,'docked at sol_base','the pilot\'s own script really ran');
+  // The record keeps the script itself, because a restart has nowhere else to find it.
+  const record=JSON.parse(readFileSync(join(runtime,'run.json'),'utf8'));
+  assert.equal(record.source,OWN_SCRIPT);
+  const journal=readFileSync(join(runtime,'gameplay.jsonl'),'utf8');
+  assert.ok(journal.includes(started.script),'the journal names the run');
+  assert.ok(!journal.includes('docked at ${at'),'and never carries the script itself');
+  rmSync(runtime,{recursive:true,force:true});
+});
+
+test('a script the pilot saves is listed, readable, and run by name afterwards', async () => {
+  const runtime=runtimeDir();
+  const f=fixture({pilot:()=>PILOT,runtime});
+  assert.deepEqual(await f.dispatch('scripts',{action:'save',name:'look-around',source:OWN_SCRIPT}),
+    {saved:true,name:'look-around'});
+
+  const rows=await f.dispatch('scripts',{action:'list'}) as any[];
+  const mine=rows.find(row=>row.name==='look-around');
+  assert.ok(mine?.saved,`the pilot's own scripts are listed too: ${rows.map(row=>row.name).join(', ')}`);
+  assert.ok(rows.some(row=>row.name==='gather'&&!row.saved),'beside the shipped ones');
+  assert.ok(mine.params.description,'with what it takes, the way a shipped one is listed');
+  // The shipped scripts are the worked examples a pilot writes its own from.
+  assert.equal((await f.dispatch('scripts',{action:'read',name:'look-around'}) as any).source,OWN_SCRIPT);
+  assert.match((await f.dispatch('scripts',{action:'read',name:'gather'}) as any).source,
+    /from '\.\.\/jobs\/index\.ts'/);
+
+  const started=await f.dispatch('run',{script:'look-around',params:{}}) as any;
+  assert.equal(started.accepted,true);
+  assert.equal(started.script,'look-around');
+  assert.equal((await idle(f.dispatch)).last.reason,'docked at sol_base');
+  rmSync(runtime,{recursive:true,force:true});
+});
+
+test('a script that reaches past the barrel is refused at the save, and nothing is written', async () => {
+  const runtime=runtimeDir();
+  const f=fixture({pilot:()=>PILOT,runtime});
+  await assert.rejects(f.dispatch('scripts',{action:'save',name:'sneaky',source:SNEAKY}),/not admissible/);
+  assert.equal(existsSync(join(runtime,'scripts','sneaky.ts')),false,'nothing was written');
+  await assert.rejects(f.dispatch('run',{script:'sneaky',params:{}}),/Unknown script/);
+  // A source run is linted by the same rule, and a shipped name stays the runner's.
+  await assert.rejects(f.dispatch('run',{source:SNEAKY,params:{}}),/not admissible/);
+  await assert.rejects(f.dispatch('scripts',{action:'save',name:'gather',source:OWN_SCRIPT}),/ships/);
+  assert.deepEqual(await f.dispatch('status'),{running:false,last:null},'nothing ever started');
+  rmSync(runtime,{recursive:true,force:true});
+});
+
+test('a run names one of a script or a source, never both and never neither', async () => {
+  const f=fixture({pilot:()=>PILOT,runtime:runtimeDir()});
+  await assert.rejects(f.dispatch('run',{params:{}}),/one of script or source/);
+  await assert.rejects(f.dispatch('run',{script:'gather',source:OWN_SCRIPT,params:{}}),/one of script or source/);
+});
+
+test('scripts lists what the run tool may name, each with the parameters it takes', async () => {
   const rows=await fixture().dispatch('scripts') as any[];
   const names=rows.map(row=>row.name);
   for(const shipped of ['gather','gather-until','stock-up'])

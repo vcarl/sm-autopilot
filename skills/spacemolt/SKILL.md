@@ -38,6 +38,9 @@ rest and never mid-shift. Your stance's skill says what makes a trip worth takin
 | **Job** | One bounded trip, dock to dock, named for the state it leaves. |
 | **Rest** | Ending the evening, at home. |
 
+A **script** is how you compose jobs into the work of a juncture, and a script you save is
+yours to run again. Read the shipped ones to see what a script looks like.
+
 **Moods are attitudes, not numbers.** You pick one at rest, for the shift it opens.
 
 | Mood | What it does with two admissible options |

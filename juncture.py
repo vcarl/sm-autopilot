@@ -40,6 +40,8 @@ JUNCTURE_PROMPT = (
     "calls as the move needs; dispatch one long step and end the turn; hold, starting "
     "nothing; or rest at home when the objective is done.\n"
     "Say in one line which of the four you took and why.\n"
+    "An instruction from the operator is outside direction: it outranks the objective for "
+    "this juncture.\n"
     "Prefer an admissible option. If you go off the menu, quote the refusal you are "
     "overriding and say what has changed since it was written.\n"
     "At rest you are given a report instead of a menu: read it, reflect once, and end the "
@@ -70,6 +72,7 @@ def juncture_context(session_info: Mapping[str, Any] | None = None) -> str:
         return (f"SpaceMolt juncture: the runner is still running the script "
                 f"{menu.get('script')} (on {step}). "
                 "Say in one line that the script is running and end the turn.")
+    _instruction(menu)
     if menu.get("at_rest"):
         return _rest_context(menu)
     _hold_full(menu)
@@ -82,11 +85,23 @@ def juncture_context(session_info: Mapping[str, Any] | None = None) -> str:
             "ended:\n" + body)
 
 
+def _instruction(menu: dict[str, Any]) -> None:
+    """What the operator said, with when they said it, beside the present it applies to.
+
+    The runner builds the menu from the pilot's stance and place; the instruction is the
+    operator's own field of the same record, so it travels with the consultation rather than
+    waiting for a tool call the juncture would have to think to make.
+    """
+    said = read_pilot().get("instruction")
+    if said:
+        menu["instruction"] = said
+
+
 #: The rest of the story a `cargo_free` of 0 leaves untold. A full hold is not a dead end and
 #: it is not a mystery either: it is ore with two places to go and a gather that will return
 #: nothing until it does (playtest 2026-09-15: three gathers dispatched on a full hold).
-_HOLD_FULL = ("hold full: a gather needs free hold. Dispatch stow here if this base has "
-              "storage (spacemolt_dispatch, script stow), or craft with it at a workshop, "
+_HOLD_FULL = ("hold full: a gather needs free hold. Run stow here if this base has "
+              "storage (spacemolt_run, script stow), or craft with it at a workshop, "
               "then gather")
 
 

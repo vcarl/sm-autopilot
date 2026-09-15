@@ -10,6 +10,10 @@ import {join} from 'node:path';
 
 export interface RunRecord {
   script:string;
+  /** The source of a script the pilot wrote, kept whole so a restart can re-run the very
+   * script it was running. `script` is then the source's label, which is what the journal
+   * and the juncture read: a hash names the run without carrying its text. */
+  source?:string;
   params:Record<string,unknown>;
   /** The run's identity: no counter, no ids to keep unique across restarts. */
   started:string;

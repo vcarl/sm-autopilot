@@ -16,7 +16,7 @@ import type {Mood} from './mood-policy.ts';
 import {reflectReport} from './reflect.ts';
 import {REST_JOB,evaluateMenu,type CounterName,type Facts,type StanceName} from './rules-table.ts';
 import {journalRun,readRun,type RunRecord} from './run-record.ts';
-import {listScripts,prepareRun,runScript as defaultRunScript,
+import {listScripts,prepareRun,readScript,runScript as defaultRunScript,saveScript,sourceLabel,
   type RunOutcome} from './script-runner.ts';
 import {viewStorage} from './storage.ts';
 import {quoteRecipe} from './quote-action.ts';
@@ -153,14 +153,19 @@ export function serve(account:ReadinessAccount,command:ReadinessCommand,options:
   const startRun=async(params:Record<string,unknown>)=>{
     if(running)return {accepted:false,
       reason:'a script is already running; the runner raises the juncture when it ends',...busy()};
-    const script=String(params.script??'');
     const args=(params.params??{}) as Record<string,unknown>;
-    await prepareRun(script,args,options.scriptsDir);
+    const source=params.source===undefined?undefined:String(params.source);
+    const named=params.script===undefined?{}:{script:String(params.script)};
+    const wrote=source===undefined?{}:{source};
+    await prepareRun({...named,...wrote,params:args,
+      ...options.scriptsDir===undefined?{}:{dir:options.scriptsDir},
+      ...runtime===undefined?{}:{runtime}});
+    const script=source===undefined?named.script!:sourceLabel(source);
     const who=pilot();
     const started=new Date().toISOString();
     running={script};
-    record={script,params:args,started,keep:[],ended:false};
-    flight=runner({account,command,script,params:args,facts,started,
+    record={script,params:args,started,keep:[],ended:false,...wrote};
+    flight=runner({account,command,script,params:args,facts,started,...wrote,
       mood:who.mood??'Cautious',permissions:who.permissions??{},
       ...who.home===undefined?{}:{home:who.home},
       ...runtime===undefined?{}:{runtime},
@@ -187,6 +192,7 @@ export function serve(account:ReadinessAccount,command:ReadinessCommand,options:
     running={script:kept.script};
     record=kept;
     flight=runner({account,command,script:kept.script,params:kept.params,facts,
+      ...kept.source===undefined?{}:{source:kept.source},
       started:kept.started,resume:kept,mood:who.mood??'Cautious',permissions:who.permissions??{},
       ...who.home===undefined?{}:{home:who.home},
       ...runtime===undefined?{}:{runtime},
@@ -267,6 +273,19 @@ export function serve(account:ReadinessAccount,command:ReadinessCommand,options:
   let catalog:Promise<Catalog>|undefined;
   const loadCatalog=()=>(catalog??=fetcher().catch(error=>{catalog=undefined;throw error;}));
 
+  /** The pilot's library: what it may run, what a script looks like, and where it keeps the
+   * ones it writes. A saved script outlives the conversation that wrote it and the runner
+   * that ran it, which is what makes it a thing the pilot builds on rather than retypes. */
+  const scriptActions:Record<string,(params:Record<string,unknown>)=>Promise<unknown>>={
+    list:async()=>listScripts(options.scriptsDir,runtime),
+    read:async params=>readScript(String(params.name??''),options.scriptsDir,runtime),
+    save:async params=>{
+      if(runtime===undefined)throw new Error('This runner has nowhere to save a script');
+      const saved=saveScript(runtime,String(params.name??''),String(params.source??''),options.scriptsDir);
+      return {saved:true,name:saved.name};
+    },
+  };
+
   // Later capabilities (service, more jobs) slot in here; the transport never changes.
   const actions:Record<string,(params:Record<string,unknown>)=>Promise<unknown>>={
     where,
@@ -283,7 +302,11 @@ export function serve(account:ReadinessAccount,command:ReadinessCommand,options:
       ...params.quantity===undefined?{}:{quantity:Number(params.quantity)}}),
     menu,
     run:startRun,
-    scripts:async()=>listScripts(options.scriptsDir),
+    scripts:async params=>{
+      const action=String(params.action??'list');
+      if(!Object.hasOwn(scriptActions,action))throw new Error(`Unknown scripts action: ${action}`);
+      return scriptActions[action]!(params);
+    },
     resume,
     status:async()=>running?{running:true,...busy()}:{running:false,last:lastOutcome()},
   };
