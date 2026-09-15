@@ -1,74 +1,123 @@
-import type {Decision,RuleFacts} from './rules.ts';
-import type {Account} from '@spacemolt/lib';
+import type {GameState} from '@spacemolt/lib';
+import type {ReadinessAccount,ReadinessCommand} from './readiness.ts';
 import {details} from './response-details.ts';
-import {type IndustryCommand} from './industry.ts';
-import {canonicalReadinessBlockers,ensureReadiness,inspectReadiness} from './readiness.ts';
+import {resolveServiceSpend,type Mood} from './mood-policy.ts';
 
-export interface ServiceBudget {maxSpend:number;creditReserve:number}
-export interface ServiceClock {decided?:(decision:Decision,phase?:RuleFacts['phase'])=>void;now?:()=>number;sleep?:(ms:number)=>Promise<void>}
+/** `decided` carried the deleted rules engine's Decision; it is typed loose here only
+ * so the first-attempt consumers (industry, recovery) keep compiling unchanged.
+ * ponytail: shim for a dead engine, delete with those files' rewrite. */
+export interface ServiceClock {decided?:(decision:any,phase?:any)=>void;now?:()=>number;sleep?:(ms:number)=>Promise<void>}
 export interface ServiceFuelQuote {
   observed_at:string;base_id:string;system_id:string;poi_id:string;ship_id:string;
   max_fuel:number;unit_price:number|null;
 }
-/** Price belongs to the authenticated dock; a remote directory is not a quote. */
-export async function observeServiceFuelQuote(account:Account,command:IndustryCommand):Promise<ServiceFuelQuote> {
+export interface ServiceOptions {
+  mood:Mood;
+  /** Operator-owned permission (D11), independent of the mood. */
+  creditReserve?:number;
+}
+export interface ServiceOutcome {satisfied:true;issued:string[];spent:number;fuel:number;hull:number}
+
+/** Carries the units still missing, so a caller can never mistake it for readiness. */
+export class ServiceBlocked extends Error {
+  readonly blockers:string[];
+  constructor(blockers:string[]) {
+    super(`service_blocked: ${blockers.join('; ')}`);
+    this.blockers=[...blockers];
+  }
+}
+
+const finite=(value:unknown):value is number=>typeof value==='number'&&Number.isFinite(value)&&value>=0;
+const shortfall=(name:string,have:number,need:number,unit:string)=>
+  `${name} have ${have}, need ${need}; shortfall ${need-have} ${unit}`;
+
+/** Servicing is script-owned: the mood resolves the spend margin and D3 resolves the
+ * targets. A serviced dock restores the full tank and full hull; the mood's retreat
+ * fraction is the away-from-dock line, not a service target. A partial fill is never
+ * success — the post-state is read authoritatively and decides.
+ */
+export async function serviceShip(account:ReadinessAccount,command:ReadinessCommand,options:ServiceOptions):Promise<ServiceOutcome> {
+  const margin=resolveServiceSpend(options.mood),reserve=options.creditReserve??0;
+  if(!finite(reserve))throw new Error('Service credit reserve must be a finite non-negative number');
+  const custody=(state:GameState)=>{
+    const {ship,location,player,cargo,modules}=state??{};
+    if(!ship||!location||!player||!Array.isArray(cargo)||!Array.isArray(modules))
+      throw new Error('Dock with authoritative ship, wallet and custody state before servicing');
+    if(!location.docked_at||location.in_transit)throw new Error('Servicing requires a verified dock');
+    if(![ship.fuel,ship.max_fuel,ship.hull,ship.max_hull,player.credits].every(finite))
+      throw new Error('Authoritative fuel, hull and wallet numbers required before servicing');
+    return {shipId:ship.id,dock:location.docked_at,system:location.system_id,poi:location.poi_id,
+      cargo:structuredClone(cargo),modules:structuredClone(modules)};
+  };
   await account.refresh();
-  const location=structuredClone(account.location),ship=account.ship;
-  if(!location?.docked_at||location.in_transit||!ship)throw new Error('Fuel price observation requires a verified dock and ship');
-  const shipId=ship.id,capacity=ship.max_fuel;
+  const before=custody(account.state);
+  const held=(rows:typeof before.cargo,id:string)=>rows.filter(row=>row.item_id===id).reduce((sum,row)=>sum+row.quantity,0);
+  const verify=()=>{
+    const now=custody(account.state);
+    if(now.shipId!==before.shipId||now.dock!==before.dock||now.system!==before.system||now.poi!==before.poi)
+      throw new Error('Ship or docking changed during servicing');
+    if(before.cargo.some(row=>held(now.cargo,row.item_id)<held(before.cargo,row.item_id))||
+      before.modules.some(row=>!now.modules.some(current=>current.module_id===row.module_id&&current.type_id===row.type_id)))
+      throw new Error('Starting cargo or fitted equipment lost during servicing');
+  };
+  const ship=()=>account.state.ship!;
+  const due=()=>{
+    const {fuel,max_fuel,hull,max_hull}=ship();
+    return {fuel:Math.max(0,max_fuel-fuel),hull:Math.max(0,max_hull-hull)};
+  };
+  const gaps=()=>{
+    const {fuel,max_fuel,hull,max_hull}=ship(),out:string[]=[];
+    if(fuel<max_fuel)out.push(shortfall('fuel',fuel,max_fuel,'fuel units'));
+    if(hull<max_hull)out.push(shortfall('hull',hull,max_hull,'hull points'));
+    return out;
+  };
+  const satisfied=(issued:string[],spent:number):ServiceOutcome=>
+    ({satisfied:true,issued,spent,fuel:ship().fuel,hull:ship().hull});
+  if(!due().fuel&&!due().hull)return satisfied([],0);
+
+  // The price belongs to the authenticated dock; a remote directory is not a quote.
   const base=details(await command('spacemolt/get_base',{}));
   await account.refresh();
-  if(account.location?.docked_at!==location.docked_at||account.location.in_transit||account.location.system_id!==location.system_id||account.location.poi_id!==location.poi_id||account.ship?.id!==shipId||account.ship.max_fuel!==capacity)throw new Error('Ship or docking changed during fuel price observation');
-  const price=base.fuel_price_all_in;
-  return {observed_at:new Date().toISOString(),base_id:location.docked_at,
-    system_id:location.system_id,poi_id:location.poi_id!,ship_id:shipId,max_fuel:capacity,
-    unit_price:typeof price==='number'&&Number.isFinite(price)&&price>=0?price:null};
-}
-/** Service and wait only at the verified dock. A stop request does not cancel cleanup. */
-export async function serviceShip(account:Account,command:IndustryCommand,budget:ServiceBudget,defend:()=>Promise<void>,clock:ServiceClock={}) {
-  await account.refresh();
-  const origin=account.location?.docked_at,shipId=account.ship?.id;
-  if(!origin||!shipId)throw new Error('Dock with authoritative ship state before servicing');
-  const initialBlockers=canonicalReadinessBlockers(account.state);
-  if(initialBlockers.length)throw new Error(initialBlockers.join('; '));
-  const cargo=structuredClone(account.cargo!),modules=structuredClone(account.state.modules!);
-  const verify=()=>{
-    if(account.location?.docked_at!==origin||account.location.in_transit||account.ship?.id!==shipId)throw new Error('Ship or docking changed during service verification');
-    const blockers=canonicalReadinessBlockers(account.state);
-    if(blockers.length)throw new Error(blockers.join('; '));
-    const quantity=(rows:typeof cargo,id:string)=>rows.filter(row=>row.item_id===id).reduce((sum,row)=>sum+row.quantity,0);
-    if(cargo.some(row=>quantity(account.cargo!,row.item_id)<quantity(cargo,row.item_id))||
-      modules.some(row=>!account.state.modules!.some(current=>current.module_id===row.module_id&&current.type_id===row.type_id)))throw new Error('Starting cargo or fitted equipment lost during servicing');
-  };
   verify();
-  const fuel_quote=await observeServiceFuelQuote(account,command);
-  verify();
-  const ship=account.ship!,quotedFuel=ship.fuel,quotedMaxFuel=ship.max_fuel;
-  const checkedCommand:IndustryCommand=async(action,params)=>{
-    verify();
-    if(action==='spacemolt/refuel'&&(account.ship!.fuel!==quotedFuel||account.ship!.max_fuel!==quotedMaxFuel))throw new Error('Fuel requirement changed after service quote; reassessment required before spending');
-    const result=await command(action,params);
-    verify();
-    return result;
-  };
-  const price=fuel_quote.unit_price;
-  const refuel=price===null?undefined:(ship.max_fuel-ship.fuel)*price;
-  const result=await ensureReadiness(account,checkedCommand,{minFuel:ship.max_fuel,minHull:ship.max_hull,
-    creditReserve:budget.creditReserve,maxServiceSpend:budget.maxSpend,serviceQuotes:{refuel},decided:clock.decided},true);
-  if(!result.verification.ready)throw new Error(result.verification.blockers.join('; ')||'Servicing did not reach readiness');
-  // The pinned get_base contract has no all-in ship-repair price. Never guess one.
-  const now=clock.now??Date.now,sleep=clock.sleep??(ms=>new Promise(resolve=>setTimeout(resolve,ms)));
-  const started=now();
-  for(;;) {
-    verify();
-    const current=account.ship!;
-    if(current.hull<current.max_hull||current.fuel<current.max_fuel)throw new Error('Hull or fuel changed during service verification');
-    const verification=inspectReadiness(account.state,{minFuel:current.max_fuel,minHull:current.max_hull,creditReserve:budget.creditReserve});
-    if(!verification.ready)throw new Error(verification.blockers.join('; ')||'Servicing did not retain readiness');
-    if(current.shield>=current.max_shield)return {...result,verification,fuel_quote,shield_wait_ms:now()-started};
-    if(now()-started>=120000)throw new Error('Shields not restored within 120 seconds; remain docked with readiness blocked');
-    await sleep(2000);
-    await account.refresh();
-    await defend();
+  let owed=due();
+  if(!owed.fuel&&!owed.hull)return satisfied([],0);
+  const unitFuel=base.fuel_price_all_in,perHull=base.base?.repair_price_per_hull;
+  const blockers:string[]=[];
+  // The pinned get_base contract posts no default ship-repair price. Never guess one.
+  if(owed.fuel&&!finite(unitFuel))blockers.push('no all-in fuel quote at this station');
+  if(owed.hull&&!(finite(perHull)&&perHull>0))blockers.push('no all-in repair quote at this station');
+  const services=[
+    {action:'spacemolt/refuel',need:owed.fuel,quote:owed.fuel*(unitFuel as number),
+      reached:()=>ship().fuel>=ship().max_fuel},
+    {action:'spacemolt/repair',need:owed.hull,quote:owed.hull*(perHull as number),
+      reached:()=>ship().hull>=ship().max_hull},
+  ].filter(service=>service.need>0);
+  if(!blockers.length) {
+    const quoted=services.reduce((sum,service)=>sum+service.quote,0),credits=account.state.player!.credits;
+    if(quoted>margin)blockers.push(`quoted ${quoted} credits exceeds the ${options.mood} service spend margin ${margin}`);
+    if(credits-quoted<reserve)blockers.push(`credits ${credits} less reserve ${reserve} cannot cover the quoted ${quoted} credits`);
   }
+  if(blockers.length)throw new ServiceBlocked([...blockers,...gaps()]);
+
+  const issued:string[]=[];
+  let spent=0;
+  for(const service of services) {
+    verify();
+    const reply=details(await command(service.action,{}));
+    issued.push(service.action);
+    await account.refresh();
+    verify();
+    // Station services have no atomic server-side price cap: the quote is a preflight
+    // estimate and the canonical charge is checked before anything else is bought.
+    const cost=reply.cost;
+    if(!finite(cost))throw new ServiceBlocked([`unpriced accepted ${service.action}: an authoritative cost is required before further spending`,...gaps()]);
+    if(cost>service.quote)throw new ServiceBlocked([`${service.action} charged ${cost} against a ${service.quote} credit quote`,...gaps()]);
+    spent+=cost;
+    if(!service.reached())throw new ServiceBlocked([`${service.action} did not reach the serviced-dock target`,...gaps()]);
+  }
+  await account.refresh();
+  verify();
+  const remaining=gaps();
+  if(remaining.length)throw new ServiceBlocked(['servicing did not hold the serviced-dock targets',...remaining]);
+  return satisfied(issued,spent);
 }

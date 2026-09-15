@@ -4,6 +4,16 @@ const fuelReserves=Object.freeze({
   Relaxed:30,Cautious:30,Focused:24,Opportunistic:20,Aggressive:12,Tired:0,
 });
 export type Mood=keyof typeof fuelReserves;
+// D2 max spend per job, in credits. Tired's row reads "service only": the resupply
+// leg is bounded by the wallet and the operator's reserve, never by a job budget a
+// Tired pilot is forbidden to earn.
+const serviceSpend=Object.freeze({
+  Relaxed:500,Cautious:500,Focused:1000,Opportunistic:1000,Aggressive:2000,Tired:Infinity,
+});
+export function resolveServiceSpend(mood:Mood):number {
+  if(!Object.hasOwn(serviceSpend,mood))throw new Error('Unknown service mood');
+  return serviceSpend[mood];
+}
 /** Operator-owned units, separate from numeric script allocations. */
 export interface OperatorFuelPolicy {fuelReserveFloor?:number}
 
