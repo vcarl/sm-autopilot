@@ -74,12 +74,14 @@ actually says and when it changes; the shape of populated `gifts`/`messages`; wh
 
 ### Observed live
 
-*(filled in after the operator runs `spacemolt_storage` once against the live game)*
+Observed 2026-09-15 on the kvothe pilot, through the `spacemolt_storage` tool from Discord and a juncture:
 
-- Called with `station_id = ___`, result: ___
-- `locations` present and correct for a base with nothing stored: ___
-- `hint` text observed: ___
-- Anything above that the live response contradicts: ___
+- Called undocked with no `station_id`: `ok`, `base_id` is the empty string, `items` empty, and `locations` lists every base with holdings (five bases, counts by item and ship). So the index is reachable from anywhere, even in space.
+- Called docked with no `station_id`: the current base's items and the same `locations` index.
+- `station_id` given as a station POI id (`mobile_capital`) resolved to its base (`frontier_station`, 188 items): a POI id is accepted as documented.
+- `station_id` given as a base id in another system (`deep_range_outpost`, `first_step_memorial_station`, `sirius_observatory_station`) answered without travelling; shipping packages appear as items named `package:<hash>`.
+- `locations` was present in every response; the empty-versus-absent case did not occur.
+- `hint`, `gifts` and `messages` are dropped by the compact shape and were not inspected. A bad `station_id` was not tried. Rate limits were not hit across seven calls in nine seconds.
 
 ### Where it is shown
 
