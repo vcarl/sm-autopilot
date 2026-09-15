@@ -34,7 +34,7 @@ async function fixture(opts:{fuel?:number;fuelPrice?:number|null}={}) {
     modules:[{module_id:'m1',type_id:'mining_laser_i',slot:'utility'}],
     storage:[] as {item_id:string;quantity:number}[],
   };
-  const hooks={mine:(_cycle:number):unknown=>undefined,sell:(_item:string):unknown=>undefined,read:()=>{}};
+  const hooks={mine:(_cycle:number):unknown=>undefined,deposit:(_item:string):unknown=>undefined,read:()=>{}};
   const account:ReadinessAccount={state:structuredClone(server) as unknown as ReadinessAccount['state'],
     async refresh(){hooks.read();account.state=structuredClone(server) as unknown as ReadinessAccount['state'];}};
   const add=(item:string,quantity:number)=>{
@@ -78,11 +78,16 @@ async function fixture(opts:{fuel?:number;fuelPrice?:number|null}={}) {
       items:Object.entries(prices).map(([item_id,buy_price])=>({item_id,buy_price}))}}}),
     'spacemolt_storage/view':()=>({delta:{details:{items:structuredClone(server.storage)}}}),
     'spacemolt/sell':({id,quantity})=>{
-      const override=hooks.sell(String(id));
-      if(override!==undefined)return override;
       const moved=take(String(id),Number(quantity));
       server.player.credits+=moved*(prices[String(id)]??0);
       return {delta:{details:{action:'sell',quantity_sold:99,total_earned:9_999}}};
+    },
+    'spacemolt_storage/deposit':({item_id,quantity})=>{
+      const override=hooks.deposit(String(item_id));
+      if(override!==undefined)return override;
+      const moved=take(String(item_id),Number(quantity));
+      server.storage.push({item_id:String(item_id),quantity:moved});
+      return {delta:{details:{action:'deposit_items',item_id,quantity:99,storage_total:99}}};
     },
     'spacemolt/get_base':()=>({delta:{details:{services:['refuel','repair'],
       base:{poi_id:home.poi_id,repair_price_per_hull:HULL_PRICE},
@@ -123,24 +128,28 @@ test('C9: one gather job runs dock to dock and the world, not the replies, close
     // One trip out and back: undock, fly, mine the hold full, fly home, dock, settle, service.
     assert.deepEqual(f.mutations(),['spacemolt/undock','spacemolt/travel',
       ...Array(4).fill('spacemolt/mine'),'spacemolt/travel','spacemolt/dock',
-      'spacemolt/sell','spacemolt/sell','spacemolt/refuel','spacemolt/repair']);
+      'spacemolt_storage/deposit','spacemolt_storage/deposit','spacemolt/refuel','spacemolt/repair']);
     assert.deepEqual(result.steps.map(step=>step.name),
       ['travel','mine','return','dock','settle','service','verify']);
     assert.ok(result.steps.every(step=>step.outcome==='done'),JSON.stringify(result.steps));
 
-    // Never 99 and never 9_999: the yield is the cargo delta and `cleared` the wallet delta.
+    // Never 99: the yield and the stowed quantities are cargo deltas, not the reply's claim.
     assert.deepEqual(result.yield,[{item_id:'carbon',quantity:4},{item_id:'ore',quantity:8}]);
-    assert.deepEqual(result.settled!.sold,[{item_id:'carbon',quantity:4,quoted:16,cleared:16},
-      {item_id:'ore',quantity:8,quoted:80,cleared:80}]);
-    assert.deepEqual([result.settled!.unsettled,result.settled!.held],[[],[]]);
+    // A gather job keeps what it gathered: the take goes to the station store, and the
+    // market counter is never reached. Composable and idempotent; selling is neither.
+    assert.deepEqual(result.settled!.deposited,[{item_id:'carbon',quantity:4},{item_id:'ore',quantity:8}]);
+    assert.deepEqual(f.server.storage,[{item_id:'carbon',quantity:4},{item_id:'ore',quantity:8}]);
+    assert.deepEqual([result.settled!.sold,result.settled!.unsettled,result.settled!.held],[[],[],[]]);
+    assert.equal(result.settled!.credits_after,result.settled!.credits_before,'a gather job never moves the wallet');
     assert.equal(result.serviced!.spent,28*FUEL_PRICE+4*HULL_PRICE);
 
     // The end state the job claims is the state the server holds.
     assert.deepEqual(f.server.location,
       {system_id:home.system_id,poi_id:home.poi_id,docked_at:home.base_id,in_transit:false});
-    assert.deepEqual(f.server.cargo,[{item_id:'cabin_economy',quantity:2}],'keep cargo is never offered');
+    assert.deepEqual(f.server.cargo,[{item_id:'cabin_economy',quantity:2}],'the starting cargo is never moved');
     assert.deepEqual([f.server.ship.fuel,f.server.ship.hull],[TANK,100],'serviced to the mood margins');
-    assert.equal(f.server.player.credits,1_000+96-160);
+    // Nothing was earned, because nothing was sold: only the dock's service was paid for.
+    assert.equal(f.server.player.credits,1_000-160);
     // An affordable trip imposes nothing: the mood the pilot chose still stands.
     assert.equal(f.journal.snapshot.state.mood,'Cautious');
     assert.deepEqual(f.journal.snapshot.transitions,[]);
@@ -170,7 +179,7 @@ test('C9: a blocked step ends the job at that step, and a failure is never calle
         f.server.location.poi_id='other-belt';
         return {command:'mine',delta:{details:{kind:'yield',resource_id:'ore',quantity:99}}};
       };
-      if(mode==='unsettled')f.hooks.sell=()=>({delta:{details:{action:'sell',quantity_sold:99,total_earned:9_999}}});
+      if(mode==='unsettled')f.hooks.deposit=()=>({delta:{details:{action:'deposit_items',quantity:99,storage_total:99}}});
       // A crate drifts into the hold once the counter is clear: only a closing read sees it.
       if(mode==='stray-cargo') {
         let dropped=false,worked=false;
@@ -193,6 +202,7 @@ test('C9: a blocked step ends the job at that step, and a failure is never calle
       assert.equal(result.steps.filter(step=>step.name===expected.step).length,1,mode);
 
       const mutations=f.mutations();
+      assert.ok(!mutations.includes('spacemolt/sell'),`${mode}: a gather job never sells`);
       if(mode==='tired-return') {
         // A shortfall departs nothing, and the world — not the pilot — imposed Tired.
         assert.deepEqual(mutations.slice(2),Array(4).fill('spacemolt/mine'),mode);
@@ -212,20 +222,20 @@ test('C9: a blocked step ends the job at that step, and a failure is never calle
       if(mode==='interrupted')
         assert.deepEqual(mutations,['spacemolt/undock','spacemolt/travel','spacemolt/mine','spacemolt/mine'],mode);
       if(mode==='unsettled') {
-        // Money that did not move is not income, and an unsettled offer is never re-issued.
-        assert.equal(mutations.filter(action=>action==='spacemolt/sell').length,2,mode);
-        assert.deepEqual(result.settled!.sold,[],mode);
+        // Cargo that did not move is not stowed, and an unsettled deposit is never re-issued.
+        assert.equal(mutations.filter(action=>action==='spacemolt_storage/deposit').length,2,mode);
+        assert.deepEqual([result.settled!.deposited,result.settled!.sold],[[],[]],mode);
         assert.equal(result.settled!.unsettled.length,2,mode);
         assert.equal(f.server.player.credits,1_000,mode);
       }
       if(mode==='unpriced-service') {
-        // The cargo it did settle survives the blocker; nothing was bought unpriced.
-        assert.equal(result.settled!.sold.length,2,mode);
+        // The take it did stow survives the blocker; nothing was bought unpriced.
+        assert.equal(result.settled!.deposited.length,2,mode);
         assert.ok(!mutations.includes('spacemolt/refuel'),mode);
       }
       if(mode==='stray-cargo') {
         assert.equal(result.serviced!.satisfied,true,'the service itself completed');
-        assert.equal(result.settled!.sold.length,2,mode);
+        assert.equal(result.settled!.deposited.length,2,mode);
         assert.equal(f.server.cargo.find(row=>row.item_id==='salvage')?.quantity,1,mode);
       }
       if(expected.outcome==='blocked')assert.ok(!/\bfailed\b/.test(result.reason!),mode);

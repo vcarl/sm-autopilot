@@ -16,7 +16,7 @@ import {runChain,type Chain,type ChainRecord} from '../src/chain.ts';
 const home={system_id:'sol',poi_id:'station',base_id:'home_base'};
 const site={system_id:'sol',poi_id:'belt'};
 const TANK=120,CAPACITY=14,FUEL_PRICE=5,HULL_PRICE=5;
-const CYCLES_PER_JOB=4,INCOME_PER_JOB=8*10+4*4;
+const CYCLES_PER_JOB=4,STOWED_PER_JOB=[{item_id:'carbon',quantity:4},{item_id:'ore',quantity:8}];
 const prices:Record<string,number>={ore:10,carbon:4};
 const stations:ServicedStation[]=[{...home,services:{refuel:true},
   observation:{source:'station_info',observedAt:'2026-09-14T00:00:00Z'}}];
@@ -25,7 +25,7 @@ const plan:GatherPlan={home,site,mood:'Cautious',keep:['cabin_economy']};
 async function fixture() {
   const server={
     location:{system_id:home.system_id,poi_id:home.poi_id,docked_at:home.base_id as string|null,in_transit:false},
-    ship:{id:'ship',fuel:TANK,max_fuel:TANK,hull:90,max_hull:100,shield:5,max_shield:5,
+    ship:{id:'ship',fuel:TANK,max_fuel:TANK,hull:96,max_hull:100,shield:5,max_shield:5,
       cargo_used:2,cargo_capacity:CAPACITY,incapacitated:false},
     player:{credits:1_000},
     cargo:[{item_id:'cabin_economy',quantity:2}] as {item_id:string;quantity:number}[],
@@ -79,6 +79,11 @@ async function fixture() {
       server.player.credits+=moved*(prices[String(id)]??0);
       return {delta:{details:{action:'sell',quantity_sold:99,total_earned:9_999}}};
     },
+    'spacemolt_storage/deposit':({item_id,quantity})=>{
+      const moved=take(String(item_id),Number(quantity));
+      server.storage.push({item_id:String(item_id),quantity:moved});
+      return {delta:{details:{action:'deposit_items',item_id,quantity:99,storage_total:99}}};
+    },
     'spacemolt/get_base':()=>({delta:{details:{services:['refuel','repair'],
       base:{poi_id:home.poi_id,repair_price_per_hull:HULL_PRICE},fuel_price_all_in:FUEL_PRICE}}}),
     'spacemolt/refuel':()=>{
@@ -105,6 +110,10 @@ async function fixture() {
   const records:ChainRecord[]=[];
   return {server,account,calls,hooks,records,
     count:(action:string)=>calls.filter(call=>call.action===action).length,
+    /** Storage rows summed per item, so three trips' takes read as one total. */
+    stored:()=>Object.entries(server.storage.reduce<Record<string,number>>((totals,row)=>
+      ({...totals,[row.item_id]:(totals[row.item_id]??0)+row.quantity}),{}))
+      .sort(([a],[b])=>a<b?-1:1).map(([item_id,quantity])=>({item_id,quantity})),
     run:(chain:Chain)=>runChain(account,command,chain,
       {fuelExecution:execution,onProgress:record=>records.push(structuredClone(record))}),
     close:()=>rm(directory,{recursive:true,force:true})};
@@ -129,12 +138,13 @@ test('C20: a chain of three gather jobs runs with one juncture at the end and on
     assert.ok(result.jobs.every(job=>job.outcome==='done'),JSON.stringify(result.jobs));
     assert.ok(result.jobs.every(job=>!('steps' in job)&&!('serviced' in job)),'no step logs in the chain outcome');
     for(const job of result.jobs) {
-      assert.deepEqual(job.yield,[{item_id:'carbon',quantity:4},{item_id:'ore',quantity:8}]);
-      assert.equal(job.cleared,INCOME_PER_JOB,'the wallet delta, never the reply 9_999');
+      assert.deepEqual(job.yield,STOWED_PER_JOB);
+      assert.equal(job.cleared,0,'a gather job keeps its take; no chain job moves the wallet');
     }
-    // The chain's account of income is the server's: three trips of settled cargo.
-    const income=result.jobs.reduce((total,job)=>total+job.cleared,0);
-    assert.equal(income,3*INCOME_PER_JOB);
+    // The chain's account of its take is the server's: three trips of cargo, all stowed.
+    assert.equal(f.count('spacemolt/sell'),0,'a chain of gather jobs never sells');
+    assert.equal(f.count('spacemolt_storage/deposit'),3*STOWED_PER_JOB.length);
+    assert.deepEqual(f.stored(),STOWED_PER_JOB.map(row=>({...row,quantity:row.quantity*3})));
     assert.match(result.juncture.reason,/3 of 3/);
 
     // The world agrees: docked at home, hold clear but for what the pilot keeps, serviced.
@@ -174,13 +184,16 @@ test('C20: a blocked job ends the chain there, naming which job, with no job aft
     assert.ok(!/\bfailed\b/.test(result.juncture.reason));
     assert.match(result.jobs[1]!.reason??'',/mine blocked/);
     assert.deepEqual(result.jobs[1]!.yield,[]);
-    assert.equal(result.jobs[1]!.cleared,0,'a blocked trip settled nothing');
+    assert.equal(result.jobs[1]!.cleared,0,'no gather job moves the wallet, blocked or not');
 
     // Nothing ran after the blocker: two departures, one return, one settled trip.
     assert.equal(f.count('spacemolt/undock'),2);
     assert.equal(f.count('spacemolt/dock'),1);
     assert.equal(f.count('spacemolt/mine'),CYCLES_PER_JOB+1);
-    assert.equal(f.server.player.credits,1_000+INCOME_PER_JOB-(28*FUEL_PRICE+10*HULL_PRICE));
+    // One trip stowed its take and paid for its service; nothing was ever sold.
+    assert.deepEqual(f.stored(),STOWED_PER_JOB);
+    assert.equal(f.count('spacemolt/sell'),0);
+    assert.equal(f.server.player.credits,1_000-(28*FUEL_PRICE+4*HULL_PRICE));
     assert.deepEqual(f.records.map(record=>[record.position,record.ended]),[[0,false],[1,false],[2,true]]);
   } finally {await f.close();}
 });
