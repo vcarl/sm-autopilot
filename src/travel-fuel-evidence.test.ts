@@ -114,6 +114,41 @@ test('invalidated departure context never becomes fuel-crossing evidence',async(
   }
 });
 
+test('tank changes during any route quote invalidate context before fuel classification or refueling',async()=>{
+  for(const stage of ['initial','post-refuel','subsequent-leg'])for(const capacity of ['smaller','larger'])for(const deficit of [0,0.25]) {
+    const f=fixture(),required=stage==='subsequent-leg'?34:44;
+    f.server.ship.fuel=stage==='post-refuel'?40:stage==='initial'?required-deficit:44;
+    f.configure({jump:stage==='subsequent-leg'?deficit:0});
+    let quotes=0,refuels=0;
+    const command:ReadinessCommand=async(name,payload)=>{
+      const result=await f.command(name,payload);
+      if(name==='spacemolt/find_route'&&++quotes===(stage==='initial'?1:2)) {
+        f.server.ship.max_fuel=capacity==='smaller'?required-1:121;
+        assert.equal(f.account.state.ship!.max_fuel,120,'quote cache retains pre-change capacity');
+      }
+      return result;
+    };
+    await assert.rejects(travel.travelTo(f.account,command,f.destination,{
+      mood:'Focused',refuel:async minimum=>{
+        refuels++;assert.equal(minimum,44);
+        f.server.ship.fuel=44-deficit;
+        await f.account.refresh();
+      },
+    }),error=>{
+      const scenario=`${stage}/${capacity}/${deficit}`;
+      assert.ok(error instanceof travel.TravelBlocked,scenario);
+      assert.ok(!(error instanceof travel.FuelRouteShortfall),`${scenario}: invalid quote cannot establish fuel crossing`);
+      assert.match(error.message,/changed while quoting route/,scenario);
+      return true;
+    });
+    assert.deepEqual(f.account.state,f.server,'refusal uses authoritative post-quote state');
+    assert.equal(refuels,stage==='post-refuel'?1:0,'no refueling after invalidation');
+    assert.deepEqual(f.account.calls.map(c=>c.action),stage==='subsequent-leg'?
+      ['find_route','undock','get_system','jump','find_route']:stage==='post-refuel'?
+      ['find_route','find_route']:['find_route'],'no commands after invalidation');
+  }
+});
+
 test('capacity refusals are distinct; invalid quotes and uncertain commands are never fuel crossings',async()=>{
   const f=fixture();f.server.ship.max_fuel=43.5;f.server.ship.fuel=40;
   await assert.rejects(travel.travelTo(f.account,f.command,f.destination,{mood:'Focused'}),error=>{

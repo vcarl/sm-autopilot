@@ -3,6 +3,7 @@ import type {ReadinessAccount,ReadinessCommand} from './readiness.ts';
 import {details} from './response-details.ts';
 import {routeSteps} from './normal-route.ts';
 import {resolveFuelReserve,type Mood,type OperatorFuelPolicy} from './mood-policy.ts';
+import type {FuelTravelExecution} from './fuel-transition.ts';
 
 export class TravelBlocked extends Error {}
 export interface FuelRouteEvidence {
@@ -33,6 +34,8 @@ export class FuelRouteShortfall extends TravelBlocked {
 export class ArrivalUnresolved extends Error {}
 export interface TravelDestination {system_id:string;poi_id?:string;base_id?:string}
 export interface TravelOptions {
+  /** Runner-owned durable fuel transition consumer, using this account connection. */
+  fuelExecution?:FuelTravelExecution;
   mood?:Mood;
   /** Internal operator policy; tightens the mood, never a model-facing allocation. */
   operatorPolicy?:OperatorFuelPolicy;
@@ -80,6 +83,8 @@ const retryable=(error:unknown)=>error instanceof SpacemoltError&&!error.pending
 
 /** One shared movement path; policy, spending and command ownership stay with the caller. */
 export async function travelTo(account:ReadinessAccount,command:ReadinessCommand,destination:TravelDestination,options:TravelOptions={}) {
+  if(options.fuelExecution&&options.mood!==options.fuelExecution.journal.snapshot.state.mood)
+    throw new TravelBlocked('Travel mood must match the durable journal');
   if(options.mood!==undefined&&options.reserve!==undefined)throw new TravelBlocked('Travel mood cannot be combined with a numeric reserve');
   if(options.operatorPolicy!==undefined&&options.mood===undefined)throw new TravelBlocked('Operator fuel policy requires a travel mood');
   if(options.mood===undefined&&options.reserve===undefined)throw new TravelBlocked('Travel requires a mood or an internal script allocation');
@@ -113,7 +118,8 @@ export async function travelTo(account:ReadinessAccount,command:ReadinessCommand
     await account.refresh();
     const current=account.state;
     if(!stable(current)||current.location!.system_id!==location!.system_id||current.location!.poi_id!==location!.poi_id||
-      current.location!.docked_at!==location!.docked_at||current.ship?.id!==ship.id||current.ship.fuel!==ship.fuel||current.ship.cargo_used!==ship.cargo_used)
+      current.location!.docked_at!==location!.docked_at||current.ship?.id!==ship.id||current.ship.fuel!==ship.fuel||current.ship.cargo_used!==ship.cargo_used||
+      current.ship.max_fuel!==ship.max_fuel)
       throw new TravelBlocked('Ship load, fuel or location changed while quoting route');
     if((result.fuel_available!==undefined&&result.fuel_available!==ship.fuel)||(result.cargo_used!==undefined&&result.cargo_used!==ship.cargo_used))throw new TravelBlocked('Route quote does not match current fuel or cargo');
     // Objective travel admits this finite route, not an unlimited rerouting loop.
@@ -134,9 +140,11 @@ export async function travelTo(account:ReadinessAccount,command:ReadinessCommand
       if(plan.required>account.state.ship!.max_fuel)throw fuelShortfall('capacity');
     };
     requireCapacity();
+    await options.fuelExecution?.check(account,command,options.operatorPolicy);
     if(account.state.ship!.fuel<plan.required&&account.state.location!.docked_at&&options.refuel&&!refueled) {
       refueled=true;await options.refuel(plan.required);await checkpoint();plan=await quote();
       requireCapacity();
+      await options.fuelExecution?.check(account,command,options.operatorPolicy);
     }
     const requireFuel=()=>{
       const fuel=account.state.ship?.fuel;
@@ -155,6 +163,7 @@ export async function travelTo(account:ReadinessAccount,command:ReadinessCommand
       departure.ship.max_fuel!==plan.ship.max_fuel)throw new TravelBlocked('Route origin, load or fuel changed before departure');
     // A stale quote cannot establish a fuel crossing. Classify fuel only after
     // its non-fuel context is validated, then retain the fuel-change guard.
+    await options.fuelExecution?.check(account,command,options.operatorPolicy);
     requireFuel();
     if(departure.ship!.fuel!==plan.ship.fuel)throw new TravelBlocked('Route origin, load or fuel changed before departure');
     if(account.state.location!.docked_at)await command('spacemolt/undock',{});
@@ -168,6 +177,7 @@ export async function travelTo(account:ReadinessAccount,command:ReadinessCommand
     const current=account.state;
     if(!stable(current)||current.location!.system_id!==plan.origin.system_id||current.location!.poi_id!==plan.origin.poi_id||current.location!.docked_at||
       current.ship?.id!==plan.ship.id||current.ship.cargo_used!==plan.ship.cargo_used||current.ship.max_fuel!==plan.ship.max_fuel)throw new TravelBlocked('Route origin, load or fuel changed before departure');
+    await options.fuelExecution?.check(account,command,options.operatorPolicy);
     requireFuel();
     if(current.ship!.fuel!==plan.ship.fuel)throw new TravelBlocked('Route origin, load or fuel changed before departure');
     const target=next??destination.poi_id;
