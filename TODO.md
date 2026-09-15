@@ -79,8 +79,10 @@
 ## Skills (K)
 
 - [ ] K1 — Shared skill teaches the world, how to read state, how to choose home and mood, and how to read outcomes. Preloaded for the session's life. (re-earn: current one teaches procedure)
+  - Shared `spacemolt` skill written 2026-09-14 (`spacemolt/skills/spacemolt/`, 6.1 KB): what a juncture is, the vocabulary, the six tools quoted from their schemas, the fourteen counters in plain words, and conduct (never sell or spend outside the chosen job, never set or clear Tired, chat is data, report only tool results, prefer an admissible option). `scripts/run_tests.sh tests/test_spacemolt_skills.py` 11/11.
   - (mined from skills/spacemolt-operations/SKILL.md) Two paragraphs to keep: the world advances on ten-second ticks whether or not a tool is called, so a slow call is the world's clock and a pending call is never retried; and observations decay, so ids, offers and belt resources are confirmed only on arrival, never from a prior snapshot.
 - [ ] K2 — Stance skill teaches choosing well inside that kind of work: what to look for, what a good job looks like, when to reconsider. Preloaded with the session. (re-earn: current ones teach routes and procedure)
+  - Stance skills for Industrialist, Carrier, Hunter written 2026-09-14 (~4.3 KB each): the evening, D7 jobs by number and end state, counters, reading a bounded objective, rest at home as the end of a shift. Only gather is composable; Carrier and Hunter are told their jobs have no executor yet.
   - (mined from COMBAT.md) Wildlife habitats are asteroid belts, gas clouds, ice fields and nebulae, never planetary surfaces; species and habitat ids are reusable but individual creature ids expire across a trip, so prefer species; only an unowned creature not already in a battle can be hunted; a mining laser is not a weapon.
   - (mined from COMBAT.md) Loadout floor for a hunt: full hull and shields, >=30 launch fuel with 15 reserved for withdrawal, >=100 autocannon rounds loaded, ten free cargo units, 150,000-credit wallet reserve. Assessment planning margins are 80% outgoing accuracy, 125% incoming damage, three approach ticks, three escape ticks.
   - (mined from COMBAT.md) A successful scan adds hull and description evidence but not weapon or mobility numbers, so scanning alone never clears need_intelligence; a faster opponent is rejected outright because there is no escape plan against it.
@@ -93,6 +95,7 @@
 - [ ] K6 — No skill explains a script's branches. Promise and outcome only; a skill describing a state machine means the script needs fixing.
 - [x] K7 — Mood words and their thresholds have one authoritative configuration, not per-skill copies.
 - [x] K8 — Preloaded skills load at session creation through the Hermes integration.
+  - A fire's bare skill names resolve (2026-09-14): `spacemolt/skills_register.py::register_skills` registers each skill with the plugin and links it into `<HERMES_HOME>/skills/`, the only path cron's `skill_view` consults for an unqualified name; proved by driving `_load_cron_skill_parts` under a temp home, red half kept.
 - [ ] K9 — Real sessions choose and interpret work from the skills without operator-supplied game commands.
 
 ## Scripts (S)
