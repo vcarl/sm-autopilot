@@ -190,8 +190,12 @@ test('menu assembles the present from live state and answers with the rules tabl
   assert.match(refused.reason,/hold is full/);
   assert.equal(menu.last,null,'nothing has run yet');
   assert.ok(JSON.stringify(menu).length<4096,'one consultation, not a transcript');
-  // A pilot with no stance and no mood has no menu at all.
-  await assert.rejects(fixture().dispatch('menu'),/mood/);
+  // A pilot with no stance and no mood is at rest, and what it is consulted about is not a
+  // menu of work but the reflection the next shift is chosen from (N7).
+  const resting=await fixture().dispatch('menu') as any;
+  assert.equal(resting.at_rest,true);
+  assert.equal(resting.options,undefined,'a resting pilot is offered no stance work');
+  assert.ok(Array.isArray(resting.stagnation),'reflection carries what it has been doing');
 });
 
 test('job starts one chain in the runner and returns before it ends; status carries it', async () => {

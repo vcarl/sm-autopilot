@@ -1,7 +1,7 @@
 /** Minimal SpaceMolt bridge: `where`, `travel` and `dock`, one JSON request per stdin line. */
 import {Account} from '@spacemolt/lib';
 import {createHash} from 'node:crypto';
-import {appendFileSync,existsSync,mkdirSync,readFileSync} from 'node:fs';
+import {appendFileSync,existsSync,mkdirSync,readFileSync,renameSync,writeFileSync} from 'node:fs';
 import {resolve} from 'node:path';
 import {createInterface} from 'node:readline';
 import {fileURLToPath} from 'node:url';
@@ -15,17 +15,23 @@ import {gatherJob,type GatherPlan} from './gather-job.ts';
 import {miningInventory} from './mining-inventory.ts';
 import {buildMenu} from './menu.ts';
 import type {Mood} from './mood-policy.ts';
-import type {CounterName,Facts,StanceName} from './rules-table.ts';
+import {reflectReport} from './reflect.ts';
+import {REST_JOB,evaluateMenu,type CounterName,type Facts,type StanceName} from './rules-table.ts';
 import {viewStorage} from './storage.ts';
 import {FuelRouteShortfall,travelTo} from './travel.ts';
 
 export type Dispatch=(action:string,params?:Record<string,unknown>)=>Promise<unknown>;
 
-/** What the runner set at the last rest. The agent never writes any of it. */
-export interface Pilot {name?:string;objective?:string;stance?:StanceName;mood?:Mood;home?:string;
-  permissions?:Facts['permissions']}
+/** What the runner set at the last rest. The agent never writes any of it: reflection asks
+ * the runner to, and rest asks the runner to take it away. */
+export interface Pilot {name?:string;objective?:string;objective_done?:boolean;goal?:string;
+  stance?:StanceName;mood?:Mood;home?:string;permissions?:Facts['permissions']}
 export interface ServeOptions {
-  pilot?:()=>Pilot;runChain?:typeof defaultRunChain;
+  pilot?:()=>Pilot;
+  /** How the runner puts the record back after rest. Without one this runner can read the
+   * pilot but not end its shift, which is what rest says rather than pretending it worked. */
+  setPilot?:(pilot:Pilot)=>void;
+  runChain?:typeof defaultRunChain;
   /** Where the chain record and the journal live. Without one the runner keeps the chain
    * in memory alone, which is what a restart loses (N22). */
   runtime?:string;
@@ -36,6 +42,14 @@ export function readPilot(path:string):Pilot {
   if(!existsSync(path))return {};
   try {return JSON.parse(readFileSync(path,'utf8')) as Pilot;}
   catch(error){throw new Error(`Unreadable pilot record ${path}: ${error instanceof Error?error.message:String(error)}`);}
+}
+
+/** The runner's own write of the record: temp file then rename, so a reader never catches
+ * half a pilot. Only rest and the operator's window reach this. */
+export function writePilot(path:string,pilot:Pilot):void {
+  const temp=`${path}.${process.pid}.tmp`;
+  writeFileSync(temp,`${JSON.stringify(pilot,null,2)}\n`,{mode:0o600});
+  renameSync(temp,path);
 }
 
 /** Pure dispatch over an account + command pair, so tests never connect. */
@@ -249,6 +263,10 @@ export function serve(account:ReadinessAccount,command:ReadinessCommand,options:
   const menu=async()=>{
     if(running)return {busy:true,...busy()};
     const who=pilot();
+    // No stance is no shift: what a resting pilot is consulted about is not a menu of work
+    // but the reflection the next shift is chosen from (N7). A running chain still wins:
+    // the pilot is at work whatever the record says.
+    if(!who.stance||!who.mood)return reflect();
     const facts=await factsNow(who);
     const {location,ship,player}=account.state;
     return {
@@ -262,9 +280,38 @@ export function serve(account:ReadinessAccount,command:ReadinessCommand,options:
     };
   };
 
+  /** Rest: the one act that ends a shift (N6), and the only thing that touches the stance.
+   *
+   * Docking, refuelling, repairing and unloading do none of this, at home or anywhere else
+   * (N10). The admissibility is the menu's own rest rule, so what the agent was offered is
+   * what the runner accepts (R5). Mood does not gate it and Tired does not survive it: the
+   * record comes out with no stance, no mood and no goal, so the next reflection starts
+   * from nothing imposed.
+   */
+  const rest=async()=>{
+    if(running)return {rested:false,
+      reason:'a chain is running; rest at the juncture the runner raises when it ends',...busy()};
+    const who=pilot();
+    const facts=await factsNow(who);
+    const verdict=evaluateMenu(facts).find(row=>row.job===REST_JOB);
+    if(!verdict?.admissible)
+      return {rested:false,reason:verdict?.reason??'rest is not admissible here'};
+    if(!options.setPilot)return {rested:false,reason:'this runner cannot write the pilot record'};
+    const {stance,mood,goal,...kept}=who;
+    options.setPilot(kept);
+    const cleared={home:facts.place.base_id,...stance?{stance}:{},...mood?{mood}:{},...goal?{goal}:{}};
+    if(runtime)journalChain(runtime,cleared,'rest');
+    return {rested:true,shift_ended:true,at_rest:true,cleared,
+      serviced:facts.holdings.fuel>=facts.holdings.max_fuel&&facts.holdings.hull>=facts.holdings.max_hull};
+  };
+  /** What a resting pilot reflects on. Read-only: it chooses nothing and writes nothing. */
+  const reflect=async()=>reflectReport(account,command,pilot(),runtime);
+
   // Later capabilities (service, more jobs) slot in here; the transport never changes.
   const actions:Record<string,(params:Record<string,unknown>)=>Promise<unknown>>={
     where,
+    rest,
+    reflect,
     travel:params=>travel(String(params.poi_id??'')),
     dock:params=>dock(params.base_id===undefined?undefined:String(params.base_id)),
     gather,
@@ -312,7 +359,8 @@ async function main() {
   };
   // The runner writes the pilot record beside the runtime directory; the agent never does.
   const pilotFile=resolve(runtime,'..','pilot.json');
-  const dispatch=serve(account,command,{pilot:()=>readPilot(pilotFile),runtime});
+  const dispatch=serve(account,command,
+    {pilot:()=>readPilot(pilotFile),setPilot:next=>writePilot(pilotFile,next),runtime});
   // Whatever this runner's predecessor was doing, it is this runner's work now (N22).
   const resumed=await dispatch('resume',{});
   console.log(JSON.stringify({event:'ready',resumed}));

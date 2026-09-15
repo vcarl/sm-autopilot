@@ -8,9 +8,10 @@ job at rest, when the stance changes (N18).
 from __future__ import annotations
 
 import json
+from datetime import datetime, timezone
 from typing import Any, Mapping
 
-from .service import pilot_path
+from .service import pilot_path, runtime_dir
 
 #: What a fire carries: the job tools plus the reads every client of the runner may make.
 #: ``spacemolt_operator`` is deliberately absent — the pilot does not set its own objective.
@@ -22,6 +23,14 @@ JUNCTURE_PLATFORM = "cron"
 #: How long the pilot may sit idle before the runner brings a juncture (N4). A chain that
 #: ends raises its own juncture; a fire that lands on a running chain is a no-op.
 IDLE_SCHEDULE = "30m"
+#: The six stances (D7), mirrored from ``src/rules-table.ts``: a tool schema cannot read
+#: TypeScript, and the reflection report carries the same list for the agent to choose from.
+STANCES = ("Prospector", "Industrialist", "Trader", "Carrier", "Hunter", "Scout")
+#: D2: Relaxed never opens a shift and Tired is imposed, so neither is an initial mood.
+JOB_MOODS = ("Cautious", "Focused", "Opportunistic", "Aggressive")
+#: Where the runner's own journal lives. The bridge writes most of it; the lines the runner
+#: makes outside the bridge (reflection) take the same shape under their own event name.
+JOURNAL_FILE = "gameplay.jsonl"
 
 JUNCTURE_PROMPT = (
     "A SpaceMolt juncture: the pilot is between jobs and you choose what it does next.\n"
@@ -39,7 +48,12 @@ JUNCTURE_PROMPT = (
     "(d) Rest at home when the objective is done.\n"
     "Prefer an admissible option; if you go off the menu, say in one line why the refusal no "
     "longer applies. Report only what the context and the tool results say. If no juncture "
-    "context is there at all, the runner did not answer: say that and end the turn."
+    "context is there at all, the runner did not answer: say that and end the turn.\n"
+    "At rest there is no menu and nothing is running: read the report you were given, pick one "
+    "goal that serves the operator's objective and reaches past what you have been doing, choose "
+    "the stance and the initial mood that fit it, call spacemolt_reflect once and end the turn — "
+    "the shift begins in a fresh conversation with its own skills. If the report says the "
+    "objective is already done, say so and end the turn without reflecting."
 )
 
 #: The refusals go first when a menu will not fit; the options are the point of it.
@@ -64,6 +78,8 @@ def juncture_context(session_info: Mapping[str, Any] | None = None) -> str:
                 f"(job {int(record.get('position') or 0) + 1} of {record.get('length')}). "
                 "There is nothing to choose: say so in one line and end the turn without "
                 "calling a tool.")
+    if menu.get("at_rest"):
+        return _rest_context(menu)
     body = json.dumps(menu, separators=(",", ":"), sort_keys=True)
     if len(body) > _CONTEXT_BUDGET:
         menu.pop("unavailable", None)
@@ -71,6 +87,31 @@ def juncture_context(session_info: Mapping[str, Any] | None = None) -> str:
     return ("SpaceMolt juncture — the present, what this stance and mood admit now with the "
             "reason and bounds for each, what is unavailable and why, and how the last chain "
             "ended:\n" + body)
+
+
+def _rest_context(report: dict[str, Any]) -> str:
+    """A fire that lands on a pilot at rest: reflection, not a menu (N7).
+
+    There is no stance, so there is no stance work to offer and nothing to choose between.
+    What the agent gets instead is the report rest exists for — needs, holdings, debts, what
+    has been seen, what has been done, and where it has been standing still.
+    """
+    if report.get("objective_done"):
+        return ("SpaceMolt wakeup: the pilot is at rest and the operator's bounded objective "
+                f"({report.get('objective') or 'unnamed'}) is already done. There is nothing to "
+                "choose and no shift to open — say the objective is complete and end the turn "
+                "without calling a tool. Only the operator can give the pilot something new.")
+    # The choosing is the point: the needs and the stagnation signals outlast the travelogue.
+    for drop in (None, "seen", "recent"):
+        if drop:
+            report.pop(drop, None)
+        if len(json.dumps(report, separators=(",", ":"), sort_keys=True)) <= _CONTEXT_BUDGET:
+            break
+    return ("SpaceMolt rest — the shift is over, the stance and mood are cleared and nothing is "
+            "imposed on the pilot. This is what it has, what it owes, what it has seen, what it "
+            "has been doing lately and where it has been standing still. Choose one goal that "
+            "serves the objective, then the stance and mood that fit it:\n"
+            + json.dumps(report, separators=(",", ":"), sort_keys=True))
 
 
 def read_pilot() -> dict[str, Any]:
@@ -90,6 +131,21 @@ def write_pilot(record: dict[str, Any]) -> dict[str, Any]:
     path.write_text(json.dumps(record, indent=2, sort_keys=True) + "\n")
     path.chmod(0o600)
     return record
+
+
+def journal_event(event: str, **fields: Any) -> None:
+    """One line in the pilot's journal for a change the runner made outside the bridge.
+
+    Reflection is the runner's own act and it changes the shift, so it is written down the
+    way the bridge writes its own: a setting changed with no record is a mystery to whoever
+    reads the journal later (S45).
+    """
+    path = runtime_dir() / JOURNAL_FILE
+    path.parent.mkdir(parents=True, exist_ok=True)
+    entry = {"at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+             "event": event, **fields}
+    with path.open("a", encoding="utf-8") as journal:
+        journal.write(json.dumps(entry, separators=(",", ":")) + "\n")
 
 
 def job_name(pilot: dict[str, Any]) -> str:

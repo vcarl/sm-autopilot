@@ -97,7 +97,8 @@ def test_register_publishes_every_tool_in_the_spacemolt_toolset():
     for name, (toolset, *_rest) in tools.items():
         by_toolset.setdefault(toolset, set()).add(name)
     assert by_toolset == {
-        "spacemolt": {"spacemolt_travel", "spacemolt_dock", "spacemolt_gather", "spacemolt_dispatch"},
+        "spacemolt": {"spacemolt_travel", "spacemolt_dock", "spacemolt_gather", "spacemolt_dispatch",
+                      "spacemolt_rest", "spacemolt_reflect"},
         "spacemolt_observe": {"spacemolt_where", "spacemolt_status", "spacemolt_journal", "spacemolt_storage"},
         "spacemolt_operator": {"spacemolt_direct"},
     }

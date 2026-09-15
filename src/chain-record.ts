@@ -30,6 +30,20 @@ export function readChain(runtime:string):StoredChain|null {
   } catch {return null;}
 }
 
+/** The tail of the journal as data: what the pilot has actually done, for the one reader
+ * that needs history rather than the present (reflection, N7/N9).
+ *
+ * ponytail: the file is read whole and the tail kept. Rest happens once an evening, so a
+ * few MB costs nothing; seek from the end if a journal ever outgrows that. */
+export function readJournal(runtime:string,limit=400):Record<string,any>[] {
+  try {
+    const lines=readFileSync(join(runtime,'gameplay.jsonl'),'utf8').split('\n').filter(line=>line.trim());
+    return lines.slice(-limit).flatMap(line=>{
+      try {return [JSON.parse(line) as Record<string,any>];} catch {return [];}
+    });
+  } catch {return [];}
+}
+
 /** The chain's own line in the pilot's journal, beside the request/response pairs. The
  * runner's other self-made changes take the same line under their own event name (S45). */
 export function journalChain(runtime:string,entry:Record<string,unknown>,event='chain'):void {

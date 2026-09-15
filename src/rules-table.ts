@@ -51,8 +51,13 @@ export interface Bounds {spend:number;fuelReserve:number;walkAway:number}
 export const resolveBounds=(mood:Mood):Bounds=>
   ({spend:resolveServiceSpend(mood),fuelReserve:resolveFuelReserve(mood),walkAway:resolveWalkAway(mood)});
 
-/** `safety` survives danger; `safety` and `resupply` survive Tired. */
-type Tag='safety'|'resupply'|'shared'|'stance';
+/** `safety` survives danger; `safety`, `resupply` and `rest` survive Tired — a pilot that
+ * reached home may put the evening down whatever the world imposed on it, and rest is what
+ * clears an imposed mood for good. */
+type Tag='safety'|'resupply'|'rest'|'shared'|'stance';
+/** The one rest option, named once: the runner's own rest action asks this same rule, so
+ * what the menu offers and what the runner accepts cannot drift (R5). */
+export const REST_JOB='Rest and reflect at home';
 export interface Verdict {job:string;reason:string;admissible:boolean;tag:Tag}
 interface Rule {id:string;stance?:StanceName;apply(facts:Facts):Verdict|Verdict[]|null}
 
@@ -128,11 +133,19 @@ const RULES:Rule[]=[
   {id:'resupply.travel',apply:facts=>sites(facts).filter(site=>site.serviced_base).map(site=>trip(facts,site,'resupply'))},
   {id:'shared.counters',apply:counters},
   {id:'shared.travel',apply:facts=>sites(facts).filter(site=>!site.serviced_base).map(site=>trip(facts,site,'shared'))},
-  {id:'shared.rest',apply:facts=>{
-    const job='Rest and reflect at home';
-    if(facts.place.kind!=='base'||!facts.place.is_home)return no('shared',job,'rest happens only at home; travel home to end the shift');
-    if(!serviced(facts))return no('shared',job,'rest wants a safe, serviced ship; refuel and repair first');
-    return yes('shared',job,'home, safe and serviced: the evening can be put down and a new goal chosen');
+  // Rest ends the shift, and only at home (N6). Servicing is wanted only as far as this
+  // base can give it: where the counter quotes and the wallet covers, resting on a ship
+  // that cannot leave is a shift ended badly; where it cannot, rest still happens and
+  // reflection is told the ship is short. Mood does not gate it — rest is what clears one.
+  {id:'rest.home',apply:facts=>{
+    if(facts.place.kind!=='base'||!facts.place.is_home)
+      return no('rest',REST_JOB,'rest happens only at home; travel home to end the shift');
+    const counter=service(facts);
+    if(!serviced(facts)&&counter.admissible)
+      return no('rest',REST_JOB,`refuel and repair first — ${counter.reason}`);
+    return yes('rest',REST_JOB,serviced(facts)
+      ?'home, safe and serviced: the evening can be put down and a new goal chosen'
+      :`home, and this base cannot bring the ship up (${counter.reason}); the evening can still be put down`);
   }},
   // Stance rows (D7 section 2). A stance sees only its own; jobs carry the proposal's
   // numbers and end-state names.
@@ -203,6 +216,7 @@ export function evaluateMenu(facts:Facts):Verdict[] {
     .flatMap(rule=>{const out=rule.apply(facts);return out===null?[]:Array.isArray(out)?out:[out];})
     .map(verdict=>blocked&&verdict.tag==='stance'?no('stance',verdict.job,blocked):verdict);
   if(dangerous)return verdicts.filter(verdict=>verdict.tag==='safety');
-  if(facts.mood==='Tired')return verdicts.filter(verdict=>verdict.tag==='safety'||verdict.tag==='resupply');
+  if(facts.mood==='Tired')return verdicts.filter(verdict=>
+    verdict.tag==='safety'||verdict.tag==='resupply'||verdict.tag==='rest');
   return verdicts;
 }

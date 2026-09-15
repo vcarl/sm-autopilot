@@ -14,13 +14,11 @@ from typing import Any, Mapping
 
 from pathlib import Path
 
-from .juncture import (JUNCTURE_PLATFORM, ensure_juncture_job, juncture_context, read_pilot,
-                       write_pilot)
+from .juncture import (JOB_MOODS, JOURNAL_FILE, JUNCTURE_PLATFORM, STANCES, ensure_juncture_job,
+                       journal_event, juncture_context, read_pilot, write_pilot)
 from .service import available, call, close_bridge, runtime_dir
 from .skills_register import register_skills
 
-#: Where the bridge appends one line per request; the plugin only ever reads it.
-JOURNAL_FILE = "gameplay.jsonl"
 _JOURNAL_DEFAULT, _JOURNAL_CAP, _RESULT_CHARS = 10, 50, 120
 
 _FLIGHT_PROMPT = (
@@ -31,7 +29,8 @@ _FLIGHT_PROMPT = (
     "spacemolt_gather runs one mining trip dock to dock: out, hold full, home, sold, serviced. "
     "At a juncture the present and the menu are already in front of you: spacemolt_dispatch "
     "starts one chain in the runner and returns at once, and spacemolt_status says whether "
-    "one is still running. Travel is real game time and a "
+    "one is still running. spacemolt_rest ends the shift at home and spacemolt_reflect opens "
+    "the next one at rest; neither is called mid-shift. Travel is real game time and a "
     "call can take a minute or more — wait for it, never retry a pending one. Report only what "
     "the tool result says, and use a poi id that spacemolt_where listed. Whenever asked where the "
     "ship is, call spacemolt_where first; never answer position from memory."
@@ -114,6 +113,54 @@ def _status(arguments: dict[str, Any] | None = None, **_: Any) -> str:
     return json.dumps(call("status"), separators=(",", ":"))
 
 
+def _rest(arguments: dict[str, Any] | None = None, **_: Any) -> str:
+    """End the shift. The runner decides whether it may, clears the record and journals it;
+    this rewrites the pilot's one cron job so the next fire carries no stance skill (N18)."""
+    result = call("rest")
+    if result.get("rested"):
+        ensure_juncture_job()
+    return json.dumps(result, separators=(",", ":"))
+
+
+def _reflect(arguments: dict[str, Any] | None = None, **_: Any) -> str:
+    """Open the next shift: a goal, the stance that pursues it, and the mood it starts in.
+
+    The only place a stance is chosen (N8), and only at rest. A stance change is a handoff
+    (N12): this writes the record, rewrites the cron job for the new stance's skills and asks
+    for the next fire, which opens a fresh conversation with those skills and the same
+    toolset. Mood moves inside the shift after this; nothing here touches it again.
+    """
+    args = arguments or {}
+    record = read_pilot()
+    if record.get("stance"):
+        return (f"Nothing written: the pilot is on shift in the {record['stance']} stance. "
+                "Reflection happens at rest — rest at home, which clears the stance, and the "
+                "next juncture reflects.")
+    if args.get("objective_done"):
+        record["objective_done"] = True
+        write_pilot(record)
+        journal_event("reflection", objective_done=True, objective=record.get("objective"))
+        return ("Recorded: the operator's objective is done. The pilot stays at rest and says the "
+                "same at every wakeup until the operator gives it something new.")
+    goal = str(args.get("goal") or "").strip()
+    stance = {name.lower(): name for name in STANCES}.get(str(args.get("stance") or "").strip().lower())
+    mood = {name.lower(): name for name in JOB_MOODS}.get(str(args.get("mood") or "").strip().lower())
+    if not goal or stance is None or mood is None:
+        return ("Nothing written. A shift opens with a goal, one stance of "
+                f"{', '.join(STANCES)}, and an initial mood of {', '.join(JOB_MOODS)} — or with "
+                "objective_done when the operator's objective is complete.")
+    record.update(goal=goal, stance=stance, mood=mood)
+    record.pop("objective_done", None)  # a new goal is the objective being pursued again
+    write_pilot(record)
+    journal_event("reflection", goal=goal, stance=stance, mood=mood)
+    from cron.jobs import trigger_job
+
+    trigger_job(ensure_juncture_job()["id"])
+    return (f"Shift open: {stance}, starting {mood}, goal {goal!r}. End the turn — the stance "
+            "begins in a fresh conversation carrying its own skills, due on the next scheduler "
+            "tick, and the mood moves inside the shift from here.")
+
+
 def _journal_row(line: str) -> dict[str, Any]:
     """One journal line as a window reads it: when, what was asked, whether it took, and the
     gist. The line is written by another process, so a torn last line says so rather than raising."""
@@ -178,6 +225,8 @@ def _direct(arguments: dict[str, Any] | None = None, **_: Any) -> str:
     record = read_pilot()
     if objective:
         record["objective"] = objective
+        # A new objective is not the old finished one: a pilot resting on "done" wakes up.
+        record.pop("objective_done", None)
     if permissions:
         # A bound this call does not name keeps the value it had: asking widens nothing else.
         record["permissions"] = {**(record.get("permissions") or {}), **permissions}
@@ -246,6 +295,37 @@ TOOL_DEFINITIONS = (
                         "keep": {"type": "array", "items": {"type": "string"},
                                  "description": "Optional: item ids that must never be sold."}},
                        ["poi_id"])},
+    {"name": "spacemolt_rest", "toolset": "spacemolt", "handler": _rest,
+     "description": "End the shift: rest at home, which clears the stance and the mood.",
+     "schema": _schema("spacemolt_rest",
+                       "Put the evening down. Only at home, only with nothing running, and only "
+                       "on a ship this base cannot bring any further up; the refusal says which "
+                       "of those is missing. It clears the stance, the mood and the goal — "
+                       "including a Tired the world imposed — and the next juncture reflects. "
+                       "Docking, refuelling, repairing or unloading is not rest and changes none "
+                       "of it.",
+                       {}, [])},
+    {"name": "spacemolt_reflect", "toolset": "spacemolt", "handler": _reflect,
+     "description": "At rest, open the next shift with a goal, a stance and an initial mood.",
+     "schema": _schema("spacemolt_reflect",
+                       "Open the next shift. Callable only while the pilot is at rest, and the "
+                       "only place a stance is chosen. The stance begins in a fresh conversation "
+                       "with its own skills, so call this once and end the turn. The mood moves "
+                       "inside the shift afterwards; this never sets it again.",
+                       {"goal": {"type": "string",
+                                 "description": "What this shift will do to advance the "
+                                                "operator's objective. One line."},
+                        "stance": {"type": "string", "enum": list(STANCES),
+                                   "description": "The kind of evening this is."},
+                        "mood": {"type": "string", "enum": list(JOB_MOODS),
+                                 "description": "The attitude the shift starts in. Relaxed and "
+                                                "Tired may not open one."},
+                        "objective_done": {"type": "boolean",
+                                           "description": "Instead of a shift: the operator's "
+                                                          "bounded objective is complete. The "
+                                                          "pilot stays at rest until the operator "
+                                                          "gives it something new."}},
+                       [])},
     {"name": "spacemolt_storage", "toolset": "spacemolt_observe", "handler": _storage,
      "description": "Read what the pilot holds in storage at the current base, or a named base, without travelling.",
      "schema": _schema("spacemolt_storage",
