@@ -34,26 +34,18 @@ JOURNAL_FILE = "gameplay.jsonl"
 
 JUNCTURE_PROMPT = (
     "A SpaceMolt juncture: the pilot is between jobs and you choose what it does next.\n"
-    "The present, the menu and the last outcome are already in front of you — no tool "
-    "fetches them, so do not go looking. If they say a chain is still running, say so in one "
-    "line and end the turn.\n"
-    "Otherwise weigh the options against the objective they name and end the juncture one of "
-    "four ways. (a) Act on the menu yourself — travel, dock, read storage, and whatever else "
-    "you hold — taking as many calls as the move needs; a call is real game time, so wait it "
-    "out and never retry a pending one. (b) Dispatch to the runner instead when a single step "
-    "would run past a few minutes, as a gather does: call spacemolt_dispatch once, say what "
-    "you started, and end the turn. It runs on after this conversation and raises the next "
-    "juncture itself, so never wait for it, never poll spacemolt_status, and never dispatch "
-    "twice. (c) Hold and watch, starting nothing, when the world is worth another look first. "
-    "(d) Rest at home when the objective is done.\n"
-    "Prefer an admissible option; if you go off the menu, say in one line why the refusal no "
-    "longer applies. Report only what the context and the tool results say. If no juncture "
-    "context is there at all, the runner did not answer: say that and end the turn.\n"
-    "At rest there is no menu and nothing is running: read the report you were given, pick one "
-    "goal that serves the operator's objective and reaches past what you have been doing, choose "
-    "the stance and the initial mood that fit it, call spacemolt_reflect once and end the turn — "
-    "the shift begins in a fresh conversation with its own skills. If the report says the "
-    "objective is already done, say so and end the turn without reflecting."
+    "Read the context in front of you — the present, the options and how the last chain "
+    "ended. If it says a chain is still running, say so in one line and end the turn.\n"
+    "Otherwise end the juncture one of four ways: act on an option yourself, taking as many "
+    "calls as the move needs; dispatch one long step and end the turn; hold, starting "
+    "nothing; or rest at home when the objective is done.\n"
+    "Say in one line which of the four you took and why.\n"
+    "Prefer an admissible option. If you go off the menu, quote the refusal you are "
+    "overriding and say what has changed since it was written.\n"
+    "At rest there is no menu: read the report you were given, reflect once, and end the "
+    "turn.\n"
+    "If the report says the operator's objective is done, say so and stop.\n"
+    "If no context reached you at all, the runner did not answer: say that and end the turn."
 )
 
 #: The refusals go first when a menu will not fit; the options are the point of it.
@@ -80,13 +72,37 @@ def juncture_context(session_info: Mapping[str, Any] | None = None) -> str:
                 "calling a tool.")
     if menu.get("at_rest"):
         return _rest_context(menu)
+    _hold_full(menu)
     body = json.dumps(menu, separators=(",", ":"), sort_keys=True)
     if len(body) > _CONTEXT_BUDGET:
         menu.pop("unavailable", None)
         body = json.dumps(menu, separators=(",", ":"), sort_keys=True)
-    return ("SpaceMolt juncture — the present, what this stance and mood admit now with the "
-            "reason and bounds for each, what is unavailable and why, and how the last chain "
+    return ("SpaceMolt juncture — the present, each option with the call it would be taken "
+            "with, its reason and bounds, what is unavailable and why, and how the last chain "
             "ended:\n" + body)
+
+
+#: The rest of the story a `cargo_free` of 0 leaves untold. A full hold is not a dead end and
+#: it is not a mystery either: it is ore with two places to go and a gather that will return
+#: nothing until it does (playtest 2026-09-15: three gathers dispatched on a full hold).
+_HOLD_FULL = ("hold full: stow it here if this base has storage, or craft with it at a "
+              "workshop; a gather with a full hold returns nothing")
+
+
+def _hold_full(menu: dict[str, Any]) -> None:
+    """Say why the hold being full matters, and name it as the cause of an empty yield.
+
+    Timely surfacing beats making the model remember: the fact sits beside the count it
+    explains, and the last outcome carries the cause rather than leaving one to be invented.
+    """
+    present = menu.get("present")
+    if not isinstance(present, dict) or present.get("cargo_free") != 0:
+        return
+    present["hold_full"] = _HOLD_FULL
+    last = menu.get("last")
+    jobs = (last or {}).get("jobs") if isinstance(last, dict) else None
+    if jobs and not any(job.get("yield") for job in jobs):
+        last["cause"] = "the hold was full at departure (cargo_free 0), so the gather mined nothing"
 
 
 def _rest_context(report: dict[str, Any]) -> str:

@@ -145,14 +145,21 @@ export function serve(account:ReadinessAccount,command:ReadinessCommand,options:
     const {location,ship,player}=account.state;
     const rows=stations(await currentSystem());
     const docked=location?.docked_at??null;
-    let counters:CounterName[]=[],service_prices:{fuel?:number;hull?:number}|undefined;
+    const counters:CounterName[]=[];
+    let service_prices:{fuel?:number;hull?:number}|undefined;
     if(docked) {
       const base=details(await command('spacemolt/get_base',{}));
       const fuel=base.fuel_price_all_in,hull=base.base?.repair_price_per_hull;
       service_prices={...Number.isFinite(fuel)?{fuel}:{},...Number.isFinite(hull)?{hull}:{}};
-      // ponytail: the one counter a base read proves. Per-counter discovery waits for the
+      // ponytail: the counters a base read proves. Per-counter discovery waits for the
       // counter reads (S38); until then an unproved counter is left off rather than guessed.
-      if(service_prices.fuel!==undefined||service_prices.hull!==undefined)counters=['Services'];
+      if(service_prices.fuel!==undefined||service_prices.hull!==undefined)counters.push('Services');
+      // What a full hold can become here, named from the same read: a deposit it will take,
+      // a bench it can be worked at. `place.workshop` stays unset — whether a recipe is
+      // quotable is J7's question, not this one.
+      const services=(Array.isArray(base.services)?base.services:[]).map(String);
+      if(services.includes('storage'))counters.push('Storage');
+      if(services.includes('crafting'))counters.push('Workshop / recipes');
     }
     // travelTo quotes a route by SYSTEM, so this one quote is the very number the script
     // will apply to any POI in this system (R5).
@@ -275,7 +282,12 @@ export function serve(account:ReadinessAccount,command:ReadinessCommand,options:
       present:{system:location?.system_id,poi:location?.poi_id,docked_at:location?.docked_at??null,
         in_transit:Boolean(location?.in_transit),fuel:ship?.fuel,max_fuel:ship?.max_fuel,
         hull:ship?.hull,max_hull:ship?.max_hull,
-        cargo_free:facts.holdings.cargo_free,credits:player?.credits},
+        cargo_free:facts.holdings.cargo_free,credits:player?.credits,
+        // What the hold holds and what this base can do with it: a full hold has somewhere
+        // to go only if one of these is true, and the pilot cannot see that from a count.
+        hold:(account.state.cargo??[]).map(row=>({item_id:String(row.item_id),quantity:row.quantity})),
+        storage:(facts.place.counters??[]).includes('Storage'),
+        workshop:(facts.place.counters??[]).includes('Workshop / recipes')},
       ...buildMenu(facts),last:lastOutcome(),
     };
   };

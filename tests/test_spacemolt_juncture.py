@@ -6,6 +6,7 @@ and the job definition that carries the stance through the cron toolset clamp (N
 """
 from __future__ import annotations
 
+import copy
 import json
 import sys
 
@@ -136,3 +137,79 @@ def test_the_juncture_job_carries_the_stance_and_passes_the_cron_toolset_clamp(t
     assert again["id"] == job["id"]
     assert cron_jobs.get_job(again["id"])["skills"] == ["spacemolt", "spacemolt-hunter"]
     assert len(cron_jobs.load_jobs()) == 1
+
+
+# What the runner answers a juncture with, in the shape the rules table builds: every option
+# carrying the exact call it would be taken with, and a `present` that says what the hold
+# holds. The menu is the bridge's; what these pin is what the context does with it.
+def _menu(cargo_free: int, *, last: dict) -> dict:
+    bounds = {"spend": 1000, "fuelReserve": 24, "walkAway": 0.9}
+    options = [{"job": "Hold position and watch", "reason": "the world moves between looks",
+                "admissible": True, "bounds": bounds, "call": None},
+               {"job": "Counter: Storage", "reason": "offered here", "admissible": True,
+                "bounds": bounds, "call": {"tool": "spacemolt_storage", "params": {}}}]
+    if cargo_free > 0:
+        options.append({"job": "J1 Hold full of ore", "reason": "belt quoted", "admissible": True,
+                        "bounds": bounds,
+                        "call": {"tool": "spacemolt_dispatch",
+                                 "params": {"job": "gather", "poi_id": ["belt", "deep-belt"],
+                                            "base_id": "sol_base"}}})
+    return {"stance": "Prospector", "mood": "Focused", "objective": "fill the hold",
+            "present": {"docked_at": "sol_base", "fuel": 100, "credits": 1000,
+                        "cargo_free": cargo_free, "hold": [{"item_id": "ore", "quantity": 12}],
+                        "storage": True, "workshop": False},
+            "options": options, "unavailable": [], "last": last}
+
+
+EMPTY_GATHER = {"chain_id": "chain-1", "outcome": "done",
+                "jobs": [{"job": "gather", "yield": [], "cleared": 0}]}
+FULL_GATHER = {"chain_id": "chain-1", "outcome": "done",
+               "jobs": [{"job": "gather", "yield": [{"item_id": "ore", "quantity": 12}],
+                         "cleared": 120}]}
+
+
+def _rendered(monkeypatch, menu: dict) -> tuple[str, dict]:
+    """The context a fire is handed, and the facts inside it."""
+    monkeypatch.setattr(service, "call", lambda action, params=None: copy.deepcopy(menu))
+    context = juncture.juncture_context({"platform": "cron"})
+    return context, json.loads(context.split("\n", 1)[1])
+
+
+def test_every_option_carries_the_call_it_would_be_taken_with(monkeypatch):
+    _, facts = _rendered(monkeypatch, _menu(12, last=FULL_GATHER))
+    published = {definition["name"] for definition in spacemolt.TOOL_DEFINITIONS}
+    for option in facts["options"]:
+        assert "call" in option, f"{option['job']}: no call to take it with"
+        if option["call"] is None:
+            continue  # hold, watch, and the counters no tool reaches yet
+        assert option["call"]["tool"] in published, option["job"]
+        assert isinstance(option["call"]["params"], dict), option["job"]
+    gather = next(option for option in facts["options"]
+                  if (option["call"] or {}).get("tool") == "spacemolt_dispatch")
+    # Two mining sites are admissible, so the option offers both: the parameters carry the
+    # choice the pilot makes, never a destination chosen for it.
+    poi_id = gather["call"]["params"]["poi_id"]
+    assert isinstance(poi_id, list) and len(poi_id) == 2, poi_id
+    # The base belongs in base_id. A station id in poi_id is the mistake the menu prevents.
+    assert gather["call"]["params"]["base_id"] == "sol_base"
+    assert "sol_base" not in poi_id
+
+
+def test_a_full_hold_says_what_it_costs_and_why_the_last_gather_came_back_empty(monkeypatch):
+    context, facts = _rendered(monkeypatch, _menu(0, last=EMPTY_GATHER))
+    assert "hold full" in context and "a gather with a full hold returns nothing" in context
+    assert facts["present"]["hold_full"]
+    assert "hold was full at departure" in facts["last"]["cause"]
+
+    # Room in the hold leaves both off: the fact is timely, not permanent furniture.
+    _, roomy = _rendered(monkeypatch, _menu(12, last=FULL_GATHER))
+    assert "hold_full" not in roomy["present"]
+    assert "cause" not in roomy["last"]
+
+
+def test_the_cron_prompt_leaves_the_tools_to_their_own_descriptions():
+    """The turn contract only: nothing about which tool does what (playtest 2026-09-15)."""
+    named = sorted(definition["name"] for definition in spacemolt.TOOL_DEFINITIONS
+                   if definition["name"] in juncture.JUNCTURE_PROMPT)
+    assert named == [], f"the prompt names tools the descriptions own: {named}"
+    assert "four ways" in juncture.JUNCTURE_PROMPT, "it still teaches how a juncture ends"

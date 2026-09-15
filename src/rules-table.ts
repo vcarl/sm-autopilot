@@ -58,10 +58,14 @@ type Tag='safety'|'resupply'|'rest'|'shared'|'stance';
 /** The one rest option, named once: the runner's own rest action asks this same rule, so
  * what the menu offers and what the runner accepts cannot drift (R5). */
 export const REST_JOB='Rest and reflect at home';
-export interface Verdict {job:string;reason:string;admissible:boolean;tag:Tag}
+/** The exact call an option would be taken with, so the pilot is never left to invent
+ * parameters (playtest 2026-09-15: a gather dispatched at the home station twice). A call
+ * that names several poi ids offers a choice; it never picks the destination. */
+export interface Call {tool:string;params:Record<string,unknown>}
+export interface Verdict {job:string;reason:string;admissible:boolean;tag:Tag;call?:Call|null}
 interface Rule {id:string;stance?:StanceName;apply(facts:Facts):Verdict|Verdict[]|null}
 
-const yes=(tag:Tag,job:string,reason:string):Verdict=>({job,reason,admissible:true,tag});
+const yes=(tag:Tag,job:string,reason:string,call:Call|null=null):Verdict=>({job,reason,admissible:true,tag,call});
 const no=(tag:Tag,job:string,reason:string):Verdict=>({job,reason,admissible:false,tag});
 const threats=(facts:Facts)=>facts.observed.threats??[];
 const sites=(facts:Facts)=>facts.place.sites??[];
@@ -75,7 +79,8 @@ function trip(facts:Facts,site:Site,tag:Tag):Verdict {
   const quote=`route quotes ${site.quoted_fuel} fuel; with the ${facts.mood} reserve ${reserve} you need ${required}`;
   if(required>max_fuel)return no(tag,job,`${quote}, beyond the ${max_fuel} unit tank; a nearer site or a bigger tank admits it`);
   if(fuel<required)return no(tag,job,`${quote}, have ${fuel}; shortfall ${required-fuel} fuel units — refuel here or pick a nearer site`);
-  return yes(tag,job,`${quote} and have ${fuel}${site.resource?`; ${site.poi_id} lists ${site.resource}`:''}`);
+  return yes(tag,job,`${quote} and have ${fuel}${site.resource?`; ${site.poi_id} lists ${site.resource}`:''}`,
+    {tool:'spacemolt_travel',params:{poi_id:site.poi_id}});
 }
 
 /** The same quote and margin serviceShip enforces at the counter. */
@@ -96,6 +101,9 @@ function service(facts:Facts):Verdict {
 }
 
 const TIRED_OPEN:CounterName[]=['Services','Distress'];
+/** The counters a tool reaches today. The rest are read at the station by hand, so they
+ * carry no call rather than a name that would fail. */
+const COUNTER_CALLS:Partial<Record<CounterName,Call>>={Storage:{tool:'spacemolt_storage',params:{}}};
 /** Counters are the base's, shared by every stance (VISION: station tools are neither jobs
  * nor flight primitives); stance guidance points at jobs and skills, never at admissibility
  * here. Danger and Tired still gate which tag survives, in evaluateMenu. Counters need no
@@ -106,7 +114,8 @@ function counters(facts:Facts):Verdict[] {
   return (facts.place.counters??[]).map(name=>{
     const job=`Counter: ${name}`,tag:Tag=TIRED_OPEN.includes(name)?'resupply':'shared';
     return yes(tag,job,
-      `offered here; reading a counter spends nothing, within the ${facts.mood} bounds (spend ${bounds.spend}, fuel reserve ${bounds.fuelReserve}, walk-away ${bounds.walkAway})`);
+      `offered here; reading a counter spends nothing, within the ${facts.mood} bounds (spend ${bounds.spend}, fuel reserve ${bounds.fuelReserve}, walk-away ${bounds.walkAway})`,
+      COUNTER_CALLS[name]??null);
   });
 }
 
@@ -127,7 +136,7 @@ const RULES:Rule[]=[
   {id:'safety.dock',apply:facts=>{
     const seen=threats(facts);
     return seen.length?yes('safety',`Dock at ${facts.place.base_id??'the nearest base'}`,
-      `threat seen: ${seen.join(', ')}; a dock ends the engagement`):null;
+      `threat seen: ${seen.join(', ')}; a dock ends the engagement`,{tool:'spacemolt_dock',params:{}}):null;
   }},
   {id:'resupply.service',apply:service},
   {id:'resupply.travel',apply:facts=>sites(facts).filter(site=>site.serviced_base).map(site=>trip(facts,site,'resupply'))},
@@ -145,18 +154,25 @@ const RULES:Rule[]=[
       return no('rest',REST_JOB,`refuel and repair first — ${counter.reason}`);
     return yes('rest',REST_JOB,serviced(facts)
       ?'home, safe and serviced: the evening can be put down and a new goal chosen'
-      :`home, and this base cannot bring the ship up (${counter.reason}); the evening can still be put down`);
+      :`home, and this base cannot bring the ship up (${counter.reason}); the evening can still be put down`,
+      {tool:'spacemolt_rest',params:{}});
   }},
   // Stance rows (D7 section 2). A stance sees only its own; jobs carry the proposal's
   // numbers and end-state names.
   {id:'stance.prospector.J1',stance:'Prospector',apply:facts=>{
     const job='J1 Hold full of ore';
-    const found=sites(facts).filter(site=>site.resource).map(site=>trip(facts,site,'stance'));
-    if(!found.length)return no('stance',job,'no reachable POI is quoted with resources; survey or travel to a system that has one');
-    const open=found.find(verdict=>verdict.admissible);
-    if(!open)return no('stance',job,`${found[0]!.reason}`);
+    const mining=sites(facts).filter(site=>site.resource);
+    if(!mining.length)return no('stance',job,'no reachable POI is quoted with resources; survey or travel to a system that has one');
+    const found=mining.map(site=>trip(facts,site,'stance'));
+    const open=found.findIndex(verdict=>verdict.admissible);
+    if(open<0)return no('stance',job,`${found[0]!.reason}`);
     if(facts.holdings.cargo_free<=0)return no('stance',job,'the hold is full; settle cargo at a market or storage first');
-    return yes('stance',job,`${open.reason}; ${facts.holdings.cargo_free} free cargo to fill`);
+    // Every mining site the fuel admits, so the pilot picks one; a station is never among
+    // them, and one site still comes as a list rather than as a destination chosen for it.
+    const poi_id=mining.filter((_,index)=>found[index]!.admissible).map(site=>site.poi_id);
+    return yes('stance',job,`${found[open]!.reason}; ${facts.holdings.cargo_free} free cargo to fill`,
+      {tool:'spacemolt_dispatch',params:{job:'gather',poi_id,
+        ...facts.place.base_id?{base_id:facts.place.base_id}:{}}});
   }},
   {id:'stance.industrialist.J7',stance:'Industrialist',apply:facts=>{
     const job='J7 Inputs at the bench',inputs=facts.holdings.inputs??[];

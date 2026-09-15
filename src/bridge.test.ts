@@ -17,7 +17,7 @@ const system={id:'sol',name:'Sol',pois:[
   {id:'belt',name:'Inner Belt',type:'asteroid_belt',position:{x:1,y:1}},
 ]};
 
-function fixture(options:ServeOptions={}) {
+function fixture(options:ServeOptions={},services=['refuel','repair']) {
   const account=new FakeLibGoalAccount({
     location:{system_id:'sol',poi_id:'station',docked_at:'sol_base' as string|null,in_transit:false},
     // The hold leaves the dock already full, so a gather job mines nothing and still
@@ -45,7 +45,7 @@ function fixture(options:ServeOptions={}) {
       account.server.player.credits+=quantity*10;
       return {delta:{details:{action:'sell',quantity_sold:quantity}}};
     },
-    'spacemolt/get_base':()=>({delta:{details:{services:['refuel','repair'],fuel_price_all_in:1,
+    'spacemolt/get_base':()=>({delta:{details:{services,fuel_price_all_in:1,
       base:{poi_id:'station',repair_price_per_hull:1}}}}),
     'spacemolt/refuel':()=>{
       const cost=account.server.ship.max_fuel-account.server.ship.fuel;
@@ -196,6 +196,30 @@ test('menu assembles the present from live state and answers with the rules tabl
   assert.equal(resting.at_rest,true);
   assert.equal(resting.options,undefined,'a resting pilot is offered no stance work');
   assert.ok(Array.isArray(resting.stagnation),'reflection carries what it has been doing');
+});
+
+test('every option carries the call it would be taken with, and the present says what the hold holds', async () => {
+  // The base posts no storage and no bench: a full hold has nowhere to go here, and the
+  // present says so rather than leaving the pilot to guess (playtest 2026-09-15).
+  const bare=await fixture({pilot:()=>PILOT}).dispatch('menu') as any;
+  assert.deepEqual(bare.present.hold,[{item_id:'ore',quantity:12}]);
+  assert.deepEqual([bare.present.cargo_free,bare.present.storage,bare.present.workshop],[0,false,false]);
+
+  const f=fixture({pilot:()=>PILOT},['refuel','repair','storage','crafting']);
+  f.account.server.ship.cargo_used=0; // room to fill, so the stance's gather is admissible
+  const menu=await f.dispatch('menu') as any;
+  assert.deepEqual([menu.present.storage,menu.present.workshop],[true,true]);
+  const tools=new Set(['spacemolt_travel','spacemolt_dock','spacemolt_storage','spacemolt_rest',
+    'spacemolt_dispatch']);
+  for(const option of menu.options)
+    assert.ok(option.call===null||tools.has(option.call.tool),`${option.job}: ${JSON.stringify(option.call)}`);
+  const gather=menu.options.find((option:any)=>option.call?.tool==='spacemolt_dispatch');
+  assert.ok(gather,'a hold with room is offered the gather');
+  assert.equal(gather.call.params.job,'gather');
+  // The mining sites to choose among — the station the ship is docked at is not one of them,
+  // and the base id belongs in base_id, never in poi_id.
+  assert.deepEqual(gather.call.params.poi_id,['belt']);
+  assert.equal(gather.call.params.base_id,'sol_base');
 });
 
 test('job starts one chain in the runner and returns before it ends; status carries it', async () => {
