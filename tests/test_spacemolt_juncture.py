@@ -202,6 +202,8 @@ def test_every_option_carries_the_call_it_would_be_taken_with(monkeypatch):
 def test_a_full_hold_says_what_it_costs_and_why_the_last_gather_came_back_empty(monkeypatch):
     context, facts = _rendered(monkeypatch, _menu(0, last=EMPTY_GATHER))
     assert "hold full" in context and "a gather needs free hold" in context
+    # The line says the act, not just the cost: stow is what frees the hold here.
+    assert "Dispatch stow" in context and "script stow" in context
     assert facts["present"]["hold_full"]
     assert "hold was full at departure" in facts["last"]["cause"]
 

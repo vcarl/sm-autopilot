@@ -56,7 +56,7 @@ same ones, and market depth, boards, waiting passengers and facilities can come 
 - **Market** — buying and selling, and standing orders that escrow credits until they fill.
 - **Workshop** — turning inputs you hold into something worth more, and recycling back.
 - **Boards** — shipping and mission work, accepted as a liability rather than for cash.
-- **Storage** — custody at a station, readable from another one without going there.
+- **Storage** — custody at a station, readable from another one without going there; stow deposits the hold.
 - **Hangar** — ships and modules: where the ceiling on the work you can take moves.
 - **Services** — fuel, repair and crew, priced per unit and uncapped.
 - **Obligations desk** — tax, bounty, shipping debt and insurance, accruing behind your back.

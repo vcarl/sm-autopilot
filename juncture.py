@@ -85,8 +85,9 @@ def juncture_context(session_info: Mapping[str, Any] | None = None) -> str:
 #: The rest of the story a `cargo_free` of 0 leaves untold. A full hold is not a dead end and
 #: it is not a mystery either: it is ore with two places to go and a gather that will return
 #: nothing until it does (playtest 2026-09-15: three gathers dispatched on a full hold).
-_HOLD_FULL = ("hold full: a gather needs free hold. Stow the ore here if this base has "
-              "storage, or craft with it at a workshop, then gather")
+_HOLD_FULL = ("hold full: a gather needs free hold. Dispatch stow here if this base has "
+              "storage (spacemolt_dispatch, script stow), or craft with it at a workshop, "
+              "then gather")
 
 
 def _hold_full(menu: dict[str, Any]) -> None:

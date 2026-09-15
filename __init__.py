@@ -34,6 +34,9 @@ SCRIPTS = {
                     "optional base_id",
     "stock-up": "poi_id, targets (a list of {item_id, quantity}) and max_runs: gather at "
                 "one site until the store holds each target in turn; optional base_id",
+    "stow": "no parameters: deposit the hold into the store at the base you are docked at, "
+            "which is what frees hold for the next gather; optional items (item ids) and "
+            "base_id (must be the base you are docked at)",
 }
 SCRIPT_HELP = "The scripts and what each one takes:\n" + "\n".join(
     f"- {name}: {takes}" for name, takes in SCRIPTS.items())

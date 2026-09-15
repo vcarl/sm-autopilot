@@ -77,6 +77,26 @@ test('a composed script runs gather until the store holds what it was asked for'
   } finally {g.close();}
 });
 
+test('the stow script deposits the hold at the counter and says so in the run outcome', async () => {
+  // The hold the pilot has been carrying: a full hold, at a base with a store, and no trip.
+  const f=runner({cargoUsed:12,store:[]});
+  try {
+    const outcome=await f.run('stow',{});
+    assert.equal(outcome.outcome,'done',outcome.reason);
+    assert.equal(outcome.script,'stow');
+    assert.match(outcome.reason!,/stowed 1 item at sol_base: 12 ore/);
+    assert.deepEqual((outcome.result as any).remaining,[]);
+    assert.equal((outcome.result as any).cargo_free,12);
+    assert.deepEqual(f.store,[{item_id:'ore',quantity:12}]);
+    assert.equal(f.count('spacemolt/undock'),0,'a counter is not a trip');
+    // Run it again on the hold it emptied: nothing to stow, and nothing sent.
+    const again=await f.run('stow',{});
+    assert.equal(again.outcome,'done',again.reason);
+    assert.match(again.reason!,/nothing to stow at sol_base/);
+    assert.equal(f.count('spacemolt_storage/deposit'),1);
+  } finally {f.close();}
+});
+
 test('the rules between jobs end the script, with the jobs after it unrun', async () => {
   const f=runner({cargoUsed:0,store:[]});
   try {

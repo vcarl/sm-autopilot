@@ -210,6 +210,19 @@ test('every option carries the call it would be taken with, and the present says
   assert.equal(gather.call.params.params.base_id,'sol_base');
 });
 
+test('the Storage counter offers the deposit when the hold is full, and the read when it is not', async () => {
+  // A full hold at a base that takes deposits wants the act: reading the store changes nothing.
+  const full=await fixture({pilot:()=>PILOT},['refuel','repair','storage']).dispatch('menu') as any;
+  const stowing=full.options.find((option:any)=>option.job==='Counter: Storage');
+  assert.deepEqual(stowing.call,{tool:'spacemolt_dispatch',params:{script:'stow',params:{}}});
+
+  const f=fixture({pilot:()=>PILOT},['refuel','repair','storage']);
+  f.account.server.ship.cargo_used=0; // room in the hold: the counter is a read again
+  const roomy=await f.dispatch('menu') as any;
+  const reading=roomy.options.find((option:any)=>option.job==='Counter: Storage');
+  assert.deepEqual(reading.call,{tool:'spacemolt_storage',params:{}});
+});
+
 test('run starts one script in the runner and returns before it ends; status carries it', async () => {
   const held=heldRun();
   const f=fixture({pilot:()=>PILOT,runScript:held.runScript});

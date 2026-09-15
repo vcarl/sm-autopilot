@@ -105,6 +105,13 @@ const TIRED_OPEN:CounterName[]=['Services','Distress'];
  * carry no call rather than a name that would fail. */
 const COUNTER_CALLS:Partial<Record<CounterName,Call>>={Storage:{tool:'spacemolt_storage',params:{}},
   'Workshop / recipes':{tool:'spacemolt_recipes',params:{}}};
+/** A full hold at a base that takes deposits wants the act, not the read: the store is still
+ * readable through its own tool, and what the pilot needs here is the free hold a gather
+ * cannot start without (playtest 2026-09-15: a day of gathers on cargo_free 0). */
+const counterCall=(name:CounterName,facts:Facts):Call|null=>
+  name==='Storage'&&facts.holdings.cargo_free===0
+    ?{tool:'spacemolt_dispatch',params:{script:'stow',params:{}}}
+    :COUNTER_CALLS[name]??null;
 /** Counters are the base's, shared by every stance (VISION: station tools are neither jobs
  * nor flight primitives); stance guidance points at jobs and skills, never at admissibility
  * here. Danger and Tired still gate which tag survives, in evaluateMenu. Counters need no
@@ -116,7 +123,7 @@ function counters(facts:Facts):Verdict[] {
     const job=`Counter: ${name}`,tag:Tag=TIRED_OPEN.includes(name)?'resupply':'shared';
     return yes(tag,job,
       `offered here; reading a counter spends nothing, within the ${facts.mood} bounds (spend ${bounds.spend}, fuel reserve ${bounds.fuelReserve}, walk-away ${bounds.walkAway})`,
-      COUNTER_CALLS[name]??null);
+      counterCall(name,facts));
   });
 }
 
