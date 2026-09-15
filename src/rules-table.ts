@@ -103,7 +103,8 @@ function service(facts:Facts):Verdict {
 const TIRED_OPEN:CounterName[]=['Services','Distress'];
 /** The counters a tool reaches today. The rest are read at the station by hand, so they
  * carry no call rather than a name that would fail. */
-const COUNTER_CALLS:Partial<Record<CounterName,Call>>={Storage:{tool:'spacemolt_storage',params:{}}};
+const COUNTER_CALLS:Partial<Record<CounterName,Call>>={Storage:{tool:'spacemolt_storage',params:{}},
+  'Workshop / recipes':{tool:'spacemolt_recipes',params:{}}};
 /** Counters are the base's, shared by every stance (VISION: station tools are neither jobs
  * nor flight primitives); stance guidance points at jobs and skills, never at admissibility
  * here. Danger and Tired still gate which tag survives, in evaluateMenu. Counters need no

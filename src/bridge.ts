@@ -1,5 +1,5 @@
 /** Minimal SpaceMolt bridge: `where`, `travel` and `dock`, one JSON request per stdin line. */
-import {Account} from '@spacemolt/lib';
+import {Account,fetchCatalog,httpBaseFromWs,type Catalog} from '@spacemolt/lib';
 import {createHash} from 'node:crypto';
 import {appendFileSync,existsSync,mkdirSync,readFileSync,renameSync,writeFileSync} from 'node:fs';
 import {resolve} from 'node:path';
@@ -18,7 +18,13 @@ import type {Mood} from './mood-policy.ts';
 import {reflectReport} from './reflect.ts';
 import {REST_JOB,evaluateMenu,type CounterName,type Facts,type StanceName} from './rules-table.ts';
 import {viewStorage} from './storage.ts';
+import {quoteRecipe} from './quote-action.ts';
+import {recipesReport} from './recipes-action.ts';
 import {FuelRouteShortfall,travelTo} from './travel.ts';
+
+/** The one endpoint this runner talks to. The catalog is served over HTTP from the same
+ * host the socket connects to, which is the only place that base URL is written down. */
+export const GAME_WS_URL='wss://game.spacemolt.com/ws/v2';
 
 export type Dispatch=(action:string,params?:Record<string,unknown>)=>Promise<unknown>;
 
@@ -35,6 +41,8 @@ export interface ServeOptions {
   /** Where the chain record and the journal live. Without one the runner keeps the chain
    * in memory alone, which is what a restart loses (N22). */
   runtime?:string;
+  /** The reference catalog. One fetch per process, cached here; tests pass their own. */
+  catalog?:()=>Promise<Catalog>;
 }
 
 /** The pilot record, or an empty one: a pilot with no record has no stance and no menu. */
@@ -330,6 +338,13 @@ export function serve(account:ReadinessAccount,command:ReadinessCommand,options:
   /** What a resting pilot reflects on. Read-only: it chooses nothing and writes nothing. */
   const reflect=async()=>reflectReport(account,command,pilot(),runtime);
 
+  // The catalog changes only on a server release, and it is multiple MB: one fetch, kept for
+  // the life of this process. A fetch that fails is reported by the action, never thrown past
+  // it — a bench read that cannot reach the catalog is still a read of where the ore is.
+  const fetcher=options.catalog??(()=>fetchCatalog(httpBaseFromWs(GAME_WS_URL)));
+  let catalog:Promise<Catalog>|undefined;
+  const loadCatalog=()=>(catalog??=fetcher().catch(error=>{catalog=undefined;throw error;}));
+
   // Later capabilities (service, more jobs) slot in here; the transport never changes.
   const actions:Record<string,(params:Record<string,unknown>)=>Promise<unknown>>={
     where,
@@ -339,6 +354,11 @@ export function serve(account:ReadinessAccount,command:ReadinessCommand,options:
     dock:params=>dock(params.base_id===undefined?undefined:String(params.base_id)),
     gather,
     storage:params=>viewStorage(command,params.station_id===undefined?undefined:String(params.station_id)),
+    recipes:params=>recipesReport(account,command,loadCatalog,{
+      ...params.search===undefined?{}:{search:String(params.search)},
+      ...params.base_id===undefined?{}:{base_id:String(params.base_id)}}),
+    quote:params=>quoteRecipe(account,command,{recipe_id:String(params.recipe_id??''),
+      ...params.quantity===undefined?{}:{quantity:Number(params.quantity)}}),
     menu,
     job:startJob,
     resume,
@@ -387,7 +407,7 @@ async function main() {
   // a second LIVE controller runs, but a dead holder's lock is taken over rather than wedging.
   const unlock=controllerLock(`${runtime}/controller-${createHash('sha256').update(username).digest('hex').slice(0,16)}.lock`);
   process.on('exit',unlock); // every exit path releases it, uncaught errors included
-  const account=new Account({url:'wss://game.spacemolt.com/ws/v2',reconnect:true,credentials});
+  const account=new Account({url:GAME_WS_URL,reconnect:true,credentials});
   // Stdin EOF, SIGTERM and SIGINT all say the same thing: the gateway that owns this bridge is
   // gone. A chain in flight is abandoned rather than awaited — its last progress record is
   // already journalled. `stopped` also stops the request loop from taking on new work once

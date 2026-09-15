@@ -10,6 +10,14 @@ const richProspector=(mood:Facts['mood']):Facts=>({
   holdings:{fuel:120,max_fuel:120,hull:100,max_hull:100,cargo_free:50,credits:100_000},
   obligations:{},permissions:{},observed:{}});
 
+test('the workshop counter carries the read it would be taken with',()=>{
+  const facts={...richProspector('Focused'),
+    place:{kind:'base' as const,base_id:'base',counters:['Workshop / recipes' as const],sites:[]}};
+  const counter=evaluateMenu(facts).find(v=>v.job==='Counter: Workshop / recipes');
+  assert.ok(counter?.admissible,'a base with a bench offers the counter');
+  assert.deepEqual(counter!.call,{tool:'spacemolt_recipes',params:{}});
+});
+
 test('a stance job admissible under Focused is blocked under Relaxed, naming the mood',()=>{
   const job='J1 Hold full of ore';
   const focused=evaluateMenu(richProspector('Focused')).find(v=>v.job===job);

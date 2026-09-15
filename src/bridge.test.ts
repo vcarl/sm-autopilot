@@ -270,7 +270,7 @@ test('every option carries the call it would be taken with, and the present says
   const menu=await f.dispatch('menu') as any;
   assert.deepEqual([menu.present.storage,menu.present.workshop],[true,true]);
   const tools=new Set(['spacemolt_travel','spacemolt_dock','spacemolt_storage','spacemolt_rest',
-    'spacemolt_dispatch']);
+    'spacemolt_dispatch','spacemolt_recipes']);
   for(const option of menu.options)
     assert.ok(option.call===null||tools.has(option.call.tool),`${option.job}: ${JSON.stringify(option.call)}`);
   const gather=menu.options.find((option:any)=>option.call?.tool==='spacemolt_dispatch');

@@ -99,7 +99,8 @@ def test_register_publishes_every_tool_in_the_spacemolt_toolset():
     assert by_toolset == {
         "spacemolt": {"spacemolt_travel", "spacemolt_dock", "spacemolt_gather", "spacemolt_dispatch",
                       "spacemolt_rest", "spacemolt_reflect"},
-        "spacemolt_observe": {"spacemolt_where", "spacemolt_journal", "spacemolt_storage"},
+        "spacemolt_observe": {"spacemolt_where", "spacemolt_journal", "spacemolt_storage",
+                              "spacemolt_recipes", "spacemolt_quote"},
         "spacemolt_operator": {"spacemolt_direct", "spacemolt_status"},
     }
     assert tools["spacemolt_travel"][1]["parameters"]["required"] == ["poi_id"]
@@ -108,9 +109,25 @@ def test_register_publishes_every_tool_in_the_spacemolt_toolset():
     assert tools["spacemolt_dock"][1]["parameters"]["required"] == []
     # A job names the site it works; home and the keep list are the script's to default.
     assert tools["spacemolt_gather"][1]["parameters"]["required"] == ["poi_id"]
+    # The bench reads: ranking asks for nothing, a quote names the one recipe it prices.
+    assert tools["spacemolt_recipes"][1]["parameters"]["required"] == []
+    assert tools["spacemolt_quote"][1]["parameters"]["required"] == ["recipe_id"]
     # Credentials gate the tools out of the schema, and unload must release the bridge.
     assert all(kwargs["requires_env"] == ["SPACEMOLT_CREDENTIALS_FILE"] for *_, kwargs in tools.values())
     assert sections and unloads == [service.close_bridge]
+
+
+def test_the_bench_reads_reach_a_cron_fire():
+    """The workshop counter is offered at a juncture, so the tools it points at have to be in
+    the toolsets a fire carries — a counter whose call names a tool the fire lacks is a dead
+    line on the menu."""
+    from spacemolt import juncture
+
+    by_toolset: dict[str, set[str]] = {}
+    for definition in spacemolt.TOOL_DEFINITIONS:
+        by_toolset.setdefault(definition["toolset"], set()).add(definition["name"])
+    fire = set().union(*(by_toolset[name] for name in juncture.TOOLSETS))
+    assert {"spacemolt_recipes", "spacemolt_quote"} <= fire
 
 
 def test_close_bridge_ends_a_bridge_that_ignores_its_closed_stdin(tmp_path, monkeypatch):

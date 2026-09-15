@@ -76,6 +76,20 @@ def _storage(arguments: dict[str, Any] | None = None, **_: Any) -> str:
     return json.dumps(call("storage", {"station_id": station_id} if station_id else {}), separators=(",", ":"))
 
 
+def _recipes(arguments: dict[str, Any] | None = None, **_: Any) -> str:
+    args = arguments or {}
+    params = {name: str(args[name]) for name in ("search", "base_id") if args.get(name)}
+    return json.dumps(call("recipes", params), separators=(",", ":"))
+
+
+def _quote(arguments: dict[str, Any] | None = None, **_: Any) -> str:
+    args = arguments or {}
+    params: dict[str, Any] = {"recipe_id": str(args.get("recipe_id") or "")}
+    if args.get("quantity"):
+        params["quantity"] = args["quantity"]
+    return json.dumps(call("quote", params), separators=(",", ":"))
+
+
 def _gather(arguments: dict[str, Any] | None = None, **_: Any) -> str:
     args = arguments or {}
     params: dict[str, Any] = {"poi_id": str(args.get("poi_id") or "")}
@@ -341,6 +355,36 @@ TOOL_DEFINITIONS = (
                                        "description": "Optional: a base id or station poi id to view "
                                                       "instead of the current base."}},
                        [])},
+    {"name": "spacemolt_recipes", "toolset": "spacemolt_observe", "handler": _recipes,
+     "description": "Rank the catalog's recipes by what the pilot already holds in hold and storage everywhere.",
+     "schema": _schema("spacemolt_recipes",
+                       "Rank the catalog's recipes by what the pilot already holds in hold and "
+                       "storage everywhere. Read this docked, before quoting. Reads only. Each "
+                       "entry names what the recipe makes, what it wants, how much of that is "
+                       "held and at which base, and what is still missing and where that comes "
+                       "from. Craftable now is what this bench can run; facility only needs a "
+                       "facility; nearly is one or two inputs short.",
+                       {"search": {"type": "string",
+                                   "description": "Optional: narrow to recipes whose name, id, "
+                                                  "category or output item contains this text."},
+                        "base_id": {"type": "string",
+                                    "description": "Optional: the base to report against; defaults "
+                                                   "to the base the ship is docked at now."}},
+                       [])},
+    {"name": "spacemolt_quote", "toolset": "spacemolt_observe", "handler": _quote,
+     "description": "Quote one recipe: the exact bill, the output and this base's buy price for it.",
+     "schema": _schema("spacemolt_quote",
+                       "Quote one recipe: the exact bill, output and this base's buy price for "
+                       "it. A dry run; nothing is consumed or queued. Quote before committing. "
+                       "The margin walks the buy book, so it is what the output really fetches "
+                       "rather than the top price times the quantity. A base with no workshop "
+                       "refuses and says so.",
+                       {"recipe_id": {"type": "string",
+                                      "description": "A recipe id spacemolt_recipes listed."},
+                        "quantity": {"type": "integer", "minimum": 1,
+                                     "description": "How many units of the output to quote. "
+                                                    "Defaults to one."}},
+                       ["recipe_id"])},
     {"name": "spacemolt_status", "toolset": "spacemolt_operator", "handler": _status,
      "description": "For the chat window: whether a chain runs right now.",
      "schema": _schema("spacemolt_status",

@@ -15,5 +15,7 @@ provides_tools:
   - spacemolt_journal
   - spacemolt_direct
   - spacemolt_storage
+  - spacemolt_recipes
+  - spacemolt_quote
   - spacemolt_rest
   - spacemolt_reflect

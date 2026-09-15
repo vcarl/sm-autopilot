@@ -47,7 +47,7 @@ when finishing it would leave you unable to pay the fee at the far end.
 
 **Counters you read first when docked:**
 
-- **Workshop** — what the job consumes and escrows, and whether it can be handcrafted here.
+- **Workshop** — `spacemolt_recipes` ranks what you can craft with what you hold; `spacemolt_quote` prices one.
 - **Market** — what the inputs cost *here*, with depth, and what the output sells for.
 - **Storage** — what you already own, here and at the other stations you have used.
 - **Facilities** — handcrafting needs a workshop; the bigger routes need a facility.

@@ -152,7 +152,7 @@ def test_the_window_carries_no_job_tools_and_the_juncture_no_direction_tool():
     window = by_toolset["spacemolt_observe"] | by_toolset["spacemolt_operator"]
     fire = by_toolset["spacemolt"] | by_toolset["spacemolt_observe"]
     assert {"spacemolt_where", "spacemolt_status", "spacemolt_journal", "spacemolt_storage",
-            "spacemolt_direct"} == window
+            "spacemolt_recipes", "spacemolt_quote", "spacemolt_direct"} == window
     assert not window & {"spacemolt_dispatch", "spacemolt_travel", "spacemolt_dock", "spacemolt_gather"}
     assert "spacemolt_direct" not in fire, "only the operator sets the objective"
     assert juncture.job_fields({"stance": "Prospector"})["enabled_toolsets"] == list(juncture.TOOLSETS)
