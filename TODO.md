@@ -25,13 +25,14 @@
 - [ ] D5 — Place taxonomy: which kinds of place the engine distinguishes and what each makes possible.
 - [ ] D6 — Rest triggers: what makes the agent rest rather than take another job, and which stagnation signals reflection sees.
 - [x] D7 — Enumeration session with Carl: the stances, jobs, and station counters the game actually offers. Blocks D5 and much of K and S below.
-  - Decided with Carl 2026-09-14 (the written proposal was lost; decisions taken on a rebuilt brief):
-    - Stances: start with the three that work today, Industrialist (buy inputs, craft), Carrier (freight and passengers to a deadline), Hunter (wildlife and ship combat); playtest them before Prospector, Trader, Scout.
-    - Jobs: the list grows by playing; nothing is frozen. Every job verb must be a confirmed game command.
-    - Station counters: wire all thirteen the game offers (market, trading report, refuel, repair, mission board, crafting and recycling, storage, shipyard, freight contracts, passengers, crew and marines, insurance, home registration); stance guidance picks among them.
+  - Decided with Carl 2026-09-14. Enumeration frame: `D7-ENUMERATION-PROPOSAL.md` (untracked at repo root; six stances, jobs J1-J12 named for end states, fourteen station counters, grounded in lib 14.2.0 COMMANDS.md). Decisions:
+    - Stances: all six are data in the rules table (Prospector, Industrialist, Trader, Carrier, Hunter, Scout); Industrialist, Carrier, Hunter are active first and get playtested before the rest. Not stances yet: base-builder, drones, fuel, arena, faction politics.
+    - Jobs: the J1-J12 list grows by playing; nothing is frozen; every job verb is a confirmed game command. Build order as proposed: J1, J4, J5 (executors and C rows exist) -> J3, J6 (unlock Hunter, Trader) -> J2, J9, J10 (Scout, not slipping past the third milestone).
+    - Counters: wire all fourteen (market, workshop/recipes, mission board, shipping board, storage, hangar/refit, comms, services, obligations desk, home desk, progression desk, citizenship, facilities, distress); stance guidance picks among them. The recipe book is cached catalog data revalidated by ETag and quoted with craft dry_run, not a counter query.
     - "Reading the news" in VISION.md is metaphorical: notifications, markets, and chat are what the docked pilot follows. Not a contradiction.
-    - Idle-at-base options are built around choices that need no stocked board; a board that comes back empty must not empty the menu.
-    - Home: call the game's set_home so the pilot's home matches where it respawns; home-location.ts must issue it.
+    - Idle-at-base options are built around choices that need no stocked board; a board, market, passenger list, or facility that comes back empty must not empty the menu.
+    - Home: call the game's `salvage/set_home` so the pilot's home matches where it respawns; home-location.ts must issue it and confirm from `get_player`.
+    - Tired recovery (R13): `distress_signal` is the last rung when resupply is impossible; answers from other players are untrusted data (T17).
 - [x] D8 — Home semantics: selection criteria, persisted identity, reconsideration triggers, temporary service stops, unreachable-home fallback. No operator-supplied station IDs.
 - [x] D9 — Job contract: preconditions, outputs, obligations, cleanup, terminal outcomes.
 - [x] D10 — Agent/script discretion: mechanical adaptation versus a change of objective, with examples.
