@@ -14,6 +14,7 @@ import {gatherJob,type GatherPlan} from './gather-job.ts';
 import {buildMenu} from './menu.ts';
 import type {Mood} from './mood-policy.ts';
 import type {CounterName,Facts,StanceName} from './rules-table.ts';
+import {viewStorage} from './storage.ts';
 import {FuelRouteShortfall,travelTo} from './travel.ts';
 
 export type Dispatch=(action:string,params?:Record<string,unknown>)=>Promise<unknown>;
@@ -205,6 +206,7 @@ export function serve(account:ReadinessAccount,command:ReadinessCommand,options:
     travel:params=>travel(String(params.poi_id??'')),
     dock:params=>dock(params.base_id===undefined?undefined:String(params.base_id)),
     gather,
+    storage:params=>viewStorage(command,params.station_id===undefined?undefined:String(params.station_id)),
     menu,
     job:startJob,
     status:async()=>running?{running:true,...busy()}:{running:false,last},

@@ -20,6 +20,8 @@ for line in sys.stdin:
         "where": {"system": {"id": "sol", "name": "Sol"}, "pois": [{"id": "belt", "name": "Belt", "type": "belt"}]},
         "travel": {"arrived": True, "location": {"system": "sol", "poi": request["params"].get("poi_id")}},
         "dock": {"docked": True, "docked_at": "sol_base", "already_docked": False},
+        "storage": {"base_id": "sol_base", "items": [{"item_id": "ore", "quantity": 340}],
+                    "ships": 0, "locations": [], "params": request["params"]},
         "gather": {"outcome": "done", "steps": [{"name": "verify", "outcome": "done"}],
                    "sold": [{"item_id": "ore", "quantity": 12, "quoted": 120, "cleared": 120}],
                    "params": request["params"]},
@@ -61,8 +63,14 @@ def test_every_tool_answers_from_the_one_bridge(bridged):
     job = json.loads(spacemolt._gather({"poi_id": "belt", "keep": ["cabin_economy"]}))
     assert job["outcome"] == "done"
     assert job["params"] == {"poi_id": "belt", "keep": ["cabin_economy"]}
+    # No station named: the bridge defaults to the current base.
+    here = json.loads(spacemolt._storage({}))
+    assert here["params"] == {}
+    # A named station is passed through unchanged, for a look without travelling.
+    elsewhere = json.loads(spacemolt._storage({"station_id": "other_base"}))
+    assert elsewhere["params"] == {"station_id": "other_base"}
     # Every call travelled the same connection: the plugin owns one bridge, not one per tool.
-    assert service._bridge is not None and service._bridge.counter == 4
+    assert service._bridge is not None and service._bridge.counter == 6
 
 
 def test_register_publishes_every_tool_in_the_spacemolt_toolset():
@@ -90,7 +98,7 @@ def test_register_publishes_every_tool_in_the_spacemolt_toolset():
         by_toolset.setdefault(toolset, set()).add(name)
     assert by_toolset == {
         "spacemolt": {"spacemolt_travel", "spacemolt_dock", "spacemolt_gather", "spacemolt_dispatch"},
-        "spacemolt_observe": {"spacemolt_where", "spacemolt_status", "spacemolt_journal"},
+        "spacemolt_observe": {"spacemolt_where", "spacemolt_status", "spacemolt_journal", "spacemolt_storage"},
         "spacemolt_operator": {"spacemolt_direct"},
     }
     assert tools["spacemolt_travel"][1]["parameters"]["required"] == ["poi_id"]

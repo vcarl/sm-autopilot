@@ -59,6 +59,11 @@ function fixture(options:ServeOptions={}) {
       account.server.player.credits-=cost;
       return {delta:{details:{action:'repair',cost}}};
     },
+    'spacemolt_storage/view':()=>({structuredContent:{action:'view_storage',base_id:'sol_base',
+      hint:'',items:[{item_id:'ore',name:'Ore',quantity:340},{item_id:'scrap',quantity:2}],
+      ships:[{ship_id:'spare',class_id:'hauler',cargo_used:0,modules:0}],
+      locations:[{base_id:'sol_base',base_name:'Sol Base',item_count:2,ship_count:1,
+        system:'sol',system_name:'Sol'}]}}),
   };
   const command:ReadinessCommand=async(action,params)=>{
     sent.push({action,params:structuredClone(params)});
@@ -136,6 +141,19 @@ test('gather runs one job from the dock the ship is at and reports a verified ou
   assert.ok(JSON.stringify(result).length<2048,'one compact outcome, not a transcript');
   // A destination the model never named must not become a trip.
   await assert.rejects(fixture().dispatch('gather',{}),/poi_id/);
+});
+
+test('storage reads the current base by default and passes a named station through, compact', async () => {
+  const f=fixture();
+  const here=await f.dispatch('storage') as any;
+  assert.deepEqual(f.sent.at(-1),{action:'spacemolt_storage/view',params:{}});
+  assert.deepEqual(here,{base_id:'sol_base',base_name:'Sol Base',
+    items:[{item_id:'ore',name:'Ore',quantity:340},{item_id:'scrap',quantity:2}],
+    ships:1,locations:[{base_id:'sol_base',base_name:'Sol Base',system_name:'Sol',
+      item_count:2,ship_count:1}]});
+  assert.ok(JSON.stringify(here).length<2048);
+  await f.dispatch('storage',{station_id:'other_base'});
+  assert.deepEqual(f.sent.at(-1),{action:'spacemolt_storage/view',params:{station_id:'other_base'}});
 });
 
 const PILOT:Pilot={name:'kvothe',objective:'fill the hold',stance:'Prospector',mood:'Focused',home:'sol_base'};

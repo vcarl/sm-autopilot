@@ -77,6 +77,11 @@ def _dock(arguments: dict[str, Any] | None = None, **_: Any) -> str:
     return json.dumps(call("dock", {"base_id": base_id} if base_id else {}), separators=(",", ":"))
 
 
+def _storage(arguments: dict[str, Any] | None = None, **_: Any) -> str:
+    station_id = str((arguments or {}).get("station_id") or "")
+    return json.dumps(call("storage", {"station_id": station_id} if station_id else {}), separators=(",", ":"))
+
+
 def _gather(arguments: dict[str, Any] | None = None, **_: Any) -> str:
     args = arguments or {}
     params: dict[str, Any] = {"poi_id": str(args.get("poi_id") or "")}
@@ -216,6 +221,16 @@ TOOL_DEFINITIONS = (
                         "keep": {"type": "array", "items": {"type": "string"},
                                  "description": "Optional: item ids that must never be sold."}},
                        ["poi_id"])},
+    {"name": "spacemolt_storage", "toolset": "spacemolt_observe", "handler": _storage,
+     "description": "Read what the pilot holds in storage at the current base, or a named base, without travelling.",
+     "schema": _schema("spacemolt_storage",
+                       "Read storage at the base the ship is docked at, or a named base, without "
+                       "travelling there. Read-only: it does not deposit, withdraw, or reach a "
+                       "base you have never visited via other characters' storage.",
+                       {"station_id": {"type": "string",
+                                       "description": "Optional: a base id or station poi id to view "
+                                                      "instead of the current base."}},
+                       [])},
     {"name": "spacemolt_status", "toolset": "spacemolt_observe", "handler": _status,
      "description": "Say whether a chain is still running, and what the last one did.",
      "schema": _schema("spacemolt_status",

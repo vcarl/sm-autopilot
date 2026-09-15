@@ -14,3 +14,4 @@ provides_tools:
   - spacemolt_status
   - spacemolt_journal
   - spacemolt_direct
+  - spacemolt_storage

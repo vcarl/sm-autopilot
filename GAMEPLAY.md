@@ -44,3 +44,61 @@ Real profit is realized wallet change after refueling and repairs. Preserve or
 account for starting inventory, equipment, fuel and hull. Finite story rewards
 prove progression; repeated profitable economic cycles prove sustainability.
 End sessions docked and fueled when practical, with no unaccounted freight debt.
+
+## Storage: what `view` returns
+
+`spacemolt_storage.view({station_id?, target?})` is a query, not a mutation — the one storage
+call that works at a distance. Documented (lib 14.2.0, `SpacemoltStorageViewData.station_id`):
+"a station Base ID or station POI ID to view storage at without being docked... it applies to
+a storage view (target=\"self\" or \"faction\"), not to a deposit or withdraw." Omit it to read
+wherever the ship is docked now; name a base or station POI id to read holdings anywhere
+without travelling. Deposit and withdraw still require presence — this is a look, not a reach.
+
+`target` picks whose storage: `self` (default), `faction`, `faction:TAG`, an empire alias, a
+player name/ID, or `station:<base-or-POI-ID>`. The pilot's own tool only ever asks for `self`.
+
+Response (`ViewStorageResponse`), documented: `action:'view_storage'`, `base_id` (the base the
+response describes), `items: CargoItem[]` (`item_id`, optional `name`, `quantity`, optional
+`size`), `ships: StoredShip[]` (stored ship instances, not fitted modules), `locations:
+StorageLocation[]`, `hint` (a string, content unobserved), and optional `gifts`/`messages`.
+There is no top-level `base_name`; the `locations` index carries it.
+
+`locations` is the useful part for "what do I have elsewhere": every base the account holds
+anything at, each `{base_id, base_name, item_count, ship_count, system, system_name}`. One
+`view` call at any nameable base therefore answers both "what's here" and "what's everywhere
+else" — not just the named base's own contents.
+
+Unknown until observed live: whether `locations` is ever empty rather than absent; what `hint`
+actually says and when it changes; the shape of populated `gifts`/`messages`; whether a bad
+`station_id` errors or falls back to self; the rate-limit tier for an off-base `view_storage`.
+
+### Observed live
+
+*(filled in after the operator runs `spacemolt_storage` once against the live game)*
+
+- Called with `station_id = ___`, result: ___
+- `locations` present and correct for a base with nothing stored: ___
+- `hint` text observed: ___
+- Anything above that the live response contradicts: ___
+
+### Where it is shown
+
+`where`: no. `where` answers what is true about place, for travel and docking; storage is a
+fact about holdings, and a "storage here: N items" line would blur the one thing `where` is for.
+
+Juncture's present: maybe, later. The present is deliberately small (N15), competing for the
+same few lines VISION reserves for fuel/hull/credits. A single total-items-across-all-bases
+line, shown only when nonzero, would fit; a per-base breakdown would not. Not first.
+
+Reflection at rest: yes, and the primary consumer. VISION names "what it owns and owes" as a
+direct input to reflection, the one juncture built to look across the whole account rather than
+the present moment — the natural place to notice 400 idle ore sitting at a base never visited.
+
+Menu rules (Industrialist mine-vs-use-storage): yes, as a bridge fact, not a rules concern. The
+rules table decides admissibility from facts it is handed; whether inputs already sit in
+storage belongs in `factsNow` (a cheap reuse of the same `view` call), never a rule reaching
+into storage on its own.
+
+Recommend wiring reflection first: it is the surface VISION already names as storage's
+consumer, it is the lowest-traffic call site (once per rest, not per juncture), and it needs no
+shape beyond what `storage.ts` already returns.
