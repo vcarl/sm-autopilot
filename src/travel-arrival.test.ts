@@ -1,38 +1,37 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import type {ReadinessAccount,ReadinessCommand} from './readiness.ts';
+import type {ReadinessCommand} from './readiness.ts';
 import {ArrivalUnresolved,travelTo} from './travel.ts';
+import {FakeLibGoalAccount,type FakeCommandHandlers} from './test-support/fake-lib-account.ts';
 
 // Adapted from ported/setpoint/tests/dispatcher/wait-for-location.test.ts.
 // Only refresh delivers location: cargo pushes deliberately leave it stale.
 function fixture(local:boolean,arrivalAt:number) {
   let time=0;
-  const server={location:{system_id:'a',poi_id:'origin',docked_at:null,in_transit:false},
+  const initial={location:{system_id:'a',poi_id:'origin',docked_at:null,in_transit:false},
     ship:{id:'ship',fuel:100,max_fuel:120,cargo_used:0}};
-  const reads:number[]=[],sleeps:number[]=[],settledInFlight:number[]=[];
-  const calls:{action:string;params:Record<string,unknown>}[]=[];
+  const sleeps:number[]=[],settledInFlight:number[]=[];
   let staleArrivalPolls=0;
-  const account:ReadinessAccount={state:structuredClone(server) as ReadinessAccount['state'],
-    async refresh(){reads.push(time);account.state=structuredClone(server) as ReadinessAccount['state'];}};
   const movement=local?'spacemolt/travel':'spacemolt/jump';
   const destination=local?{system_id:'a',poi_id:'belt'}:{system_id:'b'};
-  const handlers:Record<string,(params:Record<string,unknown>)=>unknown>={
-    'spacemolt/find_route':()=>({found:true,target_system:destination.system_id,
+  const handlers:FakeCommandHandlers={spacemolt:{
+    find_route:()=>({found:true,target_system:destination.system_id,
       total_jumps:local?0:1,estimated_fuel:10,fuel_per_jump:10,
       fuel_available:server.ship.fuel,cargo_used:server.ship.cargo_used,
       route:[{system_id:'a',jumps:0},...local?[]:[{system_id:'b',jumps:1}]]}),
-    'spacemolt/get_system':()=>({system:{connections:['b']}}),
-    [movement]:params=>{
-      assert.equal(params.id,local?'belt':'b');
+    get_system:()=>({system:{connections:['b']}}),
+    [local?'travel':'jump']:params=>{
+      assert.equal(params?.id,local?'belt':'b');
       server.location.in_transit=true;
       server.ship.fuel-=10;
       return {};
     },
-  };
-  const command:ReadinessCommand=async(action,params)=>{
-    calls.push({action,params:structuredClone(params)});
-    assert.ok(Object.hasOwn(handlers,action),`Unexpected command: ${action}`);
-    return handlers[action](params);
+  }};
+  const account=new FakeLibGoalAccount(initial,handlers,()=>time);
+  const server=account.server,reads=account.refreshes,calls=account.calls;
+  const command:ReadinessCommand=(name,payload)=>{
+    const [tool,action]=name.split('/');
+    return account.send(tool,action,payload);
   };
   const options={mood:'Cautious' as const,now:()=>time,
     sleep:async(ms:number)=>{
@@ -48,7 +47,7 @@ function fixture(local:boolean,arrivalAt:number) {
       if(!server.location.in_transit&&account.state.location!.in_transit)staleArrivalPolls++;
     },
     checkpoint:async(settled=false)=>{
-      if(settled&&calls.some(call=>call.action===movement))settledInFlight.push(time);
+      if(settled&&calls.some(call=>`${call.tool}/${call.action}`===movement))settledInFlight.push(time);
     },
   };
   return {account,server,command,destination,options,reads,sleeps,calls,movement,settledInFlight,
@@ -67,7 +66,7 @@ test('travel discovers dropped arrivals within each authoritative refresh interv
     assert.deepEqual(timedReads,Array.from({length:Math.ceil(arrivalAt/30_000)},(_,i)=>(i+1)*30_000));
     assert.ok(f.sleeps.every(ms=>ms===2_000),'cache polling continues between authoritative reads');
     assert.equal(f.account.state.ship!.cargo_used,f.sleeps.length);
-    assert.deepEqual(f.calls.map(call=>call.action),local?
+    assert.deepEqual(f.calls.map(call=>`${call.tool}/${call.action}`),local?
       ['spacemolt/find_route','spacemolt/travel']:
       ['spacemolt/find_route','spacemolt/get_system','spacemolt/jump']);
     assert.deepEqual(f.settledInFlight,[f.now()]);
@@ -97,7 +96,7 @@ test('travel leaves unresolved transit at its deadline without replay, but accep
     assert.equal(f.now(),deadline);
     assert.equal(f.reads.at(-1),deadline,'deadline requires an authoritative read before deciding');
     assert.equal(f.sleeps.reduce((sum,ms)=>sum+ms,0),deadline);
-    assert.deepEqual(f.calls.map(call=>call.action),local?
+    assert.deepEqual(f.calls.map(call=>`${call.tool}/${call.action}`),local?
       ['spacemolt/find_route','spacemolt/travel']:
       ['spacemolt/find_route','spacemolt/get_system','spacemolt/jump']);
   }

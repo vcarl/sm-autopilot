@@ -28,13 +28,20 @@ export async function waitForArrival(account:ReadinessAccount,predicate:(state:G
   const deadline=now()+(options.maxWaitMs??600000);
   let liveAt=now();
   await account.refresh();
-  while(!predicate(account.state)) {
+  let authoritative=true;
+  while(true) {
+    // Pushes can suggest arrival, but only a status read can confirm it.
+    if(predicate(account.state)&&!authoritative) {
+      await account.refresh();liveAt=now();authoritative=true;
+    }
+    if(predicate(account.state))break;
     await options.checkpoint?.();
     const remaining=deadline-now();
     if(remaining<=0)throw new ArrivalUnresolved('Arrival not verified within travel wait bound; reconcile before further movement');
     await sleep(Math.min(options.pollMs??2000,remaining));
+    authoritative=false;
     if(now()-liveAt>=(options.liveReadMs??30000)||now()>=deadline) {
-      await account.refresh();liveAt=now();
+      await account.refresh();liveAt=now();authoritative=true;
     }
   }
   await options.checkpoint?.(true);
@@ -60,14 +67,15 @@ export async function travelTo(account:ReadinessAccount,command:ReadinessCommand
   const arrived=(s:GameState)=>stable(s)&&s.location!.system_id===destination.system_id&&
     (!destination.poi_id||s.location!.poi_id===destination.poi_id);
   await account.refresh();
-  if(!stable(account.state))throw new Error('Transit needs reconciliation; no movement replay');
   const shipId=account.state.ship?.id;
   const checkpoint=async(settled=false)=>{
     await options.checkpoint?.(settled);
     if(account.state.ship?.id!==shipId)throw new Error('Ship changed during travel; reconcile before further movement');
   };
-  await checkpoint(true);
   const waits={...options,checkpoint};
+  // A prior move owns transit until it settles; only then may we quote a new leg.
+  if(!stable(account.state))await waitForArrival(account,stable,waits);
+  else await checkpoint(true);
   const moveCheckpoint=async()=>{await checkpoint();options.checkMove?.();};
   let jumps=0,retries=1,refueled=false;
   const quote=async()=>{

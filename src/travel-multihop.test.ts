@@ -1,16 +1,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import type {ReadinessAccount,ReadinessCommand} from './readiness.ts';
+import {FakeLibGoalAccount,type FakeCommandHandlers} from './test-support/fake-lib-account.ts';
+import type {ReadinessCommand} from './readiness.ts';
 import {travelTo,TravelBlocked,type TravelOptions} from './travel.ts';
 
 function fixture(lossAt?:string) {
   const home={system_id:'a',poi_id:'station',base_id:'home'};
   const away={system_id:'c',poi_id:'gate',base_id:'away'};
-  const server={location:{system_id:'a',poi_id:'station',docked_at:'home' as string|null,in_transit:false},
+  const initial={location:{system_id:'a',poi_id:'station',docked_at:'home' as string|null,in_transit:false},
     ship:{id:'ship',fuel:100,max_fuel:120,cargo_used:0}};
-  const account:ReadinessAccount={state:structuredClone(server) as ReadinessAccount['state'],
-    async refresh(){account.state=structuredClone(server) as ReadinessAccount['state'];}};
-  const calls:{action:string;params:Record<string,unknown>}[]=[];
   const quotes:{origin:typeof server.location;fuel:number;cargo:number;cost:number;target:unknown}[]=[];
   const losses:{cachedFuel:number;actualFuel:number;callIndex:number}[]=[];
   const connections:Record<string,string[]>={a:['c'],c:['b'],b:['a']};
@@ -18,8 +16,8 @@ function fixture(lossAt?:string) {
   // Fixture quotes include the paid station approach. Cargo changes its price
   // as well as both jump prices; no outbound estimate can stand in for return.
   const costs=()=>({c:5+server.ship.cargo_used/10,b:2+server.ship.cargo_used/10,a:server.ship.cargo_used/10});
-  const handlers:Record<string,(params:Record<string,unknown>)=>unknown>={
-    'spacemolt/find_route':({id})=>{
+  const handlers:FakeCommandHandlers={spacemolt:{
+    find_route:({id}={})=>{
       assert.deepEqual(account.state,server,'quote must start from refreshed position, fuel and cargo');
       const path=id==='c'?['a','c']:paths[server.location.system_id];
       const cost=id==='c'?7:path.reduce((sum,system)=>sum+costs()[system as keyof ReturnType<typeof costs>],0);
@@ -29,9 +27,9 @@ function fixture(lossAt?:string) {
         fuel_available:server.ship.fuel,cargo_used:server.ship.cargo_used,
         route:path.map((system_id,jumps)=>({system_id,jumps}))};
     },
-    'spacemolt/get_system':()=>({system:{connections:connections[server.location.system_id]}}),
-    'spacemolt/undock':()=>{server.location.docked_at=null;return {};},
-    'spacemolt/jump':({id})=>{
+    get_system:()=>({system:{connections:connections[server.location.system_id]}}),
+    undock:()=>{server.location.docked_at=null;return {};},
+    jump:({id}={})=>{
       assert.equal(server.location.docked_at,null);
       assert.ok(connections[server.location.system_id].includes(String(id)));
       server.ship.fuel-=id==='c'?7:costs()[server.location.system_id as keyof ReturnType<typeof costs>];
@@ -44,7 +42,7 @@ function fixture(lossAt?:string) {
       assert.ok(account.state.ship!.fuel>server.ship.fuel,'movement reply leaves rich stale cache');
       return {};
     },
-    'spacemolt/travel':({id})=>{
+    travel:({id}={})=>{
       assert.equal(server.location.system_id,'a');assert.equal(id,home.poi_id);
       assert.equal(server.location.docked_at,null);
       assert.ok(costs().a>0);
@@ -52,7 +50,7 @@ function fixture(lossAt?:string) {
       assert.notDeepEqual(account.state.location,server.location);
       return {};
     },
-    'spacemolt/dock':()=>{
+    dock:()=>{
       const destination=server.location.system_id==='a'?home:away;
       assert.equal(server.location.system_id,destination.system_id);
       assert.equal(server.location.poi_id,destination.poi_id);
@@ -60,11 +58,12 @@ function fixture(lossAt?:string) {
       server.location.docked_at=destination.base_id;
       return {}; // Only refresh can establish docking, never this reply.
     },
-  };
-  const command:ReadinessCommand=async(action,params)=>{
-    calls.push({action,params:structuredClone(params)});
-    assert.ok(Object.hasOwn(handlers,action),`Unexpected command: ${action}`);
-    return handlers[action](params);
+  }};
+  const account=new FakeLibGoalAccount(initial,handlers);
+  const server=account.server,calls=account.calls;
+  const command:ReadinessCommand=(name,payload)=>{
+    const [tool,action]=name.split('/');
+    return account.send(tool,action,payload);
   };
   return {home,away,server,account,calls,quotes,losses,command};
 }
@@ -101,16 +100,16 @@ test('loaded two-jump return re-quotes each leg and docks with the effective res
     assert.deepEqual(f.quotes.slice(1),expectedQuotes(reserve));
     for(const quote of f.quotes.slice(1))assert.equal(quote.fuel,quote.cost+reserve);
     assert.deepEqual(f.calls.slice(callIndex),[
-      {action:'spacemolt/find_route',params:{id:'a'}},
-      {action:'spacemolt/undock',params:{}},
-      {action:'spacemolt/get_system',params:{}},
-      {action:'spacemolt/jump',params:{id:'b'}},
-      {action:'spacemolt/find_route',params:{id:'a'}},
-      {action:'spacemolt/get_system',params:{}},
-      {action:'spacemolt/jump',params:{id:'a'}},
-      {action:'spacemolt/find_route',params:{id:'a'}},
-      {action:'spacemolt/travel',params:{id:'station'}},
-      {action:'spacemolt/dock',params:{}},
+      {tool:'spacemolt',action:'find_route',payload:{id:'a'}},
+      {tool:'spacemolt',action:'undock',payload:{}},
+      {tool:'spacemolt',action:'get_system',payload:{}},
+      {tool:'spacemolt',action:'jump',payload:{id:'b'}},
+      {tool:'spacemolt',action:'find_route',payload:{id:'a'}},
+      {tool:'spacemolt',action:'get_system',payload:{}},
+      {tool:'spacemolt',action:'jump',payload:{id:'a'}},
+      {tool:'spacemolt',action:'find_route',payload:{id:'a'}},
+      {tool:'spacemolt',action:'travel',payload:{id:'station'}},
+      {tool:'spacemolt',action:'dock',payload:{}},
     ]);
     assert.equal(result.jumps,2);
     assert.deepEqual(result.location,{system_id:'a',poi_id:'station',docked_at:'home',in_transit:false});
@@ -135,9 +134,9 @@ test('fuel loss after either return jump blocks the next jump or paid local leg 
     assert.equal(f.losses.length,1);
     assert.ok(f.losses[0].cachedFuel>required,'cached fuel would incorrectly permit the next leg');
     assert.equal(f.losses[0].actualFuel,required-0.25);
-    assert.deepEqual(f.calls.slice(f.losses[0].callIndex),[{action:'spacemolt/find_route',params:{id:'a'}}],
+    assert.deepEqual(f.calls.slice(f.losses[0].callIndex),[{tool:'spacemolt',action:'find_route',payload:{id:'a'}}],
       'no movement or docking after the arrival fuel loss');
-    assert.deepEqual(f.calls.slice(callIndex).filter(c=>c.action==='spacemolt/jump').map(c=>c.params.id),
+    assert.deepEqual(f.calls.slice(callIndex).filter(c=>c.tool==='spacemolt'&&c.action==='jump').map(c=>c.payload?.id),
       lossAt==='b'?['b']:['b','a']);
     assert.deepEqual(f.server.location,{system_id:lossAt,poi_id:'gate',docked_at:null,in_transit:false});
     assert.equal(f.server.ship.fuel,required-0.25);
