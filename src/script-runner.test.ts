@@ -97,6 +97,25 @@ test('the stow script deposits the hold at the counter and says so in the run ou
   } finally {f.close();}
 });
 
+test('the withdraw script takes the store into the hold and says so in the run outcome', async () => {
+  // Stow's inverse at the same counter: an empty hold, and ore in the store here.
+  const f=runner({cargoUsed:0,store:[{item_id:'ore',quantity:5}]});
+  try {
+    const outcome=await f.run('withdraw',{items:[{item_id:'ore',quantity:3}]});
+    assert.equal(outcome.outcome,'done',outcome.reason);
+    assert.equal(outcome.script,'withdraw');
+    assert.match(outcome.reason!,/withdrew 3 ore at sol_base/);
+    assert.equal((outcome.result as any).cargo_free,9);
+    assert.deepEqual(f.store,[{item_id:'ore',quantity:2}]);
+    assert.equal(f.count('spacemolt/undock'),0,'a counter is not a trip');
+    // Ask for what the store no longer holds: done, nothing sent, and the reason says why.
+    const again=await f.run('withdraw',{items:[{item_id:'ice',quantity:4}]});
+    assert.equal(again.outcome,'done',again.reason);
+    assert.match(again.reason!,/nothing to withdraw at sol_base: ice not in store/);
+    assert.equal(f.count('spacemolt_storage/withdraw'),1);
+  } finally {f.close();}
+});
+
 test('the craft script runs one job at the bench and its sentence reaches the run outcome', async () => {
   const f=runner({cargoUsed:0,services:['refuel','repair','storage','crafting'],
     store:[{item_id:'iron_ore',quantity:20}]});

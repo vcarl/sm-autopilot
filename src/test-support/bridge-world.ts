@@ -185,6 +185,22 @@ export function bridgeWorld(options:WorldOptions={}) {
       if(row)row.quantity+=moved;else store.push({item_id:String(params.item_id),quantity:moved});
       return {delta:{details:{action:'deposit_items',item_id:params.item_id,quantity:99,storage_total:99}}};
     },
+    // The store's side of the same counter, bounded by what it holds and what the hold has
+    // room for. Like the deposit, the reply over-claims: only the cargo delta is evidence.
+    'spacemolt_storage/withdraw':params=>{
+      const item=String(params.item_id);
+      const row=store.find(current=>current.item_id===item);
+      const room=account.server.ship.cargo_capacity-account.server.ship.cargo_used;
+      const moved=Math.min(row?.quantity??0,Number(params.quantity),Math.max(0,room));
+      if(row) {
+        row.quantity-=moved;
+        if(!row.quantity)store.splice(store.indexOf(row),1);
+      }
+      add(item,moved);
+      return {delta:{details:{action:'withdraw_items',item_id:item,quantity:99,
+        cargo_space:account.server.ship.cargo_capacity-account.server.ship.cargo_used,
+        cargo_total:account.server.ship.cargo_capacity,storage_remaining:99}}};
+    },
   };
   const command:ReadinessCommand=async(action,params)=>{
     sent.push({action,params:structuredClone(params)});
