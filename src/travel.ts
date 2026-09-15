@@ -2,13 +2,15 @@ import {SpacemoltError,type GameState} from '@spacemolt/lib';
 import type {ReadinessAccount,ReadinessCommand} from './readiness.ts';
 import {details} from './response-details.ts';
 import {routeSteps} from './normal-route.ts';
-import {resolveFuelReserve,type Mood} from './mood-policy.ts';
+import {resolveFuelReserve,type Mood,type OperatorFuelPolicy} from './mood-policy.ts';
 
 export class TravelBlocked extends Error {}
 export class ArrivalUnresolved extends Error {}
 export interface TravelDestination {system_id:string;poi_id?:string;base_id?:string}
 export interface TravelOptions {
   mood?:Mood;
+  /** Internal operator policy; tightens the mood, never a model-facing allocation. */
+  operatorPolicy?:OperatorFuelPolicy;
   /** Internal script allocations only; cannot override a mood's reserve. */
   reserve?:number;maxJumps?:number|null;
   checkpoint?:(settled?:boolean)=>Promise<void>;
@@ -47,9 +49,10 @@ const retryable=(error:unknown)=>error instanceof SpacemoltError&&!error.pending
 /** One shared movement path; policy, spending and command ownership stay with the caller. */
 export async function travelTo(account:ReadinessAccount,command:ReadinessCommand,destination:TravelDestination,options:TravelOptions={}) {
   if(options.mood!==undefined&&options.reserve!==undefined)throw new TravelBlocked('Travel mood cannot be combined with a numeric reserve');
+  if(options.operatorPolicy!==undefined&&options.mood===undefined)throw new TravelBlocked('Operator fuel policy requires a travel mood');
   if(options.mood===undefined&&options.reserve===undefined)throw new TravelBlocked('Travel requires a mood or an internal script allocation');
   let reserve:number;
-  try {reserve=options.mood!==undefined?resolveFuelReserve(options.mood):options.reserve!;}
+  try {reserve=options.mood!==undefined?resolveFuelReserve(options.mood,options.operatorPolicy):options.reserve!;}
   catch(error){throw new TravelBlocked(String(error));}
   let maxJumps=options.maxJumps===null?null:options.maxJumps??2;
   if(!destination.system_id||!Number.isFinite(reserve)||reserve<0||(maxJumps!==null&&(!Number.isSafeInteger(maxJumps)||maxJumps<0)))throw new TravelBlocked('Invalid travel destination or allocation');
