@@ -10,7 +10,7 @@ import {mkdtempSync,readFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {serve,type Pilot} from './bridge.ts';
-import type {ChainOutcome} from './chain.ts';
+import type {RunOutcome} from './script-runner.ts';
 import type {ReadinessAccount,ReadinessCommand} from './readiness.ts';
 import {FakeLibGoalAccount} from './test-support/fake-lib-account.ts';
 
@@ -24,7 +24,7 @@ const PILOT:Pilot={name:'kvothe',objective:'fill the hold',goal:'three loads of 
 /** A pilot at home on a serviced ship, with the record the runner would have written at the
  * last reflection. `over` moves whatever this test wants somewhere else. */
 function fixture(over:{ship?:Record<string,number>;pilot?:Pilot;docked?:string|null;
-  fuelPrice?:number|null;credits?:number;runChain?:any}={}) {
+  fuelPrice?:number|null;credits?:number;runScript?:any}={}) {
   const account=new FakeLibGoalAccount({
     location:{system_id:'sol',poi_id:'station',
       docked_at:(over.docked===undefined?'sol_base':over.docked) as string|null,in_transit:false},
@@ -48,12 +48,12 @@ function fixture(over:{ship?:Record<string,number>;pilot?:Pilot;docked?:string|n
   let written:Pilot|undefined;
   const dispatch=serve(account as unknown as ReadinessAccount,command,
     {pilot:()=>over.pilot??PILOT,setPilot:next=>{written=next;},runtime,
-      ...over.runChain?{runChain:over.runChain}:{}});
+      ...over.runScript?{runScript:over.runScript}:{}});
   return {account,dispatch,runtime,record:()=>written,
     journal:()=>readFileSync(join(runtime,'gameplay.jsonl'),'utf8').trim().split('\n').map(line=>JSON.parse(line))};
 }
 
-test('rest refuses away from home, on a ship this base could service, and while a chain runs, naming what would admit it', async () => {
+test('rest refuses away from home, on a ship this base could service, and while a script runs, naming what would admit it', async () => {
   // Docked somewhere that is not the pilot's home: the whole point of rest is where it happens.
   const away=fixture({docked:'other_base'});
   const refusedAway=await away.dispatch('rest') as any;
@@ -75,18 +75,19 @@ test('rest refuses away from home, on a ship this base could service, and while 
   assert.equal(rested.rested,true);
   assert.equal(rested.serviced,false,'reflection is told the ship is short');
 
-  // A chain in flight owns the pilot; rest waits for the juncture at its end.
-  let release:((outcome:ChainOutcome)=>void)|undefined;
-  const busy=fixture({runChain:(_a:unknown,_c:unknown,chain:any,options:any)=>{
-    options?.onProgress?.({kind:chain.kind,jobs:chain.jobs,length:1,position:0,ended:false});
-    return new Promise<ChainOutcome>(resolve=>{release=resolve;});
+  // A run in flight owns the pilot; rest waits for the juncture at its end.
+  let release:((outcome:RunOutcome)=>void)|undefined;
+  const busy=fixture({runScript:(options:any)=>{
+    options?.onProgress?.({script:options.script,params:options.params,started:options.started,
+      keep:[],ended:false});
+    return new Promise<RunOutcome>(resolve=>{release=resolve;});
   }});
-  await busy.dispatch('job',{job:'gather',poi_id:'station'});
+  await busy.dispatch('run',{script:'gather',params:{poi_id:'station'}});
   const refusedBusy=await busy.dispatch('rest') as any;
   assert.equal(refusedBusy.rested,false);
-  assert.match(refusedBusy.reason,/chain is running/);
+  assert.match(refusedBusy.reason,/script is running/);
   assert.equal(busy.record(),undefined);
-  release!({outcome:'done',jobs:[],juncture:{reason:'done'}});
+  release!({script:'gather',outcome:'done',jobs:[],reason:'gather done: 1 job'});
 });
 
 test('at home the pilot rests whatever the world imposed on it, and the shift comes out clear', async () => {

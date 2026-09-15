@@ -40,8 +40,8 @@ for line in sys.stdin:
                                "admissible": True}],
                   "unavailable": [], "last": None}
     elif action == "status":
-        # A chain is running exactly while this marker file exists, read per request.
-        result = {"running": os.path.exists(os.path.join(runtime, "chain.running")), "last": None}
+        # A script is running exactly while this marker file exists, read per request.
+        result = {"running": os.path.exists(os.path.join(runtime, "run.running")), "last": None}
     else:
         result = {"unexpected": action}
     print(json.dumps({"id": request["id"], "ok": True, "result": result}), flush=True)
@@ -122,7 +122,7 @@ def test_direction_sets_objective_and_permissions_and_lands_at_the_next_juncture
     assert juncture.juncture_context({"platform": "discord"}) == ""
 
 
-def test_direction_while_idle_makes_the_juncture_due_and_leaves_a_running_chain_alone(bridged):
+def test_direction_while_idle_makes_the_juncture_due_and_leaves_a_running_script_alone(bridged):
     """Direction lands at a juncture, so an idle pilot needs one brought promptly (N3, N4).
 
     The window does not act: it asks the runner's own cron job to fire on the next tick, the
@@ -136,12 +136,12 @@ def test_direction_while_idle_makes_the_juncture_due_and_leaves_a_running_chain_
     assert job["manual_run_at"] and job["next_run_at"] == job["manual_run_at"]
     assert "next scheduler tick" in answer
 
-    # While a chain runs the runner raises the juncture at its end; nudging would double-fire.
-    (bridged / "chain.running").touch()
+    # While a script runs the runner raises the juncture at its end; nudging would double-fire.
+    (bridged / "run.running").touch()
     cron_jobs.update_job(job["id"], {"manual_run_at": None})
     answer = spacemolt._direct({"objective": "sell it again"})
     assert cron_jobs.get_job(job["id"])["manual_run_at"] is None
-    assert "A chain is running" in answer and len(cron_jobs.load_jobs()) == 1
+    assert "A script is running" in answer and len(cron_jobs.load_jobs()) == 1
 
 
 def test_the_window_carries_no_job_tools_and_the_juncture_no_direction_tool():

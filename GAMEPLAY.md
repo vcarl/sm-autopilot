@@ -154,7 +154,7 @@ Observed 2026-09-14 at Unknown Edge. Fixture: `proofs/fixtures/unknown-edge-game
 Observed 2026-09-15 on the kvothe pilot. Fixtures: `proofs/fixtures/unknown-edge-bridge.json`,
 `proofs/fixtures/bridge-events.json`.
 
-- Mining while docked is refused by the game, and the chain reports it verbatim:
+- Mining while docked is refused by the game, and the run reports it verbatim:
   `mine failed: cannot mine: docked at unknown_edge_waystation`. Asking `gather` for a station
   POI is what produces it — the job travels nowhere, so it is still docked when it mines.
 - A gather with a full hold still completes: all seven steps `done`, `yield []`, `sold []`,

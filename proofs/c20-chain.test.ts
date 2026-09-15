@@ -4,11 +4,10 @@ import {mkdtemp,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {SpacemoltError} from '@spacemolt/lib';
-import {FuelJournal,type PilotFuelState,type ServicedStation} from '../src/fuel-journal.ts';
-import {FuelTravelExecution} from '../src/fuel-transition.ts';
 import type {ReadinessAccount,ReadinessCommand} from '../src/readiness.ts';
-import type {GatherPlan} from '../src/gather-job.ts';
-import {runChain,type Chain,type ChainRecord} from '../src/chain.ts';
+import type {Facts} from '../src/rules-table.ts';
+import {runScript,type RunOutcome} from '../src/script-runner.ts';
+import type {RunRecord} from '../src/run-record.ts';
 
 // The C9 fixture, run more than once: the same server, the same over-claiming replies
 // (99 ore, 9_999 credits), so every number below can only come from authoritative deltas.
@@ -18,9 +17,11 @@ const site={system_id:'sol',poi_id:'belt'};
 const TANK=120,CAPACITY=14,FUEL_PRICE=5,HULL_PRICE=5;
 const CYCLES_PER_JOB=4,STOWED_PER_JOB=[{item_id:'carbon',quantity:4},{item_id:'ore',quantity:8}];
 const prices:Record<string,number>={ore:10,carbon:4};
-const stations:ServicedStation[]=[{...home,services:{refuel:true},
-  observation:{source:'station_info',observedAt:'2026-09-14T00:00:00Z'}}];
-const plan:GatherPlan={home,site,mood:'Cautious',keep:['cabin_economy']};
+/** A pilot fit to work, so the rules between jobs never stop the script on their own. */
+const facts=():Facts=>({stance:'Prospector',mood:'Cautious',
+  place:{kind:'base',base_id:home.base_id,is_home:true,counters:['Services','Storage']},
+  holdings:{fuel:TANK,max_fuel:TANK,hull:100,max_hull:100,cargo_free:CAPACITY,credits:1_000},
+  obligations:{},permissions:{},observed:{}});
 
 async function fixture() {
   const server={
@@ -81,7 +82,8 @@ async function fixture() {
     },
     'spacemolt_storage/deposit':({item_id,quantity})=>{
       const moved=take(String(item_id),Number(quantity));
-      server.storage.push({item_id:String(item_id),quantity:moved});
+      const row=server.storage.find(current=>current.item_id===String(item_id));
+      if(row)row.quantity+=moved;else server.storage.push({item_id:String(item_id),quantity:moved});
       return {delta:{details:{action:'deposit_items',item_id,quantity:99,storage_total:99}}};
     },
     'spacemolt/get_base':()=>({delta:{details:{services:['refuel','repair'],
@@ -102,33 +104,34 @@ async function fixture() {
     assert.ok(Object.hasOwn(handlers,action),`Unexpected command: ${action}`);
     return handlers[action](params??{});
   };
-  const directory=await mkdtemp(join(tmpdir(),'c20-chain-'));
-  const pilot:PilotFuelState={mood:'Cautious',stance:'gather',objective:{ore:36},
-    home:{base_id:home.base_id},obligations:[]};
-  const journal=await FuelJournal.open(directory,'pilot-c20',pilot);
-  const execution=new FuelTravelExecution(journal,stations);
-  const records:ChainRecord[]=[];
+  const runtime=await mkdtemp(join(tmpdir(),'c20-run-'));
+  const records:RunRecord[]=[];
   return {server,account,calls,hooks,records,
     count:(action:string)=>calls.filter(call=>call.action===action).length,
     /** Storage rows summed per item, so three trips' takes read as one total. */
     stored:()=>Object.entries(server.storage.reduce<Record<string,number>>((totals,row)=>
       ({...totals,[row.item_id]:(totals[row.item_id]??0)+row.quantity}),{}))
       .sort(([a],[b])=>a<b?-1:1).map(([item_id,quantity])=>({item_id,quantity})),
-    run:(chain:Chain)=>runChain(account,command,chain,
-      {fuelExecution:execution,onProgress:record=>records.push(structuredClone(record))}),
-    close:()=>rm(directory,{recursive:true,force:true})};
+    run:(script:string,params:Record<string,unknown>):Promise<RunOutcome>=>
+      runScript({account,command,script,params,facts:async()=>facts(),mood:'Cautious',
+        home:home.base_id,runtime,onProgress:record=>records.push(structuredClone(record))}),
+    close:()=>rm(runtime,{recursive:true,force:true})};
 }
 
-const sequence=(count:number):Chain=>({kind:'sequence',jobs:Array.from({length:count},()=>({job:'gather' as const,params:plan}))});
+/** The composed script the agent writes when it wants several trips under one juncture:
+ * gather until the store holds `ore` enough, or the run cap is reached. */
+const until=(ore:number,max_runs:number)=>
+  ({poi_id:site.poi_id,item_id:'ore',quantity:ore,max_runs,base_id:home.base_id});
 
-test('C20: a chain of three gather jobs runs with one juncture at the end and one outcome',async()=>{
+test('C20: a script of three gather jobs runs with one juncture at the end and one outcome',async()=>{
   const f=await fixture();
   try {
-    const result=await f.run(sequence(3));
+    // Eight ore a trip, twenty-four asked for: the script decides three trips, not the agent.
+    const result=await f.run('gather-until',until(24,5));
 
     // One call, one outcome, one juncture — for three trips out and back.
-    assert.equal(result.outcome,'done',result.juncture.reason);
-    assert.deepEqual(Object.keys(result).sort(),['jobs','juncture','outcome']);
+    assert.equal(result.outcome,'done',result.reason);
+    assert.deepEqual(Object.keys(result).sort(),['jobs','outcome','reason','script']);
     assert.equal(f.count('spacemolt/undock'),3,'three trips left the dock');
     assert.equal(f.count('spacemolt/dock'),3,'three trips came back');
     assert.equal(f.count('spacemolt/mine'),3*CYCLES_PER_JOB);
@@ -136,35 +139,38 @@ test('C20: a chain of three gather jobs runs with one juncture at the end and on
     // Each job reports its own compact outcome; the step logs stay out of the agent's world.
     assert.equal(result.jobs.length,3);
     assert.ok(result.jobs.every(job=>job.outcome==='done'),JSON.stringify(result.jobs));
-    assert.ok(result.jobs.every(job=>!('steps' in job)&&!('serviced' in job)),'no step logs in the chain outcome');
+    assert.ok(result.jobs.every(job=>!('steps' in job)&&!('serviced' in job)),'no step logs in the run outcome');
     for(const job of result.jobs) {
+      assert.equal(job.job,'gather');
       assert.deepEqual(job.yield,STOWED_PER_JOB);
-      assert.equal(job.cleared,0,'a gather job keeps its take; no chain job moves the wallet');
     }
-    // The chain's account of its take is the server's: three trips of cargo, all stowed.
-    assert.equal(f.count('spacemolt/sell'),0,'a chain of gather jobs never sells');
+    // The run's account of its take is the server's: three trips of cargo, all stowed.
+    assert.equal(f.count('spacemolt/sell'),0,'a run of gather jobs never sells');
     assert.equal(f.count('spacemolt_storage/deposit'),3*STOWED_PER_JOB.length);
     assert.deepEqual(f.stored(),STOWED_PER_JOB.map(row=>({...row,quantity:row.quantity*3})));
-    assert.match(result.juncture.reason,/3 of 3/);
+    assert.match(result.reason!,/3 jobs/);
 
     // The world agrees: docked at home, hold clear but for what the pilot keeps, serviced.
     assert.equal(f.server.location.docked_at,home.base_id);
     assert.deepEqual(f.server.cargo,[{item_id:'cabin_economy',quantity:2}]);
     assert.deepEqual([f.server.ship.fuel,f.server.ship.hull],[TANK,100]);
 
-    // The definition travels with the run so a restart could see where it was (S32/N22).
-    const positions=f.records.map(record=>record.position);
-    assert.deepEqual(positions,[0,1,2,3]);
-    assert.deepEqual(f.records.map(record=>record.ended),[false,false,false,true]);
+    // The run travels with the record so a restart could see what it was doing (S32/N22).
+    const last=f.records.at(-1)!;
+    assert.equal(last.script,'gather-until');
+    assert.equal(last.ended,true);
+    assert.equal(last.last_job,'gather');
+    assert.deepEqual(f.records.map(record=>record.ended).slice(0,-1).filter(Boolean),[],
+      'the record says unfinished until it is finished');
     for(const record of f.records) {
-      assert.equal(record.kind,'sequence');
-      assert.equal(record.jobs.length,3);
+      assert.equal(record.started,last.started,'one run, one identity: the moment it started');
+      assert.deepEqual(record.params,until(24,5));
       assert.deepEqual(JSON.parse(JSON.stringify(record)),record,'the record is serialisable');
     }
   } finally {await f.close();}
 });
 
-test('C20: a blocked job ends the chain there, naming which job, with no job after it',async()=>{
+test('C20: a blocked job ends the script there, naming which job, with no job after it',async()=>{
   const f=await fixture();
   try {
     // The second trip finds the site out before it has anything: a world the pilot answers.
@@ -172,19 +178,18 @@ test('C20: a blocked job ends the chain there, naming which job, with no job aft
       if(cycle!==CYCLES_PER_JOB+1)return undefined;
       throw new SpacemoltError('depleted','the site gives no more');
     };
-    const result=await f.run(sequence(3));
+    const result=await f.run('gather-until',until(24,5));
 
-    assert.equal(result.outcome,'blocked',result.juncture.reason);
-    assert.equal(result.jobs.length,2,'the chain stopped at the job that blocked');
+    assert.equal(result.outcome,'blocked',result.reason);
+    assert.equal(result.jobs.length,2,'the script stopped at the job that blocked');
     assert.deepEqual(result.jobs.map(job=>job.outcome),['done','blocked']);
-    // The chain's outcome is that job's outcome, and the reason names its place in the chain.
-    assert.match(result.juncture.reason,/job 2 of 3/);
-    assert.match(result.juncture.reason,/blocked/);
-    assert.match(result.juncture.reason,/depleted/);
-    assert.ok(!/\bfailed\b/.test(result.juncture.reason));
+    // The run's outcome is that job's outcome, and the reason names its place in the run.
+    assert.match(result.reason!,/job 2 of 2/);
+    assert.match(result.reason!,/blocked/);
+    assert.match(result.reason!,/depleted/);
+    assert.ok(!/\bfailed\b/.test(result.reason!));
     assert.match(result.jobs[1]!.reason??'',/mine blocked/);
     assert.deepEqual(result.jobs[1]!.yield,[]);
-    assert.equal(result.jobs[1]!.cleared,0,'no gather job moves the wallet, blocked or not');
 
     // Nothing ran after the blocker: two departures, one return, one settled trip.
     assert.equal(f.count('spacemolt/undock'),2);
@@ -194,60 +199,59 @@ test('C20: a blocked job ends the chain there, naming which job, with no job aft
     assert.deepEqual(f.stored(),STOWED_PER_JOB);
     assert.equal(f.count('spacemolt/sell'),0);
     assert.equal(f.server.player.credits,1_000-(28*FUEL_PRICE+4*HULL_PRICE));
-    assert.deepEqual(f.records.map(record=>[record.position,record.ended]),[[0,false],[1,false],[2,true]]);
+    assert.equal(f.records.at(-1)!.ended,true);
   } finally {await f.close();}
 });
 
-test('C20: a loop re-runs the one job to its length; once is a sequence of one',async()=>{
+test('C20: the script decides how many trips; the gather script is exactly one',async()=>{
+  // A store that can never be filled runs to the cap the agent set, and no further.
   const f=await fixture();
   try {
-    const result=await f.run({kind:'loop',jobs:[{job:'gather',params:plan}],length:3});
-    assert.equal(result.outcome,'done',result.juncture.reason);
-    assert.equal(result.jobs.length,3,'the loop ran its length, not its job count');
+    const result=await f.run('gather-until',until(10_000,3));
+    assert.equal(result.outcome,'done',result.reason);
+    assert.equal(result.jobs.length,3,'the script ran its cap, not its job count');
     assert.equal(f.count('spacemolt/undock'),3);
-    assert.match(result.juncture.reason,/3 of 3/);
-    assert.deepEqual(f.records.map(record=>record.position),[0,1,2,3]);
-    assert.ok(f.records.every(record=>record.kind==='loop'&&record.jobs.length===1));
+    assert.match(result.reason!,/3 jobs/);
   } finally {await f.close();}
 
   const g=await fixture();
   try {
-    const result=await g.run({kind:'once',jobs:[{job:'gather',params:plan}]});
-    assert.equal(result.outcome,'done',result.juncture.reason);
+    const result=await g.run('gather',{poi_id:site.poi_id,base_id:home.base_id});
+    assert.equal(result.outcome,'done',result.reason);
     assert.equal(result.jobs.length,1);
     assert.equal(g.count('spacemolt/undock'),1);
-    assert.match(result.juncture.reason,/1 of 1/);
+    assert.match(result.reason!,/1 job\b/);
   } finally {await g.close();}
 });
 
-test('C20: a loop stops at a job that did not finish, however much length is left',async()=>{
+test('C20: a script stops at a job that did not finish, however many trips are left',async()=>{
   const f=await fixture();
   try {
     f.hooks.mine=cycle=>{
       if(cycle!==CYCLES_PER_JOB+1)return undefined;
       throw new SpacemoltError('depleted','the site gives no more');
     };
-    const result=await f.run({kind:'loop',jobs:[{job:'gather',params:plan}],length:5});
-    assert.equal(result.outcome,'blocked',result.juncture.reason);
+    const result=await f.run('gather-until',until(10_000,5));
+    assert.equal(result.outcome,'blocked',result.reason);
     assert.equal(result.jobs.length,2);
-    assert.match(result.juncture.reason,/job 2 of 5/);
+    assert.match(result.reason!,/job 2 of 2/);
     assert.equal(f.count('spacemolt/undock'),2);
   } finally {await f.close();}
 });
 
-test('C20: a chain the agent could not have meant is refused before anything moves',async()=>{
+test('C20: a run the agent could not have meant is refused before anything moves',async()=>{
   const f=await fixture();
   try {
-    const bad:[string,Chain][]=[
-      ['empty',{kind:'sequence',jobs:[]}],
-      ['loop without a length',{kind:'loop',jobs:[{job:'gather',params:plan}]}],
-      ['loop of many jobs',{kind:'loop',jobs:[{job:'gather',params:plan},{job:'gather',params:plan}],length:2}],
-      ['once of many jobs',{kind:'once',jobs:[{job:'gather',params:plan},{job:'gather',params:plan}]}],
-      ['unknown kind',{kind:'forever' as Chain['kind'],jobs:[{job:'gather',params:plan}]}],
-      ['fractional length',{kind:'loop',jobs:[{job:'gather',params:plan}],length:2.5}],
+    const bad:[string,string,Record<string,unknown>][]=[
+      ['a script that does not exist','forever-war',{}],
+      ['a path where a name belongs','../bridge',{}],
+      ['no site to work','gather',{}],
+      ['a site that is not a name','gather',{poi_id:7}],
+      ['a parameter the script does not take','gather',{poi_id:site.poi_id,repeat:3}],
+      ['a cap that is not a whole number','gather-until',{...until(24,5),max_runs:2.5}],
     ];
-    for(const [name,chain] of bad)
-      await assert.rejects(()=>f.run(chain),/chain/i,name);
+    for(const [name,script,params] of bad)
+      await assert.rejects(()=>f.run(script,params),/script/i,name);
     assert.deepEqual(f.calls,[],'nothing was sent to the game');
   } finally {await f.close();}
 });

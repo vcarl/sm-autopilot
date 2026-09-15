@@ -8,7 +8,7 @@ import {serve,type Dispatch,type Pilot} from '../src/bridge.ts';
 import type {ReadinessAccount,ReadinessCommand} from '../src/readiness.ts';
 
 // The C9/C18 world, driven through the bridge, because everything this row claims is
-// visible from outside the job: the chain's outcome, the journal line, and what the next
+// visible from outside the job: the run's outcome, the journal line, and what the next
 // juncture reads as `last`. Every mine reply still over-claims (99 ore), so no number
 // below can have come from a reply.
 const home={system_id:'sol',poi_id:'station',base_id:'home_base'};
@@ -117,19 +117,19 @@ async function world() {
       dispatch:serve(account,command,{pilot:()=>PILOT,runtime})};
   };
   return {server,runtime,bridge,
-    record:()=>JSON.parse(readFileSync(join(runtime,'chain.json'),'utf8')),
+    record:()=>JSON.parse(readFileSync(join(runtime,'run.json'),'utf8')),
     lines:(event:string)=>readFileSync(join(runtime,'gameplay.jsonl'),'utf8').trim().split('\n')
       .filter(Boolean).map(line=>JSON.parse(line)).filter(entry=>entry.event===event),
     close:()=>rm(runtime,{recursive:true,force:true})};
 }
 
-/** A chain outlives the call that started it, so the end is waited for, never awaited. */
+/** A run outlives the call that started it, so the end is waited for, never awaited. */
 async function drain(dispatch:Dispatch) {
   for(let turn=0;turn<20_000;turn++) {
     await new Promise(resolve=>setImmediate(resolve));
     if(!((await dispatch('status')) as any).running)return;
   }
-  throw new Error('the chain never ended');
+  throw new Error('the run never ended');
 }
 
 /** Death and respawn: the ship is gone, a new one sits at the pilot's own home base with
@@ -147,7 +147,7 @@ test('C13: a death and respawn mid-job stops the pilot before its next act, bloc
   const w=await world();
   try {
     const runner=w.bridge(respawn(w.server));
-    const started=await runner.dispatch('job',{job:'gather',poi_id:'belt',repeat:1}) as any;
+    const started=await runner.dispatch('run',{script:'gather',params:{poi_id:'belt',base_id:home.base_id}}) as any;
     assert.equal(started.accepted,true);
     await drain(runner.dispatch);
     assert.ok(runner.fired(),'the world must have moved the ship for this to be the row');
@@ -157,21 +157,21 @@ test('C13: a death and respawn mid-job stops the pilot before its next act, bloc
     assert.deepEqual(runner.mutations(),OUT_AND_MINED);
 
     const last=(await runner.dispatch('status') as any).last;
-    assert.equal(last.outcome,'blocked',JSON.stringify(last.juncture));
+    assert.equal(last.outcome,'blocked',last.reason);
     assert.equal(last.moved.cause,'respawn');
     assert.equal(last.moved.from.poi_id,'belt');
     assert.equal(last.moved.to.docked_at,home.base_id);
     assert.equal(last.moved.to.ship_id,'ship-2');
     assert.match(last.moved.evidence,/belt/);
-    assert.match(last.juncture.reason,/return blocked: unsolicited move \(respawn\)/);
+    assert.match(last.reason,/return blocked: unsolicited move \(respawn\)/);
     assert.equal(last.jobs[0].moved.cause,'respawn');
 
     // The journal carries the move on its own line, so a reader of the shift finds it
-    // without digging it out of a chain outcome.
+    // without digging it out of a run outcome.
     assert.equal(w.lines('unsolicited_move').length,1);
     assert.equal(w.lines('unsolicited_move')[0].cause,'respawn');
-    assert.equal(w.lines('unsolicited_move')[0].chain_id,started.chain_id);
-    assert.equal(w.lines('chain').length,1);
+    assert.equal(w.lines('unsolicited_move')[0].started,started.record.started);
+    assert.equal(w.lines('run').filter(line=>line.phase==='ended').length,1);
     assert.equal(w.record().ended,true);
   } finally {await w.close();}
 });
@@ -180,32 +180,32 @@ test('C13: a ship taken mid-job fails the job and sends nothing more',async()=>{
   const w=await world();
   try {
     const runner=w.bridge(()=>{w.server.ship.incapacitated=true;});
-    await runner.dispatch('job',{job:'gather',poi_id:'belt',repeat:1});
+    await runner.dispatch('run',{script:'gather',params:{poi_id:'belt',base_id:home.base_id}});
     await drain(runner.dispatch);
     assert.ok(runner.fired());
     assert.deepEqual(runner.mutations(),OUT_AND_MINED);
 
     const last=(await runner.dispatch('status') as any).last;
     // A capture is not a place the agent can simply answer from: the job failed.
-    assert.equal(last.outcome,'failed',JSON.stringify(last.juncture));
+    assert.equal(last.outcome,'failed',last.reason);
     assert.equal(last.moved.cause,'captured');
     assert.equal(last.moved.to.incapacitated,true);
-    assert.match(last.juncture.reason,/unsolicited move \(captured\)/);
+    assert.match(last.reason,/unsolicited move \(captured\)/);
     assert.equal(w.lines('unsolicited_move')[0].cause,'captured');
   } finally {await w.close();}
 });
 
-test('C13: a fleet kick puts the ship elsewhere with no transit, and the chain says so',async()=>{
+test('C13: a fleet kick puts the ship elsewhere with no transit, and the run says so',async()=>{
   const w=await world();
   try {
     const runner=w.bridge(()=>{w.server.location.poi_id='other-belt';});
-    await runner.dispatch('job',{job:'gather',poi_id:'belt',repeat:1});
+    await runner.dispatch('run',{script:'gather',params:{poi_id:'belt',base_id:home.base_id}});
     await drain(runner.dispatch);
     assert.ok(runner.fired());
     assert.deepEqual(runner.mutations(),OUT_AND_MINED);
 
     const last=(await runner.dispatch('status') as any).last;
-    assert.equal(last.outcome,'failed',JSON.stringify(last.juncture));
+    assert.equal(last.outcome,'failed',last.reason);
     assert.equal(last.moved.cause,'fleet_kick');
     assert.equal(last.moved.to.poi_id,'other-belt');
     assert.equal(last.moved.to.in_transit,false);
@@ -219,13 +219,13 @@ test('C13: the pilot travelling where it told itself to go is not an unsolicited
   const w=await world();
   try {
     const runner=w.bridge();
-    await runner.dispatch('job',{job:'gather',poi_id:'belt',repeat:1});
+    await runner.dispatch('run',{script:'gather',params:{poi_id:'belt',base_id:home.base_id}});
     await drain(runner.dispatch);
 
     // The ship moved twice under its own commands, and the reconcile before every step
     // said nothing: a commanded move is the pilot's own, whatever the position changed to.
     const last=(await runner.dispatch('status') as any).last;
-    assert.equal(last.outcome,'done',JSON.stringify(last.juncture));
+    assert.equal(last.outcome,'done',last.reason);
     assert.equal(last.moved,undefined);
     assert.equal(last.jobs[0].moved,undefined);
     assert.deepEqual(runner.mutations(),[...OUT_AND_MINED,'spacemolt/travel','spacemolt/dock',

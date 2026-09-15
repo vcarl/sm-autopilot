@@ -172,8 +172,8 @@ const RULES:Rule[]=[
     // them, and one site still comes as a list rather than as a destination chosen for it.
     const poi_id=mining.filter((_,index)=>found[index]!.admissible).map(site=>site.poi_id);
     return yes('stance',job,`${found[open]!.reason}; ${facts.holdings.cargo_free} free cargo to fill`,
-      {tool:'spacemolt_dispatch',params:{job:'gather',poi_id,
-        ...facts.place.base_id?{base_id:facts.place.base_id}:{}}});
+      {tool:'spacemolt_dispatch',params:{script:'gather',
+        params:{poi_id,...facts.place.base_id?{base_id:facts.place.base_id}:{}}}});
   }},
   {id:'stance.industrialist.J7',stance:'Industrialist',apply:facts=>{
     const job='J7 Inputs at the bench',inputs=facts.holdings.inputs??[];
@@ -222,6 +222,15 @@ function jobMoodBlock(mood:Mood):string|null {
   return mood==='Relaxed'||mood==='Tired'
     ?`${mood} may not initiate a job; a job mood chosen at reflection admits it`
     :null;
+}
+
+/** The rules between one job and the next, from the same two rules the menu applies to
+ * stance work: a threat seen, or a mood that may not initiate a job. A run asks this before
+ * every job, so what the menu refuses mid-script is what the runner refuses too (R5). */
+export function jobStop(facts:Facts):string|null {
+  const seen=threats(facts);
+  if(seen.length)return `threat seen: ${seen.join(', ')}; watch until it clears before starting anything`;
+  return jobMoodBlock(facts.mood);
 }
 
 /** Danger first, then the mood block on stance jobs, then Tired's own filter. */

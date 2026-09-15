@@ -52,14 +52,16 @@ const blocking=(error:unknown)=>error instanceof TravelBlocked||error instanceof
 const message=(error:unknown)=>error instanceof Error?error.message:String(error);
 
 /** What the closing read must agree with before the job may call itself done. */
-function differences(state:GameState,plan:GatherPlan,settled:SettleOutcome,own:Set<string>):string[] {
+function differences(state:GameState,plan:GatherPlan,settled:SettleOutcome|null,own:Set<string>):string[] {
   const {ship,location}=state??{};
   if(!ship||!location)return ['authoritative ship and location unavailable at the end of the job'];
   const out:string[]=[];
   if(location.in_transit)out.push('still in transit');
   if(location.docked_at!==plan.home.base_id)
     out.push(`docked at ${location.docked_at??'nothing'}, not ${plan.home.base_id}`);
-  const accounted=new Set([...own,...settled.held.map(row=>row.item_id)]);
+  // No settlement at all is a job resumed past its counter: this trip's take is already
+  // stowed, so the hold has nothing left for the closing read to account for.
+  const accounted=new Set([...own,...settled?.held.map(row=>row.item_id)??[]]);
   for(const [item_id,quantity] of Object.entries(miningInventory(state)))
     if(quantity>0&&!accounted.has(item_id))out.push(`hold still carries ${quantity} ${item_id}`);
   if(ship.fuel<ship.max_fuel)out.push(`fuel ${ship.fuel} of ${ship.max_fuel}`);
@@ -270,7 +272,7 @@ export async function gatherJob(account:ReadinessAccount,command:ReadinessComman
 
   stop=await attempt('verify',async()=>{
     await account.refresh();
-    const gaps=differences(account.state,plan,settled!,own);
+    const gaps=differences(account.state,plan,settled,own);
     if(gaps.length)return {outcome:'failed',reason:gaps.join('; ')};
   });
   if(stop)return stop;

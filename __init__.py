@@ -3,7 +3,7 @@
 Three toolsets, because a tool name is global and belongs to exactly one of them:
 ``spacemolt`` is the job tools a juncture flies with, ``spacemolt_observe`` the reads every
 client of the runner may make, and ``spacemolt_operator`` the operator's own window tools:
-direction, and the chain-is-running read the chat window asks for while a juncture already
+direction, and the script-is-running read the chat window asks for while a juncture already
 has the answer in its context. A chat window carries observe + operator and never a job tool
 (N19); a cron fire carries spacemolt + observe and never sets its own objective.
 """
@@ -21,6 +21,20 @@ from .service import available, call, close_bridge, runtime_dir
 from .skills_register import register_skills
 
 _JOURNAL_DEFAULT, _JOURNAL_CAP, _RESULT_CHARS = 10, 50, 120
+
+#: The scripts the runner ships, mirrored from ``src/scripts/`` the way STANCES is mirrored
+#: from the rules table: a tool schema cannot read TypeScript, and a schema built by asking a
+#: live bridge at plugin load would spawn one for every session. The bridge's ``scripts``
+#: action is the runtime source of truth — it validates every dispatch against the script's
+#: own schema, and a refusal comes back carrying the same list.
+SCRIPTS = {
+    "gather": "poi_id (the mining site), optional base_id (where the take is stowed)",
+    "gather-until": "poi_id, item_id, quantity and max_runs: gather trip after trip until "
+                    "the home store holds that much of that item, or the cap is reached; "
+                    "optional base_id",
+}
+SCRIPT_HELP = "The scripts and what each one takes:\n" + "\n".join(
+    f"- {name}: {takes}" for name, takes in SCRIPTS.items())
 
 _FLIGHT_PROMPT = (
     "SpaceMolt: you fly one live ship. When asked where the ship is, call spacemolt_where "
@@ -103,17 +117,19 @@ def _gather(arguments: dict[str, Any] | None = None, **_: Any) -> str:
 
 
 def _dispatch(arguments: dict[str, Any] | None = None, **_: Any) -> str:
+    """Start one script in the runner.
+
+    The script owns its own parameters, so a script that will not take these says why and
+    this answers with the scripts there are and what each one asks for — one turn to correct,
+    rather than a guess repeated.
+    """
     args = arguments or {}
-    params: dict[str, Any] = {"job": str(args.get("job") or "gather"),
-                              "poi_id": str(args.get("poi_id") or "")}
-    for name in ("base_id",):
-        if args.get(name):
-            params[name] = str(args[name])
-    if args.get("repeat"):
-        params["repeat"] = args["repeat"]
-    if args.get("keep"):
-        params["keep"] = [str(item) for item in args["keep"]]
-    return json.dumps(call("job", params), separators=(",", ":"))
+    params = {"script": str(args.get("script") or ""), "params": args.get("params") or {}}
+    try:
+        return json.dumps(call("run", params), separators=(",", ":"))
+    except Exception as error:  # the runner refuses before anything reaches the game
+        return json.dumps({"accepted": False, "reason": str(error),
+                           "scripts": call("scripts")}, separators=(",", ":"))
 
 
 def _status(arguments: dict[str, Any] | None = None, **_: Any) -> str:
@@ -205,7 +221,7 @@ def _nudge_juncture() -> str:
     A human turn is not a juncture (N3): the window records direction, the runner raises the
     juncture because the world changed. Idle, nothing else will raise one until the wakeup
     schedule comes round, so mark the pilot's cron job due — the same field ``hermes cron run``
-    sets. While a chain runs the runner raises its own juncture at the chain's end (N4), so a
+    sets. While a script runs the runner raises its own juncture at its end (N4), so a
     nudge here would only double-fire it.
     """
     from cron.jobs import trigger_job
@@ -215,7 +231,7 @@ def _nudge_juncture() -> str:
     except Exception:
         running = False  # no bridge means nothing is flying; a juncture is safe to ask for
     if running:
-        return " A chain is running, so the runner raises the juncture when it ends."
+        return " A script is running, so the runner raises the juncture when it ends."
     trigger_job(ensure_juncture_job()["id"])
     return " The pilot is idle, so that juncture is due on the next scheduler tick."
 
@@ -293,28 +309,18 @@ TOOL_DEFINITIONS = (
                                  "description": "Optional: item ids that must never be sold."}},
                        ["poi_id"])},
     {"name": "spacemolt_dispatch", "toolset": "spacemolt", "handler": _dispatch,
-     "description": "Start one chain of jobs in the runner and return at once.",
+     "description": "Start one script in the runner and return at once.",
      "schema": _schema("spacemolt_dispatch",
-                       "Start the option you chose. The chain runs on in the runner after this "
+                       "Start the option you chose. The script runs on in the runner after this "
                        "conversation ends, so this returns immediately. After this call, say what "
-                       "you started and end the turn. The runner raises the next juncture itself "
-                       "when the chain ends. Refused while another chain runs.",
-                       {"job": {"type": "string", "enum": ["gather"],
-                                "description": "The job to run; only 'gather' exists so far."},
-                        "poi_id": {"type": "string",
-                                   "description": "The mining site the job works: an asteroid belt or "
-                                                  "field, in this system or another."},
-                        "repeat": {"type": "integer", "minimum": 1,
-                                   "description": "How many times to run the job back to back under "
-                                                  "this one juncture. Defaults to once."},
-                        "base_id": {"type": "string",
-                                    "description": "Optional: the base the yield is stowed at; defaults "
-                                                   "to the base the ship is docked at now, then the "
-                                                   "pilot's home. Home is where the ore ends up, not a "
-                                                   "limit on where it is mined."},
-                        "keep": {"type": "array", "items": {"type": "string"},
-                                 "description": "Optional: item ids that must never be sold."}},
-                       ["poi_id"])},
+                       "you started and end the turn. The runner raises the next juncture when the "
+                       "script ends. Refused while another script runs.\n"
+                       + SCRIPT_HELP,
+                       {"script": {"type": "string", "enum": list(SCRIPTS),
+                                   "description": "The script to run."},
+                        "params": {"type": "object",
+                                   "description": "What that script asks for, named above."}},
+                       ["script", "params"])},
     {"name": "spacemolt_rest", "toolset": "spacemolt", "handler": _rest,
      "description": "End the shift: rest at home, which clears the stance and the mood.",
      "schema": _schema("spacemolt_rest",
@@ -390,11 +396,11 @@ TOOL_DEFINITIONS = (
                                                     "Defaults to one."}},
                        ["recipe_id"])},
     {"name": "spacemolt_status", "toolset": "spacemolt_operator", "handler": _status,
-     "description": "For the chat window: whether a chain runs right now.",
+     "description": "For the chat window: whether a script runs right now.",
      "schema": _schema("spacemolt_status",
-                       "For the chat window: whether a chain runs right now — the running chain's "
-                       "progress, or the last chain's outcome when the pilot is idle. A juncture "
-                       "reads the same fact from the context it was given.",
+                       "For the chat window: whether a script runs right now — the running "
+                       "script and where it has got to, or the last run's outcome when the pilot "
+                       "is idle. A juncture reads the same fact from the context it was given.",
                        {}, [])},
     {"name": "spacemolt_journal", "toolset": "spacemolt_observe", "handler": _journal,
      "description": "Read the last few things the pilot actually did.",

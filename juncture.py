@@ -1,7 +1,7 @@
 """The juncture: one cron job per pilot, and every fire a fresh conversation.
 
 A fire opens a new session carrying the shared skill, the stance's skill and the
-``spacemolt`` toolset; the agent reads the menu, dispatches, and ends the turn. The chain
+``spacemolt`` toolset; the agent reads the menu, dispatches, and ends the turn. The script
 then runs on in the bridge, which outlives the conversation (N5). The runner rewrites this
 job at rest, when the stance changes (N18).
 """
@@ -20,8 +20,8 @@ SHARED_SKILL = "spacemolt"
 #: Cron's platform name. A juncture is the only session the menu is delivered into; a CLI
 #: or chat session is a client of the runner and never opens the game to build a prompt.
 JUNCTURE_PLATFORM = "cron"
-#: How long the pilot may sit idle before the runner brings a juncture (N4). A chain that
-#: ends raises its own juncture; a fire that lands on a running chain is a no-op.
+#: How long the pilot may sit idle before the runner brings a juncture (N4). A script that
+#: ends raises its own juncture; a fire that lands on a running script is a no-op.
 IDLE_SCHEDULE = "30m"
 #: The six stances (D7), mirrored from ``src/rules-table.ts``: a tool schema cannot read
 #: TypeScript, and the reflection report carries the same list for the agent to choose from.
@@ -34,8 +34,8 @@ JOURNAL_FILE = "gameplay.jsonl"
 
 JUNCTURE_PROMPT = (
     "A SpaceMolt juncture: the pilot is between jobs and you choose what it does next.\n"
-    "Read the context in front of you — the present, the options and how the last chain "
-    "ended. If it says a chain is still running, say so in one line and end the turn.\n"
+    "Read the context in front of you — the present, the options and how the last script "
+    "ended. If it says a script is still running, say so in one line and end the turn.\n"
     "Otherwise end the juncture one of four ways: act on an option yourself, taking as many "
     "calls as the move needs; dispatch one long step and end the turn; hold, starting "
     "nothing; or rest at home when the objective is done.\n"
@@ -66,9 +66,10 @@ def juncture_context(session_info: Mapping[str, Any] | None = None) -> str:
     menu = call("menu")
     if menu.get("busy"):
         record = menu.get("record") or {}
-        return (f"SpaceMolt juncture: the runner is still working on {menu.get('chain_id')} "
-                f"(job {int(record.get('position') or 0) + 1} of {record.get('length')}). "
-                "Say in one line that the chain is running and end the turn.")
+        step = record.get("last_job") or "its first job"
+        return (f"SpaceMolt juncture: the runner is still running the script "
+                f"{menu.get('script')} (on {step}). "
+                "Say in one line that the script is running and end the turn.")
     if menu.get("at_rest"):
         return _rest_context(menu)
     _hold_full(menu)
@@ -77,7 +78,7 @@ def juncture_context(session_info: Mapping[str, Any] | None = None) -> str:
         menu.pop("unavailable", None)
         body = json.dumps(menu, separators=(",", ":"), sort_keys=True)
     return ("SpaceMolt juncture — the present, each option with the call it would be taken "
-            "with, its reason and bounds, what is unavailable and why, and how the last chain "
+            "with, its reason and bounds, what is unavailable and why, and how the last script "
             "ended:\n" + body)
 
 

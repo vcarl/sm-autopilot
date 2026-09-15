@@ -7,7 +7,7 @@
  * rather than guessing at them, because a reflection that invents its inputs picks a goal
  * for a pilot that does not exist.
  */
-import {readJournal} from './chain-record.ts';
+import {readJournal} from './run-record.ts';
 import {details} from './response-details.ts';
 import type {ReadinessAccount,ReadinessCommand} from './readiness.ts';
 import {STANCES} from './rules-table.ts';
@@ -15,7 +15,7 @@ import {viewStorage} from './storage.ts';
 
 /** Enough of each list to choose from; the whole report stays well under the 3 KB the
  * juncture's own context budget allows it. */
-const CAP={skills:6,visited:16,items:10,chains:5,bases:6};
+const CAP={skills:6,visited:16,items:10,runs:5,bases:6};
 
 export interface Pilotish {objective?:string;objective_done?:boolean;home?:string;goal?:string}
 
@@ -30,7 +30,7 @@ export interface ReflectReport {
   holdings:{credits:number;storage:{base_id:string;items:number;ships:number}[];here?:{item_id:string;quantity:number}[]};
   owes:{tax_due?:number;shipping_debt?:number;carrier_tier?:string};
   seen:{systems_and_pois:string[];bases:string[]};
-  recent:{chain_id?:string;outcome?:string;reason?:string}[];
+  recent:{script?:string;outcome?:string;reason?:string}[];
   stagnation:string[];
   stances:{name:string;initial_moods:string[]}[];
   /** Named, never guessed: the inputs this report could not read this time. */
@@ -79,8 +79,8 @@ export async function reflectReport(account:ReadinessAccount,command:ReadinessCo
   for(const entry of journal) {
     if(entry.event==='rest'&&entry.home)bases.add(String(entry.home));
     if(entry.event==='reflection'&&entry.stance)chosen.add(String(entry.stance));
-    if(entry.event==='chain') {
-      recent.push({chain_id:entry.chain_id,outcome:entry.outcome,reason:entry.juncture?.reason});
+    if(entry.event==='run'&&entry.phase==='ended') {
+      recent.push({script:entry.script,outcome:entry.outcome,reason:entry.reason});
       for(const job of Array.isArray(entry.jobs)?entry.jobs:[])
         if(job?.job)ranJobs.set(String(job.job),(ranJobs.get(String(job.job))??0)+1);
     }
@@ -93,11 +93,11 @@ export async function reflectReport(account:ReadinessAccount,command:ReadinessCo
   }
 
   const stagnation:string[]=[];
-  const chainCount=recent.length;
+  const runCount=recent.length;
   const kinds=[...ranJobs.entries()].sort((a,b)=>b[1]-a[1]);
-  if(chainCount>=3&&kinds.length===1)
+  if(runCount>=3&&kinds.length===1)
     stagnation.push(`every job in the journal's span was ${kinds[0]![0]} (${kinds[0]![1]} of them)`);
-  if(bases.size===1&&chainCount>=2)
+  if(bases.size===1&&runCount>=2)
     stagnation.push(`the pilot has not left ${[...bases][0]} in the journal's span`);
   if(visited.size<=2&&visited.size>0)
     stagnation.push(`only ${[...visited].join(', ')} appear in the journal: the world beyond is unseen`);
@@ -122,7 +122,7 @@ export async function reflectReport(account:ReadinessAccount,command:ReadinessCo
       ...shipping===undefined?{}:{shipping_debt:Number(shipping.profile?.outstanding_debt??0),
         carrier_tier:String(shipping.profile?.tier??'unknown')}},
     seen:{systems_and_pois:[...visited].slice(-CAP.visited),bases:[...bases].slice(-CAP.bases)},
-    recent:recent.slice(-CAP.chains),
+    recent:recent.slice(-CAP.runs),
     stagnation,
     stances:STANCES.map(stance=>({name:stance.name,initial_moods:[...stance.initial_moods]})),
     // The ship's fit against each stance's needs has no table behind it yet: D7 names the

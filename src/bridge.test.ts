@@ -6,92 +6,15 @@ import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {createShutdown,serve,type Pilot,type ServeOptions} from './bridge.ts';
 import {controllerLock} from './controller-lock.ts';
-import type {ChainOutcome} from './chain.ts';
-import type {ReadinessAccount,ReadinessCommand} from './readiness.ts';
-import {FakeLibGoalAccount} from './test-support/fake-lib-account.ts';
+import type {RunOutcome} from './script-runner.ts';
+import type {ReadinessAccount} from './readiness.ts';
 
-// The station POI and the base docked at it carry different ids, as the live game does.
-const system={id:'sol',name:'Sol',pois:[
-  {id:'station',name:'Sol Station',type:'station',position:{x:0,y:0},has_base:true,
-    base_id:'sol_base',base_name:'Sol Base'},
-  {id:'belt',name:'Inner Belt',type:'asteroid_belt',position:{x:1,y:1}},
-],connections:[{system_id:'deep_range',name:'Deep Range',distance:4}]};
-// One jump away, so a POI the pilot names may live somewhere it has to fly to.
-const deepRange={id:'deep_range',name:'Deep Range',
-  pois:[{id:'outpost',name:'Deep Range Outpost',type:'station'},
-    {id:'far_belt',name:'Far Belt',type:'asteroid_belt'}],
-  connections:[{system_id:'sol',name:'Sol',distance:4}]};
-// Where each nameable id lives, as the server's find_route answers it. A base id is
-// nameable too, and answers with the POI it sits at.
-const homeOf:Record<string,string>={sol:'sol',station:'sol',belt:'sol',sol_base:'sol',
-  deep_range:'deep_range',outpost:'deep_range',far_belt:'deep_range'};
-const poiOf:Record<string,string>={sol_base:'station'};
+import {bridgeWorld} from './test-support/bridge-world.ts';
 
 function fixture(options:ServeOptions={},services=['refuel','repair']) {
-  const account=new FakeLibGoalAccount({
-    location:{system_id:'sol',poi_id:'station',docked_at:'sol_base' as string|null,in_transit:false},
-    // The hold leaves the dock already full, so a gather job mines nothing and still
-    // has to come home, settle and service before it may call itself done.
-    // Hull stays above the Cautious D3 line: a ship below it is Tired and starts no job.
-    ship:{id:'ship',fuel:100,max_fuel:120,hull:96,max_hull:100,cargo_used:12,cargo_capacity:12},
-    player:{credits:1_000},
-    cargo:[{item_id:'ore',quantity:12}] as {item_id:string;quantity:number}[],
-    modules:[] as {module_id:string;type_id:string;slot:string}[],
-  });
-  const sent:{action:string;params:Record<string,unknown>}[]=[];
-  const handlers:Record<string,(params:Record<string,unknown>)=>unknown>={
-    'spacemolt/get_system':()=>({structuredContent:{kind:'normal',
-      system:account.server.location.system_id==='sol'?system:deepRange}}),
-    'spacemolt/find_route':params=>{
-      const target=homeOf[String(params.id)];
-      if(!target)return {found:false,message:`No route to ${params.id}`};
-      const from=account.server.location.system_id;
-      const route=from===target?[from]:[from,target];
-      return {found:true,target_system:target,target_poi:poiOf[String(params.id)]??String(params.id),
-        total_jumps:route.length-1,
-        estimated_fuel:7,fuel_per_jump:7,fuel_available:account.server.ship.fuel,
-        cargo_used:account.server.ship.cargo_used,route:route.map((system_id,jumps)=>({system_id,jumps}))};
-    },
-    'spacemolt/jump':params=>{account.server.ship.fuel-=7;account.server.location.system_id=String(params.id);
-      account.server.location.poi_id='gate';return {};},
-    'spacemolt/undock':()=>{account.server.location.docked_at=null;return {};},
-    'spacemolt/dock':()=>{account.server.location.docked_at='sol_base';return {};},
-    // The server settles the move before the next authoritative read, as a same-system hop does.
-    'spacemolt/travel':params=>{account.server.ship.fuel-=7;account.server.location.poi_id=String(params.id);return {};},
-    'spacemolt_market/view_market':()=>({delta:{details:{items:[{item_id:'ore',buy_price:10}]}}}),
-    'spacemolt/sell':params=>{
-      const quantity=Number(params.quantity);
-      account.server.cargo=account.server.cargo.filter(row=>row.item_id!==params.id);
-      account.server.ship.cargo_used-=quantity;
-      account.server.player.credits+=quantity*10;
-      return {delta:{details:{action:'sell',quantity_sold:quantity}}};
-    },
-    'spacemolt/get_base':()=>({delta:{details:{services,fuel_price_all_in:1,
-      base:{poi_id:'station',repair_price_per_hull:1}}}}),
-    'spacemolt/refuel':()=>{
-      const cost=account.server.ship.max_fuel-account.server.ship.fuel;
-      account.server.ship.fuel=account.server.ship.max_fuel;
-      account.server.player.credits-=cost;
-      return {delta:{details:{action:'refuel',cost}}};
-    },
-    'spacemolt/repair':()=>{
-      const cost=account.server.ship.max_hull-account.server.ship.hull;
-      account.server.ship.hull=account.server.ship.max_hull;
-      account.server.player.credits-=cost;
-      return {delta:{details:{action:'repair',cost}}};
-    },
-    'spacemolt_storage/view':()=>({structuredContent:{action:'view_storage',base_id:'sol_base',
-      hint:'',items:[{item_id:'ore',name:'Ore',quantity:340},{item_id:'scrap',quantity:2}],
-      ships:[{ship_id:'spare',class_id:'hauler',cargo_used:0,modules:0}],
-      locations:[{base_id:'sol_base',base_name:'Sol Base',item_count:2,ship_count:1,
-        system:'sol',system_name:'Sol'}]}}),
-  };
-  const command:ReadinessCommand=async(action,params)=>{
-    sent.push({action,params:structuredClone(params)});
-    assert.ok(Object.hasOwn(handlers,action),`Unexpected command: ${action}`);
-    return handlers[action]!(params);
-  };
-  return {account,sent,dispatch:serve(account as unknown as ReadinessAccount,command,options)};
+  const world=bridgeWorld({services});
+  return {...world,
+    dispatch:serve(world.account as unknown as ReadinessAccount,world.command,options)};
 }
 
 test('where reports the live position and the destinations the model may name', async () => {
@@ -173,17 +96,18 @@ test('gather runs one job from the dock the ship is at and reports a verified ou
     [{id:'belt'},{id:'station'}]);
   assert.deepEqual(f.account.server.location,
     {system_id:'sol',poi_id:'station',docked_at:'sol_base',in_transit:false});
-  assert.deepEqual(result.steps.map((step:any)=>step.name),
-    ['travel','mine','return','dock','settle','service','verify']);
+  assert.equal(result.script,'gather');
+  assert.deepEqual(result.jobs.map((job:any)=>[job.job,job.outcome]),[['gather','done']]);
   // The hold the pilot undocked with is its own: the counter never sees it, so a job that
   // mined nothing sells nothing and still comes home serviced (C8).
-  assert.deepEqual(result.sold,[]);
+  assert.equal(f.sent.filter(call=>call.action==='spacemolt/sell').length,0);
   assert.deepEqual(f.account.server.cargo,[{item_id:'ore',quantity:12}]);
   assert.deepEqual([f.account.server.ship.fuel,f.account.server.ship.hull],[120,100]);
   assert.equal(f.account.server.player.credits,1_000-34-4);
   assert.ok(JSON.stringify(result).length<2048,'one compact outcome, not a transcript');
-  // A destination the model never named must not become a trip.
-  await assert.rejects(fixture().dispatch('gather',{}),/poi_id/);
+  // A destination the model never named must not become a trip: the script says it needs
+  // one, so the run is refused before anything reaches the game.
+  await assert.rejects(fixture().dispatch('gather',{}),/poi_id is required/);
 });
 
 test('gather mines a site in another system and stows the yield at the home base', async () => {
@@ -200,7 +124,11 @@ test('gather mines a site in another system and stows the yield at the home base
   assert.deepEqual(f.account.server.location,
     {system_id:'sol',poi_id:'station',docked_at:'sol_base',in_transit:false});
   // A site nothing routes to is reported, never flown.
-  await assert.rejects(fixture().dispatch('gather',{poi_id:'nowhere'}),/No route to nowhere/);
+  const g=fixture();
+  const nowhere=await g.dispatch('gather',{poi_id:'nowhere'}) as any;
+  assert.equal(nowhere.outcome,'failed');
+  assert.match(nowhere.reason,/No route to nowhere/);
+  assert.deepEqual(g.sent.filter(call=>call.action==='spacemolt/travel'),[],'nothing was flown');
 });
 
 test('storage reads the current base by default and passes a named station through, compact', async () => {
@@ -218,17 +146,17 @@ test('storage reads the current base by default and passes a named station throu
 
 const PILOT:Pilot={name:'kvothe',objective:'fill the hold',stance:'Prospector',mood:'Focused',home:'sol_base'};
 
-/** A chain that starts and does not finish, so a juncture can be observed mid-flight. */
-function heldChain() {
+/** A run that starts and does not finish, so a juncture can be observed mid-flight. */
+function heldRun() {
   const started:any[]=[];
-  let release:((outcome:ChainOutcome)=>void)|undefined;
-  const runChain=((_account:unknown,_command:unknown,chain:any,options:any)=>{
-    started.push(chain);
-    options?.onProgress?.({kind:chain.kind,jobs:chain.jobs,
-      length:chain.length??chain.jobs.length,position:0,ended:false});
-    return new Promise<ChainOutcome>(resolve=>{release=resolve;});
+  let release:((outcome:RunOutcome)=>void)|undefined;
+  const runScript=((options:any)=>{
+    started.push(options);
+    options?.onProgress?.({script:options.script,params:options.params,started:options.started,
+      keep:[],last_job:'gather',ended:false});
+    return new Promise<RunOutcome>(resolve=>{release=resolve;});
   }) as any;
-  return {runChain,started,finish:(outcome:ChainOutcome)=>release!(outcome)};
+  return {runScript,started,finish:(outcome:RunOutcome)=>release!(outcome)};
 }
 const settle=()=>new Promise(resolve=>setImmediate(resolve));
 
@@ -275,45 +203,66 @@ test('every option carries the call it would be taken with, and the present says
     assert.ok(option.call===null||tools.has(option.call.tool),`${option.job}: ${JSON.stringify(option.call)}`);
   const gather=menu.options.find((option:any)=>option.call?.tool==='spacemolt_dispatch');
   assert.ok(gather,'a hold with room is offered the gather');
-  assert.equal(gather.call.params.job,'gather');
+  assert.equal(gather.call.params.script,'gather');
   // The mining sites to choose among — the station the ship is docked at is not one of them,
   // and the base id belongs in base_id, never in poi_id.
-  assert.deepEqual(gather.call.params.poi_id,['belt']);
-  assert.equal(gather.call.params.base_id,'sol_base');
+  assert.deepEqual(gather.call.params.params.poi_id,['belt']);
+  assert.equal(gather.call.params.params.base_id,'sol_base');
 });
 
-test('job starts one chain in the runner and returns before it ends; status carries it', async () => {
-  const held=heldChain();
-  const f=fixture({pilot:()=>PILOT,runChain:held.runChain});
+test('run starts one script in the runner and returns before it ends; status carries it', async () => {
+  const held=heldRun();
+  const f=fixture({pilot:()=>PILOT,runScript:held.runScript});
   assert.deepEqual(await f.dispatch('status'),{running:false,last:null});
 
-  const started=await f.dispatch('job',{job:'gather',poi_id:'belt',repeat:3}) as any;
+  const started=await f.dispatch('run',{script:'gather',params:{poi_id:'belt'}}) as any;
   assert.equal(started.accepted,true);
-  assert.deepEqual(started.record,{kind:'loop',length:3,position:0,ended:false});
-  // The plan came from live state and the pilot's own mood, not from the model. `keep` is
-  // the hold the pilot already had, written down so a job resumed after a restart — which
-  // never saw the departure — still knows which cargo is the pilot's own and not its take.
-  assert.deepEqual(held.started[0].jobs[0].params,
-    {home:{system_id:'sol',poi_id:'station',base_id:'sol_base'},site:{system_id:'sol',poi_id:'belt'},
-      mood:'Focused',keep:['ore']});
-  assert.deepEqual(await f.dispatch('status'),{running:true,chain_id:started.chain_id,record:started.record});
+  assert.equal(started.script,'gather');
+  assert.equal(started.record.ended,false);
+  assert.equal(typeof started.record.started,'string');
+  // The script was handed the pilot's own bounds, not the model's: the mood the record
+  // holds, the home it stows at, and the parameters exactly as the agent named them.
+  assert.equal(held.started[0].mood,'Focused');
+  assert.equal(held.started[0].home,'sol_base');
+  assert.deepEqual(held.started[0].params,{poi_id:'belt'});
+  assert.deepEqual(await f.dispatch('status'),{running:true,script:'gather',record:started.record});
 
-  // A second juncture while the chain runs changes nothing and is told why.
-  const refused=await f.dispatch('job',{job:'gather',poi_id:'belt'}) as any;
+  // A second juncture while the script runs changes nothing and is told why.
+  const refused=await f.dispatch('run',{script:'gather',params:{poi_id:'belt'}}) as any;
   assert.equal(refused.accepted,false);
-  assert.equal(refused.chain_id,started.chain_id);
-  assert.equal(held.started.length,1,'a running chain is never joined by a second');
+  assert.equal(refused.script,'gather');
+  assert.equal(held.started.length,1,'a running script is never joined by a second');
   const busy=await f.dispatch('menu') as any;
   assert.equal(busy.busy,true);
   assert.equal(busy.options,undefined,'a busy pilot is offered nothing to choose');
 
-  held.finish({outcome:'done',jobs:[],juncture:{reason:'chain done: 3 of 3 jobs'}});
+  held.finish({script:'gather',outcome:'done',reason:'gather done: 1 job',jobs:[]});
   await settle();
   const after=await f.dispatch('status') as any;
   assert.equal(after.running,false);
-  assert.deepEqual(after.last.juncture,{reason:'chain done: 3 of 3 jobs'});
+  assert.equal(after.last.reason,'gather done: 1 job');
   // The runner is free again, and the next juncture reads the outcome from `last`.
-  assert.equal(((await f.dispatch('menu')) as any).last.chain_id,started.chain_id);
+  assert.equal(((await f.dispatch('menu')) as any).last.script,'gather');
+});
+
+test('a script the runner does not have is refused before anything reaches the game', async () => {
+  const held=heldRun();
+  const f=fixture({pilot:()=>PILOT,runScript:held.runScript});
+  await assert.rejects(f.dispatch('run',{script:'mine-the-moon',params:{}}),/Unknown script/);
+  // The parameters a script says it needs are checked too, by the script's own schema.
+  await assert.rejects(f.dispatch('run',{script:'gather',params:{}}),/poi_id is required/);
+  assert.equal(held.started.length,0,'nothing was started');
+  assert.deepEqual(await f.dispatch('status'),{running:false,last:null});
+});
+
+test('scripts lists what the dispatch tool may name, each with the parameters it takes', async () => {
+  const rows=await fixture().dispatch('scripts') as any[];
+  assert.deepEqual(rows.map(row=>row.name).sort(),['gather','gather-until']);
+  for(const row of rows) {
+    assert.equal(row.params.type,'object');
+    assert.ok(row.params.description,row.name);
+    assert.ok(Object.keys(row.params.properties).length,row.name);
+  }
 });
 
 test('shutdown forces exit within the grace even when the account never finishes closing, and stays idempotent', async () => {

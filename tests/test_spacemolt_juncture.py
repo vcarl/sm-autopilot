@@ -1,6 +1,6 @@
 """A juncture: a cron fire opens a fresh conversation, reads the menu, dispatches, and exits.
 
-The chain then runs on in the bridge, which outlives the conversation (N5). These are the
+The script then runs on in the bridge, which outlives the conversation (N5). These are the
 three things a fire depends on: the idle fire, the busy fire that must change nothing (N4),
 and the job definition that carries the stance through the cron toolset clamp (N18/N20).
 """
@@ -15,8 +15,8 @@ import pytest
 import spacemolt
 from spacemolt import juncture, service
 
-# A bridge that starts one chain and keeps it running: nothing here ever finishes, so a
-# tool that returns at all returned before its chain ended.
+# A bridge that starts one script and keeps it running: nothing here ever finishes, so a
+# tool that returns at all returned before its run ended.
 FAKE_BRIDGE = '''
 import json, sys
 
@@ -32,13 +32,14 @@ for line in sys.stdin:
     action, params = request["action"], request.get("params") or {}
     if action == "menu":
         result = dict(MENU) if running is None else {"busy": True, **running}
-    elif action == "job":
+    elif action == "run":
         if running is not None:
-            result = {"accepted": False, "reason": "a chain is already running", **running}
+            result = {"accepted": False, "reason": "a script is already running", **running}
         else:
             starts += 1
-            running = {"chain_id": "chain-%d" % starts,
-                       "record": {"kind": "loop", "length": 3, "position": 0, "ended": False}}
+            running = {"script": params["script"],
+                       "record": {"script": params["script"], "started": "2026-09-15T00:00:00Z",
+                                  "last_job": "gather", "ended": False}}
             result = {"accepted": True, "dispatched": params, **running}
     elif action == "status":
         result = {"running": running is not None, "starts": starts, **(running or {})}
@@ -61,7 +62,7 @@ def bridged(tmp_path, monkeypatch):
     service.close_bridge()
 
 
-def test_an_idle_fire_is_given_the_menu_then_dispatches_and_returns_while_the_chain_runs(bridged):
+def test_an_idle_fire_is_given_the_menu_then_dispatches_and_returns_while_the_script_runs(bridged):
     # The fire's first context carries the menu; no tool fetched it.
     context = juncture.juncture_context({"platform": "cron"})
     assert "J1 Hold full of ore" in context and "Prospector" in context
@@ -70,31 +71,33 @@ def test_an_idle_fire_is_given_the_menu_then_dispatches_and_returns_while_the_ch
     assert juncture.juncture_context({"platform": "discord"}) == ""
     assert juncture.juncture_context({}) == ""
 
-    started = json.loads(spacemolt._dispatch({"job": "gather", "poi_id": "belt", "repeat": 3}))
+    trips = {"poi_id": "belt", "item_id": "ore", "quantity": 36, "max_runs": 3}
+    started = json.loads(spacemolt._dispatch({"script": "gather-until", "params": trips}))
     assert started["accepted"] is True
-    assert started["chain_id"] == "chain-1"
-    assert started["dispatched"] == {"job": "gather", "poi_id": "belt", "repeat": 3}
-    # The conversation may end here: the chain is still on job 1 of 3.
-    assert started["record"] == {"kind": "loop", "length": 3, "position": 0, "ended": False}
+    assert started["script"] == "gather-until"
+    # The script and its parameters reach the runner exactly as the agent named them.
+    assert started["dispatched"] == {"script": "gather-until", "params": trips}
+    # The conversation may end here: the run is still on its first job.
+    assert started["record"]["ended"] is False
     assert json.loads(spacemolt._status({}))["running"] is True
     published = {definition["name"] for definition in spacemolt.TOOL_DEFINITIONS}
     assert "spacemolt_menu" not in published, "the menu is delivered into the fire, never fetched"
 
 
-def test_a_fire_while_a_chain_runs_changes_nothing(bridged):
-    spacemolt._dispatch({"job": "gather", "poi_id": "belt"})
+def test_a_fire_while_a_script_runs_changes_nothing(bridged):
+    spacemolt._dispatch({"script": "gather", "params": {"poi_id": "belt"}})
 
     busy = juncture.juncture_context({"platform": "cron"})
-    assert "chain-1" in busy and "end the turn" in busy
+    assert "gather" in busy and "end the turn" in busy
     assert "J1 Hold full of ore" not in busy, "a busy juncture offers nothing to choose"
 
-    refused = json.loads(spacemolt._dispatch({"job": "gather", "poi_id": "other"}))
+    refused = json.loads(spacemolt._dispatch({"script": "gather", "params": {"poi_id": "other"}}))
     assert refused["accepted"] is False
-    assert refused["chain_id"] == "chain-1"
+    assert refused["script"] == "gather"
 
     status = json.loads(spacemolt._status({}))
-    assert status["starts"] == 1, "the busy fire must not have started a second chain"
-    assert status["record"]["position"] == 0
+    assert status["starts"] == 1, "the busy fire must not have started a second script"
+    assert status["record"]["ended"] is False
 
 
 def test_the_juncture_job_carries_the_stance_and_passes_the_cron_toolset_clamp(tmp_path):
@@ -152,8 +155,9 @@ def _menu(cargo_free: int, *, last: dict) -> dict:
         options.append({"job": "J1 Hold full of ore", "reason": "belt quoted", "admissible": True,
                         "bounds": bounds,
                         "call": {"tool": "spacemolt_dispatch",
-                                 "params": {"job": "gather", "poi_id": ["belt", "deep-belt"],
-                                            "base_id": "sol_base"}}})
+                                 "params": {"script": "gather",
+                                            "params": {"poi_id": ["belt", "deep-belt"],
+                                                       "base_id": "sol_base"}}}})
     return {"stance": "Prospector", "mood": "Focused", "objective": "fill the hold",
             "present": {"docked_at": "sol_base", "fuel": 100, "credits": 1000,
                         "cargo_free": cargo_free, "hold": [{"item_id": "ore", "quantity": 12}],
@@ -161,11 +165,11 @@ def _menu(cargo_free: int, *, last: dict) -> dict:
             "options": options, "unavailable": [], "last": last}
 
 
-EMPTY_GATHER = {"chain_id": "chain-1", "outcome": "done",
-                "jobs": [{"job": "gather", "yield": [], "cleared": 0}]}
-FULL_GATHER = {"chain_id": "chain-1", "outcome": "done",
-               "jobs": [{"job": "gather", "yield": [{"item_id": "ore", "quantity": 12}],
-                         "cleared": 120}]}
+EMPTY_GATHER = {"script": "gather", "outcome": "done",
+                "jobs": [{"job": "gather", "outcome": "done", "yield": []}]}
+FULL_GATHER = {"script": "gather", "outcome": "done",
+               "jobs": [{"job": "gather", "outcome": "done",
+                         "yield": [{"item_id": "ore", "quantity": 12}]}]}
 
 
 def _rendered(monkeypatch, menu: dict) -> tuple[str, dict]:
@@ -188,10 +192,10 @@ def test_every_option_carries_the_call_it_would_be_taken_with(monkeypatch):
                   if (option["call"] or {}).get("tool") == "spacemolt_dispatch")
     # Two mining sites are admissible, so the option offers both: the parameters carry the
     # choice the pilot makes, never a destination chosen for it.
-    poi_id = gather["call"]["params"]["poi_id"]
+    poi_id = gather["call"]["params"]["params"]["poi_id"]
     assert isinstance(poi_id, list) and len(poi_id) == 2, poi_id
     # The base belongs in base_id. A station id in poi_id is the mistake the menu prevents.
-    assert gather["call"]["params"]["base_id"] == "sol_base"
+    assert gather["call"]["params"]["params"]["base_id"] == "sol_base"
     assert "sol_base" not in poi_id
 
 

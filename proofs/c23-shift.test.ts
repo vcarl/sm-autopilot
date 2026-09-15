@@ -1,4 +1,4 @@
-/** C23: one full shift on replay — rest, reflect, goal, stance, chain, home, rest —
+/** C23: one full shift on replay — rest, reflect, goal, stance, script, home, rest —
  * with the journal agreeing with what the pilot says.
  *
  * Replay, not fixture: every reply below is a real recorded response, sliced out of
@@ -22,7 +22,7 @@ import {rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {serve,type Dispatch,type Pilot} from '../src/bridge.ts';
-import {journalChain,readJournal} from '../src/chain-record.ts';
+import {journalRun,readJournal} from '../src/run-record.ts';
 import type {ReadinessAccount,ReadinessCommand} from '../src/readiness.ts';
 
 interface Fixture {
@@ -39,7 +39,7 @@ const {home_base_id:HOME_BASE,home_poi_id:HOME_POI,site_poi_id:SITE,travel_fuel:
   mine_gain:MINE_GAIN,fuel_price_all_in:FUEL_PRICE}=FIXTURE.observed;
 const ORE=MINE_GAIN[0]!.item_id;
 /** Every action the bridge answers. The shift must find the same set at both ends. */
-const ACTIONS=['where','rest','reflect','travel','dock','gather','storage','menu','job','resume','status'];
+const ACTIONS=['where','rest','reflect','travel','dock','gather','storage','menu','run','scripts','resume','status'];
 
 /** The replayed world: one authoritative state, the recorded replies, a call index per
  * command so a repeated command walks its recorded ones in order (S46), and a tick that
@@ -146,13 +146,13 @@ function replay(ship:Record<string,number>={}) {
     stored:(item_id:string)=>store.find(row=>row.item_id===item_id)?.quantity??0};
 }
 
-/** A chain outlives the call that started it; the shift waits for its juncture. */
+/** A run outlives the call that started it; the shift waits for its juncture. */
 async function drain(dispatch:Dispatch) {
   for(let turn=0;turn<100_000;turn++) {
     await new Promise(resolve=>setImmediate(resolve));
     if(!((await dispatch('status')) as any).running)return;
   }
-  throw new Error('the chain never ended');
+  throw new Error('the run never ended');
 }
 
 /** Which of these names the bridge answers. A name it does not know is the only thing that
@@ -182,14 +182,14 @@ function shift(over:{pilot?:Partial<Pilot>;ship?:Record<string,number>}={}) {
     reflect:(goal:string,stance:Pilot['stance'],mood:Pilot['mood'])=>{
       pilot={...pilot,goal,stance,mood};
       delete pilot.objective_done;
-      journalChain(runtime,{goal,stance,mood},'reflection');
+      journalRun(runtime,{goal,stance,mood},'reflection');
     },
     done:()=>{pilot={...pilot,objective_done:true};},
     journal:()=>readJournal(runtime),
     close:()=>rm(runtime,{recursive:true,force:true})};
 }
 
-test('C23: rest, reflect, goal, stance, chain, home, rest — and the journal says the same',async()=>{
+test('C23: rest, reflect, goal, stance, script, home, rest — and the journal says the same',async()=>{
   const s=shift();
   try {
     // (1) At rest: no stance, so the consultation is not a menu of work but the reflection
@@ -237,31 +237,34 @@ test('C23: rest, reflect, goal, stance, chain, home, rest — and the journal sa
     assert.ok(menu.options.some((row:any)=>row.job===`Travel to ${SITE}`),
       'the belt next door is on the menu');
 
-    // The chooser dispatches two gather jobs as one chain and ends its turn.
-    const started=await s.dispatch('job',{job:'gather',poi_id:SITE,repeat:2}) as any;
+    // The chooser writes no script of its own: it names one the runner ships and the
+    // parameters that make it two trips — enough ore in the store for two loads at the bench.
+    const perCycle=MINE_GAIN.reduce((sum,row)=>sum+row.quantity,0);
+    const cycles=(FIXTURE.state.ship.cargo_capacity-FIXTURE.state.ship.cargo_used)/perCycle;
+    const before=s.stored(ORE);
+    const target=before+2*cycles*MINE_GAIN[0]!.quantity;
+    const started=await s.dispatch('run',{script:'gather-until',
+      params:{poi_id:SITE,item_id:ORE,quantity:target,max_runs:4,base_id:HOME_BASE}}) as any;
     assert.equal(started.accepted,true,started.reason);
-    assert.equal(started.record.length,2);
+    assert.equal(started.script,'gather-until');
     await drain(s.dispatch);
 
-    // One outcome for the whole chain, and the ore is in the station store.
+    // One outcome for the whole run, and the ore is in the station store.
     const status=await s.dispatch('status') as any;
     assert.equal(status.running,false);
-    assert.equal(status.last.outcome,'done',JSON.stringify(status.last.juncture));
+    assert.equal(status.last.outcome,'done',status.last.reason);
     assert.equal(status.last.jobs.length,2);
     assert.ok(status.last.jobs.every((job:any)=>job.outcome==='done'));
-    assert.match(status.last.juncture.reason,/2 of 2/);
+    assert.match(status.last.reason,/2 jobs/);
     const mined=status.last.jobs.reduce((total:number,job:any)=>
       total+job.yield.reduce((sum:number,row:any)=>sum+row.quantity,0),0);
     // Each trip is named for its end state — a full hold — so the take is the room the
     // recorded ship had, at the rate the recorded belt gave, twice over.
-    const perCycle=MINE_GAIN.reduce((sum,row)=>sum+row.quantity,0);
-    const cycles=(FIXTURE.state.ship.cargo_capacity-FIXTURE.state.ship.cargo_used)/perCycle;
     assert.equal(s.count('spacemolt/mine'),2*cycles,'both holds were filled, cycle by cycle');
     assert.equal(mined,2*cycles*perCycle);
-    assert.equal(s.stored(ORE),
-      mined+(FIXTURE.responses['spacemolt_storage/view']![0].structuredContent.items
-        .find((row:any)=>row.item_id===ORE)?.quantity??0),
+    assert.equal(s.stored(ORE),target,
       'what the pilot says it gathered is what the station store holds');
+    assert.equal(s.stored(ORE),before+mined);
     // Docked at home on a full tank, carrying only what it set out with.
     assert.equal(s.state.location.docked_at,HOME_BASE);
     assert.equal(s.state.ship.fuel,s.state.ship.max_fuel);
@@ -269,15 +272,15 @@ test('C23: rest, reflect, goal, stance, chain, home, rest — and the journal sa
       FIXTURE.state.cargo.map(row=>row.item_id).sort(),
       'the hold ends with the pilot\'s own cargo and nothing else');
 
-    // VISION's first invariant: no juncture between the two jobs of the chain. Two trips
-    // out and back, one chain line in the journal, one outcome, one juncture.
+    // VISION's first invariant: no juncture between the two jobs of the run. Two trips
+    // out and back, one ended line in the journal, one outcome, one juncture.
     assert.equal(s.count('spacemolt/undock'),2);
     assert.equal(s.count('spacemolt/dock'),2);
-    assert.equal(s.journal().filter(entry=>entry.event==='chain').length,1);
+    assert.equal(s.journal().filter(entry=>entry.event==='run'&&entry.phase==='ended').length,1);
 
     // (4) The next consultation carries the outcome, and the objective is met.
     const after=await s.dispatch('menu') as any;
-    assert.equal(after.last.chain_id,status.last.chain_id);
+    assert.equal(after.last.script,status.last.script);
     assert.equal(after.last.outcome,'done');
     assert.ok(after.options.some((row:any)=>/^Rest and reflect/.test(row.job)),
       'home, safe and serviced: the evening can be put down');
@@ -294,16 +297,20 @@ test('C23: rest, reflect, goal, stance, chain, home, rest — and the journal sa
 
     // The journal agrees with what the pilot says: the shift in order, with the same values.
     const events=s.journal();
-    assert.deepEqual(events.map(entry=>entry.event),['reflection','chain','rest']);
+    assert.deepEqual(events.map(entry=>entry.event),['reflection','run','run','rest']);
+    assert.deepEqual(events.filter(entry=>entry.event==='run').map(entry=>entry.phase),
+      ['started','ended'],'one run: it began once and ended once');
     assert.ok(events.every(entry=>typeof entry.at==='string'),'every line is stamped');
-    const [reflection,chain,rest]=events as any[];
+    const [reflection,begun,run,rest]=events as any[];
     assert.deepEqual([reflection.goal,reflection.stance,reflection.mood],
       ['two loads of ore for the bench','Industrialist','Cautious']);
-    assert.equal(chain.chain_id,status.last.chain_id);
-    assert.equal(chain.outcome,status.last.outcome);
-    assert.deepEqual(chain.jobs.map((job:any)=>job.outcome),
+    assert.equal(begun.script,'gather-until');
+    assert.equal(begun.started,run.started);
+    assert.equal(run.script,status.last.script);
+    assert.equal(run.outcome,status.last.outcome);
+    assert.deepEqual(run.jobs.map((job:any)=>job.outcome),
       status.last.jobs.map((job:any)=>job.outcome));
-    assert.equal(chain.juncture.reason,status.last.juncture.reason);
+    assert.equal(run.reason,status.last.reason);
     assert.deepEqual([rest.stance,rest.mood,rest.goal,rest.home],
       ['Industrialist','Cautious','two loads of ore for the bench',HOME_BASE]);
     assert.ok(!events.some(entry=>entry.event==='unsolicited_move'),

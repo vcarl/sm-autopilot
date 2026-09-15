@@ -5,22 +5,22 @@ import {appendFileSync,existsSync,mkdirSync,readFileSync,renameSync,writeFileSyn
 import {resolve} from 'node:path';
 import {createInterface} from 'node:readline';
 import {fileURLToPath} from 'node:url';
-import {runChain as defaultRunChain,type Chain,type ChainRecord} from './chain.ts';
-import {journalChain,readChain,writeChain} from './chain-record.ts';
 import {controllerLock} from './controller-lock.ts';
 import type {ReadinessAccount,ReadinessCommand} from './readiness.ts';
 import {details} from './response-details.ts';
-import {dockAt} from './dock.ts';
-import {gatherJob,type GatherPlan} from './gather-job.ts';
-import {miningInventory} from './mining-inventory.ts';
+import type {Ctx} from './jobs/ctx.ts';
+import {currentSystem,dock as dockHelper,stations,travel as travelHelper,
+  where as whereHelper} from './jobs/helpers.ts';
 import {buildMenu} from './menu.ts';
 import type {Mood} from './mood-policy.ts';
 import {reflectReport} from './reflect.ts';
 import {REST_JOB,evaluateMenu,type CounterName,type Facts,type StanceName} from './rules-table.ts';
+import {journalRun,readRun,type RunRecord} from './run-record.ts';
+import {listScripts,prepareRun,runScript as defaultRunScript,
+  type RunOutcome} from './script-runner.ts';
 import {viewStorage} from './storage.ts';
 import {quoteRecipe} from './quote-action.ts';
 import {recipesReport} from './recipes-action.ts';
-import {FuelRouteShortfall,travelTo} from './travel.ts';
 
 /** The one endpoint this runner talks to. The catalog is served over HTTP from the same
  * host the socket connects to, which is the only place that base URL is written down. */
@@ -37,10 +37,12 @@ export interface ServeOptions {
   /** How the runner puts the record back after rest. Without one this runner can read the
    * pilot but not end its shift, which is what rest says rather than pretending it worked. */
   setPilot?:(pilot:Pilot)=>void;
-  runChain?:typeof defaultRunChain;
-  /** Where the chain record and the journal live. Without one the runner keeps the chain
+  runScript?:typeof defaultRunScript;
+  /** Where the run record and the journal live. Without one the runner keeps the run
    * in memory alone, which is what a restart loses (N22). */
   runtime?:string;
+  /** Where the scripts the dispatch tool may name live. Tests point it at their own. */
+  scriptsDir?:URL;
   /** The reference catalog. One fetch per process, cached here; tests pass their own. */
   catalog?:()=>Promise<Catalog>;
 }
@@ -63,98 +65,18 @@ export function writePilot(path:string,pilot:Pilot):void {
 /** Pure dispatch over an account + command pair, so tests never connect. */
 export function serve(account:ReadinessAccount,command:ReadinessCommand,options:ServeOptions={}):Dispatch {
   const pilot=options.pilot??(()=>({} as Pilot));
-  const runner=options.runChain??defaultRunChain;
-  const elapsed=(started:number)=>Math.round((Date.now()-started)/1000);
-  // get_system answers `kind:'transit'` with no system while under way.
-  const currentSystem=async()=>details(await command('spacemolt/get_system',{})).system as Record<string,any>|undefined;
-  const stations=(system:Record<string,any>|undefined)=>(system?.pois??[]) as Record<string,any>[];
-  const where=async()=>{
-    await account.refresh();
-    const {location,ship}=account.state;
-    const system=await currentSystem();
-    const rows=stations(system);
-    const pois=rows.map(poi=>({id:poi.id,name:poi.name,type:poi.type}));
-    // A station's base id is not the id of the POI it sits at: name the base itself.
-    const base=rows.find(poi=>poi.base_id===location?.docked_at);
-    return {
-      system:{id:location?.system_id,name:system?.name},
-      poi:{id:location?.poi_id,name:pois.find(poi=>poi.id===location?.poi_id)?.name},
-      docked_at:location?.docked_at?{base_id:location.docked_at,name:base?.base_name??null}:null,
-      in_transit:Boolean(location?.in_transit),
-      ...(location?.in_transit?{destination:{system:location.transit_dest_system_id,poi:location.transit_dest_poi_id}}:{}),
-      fuel:ship?.fuel,max_fuel:ship?.max_fuel,hull:ship?.hull,max_hull:ship?.max_hull,
-      pois,
-      // The systems a jump reaches from here, so a destination elsewhere is nameable.
-      connections:(system?.connections??[]) as Record<string,any>[],
-    };
-  };
-  const travel=async(poiId:string)=>{
-    if(!poiId)throw new Error('travel requires a poi_id');
-    await account.refresh();
-    if(!account.state.location?.system_id)throw new Error('Current system is unknown; observe before travelling');
-    const started=Date.now();
-    // The destination names a POI; the server says which system holds it, so a POI in another
-    // system is a route with jumps rather than a refusal.
-    const route=details(await command('spacemolt/find_route',{id:poiId}));
-    if(!route.found)return {arrived:false,reason:String(route.message??`No route to ${poiId}`),elapsed_s:elapsed(started)};
-    try {
-      // maxJumps null: the mood's fuel reserve bounds the trip, not a jump count.
-      const {location}=await travelTo(account,command,{system_id:String(route.target_system),poi_id:poiId},
-        {mood:'Cautious',maxJumps:null});
-      return {arrived:true,location:{system:location?.system_id,poi:location?.poi_id,docked_at:location?.docked_at??null},
-        fuel:account.state.ship?.fuel,elapsed_s:elapsed(started)};
-    } catch(error) {
-      const reason=error instanceof Error?error.message:String(error);
-      if(error instanceof FuelRouteShortfall) {
-        const {actualFuel,requiredFuel,shortfall}=error.evidence;
-        return {arrived:false,reason,fuel:actualFuel,required_fuel:requiredFuel,shortfall,elapsed_s:elapsed(started)};
-      }
-      return {arrived:false,reason,elapsed_s:elapsed(started)};
-    }
-  };
-  /** Where the trip starts and ends, resolved from live state so the model names only a site. */
-  const gatherPlan=async(params:Record<string,unknown>):Promise<GatherPlan>=>{
-    const sitePoi=String(params.poi_id??'');
-    if(!sitePoi)throw new Error('gather requires a poi_id: the mining site to work');
-    await account.refresh();
-    // The server says which system holds each end of the trip. Home is where the ore is
-    // stowed, not a limit on where it is mined: a site one jump out is a route, not a refusal.
-    const route=async(id:string)=>{
-      const answer=details(await command('spacemolt/find_route',{id}));
-      if(!answer.found)throw new Error(String(answer.message??`No route to ${id}`));
-      return answer;
-    };
-    const site=await route(sitePoi);
-    const homeBase=String(params.base_id??account.state.location?.docked_at??pilot().home??'');
-    if(!homeBase)throw new Error('gather needs a base_id to stow at: pass one or set a home');
-    const home=await route(homeBase);
-    // The hold the pilot already has is its own — cabins, fitted spares — and the plan says
-    // so, because a job resumed after a restart never saw the departure that proved it.
-    return {home:{system_id:String(home.target_system),poi_id:String(home.target_poi),base_id:homeBase},
-      site:{system_id:String(site.target_system),poi_id:sitePoi},mood:pilot().mood??'Cautious',
-      keep:Array.isArray(params.keep)?params.keep.map(String):Object.keys(miningInventory(account.state))};
-  };
-  /** One trip out and back: the job owns the steps, this reports the one outcome. */
-  const gather=async(params:Record<string,unknown>)=>{
-    const plan=await gatherPlan(params);
-    const started=Date.now();
-    try {
-      const result=await gatherJob(account,command,plan);
-      return {outcome:result.outcome,steps:result.steps,yield:result.yield,
-        sold:result.settled?.sold??[],held:result.settled?.held??[],
-        credits:account.state.player?.credits,fuel:account.state.ship?.fuel,
-        elapsed_s:elapsed(started),...result.reason===undefined?{}:{reason:result.reason}};
-    } catch(error) {
-      return {outcome:'failed',reason:error instanceof Error?error.message:String(error),
-        elapsed_s:elapsed(started)};
-    }
-  };
-  const dock=async(baseId?:string)=>{
-    try {
-      const {docked_at,already_docked}=await dockAt(account,command,baseId);
-      return {docked:true,docked_at,already_docked};
-    } catch(error){return {docked:false,reason:error instanceof Error?error.message:String(error)};}
-  };
+  const runner=options.runScript??defaultRunScript;
+  const message=(error:unknown)=>error instanceof Error?error.message:String(error);
+  // The reads and the short moves are the same helpers a script is given, so the operator's
+  // window and a running script cannot answer the same question two different ways.
+  const readCtx=():Ctx=>({account,command,mood:pilot().mood??'Cautious',
+    permissions:pilot().permissions??{},jobs:[],keep:[],
+    ...pilot().home===undefined?{}:{home:pilot().home as string},
+    ...options.runtime===undefined?{}:{runtime:options.runtime},
+    check:async()=>{},progress:()=>{},resuming:()=>false});
+  const where=()=>whereHelper(readCtx());
+  const travel=(poiId:string)=>travelHelper(readCtx(),poiId);
+  const dock=(baseId?:string)=>dockHelper(readCtx(),baseId);
   /** The facts the rules table reads, assembled from live state and the pilot record.
    * Board, threats and obligations stay empty until reads for them exist; the menu's own
    * refusals then say what is missing, which is the honest answer. */
@@ -162,7 +84,7 @@ export function serve(account:ReadinessAccount,command:ReadinessCommand,options:
     if(!who.mood)throw new Error('The pilot record names no mood; the runner sets stance and mood at rest');
     await account.refresh();
     const {location,ship,player}=account.state;
-    const rows=stations(await currentSystem());
+    const rows=stations(await currentSystem(command));
     const docked=location?.docked_at??null;
     const counters:CounterName[]=[];
     let service_prices:{fuel?:number;hull?:number}|undefined;
@@ -203,94 +125,94 @@ export function serve(account:ReadinessAccount,command:ReadinessCommand,options:
     };
   };
 
-  // One chain at a time: the runner's own work, which outlives the conversation that asked
-  // for it (N5) and, written down, the runner process too (N22). `running` is the chain in
+  // One run at a time: the runner's own work, which outlives the conversation that asked
+  // for it (N5) and, written down, the runner process too (N22). `running` is the script in
   // flight; `last` is what the next juncture reads, from memory or from the record on disk.
+  // The run has no id: it is the script it runs and the moment it started.
   const runtime=options.runtime;
-  const stored=()=>runtime?readChain(runtime):null;
-  let running:{chain_id:string}|null=null,record:ChainRecord|undefined,last:Record<string,unknown>|null=null;
-  // Chain ids stay unique across restarts: a resumed chain-1 must not be followed by another.
-  let counter=Number(stored()?.chain_id?.split('-')[1])||0;
-  const progress=()=>({kind:record?.kind,length:record?.length,position:record?.position,ended:record?.ended});
-  const busy=()=>({chain_id:running!.chain_id,record:progress()});
-  /** Every progress callback, so a runner that dies between two jobs is found mid-chain. */
-  const remember=(chain_id:string,step:ChainRecord)=>{
-    record=step;
-    if(runtime)writeChain(runtime,{...step,chain_id});
+  const stored=()=>runtime?readRun(runtime):null;
+  let running:{script:string}|null=null,record:RunRecord|undefined,flight:Promise<unknown>|null=null,
+    last:Record<string,unknown>|null=null;
+  const progress=()=>({script:record?.script,started:record?.started,last_job:record?.last_job,
+    last_step:record?.last_step,ended:record?.ended});
+  const busy=()=>({script:running!.script,record:progress()});
+  /** The run ended: `last` is what the next juncture reads. The runner wrote the record and
+   * the journal lines itself, because it is the one thing that knows the run is over. */
+  const conclude=(outcome:Record<string,unknown>)=>{last=outcome;running=null;flight=null;};
+  /** What the next juncture reads: this runner's own run, or the one before it left. */
+  const lastOutcome=()=>last??stored()?.outcome??null;
+  const facts=async():Promise<Facts|null>=>{
+    const who=pilot();
+    return who.mood?await factsNow(who):null;
   };
-  /** The chain ended: the record closes, the journal gets its one line, `last` is set. */
-  const conclude=(chain_id:string,outcome:Record<string,unknown>)=>{
-    last={chain_id,...outcome};
-    if(runtime) {
-      writeChain(runtime,{kind:record?.kind??'once',jobs:record?.jobs??[],length:record?.length??0,
-        position:record?.position??0,ended:true,chain_id,outcome});
-      // A move the world made gets its own line: a reader of the journal should find it
-      // without digging it out of a chain outcome (S45, C13).
-      if(outcome.moved)journalChain(runtime,{chain_id,...outcome.moved as Record<string,unknown>},'unsolicited_move');
-      journalChain(runtime,{chain_id,...outcome});
-    }
-    running=null;
+  /** Start a run and come straight back: the conversation ends, the run does not.
+   *
+   * The script is loaded and its parameters checked before anything is started, so a script
+   * that does not exist, will not pass the lint, or was named with the wrong parameters is a
+   * refusal the caller reads — never a job half begun. */
+  const startRun=async(params:Record<string,unknown>)=>{
+    if(running)return {accepted:false,
+      reason:'a script is already running; the runner raises the juncture when it ends',...busy()};
+    const script=String(params.script??'');
+    const args=(params.params??{}) as Record<string,unknown>;
+    await prepareRun(script,args,options.scriptsDir);
+    const who=pilot();
+    const started=new Date().toISOString();
+    running={script};
+    record={script,params:args,started,keep:[],ended:false};
+    flight=runner({account,command,script,params:args,facts,started,
+      mood:who.mood??'Cautious',permissions:who.permissions??{},
+      ...who.home===undefined?{}:{home:who.home},
+      ...runtime===undefined?{}:{runtime},
+      ...options.scriptsDir===undefined?{}:{scriptsDir:options.scriptsDir},
+      onProgress:step=>{record=step;}});
+    watch(script,flight as Promise<RunOutcome>);
+    return {accepted:true,script,record:progress()};
   };
-  /** What the next juncture reads: this runner's own chain, or the one before it left. */
-  const lastOutcome=()=>{
-    if(last)return last;
-    const kept=stored();
-    return kept?.outcome?{chain_id:kept.chain_id,...kept.outcome}:null;
-  };
-  const watch=(chain_id:string,inFlight:Promise<Awaited<ReturnType<typeof defaultRunChain>>>)=>{
-    void inFlight.then(
-      outcome=>conclude(chain_id,{outcome:outcome.outcome,juncture:outcome.juncture,jobs:outcome.jobs,
-        ...outcome.moved?{moved:outcome.moved}:{}}),
-      error=>conclude(chain_id,{outcome:'failed',
-        juncture:{reason:error instanceof Error?error.message:String(error)}}),
-    );
-  };
-
-  const chainFrom=async(params:Record<string,unknown>):Promise<Chain>=>{
-    const name=String(params.job??'gather');
-    if(name!=='gather')throw new Error(`Unknown job: ${name}. This runner knows: gather`);
-    const jobs=[{job:'gather' as const,params:await gatherPlan(params)}];
-    const repeat=params.repeat===undefined?1:Number(params.repeat);
-    if(!Number.isInteger(repeat)||repeat<1)throw new Error('repeat must be a whole number of jobs, at least one');
-    return repeat===1?{kind:'once',jobs}:{kind:'loop',jobs,length:repeat};
-  };
-  /** Start a chain and come straight back: the conversation ends, the chain does not. */
-  const startJob=async(params:Record<string,unknown>)=>{
-    if(running)return {accepted:false,reason:'a chain is already running; the runner raises the juncture when it ends',...busy()};
-    const chain=await chainFrom(params);
-    const chain_id=`chain-${++counter}`;
-    record=undefined;
-    // runChain reports the record before its first await, so a chain that started has one.
-    const inFlight=runner(account,command,chain,{onProgress:step=>remember(chain_id,step)});
-    if(!record)await inFlight; // it never started: surface the refusal to the caller
-    running={chain_id};
-    watch(chain_id,inFlight);
-    return {accepted:true,chain_id,record:progress()};
+  const watch=(script:string,inFlight:Promise<RunOutcome>)=>{
+    void inFlight.then(outcome=>conclude({...outcome}),
+      error=>conclude({script,outcome:'failed',reason:message(error),jobs:[]}));
   };
   /** What the runner does about the work it was doing when it died (N22).
    *
-   * Not a re-run: the job that was in flight resumes from the step the live world implies,
-   * so nothing whose effect is already visible is sent again, and a world that matches no
-   * step of it ends the chain blocked with the definition kept for the next juncture. */
+   * The script is re-run from the top. Every job is named for an end state and sends nothing
+   * when that state already holds, so nothing whose effect is already visible happens twice;
+   * the job that was in flight re-enters at the step the live world implies, and a world
+   * that matches no step of it ends the run blocked with the record kept. */
   const resume=async()=>{
     const kept=stored();
     if(!kept||kept.ended)return {resumed:false,last:lastOutcome()};
-    if(running)return {resumed:false,reason:'a chain is already running',...busy()};
-    const {chain_id,kind,jobs,length,position}=kept;
-    running={chain_id};
-    record={kind,jobs,length,position,ended:false};
-    // A chain killed after its last job still resumes into it: every step's end state
-    // already holds, so it closes done without sending anything.
-    const resumeAt=Math.min(Math.max(position,0),length-1);
-    watch(chain_id,runner(account,command,{kind,jobs,...kind==='loop'?{length}:{}} as Chain,
-      {onProgress:step=>remember(chain_id,step),resumeAt}));
-    return {resumed:true,chain_id,record:progress()};
+    if(running)return {resumed:false,reason:'a script is already running',...busy()};
+    const who=pilot();
+    running={script:kept.script};
+    record=kept;
+    flight=runner({account,command,script:kept.script,params:kept.params,facts,
+      started:kept.started,resume:kept,mood:who.mood??'Cautious',permissions:who.permissions??{},
+      ...who.home===undefined?{}:{home:who.home},
+      ...runtime===undefined?{}:{runtime},
+      ...options.scriptsDir===undefined?{}:{scriptsDir:options.scriptsDir},
+      onProgress:step=>{record=step;}});
+    watch(kept.script,flight as Promise<RunOutcome>);
+    return {resumed:true,script:kept.script,record:progress()};
   };
+  /** One trip out and back, waited for: the direct tool is the operator's, not a juncture's,
+   * and it answers with the outcome rather than leaving the window to poll for it. */
+  const gather=async(params:Record<string,unknown>)=>{
+    const args:Record<string,unknown>={};
+    if(params.poi_id!==undefined)args.poi_id=String(params.poi_id);
+    if(params.base_id!==undefined)args.base_id=String(params.base_id);
+    if(Array.isArray(params.keep))args.keep=params.keep.map(String);
+    const begun=await startRun({script:'gather',params:args});
+    if(!begun.accepted)return begun;
+    await flight?.catch(()=>{});
+    return lastOutcome();
+  };
+
   const menu=async()=>{
     if(running)return {busy:true,...busy()};
     const who=pilot();
     // No stance is no shift: what a resting pilot is consulted about is not a menu of work
-    // but the reflection the next shift is chosen from (N7). A running chain still wins:
+    // but the reflection the next shift is chosen from (N7). A running script still wins:
     // the pilot is at work whatever the record says.
     if(!who.stance||!who.mood)return reflect();
     const facts=await factsNow(who);
@@ -321,7 +243,7 @@ export function serve(account:ReadinessAccount,command:ReadinessCommand,options:
    */
   const rest=async()=>{
     if(running)return {rested:false,
-      reason:'a chain is running; rest at the juncture the runner raises when it ends',...busy()};
+      reason:'a script is running; rest at the juncture the runner raises when it ends',...busy()};
     const who=pilot();
     const facts=await factsNow(who);
     const verdict=evaluateMenu(facts).find(row=>row.job===REST_JOB);
@@ -331,7 +253,7 @@ export function serve(account:ReadinessAccount,command:ReadinessCommand,options:
     const {stance,mood,goal,...kept}=who;
     options.setPilot(kept);
     const cleared={home:facts.place.base_id,...stance?{stance}:{},...mood?{mood}:{},...goal?{goal}:{}};
-    if(runtime)journalChain(runtime,cleared,'rest');
+    if(runtime)journalRun(runtime,cleared,'rest');
     return {rested:true,shift_ended:true,at_rest:true,cleared,
       serviced:facts.holdings.fuel>=facts.holdings.max_fuel&&facts.holdings.hull>=facts.holdings.max_hull};
   };
@@ -360,7 +282,8 @@ export function serve(account:ReadinessAccount,command:ReadinessCommand,options:
     quote:params=>quoteRecipe(account,command,{recipe_id:String(params.recipe_id??''),
       ...params.quantity===undefined?{}:{quantity:Number(params.quantity)}}),
     menu,
-    job:startJob,
+    run:startRun,
+    scripts:async()=>listScripts(options.scriptsDir),
     resume,
     status:async()=>running?{running:true,...busy()}:{running:false,last:lastOutcome()},
   };
@@ -409,7 +332,7 @@ async function main() {
   process.on('exit',unlock); // every exit path releases it, uncaught errors included
   const account=new Account({url:GAME_WS_URL,reconnect:true,credentials});
   // Stdin EOF, SIGTERM and SIGINT all say the same thing: the gateway that owns this bridge is
-  // gone. A chain in flight is abandoned rather than awaited — its last progress record is
+  // gone. A run in flight is abandoned rather than awaited — its last progress record is
   // already journalled. `stopped` also stops the request loop from taking on new work once
   // shutdown has started.
   let stopped=false;
