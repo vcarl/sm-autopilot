@@ -2,6 +2,7 @@ import {mkdir,open,readFile,rename,unlink} from 'node:fs/promises';
 import {dirname,join} from 'node:path';
 import {createHash,randomUUID} from 'node:crypto';
 import {resolveFuelReserve,type Mood} from './mood-policy.ts';
+import type {GameState} from '@spacemolt/lib';
 import type {FuelRouteEvidence} from './travel.ts';
 
 export interface PilotFuelState {
@@ -16,13 +17,28 @@ export interface FuelTransition {
   evidence:FuelRouteEvidence;
   station:ServicedStation;
 }
+/** D3: resupply clears Tired and restores the mood held at the crossing. Recorded, not latched. */
+export interface FuelRestoration {
+  mood:Exclude<Mood,'Tired'>;priorMood:'Tired';reason:string;rule:'D3.resupply';
+  observed:{ship:GameState['ship'];location:GameState['location']};
+}
+export type FuelJournalEntry=FuelTransition|FuelRestoration;
+
+/** The mood a resupply restores: the one held at the most recent crossing. */
+export function moodBeforeTired(transitions:readonly FuelJournalEntry[]):Exclude<Mood,'Tired'>|undefined {
+  for(let i=transitions.length-1;i>=0;i--) {
+    const entry=transitions[i];
+    if(entry.rule==='D3.fuel')return entry.priorMood;
+  }
+  return undefined;
+}
 /** Supplied by the runner from observed station service data, never directory presence alone. */
 export interface ServicedStation {
   base_id:string;poi_id:string;system_id:string;
   services:{refuel:boolean};
   observation:{source:string;observedAt:string};
 }
-interface JournalData {version:1;pilotId:string;state:PilotFuelState;transitions:FuelTransition[]}
+interface JournalData {version:1;pilotId:string;state:PilotFuelState;transitions:FuelJournalEntry[]}
 
 /** One runner owns this per-pilot journal, just as it owns the account connection. */
 export class FuelJournal {
@@ -45,8 +61,8 @@ export class FuelJournal {
     if(data.version!==1||data.pilotId!==pilotId||!data.state||!Array.isArray(data.transitions))throw new Error('Invalid fuel journal identity or version');
     resolveFuelReserve(data.state.mood);
     if(data.state.mood==='Tired') {
-      const prior=data.transitions[0]?.priorMood;
-      if(!prior||String(prior)==='Tired')throw new Error('Tired journal lacks prior mood');
+      const prior=moodBeforeTired(data.transitions);
+      if(!prior)throw new Error('Tired journal lacks prior mood');
       resolveFuelReserve(prior);
     }
     return new FuelJournal(path,data);
@@ -70,8 +86,18 @@ export class FuelJournal {
     this.assertReady();
     if(this.data.state.mood==='Tired')return;
     if(transition.priorMood!==this.data.state.mood||transition.evidence.kind!=='available_fuel'||transition.evidence.shortfall<=0)throw new Error('Invalid fuel transition');
+    await this.commit('Tired',transition);
+  }
+  /** Nobody clears Tired by hand: the restoration is decided from a verified post-state. */
+  async restore(restoration:FuelRestoration) {
+    this.assertReady();
+    if(this.data.state.mood!=='Tired')return;
+    if(restoration.priorMood!=='Tired'||restoration.mood!==moodBeforeTired(this.data.transitions))throw new Error('Invalid fuel restoration');
+    await this.commit(restoration.mood,restoration);
+  }
+  private async commit(mood:Mood,entry:FuelJournalEntry) {
     const next=structuredClone(this.data);
-    next.state.mood='Tired';next.transitions.push(structuredClone(transition));
+    next.state.mood=mood;next.transitions.push(structuredClone(entry));
     try {await this.write(next);}
     catch(error) {
       // A failed directory sync can leave the rename visible but durability unknown.
