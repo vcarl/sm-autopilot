@@ -18,6 +18,9 @@ for line in sys.stdin:
         "where": {"system": {"id": "sol", "name": "Sol"}, "pois": [{"id": "belt", "name": "Belt", "type": "belt"}]},
         "travel": {"arrived": True, "location": {"system": "sol", "poi": request["params"].get("poi_id")}},
         "dock": {"docked": True, "docked_at": "sol_base", "already_docked": False},
+        "gather": {"outcome": "done", "steps": [{"name": "verify", "outcome": "done"}],
+                   "sold": [{"item_id": "ore", "quantity": 12, "quoted": 120, "cleared": 120}],
+                   "params": request["params"]},
     }
     print(json.dumps({"id": request["id"], "ok": True, "result": answers[request["action"]]}), flush=True)
 '''
@@ -43,8 +46,12 @@ def test_every_tool_answers_from_the_one_bridge(bridged):
     arrival = json.loads(spacemolt._travel({"poi_id": "belt"}))
     assert arrival == {"arrived": True, "location": {"system": "sol", "poi": "belt"}}
     assert json.loads(spacemolt._dock({})) == {"docked": True, "docked_at": "sol_base", "already_docked": False}
+    # An omitted home leaves the bridge to default it to the dock the ship is at.
+    job = json.loads(spacemolt._gather({"poi_id": "belt", "keep": ["cabin_economy"]}))
+    assert job["outcome"] == "done"
+    assert job["params"] == {"poi_id": "belt", "keep": ["cabin_economy"]}
     # Every call travelled the same connection: the plugin owns one bridge, not one per tool.
-    assert service._bridge is not None and service._bridge.counter == 3
+    assert service._bridge is not None and service._bridge.counter == 4
 
 
 def test_register_publishes_every_tool_in_the_spacemolt_toolset():
@@ -61,12 +68,14 @@ def test_register_publishes_every_tool_in_the_spacemolt_toolset():
             unloads.append(callback)
 
     spacemolt.register(RecordingContext())
-    assert set(tools) == {"spacemolt_where", "spacemolt_travel", "spacemolt_dock"}
+    assert set(tools) == {"spacemolt_where", "spacemolt_travel", "spacemolt_dock", "spacemolt_gather"}
     assert {toolset for toolset, *_ in tools.values()} == {"spacemolt"}
     assert tools["spacemolt_travel"][1]["parameters"]["required"] == ["poi_id"]
     assert tools["spacemolt_where"][1]["parameters"]["properties"] == {}
     # Docking where the ship already is needs no argument from the model.
     assert tools["spacemolt_dock"][1]["parameters"]["required"] == []
+    # A job names the site it works; home and the keep list are the script's to default.
+    assert tools["spacemolt_gather"][1]["parameters"]["required"] == ["poi_id"]
     # Credentials gate the tools out of the schema, and unload must release the bridge.
     assert all(kwargs["requires_env"] == ["SPACEMOLT_CREDENTIALS_FILE"] for *_, kwargs in tools.values())
     assert sections and unloads == [service.close_bridge]
