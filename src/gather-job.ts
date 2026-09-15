@@ -20,7 +20,16 @@ export interface GatherPlan {
 }
 /** `blocked` is a world the pilot can answer at a juncture; `failed` needs a reading. */
 export type StepOutcome='done'|'blocked'|'failed';
+/** The job's steps, in the order they run. The list is also the resume ladder. */
+export const STEPS=['travel','mine','return','dock','settle','service','verify'] as const;
+export type GatherStepName=typeof STEPS[number];
 export interface GatherStep {name:string;outcome:StepOutcome;reason?:string}
+export interface GatherOptions extends TravelOptions {
+  /** This job was already under way when the runner died. The world, not the record, says
+   * where it had got to: the entry read below picks the step and the ones before it are
+   * skipped rather than re-sent. */
+  resume?:boolean;
+}
 export interface GatherOutcome {
   outcome:StepOutcome;
   steps:GatherStep[];
@@ -54,6 +63,42 @@ function differences(state:GameState,plan:GatherPlan,settled:SettleOutcome,own:S
   if(ship.hull<ship.max_hull)out.push(`hull ${ship.hull} of ${ship.max_hull}`);
   return out;
 }
+
+/** Where a job that was already under way re-enters, read from the world and nothing else.
+ *
+ * Every step of a gather job is named for an end state and already sends nothing when that
+ * state holds (S42): `travelTo` to a POI the ship is at, `mineToFull` on a full hold,
+ * `dockAt` on a dock the ship has, a deposit bounded by what the hold still shows, a
+ * service with no fuel or hull due. So resuming is not a special mode — it is entering the
+ * same ladder at the rung the world implies, which is what makes it safe to re-run.
+ *
+ * The one thing the world cannot say is whether a job had begun at all: docked at home with
+ * a clear hold is both a gather job's start and its end. Only the runner's record breaks
+ * that tie, which is why this is asked for by `resume` and never inferred.
+ */
+export function entryStep(state:GameState,plan:GatherPlan,take:number):GatherStepName|{blocked:string} {
+  const {ship,location}=state??{};
+  if(!ship||!location)return {blocked:'authoritative ship and location unavailable'};
+  const here=`${location.system_id}/${location.poi_id??'nowhere'}`;
+  if(location.in_transit)
+    return location.transit_dest_poi_id===plan.site.poi_id?'travel':'return';
+  if(location.docked_at)
+    return location.docked_at!==plan.home.base_id
+      ?{blocked:`docked at ${location.docked_at}, which is neither this job's home ${plan.home.base_id} nor a step of it`}
+      :take>0?'settle':'service';
+  if(location.system_id===plan.site.system_id&&location.poi_id===plan.site.poi_id)
+    return ship.cargo_used>=ship.cargo_capacity?'return':'mine';
+  if(location.system_id===plan.home.system_id&&location.poi_id===plan.home.poi_id)return 'dock';
+  return {blocked:`at ${here}, which is neither the site ${plan.site.system_id}/${plan.site.poi_id} nor home ${plan.home.system_id}/${plan.home.poi_id}`};
+}
+
+/** Two measures of the same hold, summed per item: a resumed job's take plus what it mines. */
+const addYield=(rows:MineYieldRow[],more:MineYieldRow[]):MineYieldRow[]=>{
+  const totals:Record<string,number>={};
+  for(const row of [...rows,...more])totals[row.item_id]=(totals[row.item_id]??0)+row.quantity;
+  return Object.entries(totals).sort(([a],[b])=>a<b?-1:1)
+    .map(([item_id,quantity])=>({item_id,quantity}));
+};
 
 /** The station's own store, probed once. No storage is not a failure; it is a full hold. */
 const hasStorage=async(command:ReadinessCommand)=>{
@@ -126,11 +171,36 @@ async function stowYield(account:ReadinessAccount,command:ReadinessCommand,
  * naming what differed.
  */
 export async function gatherJob(account:ReadinessAccount,command:ReadinessCommand,
-  plan:GatherPlan,options:TravelOptions={}):Promise<GatherOutcome> {
+  plan:GatherPlan,options:GatherOptions={}):Promise<GatherOutcome> {
   const steps:GatherStep[]=[];
   let mined:MineYieldRow[]=[],settled:SettleOutcome|null=null,serviced:ServiceOutcome|null=null;
-  const legOptions={...options,mood:plan.mood};
-  const attempt=async(name:string,run:()=>Promise<Omit<GatherStep,'name'>|void>) => {
+  const {resume,...travelOptions}=options;
+  const legOptions={...travelOptions,mood:plan.mood};
+  // The hold at the opening read is the pilot's own — cabins, fitted spares, whatever was
+  // already aboard — so the closing read expects it to still be there at the end.
+  const own=new Set(plan.keep??[]);
+  let from=0;
+
+  if(resume) {
+    // Reconcile before deciding anything: the world moved while the runner was gone.
+    await account.refresh();
+    // A resumed job never saw its own departure, so `keep` is the whole of what it may
+    // treat as the pilot's own; everything else aboard is this job's take.
+    const aboard=Object.entries(miningInventory(account.state))
+      .filter(([item_id,quantity])=>quantity>0&&!own.has(item_id))
+      .map(([item_id,quantity])=>({item_id,quantity}));
+    const entry=entryStep(account.state,plan,aboard.length);
+    if(typeof entry!=='string') {
+      steps.push({name:'resume',outcome:'blocked',reason:entry.blocked});
+      return {outcome:'blocked',steps,yield:[],settled:null,serviced:null,
+        reason:`resume blocked: ${entry.blocked}`};
+    }
+    from=STEPS.indexOf(entry);
+    if(from>STEPS.indexOf('travel'))mined=addYield([],aboard);
+  }
+
+  const attempt=async(name:GatherStepName,run:()=>Promise<Omit<GatherStep,'name'>|void>) => {
+    if(STEPS.indexOf(name)<from)return null; // its end state already holds; send nothing
     let report:Omit<GatherStep,'name'>|void;
     try {report=await run();}
     catch(error){report={outcome:blocking(error)?'blocked':'failed',reason:message(error)};}
@@ -140,9 +210,6 @@ export async function gatherJob(account:ReadinessAccount,command:ReadinessComman
       reason:`${name} ${outcome}: ${reason}`} satisfies GatherOutcome;
   };
 
-  // The hold at the opening read is the pilot's own — cabins, fitted spares, whatever was
-  // already aboard — so the closing read expects it to still be there at the end.
-  const own=new Set(plan.keep??[]);
   let stop=await attempt('travel',async()=>{
     await account.refresh();
     for(const item_id of Object.keys(miningInventory(account.state)))own.add(item_id);
@@ -152,7 +219,7 @@ export async function gatherJob(account:ReadinessAccount,command:ReadinessComman
 
   stop=await attempt('mine',async()=>{
     const dug=await mineToFull(account,command);
-    mined=dug.yield;
+    mined=addYield(mined,dug.yield);
     if(dug.outcome==='failed')return {outcome:'failed',reason:dug.reason};
     // A site that gave nothing is not a trip to finish; one that gave something is.
     if(dug.outcome==='depleted')return {outcome:mined.length?'done':'blocked',reason:dug.reason};

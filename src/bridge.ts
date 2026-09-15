@@ -6,11 +6,13 @@ import {resolve} from 'node:path';
 import {createInterface} from 'node:readline';
 import {fileURLToPath} from 'node:url';
 import {runChain as defaultRunChain,type Chain,type ChainRecord} from './chain.ts';
+import {journalChain,readChain,writeChain} from './chain-record.ts';
 import {controllerLock} from './controller-lock.ts';
 import type {ReadinessAccount,ReadinessCommand} from './readiness.ts';
 import {details} from './response-details.ts';
 import {dockAt} from './dock.ts';
 import {gatherJob,type GatherPlan} from './gather-job.ts';
+import {miningInventory} from './mining-inventory.ts';
 import {buildMenu} from './menu.ts';
 import type {Mood} from './mood-policy.ts';
 import type {CounterName,Facts,StanceName} from './rules-table.ts';
@@ -22,7 +24,12 @@ export type Dispatch=(action:string,params?:Record<string,unknown>)=>Promise<unk
 /** What the runner set at the last rest. The agent never writes any of it. */
 export interface Pilot {name?:string;objective?:string;stance?:StanceName;mood?:Mood;home?:string;
   permissions?:Facts['permissions']}
-export interface ServeOptions {pilot?:()=>Pilot;runChain?:typeof defaultRunChain}
+export interface ServeOptions {
+  pilot?:()=>Pilot;runChain?:typeof defaultRunChain;
+  /** Where the chain record and the journal live. Without one the runner keeps the chain
+   * in memory alone, which is what a restart loses (N22). */
+  runtime?:string;
+}
 
 /** The pilot record, or an empty one: a pilot with no record has no stance and no menu. */
 export function readPilot(path:string):Pilot {
@@ -88,9 +95,11 @@ export function serve(account:ReadinessAccount,command:ReadinessCommand,options:
     const station=stations(await currentSystem())
       .find(poi=>homePoi?poi.id===homePoi:Boolean(homeBase)&&poi.base_id===homeBase);
     if(!station?.base_id)throw new Error('gather requires a home station in this system; pass its base_id or home_poi_id');
+    // The hold the pilot already has is its own — cabins, fitted spares — and the plan says
+    // so, because a job resumed after a restart never saw the departure that proved it.
     return {home:{system_id,poi_id:String(station.id),base_id:String(station.base_id)},
       site:{system_id,poi_id:sitePoi},mood:pilot().mood??'Cautious',
-      keep:Array.isArray(params.keep)?params.keep.map(String):[]};
+      keep:Array.isArray(params.keep)?params.keep.map(String):Object.keys(miningInventory(account.state))};
   };
   /** One trip out and back: the job owns the steps, this reports the one outcome. */
   const gather=async(params:Record<string,unknown>)=>{
@@ -155,10 +164,43 @@ export function serve(account:ReadinessAccount,command:ReadinessCommand,options:
   };
 
   // One chain at a time: the runner's own work, which outlives the conversation that asked
-  // for it (N5). `running` is the chain in flight; `last` is what the next juncture reads.
-  let running:{chain_id:string}|null=null,record:ChainRecord|undefined,last:Record<string,unknown>|null=null,counter=0;
+  // for it (N5) and, written down, the runner process too (N22). `running` is the chain in
+  // flight; `last` is what the next juncture reads, from memory or from the record on disk.
+  const runtime=options.runtime;
+  const stored=()=>runtime?readChain(runtime):null;
+  let running:{chain_id:string}|null=null,record:ChainRecord|undefined,last:Record<string,unknown>|null=null;
+  // Chain ids stay unique across restarts: a resumed chain-1 must not be followed by another.
+  let counter=Number(stored()?.chain_id?.split('-')[1])||0;
   const progress=()=>({kind:record?.kind,length:record?.length,position:record?.position,ended:record?.ended});
   const busy=()=>({chain_id:running!.chain_id,record:progress()});
+  /** Every progress callback, so a runner that dies between two jobs is found mid-chain. */
+  const remember=(chain_id:string,step:ChainRecord)=>{
+    record=step;
+    if(runtime)writeChain(runtime,{...step,chain_id});
+  };
+  /** The chain ended: the record closes, the journal gets its one line, `last` is set. */
+  const conclude=(chain_id:string,outcome:Record<string,unknown>)=>{
+    last={chain_id,...outcome};
+    if(runtime) {
+      writeChain(runtime,{kind:record?.kind??'once',jobs:record?.jobs??[],length:record?.length??0,
+        position:record?.position??0,ended:true,chain_id,outcome});
+      journalChain(runtime,{chain_id,...outcome});
+    }
+    running=null;
+  };
+  /** What the next juncture reads: this runner's own chain, or the one before it left. */
+  const lastOutcome=()=>{
+    if(last)return last;
+    const kept=stored();
+    return kept?.outcome?{chain_id:kept.chain_id,...kept.outcome}:null;
+  };
+  const watch=(chain_id:string,inFlight:Promise<Awaited<ReturnType<typeof defaultRunChain>>>)=>{
+    void inFlight.then(
+      outcome=>conclude(chain_id,{outcome:outcome.outcome,juncture:outcome.juncture,jobs:outcome.jobs}),
+      error=>conclude(chain_id,{outcome:'failed',
+        juncture:{reason:error instanceof Error?error.message:String(error)}}),
+    );
+  };
 
   const chainFrom=async(params:Record<string,unknown>):Promise<Chain>=>{
     const name=String(params.job??'gather');
@@ -175,14 +217,30 @@ export function serve(account:ReadinessAccount,command:ReadinessCommand,options:
     const chain_id=`chain-${++counter}`;
     record=undefined;
     // runChain reports the record before its first await, so a chain that started has one.
-    const inFlight=runner(account,command,chain,{onProgress:step=>{record=step;}});
+    const inFlight=runner(account,command,chain,{onProgress:step=>remember(chain_id,step)});
     if(!record)await inFlight; // it never started: surface the refusal to the caller
     running={chain_id};
-    void inFlight.then(
-      outcome=>{last={chain_id,outcome:outcome.outcome,juncture:outcome.juncture,jobs:outcome.jobs};},
-      error=>{last={chain_id,outcome:'failed',juncture:{reason:error instanceof Error?error.message:String(error)}};},
-    ).finally(()=>{running=null;});
+    watch(chain_id,inFlight);
     return {accepted:true,chain_id,record:progress()};
+  };
+  /** What the runner does about the work it was doing when it died (N22).
+   *
+   * Not a re-run: the job that was in flight resumes from the step the live world implies,
+   * so nothing whose effect is already visible is sent again, and a world that matches no
+   * step of it ends the chain blocked with the definition kept for the next juncture. */
+  const resume=async()=>{
+    const kept=stored();
+    if(!kept||kept.ended)return {resumed:false,last:lastOutcome()};
+    if(running)return {resumed:false,reason:'a chain is already running',...busy()};
+    const {chain_id,kind,jobs,length,position}=kept;
+    running={chain_id};
+    record={kind,jobs,length,position,ended:false};
+    // A chain killed after its last job still resumes into it: every step's end state
+    // already holds, so it closes done without sending anything.
+    const resumeAt=Math.min(Math.max(position,0),length-1);
+    watch(chain_id,runner(account,command,{kind,jobs,...kind==='loop'?{length}:{}} as Chain,
+      {onProgress:step=>remember(chain_id,step),resumeAt}));
+    return {resumed:true,chain_id,record:progress()};
   };
   const menu=async()=>{
     if(running)return {busy:true,...busy()};
@@ -196,7 +254,7 @@ export function serve(account:ReadinessAccount,command:ReadinessCommand,options:
         in_transit:Boolean(location?.in_transit),fuel:ship?.fuel,max_fuel:ship?.max_fuel,
         hull:ship?.hull,max_hull:ship?.max_hull,
         cargo_free:facts.holdings.cargo_free,credits:player?.credits},
-      ...buildMenu(facts),last,
+      ...buildMenu(facts),last:lastOutcome(),
     };
   };
 
@@ -209,7 +267,8 @@ export function serve(account:ReadinessAccount,command:ReadinessCommand,options:
     storage:params=>viewStorage(command,params.station_id===undefined?undefined:String(params.station_id)),
     menu,
     job:startJob,
-    status:async()=>running?{running:true,...busy()}:{running:false,last},
+    resume,
+    status:async()=>running?{running:true,...busy()}:{running:false,last:lastOutcome()},
   };
   return async(action,params={})=>{
     if(!Object.hasOwn(actions,action))throw new Error(`Unknown action: ${action}`);
@@ -249,8 +308,10 @@ async function main() {
   };
   // The runner writes the pilot record beside the runtime directory; the agent never does.
   const pilotFile=resolve(runtime,'..','pilot.json');
-  const dispatch=serve(account,command,{pilot:()=>readPilot(pilotFile)});
-  console.log(JSON.stringify({event:'ready'}));
+  const dispatch=serve(account,command,{pilot:()=>readPilot(pilotFile),runtime});
+  // Whatever this runner's predecessor was doing, it is this runner's work now (N22).
+  const resumed=await dispatch('resume',{});
+  console.log(JSON.stringify({event:'ready',resumed}));
   for await(const line of createInterface({input:process.stdin,terminal:false})) {
     if(!line.trim())continue;
     let request:{id?:string;action:string;params?:Record<string,unknown>}|undefined;

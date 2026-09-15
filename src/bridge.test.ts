@@ -202,10 +202,12 @@ test('job starts one chain in the runner and returns before it ends; status carr
   const started=await f.dispatch('job',{job:'gather',poi_id:'belt',repeat:3}) as any;
   assert.equal(started.accepted,true);
   assert.deepEqual(started.record,{kind:'loop',length:3,position:0,ended:false});
-  // The plan came from live state and the pilot's own mood, not from the model.
+  // The plan came from live state and the pilot's own mood, not from the model. `keep` is
+  // the hold the pilot already had, written down so a job resumed after a restart — which
+  // never saw the departure — still knows which cargo is the pilot's own and not its take.
   assert.deepEqual(held.started[0].jobs[0].params,
     {home:{system_id:'sol',poi_id:'station',base_id:'sol_base'},site:{system_id:'sol',poi_id:'belt'},
-      mood:'Focused',keep:[]});
+      mood:'Focused',keep:['ore']});
   assert.deepEqual(await f.dispatch('status'),{running:true,chain_id:started.chain_id,record:started.record});
 
   // A second juncture while the chain runs changes nothing and is told why.

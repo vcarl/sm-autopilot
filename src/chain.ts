@@ -35,7 +35,12 @@ export interface ChainOutcome {
   /** The one moment the agent is consulted: at the end of the chain, never between jobs. */
   juncture:{reason:string};
 }
-export interface ChainOptions extends TravelOptions {onProgress?:(record:ChainRecord)=>void}
+export interface ChainOptions extends TravelOptions {
+  onProgress?:(record:ChainRecord)=>void;
+  /** Restart the chain at this position, resuming the job that was in flight there (N22).
+   * Only that job resumes; the ones after it are ordinary trips out and back. */
+  resumeAt?:number;
+}
 
 /** How many jobs the chain will run if nothing stops it. A loop counts its length. */
 function length(chain:Chain):number {
@@ -67,14 +72,17 @@ const compact=(job:ChainJob,result:GatherOutcome):ChainJobOutcome=>({
 export async function runChain(account:ReadinessAccount,command:ReadinessCommand,
   chain:Chain,options:ChainOptions={}):Promise<ChainOutcome> {
   const total=length(chain);
-  const {onProgress,...jobOptions}=options;
-  const record:ChainRecord={kind:chain.kind,jobs:chain.jobs,length:total,position:0,ended:false};
+  const {onProgress,resumeAt,...jobOptions}=options;
+  const start=resumeAt===undefined?0:resumeAt;
+  if(!Number.isInteger(start)||start<0||start>=total)throw new Error(`A chain cannot resume at job ${start} of ${total}`);
+  const record:ChainRecord={kind:chain.kind,jobs:chain.jobs,length:total,position:start,ended:false};
   const jobs:ChainJobOutcome[]=[];
 
-  for(let position=0;position<total;position++) {
+  for(let position=start;position<total;position++) {
     onProgress?.({...record,position});
     const job=chain.kind==='loop'?chain.jobs[0]!:chain.jobs[position]!;
-    const result=await RUNNERS[job.job](account,command,job.params,jobOptions);
+    const result=await RUNNERS[job.job](account,command,job.params,
+      {...jobOptions,...position===start&&resumeAt!==undefined?{resume:true}:{}});
     jobs.push(compact(job,result));
     if(result.outcome!=='done') {
       onProgress?.({...record,position:position+1,ended:true});
