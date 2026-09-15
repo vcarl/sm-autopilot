@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from .juncture import juncture_context
 from .service import available, call, close_bridge
 
 _PROMPT = (
@@ -12,7 +13,9 @@ _PROMPT = (
     "flies to one of those poi ids, undocking first if needed; spacemolt_dock docks at the "
     "station the ship is at, and a dock the ship already has is a satisfied dock, not an error. "
     "spacemolt_gather runs one mining trip dock to dock: out, hold full, home, sold, serviced. "
-    "Travel is real game time and a "
+    "At a juncture the present and the menu are already in front of you: spacemolt_dispatch "
+    "starts one chain in the runner and returns at once, and spacemolt_status says whether "
+    "one is still running. Travel is real game time and a "
     "call can take a minute or more — wait for it, never retry a pending one. Report only what "
     "the tool result says, and use a poi id that spacemolt_where listed. Whenever asked where the "
     "ship is, call spacemolt_where first; never answer position from memory."
@@ -51,6 +54,24 @@ def _gather(arguments: dict[str, Any] | None = None, **_: Any) -> str:
     return json.dumps(call("gather", params), separators=(",", ":"))
 
 
+def _dispatch(arguments: dict[str, Any] | None = None, **_: Any) -> str:
+    args = arguments or {}
+    params: dict[str, Any] = {"job": str(args.get("job") or "gather"),
+                              "poi_id": str(args.get("poi_id") or "")}
+    for name in ("base_id", "home_poi_id"):
+        if args.get(name):
+            params[name] = str(args[name])
+    if args.get("repeat"):
+        params["repeat"] = args["repeat"]
+    if args.get("keep"):
+        params["keep"] = [str(item) for item in args["keep"]]
+    return json.dumps(call("job", params), separators=(",", ":"))
+
+
+def _status(arguments: dict[str, Any] | None = None, **_: Any) -> str:
+    return json.dumps(call("status"), separators=(",", ":"))
+
+
 TOOL_DEFINITIONS = (
     {"name": "spacemolt_where", "toolset": "spacemolt", "handler": _where,
      "description": "Read the ship's live location, fuel, hull and the POIs of the current system.",
@@ -87,6 +108,32 @@ TOOL_DEFINITIONS = (
                         "keep": {"type": "array", "items": {"type": "string"},
                                  "description": "Optional: item ids that must never be sold."}},
                        ["poi_id"])},
+    {"name": "spacemolt_dispatch", "toolset": "spacemolt", "handler": _dispatch,
+     "description": "Start one chain of jobs in the runner and return at once.",
+     "schema": _schema("spacemolt_dispatch",
+                       "Start the option you chose. The chain runs in the runner after this "
+                       "conversation ends, so this returns immediately with a chain id and its "
+                       "progress; never wait for it. Refused while another chain runs.",
+                       {"job": {"type": "string", "enum": ["gather"],
+                                "description": "The job to run; only 'gather' exists so far."},
+                        "poi_id": {"type": "string",
+                                   "description": "The site the job works, as the menu named it."},
+                        "repeat": {"type": "integer", "minimum": 1,
+                                   "description": "How many times to run the job back to back under "
+                                                  "this one juncture. Defaults to once."},
+                        "base_id": {"type": "string",
+                                    "description": "Optional: the home base to return to; defaults to "
+                                                   "the base the ship is docked at now."},
+                        "keep": {"type": "array", "items": {"type": "string"},
+                                 "description": "Optional: item ids that must never be sold."}},
+                       ["poi_id"])},
+    {"name": "spacemolt_status", "toolset": "spacemolt", "handler": _status,
+     "description": "Say whether a chain is still running, and what the last one did.",
+     "schema": _schema("spacemolt_status",
+                       "Report the running chain's progress, or the last chain's outcome when the "
+                       "pilot is idle. Never poll this in a juncture; the runner raises the next "
+                       "juncture when the chain ends.",
+                       {}, [])},
 )
 
 
@@ -94,5 +141,10 @@ def register(ctx) -> None:
     for definition in TOOL_DEFINITIONS:
         ctx.register_tool(**definition, check_fn=available,
                           requires_env=["SPACEMOLT_CREDENTIALS_FILE"], emoji="🚀")
-    ctx.register_system_prompt_section("spacemolt.flight", _PROMPT, position="after_memory", max_chars=800)
+    ctx.register_system_prompt_section("spacemolt.flight", _PROMPT, position="after_memory", max_chars=1000)
+    # The menu is delivered, not fetched (N15): core renders this once for a new session and
+    # freezes the bytes into its prompt, so a juncture never spends a turn asking what it
+    # already needed to know, and nothing changes under the conversation afterwards.
+    ctx.register_system_prompt_section("spacemolt.juncture", juncture_context,
+                                       position="after_memory", max_chars=4000)
     ctx.on_unload(close_bridge)

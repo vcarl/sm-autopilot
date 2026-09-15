@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import {serve} from './bridge.ts';
+import {serve,type Pilot,type ServeOptions} from './bridge.ts';
+import type {ChainOutcome} from './chain.ts';
 import type {ReadinessAccount,ReadinessCommand} from './readiness.ts';
 import {FakeLibGoalAccount} from './test-support/fake-lib-account.ts';
 
@@ -11,12 +12,13 @@ const system={id:'sol',name:'Sol',pois:[
   {id:'belt',name:'Inner Belt',type:'asteroid_belt',position:{x:1,y:1}},
 ]};
 
-function fixture() {
+function fixture(options:ServeOptions={}) {
   const account=new FakeLibGoalAccount({
     location:{system_id:'sol',poi_id:'station',docked_at:'sol_base' as string|null,in_transit:false},
     // The hold leaves the dock already full, so a gather job mines nothing and still
     // has to come home, settle and service before it may call itself done.
-    ship:{id:'ship',fuel:100,max_fuel:120,hull:80,max_hull:100,cargo_used:12,cargo_capacity:12},
+    // Hull stays above the Cautious D3 line: a ship below it is Tired and starts no job.
+    ship:{id:'ship',fuel:100,max_fuel:120,hull:96,max_hull:100,cargo_used:12,cargo_capacity:12},
     player:{credits:1_000},
     cargo:[{item_id:'ore',quantity:12}] as {item_id:string;quantity:number}[],
     modules:[] as {module_id:string;type_id:string;slot:string}[],
@@ -58,7 +60,7 @@ function fixture() {
     assert.ok(Object.hasOwn(handlers,action),`Unexpected command: ${action}`);
     return handlers[action]!(params);
   };
-  return {account,sent,dispatch:serve(account as unknown as ReadinessAccount,command)};
+  return {account,sent,dispatch:serve(account as unknown as ReadinessAccount,command,options)};
 }
 
 test('where reports the live position and the destinations the model may name', async () => {
@@ -120,12 +122,83 @@ test('gather runs one job from the dock the ship is at and reports a verified ou
     {system_id:'sol',poi_id:'station',docked_at:'sol_base',in_transit:false});
   assert.deepEqual(result.steps.map((step:any)=>step.name),
     ['travel','mine','return','dock','settle','service','verify']);
-  assert.deepEqual(result.sold,[{item_id:'ore',quantity:12,quoted:120,cleared:120}]);
-  // The hold is empty, the tank and hull are full, and the wallet reflects the trip.
-  assert.deepEqual(f.account.server.cargo,[]);
+  // The hold the pilot undocked with is its own: the counter never sees it, so a job that
+  // mined nothing sells nothing and still comes home serviced (C8).
+  assert.deepEqual(result.sold,[]);
+  assert.deepEqual(f.account.server.cargo,[{item_id:'ore',quantity:12}]);
   assert.deepEqual([f.account.server.ship.fuel,f.account.server.ship.hull],[120,100]);
-  assert.equal(f.account.server.player.credits,1_000+120-34-20);
+  assert.equal(f.account.server.player.credits,1_000-34-4);
   assert.ok(JSON.stringify(result).length<2048,'one compact outcome, not a transcript');
   // A destination the model never named must not become a trip.
   await assert.rejects(fixture().dispatch('gather',{}),/poi_id/);
+});
+
+const PILOT:Pilot={name:'kvothe',objective:'fill the hold',stance:'Prospector',mood:'Focused',home:'sol_base'};
+
+/** A chain that starts and does not finish, so a juncture can be observed mid-flight. */
+function heldChain() {
+  const started:any[]=[];
+  let release:((outcome:ChainOutcome)=>void)|undefined;
+  const runChain=((_account:unknown,_command:unknown,chain:any,options:any)=>{
+    started.push(chain);
+    options?.onProgress?.({kind:chain.kind,jobs:chain.jobs,
+      length:chain.length??chain.jobs.length,position:0,ended:false});
+    return new Promise<ChainOutcome>(resolve=>{release=resolve;});
+  }) as any;
+  return {runChain,started,finish:(outcome:ChainOutcome)=>release!(outcome)};
+}
+const settle=()=>new Promise(resolve=>setImmediate(resolve));
+
+test('menu assembles the present from live state and answers with the rules table', async () => {
+  const f=fixture({pilot:()=>PILOT});
+  const menu=await f.dispatch('menu') as any;
+  assert.equal(f.account.refreshes.length>0,true,'the present must come from an authoritative read');
+  assert.equal(menu.stance,'Prospector');
+  assert.equal(menu.objective,'fill the hold');
+  assert.deepEqual([menu.present.docked_at,menu.present.fuel,menu.present.cargo_free],['sol_base',100,0]);
+  const offered=menu.options.map((option:any)=>option.job);
+  // The station's own counter, the way home to a serviced ship, and the one quoted site.
+  assert.ok(offered.includes('Counter: Services'),offered.join(' | '));
+  assert.ok(offered.includes('J12 Home, serviced'));
+  assert.ok(offered.includes('Travel to belt'),'the route quote for this system governs its POIs');
+  for(const option of menu.options)assert.ok(option.reason&&option.bounds.fuelReserve>0);
+  // A full hold is why the stance's own job is refused, and the menu says so.
+  const refused=menu.unavailable.find((row:any)=>row.job.startsWith('J1 '));
+  assert.match(refused.reason,/hold is full/);
+  assert.equal(menu.last,null,'nothing has run yet');
+  assert.ok(JSON.stringify(menu).length<4096,'one consultation, not a transcript');
+  // A pilot with no stance and no mood has no menu at all.
+  await assert.rejects(fixture().dispatch('menu'),/mood/);
+});
+
+test('job starts one chain in the runner and returns before it ends; status carries it', async () => {
+  const held=heldChain();
+  const f=fixture({pilot:()=>PILOT,runChain:held.runChain});
+  assert.deepEqual(await f.dispatch('status'),{running:false,last:null});
+
+  const started=await f.dispatch('job',{job:'gather',poi_id:'belt',repeat:3}) as any;
+  assert.equal(started.accepted,true);
+  assert.deepEqual(started.record,{kind:'loop',length:3,position:0,ended:false});
+  // The plan came from live state and the pilot's own mood, not from the model.
+  assert.deepEqual(held.started[0].jobs[0].params,
+    {home:{system_id:'sol',poi_id:'station',base_id:'sol_base'},site:{system_id:'sol',poi_id:'belt'},
+      mood:'Focused',keep:[]});
+  assert.deepEqual(await f.dispatch('status'),{running:true,chain_id:started.chain_id,record:started.record});
+
+  // A second juncture while the chain runs changes nothing and is told why.
+  const refused=await f.dispatch('job',{job:'gather',poi_id:'belt'}) as any;
+  assert.equal(refused.accepted,false);
+  assert.equal(refused.chain_id,started.chain_id);
+  assert.equal(held.started.length,1,'a running chain is never joined by a second');
+  const busy=await f.dispatch('menu') as any;
+  assert.equal(busy.busy,true);
+  assert.equal(busy.options,undefined,'a busy pilot is offered nothing to choose');
+
+  held.finish({outcome:'done',jobs:[],juncture:{reason:'chain done: 3 of 3 jobs'}});
+  await settle();
+  const after=await f.dispatch('status') as any;
+  assert.equal(after.running,false);
+  assert.deepEqual(after.last.juncture,{reason:'chain done: 3 of 3 jobs'});
+  // The runner is free again, and the next juncture reads the outcome from `last`.
+  assert.equal(((await f.dispatch('menu')) as any).last.chain_id,started.chain_id);
 });

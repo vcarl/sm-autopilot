@@ -68,8 +68,11 @@ def test_register_publishes_every_tool_in_the_spacemolt_toolset():
             unloads.append(callback)
 
     spacemolt.register(RecordingContext())
-    assert set(tools) == {"spacemolt_where", "spacemolt_travel", "spacemolt_dock", "spacemolt_gather"}
+    # Every published tool is the stance's to carry: one prefix, one toolset, no strays.
+    assert tools and all(name.startswith("spacemolt_") for name in tools)
     assert {toolset for toolset, *_ in tools.values()} == {"spacemolt"}
+    assert {"spacemolt_where", "spacemolt_travel", "spacemolt_dock", "spacemolt_gather",
+            "spacemolt_dispatch", "spacemolt_status"} <= set(tools)
     assert tools["spacemolt_travel"][1]["parameters"]["required"] == ["poi_id"]
     assert tools["spacemolt_where"][1]["parameters"]["properties"] == {}
     # Docking where the ship already is needs no argument from the model.

@@ -36,6 +36,17 @@ def credentials_file() -> Path | None:
     return path if path and path.is_file() else None
 
 
+def runtime_dir() -> Path:
+    """Where the bridge keeps the journal and its locks, for this profile."""
+    return Path(os.environ.get("SPACEMOLT_RUNTIME_DIR") or get_hermes_home() / "spacemolt" / "runtime")
+
+
+def pilot_path() -> Path:
+    """The runner's pilot record — objective, stance, mood, home. The bridge reads the
+    same file (``resolve(runtime,'..','pilot.json')``); the agent never writes it."""
+    return runtime_dir().parent / "pilot.json"
+
+
 def available() -> bool:
     return credentials_file() is not None and shutil.which("node") is not None
 
@@ -47,7 +58,7 @@ class Bridge:
         credentials = credentials_file()
         if credentials is None:
             raise RuntimeError("SPACEMOLT_CREDENTIALS_FILE must point at a readable credentials file")
-        runtime = Path(os.environ.get("SPACEMOLT_RUNTIME_DIR") or get_hermes_home() / "spacemolt" / "runtime")
+        runtime = runtime_dir()
         runtime.mkdir(parents=True, exist_ok=True)
         env = {**os.environ, "SPACEMOLT_CREDENTIALS_FILE": str(credentials), "SPACEMOLT_RUNTIME_DIR": str(runtime)}
         self.runtime = runtime
