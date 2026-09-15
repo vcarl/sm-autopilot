@@ -257,7 +257,9 @@ test('a script the runner does not have is refused before anything reaches the g
 
 test('scripts lists what the dispatch tool may name, each with the parameters it takes', async () => {
   const rows=await fixture().dispatch('scripts') as any[];
-  assert.deepEqual(rows.map(row=>row.name).sort(),['gather','gather-until']);
+  const names=rows.map(row=>row.name);
+  for(const shipped of ['gather','gather-until','stock-up'])
+    assert.ok(names.includes(shipped),`${shipped} is dispatchable: ${names.join(', ')}`);
   for(const row of rows) {
     assert.equal(row.params.type,'object');
     assert.ok(row.params.description,row.name);

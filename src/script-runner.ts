@@ -7,7 +7,7 @@
  */
 import {readFileSync,readdirSync} from 'node:fs';
 import {fileURLToPath} from 'node:url';
-import {Blocked,type Ctx,type JobOutcome,type ScriptResult} from './jobs/ctx.ts';
+import {Blocked,type Ctx,type JobOutcome} from './jobs/ctx.ts';
 import {ownHold} from './jobs/gather.ts';
 import {lintScript} from './script-lint.ts';
 import type {ReadinessAccount,ReadinessCommand} from './readiness.ts';
@@ -58,17 +58,17 @@ export interface RunOptions {
 const NAME=/^[a-z][a-z0-9-]*$/;
 const message=(error:unknown)=>error instanceof Error?error.message:String(error);
 
-/** The run a script finished on its own terms: what it returned, over the derived sentence.
- * Everything beyond `outcome` and `reason` travels under `result`, where the juncture reads
- * it — so it goes through JSON first, which drops the functions a script has no business
- * handing the agent and is what the run record has to survive anyway. */
-function said(script:string,jobs:JobOutcome[],value:ScriptResult|void):RunOutcome {
-  const {outcome,reason,...rest}=value&&typeof value==='object'?value:{} as ScriptResult;
+/** The run a script finished on its own terms: the `JobOutcome` it returned, over the
+ * derived sentence. Its `result` travels to the juncture as the run's — through JSON first,
+ * which drops the functions a script has no business handing the agent and is what the run
+ * record has to survive anyway. `job` is the script's own name, which the run already says. */
+function said(script:string,jobs:JobOutcome[],value:JobOutcome|void):RunOutcome {
+  const spoke=value&&typeof value==='object'?value:undefined;
   let result:Record<string,unknown>|undefined;
-  try {result=JSON.parse(JSON.stringify(rest)) as Record<string,unknown>;}
+  try {result=JSON.parse(JSON.stringify(spoke?.result??{})) as Record<string,unknown>;}
   catch {result=undefined;}
-  return {script,outcome:outcome??'done',jobs,
-    reason:reason??`${script} done: ${jobs.length} job${jobs.length===1?'':'s'}`,
+  return {script,outcome:spoke?.outcome??'done',jobs,
+    reason:spoke?.reason??`${script} done: ${jobs.length} job${jobs.length===1?'':'s'}`,
     ...result&&Object.keys(result).length?{result}:{}};
 }
 
@@ -123,7 +123,7 @@ async function load(script:string,dir:URL) {
   const lint=lintScript(source,path);
   if(!lint.ok)throw new Error(`Script ${script} is not admissible: ${lint.errors.join('; ')}`);
   const loaded=await import(url.href) as
-    {default?:(ctx:Ctx,params:any)=>Promise<ScriptResult|void>;params?:unknown};
+    {default?:(ctx:Ctx,params:any)=>Promise<JobOutcome|void>;params?:unknown};
   if(typeof loaded.default!=='function')
     throw new Error(`Script ${script} exports no default function to run`);
   return loaded;

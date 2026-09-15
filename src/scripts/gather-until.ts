@@ -1,4 +1,4 @@
-import {gather,storage,where,type Ctx,type ScriptResult} from '../jobs/index.ts';
+import {gather,storage,where,type Ctx,type JobOutcome} from '../jobs/index.ts';
 
 /** Gather trips back to back until the store at home holds enough of one item.
  *
@@ -22,10 +22,11 @@ export const params={
 
 interface Args {poi_id:string;item_id:string;quantity:number;max_runs:number;base_id?:string}
 
-export default async (ctx:Ctx,args:Args):Promise<ScriptResult>=>{
+export default async (ctx:Ctx,args:Args):Promise<JobOutcome>=>{
   let trips=0,held=0,base=args.base_id??'the store';
-  const say=()=>({reason:`${args.item_id} at ${base}: ${held} of ${args.quantity} after ${trips} trip${trips===1?'':'s'}`,
-    held,target:args.quantity,trips});
+  const say=():JobOutcome=>({job:'gather-until',outcome:'done',
+    reason:`${args.item_id} at ${base}: ${held} of ${args.quantity} after ${trips} trip${trips===1?'':'s'}`,
+    result:{held,target:args.quantity,trips}});
   // One more time round than trips allowed: the last pass makes no trip, it reads the store
   // the last trip filled, so the count the script reports is the one the pilot came home to.
   for(let run=0;run<=args.max_runs;run++) {
@@ -44,7 +45,7 @@ export default async (ctx:Ctx,args:Args):Promise<ScriptResult>=>{
       ...args.base_id===undefined?{}:{base_id:args.base_id}});
     trips++;
     // The job that did not finish is the run's outcome; all this adds is the sentence.
-    if(outcome.outcome!=='done')return {reason:say().reason};
+    if(outcome.outcome!=='done')return {...say(),outcome:outcome.outcome};
   }
   return say();
 };

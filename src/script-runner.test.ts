@@ -135,12 +135,12 @@ test('what a script returns is the run outcome, unless the world already said ot
   const dir=mkdtempSync(join(tmpdir(),'script-said-'));
   const write=(name:string,body:string)=>writeFileSync(join(dir,`${name}.ts`),
     `export const params={type:'object',properties:{}};\nexport default async ()=>(${body});\n`);
-  write('spoke',"{reason:'twelve ore at sol_base',held:12,skip:()=>1}");
-  write('unhappy',"{outcome:'failed',reason:'the store never filled'}");
+  write('spoke',"{job:'spoke',outcome:'done',reason:'twelve ore at sol_base',result:{held:12,skip:()=>1}}");
+  write('unhappy',"{job:'unhappy',outcome:'failed',reason:'the store never filled'}");
   writeFileSync(join(dir,'denial.ts'),
     "export const params={type:'object',properties:{}};\n"+
     "export default async (ctx)=>{ctx.jobs.push({job:'gather',outcome:'blocked',"+
-    "reason:'the site gives no more'});return {outcome:'done',reason:'all fine'};};\n");
+    "reason:'the site gives no more'});return {job:'denial',outcome:'done',reason:'all fine'};};\n");
   const f=runner({cargoUsed:0,store:[]});
   const scriptsDir=pathToFileURL(`${dir}/`);
   try {
@@ -177,4 +177,35 @@ test('the wall clock cap ends a run that will not finish', async () => {
     assert.deepEqual(outcome.jobs,[]);
     assert.equal(f.record()!.ended,true,'the record closes: the next runner has nothing to resume');
   } finally {f.close();rmSync(dir,{recursive:true,force:true});}
+});
+
+test("a script's own outcome is a job outcome, and its result reaches the juncture", async () => {
+  const f=runner({cargoUsed:0,store:[{item_id:'ore',quantity:4}]});
+  try {
+    const outcome=await f.run('gather-until',
+      {poi_id:'belt',item_id:'ore',quantity:16,max_runs:5});
+    assert.equal(outcome.outcome,'done',outcome.reason);
+    // The numbers the script counted are the run's, carried whole from what it returned.
+    assert.deepEqual(outcome.result,{held:16,target:16,trips:1});
+  } finally {f.close();}
+});
+
+test('a script composes another script: one entry in the job list, its trips inside it', async () => {
+  // Four in the store, twelve a trip: twenty-eight is two trips, fifty-two is two more.
+  const f=runner({cargoUsed:0,store:[{item_id:'ore',quantity:4}]});
+  try {
+    const outcome=await f.run('stock-up',{poi_id:'belt',max_runs:5,
+      targets:[{item_id:'ore',quantity:28},{item_id:'ore',quantity:52}]});
+    assert.equal(outcome.outcome,'done',outcome.reason);
+    // Two calls to gather-until, so two entries under that name — not the four trips they made.
+    assert.deepEqual(outcome.jobs.map(job=>job.job),['gather-until','gather-until']);
+    assert.equal(f.count('spacemolt/undock'),4,'four trips left the dock');
+    // The inner script's own jobs travel inside its one outcome, where a reader can open them.
+    for(const job of outcome.jobs)
+      assert.deepEqual((job.result!.jobs as any[]).map(inner=>inner.job),['gather','gather']);
+    // And the run's result is the outer script's account: one row per target it was given.
+    assert.deepEqual(outcome.result!.stocked,
+      [{item_id:'ore',held:28,target:28,trips:2},{item_id:'ore',held:52,target:52,trips:2}]);
+    assert.deepEqual(f.store,[{item_id:'ore',quantity:52}]);
+  } finally {f.close();}
 });

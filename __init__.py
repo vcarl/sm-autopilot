@@ -32,6 +32,8 @@ SCRIPTS = {
     "gather-until": "poi_id, item_id, quantity and max_runs: gather trip after trip until "
                     "the home store holds that much of that item, or the cap is reached; "
                     "optional base_id",
+    "stock-up": "poi_id, targets (a list of {item_id, quantity}) and max_runs: gather at "
+                "one site until the store holds each target in turn; optional base_id",
 }
 SCRIPT_HELP = "The scripts and what each one takes:\n" + "\n".join(
     f"- {name}: {takes}" for name, takes in SCRIPTS.items())

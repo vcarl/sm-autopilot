@@ -17,7 +17,18 @@ import type {Facts} from '../rules-table.ts';
 export class Blocked extends Error {}
 
 /** A job's outcome as the agent sees it: did it end, and did the thing happen. The step log
- * stays in the job's own receipt, so a long script leaves the agent's context small. */
+ * stays in the job's own receipt, so a long script leaves the agent's context small.
+ *
+ * A script gives back the same shape under its own name, which is what makes a script
+ * composable exactly like a job: `(ctx,params)=>Promise<JobOutcome>` either way, so a script
+ * may be called from another script and its outcome read like any job's. A script's outcome
+ * never overrides the run cap, a throw, or a job that did not finish — the runner's
+ * precedence decides that, and the script only speaks for its own run.
+ *
+ * When a script calls another script, ONE outcome goes to `ctx.jobs` for that call — the
+ * inner script's own, under its own name. The inner script's jobs are not the outer run's
+ * job list; they travel inside that one outcome, under `result.jobs`, so a reader of the run
+ * sees the step it asked for and can still open it. */
 export interface JobOutcome {
   job:string;
   outcome:'done'|'blocked'|'failed';
@@ -25,18 +36,9 @@ export interface JobOutcome {
   /** The world moved the pilot with no command behind it, and this job stopped for it (C13). */
   moved?:Reconciliation;
   reason?:string;
-}
-
-/** What a script gives back. Every field is optional: a script that returns nothing gets the
- * outcome the jobs already say. What it does return is the script's own account of the run —
- * its sentence, and whatever numbers or ids it wants the agent to read at the juncture. It
- * never overrides the run cap, a throw, or a job that did not finish. */
-export interface ScriptResult {
-  outcome?:'done'|'failed'|'blocked';
-  /** The sentence shown to the agent, in place of the runner's derived one. */
-  reason?:string;
-  /** Anything else, carried to the juncture under the outcome's `result`. JSON only. */
-  [key:string]:unknown;
+  /** Whatever numbers or ids this job or script wants read at the juncture, beyond its
+   * sentence. Carried to the run outcome's `result`, so JSON only. */
+  result?:Record<string,unknown>;
 }
 
 export interface Ctx {

@@ -1,4 +1,4 @@
-import {gather,type Ctx,type GatherParams,type ScriptResult} from '../jobs/index.ts';
+import {gather,type Ctx,type GatherParams,type JobOutcome} from '../jobs/index.ts';
 
 /** What the dispatch tool asks the agent for, and what the runner validates before loading. */
 export const params={
@@ -13,8 +13,9 @@ export const params={
   required:['poi_id'],
 };
 
-export default async (ctx:Ctx,args:GatherParams):Promise<ScriptResult>=>{
+export default async (ctx:Ctx,args:GatherParams):Promise<JobOutcome>=>{
   const outcome=await gather(ctx,args);
   const took=(outcome.yield??[]).map(row=>`${row.quantity} ${row.item_id}`).join(', ');
-  return {reason:`gather done: ${took||'nothing mined (hold full)'}`};
+  return {job:'gather',outcome:outcome.outcome,
+    reason:`gather done: ${took||'nothing mined (hold full)'}`};
 };

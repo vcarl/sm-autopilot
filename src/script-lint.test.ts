@@ -42,6 +42,15 @@ test('a script may not reach past its imports either', () => {
   assert.equal(ok('const x=1;\n').ok,false);
 });
 
+test('a script reaches another script through the barrel, never by its path', () => {
+  // A script composes like a job, so one script may call another — through the one door.
+  assert.equal(lintScript(
+    `import {gatherUntil,type Ctx} from '../jobs/index.ts';\n${BODY}`,'x.ts').ok,true);
+  const verdict=lintScript(`import gatherUntil from '../scripts/gather-until.ts';\n${BODY}`,'x.ts');
+  assert.equal(verdict.ok,false);
+  assert.match(verdict.errors.join(' '),/may import only/);
+});
+
 test('a mention in a comment is prose, not a reach', () => {
   assert.equal(ok(`// this one does not use node:fs or process.env\n${BODY}`).ok,true);
 });

@@ -6,9 +6,16 @@
  *
  * Jobs (`gather`) are the long steps: they check the rules before they start and record
  * their own outcome. Helpers are the short moves between them.
+ *
+ * Scripts are here too, under their own camelCase names, because a script has a job's
+ * signature and composes like one: `stock-up` runs `gatherUntil` as a step. The barrel is
+ * the only door — a script reaching `../scripts/gather-until.ts` directly is refused — and
+ * `gather` is absent because its script is one call to the job of that name, which is here.
  */
-export {Blocked,type Ctx,type JobOutcome,type ScriptResult} from './ctx.ts';
+export {Blocked,type Ctx,type JobOutcome} from './ctx.ts';
 export {gather,type GatherParams} from './gather.ts';
 export {dock,journal,service,storage,travel,where,
   type DockReport,type TravelReport,type Where} from './helpers.ts';
 export type {StorageView} from '../storage.ts';
+export {default as gatherUntil} from '../scripts/gather-until.ts';
+export {default as stockUp} from '../scripts/stock-up.ts';
