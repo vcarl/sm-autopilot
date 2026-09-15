@@ -3,7 +3,7 @@ import {hunt,type Ctx,type HuntParams,type JobOutcome} from '../jobs/index.ts';
 /** What the dispatch tool asks the agent for, and what the runner validates before loading. */
 export const params={
   type:'object',
-  description:'One hunt, dock to dock: out to a habitat, take the fights the rules admit, loot what fits, home, stow, service. Needs the operator\'s wildlife permission.',
+  description:'One hunt, dock to dock: out to a habitat, take the fights the rules admit, loot what fits, home, stow, service. Needs a fitted module of type weapon with rounds for its ammo_type.',
   properties:{
     poi_id:{type:'string',
       description:'The habitat to work: the POI the creatures are at, in this system or another.'},

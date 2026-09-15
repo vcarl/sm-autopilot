@@ -254,7 +254,7 @@ def _direct(arguments: dict[str, Any] | None = None, **_: Any) -> str:
     permissions = args.get("permissions") or {}
     if not objective and not permissions:
         return ("Nothing to set. Name an objective, or the standing permissions to change: "
-                "wildlife, max_liability, credit_reserve.")
+                "max_liability, credit_reserve.")
     record = read_pilot()
     if objective:
         record["objective"] = objective
@@ -492,8 +492,6 @@ TOOL_DEFINITIONS = (
                         "permissions": {"type": "object", "additionalProperties": False,
                                         "description": "Standing bounds. Only the ones named change.",
                                         "properties": {
-                                            "wildlife": {"type": "boolean",
-                                                         "description": "May the pilot attack wildlife."},
                                             "max_liability": {"type": "number",
                                                               "description": "Most the pilot may owe on one "
                                                                              "freight or passenger job."},

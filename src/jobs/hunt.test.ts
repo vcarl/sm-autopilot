@@ -12,38 +12,36 @@ function fixture(options:WorldOptions={},over:Partial<Ctx>={}) {
   const world=bridgeWorld({services:['refuel','repair','storage'],cargoUsed:0,store:[],
     wildlife:{creatures:[grazer]},...options});
   const ctx:Ctx={account:world.account as unknown as ReadinessAccount,command:world.command,
-    mood:'Focused',home:'sol_base',permissions:{wildlife:true},runtime:undefined,
+    mood:'Focused',home:'sol_base',permissions:{},runtime:undefined,
     keep:[],jobs:[],check:async()=>{},progress:()=>{},resuming:()=>false,...over};
   return {...world,ctx,
     fights:()=>world.count('spacemolt/hunt'),
     moves:()=>world.count('spacemolt/travel')+world.count('spacemolt/undock')};
 }
 
-test('without the operator\'s wildlife permission the job is a wall, and sends nothing', async () => {
-  const f=fixture({},{permissions:{}});
+test('a permission key the code does not know is carried, not obeyed', async () => {
+  // The live pilot record still carries `wildlife:false` from when it was a permission.
+  const f=fixture({},{permissions:{wildlife:false} as Ctx['permissions']});
   const outcome=await hunt(f.ctx,{poi_id:'belt'});
-  assert.equal(outcome.outcome,'blocked');
-  assert.match(String(outcome.reason),/standing permissions/);
-  assert.equal(f.sent.length,0,'a permission is checked before the game is touched');
-  assert.deepEqual(f.ctx.jobs.map(job=>[job.job,job.outcome]),[['hunt','blocked']]);
+  assert.equal(outcome.outcome,'done',outcome.reason);
+  assert.equal(f.fights(),1);
 });
 
-test('a ship with no weapon fails at the fit, before it moves', async () => {
+test('a ship with no weapon fails at the fit naming the check, before it moves', async () => {
   const f=fixture({wildlife:{creatures:[grazer],weapon:null}});
   const outcome=await hunt(f.ctx,{poi_id:'belt'});
   assert.equal(outcome.outcome,'failed');
-  assert.match(String(outcome.reason),/weapon/);
+  assert.match(String(outcome.reason),/no module of type weapon is fitted/);
   assert.equal(f.moves(),0,'nothing undocked for a fight it cannot take');
   assert.equal(f.fights(),0);
 });
 
-test('a weapon with an empty magazine fails naming the ammunition, before it moves', async () => {
+test('a weapon with an empty magazine fails naming the rounds and the ammo type, before it moves', async () => {
   const f=fixture({wildlife:{creatures:[grazer],
     weapon:{name:'Autocannon I',ammo_type:'autocannon',current_ammo:0}}});
   const outcome=await hunt(f.ctx,{poi_id:'belt'});
   assert.equal(outcome.outcome,'failed');
-  assert.match(String(outcome.reason),/ammunition/);
-  assert.match(String(outcome.reason),/Autocannon I/);
+  assert.match(String(outcome.reason),/Autocannon I has 0 rounds of autocannon/);
   assert.equal(f.moves(),0);
 });
 

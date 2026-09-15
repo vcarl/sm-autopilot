@@ -58,16 +58,16 @@ export interface TargetReport {
 }
 
 /** The loadout floor the Hunter skill names, in the one form the state can answer: a fitted
- * weapon with rounds in it. A mining laser is `type:'mining'`, which is why the type is read
- * rather than the name. */
+ * module whose `type` is `weapon`, holding rounds for its `ammo_type`. The reason says the
+ * check it failed, so reading the refusal teaches the rule. */
 function loadout(modules:Record<string,any>[]):string|null {
   const weapons=modules.filter(module=>String(module.type)==='weapon');
   if(!weapons.length)
-    return 'no weapon is fitted; a mining laser is not a weapon, so the hangar is the stop before the hunt';
+    return 'no module of type weapon is fitted; the hangar is the stop before the hunt';
   const loaded=weapons.filter(weapon=>
     weapon.ammo_type===undefined||Number(weapon.current_ammo??0)>0);
   if(!loaded.length)
-    return `no ammunition is loaded in ${weapons.map(weapon=>String(weapon.name??weapon.type_id)).join(', ')}; the market is the stop before the hunt`;
+    return `${weapons.map(weapon=>`${String(weapon.name??weapon.type_id)} has ${Number(weapon.current_ammo??0)} rounds of ${String(weapon.ammo_type)}`).join('; ')}; the market is the stop before the hunt`;
   return null;
 }
 
@@ -194,10 +194,6 @@ export async function hunt(ctx:Ctx,params:HuntParams):Promise<JobOutcome> {
     ctx.jobs.push(row);
     return row;
   };
-
-  // The permission is a wall, not a risk decision: nothing is sent to the game before it.
-  if(!ctx.permissions.wildlife)
-    return end('blocked',"wildlife hunting is outside the operator's standing permissions");
 
   ctx.progress({last_job:'hunt',last_step:'loadout'});
   await ctx.account.refresh();

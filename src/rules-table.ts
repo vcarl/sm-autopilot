@@ -43,7 +43,7 @@ export interface Facts {
     board?:{contracts?:{id:string;cargo:number;liability:number}[];passengers?:number}};
   holdings:{fuel:number;max_fuel:number;hull:number;max_hull:number;cargo_free:number;credits:number;inputs?:string[]};
   obligations:{contracts?:string[];passengers?:number};
-  permissions:{wildlife?:boolean;max_liability?:number;credit_reserve?:number};
+  permissions:{max_liability?:number;credit_reserve?:number};
   observed:{threats?:string[];targets?:string[];spread?:{item_id:string;margin:number}};
 }
 export interface Bounds {spend:number;fuelReserve:number;walkAway:number}
@@ -209,10 +209,8 @@ const RULES:Rule[]=[
   }},
   {id:'stance.hunter.J8',stance:'Hunter',apply:facts=>{
     const job='J8 Creature down',targets=facts.observed.targets??[];
-    if(!facts.permissions.wildlife)return no('stance',job,
-      "the operator's standing permissions do not allow attacking wildlife; a permission change admits it");
     if(!targets.length)return no('stance',job,'no unowned creature is known here; scan or travel to a habitat');
-    return yes('stance',job,`${targets.join(', ')} known and permitted; break off below the ${facts.mood} walk-away hull fraction`);
+    return yes('stance',job,`${targets.join(', ')} known; break off below the ${facts.mood} walk-away hull fraction`);
   }},
   {id:'stance.scout.J9',stance:'Scout',apply:facts=>{
     const job='J9 Price circuit walked';

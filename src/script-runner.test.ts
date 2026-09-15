@@ -135,8 +135,7 @@ test('the craft script runs one job at the bench and its sentence reaches the ru
 
 test('the hunt script takes one fight and its sentence reaches the run outcome', async () => {
   const f=runner({cargoUsed:0,store:[],
-    wildlife:{creatures:[{creature_id:'crt_1',species:'veil_ray',speed:2}]}},
-  {permissions:{wildlife:true}});
+    wildlife:{creatures:[{creature_id:'crt_1',species:'veil_ray',speed:2}]}});
   try {
     const outcome=await f.run('hunt',{poi_id:'belt'});
     assert.equal(outcome.outcome,'done',outcome.reason);

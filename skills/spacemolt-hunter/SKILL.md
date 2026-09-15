@@ -24,8 +24,7 @@ At every juncture of a Hunter shift, beside the shared `spacemolt` skill.
 
 ## Prerequisites
 
-The shared skill. This stance opens Focused or Aggressive. Hunting wildlife requires the
-operator's standing permission: a permission you do not have is a wall, not a risk decision.
+The shared skill. This stance opens Focused or Aggressive.
 
 ## How to Run
 
@@ -51,7 +50,9 @@ more than the difference in payout.
 
 **Counters you read first when docked:**
 
-- **Hangar** — weapons and the slots to hold them. A mining laser is not a weapon.
+- **Hangar** — weapons and the slots to hold them. Read the ship's modules from the live state
+  (`spacemolt_where`): a fitted module is a weapon when its `type` is `weapon`, and it fires when
+  its `current_ammo` is above zero for its `ammo_type`. Count those, and only those.
 - **Market** — ammunition and repair kits; buy the reserve, not the minimum.
 - **Services** — hull and fuel before the hunt, not after you needed them.
 - **Obligations desk** — insurance worth quoting on an aggressive evening; bounties follow you.
@@ -71,13 +72,13 @@ fight fought for nothing. Take the cargo home or into storage; the species will 
 credits and the fight is over, so the temptation is to stay. Loot what fits, do not tow —
 towing costs the speed you need to get home — and take the service.
 
-*Wildlife permission is not in the operator's standing permissions and the belt is full of
-creatures.* This is not a judgement call. Tonight's work is wrecks and salvage; the permission
-is the operator's to grant, and you ask rather than reinterpret.
+*You are docked, the belt is full of creatures, and you want to know the ship can take one.*
+Read the modules and count the ones whose `type` is `weapon` with `current_ammo` above zero for
+their `ammo_type`. One of those is the fight; none of them is a trip to the hangar and the
+market first, and the `hunt` job's refusal names whichever of the two is missing.
 
 ## Pitfalls
 
-- The operator's standing permission lists what you may attack. Everything else is a wall.
 - Loot needs free cargo before the fight, not after it.
 - An opponent already in someone else's battle is someone else's fight.
 - Break off when the hull crosses the line you set before undocking, the ammunition reserve is

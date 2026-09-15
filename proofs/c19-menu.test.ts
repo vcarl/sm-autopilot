@@ -27,7 +27,7 @@ const rich=(stance:StanceName,mood:Mood='Focused'):Facts=>at({stance,mood,
       {poi_id:'near-station',quoted_fuel:5,serviced_base:true}],
     board:{contracts:[{id:'c1',cargo:10,liability:100}],passengers:3}},
   holdings:{fuel:120,max_fuel:120,hull:100,max_hull:100,cargo_free:50,credits:100_000,inputs:['polymer']},
-  permissions:{wildlife:true,max_liability:2_000},
+  permissions:{max_liability:2_000},
   observed:{targets:['creature-7'],spread:{item_id:'ore',margin:40}}});
 const jobs=(menu:{options:{job:string}[]})=>menu.options.map(option=>option.job).filter(job=>/^J\d/.test(job));
 
@@ -152,11 +152,6 @@ test('C19: a stance contributes its own jobs when its preconditions hold, and na
       assert.ok(refusal&&refusal.reason.length>0,`${stance}: ${job} says what would admit it`);
     }
   }
-  // Hunter's J8 is the operator's to grant: a known target is not enough.
-  const permitted=rich('Hunter'),denied={...permitted,permissions:{...permitted.permissions,wildlife:false}};
-  assert.ok(jobs(buildMenu(permitted)).includes('J8 Creature down'));
-  assert.equal(jobs(buildMenu(denied)).includes('J8 Creature down'),false);
-  assert.match(buildMenu(denied).unavailable.find(entry=>entry.job==='J8 Creature down')!.reason,/permission/i);
   // The "start with these" flag stays meaningful: a flagged stance has work of its own.
   for(const stance of STANCES)if(stance.active_first)
     assert.ok(jobs(buildMenu(rich(stance.name))).some(job=>!job.startsWith('J12')),

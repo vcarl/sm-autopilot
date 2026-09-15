@@ -113,6 +113,10 @@ def test_register_publishes_every_tool_in_the_spacemolt_toolset():
     assert "hunt" in tools["spacemolt_run"][1]["description"]
     assert tools["spacemolt_scripts"][1]["parameters"]["required"] == ["action"]
     assert tools["spacemolt_dispatch"][1]["parameters"]["required"] == ["instruction"]
+    # The standing permissions are the two bounds on spending and owing; whether to hunt is the
+    # operator's objective, like any other work.
+    assert set(tools["spacemolt_direct"][1]["parameters"]["properties"]["permissions"]
+               ["properties"]) == {"credit_reserve", "max_liability"}
     assert tools["spacemolt_travel"][1]["parameters"]["required"] == ["poi_id"]
     assert tools["spacemolt_where"][1]["parameters"]["properties"] == {}
     # Docking where the ship already is needs no argument from the model.
