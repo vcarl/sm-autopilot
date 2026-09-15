@@ -90,18 +90,18 @@ function service(facts:Facts):Verdict {
   return yes('resupply',job,`full tank and hull quoted at ${quoted} credits, inside the ${facts.mood} margin ${margin}`);
 }
 
-const ALWAYS_OPEN:CounterName[]=['Comms / news','Progression desk','Home desk'];
 const TIRED_OPEN:CounterName[]=['Services','Distress'];
-/** Counters need no stocked board, which is why an empty board never empties the menu. */
+/** Counters are the base's, shared by every stance (VISION: station tools are neither jobs
+ * nor flight primitives); stance guidance points at jobs and skills, never at admissibility
+ * here. Danger and Tired still gate which tag survives, in evaluateMenu. Counters need no
+ * stocked board, which is why an empty board never empties the menu. */
 function counters(facts:Facts):Verdict[] {
   if(facts.place.kind!=='base')return [];
-  const pointed=STANCES.find(stance=>stance.name===facts.stance)?.counters;
+  const bounds=resolveBounds(facts.mood);
   return (facts.place.counters??[]).map(name=>{
     const job=`Counter: ${name}`,tag:Tag=TIRED_OPEN.includes(name)?'resupply':'shared';
-    if(!pointed)return yes(tag,job,'no stance this shift, so every counter this base offers is open; reading one spends nothing');
-    if(pointed.includes(name))return yes(tag,job,`${facts.stance} guidance points here; reading a counter spends nothing`);
-    if(ALWAYS_OPEN.includes(name))return yes(tag,job,'open to any stance; reading a counter spends nothing');
-    return no(tag,job,`${facts.stance} guidance does not point here; a stance that reads this counter would make it worthwhile`);
+    return yes(tag,job,
+      `offered here; reading a counter spends nothing, within the ${facts.mood} bounds (spend ${bounds.spend}, fuel reserve ${bounds.fuelReserve}, walk-away ${bounds.walkAway})`);
   });
 }
 
