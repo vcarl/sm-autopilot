@@ -2,9 +2,10 @@
 
 Three toolsets, because a tool name is global and belongs to exactly one of them:
 ``spacemolt`` is the job tools a juncture flies with, ``spacemolt_observe`` the reads every
-client of the runner may make, and ``spacemolt_operator`` the one tool that sets direction.
-A chat window carries observe + operator and never a job tool (N19); a cron fire carries
-spacemolt + observe and never sets its own objective.
+client of the runner may make, and ``spacemolt_operator`` the operator's own window tools:
+direction, and the chain-is-running read the chat window asks for while a juncture already
+has the answer in its context. A chat window carries observe + operator and never a job tool
+(N19); a cron fire carries spacemolt + observe and never sets its own objective.
 """
 from __future__ import annotations
 
@@ -22,9 +23,9 @@ from .skills_register import register_skills
 _JOURNAL_DEFAULT, _JOURNAL_CAP, _RESULT_CHARS = 10, 50, 120
 
 _FLIGHT_PROMPT = (
-    "SpaceMolt: you fly one live ship. Report only what a tool result says and never a "
-    "position from memory — when asked where the ship is, call spacemolt_where first.\n"
-    "Every id you pass comes from spacemolt_where; a base id is not a poi id.\n"
+    "SpaceMolt: you fly one live ship. When asked where the ship is, call spacemolt_where "
+    "and report its answer. Report only what tool results say.\n"
+    "Travel takes poi ids and docking takes base ids; both come from spacemolt_where.\n"
     "The game's clock is real: one call can take a minute or more, so wait it out."
 )
 
@@ -242,10 +243,10 @@ TOOL_DEFINITIONS = (
      "description": "Fly to a point of interest in the current system.",
      "schema": _schema("spacemolt_travel",
                        "Fly to a point of interest in the current system, undocking first if needed. "
-                       "Takes real game time: wait for it and never retry a call that is still "
-                       "pending. Returns the arrival confirmed by a live read.",
+                       "Takes real game time: wait for the result. One call per move. "
+                       "Returns the arrival confirmed by a live read.",
                        {"poi_id": {"type": "string",
-                                   "description": "A poi id spacemolt_where listed, never a base id."}},
+                                   "description": "A poi id spacemolt_where listed."}},
                        ["poi_id"])},
     {"name": "spacemolt_dock", "toolset": "spacemolt", "handler": _dock,
      "description": "Dock at the station the ship is at.",
@@ -257,16 +258,18 @@ TOOL_DEFINITIONS = (
                                                    "to refuse a dock at any other station."}},
                        [])},
     {"name": "spacemolt_gather", "toolset": "spacemolt", "handler": _gather,
-     "description": "Mine a belt until the hold is full, stow the yield at home and service; it never sells.",
+     "description": "Mine a belt until the hold is full, stow the yield at home and service; the ore "
+                    "ends in storage at home.",
      "schema": _schema("spacemolt_gather",
                        "Run one gather job dock to dock: fly to a MINING poi — an asteroid belt or "
-                       "field, never a station — mine until the hold is full, return, dock, stow the "
-                       "yield into storage and service the ship. It never sells anything, and it "
-                       "returns nothing at all if the hold is already full when it leaves. Takes real "
-                       "game time; returns one outcome verified against live state.",
+                       "field listed by spacemolt_where — mine until the hold is full, return, dock, "
+                       "stow the yield into storage and service the ship. The ore ends in storage at "
+                       "home. Dispatch this when cargo_free is above zero. With a full hold, stow or "
+                       "craft first. Takes real game time; returns one outcome verified against live "
+                       "state.",
                        {"poi_id": {"type": "string",
-                                   "description": "The mining poi to work, as spacemolt_where listed "
-                                                  "it. A station or a base id mines nothing."},
+                                   "description": "The mining poi to work: an asteroid belt or field "
+                                                  "listed by spacemolt_where."},
                         "base_id": {"type": "string",
                                     "description": "Optional: the home base id to return to; defaults to the "
                                                    "base the ship is docked at now."},
@@ -277,14 +280,15 @@ TOOL_DEFINITIONS = (
      "description": "Start one chain of jobs in the runner and return at once.",
      "schema": _schema("spacemolt_dispatch",
                        "Start the option you chose. The chain runs on in the runner after this "
-                       "conversation ends and raises the next juncture itself, so this returns "
-                       "immediately: never wait for it, never poll spacemolt_status for it, and "
-                       "never call this twice in one juncture. Refused while another chain runs.",
+                       "conversation ends, so this returns immediately. After this call, say what "
+                       "you started and end the turn. The runner raises the next juncture itself "
+                       "when the chain ends. Refused while another chain runs.",
                        {"job": {"type": "string", "enum": ["gather"],
                                 "description": "The job to run; only 'gather' exists so far."},
                         "poi_id": {"type": "string",
                                    "description": "The mining poi the job works, one of those the "
-                                                  "option offered. Never a station or a base id."},
+                                                  "option offered: an asteroid belt or field listed "
+                                                  "by spacemolt_where."},
                         "repeat": {"type": "integer", "minimum": 1,
                                    "description": "How many times to run the job back to back under "
                                                   "this one juncture. Defaults to once."},
@@ -297,11 +301,11 @@ TOOL_DEFINITIONS = (
     {"name": "spacemolt_rest", "toolset": "spacemolt", "handler": _rest,
      "description": "End the shift: rest at home, which clears the stance and the mood.",
      "schema": _schema("spacemolt_rest",
-                       "Put the evening down. Only at home, only with nothing running, and only "
-                       "on a ship this base cannot bring further up; the refusal says which of "
-                       "those is missing. It clears the stance, the mood and the goal, a Tired the "
-                       "world imposed included, and the next juncture reflects. Docking, "
-                       "refuelling, repairing and unloading are not rest.",
+                       "Put the evening down. Call this docked at home with the runner idle, on a "
+                       "ship this base has brought as far up as it can; the refusal says what is "
+                       "still missing. It is the one act that ends a shift: it clears the stance, "
+                       "the mood and the goal, a Tired the world imposed included, and the next "
+                       "juncture reflects.",
                        {}, [])},
     {"name": "spacemolt_reflect", "toolset": "spacemolt", "handler": _reflect,
      "description": "At rest, open the next shift with a goal, a stance and an initial mood.",
@@ -316,8 +320,8 @@ TOOL_DEFINITIONS = (
                         "stance": {"type": "string", "enum": list(STANCES),
                                    "description": "The kind of evening this is."},
                         "mood": {"type": "string", "enum": list(JOB_MOODS),
-                                 "description": "The attitude the shift starts in. Relaxed and "
-                                                "Tired may not open one."},
+                                 "description": "The attitude the shift starts in: one of "
+                                                "Cautious, Focused, Opportunistic, Aggressive."},
                         "objective_done": {"type": "boolean",
                                            "description": "Instead of a shift: the operator's "
                                                           "bounded objective is complete. The "
@@ -334,12 +338,12 @@ TOOL_DEFINITIONS = (
                                        "description": "Optional: a base id or station poi id to view "
                                                       "instead of the current base."}},
                        [])},
-    {"name": "spacemolt_status", "toolset": "spacemolt_observe", "handler": _status,
-     "description": "Say whether a chain is still running, and what the last one did.",
+    {"name": "spacemolt_status", "toolset": "spacemolt_operator", "handler": _status,
+     "description": "For the chat window: whether a chain runs right now.",
      "schema": _schema("spacemolt_status",
-                       "Report the running chain's progress, or the last chain's outcome when the "
-                       "pilot is idle. This is for the operator's window: at a juncture the context "
-                       "already says which, so never call it there.",
+                       "For the chat window: whether a chain runs right now — the running chain's "
+                       "progress, or the last chain's outcome when the pilot is idle. A juncture "
+                       "reads the same fact from the context it was given.",
                        {}, [])},
     {"name": "spacemolt_journal", "toolset": "spacemolt_observe", "handler": _journal,
      "description": "Read the last few things the pilot actually did.",

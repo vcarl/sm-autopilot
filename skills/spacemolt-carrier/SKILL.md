@@ -40,7 +40,7 @@ permission, and the deadline survives the route at your mood's fuel reserve. Two
 sharing a destination beat one better-paying one that doubles back. Eligibility first, fit
 second, deadline third, payout last.
 
-**It is not worth taking when** you are guessing at any of the three. Liability is not a cash
+**Walk away when** you are guessing at any of the three. Liability is not a cash
 payment: a package worth more than you can cover is a debt you accepted on purpose. Tier gates
 are real — probationary carriers have been held to a few tens of thousands per package, and
 licensing has required a run of successful deliveries. You climb that by finishing small work.
@@ -71,7 +71,7 @@ passenger, and the route does not change for one fare.
 
 ## Pitfalls
 
-- Never accept work you have not confirmed you can finish; the debt outlives the shift.
+- Accept work after confirming capacity, route and the failure debt; the debt outlives the shift.
 - A board listing proves neither capacity, route readiness nor profit. The destination comes
   from the offer, never from memory.
 - Storage is custody. It is not delivery and it is not money.

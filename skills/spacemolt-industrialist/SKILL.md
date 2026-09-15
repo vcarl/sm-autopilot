@@ -41,7 +41,7 @@ belt carries what the recipe wants and the hold is big enough to make the fuel w
 buying beats mining whenever the market here is deep and the ore is three jumps away. Decide
 that per input, not per recipe: most lines are mixed.
 
-**It is not worth taking when** you have not quoted the recipe, when you do not know what the
+**Walk away when** you have not quoted the recipe, when you do not know what the
 output sells for, when the spread is smaller than the fuel and service the trip will cost, or
 when finishing it would leave you unable to pay the fee at the far end.
 

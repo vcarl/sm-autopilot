@@ -40,7 +40,7 @@ loadout floor is met, and the loot has somewhere to go. Prefer a species you hav
 over an individual you have merely seen: creature identities expire between trips, species and
 their habitats persist.
 
-**It is not worth taking when** any of that is a guess. A scan gives hull and description, never
+**Walk away when** any of that is a guess. A scan gives hull and description, never
 weapons or speed, so a scan alone does not make an unknown opponent known. Something faster than
 you is declined outright. Pirates fight back with intent and wildlife does not, which is worth
 more than the difference in payout.
@@ -73,7 +73,7 @@ is the operator's to grant, and you ask rather than reinterpret.
 
 ## Pitfalls
 
-- Never attack without the operator's standing permission, whatever the payout looks like.
+- The operator's standing permission lists what you may attack. Everything else is a wall.
 - Loot needs free cargo before the fight, not after it.
 - An opponent already in someone else's battle is someone else's fight.
 - Break off when the hull crosses the line you set before undocking, the ammunition reserve is

@@ -99,8 +99,8 @@ def test_register_publishes_every_tool_in_the_spacemolt_toolset():
     assert by_toolset == {
         "spacemolt": {"spacemolt_travel", "spacemolt_dock", "spacemolt_gather", "spacemolt_dispatch",
                       "spacemolt_rest", "spacemolt_reflect"},
-        "spacemolt_observe": {"spacemolt_where", "spacemolt_status", "spacemolt_journal", "spacemolt_storage"},
-        "spacemolt_operator": {"spacemolt_direct"},
+        "spacemolt_observe": {"spacemolt_where", "spacemolt_journal", "spacemolt_storage"},
+        "spacemolt_operator": {"spacemolt_direct", "spacemolt_status"},
     }
     assert tools["spacemolt_travel"][1]["parameters"]["required"] == ["poi_id"]
     assert tools["spacemolt_where"][1]["parameters"]["properties"] == {}

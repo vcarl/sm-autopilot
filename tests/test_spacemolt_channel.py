@@ -163,3 +163,17 @@ def test_the_window_carries_no_job_tools_and_the_juncture_no_direction_tool():
     window_prompt = spacemolt._prompt({"platform": "discord"})
     assert "spacemolt_journal" in window_prompt
     assert not any(name in window_prompt for name in ("spacemolt_gather", "spacemolt_dispatch"))
+
+
+def test_a_cron_fire_cannot_reach_status_while_the_window_can():
+    """The chain-is-running read is the window's: a juncture already has the answer in the
+    context it was delivered, so a fire that can call it will poll instead of choosing."""
+    by_toolset: dict[str, set[str]] = {}
+    for definition in spacemolt.TOOL_DEFINITIONS:
+        by_toolset.setdefault(definition["toolset"], set()).add(definition["name"])
+    resolve = lambda names: set().union(*(by_toolset[name] for name in names))
+
+    fire = resolve(juncture.TOOLSETS)
+    window = resolve(("spacemolt_observe", "spacemolt_operator"))
+    assert "spacemolt_status" not in fire, "a juncture reads the chain from its context"
+    assert "spacemolt_status" in window, "the operator's window asks the runner directly"

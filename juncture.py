@@ -42,7 +42,7 @@ JUNCTURE_PROMPT = (
     "Say in one line which of the four you took and why.\n"
     "Prefer an admissible option. If you go off the menu, quote the refusal you are "
     "overriding and say what has changed since it was written.\n"
-    "At rest there is no menu: read the report you were given, reflect once, and end the "
+    "At rest you are given a report instead of a menu: read it, reflect once, and end the "
     "turn.\n"
     "If the report says the operator's objective is done, say so and stop.\n"
     "If no context reached you at all, the runner did not answer: say that and end the turn."
@@ -68,8 +68,7 @@ def juncture_context(session_info: Mapping[str, Any] | None = None) -> str:
         record = menu.get("record") or {}
         return (f"SpaceMolt juncture: the runner is still working on {menu.get('chain_id')} "
                 f"(job {int(record.get('position') or 0) + 1} of {record.get('length')}). "
-                "There is nothing to choose: say so in one line and end the turn without "
-                "calling a tool.")
+                "Say in one line that the chain is running and end the turn.")
     if menu.get("at_rest"):
         return _rest_context(menu)
     _hold_full(menu)
@@ -85,8 +84,8 @@ def juncture_context(session_info: Mapping[str, Any] | None = None) -> str:
 #: The rest of the story a `cargo_free` of 0 leaves untold. A full hold is not a dead end and
 #: it is not a mystery either: it is ore with two places to go and a gather that will return
 #: nothing until it does (playtest 2026-09-15: three gathers dispatched on a full hold).
-_HOLD_FULL = ("hold full: stow it here if this base has storage, or craft with it at a "
-              "workshop; a gather with a full hold returns nothing")
+_HOLD_FULL = ("hold full: a gather needs free hold. Stow the ore here if this base has "
+              "storage, or craft with it at a workshop, then gather")
 
 
 def _hold_full(menu: dict[str, Any]) -> None:
@@ -114,9 +113,8 @@ def _rest_context(report: dict[str, Any]) -> str:
     """
     if report.get("objective_done"):
         return ("SpaceMolt wakeup: the pilot is at rest and the operator's bounded objective "
-                f"({report.get('objective') or 'unnamed'}) is already done. There is nothing to "
-                "choose and no shift to open — say the objective is complete and end the turn "
-                "without calling a tool. Only the operator can give the pilot something new.")
+                f"({report.get('objective') or 'unnamed'}) is already done. Say the objective is "
+                "complete and end the turn. The operator sets the next one.")
     # The choosing is the point: the needs and the stagnation signals outlast the travelogue.
     for drop in (None, "seen", "recent"):
         if drop:
