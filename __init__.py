@@ -354,7 +354,7 @@ TOOL_DEFINITIONS = (
                        "script ends, and runs one script at a time. Name either script or source; "
                        "spacemolt_scripts lists what there is to name.\n"
                        "A script you write is one module:\n"
-                       "- it imports from '../jobs/index.ts' alone: gather, stow, withdraw, craft, travel, "
+                       "- it imports from '../jobs/index.ts' alone: gather, hunt, stow, withdraw, craft, travel, "
                        "dock, where, storage, service, journal, and the scripts gatherUntil and "
                        "stockUp;\n"
                        "- `export const params` is the JSON schema of what it takes, checked "

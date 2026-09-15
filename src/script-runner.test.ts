@@ -133,6 +133,24 @@ test('the craft script runs one job at the bench and its sentence reaches the ru
   } finally {f.close();}
 });
 
+test('the hunt script takes one fight and its sentence reaches the run outcome', async () => {
+  const f=runner({cargoUsed:0,store:[],
+    wildlife:{creatures:[{creature_id:'crt_1',species:'veil_ray',speed:2}]}},
+  {permissions:{wildlife:true}});
+  try {
+    const outcome=await f.run('hunt',{poi_id:'belt'});
+    assert.equal(outcome.outcome,'done',outcome.reason);
+    assert.equal(outcome.script,'hunt');
+    assert.deepEqual(outcome.jobs.map(job=>[job.job,job.outcome]),[['hunt','done']]);
+    assert.match(outcome.reason!,/hunted 1 at belt: 1 creature_carapace, hull 96→100, stowed at sol_base/);
+    assert.deepEqual((outcome.result as any).targets,
+      [{species:'veil_ray',outcome:'down',hull_before:96,hull_after:96}]);
+    // The loot is in the store, and nothing was sold or towed to get it there.
+    assert.deepEqual(f.store,[{item_id:'creature_carapace',quantity:1}]);
+    assert.equal(f.count('spacemolt/sell'),0);
+  } finally {f.close();}
+});
+
 test('the rules between jobs end the script, with the jobs after it unrun', async () => {
   const f=runner({cargoUsed:0,store:[]});
   try {

@@ -36,6 +36,26 @@ export interface WorldOptions {
   minePerCycle?:number;
   /** The one recipe this world's bench knows, as the server quotes and runs it. */
   craft?:CraftOptions;
+  /** The creatures at this world's POIs, and how a fight with one goes. */
+  wildlife?:WildlifeOptions;
+}
+
+/** A habitat with creatures in it: what a look answers, how a battle resolves over a few
+ * polls, and what the kill leaves in a wreck. The ship's own weapon is here too, because a
+ * hunt's first gate is the fit, not the target. */
+export interface WildlifeOptions {
+  creatures?:{creature_id:string;species:string;name?:string;role?:string;hull?:number;
+    max_hull?:number;speed?:number;in_combat?:boolean;branded?:boolean}[];
+  /** Status polls that still show the fight before the creature is down. */
+  polls?:number;
+  /** Hull the ship loses on each of those polls. */
+  damage?:number;
+  /** What the kill leaves behind, looted a row at a time. */
+  drops?:{item_id:string;quantity:number}[];
+  /** The fitted weapon, or null for a ship that has none. */
+  weapon?:{name?:string;type_id?:string;ammo_type?:string;current_ammo?:number}|null;
+  /** The poll the ship's crew stops being able to fly it on: the world moving the pilot. */
+  incapacitateOn?:number;
 }
 
 /** A bench with one recipe on it: what a dry run answers, what a commit escrows and queues,
@@ -66,10 +86,11 @@ export function bridgeWorld(options:WorldOptions={}) {
   const account=new FakeLibGoalAccount({
     location:{system_id:'sol',poi_id:'station',docked_at:'sol_base' as string|null,in_transit:false},
     // Hull stays above the Cautious D3 line: a ship below it is Tired and starts no job.
-    ship:{id:'ship',fuel:100,max_fuel:120,hull:96,max_hull:100,cargo_used:cargoUsed,cargo_capacity:12},
+    ship:{id:'ship',fuel:100,max_fuel:120,hull:96,max_hull:100,cargo_used:cargoUsed,
+      cargo_capacity:12,speed:3,incapacitated:false},
     player:{credits:1_000},
     cargo:(cargoUsed?[{item_id:'ore',quantity:cargoUsed}]:[]) as {item_id:string;quantity:number}[],
-    modules:[] as {module_id:string;type_id:string;slot:string}[],
+    modules:[] as Record<string,any>[],
   });
   const add=(item:string,quantity:number)=>{
     const room=account.server.ship.cargo_capacity-account.server.ship.cargo_used;
@@ -103,8 +124,80 @@ export function bridgeWorld(options:WorldOptions={}) {
       if(held)held.quantity+=row.quantity;else store.push({...row});
     }
   };
+  // The habitat: creatures at the POI, one battle at a time, and the wrecks a kill leaves.
+  const fauna={polls:1,damage:0,drops:[{item_id:'creature_carapace',quantity:1}],
+    incapacitateOn:0,...options.wildlife,
+    creatures:(options.wildlife?.creatures??[]).map(row=>({role:'grazer',hull:60,max_hull:60,
+      name:row.species,in_combat:false,branded:false,...row}))};
+  if(options.wildlife) {
+    const weapon=fauna.weapon===undefined
+      ?{name:'Autocannon I',type_id:'autocannon_i',ammo_type:'autocannon',current_ammo:500}
+      :fauna.weapon;
+    if(weapon)account.server.modules.push({module_id:'w1',slot:'weapon',type:'weapon',
+      cpu_usage:3,power_usage:4,size:10,...weapon,type_id:String(weapon.type_id??'autocannon_i'),
+      name:String(weapon.name??'Autocannon I')});
+  }
+  const wrecks:Record<string,any>[]=[];
+  let battle:{target:string;left:number;ticks:number}|null=null;
+  const tick=()=>{
+    if(!battle)return;
+    battle.ticks++;
+    account.server.ship.hull=Math.max(0,account.server.ship.hull-fauna.damage);
+    if(fauna.incapacitateOn&&battle.ticks>=fauna.incapacitateOn)
+      account.server.ship.incapacitated=true;
+    if(battle.left>0){battle.left--;return;}
+    // The creature is down: it leaves the habitat and leaves a wreck with its drops in it.
+    const target=battle.target;
+    fauna.creatures=fauna.creatures.filter(row=>row.creature_id!==target);
+    wrecks.push({id:`wreck-${wrecks.length+1}`,victim_id:target,type:'creature',
+      poi_id:account.server.location.poi_id,cargo:structuredClone(fauna.drops),modules:[]});
+    battle=null;
+  };
   const sent:{action:string;params:Record<string,unknown>}[]=[];
   const handlers:Record<string,(params:Record<string,unknown>)=>unknown>={
+    'spacemolt/get_nearby':()=>({structuredContent:{poi_id:account.server.location.poi_id,
+      count:fauna.creatures.length,creature_count:fauna.creatures.length,
+      creatures:structuredClone(fauna.creatures),nearby:[],pirates:[],empire_npcs:[],prizes:[],
+      arena_npcs:[],pirate_count:0,empire_npc_count:0,prize_count:0,arena_npc_count:0}}),
+    'spacemolt/hunt':params=>{
+      const target=fauna.creatures.find(row=>row.creature_id===String(params.id));
+      if(!target)throw new Error(`No creature ${params.id} here`);
+      battle={target:target.creature_id,left:Math.max(0,fauna.polls),ticks:0};
+      return {delta:{details:{command:'attack',message:'Engaging.',pending:true}}};
+    },
+    // The server's own refusal when the fight is over, which is how a caller learns it ended.
+    'spacemolt_battle/status':()=>{
+      if(!battle)throw new Error('No active battle. Use attack to engage a target.');
+      const target=battle.target;
+      tick();
+      const {ship}=account.server;
+      return {structuredContent:{battle_id:'battle-1',is_participant:true,system_id:'sol',
+        combat_state:{effective_speed:ship.speed,max_weapon_reach:2,incapacitated:ship.incapacitated},
+        participants:[{player_id:'ship',kind:'player',side_id:2,stance:'fire',
+          hull_pct:Math.round(100*ship.hull/ship.max_hull),zone:'inner',zone_distance:2},
+        ...fauna.creatures.filter(row=>row.creature_id===target).map(row=>({player_id:row.creature_id,
+          kind:'creature',is_npc:true,side_id:1,username:row.name,
+          hull_pct:Math.round(100*row.hull/row.max_hull),zone:'inner',zone_distance:2}))]}};
+    },
+    'spacemolt_battle/advance':()=>({structuredContent:{action:'advance',message:'Advancing toward the enemy.'}}),
+    'spacemolt_battle/retreat':()=>{battle=null;
+      return {structuredContent:{action:'retreat',message:'Breaking off.'}};},
+    'spacemolt_salvage/wrecks':()=>({structuredContent:{count:wrecks.length,
+      wrecks:structuredClone(wrecks)}}),
+    'spacemolt_salvage/loot':params=>{
+      const wreck=wrecks.find(row=>row.id===String(params.id));
+      if(!wreck)throw new Error(`No wreck ${params.id}`);
+      const row=(wreck.cargo as {item_id:string;quantity:number}[])
+        .find(item=>item.item_id===String(params.item_id));
+      if(!row)throw new Error(`No ${params.item_id} in that wreck`);
+      const moved=Math.min(row.quantity,Number(params.quantity),
+        account.server.ship.cargo_capacity-account.server.ship.cargo_used);
+      add(row.item_id,moved);
+      row.quantity-=moved;
+      wreck.cargo=(wreck.cargo as {quantity:number}[]).filter(item=>item.quantity>0);
+      return {delta:{details:{action:'loot_wreck',item_id:row.item_id,quantity:99,
+        wreck_empty:!(wreck.cargo as unknown[]).length}}};
+    },
     'spacemolt/get_system':()=>({structuredContent:{kind:'normal',
       system:account.server.location.system_id==='sol'?system:deepRange}}),
     'spacemolt/find_route':params=>{

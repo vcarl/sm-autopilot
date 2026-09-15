@@ -109,6 +109,8 @@ def test_register_publishes_every_tool_in_the_spacemolt_toolset():
     assert "craft" in tools["spacemolt_run"][1]["description"]
     # Moving an input to the bench that wants it is a job of its own, named there too.
     assert "withdraw" in tools["spacemolt_run"][1]["description"]
+    # Hunting fauna is a job of its own, so a Hunter's script can name it.
+    assert "hunt" in tools["spacemolt_run"][1]["description"]
     assert tools["spacemolt_scripts"][1]["parameters"]["required"] == ["action"]
     assert tools["spacemolt_dispatch"][1]["parameters"]["required"] == ["instruction"]
     assert tools["spacemolt_travel"][1]["parameters"]["required"] == ["poi_id"]

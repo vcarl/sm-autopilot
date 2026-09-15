@@ -15,6 +15,7 @@
 export {Blocked,type Ctx,type JobOutcome} from './ctx.ts';
 export {craft,type CraftParams} from './craft.ts';
 export {gather,type GatherParams} from './gather.ts';
+export {hunt,type HuntParams} from './hunt.ts';
 export {stow,type StowParams} from './stow.ts';
 export {withdraw,type WithdrawParams} from './withdraw.ts';
 export {dock,journal,service,storage,travel,where,

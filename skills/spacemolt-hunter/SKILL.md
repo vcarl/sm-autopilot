@@ -40,6 +40,10 @@ loadout floor is met, and the loot has somewhere to go. Prefer a species you hav
 over an individual you have merely seen: creature identities expire between trips, species and
 their habitats persist.
 
+**The job is `hunt`** (`poi_id`, optional `species`, `fights`, `base_id`): out to the habitat,
+the fights the rules admit, loot what fits, home, stowed and serviced. Naming a species you
+have fought is what makes a kind known; without one it declines what the scan cannot say.
+
 **Walk away when** any of that is a guess. A scan gives hull and description, never
 weapons or speed, so a scan alone does not make an unknown opponent known. Something faster than
 you is declined outright. Pirates fight back with intent and wildlife does not, which is worth
