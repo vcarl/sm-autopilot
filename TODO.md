@@ -269,7 +269,7 @@ Each row is a behavior the pilot can perform independently, at a stated evidence
 
 - [x] C1 — Departs only when the quoted route cost plus the mood's reserve fits actual fuel; otherwise refuses with the shortfall in units. (fixture) | proof: `node --test spacemolt/proofs/c01-fuel-guard.test.ts` | depends: S40, R7
   - T28 dropped as a whole-row dependency 2026-09-14: C1 needs only its `fuel-route-guard` group and the fake account (T18 harness); the port lands piecemeal, one group per capability row that needs it, and T28 ticks when the last group is in.
-- [ ] C2 — Travels to a POI in the current system and confirms arrival by a live read, waiting out an in-flight transit rather than re-issuing. (fixture) | proof: `node --test spacemolt/proofs/c02-travel-poi.test.ts` | depends: S40
+- [x] C2 — Travels to a POI in the current system and confirms arrival by a live read, waiting out an in-flight transit rather than re-issuing. (fixture) | proof: `node --test spacemolt/proofs/c02-travel-poi.test.ts` | depends: S40
   - T28 dropped as a whole-row dependency 2026-09-14, as for C1: C2 needs only the wait-for-location and go-to-poi groups, which run 5 ported; the rest of T28 lands with the rows that need each group.
 - [ ] C3 — Jumps a multi-system route to a target system, re-planning once from actual position when a jump reports failure. (fixture) | proof: `node --test spacemolt/proofs/c03-jump-route.test.ts` | depends: S40
 - [ ] C4 — Docks at a station, treats already-docked as satisfied, and resolves a lost dock reply by a live refresh in either direction. (fixture) | proof: `node --test spacemolt/proofs/c04-dock.test.ts` | depends: S24, S40
