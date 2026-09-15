@@ -12,7 +12,9 @@ from typing import Any, Mapping
 
 from .service import pilot_path
 
-TOOLSET = "spacemolt"
+#: What a fire carries: the job tools plus the reads every client of the runner may make.
+#: ``spacemolt_operator`` is deliberately absent — the pilot does not set its own objective.
+TOOLSETS = ("spacemolt", "spacemolt_observe")
 SHARED_SKILL = "spacemolt"
 #: Cron's platform name. A juncture is the only session the menu is delivered into; a CLI
 #: or chat session is a client of the runner and never opens the game to build a prompt.
@@ -99,7 +101,7 @@ def job_fields(pilot: dict[str, Any]) -> dict[str, Any]:
     return {
         "prompt": JUNCTURE_PROMPT,
         "skills": [SHARED_SKILL] + ([f"{SHARED_SKILL}-{stance}"] if stance else []),
-        "enabled_toolsets": [TOOLSET],
+        "enabled_toolsets": list(TOOLSETS),
     }
 
 

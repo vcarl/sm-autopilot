@@ -107,10 +107,13 @@ def test_the_juncture_job_carries_the_stance_and_passes_the_cron_toolset_clamp(t
 
     stored = cron_jobs.get_job(job["id"])
     assert stored["skills"] == ["spacemolt", "spacemolt-prospector"]
-    assert stored["enabled_toolsets"] == ["spacemolt"]
+    # The job tools and the reads; never the operator's toolset — a pilot does not direct itself.
+    assert stored["enabled_toolsets"] == ["spacemolt", "spacemolt_observe"]
+    assert "spacemolt_operator" not in stored["enabled_toolsets"]
     # The stance's own tools survive both halves of the cron clamp.
-    assert "spacemolt" in _resolve_cron_enabled_toolsets(stored, {})
-    assert "spacemolt" not in _resolve_cron_disabled_toolsets({})
+    enabled = _resolve_cron_enabled_toolsets(stored, {})
+    assert {"spacemolt", "spacemolt_observe"} <= set(enabled)
+    assert not {"spacemolt", "spacemolt_observe"} & set(_resolve_cron_disabled_toolsets({}))
 
     # A fire builds a fresh conversation: its own session, the plugin toolset, no project
     # context files and no background review fork.

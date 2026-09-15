@@ -1,6 +1,6 @@
 name: spacemolt
 version: 0.1.0
-description: "Look around a SpaceMolt system and fly to a point of interest."
+description: "SpaceMolt pilot: junctures, jobs, and the operator window."
 author: Hermes SpaceMolt
 kind: standalone
 requires_env:
@@ -8,3 +8,9 @@ requires_env:
 provides_tools:
   - spacemolt_where
   - spacemolt_travel
+  - spacemolt_dock
+  - spacemolt_gather
+  - spacemolt_dispatch
+  - spacemolt_status
+  - spacemolt_journal
+  - spacemolt_direct
