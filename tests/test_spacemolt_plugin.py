@@ -1,4 +1,4 @@
-"""The SpaceMolt plugin's two tools are clients of one bridge process."""
+"""The SpaceMolt plugin's tools are clients of one bridge process."""
 from __future__ import annotations
 
 import json
@@ -17,6 +17,7 @@ for line in sys.stdin:
     answers = {
         "where": {"system": {"id": "sol", "name": "Sol"}, "pois": [{"id": "belt", "name": "Belt", "type": "belt"}]},
         "travel": {"arrived": True, "location": {"system": "sol", "poi": request["params"].get("poi_id")}},
+        "dock": {"docked": True, "docked_at": "sol_base", "already_docked": False},
     }
     print(json.dumps({"id": request["id"], "ok": True, "result": answers[request["action"]]}), flush=True)
 '''
@@ -35,17 +36,18 @@ def bridged(tmp_path, monkeypatch):
     service.close_bridge()
 
 
-def test_both_tools_answer_from_the_one_bridge(bridged):
+def test_every_tool_answers_from_the_one_bridge(bridged):
     observed = json.loads(spacemolt._where({}))
     assert observed["system"]["id"] == "sol"
     assert observed["pois"] == [{"id": "belt", "name": "Belt", "type": "belt"}]
     arrival = json.loads(spacemolt._travel({"poi_id": "belt"}))
     assert arrival == {"arrived": True, "location": {"system": "sol", "poi": "belt"}}
-    # Both calls travelled the same connection: the plugin owns one bridge, not one per tool.
-    assert service._bridge is not None and service._bridge.counter == 2
+    assert json.loads(spacemolt._dock({})) == {"docked": True, "docked_at": "sol_base", "already_docked": False}
+    # Every call travelled the same connection: the plugin owns one bridge, not one per tool.
+    assert service._bridge is not None and service._bridge.counter == 3
 
 
-def test_register_publishes_both_tools_in_the_spacemolt_toolset():
+def test_register_publishes_every_tool_in_the_spacemolt_toolset():
     tools, sections, unloads = {}, {}, []
 
     class RecordingContext:
@@ -59,10 +61,12 @@ def test_register_publishes_both_tools_in_the_spacemolt_toolset():
             unloads.append(callback)
 
     spacemolt.register(RecordingContext())
-    assert set(tools) == {"spacemolt_where", "spacemolt_travel"}
+    assert set(tools) == {"spacemolt_where", "spacemolt_travel", "spacemolt_dock"}
     assert {toolset for toolset, *_ in tools.values()} == {"spacemolt"}
     assert tools["spacemolt_travel"][1]["parameters"]["required"] == ["poi_id"]
     assert tools["spacemolt_where"][1]["parameters"]["properties"] == {}
+    # Docking where the ship already is needs no argument from the model.
+    assert tools["spacemolt_dock"][1]["parameters"]["required"] == []
     # Credentials gate the tools out of the schema, and unload must release the bridge.
     assert all(kwargs["requires_env"] == ["SPACEMOLT_CREDENTIALS_FILE"] for *_, kwargs in tools.values())
     assert sections and unloads == [service.close_bridge]

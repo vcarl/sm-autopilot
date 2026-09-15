@@ -1,4 +1,4 @@
-/** Minimal SpaceMolt bridge: `where` and `travel`, one JSON request per stdin line. */
+/** Minimal SpaceMolt bridge: `where`, `travel` and `dock`, one JSON request per stdin line. */
 import {Account} from '@spacemolt/lib';
 import {createHash} from 'node:crypto';
 import {appendFileSync,mkdirSync,readFileSync} from 'node:fs';
@@ -8,6 +8,7 @@ import {fileURLToPath} from 'node:url';
 import {controllerLock} from './controller-lock.ts';
 import type {ReadinessAccount,ReadinessCommand} from './readiness.ts';
 import {details} from './response-details.ts';
+import {dockAt} from './dock.ts';
 import {FuelRouteShortfall,travelTo} from './travel.ts';
 
 export type Dispatch=(action:string,params?:Record<string,unknown>)=>Promise<unknown>;
@@ -50,10 +51,17 @@ export function serve(account:ReadinessAccount,command:ReadinessCommand):Dispatc
       return {arrived:false,reason,elapsed_s:elapsed()};
     }
   };
-  // Later capabilities (dock, service, jobs) slot in here; the transport never changes.
+  const dock=async(baseId?:string)=>{
+    try {
+      const {docked_at,already_docked}=await dockAt(account,command,baseId);
+      return {docked:true,docked_at,already_docked};
+    } catch(error){return {docked:false,reason:error instanceof Error?error.message:String(error)};}
+  };
+  // Later capabilities (service, jobs) slot in here; the transport never changes.
   const actions:Record<string,(params:Record<string,unknown>)=>Promise<unknown>>={
     where,
     travel:params=>travel(String(params.poi_id??'')),
+    dock:params=>dock(params.base_id===undefined?undefined:String(params.base_id)),
   };
   return async(action,params={})=>{
     if(!Object.hasOwn(actions,action))throw new Error(`Unknown action: ${action}`);

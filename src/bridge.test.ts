@@ -20,6 +20,7 @@ function fixture() {
     'spacemolt/find_route':()=>({found:true,target_system:'sol',total_jumps:0,estimated_fuel:7,fuel_per_jump:0,
       fuel_available:account.server.ship.fuel,cargo_used:account.server.ship.cargo_used,route:[{system_id:'sol',jumps:0}]}),
     'spacemolt/undock':()=>{account.server.location.docked_at=null;return {};},
+    'spacemolt/dock':()=>{account.server.location.docked_at='sol_base';return {};},
     // The server settles the move before the next authoritative read, as a same-system hop does.
     'spacemolt/travel':params=>{account.server.ship.fuel-=7;account.server.location.poi_id=String(params.id);return {};},
   };
@@ -60,4 +61,20 @@ test('travel undocks, flies to the named poi, and reports the arrival a live rea
   assert.equal(f.account.server.location.poi_id,'belt');
   // A destination the model never named must not become a flight.
   await assert.rejects(fixture().dispatch('travel',{}),/poi_id/);
+});
+
+test('dock reports the dock the pilot already has and otherwise docks once, live read deciding', async () => {
+  const f=fixture();
+  assert.deepEqual(await f.dispatch('dock'),{docked:true,docked_at:'sol_base',already_docked:true});
+  assert.equal(f.sent.length,0,'a dock the pilot already has is never re-sent');
+  f.account.server.location.docked_at=null; // the pilot left the station
+  assert.deepEqual(await f.dispatch('dock'),{docked:true,docked_at:'sol_base',already_docked:false});
+  assert.deepEqual(f.sent.map(call=>call.action),['spacemolt/dock']);
+  // A dock somewhere else is reported, never overwritten.
+  const elsewhere=fixture();
+  elsewhere.account.server.location.docked_at='other_base';
+  const refused=await elsewhere.dispatch('dock',{base_id:'sol_base'}) as any;
+  assert.equal(refused.docked,false);
+  assert.match(refused.reason,/other_base/);
+  assert.equal(elsewhere.sent.length,0);
 });

@@ -3,6 +3,9 @@ import {SpacemoltError} from '@spacemolt/lib';
 const uncertainCodes=new Set(['mutation_timeout','query_timeout','connect_timeout','connection_closed','disconnected','invalid_response','action_pending']);
 const knownRejection=(error:unknown)=>error instanceof SpacemoltError&&!error.pendingCommand&&!uncertainCodes.has(error.code);
 
+/** The reply is gone, not the outcome: the command may still have landed. Reconcile, never retry blind. */
+export const replyLost=(error:unknown)=>!knownRejection(error);
+
 /** A composite operation cannot swallow an ambiguous send and then continue. */
 export class CommandBoundary {
   sent=false;

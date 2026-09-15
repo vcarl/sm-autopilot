@@ -4,6 +4,7 @@ import {details} from './response-details.ts';
 import {routeSteps} from './normal-route.ts';
 import {resolveFuelReserve,type Mood,type OperatorFuelPolicy} from './mood-policy.ts';
 import type {FuelTravelExecution} from './fuel-transition.ts';
+import {dockAt} from './dock.ts';
 
 export class TravelBlocked extends Error {}
 export interface FuelRouteEvidence {
@@ -195,9 +196,9 @@ export async function travelTo(account:ReadinessAccount,command:ReadinessCommand
   await moveCheckpoint();
   if(destination.base_id) {
     await moveCheckpoint();
-    if(!account.state.location!.docked_at)await command('spacemolt/dock',{});
-    await account.refresh();
-    if(!arrived(account.state)||account.state.location!.docked_at!==destination.base_id)throw new Error('Docking identity not verified');
+    // One dock path for every caller: satisfied docks, lost replies and queued docks included.
+    await dockAt(account,command,destination.base_id,waits);
+    if(!arrived(account.state))throw new Error('Docking identity not verified');
   }
   return {jumps,location:structuredClone(account.state.location)};
 }
