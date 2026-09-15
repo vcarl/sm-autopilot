@@ -4,7 +4,7 @@ import {spawnSync} from 'node:child_process';
 import {existsSync,mkdtempSync,readFileSync,writeFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
-import {serve,type Pilot,type ServeOptions} from './bridge.ts';
+import {createShutdown,serve,type Pilot,type ServeOptions} from './bridge.ts';
 import {controllerLock} from './controller-lock.ts';
 import type {ChainOutcome} from './chain.ts';
 import type {ReadinessAccount,ReadinessCommand} from './readiness.ts';
@@ -230,6 +230,32 @@ test('job starts one chain in the runner and returns before it ends; status carr
   assert.deepEqual(after.last.juncture,{reason:'chain done: 3 of 3 jobs'});
   // The runner is free again, and the next juncture reads the outcome from `last`.
   assert.equal(((await f.dispatch('menu')) as any).last.chain_id,started.chain_id);
+});
+
+test('shutdown forces exit within the grace even when the account never finishes closing, and stays idempotent', async () => {
+  const account={close:()=>new Promise<void>(()=>{})}; // a real, connected Account can hang here
+  const exits:number[]=[];
+  let fireGrace:(()=>void)|undefined;
+  const schedule=((cb:()=>void)=>{fireGrace=cb;return 0;}) as unknown as typeof setTimeout;
+  const shutdown=createShutdown(account,{exit:code=>exits.push(code),schedule,graceMs:2000});
+  shutdown();
+  await settle();
+  assert.deepEqual(exits,[],'close() never resolves and the grace has not elapsed yet');
+  fireGrace!(); // the grace timer, not the account, is what ends it
+  assert.deepEqual(exits,[0]);
+  shutdown(); // a second signal (SIGTERM after SIGINT, stdin close after SIGTERM) changes nothing
+  fireGrace?.();
+  assert.deepEqual(exits,[0],'already shutting down; no second exit');
+});
+
+test('shutdown exits immediately once account.close() resolves, ahead of the grace timer', async () => {
+  const account={close:()=>Promise.resolve()};
+  const exits:number[]=[];
+  const schedule=(()=>0) as unknown as typeof setTimeout; // the grace timer never fires here
+  const shutdown=createShutdown(account,{exit:code=>exits.push(code),schedule});
+  shutdown();
+  await settle();
+  assert.deepEqual(exits,[0]);
 });
 
 test('the controller lock is taken over from a dead holder and refused to a live one', () => {

@@ -327,6 +327,27 @@ export function serve(account:ReadinessAccount,command:ReadinessCommand,options:
   };
 }
 
+/** Ends the bridge's own process once its owner is gone: SIGTERM, SIGINT, and stdin ending all
+ * say the same thing, and more than one may fire, so this is idempotent. `account.close()` is
+ * started but never awaited — a real, connected `Account` can leave it unresolved for the life
+ * of the process — so a bounded grace timer forces the exit if closing does not finish first,
+ * and exit fires immediately the moment it does. */
+export function createShutdown(account:{close:()=>unknown},
+  deps:{exit?:(code:number)=>void;schedule?:typeof setTimeout;graceMs?:number}={}) {
+  const exit=deps.exit??((code:number)=>process.exit(code));
+  const schedule=deps.schedule??setTimeout;
+  const graceMs=deps.graceMs??2000;
+  let started=false,finished=false;
+  const finish=()=>{if(finished)return;finished=true;exit(0);};
+  return ()=>{
+    if(started)return;
+    started=true;
+    schedule(finish,graceMs);
+    try {Promise.resolve(account.close()).then(finish,finish);}
+    catch {finish();} // never connected
+  };
+}
+
 async function main() {
   const credentialPath=process.env.SPACEMOLT_CREDENTIALS_FILE;
   if(!credentialPath)throw new Error('SPACEMOLT_CREDENTIALS_FILE must name a credentials file');
@@ -346,10 +367,17 @@ async function main() {
   const account=new Account({url:'wss://game.spacemolt.com/ws/v2',reconnect:true,credentials});
   // Stdin EOF, SIGTERM and SIGINT all say the same thing: the gateway that owns this bridge is
   // gone. A chain in flight is abandoned rather than awaited — its last progress record is
-  // already journalled, and a pending tick timer must not hold the process open.
-  const shutdown=()=>{try {account.close();} catch {/* never connected */} process.exit(0);};
-  process.on('SIGTERM',shutdown);
-  process.on('SIGINT',shutdown);
+  // already journalled. `stopped` also stops the request loop from taking on new work once
+  // shutdown has started.
+  let stopped=false;
+  const shutdown=createShutdown(account);
+  const triggerShutdown=()=>{stopped=true;shutdown();};
+  process.on('SIGTERM',triggerShutdown);
+  process.on('SIGINT',triggerShutdown);
+  // The for-await loop below ends on stdin EOF too, but a pipe that stays open without ever
+  // emitting readline's own 'close' must not be the only way out.
+  process.stdin.on('end',triggerShutdown);
+  process.stdin.on('close',triggerShutdown);
   await account.connect();
   await account.authenticate(credentials());
   // The lib applies each result's state delta; travelTo re-reads authoritatively at every gate.
@@ -365,6 +393,7 @@ async function main() {
   const resumed=await dispatch('resume',{});
   console.log(JSON.stringify({event:'ready',resumed}));
   for await(const line of createInterface({input:process.stdin,terminal:false})) {
+    if(stopped)break;
     if(!line.trim())continue;
     let request:{id?:string;action:string;params?:Record<string,unknown>}|undefined;
     let response:Record<string,unknown>;
@@ -377,7 +406,7 @@ async function main() {
     journal({request,response});
     console.log(JSON.stringify(response));
   }
-  shutdown();
+  triggerShutdown();
 }
 
 if(process.argv[1]&&fileURLToPath(import.meta.url)===resolve(process.argv[1]))await main();
