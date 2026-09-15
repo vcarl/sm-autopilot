@@ -24,7 +24,14 @@
 - [ ] D4 — Menu contract: what an option carries (what, bounds, reason), what a refusal carries, and what "worthwhile" means beyond "admissible".
 - [ ] D5 — Place taxonomy: which kinds of place the engine distinguishes and what each makes possible.
 - [ ] D6 — Rest triggers: what makes the agent rest rather than take another job, and which stagnation signals reflection sees.
-- [ ] D7 — Enumeration session with Carl: the stances, jobs, and station counters the game actually offers. Blocks D5 and much of K and S below.
+- [x] D7 — Enumeration session with Carl: the stances, jobs, and station counters the game actually offers. Blocks D5 and much of K and S below.
+  - Decided with Carl 2026-09-14 (the written proposal was lost; decisions taken on a rebuilt brief):
+    - Stances: start with the three that work today, Industrialist (buy inputs, craft), Carrier (freight and passengers to a deadline), Hunter (wildlife and ship combat); playtest them before Prospector, Trader, Scout.
+    - Jobs: the list grows by playing; nothing is frozen. Every job verb must be a confirmed game command.
+    - Station counters: wire all thirteen the game offers (market, trading report, refuel, repair, mission board, crafting and recycling, storage, shipyard, freight contracts, passengers, crew and marines, insurance, home registration); stance guidance picks among them.
+    - "Reading the news" in VISION.md is metaphorical: notifications, markets, and chat are what the docked pilot follows. Not a contradiction.
+    - Idle-at-base options are built around choices that need no stocked board; a board that comes back empty must not empty the menu.
+    - Home: call the game's set_home so the pilot's home matches where it respawns; home-location.ts must issue it.
 - [x] D8 — Home semantics: selection criteria, persisted identity, reconsideration triggers, temporary service stops, unreachable-home fallback. No operator-supplied station IDs.
 - [x] D9 — Job contract: preconditions, outputs, obligations, cleanup, terminal outcomes.
 - [x] D10 — Agent/script discretion: mechanical adaptation versus a change of objective, with examples.
@@ -318,7 +325,7 @@ Each row is a behavior the pilot can perform independently, at a stated evidence
 
 ## Next action
 
-- Run the enumeration session with Carl (D7): which stances, jobs, and station counters the game actually offers.
+- D7 decided 2026-09-14 (see the D7 row). Next: the menu rows (C19 onward) can start; C9 gather job and C26 live travel-and-dock are in flight.
 - Then build the second attempt from VISION.md: runner, rules table and menu, journal, chains, station counters, cron junctures. Nothing of the first engine remains to extend.
 - Keep the existing executors and assessment helpers; reshape them under S9 and S10 rather than rewriting them.
 - First rebuild step: kept executors import deleted engine types; list: rules.ts -> combat-fit, combat, industry, logistics, obligations, passenger-fit, progression, readiness, recovery, servicing, spending, transport-budget, transport-time; execution-policy.ts -> combat, equipment-retrieval, gather, home-location, locations, logistics, passengers, transport-budget, transport-itinerary; execution-store.ts -> recovery, shared-production, spending, transport-budget; logistics-policy.ts -> transport-itinerary; and in kept tests logistics.test.ts (execution, execution-store, execution-logistics, logistics-fixture), mining-delta.test.ts (gather-fixture), transport-itinerary.test.ts (execution-policy).
