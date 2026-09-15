@@ -1,0 +1,422 @@
+{
+ "bridge": {
+  "chain_event": [
+   {
+    "at": "2026-09-15T08:07:49.361Z",
+    "chain_id": "chain-1",
+    "event": "chain",
+    "jobs": [
+     {
+      "cleared": 0,
+      "job": "gather",
+      "outcome": "done",
+      "yield": []
+     }
+    ],
+    "juncture": {
+     "reason": "chain done: 1 of 1 jobs"
+    },
+    "line": 258,
+    "outcome": "done"
+   },
+   {
+    "at": "2026-09-15T08:33:53.835Z",
+    "chain_id": "chain-3",
+    "event": "chain",
+    "jobs": [
+     {
+      "cleared": 0,
+      "job": "gather",
+      "outcome": "failed",
+      "reason": "travel failed: Unknown destination: asteroid_belt",
+      "yield": []
+     }
+    ],
+    "juncture": {
+     "reason": "chain failed at job 1 of 1: travel failed: Unknown destination: asteroid_belt"
+    },
+    "line": 289,
+    "outcome": "failed"
+   },
+   {
+    "at": "2026-09-15T11:10:02.327Z",
+    "chain_id": "chain-7",
+    "event": "chain",
+    "jobs": [
+     {
+      "cleared": 0,
+      "job": "gather",
+      "outcome": "failed",
+      "reason": "mine failed: cannot mine: docked at unknown_edge_waystation",
+      "yield": []
+     }
+    ],
+    "juncture": {
+     "reason": "chain failed at job 1 of 1: mine failed: cannot mine: docked at unknown_edge_waystation"
+    },
+    "line": 399,
+    "outcome": "failed"
+   },
+   {
+    "at": "2026-09-15T14:23:34.050Z",
+    "chain_id": "chain-12",
+    "event": "chain",
+    "jobs": [
+     {
+      "cleared": 0,
+      "job": "gather",
+      "outcome": "failed",
+      "reason": "mine failed: cannot mine: docked at unknown_edge_waystation",
+      "yield": []
+     }
+    ],
+    "juncture": {
+     "reason": "chain failed at job 1 of 1: mine failed: cannot mine: docked at unknown_edge_waystation"
+    },
+    "line": 455,
+    "outcome": "failed"
+   }
+  ],
+  "job": [
+   {
+    "at": "2026-09-15T03:51:34.231Z",
+    "line": 169,
+    "request": {
+     "action": "job",
+     "id": "2",
+     "params": {
+      "base_id": "unknown_edge_waystation",
+      "job": "gather",
+      "poi_id": "unknown_edge_mineral_fields"
+     }
+    },
+    "response": {
+     "id": "2",
+     "ok": true,
+     "result": {
+      "accepted": true,
+      "chain_id": "chain-1",
+      "record": {
+       "ended": false,
+       "kind": "once",
+       "length": 1,
+       "position": 0
+      }
+     }
+    }
+   },
+   {
+    "at": "2026-09-15T08:33:53.714Z",
+    "line": 288,
+    "request": {
+     "action": "job",
+     "id": "33",
+     "params": {
+      "base_id": "unknown_edge_waystation",
+      "job": "gather",
+      "poi_id": "asteroid_belt"
+     }
+    },
+    "response": {
+     "id": "33",
+     "ok": true,
+     "result": {
+      "accepted": true,
+      "chain_id": "chain-3",
+      "record": {
+       "ended": false,
+       "kind": "once",
+       "length": 1,
+       "position": 0
+      }
+     }
+    }
+   }
+  ],
+  "menu_busy": [
+   {
+    "at": "2026-09-15T09:25:26.996Z",
+    "line": 333,
+    "request": {
+     "action": "menu",
+     "id": "1",
+     "params": {}
+    },
+    "response": {
+     "id": "1",
+     "ok": true,
+     "result": {
+      "busy": true,
+      "chain_id": "chain-4",
+      "record": {
+       "ended": false,
+       "kind": "once",
+       "length": 1,
+       "position": 0
+      }
+     }
+    }
+   }
+  ],
+  "reflection_event": [
+   {
+    "at": "2026-09-15T08:45:01.883926Z",
+    "event": "reflection",
+    "goal": "Investigate crafting recipes at frontier_station (the mobile capital) to identify profitable industrial lines using stored ores (energy crystals, carbon, aluminum, tungsten, iridium, vanadium, dark matter residue).",
+    "line": 324,
+    "mood": "Cautious",
+    "stance": "Industrialist"
+   },
+   {
+    "at": "2026-09-15T09:57:18.405387Z",
+    "event": "reflection",
+    "goal": "Explore unknown_edge_mineral_fields (asteroid belt) and visit mobile_capital to understand the system and what it offers.",
+    "line": 341,
+    "mood": "Cautious",
+    "stance": "Scout"
+   },
+   {
+    "at": "2026-09-15T10:02:42.173474Z",
+    "event": "reflection",
+    "goal": "Investigate available crafting recipes at the waystation workshop, using stored ores (carbon, iridium, platinum) and materials (phase pearl, creature carapace) to identify profitable production lines.",
+    "line": 371,
+    "mood": "Cautious",
+    "stance": "Industrialist"
+   }
+  ],
+  "rest": [
+   {
+    "at": "2026-09-15T08:13:41.311Z",
+    "line": 268,
+    "request": {
+     "action": "rest",
+     "id": "14",
+     "params": {}
+    },
+    "response": {
+     "id": "14",
+     "ok": true,
+     "result": {
+      "reason": "rest happens only at home; travel home to end the shift",
+      "rested": false
+     }
+    }
+   },
+   {
+    "at": "2026-09-15T08:14:20.627Z",
+    "line": 271,
+    "request": {
+     "action": "rest",
+     "id": "17",
+     "params": {}
+    },
+    "response": {
+     "id": "17",
+     "ok": true,
+     "result": {
+      "reason": "refuel and repair first \u2014 full tank and hull quoted at 9 credits, inside the Focused margin 1000",
+      "rested": false
+     }
+    }
+   },
+   {
+    "at": "2026-09-15T08:40:40.073Z",
+    "line": 319,
+    "request": {
+     "action": "rest",
+     "id": "63",
+     "params": {}
+    },
+    "response": {
+     "id": "63",
+     "ok": true,
+     "result": {
+      "reason": "refuel and repair first \u2014 full tank and hull quoted at 30 credits, inside the Focused margin 1000",
+      "rested": false
+     }
+    }
+   },
+   {
+    "at": "2026-09-15T08:44:58.048Z",
+    "line": 323,
+    "request": {
+     "action": "rest",
+     "id": "66",
+     "params": {}
+    },
+    "response": {
+     "id": "66",
+     "ok": true,
+     "result": {
+      "at_rest": true,
+      "cleared": {
+       "home": "unknown_edge_waystation",
+       "mood": "Focused",
+       "stance": "Industrialist"
+      },
+      "rested": true,
+      "serviced": true,
+      "shift_ended": true
+     }
+    }
+   },
+   {
+    "at": "2026-09-15T09:57:13.221Z",
+    "line": 340,
+    "request": {
+     "action": "rest",
+     "id": "6",
+     "params": {}
+    },
+    "response": {
+     "id": "6",
+     "ok": true,
+     "result": {
+      "at_rest": true,
+      "cleared": {
+       "goal": "Investigate crafting recipes at frontier_station (the mobile capital) to identify profitable industrial lines using stored ores (energy crystals, carbon, aluminum, tungsten, iridium, vanadium, dark matter residue).",
+       "home": "unknown_edge_waystation",
+       "mood": "Cautious",
+       "stance": "Industrialist"
+      },
+      "rested": true,
+      "serviced": true,
+      "shift_ended": true
+     }
+    }
+   },
+   {
+    "at": "2026-09-15T10:02:11.479Z",
+    "line": 369,
+    "request": {
+     "action": "rest",
+     "id": "32",
+     "params": {}
+    },
+    "response": {
+     "id": "32",
+     "ok": true,
+     "result": {
+      "at_rest": true,
+      "cleared": {
+       "goal": "Explore unknown_edge_mineral_fields (asteroid belt) and visit mobile_capital to understand the system and what it offers.",
+       "home": "unknown_edge_waystation",
+       "mood": "Cautious",
+       "stance": "Scout"
+      },
+      "rested": true,
+      "serviced": true,
+      "shift_ended": true
+     }
+    }
+   }
+  ],
+  "rest_event": [
+   {
+    "at": "2026-09-15T08:44:58.048Z",
+    "event": "rest",
+    "home": "unknown_edge_waystation",
+    "line": 322,
+    "mood": "Focused",
+    "stance": "Industrialist"
+   },
+   {
+    "at": "2026-09-15T09:57:13.220Z",
+    "event": "rest",
+    "goal": "Investigate crafting recipes at frontier_station (the mobile capital) to identify profitable industrial lines using stored ores (energy crystals, carbon, aluminum, tungsten, iridium, vanadium, dark matter residue).",
+    "home": "unknown_edge_waystation",
+    "line": 339,
+    "mood": "Cautious",
+    "stance": "Industrialist"
+   },
+   {
+    "at": "2026-09-15T10:02:11.479Z",
+    "event": "rest",
+    "goal": "Explore unknown_edge_mineral_fields (asteroid belt) and visit mobile_capital to understand the system and what it offers.",
+    "home": "unknown_edge_waystation",
+    "line": 368,
+    "mood": "Cautious",
+    "stance": "Scout"
+   }
+  ],
+  "status": [
+   {
+    "at": "2026-09-15T05:12:02.062Z",
+    "line": 206,
+    "request": {
+     "action": "status",
+     "id": "29",
+     "params": {}
+    },
+    "response": {
+     "id": "29",
+     "ok": true,
+     "result": {
+      "last": {
+       "chain_id": "chain-1",
+       "jobs": [
+        {
+         "cleared": 0,
+         "job": "gather",
+         "outcome": "done",
+         "yield": []
+        }
+       ],
+       "juncture": {
+        "reason": "chain done: 1 of 1 jobs"
+       },
+       "outcome": "done"
+      },
+      "running": false
+     }
+    }
+   },
+   {
+    "at": "2026-09-15T08:33:55.854Z",
+    "line": 290,
+    "request": {
+     "action": "status",
+     "id": "34",
+     "params": {}
+    },
+    "response": {
+     "id": "34",
+     "ok": true,
+     "result": {
+      "last": {
+       "chain_id": "chain-3",
+       "jobs": [
+        {
+         "cleared": 0,
+         "job": "gather",
+         "outcome": "failed",
+         "reason": "travel failed: Unknown destination: asteroid_belt",
+         "yield": []
+        }
+       ],
+       "juncture": {
+        "reason": "chain failed at job 1 of 1: travel failed: Unknown destination: asteroid_belt"
+       },
+       "outcome": "failed"
+      },
+      "running": false
+     }
+    }
+   }
+  ]
+ },
+ "note": "Sliced from ~/.hermes/profiles/kvothe/spacemolt/runtime/gameplay.jsonl (the live pilot's bridge journal, untracked) by proofs/fixtures/slice_bridge.py. Real request/response pairs; other players' names and ids, the pilot's own id, and the human-readable `result` text are scrubbed, and bulk nothing reads is dropped. `line` is the journal line each entry came from.",
+ "observed": {
+  "rest_refusals": [
+   "rest happens only at home; travel home to end the shift",
+   "refuel and repair first \u2014 full tank and hull quoted at N credits, inside the <Mood> margin M"
+  ],
+  "resume_never_called": "no resume request appears in the journal",
+  "unsolicited_move_never_journalled": "no unsolicited_move event appears in the journal"
+ },
+ "source": {
+  "dates": [
+   "2026-09-15"
+  ]
+ }
+}

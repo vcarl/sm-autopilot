@@ -1,0 +1,1092 @@
+{
+ "bridge": {
+  "chain": [
+   {
+    "at": "2026-09-15T09:25:38.808Z",
+    "chain_id": "chain-4",
+    "event": "chain",
+    "jobs": [
+     {
+      "cleared": 0,
+      "job": "gather",
+      "outcome": "done",
+      "yield": []
+     }
+    ],
+    "juncture": {
+     "reason": "chain done: 1 of 1 jobs"
+    },
+    "line": 336,
+    "outcome": "done"
+   },
+   {
+    "at": "2026-09-15T13:50:36.927Z",
+    "chain_id": "chain-11",
+    "event": "chain",
+    "jobs": [
+     {
+      "cleared": 0,
+      "job": "gather",
+      "outcome": "failed",
+      "reason": "mine failed: cannot mine: docked at unknown_edge_waystation",
+      "yield": []
+     }
+    ],
+    "juncture": {
+     "reason": "chain failed at job 1 of 1: mine failed: cannot mine: docked at unknown_edge_waystation"
+    },
+    "line": 441,
+    "outcome": "failed"
+   }
+  ],
+  "dock": [
+   {
+    "at": "2026-09-15T02:56:08.836Z",
+    "line": 159,
+    "request": {
+     "action": "dock",
+     "id": "4",
+     "params": {}
+    },
+    "response": {
+     "id": "4",
+     "ok": true,
+     "result": {
+      "already_docked": false,
+      "docked": true,
+      "docked_at": "frontier_station"
+     }
+    }
+   },
+   {
+    "at": "2026-09-15T02:55:28.852Z",
+    "line": 157,
+    "request": {
+     "action": "dock",
+     "id": "2",
+     "params": {
+      "base_id": "mobile_capital"
+     }
+    },
+    "response": {
+     "id": "2",
+     "ok": true,
+     "result": {
+      "docked": false,
+      "reason": "Docked at unknown_edge_waystation, not mobile_capital; undock before docking elsewhere"
+     }
+    }
+   },
+   {
+    "at": "2026-09-15T08:12:49.354Z",
+    "line": 263,
+    "request": {
+     "action": "dock",
+     "id": "9",
+     "params": {}
+    },
+    "response": {
+     "id": "9",
+     "ok": true,
+     "result": {
+      "docked": false,
+      "reason": "No station at this location"
+     }
+    }
+   }
+  ],
+  "gather": [
+   {
+    "at": "2026-09-15T03:33:06.704Z",
+    "line": 166,
+    "request": {
+     "action": "gather",
+     "id": "3",
+     "params": {
+      "poi_id": "unknown_edge_mineral_fields"
+     }
+    },
+    "response": {
+     "id": "3",
+     "ok": true,
+     "result": {
+      "credits": 192194,
+      "elapsed_s": 613,
+      "fuel": 120,
+      "held": [],
+      "outcome": "done",
+      "sold": [
+       {
+        "cleared": 180,
+        "item_id": "aluminum_ore",
+        "quantity": 30,
+        "quoted": 180
+       },
+       {
+        "cleared": 2,
+        "item_id": "economy_passenger_cabin",
+        "quantity": 1,
+        "quoted": 2
+       },
+       {
+        "cleared": 250,
+        "item_id": "steel_plate",
+        "quantity": 10,
+        "quoted": 250
+       }
+      ],
+      "steps": [
+       {
+        "name": "travel",
+        "outcome": "done"
+       },
+       {
+        "name": "mine",
+        "outcome": "done"
+       },
+       {
+        "name": "return",
+        "outcome": "done"
+       },
+       {
+        "name": "dock",
+        "outcome": "done"
+       },
+       {
+        "name": "settle",
+        "outcome": "done"
+       },
+       {
+        "name": "service",
+        "outcome": "done"
+       },
+       {
+        "name": "verify",
+        "outcome": "done"
+       }
+      ],
+      "yield": [
+       {
+        "item_id": "aluminum_ore",
+        "quantity": 20
+       },
+       {
+        "item_id": "carbon_ore",
+        "quantity": 31
+       },
+       {
+        "item_id": "dark_matter_residue",
+        "quantity": 3
+       },
+       {
+        "item_id": "iridium_ore",
+        "quantity": 8
+       },
+       {
+        "item_id": "vanadium_ore",
+        "quantity": 13
+       }
+      ]
+     }
+    }
+   },
+   {
+    "at": "2026-09-15T08:44:49.259Z",
+    "line": 321,
+    "request": {
+     "action": "gather",
+     "id": "65",
+     "params": {
+      "poi_id": "unknown_edge_mineral_fields"
+     }
+    },
+    "response": {
+     "id": "65",
+     "ok": true,
+     "result": {
+      "credits": 192086,
+      "elapsed_s": 82,
+      "fuel": 120,
+      "held": [],
+      "outcome": "done",
+      "sold": [],
+      "steps": [
+       {
+        "name": "travel",
+        "outcome": "done"
+       },
+       {
+        "name": "mine",
+        "outcome": "done"
+       },
+       {
+        "name": "return",
+        "outcome": "done"
+       },
+       {
+        "name": "dock",
+        "outcome": "done"
+       },
+       {
+        "name": "settle",
+        "outcome": "done"
+       },
+       {
+        "name": "service",
+        "outcome": "done"
+       },
+       {
+        "name": "verify",
+        "outcome": "done"
+       }
+      ],
+      "yield": []
+     }
+    }
+   },
+   {
+    "at": "2026-09-15T07:09:09.809Z",
+    "line": 241,
+    "request": {
+     "action": "gather",
+     "id": "64",
+     "params": {
+      "poi_id": "asteroid_belt"
+     }
+    },
+    "response": {
+     "id": "64",
+     "ok": true,
+     "result": {
+      "credits": 192149,
+      "elapsed_s": 10,
+      "fuel": 120,
+      "held": [],
+      "outcome": "failed",
+      "reason": "travel failed: Unknown destination: asteroid_belt",
+      "sold": [],
+      "steps": [
+       {
+        "name": "travel",
+        "outcome": "failed",
+        "reason": "Unknown destination: asteroid_belt"
+       }
+      ],
+      "yield": []
+     }
+    }
+   }
+  ],
+  "job": [
+   {
+    "at": "2026-09-15T08:14:49.246Z",
+    "line": 273,
+    "request": {
+     "action": "job",
+     "id": "19",
+     "params": {
+      "job": "gather",
+      "poi_id": "unknown_edge_mineral_fields"
+     }
+    },
+    "response": {
+     "id": "19",
+     "ok": true,
+     "result": {
+      "accepted": true,
+      "chain_id": "chain-2",
+      "record": {
+       "ended": false,
+       "kind": "once",
+       "length": 1,
+       "position": 0
+      }
+     }
+    }
+   },
+   {
+    "at": "2026-09-15T08:33:51.054Z",
+    "line": 287,
+    "request": {
+     "action": "job",
+     "id": "32",
+     "params": {
+      "job": "gather",
+      "poi_id": "asteroid_belt"
+     }
+    },
+    "response": {
+     "error": "gather requires a home station in this system; pass its base_id or home_poi_id",
+     "id": "32",
+     "ok": false
+    }
+   }
+  ],
+  "menu": [
+   {
+    "at": "2026-09-15T14:21:09.261Z",
+    "line": 444,
+    "request": {
+     "action": "menu",
+     "id": "100",
+     "params": {}
+    },
+    "response": {
+     "id": "100",
+     "ok": true,
+     "result": {
+      "last": {
+       "chain_id": "chain-11",
+       "jobs": [
+        {
+         "cleared": 0,
+         "job": "gather",
+         "outcome": "failed",
+         "reason": "mine failed: cannot mine: docked at unknown_edge_waystation",
+         "yield": []
+        }
+       ],
+       "juncture": {
+        "reason": "chain failed at job 1 of 1: mine failed: cannot mine: docked at unknown_edge_waystation"
+       },
+       "outcome": "failed"
+      },
+      "mood": "Cautious",
+      "objective": "Explore unknown_edge_mineral_fields (the asteroid belt), then visit mobile_capital POI to see what it offers. These are exploration and reflection missions \u2014 no gather jobs. Use this to learn about the system before making strategic decisions.",
+      "options": [
+       {
+        "admissible": true,
+        "bounds": {
+         "fuelReserve": 30,
+         "spend": 500,
+         "walkAway": 0.95
+        },
+        "job": "Hold position and watch",
+        "reason": "the world moves between looks; watching costs nothing and starts nothing"
+       },
+       {
+        "admissible": true,
+        "bounds": {
+         "fuelReserve": 30,
+         "spend": 500,
+         "walkAway": 0.95
+        },
+        "job": "J12 Home, serviced",
+        "reason": "full tank and hull quoted at 18 credits, inside the Cautious margin 500"
+       },
+       {
+        "admissible": true,
+        "bounds": {
+         "fuelReserve": 30,
+         "spend": 500,
+         "walkAway": 0.95
+        },
+        "job": "Travel to mobile_capital",
+        "reason": "route quotes 0 fuel; with the Cautious reserve 30 you need 30 and have 114"
+       },
+       {
+        "admissible": true,
+        "bounds": {
+         "fuelReserve": 30,
+         "spend": 500,
+         "walkAway": 0.95
+        },
+        "job": "Counter: Services",
+        "reason": "offered here; reading a counter spends nothing, within the Cautious bounds (spend 500, fuel reserve 30, walk-away 0.95)"
+       },
+       {
+        "admissible": true,
+        "bounds": {
+         "fuelReserve": 30,
+         "spend": 500,
+         "walkAway": 0.95
+        },
+        "job": "Travel to edgelight",
+        "reason": "route quotes 0 fuel; with the Cautious reserve 30 you need 30 and have 114"
+       },
+       {
+        "admissible": true,
+        "bounds": {
+         "fuelReserve": 30,
+         "spend": 500,
+         "walkAway": 0.95
+        },
+        "job": "Travel to unknown_edge_i",
+        "reason": "route quotes 0 fuel; with the Cautious reserve 30 you need 30 and have 114"
+       },
+       {
+        "admissible": true,
+        "bounds": {
+         "fuelReserve": 30,
+         "spend": 500,
+         "walkAway": 0.95
+        },
+        "job": "Travel to unknown_edge_ii",
+        "reason": "route quotes 0 fuel; with the Cautious reserve 30 you need 30 and have 114"
+       },
+       {
+        "admissible": true,
+        "bounds": {
+         "fuelReserve": 30,
+         "spend": 500,
+         "walkAway": 0.95
+        },
+        "job": "Travel to unknown_edge_iii",
+        "reason": "route quotes 0 fuel; with the Cautious reserve 30 you need 30 and have 114"
+       },
+       {
+        "admissible": true,
+        "bounds": {
+         "fuelReserve": 30,
+         "spend": 500,
+         "walkAway": 0.95
+        },
+        "job": "Travel to unknown_edge_mineral_fields",
+        "reason": "route quotes 0 fuel; with the Cautious reserve 30 you need 30 and have 114; unknown_edge_mineral_fields lists asteroid_belt"
+       }
+      ],
+      "present": {
+       "cargo_free": 0,
+       "credits": 192023,
+       "docked_at": "unknown_edge_waystation",
+       "fuel": 114,
+       "hull": 105,
+       "in_transit": false,
+       "max_fuel": 120,
+       "max_hull": 105,
+       "poi": "unknown_edge_waystation",
+       "system": "unknown_edge"
+      },
+      "stance": "Industrialist",
+      "unavailable": [
+       {
+        "job": "Rest and reflect at home",
+        "reason": "refuel and repair first \u2014 full tank and hull quoted at 18 credits, inside the Cautious margin 500"
+       },
+       {
+        "job": "J7 Inputs at the bench",
+        "reason": "no workshop or facility at this base; a base with one admits it"
+       }
+      ]
+     }
+    }
+   },
+   {
+    "at": "2026-09-15T15:59:53.574Z",
+    "line": 478,
+    "request": {
+     "action": "menu",
+     "id": "1",
+     "params": {}
+    },
+    "response": {
+     "id": "1",
+     "ok": true,
+     "result": {
+      "last": {
+       "chain_id": "chain-15",
+       "jobs": [
+        {
+         "cleared": 0,
+         "job": "gather",
+         "outcome": "done",
+         "yield": []
+        }
+       ],
+       "juncture": {
+        "reason": "chain done: 1 of 1 jobs"
+       },
+       "outcome": "done"
+      },
+      "mood": "Cautious",
+      "objective": "Explore unknown_edge_mineral_fields (the asteroid belt), then visit mobile_capital POI to see what it offers. These are exploration and reflection missions \u2014 no gather jobs. Use this to learn about the system before making strategic decisions.",
+      "options": [
+       {
+        "admissible": true,
+        "bounds": {
+         "fuelReserve": 30,
+         "spend": 500,
+         "walkAway": 0.95
+        },
+        "call": null,
+        "job": "Hold position and watch",
+        "reason": "the world moves between looks; watching costs nothing and starts nothing"
+       },
+       {
+        "admissible": true,
+        "bounds": {
+         "fuelReserve": 30,
+         "spend": 500,
+         "walkAway": 0.95
+        },
+        "call": {
+         "params": {
+          "poi_id": "unknown_edge_waystation"
+         },
+         "tool": "spacemolt_travel"
+        },
+        "job": "Travel to unknown_edge_waystation",
+        "reason": "route quotes 0 fuel; with the Cautious reserve 30 you need 30 and have 120"
+       },
+       {
+        "admissible": true,
+        "bounds": {
+         "fuelReserve": 30,
+         "spend": 500,
+         "walkAway": 0.95
+        },
+        "call": null,
+        "job": "Counter: Services",
+        "reason": "offered here; reading a counter spends nothing, within the Cautious bounds (spend 500, fuel reserve 30, walk-away 0.95)"
+       },
+       {
+        "admissible": true,
+        "bounds": {
+         "fuelReserve": 30,
+         "spend": 500,
+         "walkAway": 0.95
+        },
+        "call": {
+         "params": {},
+         "tool": "spacemolt_storage"
+        },
+        "job": "Counter: Storage",
+        "reason": "offered here; reading a counter spends nothing, within the Cautious bounds (spend 500, fuel reserve 30, walk-away 0.95)"
+       },
+       {
+        "admissible": true,
+        "bounds": {
+         "fuelReserve": 30,
+         "spend": 500,
+         "walkAway": 0.95
+        },
+        "call": null,
+        "job": "Counter: Workshop / recipes",
+        "reason": "offered here; reading a counter spends nothing, within the Cautious bounds (spend 500, fuel reserve 30, walk-away 0.95)"
+       },
+       {
+        "admissible": true,
+        "bounds": {
+         "fuelReserve": 30,
+         "spend": 500,
+         "walkAway": 0.95
+        },
+        "call": {
+         "params": {
+          "poi_id": "edgelight"
+         },
+         "tool": "spacemolt_travel"
+        },
+        "job": "Travel to edgelight",
+        "reason": "route quotes 0 fuel; with the Cautious reserve 30 you need 30 and have 120"
+       },
+       {
+        "admissible": true,
+        "bounds": {
+         "fuelReserve": 30,
+         "spend": 500,
+         "walkAway": 0.95
+        },
+        "call": {
+         "params": {
+          "poi_id": "unknown_edge_i"
+         },
+         "tool": "spacemolt_travel"
+        },
+        "job": "Travel to unknown_edge_i",
+        "reason": "route quotes 0 fuel; with the Cautious reserve 30 you need 30 and have 120"
+       },
+       {
+        "admissible": true,
+        "bounds": {
+         "fuelReserve": 30,
+         "spend": 500,
+         "walkAway": 0.95
+        },
+        "call": {
+         "params": {
+          "poi_id": "unknown_edge_ii"
+         },
+         "tool": "spacemolt_travel"
+        },
+        "job": "Travel to unknown_edge_ii",
+        "reason": "route quotes 0 fuel; with the Cautious reserve 30 you need 30 and have 120"
+       },
+       {
+        "admissible": true,
+        "bounds": {
+         "fuelReserve": 30,
+         "spend": 500,
+         "walkAway": 0.95
+        },
+        "call": {
+         "params": {
+          "poi_id": "unknown_edge_iii"
+         },
+         "tool": "spacemolt_travel"
+        },
+        "job": "Travel to unknown_edge_iii",
+        "reason": "route quotes 0 fuel; with the Cautious reserve 30 you need 30 and have 120"
+       },
+       {
+        "admissible": true,
+        "bounds": {
+         "fuelReserve": 30,
+         "spend": 500,
+         "walkAway": 0.95
+        },
+        "call": {
+         "params": {
+          "poi_id": "unknown_edge_mineral_fields"
+         },
+         "tool": "spacemolt_travel"
+        },
+        "job": "Travel to unknown_edge_mineral_fields",
+        "reason": "route quotes 0 fuel; with the Cautious reserve 30 you need 30 and have 120; unknown_edge_mineral_fields lists asteroid_belt"
+       }
+      ],
+      "present": {
+       "cargo_free": 0,
+       "credits": 191969,
+       "docked_at": "frontier_station",
+       "fuel": 120,
+       "hold": [
+        {
+         "item_id": "aluminum_ore",
+         "quantity": 34
+        },
+        {
+         "item_id": "dark_matter_residue",
+         "quantity": 3
+        },
+        {
+         "item_id": "carbon_ore",
+         "quantity": 56
+        },
+        {
+         "item_id": "vanadium_ore",
+         "quantity": 11
+        },
+        {
+         "item_id": "iridium_ore",
+         "quantity": 10
+        }
+       ],
+       "hull": 105,
+       "in_transit": false,
+       "max_fuel": 120,
+       "max_hull": 105,
+       "poi": "mobile_capital",
+       "storage": true,
+       "system": "unknown_edge",
+       "workshop": true
+      },
+      "stance": "Industrialist",
+      "unavailable": [
+       {
+        "job": "J12 Home, serviced",
+        "reason": "fuel and hull are already at the serviced-dock targets"
+       },
+       {
+        "job": "Rest and reflect at home",
+        "reason": "rest happens only at home; travel home to end the shift"
+       },
+       {
+        "job": "J7 Inputs at the bench",
+        "reason": "no workshop or facility at this base; a base with one admits it"
+       }
+      ]
+     }
+    }
+   }
+  ],
+  "status": [
+   {
+    "at": "2026-09-15T04:17:28.962Z",
+    "line": 171,
+    "request": {
+     "action": "status",
+     "id": "2",
+     "params": {}
+    },
+    "response": {
+     "id": "2",
+     "ok": true,
+     "result": {
+      "last": null,
+      "running": false
+     }
+    }
+   },
+   {
+    "at": "2026-09-15T05:05:25.642Z",
+    "line": 205,
+    "request": {
+     "action": "status",
+     "id": "28",
+     "params": {}
+    },
+    "response": {
+     "id": "28",
+     "ok": true,
+     "result": {
+      "chain_id": "chain-1",
+      "record": {
+       "ended": false,
+       "kind": "once",
+       "length": 1,
+       "position": 0
+      },
+      "running": true
+     }
+    }
+   },
+   {
+    "at": "2026-09-15T14:04:05.783Z",
+    "line": 443,
+    "request": {
+     "action": "status",
+     "id": "99",
+     "params": {}
+    },
+    "response": {
+     "id": "99",
+     "ok": true,
+     "result": {
+      "last": {
+       "chain_id": "chain-11",
+       "jobs": [
+        {
+         "cleared": 0,
+         "job": "gather",
+         "outcome": "failed",
+         "reason": "mine failed: cannot mine: docked at unknown_edge_waystation",
+         "yield": []
+        }
+       ],
+       "juncture": {
+        "reason": "chain failed at job 1 of 1: mine failed: cannot mine: docked at unknown_edge_waystation"
+       },
+       "outcome": "failed"
+      },
+      "running": false
+     }
+    }
+   }
+  ],
+  "travel": [
+   {
+    "at": "2026-09-15T02:33:27.306Z",
+    "line": 150,
+    "request": {
+     "action": "travel",
+     "id": "3",
+     "params": {
+      "poi_id": "unknown_edge_mineral_fields"
+     }
+    },
+    "response": {
+     "id": "3",
+     "ok": true,
+     "result": {
+      "arrived": true,
+      "elapsed_s": 37,
+      "fuel": 119,
+      "location": {
+       "docked_at": null,
+       "poi": "unknown_edge_mineral_fields",
+       "system": "unknown_edge"
+      }
+     }
+    }
+   }
+  ],
+  "where": [
+   {
+    "at": "2026-09-15T02:31:22.249Z",
+    "line": 148,
+    "request": {
+     "action": "where",
+     "id": "1",
+     "params": {}
+    },
+    "response": {
+     "id": "1",
+     "ok": true,
+     "result": {
+      "docked_at": "unknown_edge_waystation",
+      "fuel": 120,
+      "hull": 105,
+      "in_transit": false,
+      "max_fuel": 120,
+      "max_hull": 105,
+      "poi": {
+       "id": "unknown_edge_waystation",
+       "name": "Unknown Edge Waystation"
+      },
+      "pois": [
+       {
+        "id": "edgelight",
+        "name": "Edgelight",
+        "type": "sun"
+       },
+       {
+        "id": "unknown_edge_i",
+        "name": "Unknown Edge I",
+        "type": "planet"
+       },
+       {
+        "id": "unknown_edge_ii",
+        "name": "Unknown Edge II",
+        "type": "planet"
+       },
+       {
+        "id": "unknown_edge_iii",
+        "name": "Unknown Edge III",
+        "type": "planet"
+       },
+       {
+        "id": "unknown_edge_mineral_fields",
+        "name": "Unknown Edge Mineral Fields",
+        "type": "asteroid_belt"
+       },
+       {
+        "id": "unknown_edge_waystation",
+        "name": "Unknown Edge Waystation",
+        "type": "station"
+       },
+       {
+        "id": "mobile_capital",
+        "name": "Mobile Capital",
+        "type": "station"
+       }
+      ],
+      "system": {
+       "id": "unknown_edge",
+       "name": "Unknown Edge"
+      }
+     }
+    }
+   },
+   {
+    "at": "2026-09-15T14:21:58.808Z",
+    "line": 446,
+    "request": {
+     "action": "where",
+     "id": "102",
+     "params": {}
+    },
+    "response": {
+     "id": "102",
+     "ok": true,
+     "result": {
+      "docked_at": null,
+      "fuel": 113,
+      "hull": 105,
+      "in_transit": false,
+      "max_fuel": 120,
+      "max_hull": 105,
+      "poi": {
+       "id": "unknown_edge_mineral_fields",
+       "name": "Unknown Edge Mineral Fields"
+      },
+      "pois": [
+       {
+        "id": "edgelight",
+        "name": "Edgelight",
+        "type": "sun"
+       },
+       {
+        "id": "unknown_edge_i",
+        "name": "Unknown Edge I",
+        "type": "planet"
+       },
+       {
+        "id": "unknown_edge_ii",
+        "name": "Unknown Edge II",
+        "type": "planet"
+       },
+       {
+        "id": "unknown_edge_iii",
+        "name": "Unknown Edge III",
+        "type": "planet"
+       },
+       {
+        "id": "unknown_edge_mineral_fields",
+        "name": "Unknown Edge Mineral Fields",
+        "type": "asteroid_belt"
+       },
+       {
+        "id": "unknown_edge_waystation",
+        "name": "Unknown Edge Waystation",
+        "type": "station"
+       },
+       {
+        "id": "mobile_capital",
+        "name": "Mobile Capital",
+        "type": "station"
+       }
+      ],
+      "system": {
+       "id": "unknown_edge",
+       "name": "Unknown Edge"
+      }
+     }
+    }
+   },
+   {
+    "at": "2026-09-15T11:09:16.438Z",
+    "line": 392,
+    "request": {
+     "action": "where",
+     "id": "53",
+     "params": {}
+    },
+    "response": {
+     "id": "53",
+     "ok": true,
+     "result": {
+      "docked_at": {
+       "base_id": "frontier_station",
+       "name": "Frontier Station"
+      },
+      "fuel": 118,
+      "hull": 105,
+      "in_transit": false,
+      "max_fuel": 120,
+      "max_hull": 105,
+      "poi": {
+       "id": "mobile_capital",
+       "name": "Mobile Capital"
+      },
+      "pois": [
+       {
+        "id": "edgelight",
+        "name": "Edgelight",
+        "type": "sun"
+       },
+       {
+        "id": "unknown_edge_i",
+        "name": "Unknown Edge I",
+        "type": "planet"
+       },
+       {
+        "id": "unknown_edge_ii",
+        "name": "Unknown Edge II",
+        "type": "planet"
+       },
+       {
+        "id": "unknown_edge_iii",
+        "name": "Unknown Edge III",
+        "type": "planet"
+       },
+       {
+        "id": "unknown_edge_mineral_fields",
+        "name": "Unknown Edge Mineral Fields",
+        "type": "asteroid_belt"
+       },
+       {
+        "id": "unknown_edge_waystation",
+        "name": "Unknown Edge Waystation",
+        "type": "station"
+       },
+       {
+        "id": "mobile_capital",
+        "name": "Mobile Capital",
+        "type": "station"
+       }
+      ],
+      "system": {
+       "id": "unknown_edge",
+       "name": "Unknown Edge"
+      }
+     }
+    }
+   },
+   {
+    "at": "2026-09-15T10:00:44.287Z",
+    "line": 353,
+    "request": {
+     "action": "where",
+     "id": "18",
+     "params": {}
+    },
+    "response": {
+     "id": "18",
+     "ok": true,
+     "result": {
+      "destination": {
+       "poi": "unknown_edge_mineral_fields"
+      },
+      "docked_at": null,
+      "fuel": 116,
+      "hull": 105,
+      "in_transit": true,
+      "max_fuel": 120,
+      "max_hull": 105,
+      "poi": {
+       "id": ""
+      },
+      "pois": [
+       {
+        "id": "edgelight",
+        "name": "Edgelight",
+        "type": "sun"
+       },
+       {
+        "id": "unknown_edge_i",
+        "name": "Unknown Edge I",
+        "type": "planet"
+       },
+       {
+        "id": "unknown_edge_ii",
+        "name": "Unknown Edge II",
+        "type": "planet"
+       },
+       {
+        "id": "unknown_edge_iii",
+        "name": "Unknown Edge III",
+        "type": "planet"
+       },
+       {
+        "id": "unknown_edge_mineral_fields",
+        "name": "Unknown Edge Mineral Fields",
+        "type": "asteroid_belt"
+       },
+       {
+        "id": "unknown_edge_waystation",
+        "name": "Unknown Edge Waystation",
+        "type": "station"
+       },
+       {
+        "id": "mobile_capital",
+        "name": "Mobile Capital",
+        "type": "station"
+       }
+      ],
+      "system": {
+       "id": "unknown_edge",
+       "name": "Unknown Edge"
+      }
+     }
+    }
+   }
+  ]
+ },
+ "note": "Sliced from ~/.hermes/profiles/kvothe/spacemolt/runtime/gameplay.jsonl (the live pilot's bridge journal, untracked) by proofs/fixtures/slice_bridge.py. Real request/response pairs; other players' names and ids, the pilot's own id, and the human-readable `result` text are scrubbed, and bulk nothing reads is dropped. `line` is the journal line each entry came from.",
+ "observed": {
+  "belt_poi_id": "unknown_edge_mineral_fields",
+  "full_hold_gather": "outcome done, yield [], sold [], held [], cargo_free 0",
+  "mine_docked_refusal": "cannot mine: docked at unknown_edge_waystation",
+  "mobile_capital_base_id": "frontier_station",
+  "mobile_capital_poi_id": "mobile_capital",
+  "waystation_base_id": "unknown_edge_waystation",
+  "where_docked_at_shape": "an object {base_id,name} from 2026-09-15 ~11:09 on; earlier lines in the same journal answer a bare string"
+ },
+ "source": {
+  "dates": [
+   "2026-09-15"
+  ],
+  "system": "unknown_edge"
+ }
+}

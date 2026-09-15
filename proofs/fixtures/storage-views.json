@@ -1,0 +1,882 @@
+{
+ "bridge": {
+  "storage": [
+   {
+    "at": "2026-09-15T04:18:17.303Z",
+    "line": 173,
+    "request": {
+     "action": "storage",
+     "id": "4",
+     "params": {}
+    },
+    "response": {
+     "id": "4",
+     "ok": true,
+     "result": {
+      "base_id": "",
+      "items": [],
+      "locations": [
+       {
+        "base_id": "deep_range_outpost",
+        "base_name": "Deep Range Outpost",
+        "item_count": 1,
+        "ship_count": 0,
+        "system_name": "Deep Range"
+       },
+       {
+        "base_id": "first_step_memorial_station",
+        "base_name": "First Step Memorial Station",
+        "item_count": 39,
+        "ship_count": 0,
+        "system_name": "First Step"
+       },
+       {
+        "base_id": "frontier_station",
+        "base_name": "Frontier Station",
+        "item_count": 188,
+        "ship_count": 0,
+        "system_name": "Unknown Edge"
+       },
+       {
+        "base_id": "sirius_observatory_station",
+        "base_name": "Sirius Observatory Station",
+        "item_count": 2,
+        "ship_count": 0,
+        "system_name": "Sirius"
+       },
+       {
+        "base_id": "unknown_edge_waystation",
+        "base_name": "Unknown Edge Waystation",
+        "item_count": 15,
+        "ship_count": 0,
+        "system_name": "Unknown Edge"
+       }
+      ],
+      "ships": 0
+     }
+    }
+   },
+   {
+    "at": "2026-09-15T04:34:47.434Z",
+    "line": 181,
+    "request": {
+     "action": "storage",
+     "id": "4",
+     "params": {}
+    },
+    "response": {
+     "id": "4",
+     "ok": true,
+     "result": {
+      "base_id": "unknown_edge_waystation",
+      "base_name": "Unknown Edge Waystation",
+      "items": [
+       {
+        "item_id": "creature_carapace",
+        "name": "Creature Carapace",
+        "quantity": 1
+       },
+       {
+        "item_id": "standard_rounds_box",
+        "name": "Standard Rounds Box",
+        "quantity": 1
+       },
+       {
+        "item_id": "phase_pearl",
+        "name": "Phase Pearl",
+        "quantity": 2
+       },
+       {
+        "item_id": "carbon_ore",
+        "name": "Carbon Ore",
+        "quantity": 9
+       },
+       {
+        "item_id": "platinum_ore",
+        "name": "Platinum Ore",
+        "quantity": 1
+       },
+       {
+        "item_id": "iridium_ore",
+        "name": "Iridium Ore",
+        "quantity": 1
+       }
+      ],
+      "locations": [
+       {
+        "base_id": "deep_range_outpost",
+        "base_name": "Deep Range Outpost",
+        "item_count": 1,
+        "ship_count": 0,
+        "system_name": "Deep Range"
+       },
+       {
+        "base_id": "first_step_memorial_station",
+        "base_name": "First Step Memorial Station",
+        "item_count": 39,
+        "ship_count": 0,
+        "system_name": "First Step"
+       },
+       {
+        "base_id": "frontier_station",
+        "base_name": "Frontier Station",
+        "item_count": 188,
+        "ship_count": 0,
+        "system_name": "Unknown Edge"
+       },
+       {
+        "base_id": "sirius_observatory_station",
+        "base_name": "Sirius Observatory Station",
+        "item_count": 2,
+        "ship_count": 0,
+        "system_name": "Sirius"
+       },
+       {
+        "base_id": "unknown_edge_waystation",
+        "base_name": "Unknown Edge Waystation",
+        "item_count": 15,
+        "ship_count": 0,
+        "system_name": "Unknown Edge"
+       }
+      ],
+      "ships": 0
+     }
+    }
+   },
+   {
+    "at": "2026-09-15T13:49:30.143Z",
+    "line": 433,
+    "request": {
+     "action": "storage",
+     "id": "90",
+     "params": {}
+    },
+    "response": {
+     "id": "90",
+     "ok": true,
+     "result": {
+      "base_id": "frontier_station",
+      "base_name": "Frontier Station",
+      "items": [
+       {
+        "item_id": "energy_crystal",
+        "name": "Energy Crystal",
+        "quantity": 61
+       },
+       {
+        "item_id": "carbon_ore",
+        "name": "Carbon Ore",
+        "quantity": 55
+       },
+       {
+        "item_id": "aluminum_ore",
+        "name": "Aluminum Ore",
+        "quantity": 33
+       },
+       {
+        "item_id": "tungsten_ore",
+        "name": "Tungsten Ore",
+        "quantity": 9
+       },
+       {
+        "item_id": "standard_rounds_box",
+        "name": "Standard Rounds Box",
+        "quantity": 3
+       },
+       {
+        "item_id": "dark_matter_residue",
+        "name": "Dark Matter Residue",
+        "quantity": 3
+       },
+       {
+        "item_id": "iridium_ore",
+        "name": "Iridium Ore",
+        "quantity": 10
+       },
+       {
+        "item_id": "vanadium_ore",
+        "name": "Vanadium Ore",
+        "quantity": 14
+       }
+      ],
+      "locations": [
+       {
+        "base_id": "deep_range_outpost",
+        "base_name": "Deep Range Outpost",
+        "item_count": 1,
+        "ship_count": 0,
+        "system_name": "Deep Range"
+       },
+       {
+        "base_id": "first_step_memorial_station",
+        "base_name": "First Step Memorial Station",
+        "item_count": 39,
+        "ship_count": 0,
+        "system_name": "First Step"
+       },
+       {
+        "base_id": "frontier_station",
+        "base_name": "Frontier Station",
+        "item_count": 188,
+        "ship_count": 0,
+        "system_name": "Unknown Edge"
+       },
+       {
+        "base_id": "sirius_observatory_station",
+        "base_name": "Sirius Observatory Station",
+        "item_count": 2,
+        "ship_count": 0,
+        "system_name": "Sirius"
+       },
+       {
+        "base_id": "unknown_edge_waystation",
+        "base_name": "Unknown Edge Waystation",
+        "item_count": 15,
+        "ship_count": 0,
+        "system_name": "Unknown Edge"
+       }
+      ],
+      "ships": 0
+     }
+    }
+   },
+   {
+    "at": "2026-09-15T04:49:06.042Z",
+    "line": 194,
+    "request": {
+     "action": "storage",
+     "id": "17",
+     "params": {
+      "station_id": "mobile_capital"
+     }
+    },
+    "response": {
+     "id": "17",
+     "ok": true,
+     "result": {
+      "base_id": "frontier_station",
+      "base_name": "Frontier Station",
+      "items": [
+       {
+        "item_id": "energy_crystal",
+        "name": "Energy Crystal",
+        "quantity": 61
+       },
+       {
+        "item_id": "carbon_ore",
+        "name": "Carbon Ore",
+        "quantity": 55
+       },
+       {
+        "item_id": "aluminum_ore",
+        "name": "Aluminum Ore",
+        "quantity": 33
+       },
+       {
+        "item_id": "tungsten_ore",
+        "name": "Tungsten Ore",
+        "quantity": 9
+       },
+       {
+        "item_id": "standard_rounds_box",
+        "name": "Standard Rounds Box",
+        "quantity": 3
+       },
+       {
+        "item_id": "dark_matter_residue",
+        "name": "Dark Matter Residue",
+        "quantity": 3
+       },
+       {
+        "item_id": "iridium_ore",
+        "name": "Iridium Ore",
+        "quantity": 10
+       },
+       {
+        "item_id": "vanadium_ore",
+        "name": "Vanadium Ore",
+        "quantity": 14
+       }
+      ],
+      "locations": [
+       {
+        "base_id": "deep_range_outpost",
+        "base_name": "Deep Range Outpost",
+        "item_count": 1,
+        "ship_count": 0,
+        "system_name": "Deep Range"
+       },
+       {
+        "base_id": "first_step_memorial_station",
+        "base_name": "First Step Memorial Station",
+        "item_count": 39,
+        "ship_count": 0,
+        "system_name": "First Step"
+       },
+       {
+        "base_id": "frontier_station",
+        "base_name": "Frontier Station",
+        "item_count": 188,
+        "ship_count": 0,
+        "system_name": "Unknown Edge"
+       },
+       {
+        "base_id": "sirius_observatory_station",
+        "base_name": "Sirius Observatory Station",
+        "item_count": 2,
+        "ship_count": 0,
+        "system_name": "Sirius"
+       },
+       {
+        "base_id": "unknown_edge_waystation",
+        "base_name": "Unknown Edge Waystation",
+        "item_count": 15,
+        "ship_count": 0,
+        "system_name": "Unknown Edge"
+       }
+      ],
+      "ships": 0
+     }
+    }
+   },
+   {
+    "at": "2026-09-15T04:49:06.059Z",
+    "line": 195,
+    "request": {
+     "action": "storage",
+     "id": "18",
+     "params": {
+      "station_id": "unknown_edge_waystation"
+     }
+    },
+    "response": {
+     "id": "18",
+     "ok": true,
+     "result": {
+      "base_id": "unknown_edge_waystation",
+      "base_name": "Unknown Edge Waystation",
+      "items": [
+       {
+        "item_id": "creature_carapace",
+        "name": "Creature Carapace",
+        "quantity": 1
+       },
+       {
+        "item_id": "standard_rounds_box",
+        "name": "Standard Rounds Box",
+        "quantity": 1
+       },
+       {
+        "item_id": "phase_pearl",
+        "name": "Phase Pearl",
+        "quantity": 2
+       },
+       {
+        "item_id": "carbon_ore",
+        "name": "Carbon Ore",
+        "quantity": 9
+       },
+       {
+        "item_id": "platinum_ore",
+        "name": "Platinum Ore",
+        "quantity": 1
+       },
+       {
+        "item_id": "iridium_ore",
+        "name": "Iridium Ore",
+        "quantity": 1
+       }
+      ],
+      "locations": [
+       {
+        "base_id": "deep_range_outpost",
+        "base_name": "Deep Range Outpost",
+        "item_count": 1,
+        "ship_count": 0,
+        "system_name": "Deep Range"
+       },
+       {
+        "base_id": "first_step_memorial_station",
+        "base_name": "First Step Memorial Station",
+        "item_count": 39,
+        "ship_count": 0,
+        "system_name": "First Step"
+       },
+       {
+        "base_id": "frontier_station",
+        "base_name": "Frontier Station",
+        "item_count": 188,
+        "ship_count": 0,
+        "system_name": "Unknown Edge"
+       },
+       {
+        "base_id": "sirius_observatory_station",
+        "base_name": "Sirius Observatory Station",
+        "item_count": 2,
+        "ship_count": 0,
+        "system_name": "Sirius"
+       },
+       {
+        "base_id": "unknown_edge_waystation",
+        "base_name": "Unknown Edge Waystation",
+        "item_count": 15,
+        "ship_count": 0,
+        "system_name": "Unknown Edge"
+       }
+      ],
+      "ships": 0
+     }
+    }
+   },
+   {
+    "at": "2026-09-15T04:49:14.960Z",
+    "line": 196,
+    "request": {
+     "action": "storage",
+     "id": "19",
+     "params": {
+      "station_id": "deep_range_outpost"
+     }
+    },
+    "response": {
+     "id": "19",
+     "ok": true,
+     "result": {
+      "base_id": "deep_range_outpost",
+      "base_name": "Deep Range Outpost",
+      "items": [
+       {
+        "item_id": "energy_crystal",
+        "name": "Energy Crystal",
+        "quantity": 1
+       }
+      ],
+      "locations": [
+       {
+        "base_id": "deep_range_outpost",
+        "base_name": "Deep Range Outpost",
+        "item_count": 1,
+        "ship_count": 0,
+        "system_name": "Deep Range"
+       },
+       {
+        "base_id": "first_step_memorial_station",
+        "base_name": "First Step Memorial Station",
+        "item_count": 39,
+        "ship_count": 0,
+        "system_name": "First Step"
+       },
+       {
+        "base_id": "frontier_station",
+        "base_name": "Frontier Station",
+        "item_count": 188,
+        "ship_count": 0,
+        "system_name": "Unknown Edge"
+       },
+       {
+        "base_id": "sirius_observatory_station",
+        "base_name": "Sirius Observatory Station",
+        "item_count": 2,
+        "ship_count": 0,
+        "system_name": "Sirius"
+       },
+       {
+        "base_id": "unknown_edge_waystation",
+        "base_name": "Unknown Edge Waystation",
+        "item_count": 15,
+        "ship_count": 0,
+        "system_name": "Unknown Edge"
+       }
+      ],
+      "ships": 0
+     }
+    }
+   },
+   {
+    "at": "2026-09-15T04:49:14.978Z",
+    "line": 197,
+    "request": {
+     "action": "storage",
+     "id": "20",
+     "params": {
+      "station_id": "first_step_memorial_station"
+     }
+    },
+    "response": {
+     "id": "20",
+     "ok": true,
+     "result": {
+      "base_id": "first_step_memorial_station",
+      "base_name": "First Step Memorial Station",
+      "items": [
+       {
+        "item_id": "iron_ore",
+        "name": "Iron Ore",
+        "quantity": 4
+       },
+       {
+        "item_id": "null_matter",
+        "name": "Null Matter",
+        "quantity": 2
+       },
+       {
+        "item_id": "titanium_alloy",
+        "name": "Titanium Alloy",
+        "quantity": 1
+       },
+       {
+        "item_id": "voidborn_neural_soma",
+        "name": "Voidborn Neural Soma",
+        "quantity": 1
+       },
+       {
+        "item_id": "survey_scanner_i",
+        "name": "Survey Scanner I",
+        "quantity": 1
+       },
+       {
+        "item_id": "carbon_ore",
+        "name": "Carbon Ore",
+        "quantity": 1
+       },
+       {
+        "item_id": "silicon_ore",
+        "name": "Silicon Ore",
+        "quantity": 25
+       },
+       {
+        "item_id": "palladium_ore",
+        "name": "Palladium Ore",
+        "quantity": 4
+       }
+      ],
+      "locations": [
+       {
+        "base_id": "deep_range_outpost",
+        "base_name": "Deep Range Outpost",
+        "item_count": 1,
+        "ship_count": 0,
+        "system_name": "Deep Range"
+       },
+       {
+        "base_id": "first_step_memorial_station",
+        "base_name": "First Step Memorial Station",
+        "item_count": 39,
+        "ship_count": 0,
+        "system_name": "First Step"
+       },
+       {
+        "base_id": "frontier_station",
+        "base_name": "Frontier Station",
+        "item_count": 188,
+        "ship_count": 0,
+        "system_name": "Unknown Edge"
+       },
+       {
+        "base_id": "sirius_observatory_station",
+        "base_name": "Sirius Observatory Station",
+        "item_count": 2,
+        "ship_count": 0,
+        "system_name": "Sirius"
+       },
+       {
+        "base_id": "unknown_edge_waystation",
+        "base_name": "Unknown Edge Waystation",
+        "item_count": 15,
+        "ship_count": 0,
+        "system_name": "Unknown Edge"
+       }
+      ],
+      "ships": 0
+     }
+    }
+   },
+   {
+    "at": "2026-09-15T04:49:14.995Z",
+    "line": 198,
+    "request": {
+     "action": "storage",
+     "id": "21",
+     "params": {
+      "station_id": "sirius_observatory_station"
+     }
+    },
+    "response": {
+     "id": "21",
+     "ok": true,
+     "result": {
+      "base_id": "sirius_observatory_station",
+      "base_name": "Sirius Observatory Station",
+      "items": [
+       {
+        "item_id": "package:6cc158dabc020a92f44a083a2817bc43",
+        "name": "rules-engine-after",
+        "quantity": 1
+       },
+       {
+        "item_id": "package:81fee1d7d3fa1298f964d89af2d1a875",
+        "name": "rules-engine-before",
+        "quantity": 1
+       }
+      ],
+      "locations": [
+       {
+        "base_id": "deep_range_outpost",
+        "base_name": "Deep Range Outpost",
+        "item_count": 1,
+        "ship_count": 0,
+        "system_name": "Deep Range"
+       },
+       {
+        "base_id": "first_step_memorial_station",
+        "base_name": "First Step Memorial Station",
+        "item_count": 39,
+        "ship_count": 0,
+        "system_name": "First Step"
+       },
+       {
+        "base_id": "frontier_station",
+        "base_name": "Frontier Station",
+        "item_count": 188,
+        "ship_count": 0,
+        "system_name": "Unknown Edge"
+       },
+       {
+        "base_id": "sirius_observatory_station",
+        "base_name": "Sirius Observatory Station",
+        "item_count": 2,
+        "ship_count": 0,
+        "system_name": "Sirius"
+       },
+       {
+        "base_id": "unknown_edge_waystation",
+        "base_name": "Unknown Edge Waystation",
+        "item_count": 15,
+        "ship_count": 0,
+        "system_name": "Unknown Edge"
+       }
+      ],
+      "ships": 0
+     }
+    }
+   },
+   {
+    "at": "2026-09-15T04:49:15.013Z",
+    "line": 199,
+    "request": {
+     "action": "storage",
+     "id": "22",
+     "params": {
+      "station_id": "frontier_station"
+     }
+    },
+    "response": {
+     "id": "22",
+     "ok": true,
+     "result": {
+      "base_id": "frontier_station",
+      "base_name": "Frontier Station",
+      "items": [
+       {
+        "item_id": "energy_crystal",
+        "name": "Energy Crystal",
+        "quantity": 61
+       },
+       {
+        "item_id": "carbon_ore",
+        "name": "Carbon Ore",
+        "quantity": 55
+       },
+       {
+        "item_id": "aluminum_ore",
+        "name": "Aluminum Ore",
+        "quantity": 33
+       },
+       {
+        "item_id": "tungsten_ore",
+        "name": "Tungsten Ore",
+        "quantity": 9
+       },
+       {
+        "item_id": "standard_rounds_box",
+        "name": "Standard Rounds Box",
+        "quantity": 3
+       },
+       {
+        "item_id": "dark_matter_residue",
+        "name": "Dark Matter Residue",
+        "quantity": 3
+       },
+       {
+        "item_id": "iridium_ore",
+        "name": "Iridium Ore",
+        "quantity": 10
+       },
+       {
+        "item_id": "vanadium_ore",
+        "name": "Vanadium Ore",
+        "quantity": 14
+       }
+      ],
+      "locations": [
+       {
+        "base_id": "deep_range_outpost",
+        "base_name": "Deep Range Outpost",
+        "item_count": 1,
+        "ship_count": 0,
+        "system_name": "Deep Range"
+       },
+       {
+        "base_id": "first_step_memorial_station",
+        "base_name": "First Step Memorial Station",
+        "item_count": 39,
+        "ship_count": 0,
+        "system_name": "First Step"
+       },
+       {
+        "base_id": "frontier_station",
+        "base_name": "Frontier Station",
+        "item_count": 188,
+        "ship_count": 0,
+        "system_name": "Unknown Edge"
+       },
+       {
+        "base_id": "sirius_observatory_station",
+        "base_name": "Sirius Observatory Station",
+        "item_count": 2,
+        "ship_count": 0,
+        "system_name": "Sirius"
+       },
+       {
+        "base_id": "unknown_edge_waystation",
+        "base_name": "Unknown Edge Waystation",
+        "item_count": 15,
+        "ship_count": 0,
+        "system_name": "Unknown Edge"
+       }
+      ],
+      "ships": 0
+     }
+    }
+   }
+  ]
+ },
+ "game": {
+  "spacemolt_storage/view": [
+   {
+    "action": "spacemolt_storage/view",
+    "at": "2026-09-14T14:29:01.222Z",
+    "index": 11,
+    "line": 112,
+    "params": {},
+    "result": {
+     "structuredContent": {
+      "action": "view_storage",
+      "base_id": "unknown_edge_waystation",
+      "hint": "182 items in storage at deep_range_outpost, first_step_memorial_station, frontier_station, sirius_observatory_station, unknown_edge_waystation",
+      "items": [
+       {
+        "item_id": "creature_carapace",
+        "name": "Creature Carapace",
+        "quantity": 1,
+        "size": 1
+       },
+       {
+        "item_id": "standard_rounds_box",
+        "name": "Standard Rounds Box",
+        "quantity": 1,
+        "size": 1
+       },
+       {
+        "item_id": "phase_pearl",
+        "name": "Phase Pearl",
+        "quantity": 2,
+        "size": 1
+       },
+       {
+        "item_id": "carbon_ore",
+        "name": "Carbon Ore",
+        "quantity": 9,
+        "size": 1
+       },
+       {
+        "item_id": "platinum_ore",
+        "name": "Platinum Ore",
+        "quantity": 1,
+        "size": 1
+       },
+       {
+        "item_id": "iridium_ore",
+        "name": "Iridium Ore",
+        "quantity": 1,
+        "size": 1
+       },
+       {
+        "item_id": "mining_laser_i",
+        "name": "Mining Laser I",
+        "quantity": 1,
+        "size": 10
+       }
+      ],
+      "locations": [
+       {
+        "base_id": "deep_range_outpost",
+        "base_name": "Deep Range Outpost",
+        "item_count": 1,
+        "ship_count": 0,
+        "system": "deep_range",
+        "system_name": "Deep Range"
+       },
+       {
+        "base_id": "first_step_memorial_station",
+        "base_name": "First Step Memorial Station",
+        "item_count": 39,
+        "ship_count": 0,
+        "system": "first_step",
+        "system_name": "First Step"
+       },
+       {
+        "base_id": "frontier_station",
+        "base_name": "Frontier Station",
+        "item_count": 124,
+        "ship_count": 0,
+        "system": "distant_light",
+        "system_name": "Distant Light"
+       },
+       {
+        "base_id": "sirius_observatory_station",
+        "base_name": "Sirius Observatory Station",
+        "item_count": 2,
+        "ship_count": 0,
+        "system": "sirius",
+        "system_name": "Sirius"
+       },
+       {
+        "base_id": "unknown_edge_waystation",
+        "base_name": "Unknown Edge Waystation",
+        "item_count": 16,
+        "ship_count": 0,
+        "system": "unknown_edge",
+        "system_name": "Unknown Edge"
+       }
+      ],
+      "ships": []
+     }
+    }
+   }
+  ]
+ },
+ "note": "Sliced from ~/.hermes/profiles/kvothe/spacemolt/runtime/gameplay.jsonl (the live pilot's bridge journal, untracked) by proofs/fixtures/slice_bridge.py. Real request/response pairs; other players' names and ids, the pilot's own id, and the human-readable `result` text are scrubbed, and bulk nothing reads is dropped. `line` is the journal line each entry came from.",
+ "observed": {
+  "locations_always_present": true,
+  "ships_always_an_empty_array_live": true,
+  "station_id_resolves_poi_to_base": "station_id mobile_capital answers base_id frontier_station",
+  "undocked_base_id": ""
+ },
+ "source": {
+  "dates": [
+   "2026-09-14",
+   "2026-09-15"
+  ]
+ }
+}

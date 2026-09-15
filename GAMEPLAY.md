@@ -104,3 +104,79 @@ into storage on its own.
 Recommend wiring reflection first: it is the surface VISION already names as storage's
 consumer, it is the lowest-traffic call site (once per rest, not per juncture), and it needs no
 shape beyond what `storage.ts` already returns.
+
+## `get_base`: what a station quotes
+
+### Observed live
+
+Observed 2026-09-14/15 at `unknown_edge_waystation`, `frontier_station` and (2026-09-08)
+`first_step_memorial_station`. Fixtures: `proofs/fixtures/unknown-edge-game.json`,
+`proofs/fixtures/c23-replay.json`.
+
+- The reply is `structuredContent`, never a state delta: `{base, condition, construction,
+  fuel_price, fuel_price_all_in, fuel_tax_per_unit, life_support, power, services}`.
+- `services` is a flat array of strings, e.g. `["crafting","marine_training","market",
+  "medical","missions","personnel","refuel","repair","shipyard","storage"]`. `storage` and
+  `crafting` appearing there is what the menu turns into the Storage and Workshop counters.
+- Fuel is quoted three ways: `fuel_price` (2), `fuel_tax_per_unit` (1) and `fuel_price_all_in`
+  (3, the one to spend against).
+- **No repair price is quoted anywhere in the reply.** `structuredContent.base` is the
+  station's own hull/shield/armour/fuel stock — `{armor, description, empire, facilities,
+  fuel, hull, id, max_fuel, max_hull, max_shield, name, poi_id, public_access, shield,
+  weapon_dps, weapon_reach}` — and carries no per-hull cost under any name. Production reads
+  `base.base.repair_price_per_hull` (`src/bridge.ts`, `src/servicing.ts`); live it is always
+  `undefined`, so the hull half of a service quote has never been exercised against the real
+  game. Every observed service quote happened to be at full hull, which hides it.
+- `spacemolt/repair` was never sent in either journal. Its reply shape and its cost behaviour
+  (whether the price climbs with damage) remain unobserved — a claim of "climbing cost" has no
+  recorded evidence behind it.
+
+## `refuel` and `mine`: the reply shapes
+
+### Observed live
+
+Observed 2026-09-14 at Unknown Edge. Fixture: `proofs/fixtures/unknown-edge-game.json`.
+
+- `spacemolt/refuel` answers `{command:'refuel', tick, delta:{player, ship, cargo, details}}`
+  with `details = {action:'refuel', source:'station', fuel, cost, market_cost, tax_amount}`.
+  One observed fill: 21 units, cost 63 = market 42 + tax 21, against `fuel_price_all_in` 3.
+- `spacemolt/mine` answers `{command:'mine', tick, delta:{ship, cargo, location, skills, queue}}`.
+  There is **no** `delta.details` and no `structuredContent` — the `kind:'yield'` detail path
+  in `measureMineYield` was never taken live; every real mine is measured from `delta.cargo`.
+- `location.resources` in a mine or travel delta carries `{item_id, item_name, richness,
+  remaining, supported_power}` per resource; `get_poi` adds `max_remaining` and
+  `depletion_percent`.
+
+## The bridge's own answers
+
+### Observed live
+
+Observed 2026-09-15 on the kvothe pilot. Fixtures: `proofs/fixtures/unknown-edge-bridge.json`,
+`proofs/fixtures/bridge-events.json`.
+
+- Mining while docked is refused by the game, and the chain reports it verbatim:
+  `mine failed: cannot mine: docked at unknown_edge_waystation`. Asking `gather` for a station
+  POI is what produces it — the job travels nowhere, so it is still docked when it mines.
+- A gather with a full hold still completes: all seven steps `done`, `yield []`, `sold []`,
+  `held []`, and `cargo_free 0` in the next menu. A done gather is not evidence of a take.
+- `gather` for an id the game does not know fails at the first step:
+  `travel failed: Unknown destination: asteroid_belt`.
+- `dock` refuses two ways, both `ok:true` with `docked:false`: `"Docked at X, not Y; undock
+  before docking elsewhere"` and `"No station at this location"`.
+- `rest` refuses two ways, both `ok:true` with `rested:false`: `"rest happens only at home;
+  travel home to end the shift"` and `"refuel and repair first — full tank and hull quoted at
+  N credits, inside the <Mood> margin M"`. A successful rest answers
+  `{rested:true, shift_ended:true, at_rest:true, cleared:{home,stance,mood,goal?}, serviced}`
+  and writes a `rest` event, followed by a `reflection` event once the next shift is chosen.
+- `where.docked_at` is an object `{base_id, name}`. Journal lines before 2026-09-15 11:09
+  answer a bare string — the same journal holds both, so a replay must not assume one.
+- In transit, `where` answers `poi:{id:''}` with no `name`, and `destination` carries only
+  `poi` (the destination system id is unset on a same-system hop, so the key is absent).
+- `resume` was never called and no `unsolicited_move` event was ever journalled; both remain
+  live-only claims.
+- `get_skills` (2026-09-08, `proofs/fixtures/c23-replay.json`) answers
+  `structuredContent:{message:'Skills progress', skills:{...}}` where `skills` is a **map**
+  keyed by skill id, each `{category, level, max_level, name, next_level_xp, xp}` — not an
+  array. `spacemolt_shipping/profile` is recorded in the same fixture.
+- `get_tax_estimate` and `set_home` appear in neither journal, and neither does a successful
+  `repair`.
