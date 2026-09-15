@@ -17,15 +17,25 @@ export async function quoteRecipe(account:ReadinessAccount,command:ReadinessComm
   if(!Number.isInteger(quantity)||quantity<1)throw new Error('quantity must be a whole number of units, at least one');
   await account.refresh();
   const base_id=account.state.location?.docked_at??null;
-  if(!base_id)return {refused:'no workshop: the ship is not docked'};
+  if(!base_id)return {recipe_id,refused:'no workshop: the ship is not docked'};
   const base=details(await command('spacemolt/get_base',{}));
   const services=(Array.isArray(base.services)?base.services:[]).map(String);
   // A craft the base cannot run is not worth a call: the refusal names the base.
-  if(!services.includes('crafting'))return {refused:`no workshop at ${base_id}`};
+  if(!services.includes('crafting'))return {recipe_id,refused:`no workshop at ${base_id}`};
 
   // The same source/deliver convention every craft here uses (execute.ts).
-  const quote=details(await command('spacemolt/craft',
-    {id:recipe_id,quantity,dry_run:true,source:'storage',deliver_to:'storage'}));
+  let quote:Record<string,any>;
+  try {
+    quote=details(await command('spacemolt/craft',
+      {id:recipe_id,quantity,dry_run:true,source:'storage',deliver_to:'storage'}));
+  } catch(error) {
+    // A recipe this bench cannot run comes back as an error whose text already names the
+    // facility it wants and the nearest one that has it. That is the answer, not a failure:
+    // hand it back whole so the pilot can act on it.
+    const message=error instanceof Error?error.message:String(error);
+    if(!/facility|is made in/i.test(message))throw error;
+    return {recipe_id,refused:message};
+  }
   const produces=(Array.isArray(quote.produces)?quote.produces:[]).map((row:any)=>
     ({item_id:String(row.item_id),...row.name?{name:String(row.name)}:{},quantity:Number(row.quantity)}));
 

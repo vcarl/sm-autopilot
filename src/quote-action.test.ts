@@ -16,6 +16,10 @@ const QUOTE={action:'craft',kind:'quote',dry_run:true,mode:'craft',
   message:'Quote only — nothing queued.',produces:[{item_id:'steel_plate',name:'Steel Plate',quantity:10}],
   quantity:10,recipe:'Refine Steel',runs:5,venue:'Station Workshop',venue_type:'station'};
 
+const FACILITY_REFUSAL="'Process Null Matter' is made in a Null Matter Processing Vat, and no "+
+  'facility here can make it. Nearest public one: Confederacy Central Command in Sol '+
+  '(11 jump(s) away) — travel there to queue it, or buy it on the exchange.';
+
 function fixture(services:string[]) {
   const account={
     state:{location:{system_id:'sol',poi_id:'station',docked_at:'sol_base',in_transit:false},
@@ -26,7 +30,10 @@ function fixture(services:string[]) {
   const command:ReadinessCommand=async(action,params)=>{
     sent.push({action,params});
     if(action==='spacemolt/get_base')return {structuredContent:{services}};
-    if(action==='spacemolt/craft')return {delta:{details:QUOTE}};
+    if(action==='spacemolt/craft') {
+      if(params.id==='process_null_matter')throw new Error(FACILITY_REFUSAL);
+      return {delta:{details:QUOTE}};
+    }
     if(action==='spacemolt_market/view_market')
       return {structuredContent:{items:[{item_id:'steel_plate',item_name:'Steel Plate',
         best_buy:100,best_buy_qty:4,best_sell:0,best_sell_qty:0,buy_orders:BOOK,sell_orders:[],
@@ -60,4 +67,24 @@ test('a base with no crafting service is refused before any craft call',async()=
   const quote=await dispatch('quote',{recipe_id:'refine_steel'}) as any;
   assert.equal(quote.refused,'no workshop at sol_base');
   assert.ok(!sent.some(row=>row.action==='spacemolt/craft'),'a base without a bench is never quoted');
+});
+
+test('the server quoting fewer runs than asked is what is reported, and what the margin uses',async()=>{
+  const {dispatch}=fixture(['crafting','market']);
+  // Ten units asked for, five runs' worth of inputs available: the server says so.
+  const quote=await dispatch('quote',{recipe_id:'refine_steel',quantity:10}) as any;
+  assert.equal(quote.quantity,10);
+  assert.equal(quote.runs,5);
+  // Ten plates is what five runs make, and the book is walked over those ten, not over the
+  // ten units the pilot asked about.
+  assert.equal(quote.produces[0].quantity,10);
+  assert.equal(quote.margin,quote.market[0].buy_depth.gross-quote.cost.credits_total);
+});
+
+test('a recipe the bench cannot run comes back as the server\'s own refusal, not an error',async()=>{
+  const {dispatch}=fixture(['crafting','market']);
+  const quote=await dispatch('quote',{recipe_id:'process_null_matter',quantity:5}) as any;
+  assert.equal(quote.recipe_id,'process_null_matter');
+  assert.match(quote.refused,/Null Matter Processing Vat.*Confederacy Central Command/s);
+  assert.equal(quote.margin,undefined,'a refusal prices nothing');
 });

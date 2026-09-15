@@ -356,14 +356,15 @@ TOOL_DEFINITIONS = (
                                                       "instead of the current base."}},
                        [])},
     {"name": "spacemolt_recipes", "toolset": "spacemolt_observe", "handler": _recipes,
-     "description": "Rank the catalog's recipes by what the pilot already holds in hold and storage everywhere.",
+     "description": "Rank the catalog's recipes by what this base's storage, the hold and the other bases hold.",
      "schema": _schema("spacemolt_recipes",
-                       "Rank the catalog's recipes by what the pilot already holds in hold and "
-                       "storage everywhere. Read this docked, before quoting. Reads only. Each "
-                       "entry names what the recipe makes, what it wants, how much of that is "
-                       "held and at which base, and what is still missing and where that comes "
-                       "from. Craftable now is what this bench can run; facility only needs a "
-                       "facility; nearly is one or two inputs short.",
+                       "Rank the catalog's recipes by what the pilot already holds. Read this "
+                       "docked, before quoting. Reads only. A craft draws its inputs from this "
+                       "base's storage, so craftable now is what this base's storage covers, and "
+                       "after stowing is what a deposit of the hold here would add. Nearly is "
+                       "one or two inputs short, and names the base each one sits at so a fetch "
+                       "is plannable; facility only needs a facility. Each input says how much "
+                       "is held here, how much is in the hold, and what sits elsewhere.",
                        {"search": {"type": "string",
                                    "description": "Optional: narrow to recipes whose name, id, "
                                                   "category or output item contains this text."},
@@ -377,8 +378,11 @@ TOOL_DEFINITIONS = (
                        "Quote one recipe: the exact bill, output and this base's buy price for "
                        "it. A dry run; nothing is consumed or queued. Quote before committing. "
                        "The margin walks the buy book, so it is what the output really fetches "
-                       "rather than the top price times the quantity. A base with no workshop "
-                       "refuses and says so.",
+                       "rather than the top price times the quantity. The server may quote "
+                       "fewer runs than the quantity asked for and reports the runs it will do; "
+                       "the bill and the margin are for those runs. A base with no workshop, or "
+                       "a recipe that needs a facility, comes back refused with the reason and "
+                       "the nearest place that can make it.",
                        {"recipe_id": {"type": "string",
                                       "description": "A recipe id spacemolt_recipes listed."},
                         "quantity": {"type": "integer", "minimum": 1,
