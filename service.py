@@ -5,6 +5,7 @@ handlers are clients of it and hold no connection state of their own.
 """
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import queue
@@ -19,8 +20,10 @@ from hermes_constants import get_hermes_home
 
 HERE = Path(__file__).resolve().parent
 BRIDGE_COMMAND = ["node", "src/bridge.ts"]  # tests point this at a stub
+BRIDGE_STDERR = "bridge.stderr.log"
 READY_TIMEOUT = 120.0
 REQUEST_TIMEOUT = 1800.0  # one travel leg can wait out many minutes of game ticks
+CLOSE_TIMEOUT = 5.0  # per stage of the EOF → SIGTERM → SIGKILL escalation
 
 _lock = threading.RLock()
 _bridge: "Bridge | None" = None
@@ -64,18 +67,38 @@ class Bridge:
         self.runtime = runtime
         self.inbox: queue.Queue = queue.Queue()
         self.counter = 0
-        self.process = subprocess.Popen(
-            BRIDGE_COMMAND, cwd=HERE, env=env,
-            stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True, bufsize=1,
-        )
+        # The bridge gets its own log, never the gateway's stderr: under launchd that stderr is
+        # the supervisor wrapper's read pipe, and a bridge holding it open keeps the wrapper
+        # alive after the gateway exits, so launchd never restarts the gateway.
+        self.stderr_path = runtime / BRIDGE_STDERR
+        self._stderr_from = self.stderr_path.stat().st_size if self.stderr_path.exists() else 0
+        with self.stderr_path.open("a", encoding="utf-8") as log:
+            self.process = subprocess.Popen(
+                BRIDGE_COMMAND, cwd=HERE, env=env,
+                stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=log, text=True, bufsize=1,
+            )
         threading.Thread(target=self._read, daemon=True).start()
         try:
             ready = self._receive(READY_TIMEOUT)
             if ready.get("event") != "ready":
                 raise RuntimeError(f"SpaceMolt bridge did not report ready: {ready}")
+        except Exception as error:
+            self.close()
+            # The bridge's own complaint is the only readable account of why it never came up.
+            raise RuntimeError(f"SpaceMolt bridge failed to start: {error}{self._stderr_tail()}") from error
         except BaseException:
             self.close()
             raise
+
+    def _stderr_tail(self, limit: int = 2000) -> str:
+        """What this bridge wrote before it gave up — never an earlier run's complaint."""
+        try:
+            with self.stderr_path.open("r", encoding="utf-8", errors="replace") as log:
+                log.seek(self._stderr_from)
+                text = log.read()[-limit:].strip()
+        except OSError:
+            return ""
+        return f"\n--- {self.stderr_path} ---\n{text}" if text else ""
 
     def _read(self) -> None:
         try:
@@ -111,13 +134,20 @@ class Bridge:
         return reply.get("result")
 
     def close(self) -> None:
+        """End the bridge for good: stdin EOF is the polite ask, SIGTERM the insistent one, and
+        SIGKILL reaches only a survivor. A bridge that outlives its gateway holds the game lock."""
         if self.process.stdin and not self.process.stdin.closed:
-            self.process.stdin.close()
-        try:
-            self.process.wait(timeout=10)
-        except subprocess.TimeoutExpired:
-            self.process.terminate()
-            self.process.wait(timeout=5)
+            with contextlib.suppress(OSError):
+                self.process.stdin.close()
+        for escalate in (None, self.process.terminate, self.process.kill):
+            if escalate is not None:
+                with contextlib.suppress(OSError):
+                    escalate()
+            try:
+                self.process.wait(timeout=CLOSE_TIMEOUT)
+                return
+            except subprocess.TimeoutExpired:
+                continue
 
 
 def call(action: str, params: dict[str, Any] | None = None) -> Any:

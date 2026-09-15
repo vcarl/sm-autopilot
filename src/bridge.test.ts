@@ -1,6 +1,11 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import {spawnSync} from 'node:child_process';
+import {existsSync,mkdtempSync,readFileSync,writeFileSync} from 'node:fs';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
 import {serve,type Pilot,type ServeOptions} from './bridge.ts';
+import {controllerLock} from './controller-lock.ts';
 import type {ChainOutcome} from './chain.ts';
 import type {ReadinessAccount,ReadinessCommand} from './readiness.ts';
 import {FakeLibGoalAccount} from './test-support/fake-lib-account.ts';
@@ -201,4 +206,18 @@ test('job starts one chain in the runner and returns before it ends; status carr
   assert.deepEqual(after.last.juncture,{reason:'chain done: 3 of 3 jobs'});
   // The runner is free again, and the next juncture reads the outcome from `last`.
   assert.equal(((await f.dispatch('menu')) as any).last.chain_id,started.chain_id);
+});
+
+test('the controller lock is taken over from a dead holder and refused to a live one', () => {
+  const path=join(mkdtempSync(join(tmpdir(),'spacemolt-lock-')),'controller.lock');
+  // A SIGKILLed bridge never ran its unlock; its pid is gone, so the next bridge may run.
+  const reaped=spawnSync(process.execPath,['-e','']).pid!;
+  writeFileSync(path,JSON.stringify({pid:reaped,started_at:'2026-01-01T00:00:00.000Z'}));
+  const unlock=controllerLock(path);
+  assert.equal(JSON.parse(readFileSync(path,'utf8')).pid,process.pid,'the live controller owns the lock');
+  // A lock whose holder is alive is never stolen: an operator inspects the pilot first.
+  assert.throws(()=>controllerLock(path),/EEXIST/);
+  unlock();
+  assert.equal(existsSync(path),false);
+  unlock(); // the exit handler may run after an explicit release
 });

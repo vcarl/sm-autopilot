@@ -2,7 +2,9 @@
 from __future__ import annotations
 
 import json
+import signal
 import sys
+import time
 
 import pytest
 
@@ -24,6 +26,15 @@ for line in sys.stdin:
     }
     print(json.dumps({"id": request["id"], "ok": True, "result": answers[request["action"]]}), flush=True)
 '''
+
+# A bridge that never reads stdin: closing it is not enough to end this one.
+STUBBORN_BRIDGE = """
+import json, sys, time
+print("stubborn bridge up", file=sys.stderr, flush=True)
+print(json.dumps({"event": "ready"}), flush=True)
+while True:
+    time.sleep(0.05)
+"""
 
 
 @pytest.fixture
@@ -82,3 +93,30 @@ def test_register_publishes_every_tool_in_the_spacemolt_toolset():
     # Credentials gate the tools out of the schema, and unload must release the bridge.
     assert all(kwargs["requires_env"] == ["SPACEMOLT_CREDENTIALS_FILE"] for *_, kwargs in tools.values())
     assert sections and unloads == [service.close_bridge]
+
+
+def test_close_bridge_ends_a_bridge_that_ignores_its_closed_stdin(tmp_path, monkeypatch):
+    """Unload must leave no bridge behind: a bridge that outlives its gateway holds the game
+    lock and, under launchd, the supervisor's stderr pipe — so the wrapper never sees EOF."""
+    stub = tmp_path / "stubborn_bridge.py"
+    stub.write_text(STUBBORN_BRIDGE)
+    credentials = tmp_path / "credentials.txt"
+    credentials.write_text("Username: pilot\nPassword: secret\n")
+    runtime = tmp_path / "runtime"
+    monkeypatch.setenv("SPACEMOLT_CREDENTIALS_FILE", str(credentials))
+    monkeypatch.setenv("SPACEMOLT_RUNTIME_DIR", str(runtime))
+    monkeypatch.setattr(service, "BRIDGE_COMMAND", [sys.executable, str(stub)])
+    monkeypatch.setattr(service, "CLOSE_TIMEOUT", 2.0)
+    bridge = service.Bridge()
+    monkeypatch.setattr(service, "_bridge", bridge)
+    try:
+        started = time.monotonic()
+        service.close_bridge()  # what ctx.on_unload(close_bridge) runs
+        elapsed = time.monotonic() - started
+        assert bridge.process.poll() == -signal.SIGTERM, "a bridge is asked to stop, not killed outright"
+        assert elapsed < 30, f"close_bridge must be bounded, took {elapsed:.1f}s"
+        assert service._bridge is None
+        # The bridge's noise went to its own log, never to the stderr the gateway inherited.
+        assert "stubborn bridge up" in (runtime / service.BRIDGE_STDERR).read_text()
+    finally:
+        bridge.process.kill()

@@ -185,6 +185,7 @@
 ## Runner and sessions (N)
 
 - [ ] N1 — One runner owns one pilot: connection, journal, rules engine, sessions, handoffs, schedule.
+  - Bridge lifecycle (2026-09-14, after a live restart hang): the bridge logs to `runtime/bridge.stderr.log` so it never holds the launchd supervisor's stderr pipe (the `stderr_timestamp` wrapper blocks on that pipe until EOF, so a surviving bridge stopped launchd from restarting the gateway), and it ends on stdin EOF, SIGTERM or SIGINT alike, abandoning a running chain; `close_bridge` escalates EOF -> SIGTERM -> SIGKILL with 5 s stages. The lock records the holder pid and is taken over when that pid is gone, refused while it lives. Evidence: bridge.test.ts 7/7, test_spacemolt_plugin.py 3/3. Open: plugin `on_unload` never fires on gateway shutdown (no caller of `PluginManager.unload()` in `gateway/run_shutdown.py`), so the bridge is released by stdin EOF alone.
   - (mined from src/bridge.ts, service.py) Single ownership is a lock file `controller-<sha256(username)[:16]>.lock` in the runtime directory, plus one service instance per profile guarded by an RLock; the bridge process is the only holder of the game connection.
 - [ ] N2 — Discord, cron, and a command line are clients of the runner. None of them owns the pilot.
 - [ ] N3 — A juncture is the objective done or unable to continue: job finished, blocked, came home Tired, or the world changed.

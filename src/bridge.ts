@@ -227,35 +227,42 @@ async function main() {
   mkdirSync(runtime,{recursive:true});
   const journal=(entry:Record<string,unknown>)=>
     appendFileSync(`${runtime}/gameplay.jsonl`,`${JSON.stringify({at:new Date().toISOString(),...entry})}\n`,{mode:0o600});
-  // A crash leaves the lock: an operator inspects the pilot before a new controller runs.
+  // A crash leaves the lock only while its holder lives: an operator inspects the pilot before
+  // a second LIVE controller runs, but a dead holder's lock is taken over rather than wedging.
   const unlock=controllerLock(`${runtime}/controller-${createHash('sha256').update(username).digest('hex').slice(0,16)}.lock`);
+  process.on('exit',unlock); // every exit path releases it, uncaught errors included
   const account=new Account({url:'wss://game.spacemolt.com/ws/v2',reconnect:true,credentials});
-  try {
-    await account.connect();
-    await account.authenticate(credentials());
-    // The lib applies each result's state delta; travelTo re-reads authoritatively at every gate.
-    const command:ReadinessCommand=(action,params)=>{
-      const [tool,name]=action.split('/');
-      return account.send(tool!,name!,params);
-    };
-    // The runner writes the pilot record beside the runtime directory; the agent never does.
-    const pilotFile=resolve(runtime,'..','pilot.json');
-    const dispatch=serve(account,command,{pilot:()=>readPilot(pilotFile)});
-    console.log(JSON.stringify({event:'ready'}));
-    for await(const line of createInterface({input:process.stdin,terminal:false})) {
-      if(!line.trim())continue;
-      let request:{id?:string;action:string;params?:Record<string,unknown>}|undefined;
-      let response:Record<string,unknown>;
-      try {
-        request=JSON.parse(line);
-        response={id:request?.id,ok:true,result:await dispatch(request!.action,request!.params??{})};
-      } catch(error) {
-        response={id:request?.id,ok:false,error:error instanceof Error?error.message:String(error)};
-      }
-      journal({request,response});
-      console.log(JSON.stringify(response));
+  // Stdin EOF, SIGTERM and SIGINT all say the same thing: the gateway that owns this bridge is
+  // gone. A chain in flight is abandoned rather than awaited — its last progress record is
+  // already journalled, and a pending tick timer must not hold the process open.
+  const shutdown=()=>{try {account.close();} catch {/* never connected */} process.exit(0);};
+  process.on('SIGTERM',shutdown);
+  process.on('SIGINT',shutdown);
+  await account.connect();
+  await account.authenticate(credentials());
+  // The lib applies each result's state delta; travelTo re-reads authoritatively at every gate.
+  const command:ReadinessCommand=(action,params)=>{
+    const [tool,name]=action.split('/');
+    return account.send(tool!,name!,params);
+  };
+  // The runner writes the pilot record beside the runtime directory; the agent never does.
+  const pilotFile=resolve(runtime,'..','pilot.json');
+  const dispatch=serve(account,command,{pilot:()=>readPilot(pilotFile)});
+  console.log(JSON.stringify({event:'ready'}));
+  for await(const line of createInterface({input:process.stdin,terminal:false})) {
+    if(!line.trim())continue;
+    let request:{id?:string;action:string;params?:Record<string,unknown>}|undefined;
+    let response:Record<string,unknown>;
+    try {
+      request=JSON.parse(line);
+      response={id:request?.id,ok:true,result:await dispatch(request!.action,request!.params??{})};
+    } catch(error) {
+      response={id:request?.id,ok:false,error:error instanceof Error?error.message:String(error)};
     }
-  } finally {account.close();unlock();}
+    journal({request,response});
+    console.log(JSON.stringify(response));
+  }
+  shutdown();
 }
 
 if(process.argv[1]&&fileURLToPath(import.meta.url)===resolve(process.argv[1]))await main();
