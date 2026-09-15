@@ -14,9 +14,10 @@ metadata:
 
 # SpaceMolt Hunter Skill
 
-The evening you are having is "I'll go fight something." Wildlife, wrecks and prizes. The
-judgement this stance asks for is mostly about what **not** to engage: a fight entered without
-a way out costs the hull, the cargo and the rest of the shift.
+The evening you are having is "I'll go fight something." Wildlife in the belts and clouds,
+pirates, and what they leave behind — wrecks to loot or tow, and intact ships to take as
+prizes. Most of the judgement this stance asks for is about what **not** to engage: a fight
+entered without a way out costs the hull, the cargo and the rest of the evening.
 
 ## When to Use
 
@@ -24,68 +25,93 @@ At every juncture of a Hunter shift, beside the shared `spacemolt` skill.
 
 ## Prerequisites
 
-The shared `spacemolt` skill and its toolset. This stance opens Focused or Aggressive. Hunting
-wildlife needs the operator's standing permission; without it the menu refuses J8 and only the
-operator can change that. **No hunting job can be dispatched yet** — `gather` is the only job
-the runner can run, and it is not yours.
+The shared skill. This stance opens Focused or Aggressive. Hunting wildlife requires the
+operator's standing permission, and nothing you find out there changes that — a permission you
+do not have is not a risk decision, it is a wall.
 
 ## How to Run
 
-The present, the menu and the last outcome arrive with the juncture. Weigh them, take one act,
-end the turn — and your act is a live one, not a dispatch:
-
-- `spacemolt_where` reads the system and its `pois`; habitats are asteroid belts, gas clouds,
-  ice fields and nebulae, never planetary surfaces.
-- `spacemolt_travel(poi_id)` moves you to a habitat or back toward a station.
-- `spacemolt_dock(base_id?)` puts you at the counters that make a ship fit to fight.
-- `spacemolt_dispatch` accepts only `gather`. Do not dispatch it to look busy.
-
-When your choice is a counter, or a job nothing can run yet, say in one line what you chose
-and why, and end the turn.
+Check the loadout before you check the target. Whole hull, fuel for the trip out with the way
+home still reserved, rounds actually loaded and spare ammunition in cargo to reload from, free
+cargo for loot, and credits left over for the repair afterwards. That floor is not advice; a
+ship short of any part of it is looking for a service counter, not a fight.
 
 ## Quick Reference
 
-The jobs this stance draws from, named for the state they leave behind:
+**A fight is worth taking when** you know the opponent's kind, you are not slower than it, the
+loadout floor is met, and the loot has somewhere to go. Prefer a species you have fought
+before over an individual you have merely seen — creature identities expire between trips
+while species and their habitats persist.
 
-- **J8 Creature down** — the creature beaten and its loot aboard. Admissible only with the
-  operator's wildlife permission and a known, unowned creature that is not already in a
-  battle. No executor yet.
-- **J3 Wreck settled** — a wreck at this site emptied into cargo, scrap or credits. No
-  executor yet.
-- **J12 Home, serviced** — the universal terminal job: full tank, whole hull, at home.
+**It is not worth taking when** anything above is a guess. A scan tells you hull and
+description; it never tells you weapons or speed, so a scan alone does not make an unknown
+opponent known. Something faster than you is declined outright, because there is no way out of
+that fight. Pirates fight back with intent and wildlife does not; that difference is worth
+more than the difference in payout.
 
-The counters your judgement points at: **Hangar / refit** — weapons and ammunition; a mining
-laser is not a weapon. **Market** — rounds and repair kits. **Services** — hull and fuel before
-a hunt, never after it is too late. **Obligations desk** — bounty and insurance.
+**Counters you read first when docked:**
+
+- **Hangar** — weapons and the slots to hold them. A mining laser is not a weapon. This is
+  where a hunter's ceiling actually moves, and the cheapest fight is the one your fit wins.
+- **Market** — ammunition and repair kits, bought here because the belt sells nothing. Buy the
+  reserve, not the minimum: reloading mid-fight draws from cargo.
+- **Services** — hull and fuel before the hunt. Repairing after you needed it is not the same
+  as repairing before you left.
+- **Obligations desk** — insurance and bounties. A quote on the hull you actually fly is worth
+  reading when the evening is aggressive; an unpaid bounty follows you into every system.
+- **Storage** — where loot goes to stop taking up the hold. Free cargo is a precondition of the
+  fight, not a problem to solve after it.
+
+**Wrecks and prizes.** A wreck at your site can be looted for items and modules, towed home,
+scrapped for materials, or sold to a yard — four different evenings depending on what is in it
+and how much hold you have left. An intact ship taken as a prize is a bigger commitment: it
+needs crew assigned and then needs shepherding, fuel and repair of its own the whole way home.
+Do not claim one on a hull you were about to take home for repair.
+
+**Moods.** Focused hunts the thing it came for and leaves the interesting wreck. Aggressive
+accepts a fight it would otherwise study first — it does not lower the loadout floor or raise
+the walk-away line, which are ship facts, not attitudes. Cautious is the mood for clearing
+wrecks in quiet space rather than for hunting at all.
+
+**Break off and go home when** the hull crosses the line you set before you undocked, when the
+ammunition reserve is spent, when the hold is full of loot, or when something arrived that you
+did not choose to fight. Breaking off with the hull intact is a good outcome, not a lost one.
 
 ## Procedure
 
-1. **Read the objective as a bounded count** — "three creatures down", "the belt cleared" —
-   and subtract what the last outcome already settled.
-2. **Check the loadout before the target.** Whole hull and shields, fuel for the trip out with
-   the withdrawal leg still reserved, rounds actually loaded, free cargo for loot, and a wallet
-   reserve for the repair afterwards. A ship short of any of these is looking for a service
-   counter, not a fight.
-3. **Judge the target, not the opportunity.** Prefer species over an individual id — creature
-   ids expire across a trip while species and habitats persist. A scan adds hull and
-   description evidence but never weapons or mobility, so a scan alone does not make an
-   unknown opponent known. Something faster than you is declined outright: there is no escape
-   plan against it.
-4. **Hold the walk-away line.** Your mood sets the hull fraction you break off at, and the
-   menu carries it with every option. Breaking off with the hull intact is a successful
-   juncture, not a lost one.
-5. **Reconsider** when a threat appears: the menu strips everything but safety verdicts,
-   because a fighting ship looks idle to every other rule. Take the safety option it offers.
+1. **Read the objective as a count with an end** — "three creatures down", "the belt cleared"
+   — and subtract what the last outcome already settled.
+2. **Loadout floor, then target, then engagement.** In that order, every time.
+3. **Set the walk-away before you commit.** A hull fraction you will retreat at, decided while
+   nothing is shooting at you.
+4. **Take the loot, then leave.** Re-entering a fight to finish something is how hunters lose
+   the shift they had already won.
+
+### Worked junctures
+
+*You are at a belt, the loot from the last kill fills most of the hold, and another creature
+of the same species is here.* The kill is not the constraint — the hold is. Loot you cannot
+carry is a fight fought for nothing. Take the cargo home or into storage first; the species
+will be here tomorrow, and the belt is not going anywhere.
+
+*A wreck sits at your site and the hull is down to about the line you set.* The wreck is free
+credits and the fight is over, so the temptation is to stay. Loot what fits, do not tow —
+towing costs you the speed you need to get home — and take the service.
+
+*Wildlife permission is not in the operator's standing permissions, and the belt is full of
+creatures.* This is not a judgement call. The evening's work is wrecks, salvage and whatever
+the pirates already did; the permission is the operator's to grant, and you ask rather than
+reinterpret.
 
 ## Pitfalls
 
 - Never attack without the operator's standing permission, whatever the payout looks like.
-- Do not re-enter a fight to finish something; the loot is not worth the hull.
 - Loot needs free cargo before the fight, not after it.
-- Do not dispatch `gather` to fill a quiet juncture. Idle and honest beats busy and off-stance.
+- An opponent already in someone else's battle is someone else's fight.
+- A prize is a second ship to keep alive. Claiming one on a bad hull loses both.
 
 ## Verification
 
-The objective is met when the tally the objective named is matched by what the outcomes report.
-Then take **Rest and reflect at home**, which the menu offers only at home with a safe,
-serviced ship. Rest ends the shift and chooses the next goal.
+The objective is met when the tally the objective named matches what the outcomes reported,
+read from the game rather than remembered. Then rest at home, serviced and whole; rest is what
+ends the shift and chooses what the next one is for.

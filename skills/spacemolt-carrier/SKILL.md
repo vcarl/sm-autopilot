@@ -15,8 +15,9 @@ metadata:
 # SpaceMolt Carrier Skill
 
 The evening you are having is "I'll run the board." You carry other people's goods and other
-people's passengers, with a deadline attached and a debt if you fail. What is at risk is not
-your capital but your liability, and the board is where the shift begins.
+people's citizens, with a deadline attached and a debt if you fail. What is at risk is not
+your capital — it is your liability and your standing, and both are slower to rebuild than
+credits are.
 
 ## When to Use
 
@@ -24,67 +25,89 @@ At every juncture of a Carrier shift, beside the shared `spacemolt` skill.
 
 ## Prerequisites
 
-The shared `spacemolt` skill and its toolset. This stance opens Cautious or Focused. **No
-carrier job can be dispatched yet** — `gather` is the only job the runner can run, and it is
-not yours. Read "How to Run" before you choose.
+The shared skill. This stance opens Cautious or Focused. Everything you accept tonight is a
+promise to someone, so the stance rewards reading the board longer than feels necessary.
 
 ## How to Run
 
-The present, the menu and the last outcome arrive with the juncture. Weigh them, take one act,
-end the turn — but your act is a live one, not a dispatch:
-
-- `spacemolt_where` reads the system and its `pois` when the present leaves you unsure.
-- `spacemolt_travel(poi_id)` repositions you to a station whose board may hold work the one
-  here does not. That is the real carrier move while the jobs are being built.
-- `spacemolt_dock(base_id?)` puts you at a station's counters.
-- `spacemolt_dispatch` accepts only `gather`. Do not dispatch it to look busy.
-
-When the option you pick is a counter, or a job nothing can run yet, say in one line what you
-chose and why, and end the turn. A juncture spent naming the blocker honestly is a good
-juncture; a juncture spent doing someone else's stance's work is not.
+Read your carrier profile before the board, every time. It is the authority on what you may
+take: your tier, the liability ceiling on one package, the ceiling on everything open at once,
+and the debt you are already carrying. A board full of work you are not eligible for is not
+an opportunity.
 
 ## Quick Reference
 
-The jobs this stance draws from, named for the state they leave behind:
+**A trip is worth taking when** three things are true before the payout is even interesting:
+the package fits the free hold, the liability sits inside both your tier and the operator's
+permission, and the deadline survives the route at your mood's fuel reserve. Two deliveries
+that share a destination are worth more than one better-paying one that doubles back.
 
-- **J4 Freight delivered** — the package settled and gone from your active list, the debt
-  untouched. Admissible only when a package fits the free hold *and* sits inside the
-  operator's liability permission. No executor yet.
-- **J5 Passengers landed** — the berths empty and the fares collected. Admissible when someone
-  is waiting here or is already aboard owed a landing. No executor yet.
-- **J12 Home, serviced** — the universal terminal job: full tank, whole hull, at home.
+**It is not worth taking when** you are guessing at any of the three. Liability exposure is
+not a cash payment — a package worth more than you can cover is a debt you accepted on
+purpose. Tier gates are real: probationary carriers have been held to a few tens of thousands
+per package and a low total, and licensing has required a run of successful deliveries and a
+minimum delivered value. You climb that ladder by finishing small work, not by reaching.
 
-The counters your judgement points at: **Boards — shipping** (a quote, then an accept that
-commits liability and a failure debt, not cash; the package lands in **Storage** and only
-reaches the hold on withdrawal). **Boards — missions** (an accept commits an obligation;
-abandoning may forfeit). **Storage** — custody, not money. **Hangar / refit** — a cargo
-expander is what raises the tier of work you can take. **Obligations desk** — shipping debt and
-tax accrue with no command behind them.
+**Counters you read first when docked:**
+
+- **Shipping board** — offers filter by destination and service level, and sort by reward,
+  distance or age. Quote before you accept. Accepting commits liability and a failure debt,
+  not cash. Priority work pays more and forgives less.
+- **Storage** — where an accepted package lands. It is not aboard until you withdraw it, and
+  a package in storage at the origin is a delivery that has not started. Confirm it is in the
+  hold before undocking; this is the single most common way a carrier shift goes wrong.
+- **Passengers** — citizens waiting here, bound somewhere. Berths come in economy, business
+  and first, and a passenger only boards into a free berth of their own class. A ship with no
+  accommodation carries none at all until a cabin is fitted.
+- **Hangar** — the cargo expander is the whole progression of this stance. Freight has run
+  to a hundred units in one package; a small hold simply cannot see that work.
+- **Missions board** — accepting commits an obligation and abandoning may forfeit. Some
+  missions supply their own cargo, which is delivery work that costs you no inventory.
+- **Obligations desk** — shipping debt and tax accrue with no command behind them. Pay the
+  debt down while you are solvent, not when it has gated your tier.
+
+**Moods.** Cautious takes one package at a time, with a deadline it could miss twice and still
+make. Focused fills the route: every leg carries something, and nothing is accepted that bends
+the route. Opportunistic is for the passenger group going where you were already going, never
+for a second liability stacked on an open one.
+
+**Go home and resupply when** the active list is empty and the hold is free, when the next
+deadline no longer survives your fuel, or when a package is aboard and something has gone
+wrong — a carried package returned is a smaller loss than one failed in transit.
 
 ## Procedure
 
-1. **Read the objective as a bounded count.** "Four deliveries" or "clear the debt" both end.
-   Subtract what the last outcome settled; the remainder is what this juncture is for.
-2. **Judge an offer by three numbers before its payout:** does the cargo fit the free hold,
-   does the liability sit inside the operator's permission, and does the deadline survive the
-   route at your mood's fuel reserve. A payout you cannot deliver is a debt.
-3. **When the board here is empty, move.** An empty board is a fact about this station, not
-   about the shift. Take an admissible trip toward a station with citizens or traffic.
-4. **Reconsider** when a refusal names a liability ceiling (the operator's permission is the
-   thing to raise, and only the operator raises it) or a hold too small (the Hangar counter is
-   the answer, not a smaller promise you will regret).
+1. **Read the objective as a bounded count.** "Four deliveries" and "clear the debt" both end.
+   Subtract what the last outcome settled.
+2. **Profile, then board, then route.** Eligibility first, fit second, deadline third, payout
+   last. A payout you cannot deliver is a debt with extra steps.
+3. **Route by geography, not by reward.** The board's best offer is rarely the best evening.
+4. **When the board here is empty, move.** That is a fact about this station, not the shift.
+
+### Worked junctures
+
+*The board here shows one package paying well, bound two systems out, deadline tight.* The
+question is not whether you can fly it — it is what happens if you cannot. The failure debt
+is what you are really quoting on. Cautious, early in a tier, the right move is to decline it
+and take the dull local run that licenses you for that work next week.
+
+*You accepted a package and the hold is still empty.* The package is in storage at this
+station. Withdraw it and confirm it is aboard. Undocking now is a failed contract that looks
+exactly like a successful departure.
+
+*Three citizens are waiting for a station already on your route, but only economy berths are
+free and one of them is booked business.* Take the two. A passenger you cannot berth is not a
+passenger, and the route does not change for one fare.
 
 ## Pitfalls
 
 - Never accept work you have not confirmed you can finish; the debt outlives the shift.
-- A board listing does not prove route readiness, capacity or profit; the destination token
-  comes from the offer, never invented.
-- The package sits in storage at pickup. Storage is custody — it is not delivery and it is not
-  money.
-- Do not dispatch `gather` to fill a quiet juncture. Idle and honest beats busy and off-stance.
+- A board listing does not prove capacity, route readiness or profit. The destination comes
+  from the offer, never from memory.
+- Storage is custody. It is not delivery and it is not money.
+- Liability adds up across everything open at once, not just the package in front of you.
 
 ## Verification
 
-The objective is met when the active list is empty and the debt is what you meant it to be,
-read from a tool result. Then take **Rest and reflect at home**, which the menu offers only at
-home with a safe, serviced ship. Rest ends the shift and chooses the next goal.
+The objective is met when the active list is empty, the debt is what you meant it to be, and
+both are read from the game rather than remembered. Then rest at home; rest ends the shift.
