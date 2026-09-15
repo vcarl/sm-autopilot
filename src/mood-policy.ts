@@ -14,6 +14,15 @@ export function resolveServiceSpend(mood:Mood):number {
   if(!Object.hasOwn(serviceSpend,mood))throw new Error('Unknown service mood');
   return serviceSpend[mood];
 }
+// D2 hull retreat fraction: walk away from a fight below this share of max hull.
+// Away from a dock it is the walk-away line, not a service target (D3).
+const retreatHull=Object.freeze({
+  Relaxed:.90,Cautious:.95,Focused:.90,Opportunistic:.90,Aggressive:.80,Tired:.95,
+});
+export function resolveWalkAway(mood:Mood):number {
+  if(!Object.hasOwn(retreatHull,mood))throw new Error('Unknown walk-away mood');
+  return retreatHull[mood];
+}
 /** Operator-owned units, separate from numeric script allocations. */
 export interface OperatorFuelPolicy {fuelReserveFloor?:number}
 

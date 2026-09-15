@@ -31,7 +31,7 @@
     - Counters: wire all fourteen (market, workshop/recipes, mission board, shipping board, storage, hangar/refit, comms, services, obligations desk, home desk, progression desk, citizenship, facilities, distress); stance guidance picks among them. The recipe book is cached catalog data revalidated by ETag and quoted with craft dry_run, not a counter query.
     - "Reading the news" in VISION.md is metaphorical: notifications, markets, and chat are what the docked pilot follows. Not a contradiction.
     - Idle-at-base options are built around choices that need no stocked board; a board, market, passenger list, or facility that comes back empty must not empty the menu.
-    - Home: call the game's `salvage/set_home` so the pilot's home matches where it respawns; home-location.ts must issue it and confirm from `get_player`.
+    - Home: call the game's `salvage/set_home` so the pilot's home matches where it respawns. Done 2026-09-14 (fixture): `registerHome` in `src/home-location.ts` issues it and confirms from an authoritative `player.home_base` read, refuses unless docked at that base, issues nothing when already home; `node --test spacemolt/src/home-location.test.ts` 1/1. No caller wires it into rest yet (D8/S14).
     - Tired recovery (R13): `distress_signal` is the last rung when resupply is impossible; answers from other players are untrusted data (T17).
 - [x] D8 — Home semantics: selection criteria, persisted identity, reconsideration triggers, temporary service stops, unreachable-home fallback. No operator-supplied station IDs.
 - [x] D9 — Job contract: preconditions, outputs, obligations, cleanup, terminal outcomes.
@@ -47,7 +47,9 @@
   - (mined from src/rules.ts) Composition law: every matching rule contributes; `allowed` is a hard AND that no allowance can undo, reasons dedupe on id+text (denial wins), obligations union, limits merge tightest-wins, and `exit` takes the strongest of finish_job < next_checkpoint < return_now.
 - [ ] R2 — Inputs are stance x mood x place, plus holdings, obligations, and operator permissions.
 - [ ] R3 — The menu is produced at every juncture: counters, jobs, sites, targets, contracts, each with bounds and a reason attached.
+  - Menu shape (fixture, 2026-09-14): `buildMenu(facts)` returns `options` `{job, reason, bounds:{spend,fuelReserve,walkAway}, admissible:true}` and `unavailable` `{job, reason}` naming what would admit it; counters, jobs and sites all come from the one table and bounds resolve from the mood alone. Targets and contracts gate J4/J5/J8 as facts, not per-target options; worthwhile beyond admissible waits on D4.
 - [ ] R4 — The menu is never empty. An idle pilot at a base with no stance and nothing owed still gets meaningful options.
+  - Non-empty at a base proven (fixture, 2026-09-14): empty board, no sites, no workshop, nothing owed still yields counters, watch, rest and J12, for every job mood and with no stance. Away from a base the watch option remains and J12 refuses with 'dock at a base'. Evidence: C19 proof. Stays open until a juncture consumes the menu.
 - [ ] R5 — On-menu refusal under unchanged conditions is a bug; fixing the menu is the fix. If the world moved since observation, the refusal names the changed condition and returns a fresh menu.
 - [ ] R6 — Off-menu refusal is the script working, and says what would have made the attempt admissible.
   - (mined from src/execution-logistics.ts) Refusal text worth keeping verbatim: "Directory reachability only; fuel, service prices, docking access, hazards and delivery time are not established." A station appearing in the directory is not a quote for any of those.
@@ -61,12 +63,14 @@
   - (mined from src/execution-policy.ts) Overrides tighten only: limits merge by min except credit_reserve, retreat_hull_fraction and minimum_economic_margin which merge by max; max_spend 0..10000 (default 1000), credit_reserve >= 150000, retreat fraction <= .95, cycles and ticks integers within the resolved mood bound.
 - [ ] R8 — Tired is imposed by a margin crossing, never chosen, and resupply clears it and restores the prior mood with nobody clearing it. (re-earn: old version worked by denying admission)
 - [ ] R9 — Place changes the menu: the same stance and mood at a station, a belt, a planet, and deep space see different options.
+  - Place is a menu input (fixture, 2026-09-14): `Facts.place` carries kind (base/POI/space), base id, home flag, counters offered, workshop, service prices, sites, board; the same stance and mood differ between a base and a belt in the proof. Full D5 taxonomy not encoded.
 - [ ] R10 — Invalid or conflicting context never reaches the menu, and therefore never reaches a game mutation. (re-earn: old version validated inside the resolver)
 - [ ] R11 — Engine internals stay private. The agent sees conclusions and reasons, never the derivation.
 - [ ] R12 — The rules and the journal carry safety and memory across crashes and reconnects.
 - [ ] R13 — Tired recovery: when resupply is impossible, the menu offers permitted recoveries inside standing permissions (sell cargo for fuel, cheaper service at a nearer station, hold at a non-home dock); when none is admissible the pilot waits docked with a precise blocker, and that wait is a juncture a human can answer.
 - [ ] R14 — Chains: a menu choice may compose jobs as a sequence, a loop until a condition, or one job then ask; the rules bound the chain (max trips, spend, Tired) the same way they bound a job.
 - [ ] R15 — Danger is checked first and separately when building the menu: combat strips the pilot of its running work, so a fighting ship looks idle to every other check.
+  - Danger-first encoded (fixture, 2026-09-14): `evaluateMenu` filters on a threat before any other rule, at a base or in space, returning only safety verdicts naming the threat; a combat-blind ordering is the mutation that turns the proof red. Threats are observed facts; nothing feeds them from a live battle read yet.
 
 ## Skills (K)
 
@@ -319,7 +323,8 @@ Each row is a behavior the pilot can perform independently, at a stated evidence
 - [ ] C16 — C2, C4, and C5 replayed against a sliced gameplay trace with real recorded responses. (replay) | proof: `node --test spacemolt/proofs/c16-replay-movement.test.ts` | depends: S46, C2, C4, C5
 - [ ] C17 — C7 and C8 replayed against a sliced gameplay trace. (replay) | proof: `node --test spacemolt/proofs/c17-replay-gather.test.ts` | depends: S46, C7, C8
 - [ ] C18 — A job interrupted by a restart resumes through reconciliation with no duplicated mutation; a chain interrupted keeps its definition. (fixture) | proof: `node --test spacemolt/proofs/c18-resume.test.ts` | depends: S43, N22
-- [ ] C19 — At a base with stance, mood, and place set, the menu is non-empty, every option carries a reason and bounds, and danger is checked first. (fixture) | proof: `node --test spacemolt/proofs/c19-menu.test.ts` | depends: D7, R3, R4, R9, R15
+- [x] C19 — At a base with stance, mood, and place set, the menu is non-empty, every option carries a reason and bounds, and danger is checked first. (fixture) | proof: `node --test spacemolt/proofs/c19-menu.test.ts` | depends: D7, R3, R4, R9, R15
+  - Ticked 2026-09-14 (fixture): `node --test spacemolt/proofs/c19-menu.test.ts` 5/5 through new `src/rules-table.ts` (one rule array plus evaluator) and `src/menu.ts` (first consumer). Danger is filtered before every other rule and a threatened pilot sees only retreat/dock/watch naming the threat; a base with an empty board, no sites and no stance work still returns counters, watch, rest and J12; every admissible option carries a reason and D2 bounds (spend, fuel reserve, walk-away); Tired keeps only safety and resupply; the six stances' jobs appear only for their own stance and otherwise say what is missing. Five mutations each turn it red. Job preconditions are modelled from the proposal, not live reads; no consumer calls buildMenu yet.
 - [ ] C20 — A chain of three gather jobs runs with one juncture at the end and one outcome. (fixture) | proof: `node --test spacemolt/proofs/c20-chain.test.ts` | depends: R14, S32, C9
 - [ ] C21 — A cron-fired juncture opens a fresh conversation with the stance's tools, reads the menu, dispatches a job, and exits before the job ends. (fixture, temp HERMES_HOME) | proof: `scripts/run_tests.sh tests/test_spacemolt_juncture.py` | depends: N18, S39
 - [ ] C22 — A Discord inquiry is answered from state and journal with nothing changed; direction lands at the next juncture. (fixture, temp HERMES_HOME) | proof: `scripts/run_tests.sh tests/test_spacemolt_channel.py` | depends: T7, T9, N19
