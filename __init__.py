@@ -95,10 +95,10 @@ TOOL_DEFINITIONS = (
                                                    "to refuse a dock at any other station."}},
                        [])},
     {"name": "spacemolt_gather", "toolset": "spacemolt", "handler": _gather,
-     "description": "Run one gather job: mine a poi until the hold is full and settle it at home.",
+     "description": "Run one gather job: mine a poi until the hold is full and stow the ore at home; it never sells.",
      "schema": _schema("spacemolt_gather",
                        "Run one gather job dock to dock: fly to a mining poi, fill the hold, return, "
-                       "dock, sell the cargo and service the ship. Takes real game time; returns one "
+                       "dock, deposit the mined ore into storage (never sell) and service the ship. Takes real game time; returns one "
                        "outcome verified against live state.",
                        {"poi_id": {"type": "string",
                                    "description": "The mining poi id to work, as spacemolt_where listed it."},
