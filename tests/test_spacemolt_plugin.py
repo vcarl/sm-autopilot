@@ -66,9 +66,12 @@ def test_every_tool_answers_from_the_one_bridge(bridged):
 
 
 def test_register_publishes_every_tool_in_the_spacemolt_toolset():
-    tools, sections, unloads = {}, {}, []
+    tools, sections, unloads, skills = {}, {}, [], []
 
     class RecordingContext:
+        def register_skill(self, name, path, **kwargs):
+            skills.append(name)
+
         def register_tool(self, name, toolset, schema, handler, **kwargs):
             tools[name] = (toolset, schema, handler, kwargs)
 
