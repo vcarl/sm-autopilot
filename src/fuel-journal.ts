@@ -12,30 +12,56 @@ export interface PilotFuelState {
   home:unknown;
   obligations:unknown[];
 }
-export interface FuelTransition {
-  mood:'Tired';priorMood:Exclude<Mood,'Tired'>;reason:string;rule:'D3.fuel';
-  evidence:FuelRouteEvidence;
-  station:ServicedStation;
+/** D3's non-fuel margins: the crossed resource measured against its line, in its own units. */
+export interface MarginEvidence {
+  kind:'hull'|'credits';have:number;need:number;shortfall:number;
+  observed:{ship:GameState['ship'];location:GameState['location']};
 }
+interface Crossing {mood:'Tired';priorMood:Exclude<Mood,'Tired'>;reason:string;station:ServicedStation}
+export interface FuelCrossing extends Crossing {rule:'D3.fuel';evidence:FuelRouteEvidence}
+export interface MarginCrossing extends Crossing {rule:'D3.hull'|'D3.credits';evidence:MarginEvidence}
+export type FuelTransition=FuelCrossing|MarginCrossing;
+export type CrossingRule=FuelTransition['rule'];
+const crossingRules=new Set<string>(['D3.fuel','D3.hull','D3.credits']);
 /** D3: resupply clears Tired and restores the mood held at the crossing. Recorded, not latched. */
 export interface FuelRestoration {
   mood:Exclude<Mood,'Tired'>;priorMood:'Tired';reason:string;rule:'D3.resupply';
   observed:{ship:GameState['ship'];location:GameState['location']};
 }
-export type FuelJournalEntry=FuelTransition|FuelRestoration;
+/** R13's ladder. The mood does not move: a rung is what was tried, not a change of state.
+ * `answer` is whatever the world replied, kept as data — nothing reads it back as authorization. */
+export interface RecoveryNote {
+  mood:'Tired';priorMood:'Tired';reason:string;rule:'R13.wait'|'R13.distress';
+  answer?:unknown;
+}
+export type FuelJournalEntry=FuelTransition|FuelRestoration|RecoveryNote;
 
-/** The mood a resupply restores: the one held at the most recent crossing. */
-export function moodBeforeTired(transitions:readonly FuelJournalEntry[]):Exclude<Mood,'Tired'>|undefined {
-  for(let i=transitions.length-1;i>=0;i--) {
-    const entry=transitions[i];
-    if(entry.rule==='D3.fuel')return entry.priorMood;
-  }
+/** The crossing that imposed the Tired now held: the most recent one journaled. */
+export function lastCrossing(transitions:readonly FuelJournalEntry[]):FuelTransition|undefined {
+  for(let i=transitions.length-1;i>=0;i--)
+    if(crossingRules.has(transitions[i].rule))return transitions[i] as FuelTransition;
   return undefined;
 }
-/** Supplied by the runner from observed station service data, never directory presence alone. */
+/** The mood a resupply restores: the one held at the most recent crossing. */
+export function moodBeforeTired(transitions:readonly FuelJournalEntry[]):Exclude<Mood,'Tired'>|undefined {
+  return lastCrossing(transitions)?.priorMood;
+}
+/** Rungs tried since the crossing that imposed the current Tired. */
+export function recoveryRungs(transitions:readonly FuelJournalEntry[]):RecoveryNote['rule'][] {
+  const rungs:RecoveryNote['rule'][]=[];
+  for(let i=transitions.length-1;i>=0;i--) {
+    const entry=transitions[i];
+    if(crossingRules.has(entry.rule))break;
+    if(entry.rule==='R13.wait'||entry.rule==='R13.distress')rungs.unshift(entry.rule);
+  }
+  return rungs;
+}
+/** Supplied by the runner from observed station service data, never directory presence alone.
+ * `prices` are that station's posted prices; D3's credits line cannot be measured without them. */
 export interface ServicedStation {
   base_id:string;poi_id:string;system_id:string;
   services:{refuel:boolean};
+  prices?:{fuel_all_in:number;repair_per_hull:number};
   observation:{source:string;observedAt:string};
 }
 interface JournalData {version:1;pilotId:string;state:PilotFuelState;transitions:FuelJournalEntry[]}
@@ -85,8 +111,16 @@ export class FuelJournal {
   async record(transition:FuelTransition) {
     this.assertReady();
     if(this.data.state.mood==='Tired')return;
-    if(transition.priorMood!==this.data.state.mood||transition.evidence.kind!=='available_fuel'||transition.evidence.shortfall<=0)throw new Error('Invalid fuel transition');
+    if(transition.priorMood!==this.data.state.mood||transition.evidence.shortfall<=0||
+      (transition.rule==='D3.fuel')!==(transition.evidence.kind==='available_fuel'))throw new Error('Invalid fuel transition');
     await this.commit('Tired',transition);
+  }
+  /** A recovery rung is journaled where the crossing is, so whoever reads it later sees
+   * what the runner tried and why, not just that the pilot sat still. */
+  async note(entry:RecoveryNote) {
+    this.assertReady();
+    if(this.data.state.mood!=='Tired')throw new Error('Recovery rungs belong to a Tired pilot');
+    await this.commit('Tired',entry);
   }
   /** Nobody clears Tired by hand: the restoration is decided from a verified post-state. */
   async restore(restoration:FuelRestoration) {

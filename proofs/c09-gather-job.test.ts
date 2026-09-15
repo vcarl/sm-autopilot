@@ -27,7 +27,7 @@ async function fixture(opts:{fuel?:number;fuelPrice?:number|null}={}) {
   const fuelPrice=opts.fuelPrice===undefined?FUEL_PRICE:opts.fuelPrice;
   const server={
     location:{system_id:home.system_id,poi_id:home.poi_id,docked_at:home.base_id as string|null,in_transit:false},
-    ship:{id:'ship',fuel:opts.fuel??TANK,max_fuel:TANK,hull:90,max_hull:100,shield:5,max_shield:5,
+    ship:{id:'ship',fuel:opts.fuel??TANK,max_fuel:TANK,hull:96,max_hull:100,shield:5,max_shield:5,
       cargo_used:2,cargo_capacity:CAPACITY,incapacitated:false},
     player:{credits:1_000},
     cargo:[{item_id:'cabin_economy',quantity:2}] as {item_id:string;quantity:number}[],
@@ -133,14 +133,14 @@ test('C9: one gather job runs dock to dock and the world, not the replies, close
     assert.deepEqual(result.settled!.sold,[{item_id:'carbon',quantity:4,quoted:16,cleared:16},
       {item_id:'ore',quantity:8,quoted:80,cleared:80}]);
     assert.deepEqual([result.settled!.unsettled,result.settled!.held],[[],[]]);
-    assert.equal(result.serviced!.spent,28*FUEL_PRICE+10*HULL_PRICE);
+    assert.equal(result.serviced!.spent,28*FUEL_PRICE+4*HULL_PRICE);
 
     // The end state the job claims is the state the server holds.
     assert.deepEqual(f.server.location,
       {system_id:home.system_id,poi_id:home.poi_id,docked_at:home.base_id,in_transit:false});
     assert.deepEqual(f.server.cargo,[{item_id:'cabin_economy',quantity:2}],'keep cargo is never offered');
     assert.deepEqual([f.server.ship.fuel,f.server.ship.hull],[TANK,100],'serviced to the mood margins');
-    assert.equal(f.server.player.credits,1_000+96-190);
+    assert.equal(f.server.player.credits,1_000+96-160);
     // An affordable trip imposes nothing: the mood the pilot chose still stands.
     assert.equal(f.journal.snapshot.state.mood,'Cautious');
     assert.deepEqual(f.journal.snapshot.transitions,[]);
