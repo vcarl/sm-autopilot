@@ -1,0 +1,10 @@
+name: spacemolt
+version: 0.1.0
+description: "Look around a SpaceMolt system and fly to a point of interest."
+author: Hermes SpaceMolt
+kind: standalone
+requires_env:
+  - SPACEMOLT_CREDENTIALS_FILE
+provides_tools:
+  - spacemolt_where
+  - spacemolt_travel
