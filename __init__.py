@@ -11,7 +11,8 @@ _PROMPT = (
     "position, fuel, hull and the points of interest in the current system; spacemolt_travel "
     "flies to one of those poi ids, undocking first if needed. Travel is real game time and a "
     "call can take a minute or more — wait for it, never retry a pending one. Report only what "
-    "the tool result says, and use a poi id that spacemolt_where listed."
+    "the tool result says, and use a poi id that spacemolt_where listed. Whenever asked where the "
+    "ship is, call spacemolt_where first; never answer position from memory."
 )
 
 
