@@ -1,6 +1,7 @@
 import type {Decision,RuleFacts} from './rules.ts';
 import type {Account} from '@spacemolt/lib';
-import {details,type IndustryCommand} from './industry.ts';
+import {details} from './response-details.ts';
+import {type IndustryCommand} from './industry.ts';
 import {canonicalReadinessBlockers,ensureReadiness,inspectReadiness} from './readiness.ts';
 
 export interface ServiceBudget {maxSpend:number;creditReserve:number}

@@ -1,6 +1,7 @@
 import {evaluateRules,requireAllowed} from './rules.ts';
 import type {Account} from '@spacemolt/lib';
-import {details,type IndustryCommand} from './industry.ts';
+import {details} from './response-details.ts';
+import {type IndustryCommand} from './industry.ts';
 
 export interface Obligations {
   observed_at:string;

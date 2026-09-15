@@ -3,7 +3,8 @@ import {evaluateRules,requireAllowed,PolicyDenied,type Decision,type RuleFacts} 
 import {SpacemoltError, type Account, type CreatureInfo} from '@spacemolt/lib';
 import {appendFileSync, existsSync, readFileSync} from 'node:fs';
 import {randomUUID} from 'node:crypto';
-import {details, type IndustryCommand} from './industry.ts';
+import {details} from './response-details.ts';
+import {type IndustryCommand} from './industry.ts';
 import {CombatBlocked, prepareCombat, type FitParams} from './combat-fit.ts';
 import {snapshotSkills, skillProgress} from './progression.ts';
 import {travelTo} from './travel.ts';

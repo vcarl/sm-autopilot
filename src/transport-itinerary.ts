@@ -1,6 +1,7 @@
 import type {Account} from '@spacemolt/lib';
 import type {ExecutionContext,Home} from './execution-policy.ts';
-import {details,type IndustryCommand} from './industry.ts';
+import {details} from './response-details.ts';
+import {type IndustryCommand} from './industry.ts';
 import {routeSteps} from './normal-route.ts';
 import {logisticsPolicy} from './logistics-policy.ts';
 

@@ -2,7 +2,35 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {SpacemoltError} from '@spacemolt/lib';
 import type {ReadinessAccount} from './readiness.ts';
-import {travelTo} from './travel.ts';
+import {travelTo,TravelBlocked} from './travel.ts';
+
+test('fuel lost after undocking reports the refreshed shortfall before jump or local travel',async()=>{
+  for(const local of [false,true]) {
+    const server={location:{system_id:'a',poi_id:'station',docked_at:'base' as string|null},
+      ship:{id:'ship',fuel:40,max_fuel:120,cargo_used:0}};
+    const account:ReadinessAccount={state:structuredClone(server) as ReadinessAccount['state'],
+      async refresh(){account.state=structuredClone(server) as ReadinessAccount['state'];}};
+    const calls:string[]=[];
+    const handlers:Record<string,()=>unknown>={
+      'spacemolt/find_route':()=>({found:true,target_system:local?'a':'b',total_jumps:local?0:1,
+        estimated_fuel:10,fuel_per_jump:10,fuel_available:server.ship.fuel,cargo_used:0,
+        route:[{system_id:'a',jumps:0},...local?[]:[{system_id:'b',jumps:1}]]}),
+      'spacemolt/undock':()=>{server.location.docked_at=null;server.ship.fuel=39;return {};},
+      'spacemolt/get_system':()=>({system:{connections:['b']}}),
+    };
+    await assert.rejects(travelTo(account,async action=>{
+      calls.push(action);
+      assert.ok(Object.hasOwn(handlers,action),`Unexpected command: ${action}`);
+      return handlers[action]();
+    },local?{system_id:'a',poi_id:'belt'}:{system_id:'b'},{mood:'Cautious'}),
+    error=>error instanceof TravelBlocked&&/have 39, need 40; shortfall 1 fuel units/.test(error.message));
+    assert.deepEqual(calls,local?['spacemolt/find_route','spacemolt/undock']:
+      ['spacemolt/find_route','spacemolt/undock','spacemolt/get_system']);
+    assert.equal(account.state.ship!.fuel,39);
+    assert.equal(server.location.system_id,'a');
+    assert.equal(server.location.poi_id,'station');
+  }
+});
 
 // Route costs are deliberately asymmetric and change with the return cargo.
 test('travel re-quotes actual remaining fuel, bounds definitive retries, and never replays uncertain movement',async()=>{

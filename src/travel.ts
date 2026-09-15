@@ -1,12 +1,15 @@
 import {SpacemoltError,type GameState} from '@spacemolt/lib';
 import type {ReadinessAccount,ReadinessCommand} from './readiness.ts';
-import {details} from './industry.ts';
+import {details} from './response-details.ts';
 import {routeSteps} from './normal-route.ts';
+import {resolveFuelReserve,type Mood} from './mood-policy.ts';
 
 export class TravelBlocked extends Error {}
 export class ArrivalUnresolved extends Error {}
 export interface TravelDestination {system_id:string;poi_id?:string;base_id?:string}
 export interface TravelOptions {
+  mood?:Mood;
+  /** Internal script allocations only; cannot override a mood's reserve. */
   reserve?:number;maxJumps?:number|null;
   checkpoint?:(settled?:boolean)=>Promise<void>;
   beforeMove?:()=>Promise<void>;
@@ -43,7 +46,11 @@ const retryable=(error:unknown)=>error instanceof SpacemoltError&&!error.pending
 
 /** One shared movement path; policy, spending and command ownership stay with the caller. */
 export async function travelTo(account:ReadinessAccount,command:ReadinessCommand,destination:TravelDestination,options:TravelOptions={}) {
-  const reserve=options.reserve??17;
+  if(options.mood!==undefined&&options.reserve!==undefined)throw new TravelBlocked('Travel mood cannot be combined with a numeric reserve');
+  if(options.mood===undefined&&options.reserve===undefined)throw new TravelBlocked('Travel requires a mood or an internal script allocation');
+  let reserve:number;
+  try {reserve=options.mood!==undefined?resolveFuelReserve(options.mood):options.reserve!;}
+  catch(error){throw new TravelBlocked(String(error));}
   let maxJumps=options.maxJumps===null?null:options.maxJumps??2;
   if(!destination.system_id||!Number.isFinite(reserve)||reserve<0||(maxJumps!==null&&(!Number.isSafeInteger(maxJumps)||maxJumps<0)))throw new TravelBlocked('Invalid travel destination or allocation');
   const stable=(s:GameState)=>Boolean(s.location?.system_id&&!s.location.in_transit);
@@ -80,13 +87,27 @@ export async function travelTo(account:ReadinessAccount,command:ReadinessCommand
   while(!arrived(account.state)) {
     await moveCheckpoint();
     let plan=await quote();
-    if(!Number.isFinite(account.state.ship!.max_fuel)||plan.required>account.state.ship!.max_fuel)throw new TravelBlocked('fuel_below_route_minimum: route and reserve exceed tank capacity');
+    if(!Number.isFinite(account.state.ship!.max_fuel))throw new TravelBlocked('Canonical tank capacity required for routing');
+    if(plan.required>account.state.ship!.max_fuel)throw new TravelBlocked(`fuel_below_route_minimum: route and reserve exceed tank capacity; shortfall ${plan.required-account.state.ship!.fuel} fuel units; capacity shortfall ${plan.required-account.state.ship!.max_fuel} fuel units`);
     if(account.state.ship!.fuel<plan.required&&account.state.location!.docked_at&&options.refuel&&!refueled) {
       refueled=true;await options.refuel(plan.required);await checkpoint();plan=await quote();
     }
-    if(account.state.ship!.fuel<plan.required)throw new TravelBlocked(`fuel_below_route_minimum: have ${account.state.ship!.fuel}, need ${plan.required}`);
+    const requireFuel=()=>{
+      const fuel=account.state.ship?.fuel;
+      if(typeof fuel!=='number'||!Number.isFinite(fuel))throw new TravelBlocked('Canonical fuel required before departure');
+      if(fuel<plan.required)throw new TravelBlocked(`fuel_below_route_minimum: have ${fuel}, need ${plan.required}; shortfall ${plan.required-fuel} fuel units`);
+    };
+    requireFuel();
     await moveCheckpoint();
     await options.beforeMove?.();
+    // Hooks may await other work while the server changes. Revalidate the quote
+    // before undocking as well as before the jump/travel command.
+    await account.refresh();
+    requireFuel();
+    const departure=account.state;
+    if(!stable(departure)||departure.location!.system_id!==plan.origin.system_id||departure.location!.poi_id!==plan.origin.poi_id||
+      departure.location!.docked_at!==plan.origin.docked_at||departure.ship?.id!==plan.ship.id||departure.ship.cargo_used!==plan.ship.cargo_used||
+      departure.ship.max_fuel!==plan.ship.max_fuel||departure.ship.fuel!==plan.ship.fuel)throw new TravelBlocked('Route origin, load or fuel changed before departure');
     if(account.state.location!.docked_at)await command('spacemolt/undock',{});
     const next=plan.steps[0];
     if(next) {
@@ -95,6 +116,7 @@ export async function travelTo(account:ReadinessAccount,command:ReadinessCommand
     }
     await moveCheckpoint();
     await account.refresh();
+    requireFuel();
     const current=account.state;
     if(!stable(current)||current.location!.system_id!==plan.origin.system_id||current.location!.poi_id!==plan.origin.poi_id||current.location!.docked_at||
       current.ship?.id!==plan.ship.id||current.ship.cargo_used!==plan.ship.cargo_used||current.ship.max_fuel!==plan.ship.max_fuel||current.ship.fuel!==plan.ship.fuel||current.ship.fuel<plan.required)throw new TravelBlocked('Route origin, load or fuel changed before departure');

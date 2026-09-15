@@ -1,6 +1,7 @@
 import {evaluateRules,requireAllowed,deniedTexts} from './rules.ts';
 import {SpacemoltError,type Account} from '@spacemolt/lib';
-import {details,type IndustryCommand} from './industry.ts';
+import {details} from './response-details.ts';
+import {type IndustryCommand} from './industry.ts';
 import type {Home} from './execution-policy.ts';
 import {observeObligations,hasTransportCustody} from './obligations.ts';
 import {routeSteps} from './normal-route.ts';

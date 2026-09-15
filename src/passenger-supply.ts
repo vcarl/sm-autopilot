@@ -1,5 +1,6 @@
 import {SpacemoltError} from '@spacemolt/lib';
-import {details,type IndustryCommand} from './industry.ts';
+import {details} from './response-details.ts';
+import {type IndustryCommand} from './industry.ts';
 import {industryLocations} from './locations.ts';
 
 const cabin='economy_passenger_cabin';

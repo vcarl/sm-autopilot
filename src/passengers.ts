@@ -1,6 +1,7 @@
 import type {Account} from '@spacemolt/lib';
 import type {Home} from './execution-policy.ts';
-import {details,type IndustryCommand} from './industry.ts';
+import {details} from './response-details.ts';
+import {type IndustryCommand} from './industry.ts';
 import type {DestinationResolution} from './locations.ts';
 
 type Wire=Record<string,any>;

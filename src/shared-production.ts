@@ -1,5 +1,6 @@
 import type {Job} from './execution-store.ts';
-import {details,executeIndustry,type IndustryContext,type IndustryCommand} from './industry.ts';
+import {details} from './response-details.ts';
+import {executeIndustry,type IndustryContext,type IndustryCommand} from './industry.ts';
 import type {Account} from '@spacemolt/lib';
 import {getIndustryCatalog} from './persistent-catalog.ts';
 import {isDeepStrictEqual} from 'node:util';

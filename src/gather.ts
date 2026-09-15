@@ -1,5 +1,6 @@
 import type {Account} from '@spacemolt/lib';
-import {details,type IndustryCommand} from './industry.ts';
+import {details} from './response-details.ts';
+import {type IndustryCommand} from './industry.ts';
 import {inspectReadiness} from './readiness.ts';
 import {miningInventory,miningYield,measureMineYield} from './mining-inventory.ts';
 import {snapshotSkills,skillProgress,type SkillSnapshot} from './progression.ts';

@@ -1,7 +1,8 @@
 import {evaluateRules,deniedTexts} from './rules.ts';
 import {ACTIONS,type Account} from '@spacemolt/lib';
 import {battleStatus,controlHunt} from './combat.ts';
-import {details,type IndustryCommand} from './industry.ts';
+import {details} from './response-details.ts';
+import {type IndustryCommand} from './industry.ts';
 import type {ExecutionStore,Job} from './execution-store.ts';
 import {observeObligations,ObligationObservationError} from './obligations.ts';
 import type {ServiceClock} from './servicing.ts';

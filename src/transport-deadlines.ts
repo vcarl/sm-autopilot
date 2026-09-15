@@ -1,5 +1,6 @@
 import type {Account} from '@spacemolt/lib';
-import {details,type IndustryCommand} from './industry.ts';
+import {details} from './response-details.ts';
+import {type IndustryCommand} from './industry.ts';
 
 type Wire=Record<string,any>;
 const tick=(value:unknown):value is number=>Number.isSafeInteger(value)&&Number(value)>0;

@@ -1,7 +1,8 @@
 import {SpacemoltClient,fetchStations,type Account} from '@spacemolt/lib';
 import type {Home} from './execution-policy.ts';
 import {canonicalReadinessBlockers} from './readiness.ts';
-import {details,type IndustryCommand} from './industry.ts';
+import {details} from './response-details.ts';
+import {type IndustryCommand} from './industry.ts';
 
 type Wire=Record<string,any>;
 export interface EquipmentStation extends Home {services?:string[];station_name?:string}

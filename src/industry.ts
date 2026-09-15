@@ -1,3 +1,4 @@
+import {details} from './response-details.ts';
 import {evaluateRules,requireAllowed,PolicyDenied,type RuleFacts,type Decision} from './rules.ts';
 import type { Account } from '@spacemolt/lib';
 import { randomUUID, createHash } from 'node:crypto';
@@ -25,7 +26,6 @@ export interface IndustryContext extends IndustryControls {
   existing_experiments?:Wire[];
 }
 const ledger = new URL('../runtime/industry.jsonl',import.meta.url);
-export const details = (reply:any):Wire => reply?.structuredContent ?? reply?.delta?.details ?? reply ?? {};
 const record = (event:Wire) => appendFileSync(ledger, JSON.stringify({at:new Date().toISOString(),...event})+'\n',{mode:0o600});
 const records = ():Wire[] => existsSync(ledger) ? readFileSync(ledger,'utf8').trim().split('\n').filter(Boolean).map(l=>JSON.parse(l)) : [];
 const experiments = () => [...new Map(records().filter(r=>r.experiment_id).map(r=>[r.experiment_id,r])).values()];
