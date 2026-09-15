@@ -9,6 +9,7 @@ import type {SettleOutcome} from './settle-cargo.ts';
 import {details} from './response-details.ts';
 import {replyLost} from './command-boundary.ts';
 import {ArrivalUnresolved,TravelBlocked,travelTo,type TravelOptions} from './travel.ts';
+import {movedOutcome,position,reconcileMove,type Position,type Reconciliation} from './reconcile.ts';
 
 export interface GatherPlan {
   home:{system_id:string;poi_id:string;base_id:string};
@@ -40,6 +41,8 @@ export interface GatherOutcome {
    * a gather job keeps its resources; selling is the agent's own call at its juncture. */
   settled:SettleOutcome|null;
   serviced:ServiceOutcome|null;
+  /** Present when the world moved the pilot with no command behind it (C13). */
+  moved?:Reconciliation;
   reason?:string;
 }
 
@@ -180,6 +183,9 @@ export async function gatherJob(account:ReadinessAccount,command:ReadinessComman
   // already aboard — so the closing read expects it to still be there at the end.
   const own=new Set(plan.keep??[]);
   let from=0;
+  // Where the last step left the pilot. Every step reads before it decides, so this is what
+  // the next step's reconciling read is measured against.
+  let expected:Position|null=null,moved:Reconciliation|undefined;
 
   if(resume) {
     // Reconcile before deciding anything: the world moved while the runner was gone.
@@ -197,17 +203,33 @@ export async function gatherJob(account:ReadinessAccount,command:ReadinessComman
     }
     from=STEPS.indexOf(entry);
     if(from>STEPS.indexOf('travel'))mined=addYield([],aboard);
+    expected=position(account.state);
   }
 
   const attempt=async(name:GatherStepName,run:()=>Promise<Omit<GatherStep,'name'>|void>) => {
     if(STEPS.indexOf(name)<from)return null; // its end state already holds; send nothing
     let report:Omit<GatherStep,'name'>|void;
-    try {report=await run();}
-    catch(error){report={outcome:blocking(error)?'blocked':'failed',reason:message(error)};}
+    // Reconcile from live state before acting: the world moves between every look and every
+    // act, and a step that mutates on a stale belief is the one thing this must not do.
+    const drift=expected?await reconcileMove(account,expected):null;
+    if(drift?.moved) {
+      moved=drift;
+      report={outcome:movedOutcome(drift.cause),reason:`unsolicited move (${drift.cause}): ${drift.evidence}`};
+    } else {
+      try {report=await run();}
+      catch(error) {
+        // A step's own refusal may already have done the reconciling (travel's arrival wait).
+        const carried=error instanceof ArrivalUnresolved?error.moved:undefined;
+        if(carried)moved=carried;
+        report={outcome:carried?movedOutcome(carried.cause):blocking(error)?'blocked':'failed',
+          reason:message(error)};
+      }
+    }
     const {outcome,reason}=report??{outcome:'done' as StepOutcome};
     steps.push({name,outcome,...reason===undefined?{}:{reason}});
+    if(outcome==='done')expected=position(account.state);
     return outcome==='done'?null:{outcome,steps,yield:mined,settled,serviced,
-      reason:`${name} ${outcome}: ${reason}`} satisfies GatherOutcome;
+      ...moved?{moved}:{},reason:`${name} ${outcome}: ${reason}`} satisfies GatherOutcome;
   };
 
   let stop=await attempt('travel',async()=>{

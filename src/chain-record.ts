@@ -30,9 +30,10 @@ export function readChain(runtime:string):StoredChain|null {
   } catch {return null;}
 }
 
-/** The chain's own line in the pilot's journal, beside the request/response pairs. */
-export function journalChain(runtime:string,entry:Record<string,unknown>):void {
+/** The chain's own line in the pilot's journal, beside the request/response pairs. The
+ * runner's other self-made changes take the same line under their own event name (S45). */
+export function journalChain(runtime:string,entry:Record<string,unknown>,event='chain'):void {
   mkdirSync(runtime,{recursive:true});
   appendFileSync(join(runtime,'gameplay.jsonl'),
-    `${JSON.stringify({at:new Date().toISOString(),event:'chain',...entry})}\n`,{mode:0o600});
+    `${JSON.stringify({at:new Date().toISOString(),event,...entry})}\n`,{mode:0o600});
 }

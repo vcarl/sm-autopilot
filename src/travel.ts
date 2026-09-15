@@ -5,6 +5,7 @@ import {routeSteps} from './normal-route.ts';
 import {resolveFuelReserve,type Mood,type OperatorFuelPolicy} from './mood-policy.ts';
 import type {FuelTravelExecution} from './fuel-transition.ts';
 import {dockAt} from './dock.ts';
+import {position,reconcileMove,type Position,type Reconciliation} from './reconcile.ts';
 
 export class TravelBlocked extends Error {}
 export interface FuelRouteEvidence {
@@ -32,7 +33,10 @@ export class FuelRouteShortfall extends TravelBlocked {
     this.evidence=structuredClone(evidence);
   }
 }
-export class ArrivalUnresolved extends Error {}
+export class ArrivalUnresolved extends Error {
+  /** Set when the reconciling read below showed the world moved the ship (S41, C13). */
+  moved?:Reconciliation;
+}
 export interface TravelDestination {system_id:string;poi_id?:string;base_id?:string}
 export interface TravelOptions {
   /** Runner-owned durable fuel transition consumer, using this account connection. */
@@ -51,12 +55,24 @@ export interface TravelOptions {
   maxWaitMs?:number;pollMs?:number;liveReadMs?:number;
 }
 
+/** The wait ran out, and the read it ran out on is the deadline's own authoritative one. A
+ * ship sitting somewhere it was never sent is an unsolicited move, and the refusal names
+ * which kind (C13) rather than leaving the caller to work it out. */
+async function unresolved(account:ReadinessAccount,from:Position) {
+  const drift=await reconcileMove(account,from,{read:false});
+  if(!drift.moved)return new ArrivalUnresolved('Arrival not verified within travel wait bound; reconcile before further movement');
+  const error=new ArrivalUnresolved(`Arrival not verified: unsolicited move (${drift.cause}): ${drift.evidence}`);
+  error.moved=drift;
+  return error;
+}
+
 /** Account.refresh always queries get_status. A cargo/hull push must never postpone it. */
 export async function waitForArrival(account:ReadinessAccount,predicate:(state:GameState)=>boolean,options:TravelOptions={}) {
   const now=options.now??Date.now,sleep=options.sleep??(ms=>new Promise(resolve=>setTimeout(resolve,ms)));
   const deadline=now()+(options.maxWaitMs??600000);
   let liveAt=now();
   await account.refresh();
+  const departed=position(account.state);
   let authoritative=true;
   while(true) {
     // Pushes can suggest arrival, but only a status read can confirm it.
@@ -66,7 +82,7 @@ export async function waitForArrival(account:ReadinessAccount,predicate:(state:G
     if(predicate(account.state))break;
     await options.checkpoint?.();
     const remaining=deadline-now();
-    if(remaining<=0)throw new ArrivalUnresolved('Arrival not verified within travel wait bound; reconcile before further movement');
+    if(remaining<=0)throw await unresolved(account,departed);
     await sleep(Math.min(options.pollMs??2000,remaining));
     authoritative=false;
     if(now()-liveAt>=(options.liveReadMs??30000)||now()>=deadline) {

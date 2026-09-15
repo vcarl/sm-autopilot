@@ -1,6 +1,7 @@
 import {gatherJob,type GatherOutcome,type GatherPlan,type StepOutcome} from './gather-job.ts';
 import type {MineYieldRow} from './mine.ts';
 import type {ReadinessAccount,ReadinessCommand} from './readiness.ts';
+import type {Reconciliation} from './reconcile.ts';
 import type {TravelOptions} from './travel.ts';
 
 /** The jobs the agent may compose. One entry per job the runner knows how to execute. */
@@ -17,6 +18,8 @@ export interface ChainJobOutcome {
   yield:MineYieldRow[];
   /** The wallet delta the job's settlement actually cleared. Never a reply's claim. */
   cleared:number;
+  /** The world moved the pilot with no command behind it, and this job stopped for it (C13). */
+  moved?:Reconciliation;
   reason?:string;
 }
 /** The chain's own definition and where it had got to: plain data, so a restart can read
@@ -32,6 +35,8 @@ export interface ChainRecord {
 export interface ChainOutcome {
   outcome:StepOutcome;
   jobs:ChainJobOutcome[];
+  /** Carried up from the job that stopped for it, so the runner journals it once (C13). */
+  moved?:Reconciliation;
   /** The one moment the agent is consulted: at the end of the chain, never between jobs. */
   juncture:{reason:string};
 }
@@ -59,6 +64,7 @@ function length(chain:Chain):number {
 const compact=(job:ChainJob,result:GatherOutcome):ChainJobOutcome=>({
   job:job.job,outcome:result.outcome,yield:result.yield,
   cleared:result.settled?result.settled.credits_after-result.settled.credits_before:0,
+  ...result.moved?{moved:result.moved}:{},
   ...result.reason===undefined?{}:{reason:result.reason}});
 
 /** Run a chain of jobs under one juncture.
@@ -86,7 +92,7 @@ export async function runChain(account:ReadinessAccount,command:ReadinessCommand
     jobs.push(compact(job,result));
     if(result.outcome!=='done') {
       onProgress?.({...record,position:position+1,ended:true});
-      return {outcome:result.outcome,jobs,
+      return {outcome:result.outcome,jobs,...result.moved?{moved:result.moved}:{},
         juncture:{reason:`chain ${result.outcome} at job ${position+1} of ${total}: ${result.reason}`}};
     }
   }

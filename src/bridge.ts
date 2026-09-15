@@ -184,6 +184,9 @@ export function serve(account:ReadinessAccount,command:ReadinessCommand,options:
     if(runtime) {
       writeChain(runtime,{kind:record?.kind??'once',jobs:record?.jobs??[],length:record?.length??0,
         position:record?.position??0,ended:true,chain_id,outcome});
+      // A move the world made gets its own line: a reader of the journal should find it
+      // without digging it out of a chain outcome (S45, C13).
+      if(outcome.moved)journalChain(runtime,{chain_id,...outcome.moved as Record<string,unknown>},'unsolicited_move');
       journalChain(runtime,{chain_id,...outcome});
     }
     running=null;
@@ -196,7 +199,8 @@ export function serve(account:ReadinessAccount,command:ReadinessCommand,options:
   };
   const watch=(chain_id:string,inFlight:Promise<Awaited<ReturnType<typeof defaultRunChain>>>)=>{
     void inFlight.then(
-      outcome=>conclude(chain_id,{outcome:outcome.outcome,juncture:outcome.juncture,jobs:outcome.jobs}),
+      outcome=>conclude(chain_id,{outcome:outcome.outcome,juncture:outcome.juncture,jobs:outcome.jobs,
+        ...outcome.moved?{moved:outcome.moved}:{}}),
       error=>conclude(chain_id,{outcome:'failed',
         juncture:{reason:error instanceof Error?error.message:String(error)}}),
     );
