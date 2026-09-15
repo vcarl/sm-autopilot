@@ -18,11 +18,14 @@ const system={id:'sol',name:'Sol',pois:[
 ],connections:[{system_id:'deep_range',name:'Deep Range',distance:4}]};
 // One jump away, so a POI the pilot names may live somewhere it has to fly to.
 const deepRange={id:'deep_range',name:'Deep Range',
-  pois:[{id:'outpost',name:'Deep Range Outpost',type:'station'}],
+  pois:[{id:'outpost',name:'Deep Range Outpost',type:'station'},
+    {id:'far_belt',name:'Far Belt',type:'asteroid_belt'}],
   connections:[{system_id:'sol',name:'Sol',distance:4}]};
-// Where each nameable id lives, as the server's find_route answers it.
-const homeOf:Record<string,string>={sol:'sol',station:'sol',belt:'sol',
-  deep_range:'deep_range',outpost:'deep_range'};
+// Where each nameable id lives, as the server's find_route answers it. A base id is
+// nameable too, and answers with the POI it sits at.
+const homeOf:Record<string,string>={sol:'sol',station:'sol',belt:'sol',sol_base:'sol',
+  deep_range:'deep_range',outpost:'deep_range',far_belt:'deep_range'};
+const poiOf:Record<string,string>={sol_base:'station'};
 
 function fixture(options:ServeOptions={},services=['refuel','repair']) {
   const account=new FakeLibGoalAccount({
@@ -44,7 +47,8 @@ function fixture(options:ServeOptions={},services=['refuel','repair']) {
       if(!target)return {found:false,message:`No route to ${params.id}`};
       const from=account.server.location.system_id;
       const route=from===target?[from]:[from,target];
-      return {found:true,target_system:target,target_poi:String(params.id),total_jumps:route.length-1,
+      return {found:true,target_system:target,target_poi:poiOf[String(params.id)]??String(params.id),
+        total_jumps:route.length-1,
         estimated_fuel:7,fuel_per_jump:7,fuel_available:account.server.ship.fuel,
         cargo_used:account.server.ship.cargo_used,route:route.map((system_id,jumps)=>({system_id,jumps}))};
     },
@@ -180,6 +184,23 @@ test('gather runs one job from the dock the ship is at and reports a verified ou
   assert.ok(JSON.stringify(result).length<2048,'one compact outcome, not a transcript');
   // A destination the model never named must not become a trip.
   await assert.rejects(fixture().dispatch('gather',{}),/poi_id/);
+});
+
+test('gather mines a site in another system and stows the yield at the home base', async () => {
+  const f=fixture();
+  // The site is a jump away; the base the ship is docked at is the home the ore comes back to.
+  const result=await f.dispatch('gather',{poi_id:'far_belt'}) as any;
+  assert.equal(result.outcome,'done',result.reason);
+  // Out: jump to the site's own system, then fly to it. Home: jump back to the base's system,
+  // fly to the POI it sits at, dock there.
+  assert.deepEqual(f.sent.filter(call=>['spacemolt/jump','spacemolt/travel'].includes(call.action))
+    .map(call=>[call.action,call.params.id]),
+    [['spacemolt/jump','deep_range'],['spacemolt/travel','far_belt'],
+      ['spacemolt/jump','sol'],['spacemolt/travel','station']]);
+  assert.deepEqual(f.account.server.location,
+    {system_id:'sol',poi_id:'station',docked_at:'sol_base',in_transit:false});
+  // A site nothing routes to is reported, never flown.
+  await assert.rejects(fixture().dispatch('gather',{poi_id:'nowhere'}),/No route to nowhere/);
 });
 
 test('storage reads the current base by default and passes a named station through, compact', async () => {

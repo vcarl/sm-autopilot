@@ -178,7 +178,9 @@ export async function gatherJob(account:ReadinessAccount,command:ReadinessComman
   const steps:GatherStep[]=[];
   let mined:MineYieldRow[]=[],settled:SettleOutcome|null=null,serviced:ServiceOutcome|null=null;
   const {resume,...travelOptions}=options;
-  const legOptions={...travelOptions,mood:plan.mood};
+  // maxJumps null: each leg may cross systems, bounded by the mood's fuel reserve rather
+  // than a jump count, as travel is.
+  const legOptions={maxJumps:null as number|null,...travelOptions,mood:plan.mood};
   // The hold at the opening read is the pilot's own — cabins, fitted spares, whatever was
   // already aboard — so the closing read expects it to still be there at the end.
   const own=new Set(plan.keep??[]);

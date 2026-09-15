@@ -92,7 +92,7 @@ def _dispatch(arguments: dict[str, Any] | None = None, **_: Any) -> str:
     args = arguments or {}
     params: dict[str, Any] = {"job": str(args.get("job") or "gather"),
                               "poi_id": str(args.get("poi_id") or "")}
-    for name in ("base_id", "home_poi_id"):
+    for name in ("base_id",):
         if args.get(name):
             params[name] = str(args[name])
     if args.get("repeat"):
@@ -260,21 +260,21 @@ TOOL_DEFINITIONS = (
                                                    "to refuse a dock at any other station."}},
                        [])},
     {"name": "spacemolt_gather", "toolset": "spacemolt", "handler": _gather,
-     "description": "Mine a belt until the hold is full, stow the yield at home and service; the ore "
-                    "ends in storage at home.",
+     "description": "Mine a belt until the hold is full, stow the yield at the home base and service; "
+                    "the site may be in this system or another.",
      "schema": _schema("spacemolt_gather",
                        "Run one gather job dock to dock: fly to a MINING poi — an asteroid belt or "
-                       "field listed by spacemolt_where — mine until the hold is full, return, dock, "
-                       "stow the yield into storage and service the ship. The ore ends in storage at "
-                       "home. Dispatch this when cargo_free is above zero. With a full hold, stow or "
+                       "field, in this system or another — mine until the hold is full, return, dock, "
+                       "stow the yield into storage and service the ship. Home is where the ore ends "
+                       "up, not a limit on where it is mined. Dispatch this when cargo_free is above zero. With a full hold, stow or "
                        "craft first. Takes real game time; returns one outcome verified against live "
                        "state.",
                        {"poi_id": {"type": "string",
-                                   "description": "The mining poi to work: an asteroid belt or field "
-                                                  "listed by spacemolt_where."},
+                                   "description": "The mining site to work: an asteroid belt or field, "
+                                                  "in this system or another."},
                         "base_id": {"type": "string",
-                                    "description": "Optional: the home base id to return to; defaults to the "
-                                                   "base the ship is docked at now."},
+                                    "description": "Optional: the base the yield is stowed at; defaults to "
+                                                   "the base the ship is docked at now, then the pilot's home."},
                         "keep": {"type": "array", "items": {"type": "string"},
                                  "description": "Optional: item ids that must never be sold."}},
                        ["poi_id"])},
@@ -288,15 +288,16 @@ TOOL_DEFINITIONS = (
                        {"job": {"type": "string", "enum": ["gather"],
                                 "description": "The job to run; only 'gather' exists so far."},
                         "poi_id": {"type": "string",
-                                   "description": "The mining poi the job works, one of those the "
-                                                  "option offered: an asteroid belt or field listed "
-                                                  "by spacemolt_where."},
+                                   "description": "The mining site the job works: an asteroid belt or "
+                                                  "field, in this system or another."},
                         "repeat": {"type": "integer", "minimum": 1,
                                    "description": "How many times to run the job back to back under "
                                                   "this one juncture. Defaults to once."},
                         "base_id": {"type": "string",
-                                    "description": "Optional: the home base to stow the yield at; "
-                                                   "defaults to the base the ship is docked at now."},
+                                    "description": "Optional: the base the yield is stowed at; defaults "
+                                                   "to the base the ship is docked at now, then the "
+                                                   "pilot's home. Home is where the ore ends up, not a "
+                                                   "limit on where it is mined."},
                         "keep": {"type": "array", "items": {"type": "string"},
                                  "description": "Optional: item ids that must never be sold."}},
                        ["poi_id"])},

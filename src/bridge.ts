@@ -107,19 +107,23 @@ export function serve(account:ReadinessAccount,command:ReadinessCommand,options:
   /** Where the trip starts and ends, resolved from live state so the model names only a site. */
   const gatherPlan=async(params:Record<string,unknown>):Promise<GatherPlan>=>{
     const sitePoi=String(params.poi_id??'');
-    if(!sitePoi)throw new Error('gather requires a poi_id from the current system');
+    if(!sitePoi)throw new Error('gather requires a poi_id: the mining site to work');
     await account.refresh();
-    const system_id=account.state.location?.system_id;
-    if(!system_id)throw new Error('Current system is unknown; observe before gathering');
-    const homePoi=params.home_poi_id===undefined?'':String(params.home_poi_id);
-    const homeBase=params.base_id===undefined?String(account.state.location?.docked_at??''):String(params.base_id);
-    const station=stations(await currentSystem())
-      .find(poi=>homePoi?poi.id===homePoi:Boolean(homeBase)&&poi.base_id===homeBase);
-    if(!station?.base_id)throw new Error('gather requires a home station in this system; pass its base_id or home_poi_id');
+    // The server says which system holds each end of the trip. Home is where the ore is
+    // stowed, not a limit on where it is mined: a site one jump out is a route, not a refusal.
+    const route=async(id:string)=>{
+      const answer=details(await command('spacemolt/find_route',{id}));
+      if(!answer.found)throw new Error(String(answer.message??`No route to ${id}`));
+      return answer;
+    };
+    const site=await route(sitePoi);
+    const homeBase=String(params.base_id??account.state.location?.docked_at??pilot().home??'');
+    if(!homeBase)throw new Error('gather needs a base_id to stow at: pass one or set a home');
+    const home=await route(homeBase);
     // The hold the pilot already has is its own — cabins, fitted spares — and the plan says
     // so, because a job resumed after a restart never saw the departure that proved it.
-    return {home:{system_id,poi_id:String(station.id),base_id:String(station.base_id)},
-      site:{system_id,poi_id:sitePoi},mood:pilot().mood??'Cautious',
+    return {home:{system_id:String(home.target_system),poi_id:String(home.target_poi),base_id:homeBase},
+      site:{system_id:String(site.target_system),poi_id:sitePoi},mood:pilot().mood??'Cautious',
       keep:Array.isArray(params.keep)?params.keep.map(String):Object.keys(miningInventory(account.state))};
   };
   /** One trip out and back: the job owns the steps, this reports the one outcome. */
