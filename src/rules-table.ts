@@ -185,12 +185,23 @@ const RULES:Rule[]=[
   }},
 ];
 
-/** Danger first, then Tired, then the stance's own rows. */
+/** D2/D3: Relaxed and Tired are not initial moods (Relaxed is rest-like, Tired is
+ * imposed), so neither may initiate a stance job. Counters, watch, rest, and travel
+ * (including to a resource site) are unaffected — only J-numbered stance work is blocked. */
+function jobMoodBlock(mood:Mood):string|null {
+  return mood==='Relaxed'||mood==='Tired'
+    ?`${mood} may not initiate a job; a job mood chosen at reflection admits it`
+    :null;
+}
+
+/** Danger first, then the mood block on stance jobs, then Tired's own filter. */
 export function evaluateMenu(facts:Facts):Verdict[] {
   resolveBounds(facts.mood); // an unknown mood yields no menu at all, for any consumer (R10)
   const dangerous=threats(facts).length>0;
+  const blocked=jobMoodBlock(facts.mood);
   const verdicts=RULES.filter(rule=>!rule.stance||rule.stance===facts.stance)
-    .flatMap(rule=>{const out=rule.apply(facts);return out===null?[]:Array.isArray(out)?out:[out];});
+    .flatMap(rule=>{const out=rule.apply(facts);return out===null?[]:Array.isArray(out)?out:[out];})
+    .map(verdict=>blocked&&verdict.tag==='stance'?no('stance',verdict.job,blocked):verdict);
   if(dangerous)return verdicts.filter(verdict=>verdict.tag==='safety');
   if(facts.mood==='Tired')return verdicts.filter(verdict=>verdict.tag==='safety'||verdict.tag==='resupply');
   return verdicts;
