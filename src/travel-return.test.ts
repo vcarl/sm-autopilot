@@ -1,0 +1,98 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import type {ReadinessAccount,ReadinessCommand} from './readiness.ts';
+import {travelTo,TravelBlocked} from './travel.ts';
+
+function fixture(local:boolean) {
+  const home={system_id:'a',poi_id:'gate',base_id:'home'};
+  const away={system_id:local?'a':'b',poi_id:local?'away':'gate',base_id:'away-base'};
+  const server={location:{system_id:home.system_id,poi_id:home.poi_id,docked_at:'home' as string|null,in_transit:false},
+    ship:{id:'ship',fuel:100,max_fuel:120,cargo_used:0}};
+  const account:ReadinessAccount={state:structuredClone(server) as ReadinessAccount['state'],
+    async refresh(){account.state=structuredClone(server) as ReadinessAccount['state'];}};
+  const calls:{action:string;params:Record<string,unknown>}[]=[];
+  const quotes:{origin:typeof server.location;fuel:number;cargo:number;cost:number;target:unknown}[]=[];
+  // Loaded return travel costs more than the empty outbound leg, even locally.
+  const cost=()=>server.ship.cargo_used===0?7:11+server.ship.cargo_used/4;
+  const movement=local?'spacemolt/travel':'spacemolt/jump';
+  const handlers:Record<string,(params:Record<string,unknown>)=>unknown>={
+    'spacemolt/find_route':({id})=>{
+      const origin=structuredClone(server.location);
+      quotes.push({origin,fuel:server.ship.fuel,cargo:server.ship.cargo_used,cost:cost(),target:id});
+      return {found:true,target_system:id,total_jumps:local?0:1,estimated_fuel:cost(),fuel_per_jump:cost(),
+        fuel_available:server.ship.fuel,cargo_used:server.ship.cargo_used,
+        route:[{system_id:origin.system_id,jumps:0},...local?[]:[{system_id:id,jumps:1}]]};
+    },
+    'spacemolt/get_system':()=>({system:{connections:[server.location.system_id==='a'?'b':'a']}}),
+    'spacemolt/undock':()=>{server.location.docked_at=null;return {};},
+    [movement]:({id})=>{
+      // Command responses do not update the cache; arrival must be refreshed.
+      assert.notEqual(account.state,server);
+      server.ship.fuel-=cost();
+      if(local)server.location.poi_id=String(id);
+      else server.location.system_id=String(id);
+      assert.notDeepEqual(account.state.location,server.location);
+      assert.notEqual(account.state.ship!.fuel,server.ship.fuel);
+      return {};
+    },
+    'spacemolt/dock':()=>{
+      server.location.docked_at=server.location.system_id===home.system_id&&server.location.poi_id===home.poi_id?
+        home.base_id:away.base_id;
+      return {};
+    },
+  };
+  const command:ReadinessCommand=async(action,params)=>{
+    calls.push({action,params:structuredClone(params)});
+    assert.ok(Object.hasOwn(handlers,action),`Unexpected command: ${action}`);
+    return handlers[action](params);
+  };
+  return {home,away,server,account,calls,quotes,command,movement};
+}
+
+for(const local of [true,false])test(`${local?'local':'cross-system'} return re-quotes loaded fuel cost and enforces the mood boundary`,async()=>{
+  // D2 expectations are independent of the production resolver used by travelTo.
+  for(const [mood,reserve] of [['Cautious',30],['Aggressive',12]] as const)for(const deficit of [0,1]) {
+    const f=fixture(local);
+    const outbound=await travelTo(f.account,f.command,f.away,{mood});
+    assert.deepEqual(outbound.location,f.server.location);
+    assert.equal(outbound.location!.docked_at,f.away.base_id);
+    assert.equal(f.account.state.ship!.fuel,93);
+    assert.equal(f.quotes.length,1);
+    assert.equal(f.quotes[0].cost,7);
+
+    // Work at the destination changes only authoritative state, leaving a rich,
+    // empty cached ship that could incorrectly authorize the one-unit-short trip.
+    f.server.ship.cargo_used=40;
+    const returnCost=21,required=returnCost+reserve;
+    f.server.ship.fuel=required-deficit;
+    const returnOrigin=structuredClone(f.server.location);
+    assert.equal(f.account.state.ship!.cargo_used,0);
+    assert.ok(f.account.state.ship!.fuel>required);
+    assert.ok(f.server.ship.fuel>f.quotes[0].cost+reserve,'outbound quote would wrongly permit the short return');
+    const callIndex=f.calls.length;
+    const trip=travelTo(f.account,f.command,f.home,{mood});
+    if(deficit) {
+      await assert.rejects(trip,error=>error instanceof TravelBlocked&&
+        error.message===`fuel_below_route_minimum: have ${required-1}, need ${required}; shortfall 1 fuel units`);
+      assert.deepEqual(f.calls.slice(callIndex),[{action:'spacemolt/find_route',params:{id:f.home.system_id}}]);
+      assert.deepEqual(f.server.location,returnOrigin);
+      assert.equal(f.server.ship.fuel,required-1);
+    } else {
+      const result=await trip;
+      assert.deepEqual(f.calls.slice(callIndex),[
+        {action:'spacemolt/find_route',params:{id:f.home.system_id}},
+        {action:'spacemolt/undock',params:{}},
+        ...local?[]:[{action:'spacemolt/get_system',params:{}}],
+        {action:f.movement,params:{id:local?f.home.poi_id:f.home.system_id}},
+        {action:'spacemolt/dock',params:{}},
+      ]);
+      assert.equal(result.jumps,local?0:1);
+      assert.deepEqual(result.location,{system_id:f.home.system_id,poi_id:f.home.poi_id,docked_at:f.home.base_id,in_transit:false});
+      assert.deepEqual(result.location,f.server.location);
+      assert.equal(f.server.ship.fuel,reserve);
+    }
+    assert.deepEqual(f.quotes.slice(1),[{origin:returnOrigin,fuel:required-deficit,cargo:40,cost:returnCost,target:f.home.system_id}]);
+    assert.deepEqual(f.account.state,f.server,'return outcome must carry refreshed location, cargo and fuel');
+    assert.equal(f.account.state.ship!.cargo_used,40);
+  }
+});
