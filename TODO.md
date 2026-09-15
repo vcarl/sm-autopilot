@@ -225,6 +225,7 @@
   - Settled 2026-09-14 (fixture): plugin toolsets pass the cron clamp; `_resolve_cron_enabled_toolsets` keeps `spacemolt` and `_resolve_cron_disabled_toolsets` denies only cronjob/messaging/clarify, proved by real imports of `cron.scheduler` against a temp HERMES_HOME. Unsettled: firing on demand after rest; no core API shortens a schedule for one fire, so the runner rewrites the schedule or the operator runs `hermes cron run`.
 - [ ] N21 — Vocabulary in code and skills matches VISION.md: no 'plan' noun, no 'task', no 'session' outside Hermes internals; mission and contract mean station-board items only.
 - [ ] N22 — A chain interrupted by a runner restart keeps its definition and resumes through reconciliation; a chain that ended naturally is cleared.
+  - Found by play 2026-09-15: the first live cron juncture dispatched chain-1 at 23:51; the bridge died before 00:17 (cause unknown, its stderr was not captured before 7abe88f2b6) and the fresh bridge answered `status` with `last: null`, so the chain's definition and outcome were lost and the ship was left undocked at the belt. The chain record and outcome must be journaled, and a restarted bridge must find the interrupted chain (this row) and reconcile before the next juncture.
 - [ ] N23 — Scripts hold a resolver to the game connection, never a handle, so a reconnect mid-step does not send on a dead socket.
 
 ## Cross-cutting invariants (X)
