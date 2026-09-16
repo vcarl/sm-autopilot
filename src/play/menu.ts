@@ -11,6 +11,7 @@ import {details} from '../response-details.ts';
 import {evaluateMenu,jobStop,type CounterName,type Facts} from '../rules-table.ts';
 import {readJournal} from '../run-record.ts';
 import {bench,moduleSpec,whyNotFit} from './hangar.ts';
+import {stuck} from './missions.ts';
 import {acct,command,pilot,present,runCalls,type Pilot} from './runtime.ts';
 import type {Status} from './types.ts';
 
@@ -172,6 +173,10 @@ export async function menu(runtime?:string):Promise<Menu> {
   const ready=active.filter(m=>m.community?(m.community_percent??0)>=100:m.percent_complete>=100);
   if(ready.length)moves.push({call:'completeMissions()',why:`${ready.length} mission(s) at 100%: ${ready.map(m=>m.title).join(', ')}`,advances:'credits'});
   const free=(mine?.max_missions??5)-active.filter(m=>!m.community&&m.expires_in_ticks>0).length;
+  // A full board with nothing completable is a dead end until a slot is freed: name the
+  // mission that cannot be finished from here and the call that drops it.
+  if(free<=0)for(const m of active.filter(row=>!row.community).map(row=>({row,why:stuck(row)})).filter(row=>row.why).slice(0,2))
+    work({call:`abandonMission('${m.row.mission_id}')`,why:`${m.row.title}: ${m.why}; ${active.length} of ${mine?.max_missions??5} active, no slot free`,advances:'objective'});
   if(docked) {
     const board=(await attempt(async()=>(details(await command('spacemolt/get_missions',{})) as GetMissionsResponse).missions))??[];
     const fits=FITS[who.stance??'']??['gatherUntil','goTo'];

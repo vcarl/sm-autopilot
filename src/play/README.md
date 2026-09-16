@@ -73,7 +73,7 @@ same goes for `withdraw` of rows the store does not have and `sell` of rows you 
 | `stow(rows)` / `withdraw(rows)` / `storage(base?)` | station storage; rows you name (omit a row's `quantity` for all of it); readable from anywhere |
 | `prices(items?)` / `sell(rows, opts?)` / `buy(item, qty)` | the market here, live at the moment of the act; `sell(rows, {from:'store'})` empties the store a hold-load at a time |
 | `refit({install,remove})` / `shipsForSale(opts?)` / `buyShip(id, opts?)` | the hangar: modules on and off within the grid, the hulls for sale here, the next one |
-| `missions()` / `acceptMission(id)` / `completeMissions()` | the board here; the cheapest credits and xp early |
+| `missions()` / `acceptMission(id)` / `completeMissions()` / `abandonMission(id, opts?)` | the board here; the cheapest credits and xp early |
 | `note(text)` | write a line into the journal and the run's stream |
 | `account()` | the raw `@spacemolt/lib` Account |
 | `outcome(did, status?, detail?)` | build an Outcome for a helper of your own; the runtime fills cost, gains and the present |
@@ -105,6 +105,11 @@ out is: first 2,500–10,000 credits, skills 1–3 in mining, trading and naviga
 3. `missions()` at every dock. A difficulty-1 "deliver 20 ore" or "visit X" mission is credits
    for a trip you were making anyway. Max 5 active: `detail.slots_free` says how many you may
    still take, so slice the board by it. Accept what matches; complete on return.
+   `slots_free: 0` with nothing completable means a mission is stuck: each `detail.active` row
+   carries its `progress` and a `stuck` reason (expired, destination elsewhere, goods you do not
+   have), and `abandonMission('<id>')` drops one and frees the slot — it refuses a mission you
+   could turn in here unless you pass `{force:true}`. `completeMissions()` first: it withdraws
+   from the store here for a `deliver N of item` objective the store can cover.
 4. `gatherUntil({poi})`: out, mine until full, back to the base you left, stow, service. One call
    is one trip of ~15 minutes. `gatherUntil({poi, until: {item, quantity}})` loops trips.
 5. `prices()` then `sell(rows)`. Trading xp scales with credit volume; ore sells for little, refined

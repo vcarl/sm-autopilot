@@ -206,6 +206,7 @@ export function bridgeWorld(options:WorldOptions={}) {
   const listings=structuredClone(options.hangar?.listings??[]);
   const fleet:Record<string,any>[]=[{ship_id:'ship',class_id:'cobble',class_name:'Cobble',
     is_active:true,location_base_id:'sol_base'}];
+  const held=(item:string)=>account.server.cargo.find(row=>row.item_id===item)?.quantity??0;
   const add=(item:string,quantity:number)=>{
     const size=footprint(item);
     const room=account.server.ship.cargo_capacity-account.server.ship.cargo_used;
@@ -393,6 +394,23 @@ export function bridgeWorld(options:WorldOptions={}) {
       if(taken.length>=5)throw new Error('5 of 5 missions already active');
       taken.push({...structuredClone(wanted),percent_complete:0});
       return {structuredContent:{mission_id:wanted.mission_id,title:wanted.title}};
+    },
+    // The server pays only a mission whose objectives are met; anything else is a refusal,
+    // which is how a caller learns the withdrawal it made was not enough.
+    'spacemolt/complete_mission':params=>{
+      const row=taken.find(current=>current.mission_id===String(params.id));
+      if(!row)throw new Error(`No active mission ${params.id}`);
+      const short=(row.objectives??[]).find((o:Record<string,any>)=>
+        (o.required??0)>(o.current??0)+(o.item_id?held(String(o.item_id)):0));
+      if(short)throw new Error(`Objective not met: ${short.description}`);
+      taken.splice(taken.indexOf(row),1);
+      return {delta:{details:{mission_id:row.mission_id,title:row.title,credits_earned:row.rewards?.credits??0,message:'Paid.'}}};
+    },
+    'spacemolt/abandon_mission':params=>{
+      const row=taken.find(current=>current.mission_id===String(params.id));
+      if(!row)throw new Error(`No active mission ${params.id}`);
+      taken.splice(taken.indexOf(row),1);
+      return {delta:{details:{mission_id:row.mission_id,title:row.title,message:'Abandoned.'}}};
     },
     'spacemolt/get_nearby':()=>({structuredContent:{poi_id:account.server.location.poi_id,
       count:fauna.creatures.length,creature_count:fauna.creatures.length,

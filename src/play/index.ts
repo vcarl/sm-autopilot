@@ -8,7 +8,7 @@ export {goTo,type Trip} from './travel.ts';
 export {service,type Serviced} from './service.ts';
 export {storage,stow,withdraw,type Moved} from './storage.ts';
 export {buy,prices,sell,type Bought,type Quote,type Sold} from './market.ts';
-export {acceptMission,completeMissions,missions,type Offer} from './missions.ts';
+export {abandonMission,acceptMission,completeMissions,missions,type Active,type Offer} from './missions.ts';
 export {buyShip,refit,shipsForSale,type Fit,type ForSale,type Purchase} from './hangar.ts';
 export * from './mining/index.ts';
 export * from './industry/index.ts';
