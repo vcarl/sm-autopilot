@@ -1,0 +1,31 @@
+import assert from 'node:assert/strict';
+import {mkdtempSync,readFileSync} from 'node:fs';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
+import test from 'node:test';
+import {QUIET_MS,startHeartbeat} from './heartbeat.ts';
+import {renderLine} from './journal-lines.ts';
+import {journalRun,watchJournal} from './run-record.ts';
+
+test('a run silent past the quiet span gets one line from the runner; a run that speaks does not', () => {
+  const runtime=mkdtempSync(join(tmpdir(),'hb-'));
+  let clock=0;const ticks:(()=>void)[]=[];
+  const stop=startHeartbeat(runtime,{now:()=>clock,schedule:(fn)=>{ticks.push(fn);return {};}});
+  const tick=()=>ticks.forEach(fn=>fn());
+  const lines=()=>readFileSync(join(runtime,'gameplay.jsonl'),'utf8').trim().split('\n').map(l=>JSON.parse(l));
+  journalRun(runtime,{phase:'started',script:'gather',started:'t0'});
+  journalRun(runtime,{job:'gather',step:'travel',outcome:'done'},'step');
+  for(let i=0;i<30;i++)journalRun(runtime,{tool:'spacemolt',action:'mine',params:{},ok:true,summary:`mine tick ${i}`},'command');
+  clock=QUIET_MS-1;tick();
+  assert.equal(lines().filter(l=>l.event==='log').length,0,'quiet, but not yet past the span');
+  clock=QUIET_MS+60_000;tick();
+  const logs=lines().filter(l=>l.event==='log');
+  assert.equal(logs.length,1);
+  assert.match(renderLine(logs[0])!,/gather still travel after 6 min, 30 commands, last mine tick 29/);
+  tick();
+  assert.equal(lines().filter(l=>l.event==='log').length,1,'the heartbeat itself counts as speaking');
+  journalRun(runtime,{phase:'ended',script:'gather',outcome:'done'});
+  clock+=QUIET_MS*2;tick();
+  assert.equal(lines().filter(l=>l.event==='log').length,1,'nothing in flight, nothing said');
+  stop();watchJournal(null);
+});

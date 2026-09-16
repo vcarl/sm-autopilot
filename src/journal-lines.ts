@@ -105,6 +105,11 @@ function render(entry:Record<string,any>):string|null {
     case 'reflection':
       if(entry.objective_done)return `reflection: objective done — ${text(entry.objective)}`;
       return `reflection: ${text(entry.stance)}/${text(entry.mood)} — ${text(entry.goal)}`;
+    case 'log': {
+      const skip=new Set(['at','event','job','script','step','message']);
+      const fields=Object.entries(entry).filter(([k,v])=>!skip.has(k)&&v!==null&&typeof v!=='object').map(([k,v])=>`${k}=${text(v)}`);
+      return `${text(entry.job??entry.script)} ${text(entry.message)}${fields.length?` ${fields.join(' ')}`:''}`;
+    }
     case 'instruction':return `instruction: ${JSON.stringify(text(entry.text))}`;
     case 'unsolicited_move':return `moved (${text(entry.cause)}): ${text(entry.evidence)}`;
     // The request/response pairs: every one that took is covered by a line above, so only

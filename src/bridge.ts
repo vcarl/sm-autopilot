@@ -16,6 +16,7 @@ import type {Mood} from './mood-policy.ts';
 import {reflectReport} from './reflect.ts';
 import {REST_JOB,evaluateMenu,type CounterName,type Facts,type StanceName} from './rules-table.ts';
 import {journalCommand,journalRun,readRun,type RunRecord} from './run-record.ts';
+import {startHeartbeat} from './heartbeat.ts';
 import {flushJournalDrain,startJournalDrain} from './journal-webhook.ts';
 import {listScripts,prepareRun,readScript,runScript as defaultRunScript,saveScript,sourceLabel,
   type RunOutcome} from './script-runner.ts';
@@ -164,7 +165,7 @@ export function serve(account:ReadinessAccount,command:ReadinessCommand,options:
   const runtime=options.runtime;
   // The operator's window onto the shift, when there is one to post to. Absent the webhook
   // secret this is a no-op: no listener, no timer, nothing sent.
-  if(runtime)startJournalDrain();
+  if(runtime) {startJournalDrain();startHeartbeat(runtime);}
   const stored=()=>runtime?readRun(runtime):null;
   let running:{script:string}|null=null,record:RunRecord|undefined,flight:Promise<unknown>|null=null,
     last:Record<string,unknown>|null=null;

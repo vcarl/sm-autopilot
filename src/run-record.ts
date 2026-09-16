@@ -60,8 +60,13 @@ export function readJournal(runtime:string,limit=400):Record<string,any>[] {
 /** The one reader of the journal as it is being written: the webhook drain, which renders
  * each line as it lands rather than watching the file. Null turns it off. One process writes
  * this journal, so one listener is the whole of the need. */
-let listener:((entry:Record<string,unknown>)=>void)|null=null;
-export function watchJournal(fn:((entry:Record<string,unknown>)=>void)|null):void {listener=fn;}
+const listeners=new Set<(entry:Record<string,unknown>)=>void>();
+/** Add a reader; null removes them all. Returns the remover for the one added. */
+export function watchJournal(fn:((entry:Record<string,unknown>)=>void)|null):()=>void {
+  if(!fn) {listeners.clear();return ()=>{};}
+  listeners.add(fn);
+  return ()=>{listeners.delete(fn);};
+}
 
 /** The run's own lines in the pilot's journal, beside the request/response pairs. The
  * runner's other self-made changes take the same line under their own event name (S45). */
@@ -70,7 +75,7 @@ export function journalRun(runtime:string,entry:Record<string,unknown>,event='ru
   const line={at:new Date().toISOString(),event,...entry};
   appendFileSync(join(runtime,'gameplay.jsonl'),`${JSON.stringify(line)}\n`,{mode:0o600});
   // A listener that throws is its own problem: it never costs the pilot the line on disk.
-  if(listener)try {listener(line);} catch {/* the journal is written; the reader is not the record */}
+  for(const fn of listeners)try {fn(line);} catch {/* the journal is written; the reader is not the record */}
 }
 
 const SUMMARY_CHARS=120;
