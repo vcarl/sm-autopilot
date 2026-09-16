@@ -53,6 +53,9 @@ operator wants (`objective`), what you chose at your last rest (`goal`, `stance`
 | `next` | up to three things worth considering |
 | `detail` | the function's own numbers |
 
+The field names inside `detail` are in each function's `.ts` file and its JSDoc, not in this
+prose; `check` will tell you when you guess.
+
 Every function is safe to run twice: it is named for an end state and sends nothing when that
 state already holds. `goTo` somewhere you are is `done`. `stow` of rows you do not hold is `refused`
 with `short` saying so.
