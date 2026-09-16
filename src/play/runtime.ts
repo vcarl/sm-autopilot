@@ -59,6 +59,7 @@ const need=()=>{if(!bound)throw new Error('the play runtime is not bound: only `
 /** Bind the runtime for one run. Resets the stop flag and the counters. */
 export function bind(binding:Binding):void {
   bound=binding;stopFlag=false;commands=0;started=Date.now();last={fn:'pilot'};
+  lastCommandAt=0;pending=null;lastTick=undefined;
   mark=snapshot();
   // A lib Account pushes state between commands (a tick, a fight); the fake in tests does not.
   const live=binding.account as unknown as {onStateChange?:(fn:()=>void)=>()=>void};
@@ -115,7 +116,7 @@ const reissuable=(action:string)=>{const name=action.split('/')[1]??'';return na
 
 /** Wait for the lib's own reconnect to re-authenticate this account, up to `ms`. False when
  * the account has no reconnect listener (a test fake) or the wait ran out. */
-function reconnected(ms=180_000):Promise<boolean> {
+function reconnected(ms=60_000):Promise<boolean> {
   const live=need().account as unknown as {onReconnected?:(fn:()=>void)=>()=>void};
   const listen=live.onReconnected?.bind(live);
   if(typeof listen!=='function')return Promise.resolve(false);
@@ -137,11 +138,21 @@ function reconnected(ms=180_000):Promise<boolean> {
 export async function command(action:string,params:Record<string,unknown>={}):Promise<unknown> {
   const b=need();
   commands++;
-  try {return await b.command(action,params);}
+  try {return await sent(action,params);}
   catch(error) {
     if(!DISCONNECTED.test(message(error)))throw error;
     line(`  ${action}: ${message(error)}; waiting for the connection`);
-    const back=await reconnected();
+    // A half-open socket is never *closed*, so the lib's own reconnect may never fire at all:
+    // wait a minute for it, then force one in place — same Account, same listeners, fresh socket.
+    let back=await reconnected();
+    if(!back) {
+      const live=b.account as unknown as {reconnectOnce?:()=>Promise<void>};
+      if(typeof live.reconnectOnce==='function') {
+        line(`  ${action}: no reconnect in 60s; forcing one`);
+        try {await live.reconnectOnce();back=true;}
+        catch(failed){line(`  ${action}: the forced reconnect failed (${message(failed)})`);}
+      }
+    }
     try {await b.account.refresh();} catch {/* the re-read may fail too; the throw below stands */}
     if(!back)throw error;
     if(!reissuable(action)) {
@@ -149,9 +160,32 @@ export async function command(action:string,params:Record<string,unknown>={}):Pr
       throw new Error(`${action}: outcome unknown, re-observe`);
     }
     line(`  ${action}: reconnected; re-issued once`);
-    return await b.command(action,params);
+    return await sent(action,params);
   }
   finally {imposeTired();}
+}
+
+/** A command pending longer than this says so, and keeps saying so every this often. The
+ * contract is a line from any long step at least every 2 minutes; 30s is well inside it. */
+const WAITING_MS=30_000;
+let lastCommandAt=0,pending:{action:string;since:number}|null=null,lastTick:number|undefined;
+
+/** One command on the wire, with the waiting said out loud. A mine tick is 10s and a transit
+ * is minutes, so silence is the only thing a pilot cannot tell apart from a wedged bridge. */
+async function sent(action:string,params:Record<string,unknown>):Promise<unknown> {
+  const b=need(),since=Date.now();
+  pending={action,since};
+  const ticker=setInterval(()=>line(
+    `  ${action}: waiting ${Math.round((Date.now()-since)/1000)}s for the game (last tick ${lastTick??'?'})`),WAITING_MS);
+  ticker.unref?.();
+  try {
+    const reply=await b.command(action,params);
+    const tick=(reply as {structuredContent?:{tick?:unknown};delta?:{details?:{tick?:unknown}};tick?:unknown});
+    const seen=tick?.structuredContent?.tick??tick?.delta?.details?.tick??tick?.tick;
+    if(typeof seen==='number')lastTick=seen;
+    return reply;
+  }
+  finally {clearInterval(ticker);lastCommandAt=Date.now();pending=null;}
 }
 export const acct=():ReadinessAccount=>need().account;
 export const runtimeDir=()=>need().runtime;
@@ -165,7 +199,11 @@ export function line(text:string,extra:Record<string,unknown>={}):void {
 /** A sub-step inside a helper: an indented line, and the step `status` reports. */
 export function step(text:string):void {last.step=text.split(' ')[0];line(`  ${text}`);}
 
-export const progress=()=>({fn:last.fn,step:last.step,commands,elapsed_s:Math.round((Date.now()-started)/1000)});
+/** Where the run has got to, and — the difference between "waiting on the game" and "the
+ * bridge is stuck" — when it last heard back and what is on the wire right now. */
+export const progress=()=>({fn:last.fn,step:last.step,commands,elapsed_s:Math.round((Date.now()-started)/1000),
+  ...lastCommandAt?{last_command_at:new Date(lastCommandAt).toISOString()}:{},
+  ...pending?{pending:{action:pending.action,since_s:Math.round((Date.now()-pending.since)/1000)}}:{}});
 
 /** The rules between one helper and the next: a mood that may not start work. Helpers that
  * begin something (a gather, a buy, a mission) ask before sending; reads and the safe legs

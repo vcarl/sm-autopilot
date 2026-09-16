@@ -249,7 +249,13 @@ async function main() {
   mkdirSync(runtime,{recursive:true});
   const unlock=controllerLock(`${runtime}/controller-${createHash('sha256').update(username).digest('hex').slice(0,16)}.lock`);
   process.on('exit',unlock);
-  const account=new Account({url:GAME_WS_URL,reconnect:true,credentials});
+  // The lib bounds a mutation in two phases: the ack by `queryTimeoutMs` (15s default, kept),
+  // then the outcome by `mutationTimeoutMs` for jump/travel (600s default, kept — a transit
+  // legitimately spans many ticks) and by `fastMutationTimeoutMs` for everything else. `mine`
+  // is in "everything else" and settles on the tick it was queued on, so the lib's 180s default
+  // is 18 ticks of silence before a dead socket shows. 60s is 6 ticks: slack enough for a slow
+  // tick or a rate-limited resend, and inside the minute a waiting pilot can still use.
+  const account=new Account({url:GAME_WS_URL,reconnect:true,credentials,fastMutationTimeoutMs:60_000});
   let stopped=false;
   const shutdown=createShutdown({close:async()=>{
     await flushJournalDrain().catch(()=>{});

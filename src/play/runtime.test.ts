@@ -3,7 +3,7 @@ import test from 'node:test';
 import type {ReadinessAccount} from '../readiness.ts';
 import {bridgeWorld} from '../test-support/bridge-world.ts';
 import {goTo} from './travel.ts';
-import {bind,command,job,outcome,pilot,stop,unbind,type Pilot} from './runtime.ts';
+import {bind,command,job,outcome,pilot,progress,stop,unbind,type Pilot} from './runtime.ts';
 import {service} from './service.ts';
 import {sell,prices} from './market.ts';
 import {stow,withdraw} from './storage.ts';
@@ -164,4 +164,57 @@ test('a disconnect mid-command is waited out, an idempotent command re-issued on
     assert.equal(calls,1,'nothing was sent twice');
     assert.equal(game.count('spacemolt/sell'),0);
   } finally {unbind();}
+});
+
+test('a command pending longer than 30s says so every 30s, and status names what it waits on',async t=>{
+  t.mock.timers.enable({apis:['setInterval','Date']});
+  const game=bridgeWorld({});
+  const lines:string[]=[];
+  let release:(()=>void)|undefined;
+  const slow=async(action:string,params:Record<string,unknown>)=>{
+    if(action==='spacemolt/mine')await new Promise<void>(resolve=>{release=resolve;});
+    return game.command(action,params);
+  };
+  bind({account:game.account as unknown as ReadinessAccount,command:slow,
+    pilot:()=>({mood:'Focused'}),setPilot:()=>{},emit:text=>lines.push(text)});
+  try {
+    const flight=command('spacemolt/mine',{});
+    t.mock.timers.tick(30_000);
+    t.mock.timers.tick(30_000);
+    const waits=lines.filter(l=>l.includes('waiting'));
+    assert.deepEqual(waits,['  spacemolt/mine: waiting 30s for the game (last tick ?)',
+      '  spacemolt/mine: waiting 60s for the game (last tick ?)']);
+    // While it is on the wire, status tells a pilot which of the two silences this is.
+    assert.deepEqual(progress().pending,{action:'spacemolt/mine',since_s:60});
+    release!();
+    await flight;
+    assert.equal(progress().pending,undefined,'nothing pends once the reply lands');
+    assert.ok(progress().last_command_at,'and the last reply is stamped');
+  } finally {unbind();t.mock.timers.reset();}
+});
+
+test('a half-open socket the lib never reconnects is forced back, then the command re-issued',async t=>{
+  t.mock.timers.enable({apis:['setTimeout','setInterval','Date']});
+  const game=bridgeWorld({});
+  let calls=0,drop=true,forced=0;
+  const flaky=async(action:string,params:Record<string,unknown>)=>{
+    calls++;
+    if(drop){drop=false;throw new Error('No action_result for mutation r88 within 60000ms of its ack');}
+    return game.command(action,params);
+  };
+  // The socket never closed, so the lib's own reconnect never fires; only reconnectOnce moves.
+  const account=Object.assign(game.account,{onReconnected:()=>()=>{},reconnectOnce:async()=>{forced++;}});
+  const lines:string[]=[];
+  bind({account:account as unknown as ReadinessAccount,command:flaky,
+    pilot:()=>({mood:'Focused'}),setPilot:()=>{},emit:text=>lines.push(text)});
+  try {
+    const flight=command('spacemolt/get_base',{});
+    // The throw and the catch that arms the reconnect wait are microtasks: let them land first.
+    await new Promise(resolve=>setImmediate(resolve));
+    t.mock.timers.tick(60_000);
+    await flight;
+    assert.equal(forced,1,'the reconnect was forced, not waited on forever');
+    assert.equal(calls,2,'and the read was re-issued once');
+    assert.ok(lines.some(l=>l.includes('no reconnect in 60s; forcing one')),lines.join('\n'));
+  } finally {unbind();t.mock.timers.reset();}
 });
