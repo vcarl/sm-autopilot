@@ -121,3 +121,28 @@ test('sell, stow and withdraw take rows by name and never default to the whole h
     assert.equal(took.detail.short[0]!.why,'not in store');
   } finally {unbind();}
 });
+
+test('a disconnect mid-command is waited out, an idempotent command re-issued once, a mutation never',async()=>{
+  const game=bridgeWorld({});
+  let calls=0,drop=true;
+  const flaky=async(action:string,params:Record<string,unknown>)=>{
+    calls++;
+    if(drop){drop=false;throw new Error('No action_result for mutation r145 within 180000ms of its ack');}
+    return game.command(action,params);
+  };
+  // The lib's own reconnect: `reconnect:true` re-authenticates and then says so.
+  const account=Object.assign(game.account,{onReconnected:(fn:()=>void)=>{setTimeout(fn,0);return ()=>{};}});
+  const lines:string[]=[];
+  bind({account:account as unknown as ReadinessAccount,command:flaky,
+    pilot:()=>({mood:'Focused'}),setPilot:()=>{},emit:text=>lines.push(text)});
+  try {
+    await command('spacemolt/get_base',{});
+    assert.equal(calls,2,'the read was re-issued once after the reconnect');
+    assert.ok(lines.some(line=>line.includes('reconnected; re-issued once')),lines.join('\n'));
+    // A sell may have landed before the wire went: it is never re-sent, and says why.
+    drop=true;calls=0;
+    await assert.rejects(command('spacemolt/sell',{id:'ore',quantity:1}),/outcome unknown, re-observe/);
+    assert.equal(calls,1,'nothing was sent twice');
+    assert.equal(game.count('spacemolt/sell'),0);
+  } finally {unbind();}
+});

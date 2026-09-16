@@ -50,6 +50,8 @@ let bound:Binding|null=null;
 let stopFlag=false,commands=0,started=0;
 let last:{fn:string;step?:string}={fn:'pilot'};
 let mark:Snapshot|null=null;
+/** The opening read of the job now running, so a helper inside it can say what it measured. */
+let jobMark:Snapshot|null=null;
 let unwatch:(()=>void)|undefined;
 
 const need=()=>{if(!bound)throw new Error('the play runtime is not bound: only `run` may execute pilot code');return bound;};
@@ -102,12 +104,53 @@ export function outcome<Detail=Record<string,unknown>>(did:string,status:Status=
 
 // ---- internal: the seam, the measurement, the lines ----------------------------------
 
+/** The errors a dropped connection raises: the lib's own two, before its `reconnect:true`
+ * has re-authenticated. Anything else is the game refusing, which is not retried. */
+const DISCONNECTED=/WebSocket connection closed|No action_result/;
+/** Commands whose end state the live world re-states, so re-issuing one after a lost
+ * connection costs at most a repeat of a read (or one more mining tick, measured from
+ * cargo). Everything else — sell, buy, accept, deposit — moves something once. */
+const IDEMPOTENT=new Set(['mine','travel','jump','dock','undock','find_route','view','view_market','view_storage','status']);
+const reissuable=(action:string)=>{const name=action.split('/')[1]??'';return name.startsWith('get_')||IDEMPOTENT.has(name);};
+
+/** Wait for the lib's own reconnect to re-authenticate this account, up to `ms`. False when
+ * the account has no reconnect listener (a test fake) or the wait ran out. */
+function reconnected(ms=180_000):Promise<boolean> {
+  const live=need().account as unknown as {onReconnected?:(fn:()=>void)=>()=>void};
+  const listen=live.onReconnected?.bind(live);
+  if(typeof listen!=='function')return Promise.resolve(false);
+  return new Promise(resolve=>{
+    let off:(()=>void)|undefined;
+    const timer=setTimeout(()=>{off?.();resolve(false);},ms);
+    timer.unref?.();
+    off=listen(()=>{clearTimeout(timer);off?.();resolve(true);});
+  });
+}
+
 /** Every game command a helper sends. Journalled by the bridge's command; counted and
- * Tired-checked here. */
+ * Tired-checked here.
+ *
+ * A connection that drops mid-command is not the trip ending: the lib reconnects and
+ * re-authenticates by itself, so this waits for that, re-reads the world, and re-issues the
+ * command exactly once when it is one the live world can restate. A mutation that may have
+ * landed is never re-sent — it fails with "outcome unknown, re-observe" instead. */
 export async function command(action:string,params:Record<string,unknown>={}):Promise<unknown> {
   const b=need();
   commands++;
   try {return await b.command(action,params);}
+  catch(error) {
+    if(!DISCONNECTED.test(message(error)))throw error;
+    line(`  ${action}: ${message(error)}; waiting for the connection`);
+    const back=await reconnected();
+    try {await b.account.refresh();} catch {/* the re-read may fail too; the throw below stands */}
+    if(!back)throw error;
+    if(!reissuable(action)) {
+      line(`  ${action}: reconnected, but the command may have landed; not re-sent`);
+      throw new Error(`${action}: outcome unknown, re-observe`);
+    }
+    line(`  ${action}: reconnected; re-issued once`);
+    return await b.command(action,params);
+  }
   finally {imposeTired();}
 }
 export const acct=():ReadinessAccount=>need().account;
@@ -182,24 +225,48 @@ const seconds=(ms:number)=>`${(ms/1000).toFixed(ms<10_000?1:0)}s`;
  * diff. Streams `▶ fn args` on entry and `✓/✗ fn status secs did` on return. A throw is a
  * `failed` Outcome, a `Stopped` a `partial` one; nothing escapes as an exception. */
 export async function job<Detail>(fn:string,args:string,body:()=>Promise<Said<Detail>>):Promise<Outcome<Detail>> {
-  const outer=last;
+  const outer=last,outerMark=jobMark;
   last={fn};
   line(`▶ ${fn}${args?` ${args}`:''}`);
   let before:Snapshot;
   try {await acct().refresh();before=snapshot();}
   catch(error){before=snapshot();line(`  ${fn}: the opening read failed (${message(error)}); measuring from cached state`);}
-  let part:Said<Detail>;
+  jobMark=before;
+  let part:Said<Detail>,threw=false;
   try {part=await body();}
   catch(error) {
+    threw=true;
     part=error instanceof Stopped
       ?{status:'partial',did:`${fn} stopped by the pilot`,why:message(error),detail:{} as Detail}
       :{status:'failed',did:`${fn} broke`,why:message(error),detail:{} as Detail};
   }
   try {await acct().refresh();} catch {/* the closing read failed; the cached state stands */}
   const built=finish(fn,before,part);
+  // A did the wrapper wrote knows nothing of what happened; the measurement does.
+  if(threw)built.did=`${built.did}, ${witness(built)}`;
   line(`${built.status==='done'?'✓':'✗'} ${fn}  ${built.status}  ${seconds(Date.now()-before.at)}  ${built.did}${built.why?`: ${built.why}`:''}`);
-  last=outer;
+  last=outer;jobMark=outerMark;
   return built;
+}
+
+/** What the measurement says happened, for a `did` that would otherwise claim nothing did:
+ * the gains, the hold, and where the ship ended up. */
+function witness(built:Outcome<unknown>):string {
+  const {items,credits}=built.gained,{ship,location}=built.now;
+  const where=location?.docked_at??location?.poi_id??'?';
+  return [credits?`+${credits} cr`:'',items.length?`gained ${items.map(row=>`${row.quantity} ${row.item_id}`).join(', ')}`:'nothing gained',
+    ship?`hold ${ship.cargo_used}/${ship.cargo_capacity}`:'',`at ${where}`].filter(Boolean).join(', ');
+}
+
+/** What has come aboard since the running job's opening read: the cargo diff a helper's own
+ * `did` must be written from, rather than a tally it kept while the world moved. */
+export function measured():Row[] {
+  const before=jobMark;
+  if(!before)return [];
+  const after=snapshot();
+  return Object.entries(after.cargo).filter(([id,quantity])=>quantity>(before.cargo[id]??0))
+    .map(([item_id,quantity])=>({item_id,quantity:quantity-(before.cargo[item_id]??0)}))
+    .sort((a,b)=>a.item_id<b.item_id?-1:1);
 }
 
 // ---- Tired: imposed and cleared by the runtime, never by a helper -----------------------

@@ -4,7 +4,7 @@ import {gatherJob,type GatherStep} from '../../gather-job.ts';
 import type {MineYieldRow} from '../../mine.ts';
 import {details} from '../../response-details.ts';
 import {sell} from '../market.ts';
-import {acct,admit,checkStop,command,job,pilot,step,stopped} from '../runtime.ts';
+import {acct,admit,checkStop,command,job,measured,pilot,step,stopped} from '../runtime.ts';
 import {route} from '../travel.ts';
 import type {Outcome,Row} from '../types.ts';
 
@@ -48,12 +48,13 @@ async function storeCount(base:string,item:string):Promise<number> {
  *   `item`, up to `maxTrips` (default 6). Read from `storage/view` between trips.
  * - `then: 'stow' | 'sell'`: what to do with the take at the base. Default `stow`; `sell`
  *   withdraws the stowed take and sells it, row by row.
- * - `keep`: item ids to leave aboard (mission goods, spares); the hold at departure is kept anyway.
+ * The take is what the site gives: at the base every hold row whose item is one of the
+ * belt's own resources is stowed, whichever trip mined it, and nothing else is touched.
  *
  * Mining while docked is refused by the game, so a station POI as `poi` is `refused`.
  * Trains mining (+ deep_core_mining with a power-3+ laser), piloting, navigation. */
 export function gatherUntil(opts:{poi:string;base?:string;until?:{item:string;quantity:number};
-  maxTrips?:number;then?:'stow'|'sell';keep?:string[]}):Promise<Outcome<Gathered>> {
+  maxTrips?:number;then?:'stow'|'sell'}):Promise<Outcome<Gathered>> {
   const label=`${opts.poi}${opts.base?` → ${opts.base}`:''}${opts.until?` until ${opts.until.item} ≥ ${opts.until.quantity}`:''}${opts.maxTrips?` ≤${opts.maxTrips} trips`:''}${opts.then==='sell'?' then sell':''}`;
   return job<Gathered>('gatherUntil',label,async()=>{
     const who=pilot();
@@ -71,7 +72,7 @@ export function gatherUntil(opts:{poi:string;base?:string;until?:{item:string;qu
     const ship=acct().state.ship;
     if(ship&&ship.cargo_used>=ship.cargo_capacity)return {status:'refused',did:'gathered nothing',why:'the hold is full; sell(rows) or stow(rows) first',detail:result};
     const plan={home:{system_id:String(home.target_system),poi_id:String(home.target_poi??baseId),base_id:baseId},
-      site:{system_id:String(site.target_system),poi_id:opts.poi},mood:who.mood??'Cautious',keep:opts.keep??[]};
+      site:{system_id:String(site.target_system),poi_id:opts.poi},mood:who.mood??'Cautious'};
     const maxTrips=opts.until?opts.maxTrips??6:1;
     let lastLine=0,depleted=false;
     const onStep=(done:GatherStep,moved:{yield:MineYieldRow[];deposited?:MineYieldRow[]})=>{
@@ -110,8 +111,18 @@ export function gatherUntil(opts:{poi:string;base?:string;until?:{item:string;qu
         result.ended=trek.reason?.includes('stopped by pilot')?'stopped':trek.outcome==='blocked'?'blocked':'failed';
         result.cargo=cargo();
         if(opts.until)result.held=await storeCount(baseId,opts.until.item).catch(()=>result.held);
+        // The did is the measurement, never the tally: a leg that broke mid-mine still put
+        // ore aboard, and `trek.yield` is empty when the step never returned.
+        const took=measured().length?measured():sum(trek.yield);
+        const units=took.reduce((n,row)=>n+row.quantity,0);
+        const ship=acct().state.ship;
         return {status:result.ended==='stopped'?'partial':trek.outcome==='blocked'?'refused':'failed',
-          did:`trip ${trip}: ${say(trek.yield)}; ended at ${trek.steps.at(-1)?.name}`,why:trek.reason,detail:result};
+          did:`trip ${trip}: mined ${units} units${units?` (${took.map(row=>`${row.quantity} ${row.item_id}`).join(', ')})`:''} at ${opts.poi}`+
+            `${ship?`, hold ${ship.cargo_used}/${ship.cargo_capacity}`:''}; ended at ${trek.steps.at(-1)?.name}`,
+          why:trek.reason,detail:result,
+          // The world, not a record, says where the next run re-enters: every leg is named
+          // for an end state and sends nothing when it already holds.
+          next:[`gatherUntil with the same arguments resumes from here: it re-enters at the leg the live world implies`]};
       }
       result.ended=depleted?'depleted':'full';
       if(pilot().mood==='Tired'){result.ended='tired';break;}
