@@ -43,6 +43,17 @@ export default async function main() {
 }
 ```
 
+## Where the fauna are
+
+- Creatures are only visible from the POI you are standing at: `get_nearby` (and `scout`'s
+  `detail.here.nearby`) counts what is here, and nothing reads a POI you have not flown to.
+- Habitat decides the species (`docs/wildlife`): ore-eating grazers at **asteroid belts**, cloud
+  fauna and pilot-whale pods in **gas clouds**, cold-adapted species in **ice fields**, exotics
+  in **nebulae**. Busy, heavily-mined hubs are largely barren; quiet resource-rich systems carry
+  the healthiest herds.
+- A belt with nothing on it is a `done` hunt with zero fights, not a broken game. Scout the
+  system's nebula, cloud and field POIs and `goTo` one of those before concluding anything.
+
 ## What a good fight looks like
 
 - The loadout floor: a weapon fitted with rounds loaded, hull full, fuel out with the way home

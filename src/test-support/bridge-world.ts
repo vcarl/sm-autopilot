@@ -33,14 +33,17 @@ export const system={id:'sol',name:'Sol',pois:[
 ],connections:[{system_id:'deep_range',name:'Deep Range',distance:4}]};
 // One jump away, so a POI the pilot names may live somewhere it has to fly to.
 export const deepRange={id:'deep_range',name:'Deep Range',
-  pois:[{id:'outpost',name:'Deep Range Outpost',type:'station'},
-    {id:'far_belt',name:'Far Belt',type:'asteroid_belt'}],
+  pois:[{id:'outpost',name:'Deep Range Outpost',type:'station',has_base:true,
+    base_id:'range_base',base_name:'Deep Range Base'},
+  {id:'far_belt',name:'Far Belt',type:'asteroid_belt'}],
   connections:[{system_id:'sol',name:'Sol',distance:4}]};
 // Where each nameable id lives, as the server's find_route answers it. A base id is
 // nameable too, and answers with the POI it sits at.
 const homeOf:Record<string,string>={sol:'sol',station:'sol',belt:'sol',sol_base:'sol',
-  deep_range:'deep_range',outpost:'deep_range',far_belt:'deep_range'};
-const poiOf:Record<string,string>={sol_base:'station'};
+  deep_range:'deep_range',outpost:'deep_range',far_belt:'deep_range',range_base:'deep_range'};
+const poiOf:Record<string,string>={sol_base:'station',range_base:'outpost'};
+/** The base docked at a POI, which is what `dock` answers with — never a fixed id. */
+const baseAt:Record<string,string>={station:'sol_base',outpost:'range_base'};
 
 export interface WorldOptions {
   services?:string[];
@@ -49,6 +52,8 @@ export interface WorldOptions {
   cargoUsed?:number;
   /** The hold at the start, row by row, when it is not `cargoUsed` of plain ore. */
   cargo?:{item_id:string;quantity:number}[];
+  /** The hold's size. 12 is the Cobble's; freight needs 100 free for one package. */
+  cargoCapacity?:number;
   /** Book rows beside the default ore one, so a crafted output has a price here. */
   market?:{item_id:string;item_name?:string;best_buy:number;best_buy_qty:number;best_sell:number;best_sell_qty:number}[];
   /** What the station store holds before anything is deposited. */
@@ -61,6 +66,38 @@ export interface WorldOptions {
   wildlife?:WildlifeOptions;
   /** The modules on the ship and the hulls listed at this base. */
   hangar?:HangarOptions;
+  /** The shipping board here, and the carrier record the tier limits come from. */
+  shipping?:ShippingOptions;
+  /** The berths on the hull and the citizens waiting on the platform. */
+  passengers?:PassengerOptions;
+}
+
+/** The freight board and the carrier behind it. A listing's `reserved_exposure` is the
+ * liability it puts against the tier's allowance, which is the number a board filters on. */
+export interface ShippingOptions {
+  listings?:{id:string;destination_base_id:string;base_reward:number;reserved_exposure?:number;
+    package_id?:string;origin_base_id?:string;eligible?:boolean;reason?:string}[];
+  tier?:'probationary'|'licensed'|'trusted'|'prime';
+  single_package_liability_limit?:number;
+  aggregate_liability_limit?:number;
+  remaining_aggregate_liability?:number;
+  debt_blocks_acceptance?:boolean;
+  successful_deliveries?:number;
+  /** Listing ids already accepted before the run starts: the re-entry the live world hands back. */
+  accepted?:string[];
+  /** What the delivery pays the carrier. */
+  payout?:number;
+}
+
+/** The platform and the berths. A waiting citizen is loaded by destination, never by name,
+ * because that is the only argument `load_passenger` takes. */
+export interface PassengerOptions {
+  berths?:{economy?:number;business?:number;first?:number};
+  waiting?:{citizen_id:string;name?:string;class?:string;destination:string;
+    destination_name?:string;estimated_fare?:number}[];
+  /** Citizens already aboard when the run starts. */
+  onboard?:{citizen_id:string;name?:string;class?:string;destination:string;base_fare?:number}[];
+  fare_surge?:number;
 }
 
 /** The fit and the exchange: what is bolted to the hull now, and what is for sale here.
@@ -87,6 +124,18 @@ const CLASSES:Record<string,Record<string,unknown>>={
   hauler_ii:{id:'hauler_ii',name:'Hauler II',class:'Hauler',cargo_capacity:120,base_speed:2,base_fuel:150,
     utility_slots:3,weapon_slots:1,defense_slots:1,minimum_crew:1},
 };
+/** A sealed package occupies 100 cargo whatever its quantity; everything else is one each. */
+const footprint=(item:string)=>item.startsWith('package:')?100:1;
+const BERTH_CLASSES=['economy','business','first'] as const;
+/** Berths by class, with `free` counted against who is aboard now. */
+function berthsView(options:PassengerOptions,onboard:{class?:string}[]=[]) {
+  const seated:Record<string,number>={economy:0,business:0,first:0};
+  for(const row of onboard)seated[row.class??'economy']=(seated[row.class??'economy']??0)+1;
+  return Object.fromEntries(BERTH_CLASSES.map(name=>{
+    const total=options.berths?.[name]??0;
+    return [name,{total,free:Math.max(0,total-(seated[name]??0))}];
+  })) as Record<typeof BERTH_CLASSES[number],{total:number;free:number}>;
+}
 const page=(items:Record<string,unknown>[],type:string)=>
   ({items:structuredClone(items),message:'',page:1,page_size:1,total:items.length,total_pages:1,type});
 
@@ -138,9 +187,10 @@ export function bridgeWorld(options:WorldOptions={}) {
     location:{system_id:'sol',poi_id:'station',docked_at:'sol_base' as string|null,in_transit:false},
     // Hull stays above the Cautious D3 line: a ship below it is Tired and starts no job.
     ship:{id:'ship',fuel:100,max_fuel:120,hull:96,max_hull:100,cargo_used:cargoUsed,
-      cargo_capacity:12,speed:3,incapacitated:false,class_id:'cobble',class_name:'Cobble',
+      cargo_capacity:options.cargoCapacity??12,speed:3,incapacitated:false,class_id:'cobble',class_name:'Cobble',
       cpu_used:0,cpu_capacity:12,power_used:0,power_capacity:24,
-      utility_slots:2,weapon_slots:1,defense_slots:1},
+      utility_slots:2,weapon_slots:1,defense_slots:1,
+      ...options.passengers?{berths:berthsView(options.passengers)}:{}},
     player:{credits:1_000},
     cargo:(options.cargo??(cargoUsed?[{item_id:'ore',quantity:cargoUsed}]:[])) as {item_id:string;quantity:number}[],
     modules:[] as Record<string,any>[],
@@ -157,12 +207,13 @@ export function bridgeWorld(options:WorldOptions={}) {
   const fleet:Record<string,any>[]=[{ship_id:'ship',class_id:'cobble',class_name:'Cobble',
     is_active:true,location_base_id:'sol_base'}];
   const add=(item:string,quantity:number)=>{
+    const size=footprint(item);
     const room=account.server.ship.cargo_capacity-account.server.ship.cargo_used;
-    const moved=Math.min(room,quantity);
+    const moved=Math.min(Math.floor(room/size),quantity);
     if(moved<=0)return;
     const row=account.server.cargo.find(current=>current.item_id===item);
     if(row)row.quantity+=moved;else account.server.cargo.push({item_id:item,quantity:moved});
-    account.server.ship.cargo_used+=moved;
+    account.server.ship.cargo_used+=moved*size;
   };
   const take=(item:string,quantity:number)=>{
     const row=account.server.cargo.find(current=>current.item_id===item);
@@ -171,7 +222,7 @@ export function bridgeWorld(options:WorldOptions={}) {
       row.quantity-=moved;
       if(!row.quantity)account.server.cargo=account.server.cargo.filter(current=>current!==row);
     }
-    account.server.ship.cargo_used-=moved;
+    account.server.ship.cargo_used-=moved*footprint(item);
     return moved;
   };
   // The bench: one recipe, a queue the pilot's jobs sit in, and a store the output lands in.
@@ -224,8 +275,116 @@ export function bridgeWorld(options:WorldOptions={}) {
   {mission_id:'m2',title:'Visit the outpost',type:'visit',difficulty:1,
     objectives:[{system_id:'deep_range',description:'visit Deep Range Outpost'}],rewards:{credits:500}}];
   const taken:Record<string,any>[]=[];
+  // The shipping house: a board of listings, the carrier record the limits come from, and
+  // the contracts already accepted. Accepting drops the sealed package into the origin store.
+  const freight={tier:'probationary' as const,single_package_liability_limit:5_000,
+    aggregate_liability_limit:10_000,remaining_aggregate_liability:10_000,
+    debt_blocks_acceptance:false,successful_deliveries:0,payout:0,accepted:[] as string[],
+    listings:[] as Record<string,any>[],...options.shipping};
+  freight.accepted=[...freight.accepted];
+  const contractOf=(row:Record<string,any>)=>({id:String(row.id),
+    package_id:String(row.package_id??`pkg_${row.id}`),origin_base_id:String(row.origin_base_id??'sol_base'),
+    destination_base_id:String(row.destination_base_id),base_reward:Number(row.base_reward),
+    reserved_exposure:Number(row.reserved_exposure??row.base_reward),failure_debt:Number(row.base_reward),
+    status:freight.accepted.includes(String(row.id))?'in_transit':'posted',
+    service_level:'standard',risk_band:'probationary',visibility:'public',policy_status:'none',
+    insurable:false,max_speed_bonus:0,reward_escrow:Number(row.base_reward),speed_bonus_escrow:0,
+    service_fee:0,shipping_house_id:'house',posted_at:'',listing_expires_at:'',
+    shipper:{kind:'player',id:'shipper'},recipient:{kind:'station',id:String(row.destination_base_id)}});
+  const carrier=()=>({actor:{kind:'player',id:'ship'},tier:freight.tier,active_contracts:freight.accepted.length,
+    active_liability:0,breaches:0,defaults:0,delivered_value:0,late_deliveries:0,outstanding_debt:0,
+    priority_deliveries:0,returns:0,successful_deliveries:freight.successful_deliveries,updated_at:''});
+  // The platform and the manifest. `load_passenger` boards by destination, so the fake does
+  // too; `unload_passenger` pays only the ones whose stop this is.
+  const platform={fare_surge:1,...options.passengers,
+    waiting:(options.passengers?.waiting??[]).map(row=>({class:'economy',name:row.citizen_id,
+      destination_name:row.destination,estimated_fare:200,...row})),
+    onboard:(options.passengers?.onboard??[]).map(row=>({class:'economy',name:row.citizen_id,
+      destination_name:row.destination,base_fare:200,ticks_remaining:540,...row}))};
+  const seat=()=>{account.server.ship.berths=berthsView(platform,platform.onboard);};
+  if(options.passengers)seat();
   const sent:{action:string;params:Record<string,unknown>}[]=[];
   const handlers:Record<string,(params:Record<string,unknown>)=>unknown>={
+    'spacemolt_shipping/list':params=>{
+      const rows=freight.listings.filter(row=>!freight.accepted.includes(String(row.id))
+        &&(params.filter_destination===undefined||row.destination_base_id===params.filter_destination));
+      return {structuredContent:{action:'list',page:1,per_page:20,total:rows.length,
+        shipments:rows.map(row=>({contract:contractOf(row),deadline_ticks:600,target_ticks:300,
+          recovery_ticks:900,eligible:row.eligible??true,...row.reason?{reason:row.reason}:{}}))}};
+    },
+    'spacemolt_shipping/profile':()=>({structuredContent:{action:'profile',profile:carrier(),
+      debt_blocks_acceptance:freight.debt_blocks_acceptance,debts:[],
+      capacity:{active_contracts:freight.accepted.length,active_contracts_unlimited:true,active_liability:0,
+        liability_unlimited:false,single_package_liability_limit:freight.single_package_liability_limit,
+        aggregate_liability_limit:freight.aggregate_liability_limit,
+        remaining_aggregate_liability:freight.remaining_aggregate_liability},
+      progression:{at_maximum_tier:false,current_tier:freight.tier,delivered_value:0,next_tier:'licensed',
+        remaining_delivered_value:250,remaining_successful_deliveries:5,required_delivered_value:250,
+        required_successful_deliveries:5,successful_deliveries:freight.successful_deliveries}}}),
+    'spacemolt_shipping/active':()=>({structuredContent:{action:'active',tick:1,
+      shipments:freight.accepted.map(id=>{
+        const contract=contractOf(freight.listings.find(row=>String(row.id)===id)!);
+        return {contract,role:'carrier',late:false,failure_debt:contract.failure_debt,
+          next_step:'withdraw the package and deliver it',payout_if_delivered_now:contract.base_reward,
+          package_in_your_cargo:account.server.cargo.some(row=>row.item_id===`package:${contract.package_id}`),
+          ticks_to_deadline:600,ticks_to_target:300,ticks_to_recovery_deadline:900};
+      })}}),
+    'spacemolt_shipping/get':params=>{
+      const row=freight.listings.find(current=>String(current.id)===String(params.shipment_id));
+      if(!row)throw new Error(`No shipment ${params.shipment_id}`);
+      return {structuredContent:{action:'get',contract:contractOf(row)}};
+    },
+    'spacemolt_shipping/accept':params=>{
+      const id=String(params.shipment_id);
+      const row=freight.listings.find(current=>String(current.id)===id);
+      if(!row)throw new Error(`No shipment ${id}`);
+      if(freight.accepted.includes(id))throw new Error(`${id} is already accepted`);
+      freight.accepted.push(id);
+      // Acceptance deposits the sealed package into the carrier's store at the origin.
+      store.push({item_id:`package:${contractOf(row).package_id}`,quantity:1});
+      return {delta:{details:{action:'accept',contract:contractOf(row)}}};
+    },
+    'spacemolt_shipping/deliver':params=>{
+      const id=String(params.shipment_id);
+      const row=freight.listings.find(current=>String(current.id)===id);
+      if(!row||!freight.accepted.includes(id))throw new Error(`No active shipment ${id}`);
+      const contract=contractOf(row);
+      if(account.server.location.docked_at!==contract.destination_base_id)
+        throw new Error(`Not docked at ${contract.destination_base_id}`);
+      if(!take(`package:${contract.package_id}`,1))throw new Error('The package is not in your cargo');
+      freight.accepted=freight.accepted.filter(current=>current!==id);
+      freight.successful_deliveries++;
+      const payout=freight.payout||contract.base_reward;
+      account.server.player.credits+=payout;
+      return {delta:{details:{action:'deliver',contract:{...contract,status:'delivered'},carrier_payout:payout,late:false}}};
+    },
+    'spacemolt/list_station_passengers':()=>({structuredContent:{station:account.server.location.docked_at,
+      count:platform.waiting.length,fare_surge:platform.fare_surge,demand_level:'steady',
+      market_conditions:'steady',waiting:structuredClone(platform.waiting)}}),
+    'spacemolt/list_passengers':()=>({structuredContent:{count:platform.onboard.length,
+      passengers:structuredClone(platform.onboard),berths:berthsView(platform,platform.onboard)}}),
+    'spacemolt/load_passenger':params=>{
+      const to=String(params.id);
+      const free=Object.values(berthsView(platform,platform.onboard)).reduce((n,row)=>n+row.free,0);
+      const boarding=platform.waiting.filter(row=>row.destination===to).slice(0,free);
+      platform.waiting=platform.waiting.filter(row=>!boarding.includes(row));
+      for(const row of boarding)platform.onboard.push({...row,base_fare:row.estimated_fare??200,ticks_remaining:540});
+      seat();
+      return {delta:{details:{count:boarding.length,loaded:structuredClone(boarding),
+        total_fare:boarding.reduce((n,row)=>n+(row.estimated_fare??200),0),message:'Boarded.'}}};
+    },
+    'spacemolt/unload_passenger':params=>{
+      const id=String(params.id);
+      assert.notEqual(id,'all','unload_passenger id="all" strands everyone; the validator refuses it');
+      const rider=platform.onboard.find(row=>row.citizen_id===id);
+      if(!rider)throw new Error(`No passenger ${id} aboard`);
+      platform.onboard=platform.onboard.filter(row=>row!==rider);
+      seat();
+      const delivered=rider.destination===account.server.location.docked_at;
+      if(delivered)account.server.player.credits+=rider.base_fare??200;
+      return {delta:{details:{kind:'single',delivered,fare_collected:delivered?rider.base_fare??200:0,
+        name:rider.name,message:delivered?'Delivered.':'Stranded.'}}};
+    },
     'spacemolt/get_missions':()=>({structuredContent:{missions:structuredClone(board)}}),
     'spacemolt/get_active_missions':()=>({structuredContent:{missions:{active:structuredClone(taken),max_missions:5}}}),
     'spacemolt/accept_mission':params=>{
@@ -300,7 +459,8 @@ export function bridgeWorld(options:WorldOptions={}) {
     'spacemolt/jump':params=>{account.server.ship.fuel-=7;account.server.location.system_id=String(params.id);
       account.server.location.poi_id='gate';return {};},
     'spacemolt/undock':()=>{account.server.location.docked_at=null;return {};},
-    'spacemolt/dock':()=>{account.server.location.docked_at='sol_base';return {};},
+    // The base you dock at is the one behind the POI you are standing at, never a fixed id.
+    'spacemolt/dock':()=>{account.server.location.docked_at=baseAt[account.server.location.poi_id]??'sol_base';return {};},
     // The server settles the move before the next authoritative read, as a same-system hop does.
     'spacemolt/travel':params=>{account.server.ship.fuel-=7;account.server.location.poi_id=String(params.id);return {};},
     // The reply over-claims: only the cargo delta says what the trip actually took.
@@ -432,7 +592,8 @@ export function bridgeWorld(options:WorldOptions={}) {
       const item=String(params.item_id);
       const row=store.find(current=>current.item_id===item);
       const room=account.server.ship.cargo_capacity-account.server.ship.cargo_used;
-      const moved=Math.min(row?.quantity??0,Number(params.quantity),Math.max(0,room));
+      const moved=Math.min(row?.quantity??0,Number(params.quantity),
+        Math.max(0,Math.floor(room/footprint(item))));
       if(row) {
         row.quantity-=moved;
         if(!row.quantity)store.splice(store.indexOf(row),1);
