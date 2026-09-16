@@ -286,8 +286,9 @@ def test_loading_the_plugin_wakes_an_idle_pilot_once_and_leaves_a_running_one_al
     assert cron_jobs.load_jobs() == []
     juncture.write_pilot({"name": "kvothe", "stance": "Industrialist", "mood": "Cautious"})
     (runtime / "run.json").write_text(json.dumps({"script": "gather", "ended": False}))
-    spacemolt.wake_on_load()  # a run in flight raises its own juncture at its end
-    assert cron_jobs.load_jobs() == []
+    spacemolt.wake_on_load()  # a run in flight raises its own juncture at its end, but the job is rewritten
+    job, = cron_jobs.load_jobs()
+    assert juncture.JUNCTURE_PROMPT in job["prompt"] and job.get("manual_run_at") is None
     (runtime / "run.json").write_text(json.dumps({"script": "gather", "ended": True}))
     spacemolt.wake_on_load()
     job, = cron_jobs.load_jobs()

@@ -479,7 +479,8 @@ TOOL_DEFINITIONS = (
 
 
 def wake_on_load() -> None:
-    """A process that just loaded the pilot owes it one look around: the juncture is marked
+    """A process that just loaded the pilot rewrites its juncture job (audit 2026-09-15: the live
+    job carried a prompt three revisions old) and owes it one look around: the juncture is marked
     due now instead of waiting for the idle schedule (Carl, 2026-09-15). A run still in flight
     raises its own juncture when it ends, so nothing is marked then, and the bridge is not
     touched: a plugin load opens no game socket. Without a pilot record there is no one to wake.
@@ -490,10 +491,13 @@ def wake_on_load() -> None:
         return
     record = runtime_dir() / "run.json"
     try:
+        # The job is rewritten on every load so a prompt or skill revision reaches the next
+        # fire; the wake itself waits when a run is in flight.
+        job = ensure_juncture_job()
         if record.is_file() and not json.loads(record.read_text()).get("ended", True):
             return
         from cron.jobs import trigger_job
-        trigger_job(ensure_juncture_job()["id"])
+        trigger_job(job["id"])
     except Exception:  # noqa: BLE001 - a wake that fails costs nothing; the schedule still comes round
         pass
 
