@@ -7,7 +7,10 @@
  * rather than guessing at them, because a reflection that invents its inputs picks a goal
  * for a pilot that does not exist.
  */
+import {statSync} from 'node:fs';
+import {join} from 'node:path';
 import {readJournal} from './run-record.ts';
+import {listScripts} from './script-runner.ts';
 import {details} from './response-details.ts';
 import type {ReadinessAccount,ReadinessCommand} from './readiness.ts';
 import {STANCES} from './rules-table.ts';
@@ -15,10 +18,17 @@ import {viewStorage} from './storage.ts';
 
 /** Enough of each list to choose from; the whole report stays well under the 3 KB the
  * juncture's own context budget allows it. */
-const CAP={skills:6,visited:16,items:10,runs:5,bases:6};
+const CAP={skills:6,visited:16,items:10,runs:5,bases:6,script_runs:3,reason:120};
 /** How many journal entries back a reflection looks. Most of them are steps and commands,
  * which this report ignores; the runs, rests and reflections it counts are the sparse ones. */
 const JOURNAL_SPAN=6_000;
+
+/** One run of one script as the review reads it: how it ended and what it said. */
+export interface ScriptRun {outcome?:string;reason?:string}
+/** A script the pilot can run, against how its runs actually ended. A saved script is the
+ * pilot's own code and carries enough to re-read it; a shipped one carries only its use. */
+export interface ScriptReview {name:string;saved?:true;params?:unknown;bytes?:number;
+  runs:number;last?:ScriptRun[]}
 
 export interface Pilotish {objective?:string;objective_done?:boolean;home?:string;goal?:string}
 
@@ -34,10 +44,28 @@ export interface ReflectReport {
   owes:{tax_due?:number;shipping_debt?:number;carrier_tier?:string};
   seen:{systems_and_pois:string[];bases:string[]};
   recent:{script?:string;outcome?:string;reason?:string}[];
+  /** The pilot's library beside how it ran: what a rest reviews and rewrites. */
+  scripts?:ScriptReview[];
   stagnation:string[];
   stances:{name:string;initial_moods:string[]}[];
   /** Named, never guessed: the inputs this report could not read this time. */
   missing:string[];
+}
+
+/** The pilot's own code, read back against how it actually ran. Rest is where a script that
+ * kept ending blocked gets rewritten, so the review says which script, how big it is, what it
+ * takes, and how its last runs ended — enough to decide without opening every one. */
+async function scriptReview(missing:string[],ran:Map<string,ScriptRun[]>,
+  runtime?:string):Promise<ScriptReview[]|undefined> {
+  const rows=await attempt(missing,'scripts',()=>listScripts(undefined,runtime));
+  return rows?.flatMap(row=>{
+    const runs=ran.get(row.name)??[];
+    if(!row.saved)return runs.length?[{name:row.name,runs:runs.length}]:[];
+    let bytes=0;
+    try {bytes=statSync(join(runtime!,'scripts',`${row.name}.ts`)).size;} catch {/* listed, unreadable */}
+    return [{name:row.name,saved:true as const,params:row.params,bytes,runs:runs.length,
+      last:runs.slice(-CAP.script_runs)}];
+  });
 }
 
 /** One read that is allowed to fail: the game is on the other side of a socket and a
@@ -80,13 +108,16 @@ export async function reflectReport(account:ReadinessAccount,command:ReadinessCo
   // pick the few kinds of line that say where the pilot has been.
   const journal=runtime?readJournal(runtime,JOURNAL_SPAN):[];
   const visited=new Set<string>(),bases=new Set<string>(),chosen=new Set<string>();
-  const ranJobs=new Map<string,number>();
+  const ranJobs=new Map<string,number>(),ranScripts=new Map<string,ScriptRun[]>();
   const recent:ReflectReport['recent']=[];
   for(const entry of journal) {
     if(entry.event==='rest'&&entry.home)bases.add(String(entry.home));
     if(entry.event==='reflection'&&entry.stance)chosen.add(String(entry.stance));
     if(entry.event==='run'&&entry.phase==='ended') {
       recent.push({script:entry.script,outcome:entry.outcome,reason:entry.reason});
+      const name=String(entry.script??'');
+      if(name)(ranScripts.get(name)??ranScripts.set(name,[]).get(name)!)
+        .push({outcome:entry.outcome,reason:String(entry.reason??'').slice(0,CAP.reason)});
       for(const job of Array.isArray(entry.jobs)?entry.jobs:[])
         if(job?.job)ranJobs.set(String(job.job),(ranJobs.get(String(job.job))??0)+1);
     }
@@ -98,6 +129,7 @@ export async function reflectReport(account:ReadinessAccount,command:ReadinessCo
     if(typeof dock==='string'&&dock)bases.add(dock);
   }
 
+  const scripts=await scriptReview(missing,ranScripts,runtime);
   const stagnation:string[]=[];
   const runCount=recent.length;
   const kinds=[...ranJobs.entries()].sort((a,b)=>b[1]-a[1]);
@@ -129,6 +161,7 @@ export async function reflectReport(account:ReadinessAccount,command:ReadinessCo
         carrier_tier:String(shipping.profile?.tier??'unknown')}},
     seen:{systems_and_pois:[...visited].slice(-CAP.visited),bases:[...bases].slice(-CAP.bases)},
     recent:recent.slice(-CAP.runs),
+    ...scripts?.length?{scripts}:{},
     stagnation,
     stances:STANCES.map(stance=>({name:stance.name,initial_moods:[...stance.initial_moods]})),
     // The ship's fit against each stance's needs has no table behind it yet: D7 names the

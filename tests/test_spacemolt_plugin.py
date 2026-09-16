@@ -18,13 +18,12 @@ for line in sys.stdin:
     request = json.loads(line)
     answers = {
         "where": {"system": {"id": "sol", "name": "Sol"}, "pois": [{"id": "belt", "name": "Belt", "type": "belt"}]},
-        "travel": {"arrived": True, "location": {"system": "sol", "poi": request["params"].get("poi_id")}},
-        "dock": {"docked": True, "docked_at": "sol_base", "already_docked": False},
+        "run": {"accepted": True, "script": request["params"].get("script"),
+                "params": request["params"]},
+        "scripts": {"matched": 1, "lines": ["- `buy({ id: string; quantity: number })`"],
+                    "params": request["params"]},
         "storage": {"base_id": "sol_base", "items": [{"item_id": "ore", "quantity": 340}],
                     "ships": 0, "locations": [], "params": request["params"]},
-        "gather": {"outcome": "done", "steps": [{"name": "verify", "outcome": "done"}],
-                   "sold": [{"item_id": "ore", "quantity": 12, "quoted": 120, "cleared": 120}],
-                   "params": request["params"]},
     }
     print(json.dumps({"id": request["id"], "ok": True, "result": answers[request["action"]]}), flush=True)
 '''
@@ -56,13 +55,13 @@ def test_every_tool_answers_from_the_one_bridge(bridged):
     observed = json.loads(spacemolt._where({}))
     assert observed["system"]["id"] == "sol"
     assert observed["pois"] == [{"id": "belt", "name": "Belt", "type": "belt"}]
-    arrival = json.loads(spacemolt._travel({"poi_id": "belt"}))
-    assert arrival == {"arrived": True, "location": {"system": "sol", "poi": "belt"}}
-    assert json.loads(spacemolt._dock({})) == {"docked": True, "docked_at": "sol_base", "already_docked": False}
-    # An omitted home leaves the bridge to default it to the dock the ship is at.
-    job = json.loads(spacemolt._gather({"poi_id": "belt", "keep": ["cabin_economy"]}))
-    assert job["outcome"] == "done"
-    assert job["params"] == {"poi_id": "belt", "keep": ["cabin_economy"]}
+    # Acting is running a script, and the script and its parameters reach the runner as named.
+    started = json.loads(spacemolt._run({"script": "gather", "params": {"poi_id": "belt"}}))
+    assert started["accepted"] is True
+    assert started["params"] == {"params": {"poi_id": "belt"}, "script": "gather"}
+    # The command reference a script author reads comes over the same connection.
+    found = json.loads(spacemolt._scripts({"action": "commands", "search": "buy"}))
+    assert found["params"] == {"action": "commands", "search": "buy"}
     # No station named: the bridge defaults to the current base.
     here = json.loads(spacemolt._storage({}))
     assert here["params"] == {}
@@ -70,7 +69,7 @@ def test_every_tool_answers_from_the_one_bridge(bridged):
     elsewhere = json.loads(spacemolt._storage({"station_id": "other_base"}))
     assert elsewhere["params"] == {"station_id": "other_base"}
     # Every call travelled the same connection: the plugin owns one bridge, not one per tool.
-    assert service._bridge is not None and service._bridge.counter == 6
+    assert service._bridge is not None and service._bridge.counter == 5
 
 
 def test_register_publishes_every_tool_in_the_spacemolt_toolset():
@@ -97,8 +96,8 @@ def test_register_publishes_every_tool_in_the_spacemolt_toolset():
     for name, (toolset, *_rest) in tools.items():
         by_toolset.setdefault(toolset, set()).add(name)
     assert by_toolset == {
-        "spacemolt": {"spacemolt_travel", "spacemolt_dock", "spacemolt_gather", "spacemolt_run",
-                      "spacemolt_scripts", "spacemolt_rest", "spacemolt_reflect"},
+        "spacemolt": {"spacemolt_run", "spacemolt_scripts", "spacemolt_rest",
+                      "spacemolt_reflect"},
         "spacemolt_observe": {"spacemolt_where", "spacemolt_journal", "spacemolt_storage",
                               "spacemolt_recipes", "spacemolt_quote"},
         "spacemolt_operator": {"spacemolt_direct", "spacemolt_status", "spacemolt_dispatch"},
@@ -117,12 +116,13 @@ def test_register_publishes_every_tool_in_the_spacemolt_toolset():
     # operator's objective, like any other work.
     assert set(tools["spacemolt_direct"][1]["parameters"]["properties"]["permissions"]
                ["properties"]) == {"credit_reserve", "max_liability"}
-    assert tools["spacemolt_travel"][1]["parameters"]["required"] == ["poi_id"]
     assert tools["spacemolt_where"][1]["parameters"]["properties"] == {}
-    # Docking where the ship already is needs no argument from the model.
-    assert tools["spacemolt_dock"][1]["parameters"]["required"] == []
-    # A job names the site it works; home and the keep list are the script's to default.
-    assert tools["spacemolt_gather"][1]["parameters"]["required"] == ["poi_id"]
+    # Flying, docking and mining are moves inside a script now, not tools of their own: the
+    # pilot composes them in code, so no tool takes a poi id or a base id any more.
+    assert not {"spacemolt_travel", "spacemolt_dock", "spacemolt_gather"} & set(tools)
+    # The rest of the game is reached from a script too, and the signatures are readable.
+    assert "command(ctx, 'tool/action', params)" in tools["spacemolt_run"][1]["description"]
+    assert "commands" in tools["spacemolt_scripts"][1]["parameters"]["properties"]["action"]["enum"]
     # The bench reads: ranking asks for nothing, a quote names the one recipe it prices.
     assert tools["spacemolt_recipes"][1]["parameters"]["required"] == []
     assert tools["spacemolt_quote"][1]["parameters"]["required"] == ["recipe_id"]

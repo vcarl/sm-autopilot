@@ -30,6 +30,22 @@ export const GAME_WS_URL='wss://game.spacemolt.com/ws/v2';
 
 export type Dispatch=(action:string,params?:Record<string,unknown>)=>Promise<unknown>;
 
+/** The library's own generated command reference, read where it is installed rather than
+ * copied: a copy goes stale the release after it is made, and a script author writing
+ * `command(ctx,'spacemolt/buy',…)` needs the signature the server actually takes. */
+const COMMANDS_MD=new URL('../node_modules/@spacemolt/lib/COMMANDS.md',import.meta.url);
+/** Enough signatures to write a call from; a wider search is the author's to narrow. */
+const COMMAND_LINES=40;
+
+/** The command lines matching a search: one per command, with its parameters and return
+ * type, straight out of COMMANDS.md. Grep, not a parser — the file is one line per command. */
+export function commandLines(search:string):{search:string;matched:number;lines:string[]} {
+  const needle=search.toLowerCase();
+  const lines=readFileSync(COMMANDS_MD,'utf8').split('\n')
+    .filter(line=>line.startsWith('- `')&&line.toLowerCase().includes(needle));
+  return {search,matched:lines.length,lines:lines.slice(0,COMMAND_LINES)};
+}
+
 /** The actions whose answer is an outcome, and the ones whose answer is a read. A journal
  * line keeps the shape of the first and only the size of the second: a `where` reply is
  * kilobytes of POIs and connections, and none of it is a thing the pilot did. */
@@ -314,6 +330,7 @@ export function serve(account:ReadinessAccount,command:ReadinessCommand,options:
    * that ran it, which is what makes it a thing the pilot builds on rather than retypes. */
   const scriptActions:Record<string,(params:Record<string,unknown>)=>Promise<unknown>>={
     list:async()=>listScripts(options.scriptsDir,runtime),
+    commands:async params=>commandLines(String(params.search??'')),
     read:async params=>readScript(String(params.name??''),options.scriptsDir,runtime),
     save:async params=>{
       if(runtime===undefined)throw new Error('This runner has nowhere to save a script');

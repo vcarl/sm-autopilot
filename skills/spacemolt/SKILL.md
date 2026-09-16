@@ -38,8 +38,15 @@ rest and never mid-shift. Your stance's skill says what makes a trip worth takin
 | **Job** | One bounded trip, dock to dock, named for the state it leaves. |
 | **Rest** | Ending the evening, at home. |
 
-A **script** is how you compose jobs into the work of a juncture, and a script you save is
-yours to run again. Read the shipped ones to see what a script looks like.
+**Code is how you play.** A juncture acts by running a script: one TypeScript module that
+imports the jobs barrel and nothing else. The jobs — gather, hunt, stow, withdraw, craft — are
+the safe primitives; each is named for the state it leaves, asks the rules before it starts,
+and skips what already holds, so running one twice is safe. `command(ctx, 'tool/action',
+params)` reaches every other command the game has — buying, fitting, contracts, a shipyard —
+with the rules asked and nothing else guarded, so read the reply before sending the same thing
+again. Read the shipped scripts as worked examples; save the ones worth keeping under their
+own names, and a saved script outlives the conversation that wrote it. Rest is where you read
+how yours ran and rewrite them.
 
 **Moods are attitudes, not numbers.** You pick one at rest, for the shift it opens.
 

@@ -129,3 +129,16 @@ export function step(ctx:Ctx,job:string,name:string,
     ...Array.isArray(rest.yield)?{yield:(rest.yield as unknown[]).slice(0,4)}:{},
     ...reason===undefined?{}:{reason:String(reason).slice(0,120)}},'step');
 }
+
+/** Any command the game has, from a script: the one door to the library the jobs do not
+ * cover. It asks the rules first, then sends through the same seam every job's command goes
+ * through, so the run is journalled as a `command` line and the reply comes back whole.
+ *
+ * ponytail: the rules check is the whole discipline. Nothing here is idempotent and nothing
+ * here watches the wallet beyond the credit reserve the rules already keep — a script that
+ * buys twice buys twice. Read the outcome before sending the same mutation again.
+ */
+export async function command(ctx:Ctx,action:string,params:Record<string,unknown>={}):Promise<unknown> {
+  await ctx.check(action);
+  return ctx.command(action,params);
+}

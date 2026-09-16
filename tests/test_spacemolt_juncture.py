@@ -235,8 +235,43 @@ def test_an_operators_instruction_reaches_the_juncture_and_outranks_the_objectiv
 
 
 def test_the_cron_prompt_leaves_the_tools_to_their_own_descriptions():
-    """The turn contract only: nothing about which tool does what (playtest 2026-09-15)."""
+    """The turn contract only: nothing about which tool does what (playtest 2026-09-15).
+
+    The one exception is the save at rest. Reviewing the shift's code is an act no tool
+    description teaches — the reflect tool speaks for goal, stance and mood — so the prompt
+    that owns rest names the tool that keeps a rewritten script.
+    """
     named = sorted(definition["name"] for definition in spacemolt.TOOL_DEFINITIONS
                    if definition["name"] in juncture.JUNCTURE_PROMPT)
-    assert named == [], f"the prompt names tools the descriptions own: {named}"
-    assert "four ways" in juncture.JUNCTURE_PROMPT, "it still teaches how a juncture ends"
+    assert named == ["spacemolt_scripts"], f"the prompt names tools the descriptions own: {named}"
+    assert "three ways" in juncture.JUNCTURE_PROMPT, "it still teaches how a juncture ends"
+
+
+def test_the_prompt_says_a_juncture_acts_by_running_a_script_and_rest_reviews_them():
+    """Code is the gameplay interface: acting is running a script, and rest reviews the
+    scripts the shift was flown with before the next goal is chosen."""
+    prompt = juncture.JUNCTURE_PROMPT
+    assert "running a script" in prompt, "acting is running a script"
+    for kind in ("the runner ships", "one you saved", "one you write here"):
+        assert kind in prompt, kind
+    assert "A script you save is how you keep a way of doing something" in prompt
+    # Rest is a code review before it is a choice of goal.
+    assert "review the scripts you saved against how their runs ended" in prompt
+    assert "rewrite or save" in prompt and "spacemolt_scripts save" in prompt
+
+
+def test_the_rest_context_carries_the_scripts_the_review_reads(monkeypatch):
+    """A resting fire is handed the pilot's own code beside how it ran (N7)."""
+    report = {"at_rest": True, "objective": "buy a combat ship", "home": "sol_base",
+              "stagnation": ["stances never chosen: Hunter"],
+              "scripts": [{"name": "buy-hull", "saved": True, "bytes": 812, "runs": 2,
+                           "params": {"type": "object", "properties": {}},
+                           "last": [{"outcome": "blocked", "reason": "credits short"},
+                                    {"outcome": "failed", "reason": "no shipyard here"}]},
+                          {"name": "gather", "runs": 9}]}
+    monkeypatch.setattr(service, "call", lambda action, params=None: copy.deepcopy(report))
+    context = juncture.juncture_context({"platform": "cron"})
+    assert "buy-hull" in context and "no shipyard here" in context
+    # The context says what the section is for, not just that it is there.
+    assert "`scripts` is the pilot's own code beside how it ran" in context
+    assert "save a better version under the same name" in context

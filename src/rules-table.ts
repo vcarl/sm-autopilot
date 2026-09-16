@@ -79,8 +79,9 @@ function trip(facts:Facts,site:Site,tag:Tag):Verdict {
   const quote=`route quotes ${site.quoted_fuel} fuel; with the ${facts.mood} reserve ${reserve} you need ${required}`;
   if(required>max_fuel)return no(tag,job,`${quote}, beyond the ${max_fuel} unit tank; a nearer site or a bigger tank admits it`);
   if(fuel<required)return no(tag,job,`${quote}, have ${fuel}; shortfall ${required-fuel} fuel units — refuel here or pick a nearer site`);
-  return yes(tag,job,`${quote} and have ${fuel}${site.resource?`; ${site.poi_id} lists ${site.resource}`:''}`,
-    {tool:'spacemolt_travel',params:{poi_id:site.poi_id}});
+  // Flying is a script's move, not a tool call: a script reaches it as travel(ctx,poi_id),
+  // so the option carries the helper it would be written with and no call of its own.
+  return yes(tag,job,`${quote} and have ${fuel}${site.resource?`; ${site.poi_id} lists ${site.resource}`:''}; a script flies it with travel(ctx,'${site.poi_id}')`);
 }
 
 /** The same quote and margin serviceShip enforces at the counter. */
@@ -144,7 +145,7 @@ const RULES:Rule[]=[
   {id:'safety.dock',apply:facts=>{
     const seen=threats(facts);
     return seen.length?yes('safety',`Dock at ${facts.place.base_id??'the nearest base'}`,
-      `threat seen: ${seen.join(', ')}; a dock ends the engagement`,{tool:'spacemolt_dock',params:{}}):null;
+      `threat seen: ${seen.join(', ')}; a dock ends the engagement; a script docks with dock(ctx)`):null;
   }},
   {id:'resupply.service',apply:service},
   {id:'resupply.travel',apply:facts=>sites(facts).filter(site=>site.serviced_base).map(site=>trip(facts,site,'resupply'))},

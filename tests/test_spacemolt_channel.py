@@ -153,8 +153,10 @@ def test_the_window_carries_no_job_tools_and_the_juncture_no_direction_tool():
     fire = by_toolset["spacemolt"] | by_toolset["spacemolt_observe"]
     assert {"spacemolt_where", "spacemolt_status", "spacemolt_journal", "spacemolt_storage",
             "spacemolt_recipes", "spacemolt_quote", "spacemolt_direct", "spacemolt_dispatch"} == window
-    assert not window & {"spacemolt_run", "spacemolt_scripts", "spacemolt_travel",
-                         "spacemolt_dock", "spacemolt_gather"}
+    assert not window & {"spacemolt_run", "spacemolt_scripts"}
+    # Acting is running a script; a fire that could fly by hand would not write one.
+    published = {definition["name"] for definition in spacemolt.TOOL_DEFINITIONS}
+    assert not published & {"spacemolt_travel", "spacemolt_dock", "spacemolt_gather"}
     assert "spacemolt_direct" not in fire, "only the operator sets the objective"
     assert juncture.job_fields({"stance": "Prospector"})["enabled_toolsets"] == list(juncture.TOOLSETS)
     # A tool name is global and has exactly one toolset: no tool may claim two homes.
@@ -163,8 +165,7 @@ def test_the_window_carries_no_job_tools_and_the_juncture_no_direction_tool():
     # The window is told about the tools it has, never about the ones it does not.
     window_prompt = spacemolt._prompt({"platform": "discord"})
     assert "spacemolt_journal" in window_prompt
-    assert not any(name in window_prompt for name in ("spacemolt_gather", "spacemolt_run",
-                                                      "spacemolt_scripts"))
+    assert not any(name in window_prompt for name in ("spacemolt_run", "spacemolt_scripts"))
 
 
 def test_a_cron_fire_cannot_reach_status_while_the_window_can():

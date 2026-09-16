@@ -12,6 +12,7 @@ import {join} from 'node:path';
 import {serve,type Pilot} from './bridge.ts';
 import type {RunOutcome} from './script-runner.ts';
 import type {ReadinessAccount,ReadinessCommand} from './readiness.ts';
+import {journalRun} from './run-record.ts';
 import {FakeLibGoalAccount} from './test-support/fake-lib-account.ts';
 
 const system={id:'sol',name:'Sol',pois:[
@@ -108,4 +109,38 @@ test('at home the pilot rests whatever the world imposed on it, and the shift co
   assert.deepEqual({stance:line.stance,mood:line.mood,goal:line.goal,home:line.home},
     {stance:'Prospector',mood:'Tired',goal:'three loads of ore',home:'sol_base'});
   assert.ok(line.at,'the line is stamped');
+});
+
+/** A script of the pilot's own, saved so the review has code to read. */
+const OWN="import {where,type Ctx,type JobOutcome} from '../jobs/index.ts';\n"+
+  "export const params={type:'object',description:'Look around.',properties:{}};\n"+
+  "export default async (ctx:Ctx):Promise<JobOutcome>=>{await where(ctx);\n"+
+  "return {job:'look',outcome:'done'};};\n";
+
+test("the rest report reviews the pilot's own scripts against how their runs ended", async () => {
+  // A resting pilot: no stance, so the consultation is the reflection, not a menu (N7).
+  const f=fixture({pilot:{name:'kvothe',objective:'fill the hold',home:'sol_base'}});
+  await f.dispatch('scripts',{action:'save',name:'look-around',source:OWN});
+  // Three runs of it, the last two badly: this is what a review is supposed to notice.
+  for(const ended of [{outcome:'done',reason:'look-around done: 1 job'},
+    {outcome:'blocked',reason:'look-around blocked at job 1 of 1: no route'},
+    {outcome:'failed',reason:'look-around failed: the hold was full'}])
+    journalRun(f.runtime,{phase:'ended',script:'look-around',jobs:[],...ended});
+  journalRun(f.runtime,{phase:'ended',script:'gather',outcome:'done',jobs:[]});
+
+  const report=await f.dispatch('reflect') as any;
+  const mine=report.scripts.find((row:any)=>row.name==='look-around');
+  assert.ok(mine,`the pilot's own script is in the review: ${JSON.stringify(report.scripts)}`);
+  assert.equal(mine.saved,true);
+  assert.equal(mine.bytes,OWN.length,'with its size, so the review knows what it is reading');
+  assert.ok(mine.params.description,'and what it takes');
+  assert.equal(mine.runs,3);
+  // The last runs, in order, so a script that keeps ending blocked shows it.
+  assert.deepEqual(mine.last.map((run:any)=>run.outcome),['done','blocked','failed']);
+  assert.match(mine.last.at(-1).reason,/hold was full/);
+
+  // A shipped script carries its use and nothing else: the review is of the pilot's code.
+  const shipped=report.scripts.find((row:any)=>row.name==='gather');
+  assert.deepEqual(shipped,{name:'gather',runs:1});
+  assert.ok(!report.scripts.some((row:any)=>row.name==='stow'),'a script never run is not a review');
 });

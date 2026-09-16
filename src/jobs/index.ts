@@ -5,7 +5,8 @@
  * the whole of the surface a script is written against, and widening it is a deliberate act.
  *
  * Jobs (`gather`) are the long steps: they check the rules before they start and record
- * their own outcome. Helpers are the short moves between them.
+ * their own outcome. Helpers are the short moves between them, and `command` is the door to
+ * every other command the game has — the rules check first, then the game, unguarded after.
  *
  * Scripts are here too, under their own camelCase names, because a script has a job's
  * signature and composes like one: `stock-up` runs `gatherUntil` as a step. The barrel is
@@ -18,7 +19,7 @@ export {gather,type GatherParams} from './gather.ts';
 export {hunt,type HuntParams} from './hunt.ts';
 export {stow,type StowParams} from './stow.ts';
 export {withdraw,type WithdrawParams} from './withdraw.ts';
-export {dock,journal,service,storage,travel,where,
+export {command,dock,journal,service,storage,travel,where,
   type DockReport,type TravelReport,type Where} from './helpers.ts';
 export type {StorageView} from '../storage.ts';
 export {default as gatherUntil} from '../scripts/gather-until.ts';

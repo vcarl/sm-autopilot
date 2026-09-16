@@ -197,8 +197,8 @@ test('every option carries the call it would be taken with, and the present says
   f.account.server.ship.cargo_used=0; // room to fill, so the stance's gather is admissible
   const menu=await f.dispatch('menu') as any;
   assert.deepEqual([menu.present.storage,menu.present.workshop],[true,true]);
-  const tools=new Set(['spacemolt_travel','spacemolt_dock','spacemolt_storage','spacemolt_rest',
-    'spacemolt_run','spacemolt_recipes']);
+  // Acting left the toolsets: what a menu option names is a script to run or a station read.
+  const tools=new Set(['spacemolt_storage','spacemolt_rest','spacemolt_run','spacemolt_recipes']);
   for(const option of menu.options)
     assert.ok(option.call===null||tools.has(option.call.tool),`${option.job}: ${JSON.stringify(option.call)}`);
   const gather=menu.options.find((option:any)=>option.call?.tool==='spacemolt_run');
@@ -360,6 +360,21 @@ test('scripts lists what the run tool may name, each with the parameters it take
     assert.ok(row.params.description,row.name);
     assert.ok(Object.keys(row.params.properties).length,row.name);
   }
+});
+
+test('scripts commands answers with the real signatures from the library reference', async () => {
+  const found=await fixture().dispatch('scripts',{action:'commands',search:'shipyard'}) as any;
+  assert.ok(found.matched>=1,`a shipyard command exists in the reference: ${found.matched}`);
+  // Signatures, not prose: every line names a command, what it takes and what it answers.
+  for(const line of found.lines) {
+    assert.match(line,/^- `[a-z_]+\(/,line);
+    assert.match(line.toLowerCase(),/shipyard/,line);
+  }
+  assert.ok(found.lines.some((line:string)=>line.startsWith('- `commission_ship(')),
+    `commissioning a hull is reachable: ${found.lines.join(' | ')}`);
+  // A search nothing matches is an empty answer, never the whole reference.
+  assert.deepEqual(await fixture().dispatch('scripts',{action:'commands',search:'zzzznope'}),
+    {search:'zzzznope',matched:0,lines:[]});
 });
 
 test('shutdown forces exit within the grace even when the account never finishes closing, and stays idempotent', async () => {

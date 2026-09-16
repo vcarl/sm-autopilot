@@ -7,9 +7,6 @@ requires_env:
   - SPACEMOLT_CREDENTIALS_FILE
 provides_tools:
   - spacemolt_where
-  - spacemolt_travel
-  - spacemolt_dock
-  - spacemolt_gather
   - spacemolt_run
   - spacemolt_scripts
   - spacemolt_dispatch

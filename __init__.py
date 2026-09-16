@@ -1,7 +1,7 @@
-"""Hermes plugin: look around a SpaceMolt system, fly, dock, and run one gather job.
+"""Hermes plugin: look around a SpaceMolt system and play it by running code.
 
 Three toolsets, because a tool name is global and belongs to exactly one of them:
-``spacemolt`` is the job tools a juncture flies with, ``spacemolt_observe`` the reads every
+``spacemolt`` is what a juncture acts with — run a script, keep a script, rest, reflect — ``spacemolt_observe`` the reads every
 client of the runner may make, and ``spacemolt_operator`` the operator's own window tools:
 direction, and the script-is-running read the chat window asks for while a juncture already
 has the answer in its context. A chat window carries observe + operator and never a job tool
@@ -27,9 +27,9 @@ _JOURNAL_DEFAULT, _JOURNAL_CAP = 20, 80
 _INSTRUCTION_LIMIT = 80
 
 _FLIGHT_PROMPT = (
-    "SpaceMolt: you fly one live ship. When asked where the ship is, call spacemolt_where "
-    "and report its answer. Report only what tool results say.\n"
-    "Travel takes poi ids and docking takes base ids; both come from spacemolt_where.\n"
+    "SpaceMolt: you fly one live ship, and you fly it by running code. A script is where "
+    "the jobs, the moves between them and the rest of the game's commands are composed.\n"
+    "Report only what tool results say.\n"
     "The game's clock is real: one call can take a minute or more, so wait it out."
 )
 
@@ -65,16 +65,6 @@ def _where(arguments: dict[str, Any] | None = None, **_: Any) -> str:
     return json.dumps(call("where"), separators=(",", ":"))
 
 
-def _travel(arguments: dict[str, Any] | None = None, **_: Any) -> str:
-    poi_id = str((arguments or {}).get("poi_id") or "")
-    return json.dumps(call("travel", {"poi_id": poi_id}), separators=(",", ":"))
-
-
-def _dock(arguments: dict[str, Any] | None = None, **_: Any) -> str:
-    base_id = str((arguments or {}).get("base_id") or "")
-    return json.dumps(call("dock", {"base_id": base_id} if base_id else {}), separators=(",", ":"))
-
-
 def _storage(arguments: dict[str, Any] | None = None, **_: Any) -> str:
     station_id = str((arguments or {}).get("station_id") or "")
     return json.dumps(call("storage", {"station_id": station_id} if station_id else {}), separators=(",", ":"))
@@ -92,18 +82,6 @@ def _quote(arguments: dict[str, Any] | None = None, **_: Any) -> str:
     if args.get("quantity"):
         params["quantity"] = args["quantity"]
     return json.dumps(call("quote", params), separators=(",", ":"))
-
-
-def _gather(arguments: dict[str, Any] | None = None, **_: Any) -> str:
-    args = arguments or {}
-    params: dict[str, Any] = {"poi_id": str(args.get("poi_id") or "")}
-    base_id = str(args.get("base_id") or "")
-    if base_id:
-        params["base_id"] = base_id
-    keep = args.get("keep") or []
-    if keep:
-        params["keep"] = [str(item) for item in keep]
-    return json.dumps(call("gather", params), separators=(",", ":"))
 
 
 def _run(arguments: dict[str, Any] | None = None, **_: Any) -> str:
@@ -132,7 +110,7 @@ def _scripts(arguments: dict[str, Any] | None = None, **_: Any) -> str:
     """
     args = arguments or {}
     params: dict[str, Any] = {"action": str(args.get("action") or "list")}
-    for name in ("name", "source"):
+    for name in ("name", "source", "search"):
         if args.get(name):
             params[name] = str(args[name])
     try:
@@ -152,6 +130,32 @@ def _rest(arguments: dict[str, Any] | None = None, **_: Any) -> str:
     if result.get("rested"):
         ensure_juncture_job()
     return json.dumps(result, separators=(",", ":"))
+
+
+def _scripts_saved_since_rest() -> list[str]:
+    """The scripts the pilot saved during this rest — what its code review actually changed.
+
+    The bridge already writes one request line per call, so the saves are on record; reading
+    them back keeps the reflection line true without a second tally to fall out of step.
+
+    ponytail: the journal is read whole and walked forward. Rest happens once an evening.
+    """
+    path = runtime_dir() / JOURNAL_FILE
+    if not path.is_file():
+        return []
+    names: list[str] = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        try:
+            entry = json.loads(line)
+        except ValueError:
+            continue
+        if entry.get("event") == "rest":
+            names.clear()  # a rest opens the review; what came before belongs to the last shift
+        request = entry.get("request") or {}
+        params = request.get("params") or {}
+        if request.get("action") == "scripts" and params.get("action") == "save" and params.get("name"):
+            names.append(str(params["name"]))
+    return names
 
 
 def _reflect(arguments: dict[str, Any] | None = None, **_: Any) -> str:
@@ -184,7 +188,8 @@ def _reflect(arguments: dict[str, Any] | None = None, **_: Any) -> str:
     record.update(goal=goal, stance=stance, mood=mood)
     record.pop("objective_done", None)  # a new goal is the objective being pursued again
     write_pilot(record)
-    journal_event("reflection", goal=goal, stance=stance, mood=mood)
+    journal_event("reflection", goal=goal, stance=stance, mood=mood,
+                  scripts_reviewed=_scripts_saved_since_rest())
     from cron.jobs import trigger_job
 
     trigger_job(ensure_juncture_job()["id"])
@@ -289,44 +294,6 @@ TOOL_DEFINITIONS = (
                        "Read the ship's live location, fuel, hull, the points of interest in this system, "
                        "and connections: the systems a jump reaches from here.",
                        {}, [])},
-    {"name": "spacemolt_travel", "toolset": "spacemolt", "handler": _travel,
-     "description": "Fly to a point of interest in this system or another, jumping as the route needs.",
-     "schema": _schema("spacemolt_travel",
-                       "Fly to a point of interest in this system or another, undocking and jumping as "
-                       "the route needs. The fuel reserve the mood keeps back bounds how far the trip goes. "
-                       "Takes real game time: wait for the result. One call per move. "
-                       "Returns the arrival confirmed by a live read.",
-                       {"poi_id": {"type": "string",
-                                   "description": "A poi id spacemolt_where listed."}},
-                       ["poi_id"])},
-    {"name": "spacemolt_dock", "toolset": "spacemolt", "handler": _dock,
-     "description": "Dock at the station the ship is at.",
-     "schema": _schema("spacemolt_dock",
-                       "Dock at the station the ship is at; already being docked there is success, "
-                       "not an error. Returns the dock confirmed by a live read.",
-                       {"base_id": {"type": "string",
-                                    "description": "Optional: the base id spacemolt_where reported in docked_at, "
-                                                   "to refuse a dock at any other station."}},
-                       [])},
-    {"name": "spacemolt_gather", "toolset": "spacemolt", "handler": _gather,
-     "description": "Mine a belt until the hold is full, stow the yield at the home base and service; "
-                    "the site may be in this system or another.",
-     "schema": _schema("spacemolt_gather",
-                       "Run one gather job dock to dock: fly to a MINING poi — an asteroid belt or "
-                       "field, in this system or another — mine until the hold is full, return, dock, "
-                       "stow the yield into storage and service the ship. Home is where the ore ends "
-                       "up, not a limit on where it is mined. Dispatch this when cargo_free is above zero. With a full hold, stow or "
-                       "craft first. Takes real game time; returns one outcome verified against live "
-                       "state.",
-                       {"poi_id": {"type": "string",
-                                   "description": "The mining site to work: an asteroid belt or field, "
-                                                  "in this system or another."},
-                        "base_id": {"type": "string",
-                                    "description": "Optional: the base the yield is stowed at; defaults to "
-                                                   "the base the ship is docked at now, then the pilot's home."},
-                        "keep": {"type": "array", "items": {"type": "string"},
-                                 "description": "Optional: item ids that must never be sold."}},
-                       ["poi_id"])},
     {"name": "spacemolt_run", "toolset": "spacemolt", "handler": _run,
      "description": "Run one script in the runner — a shipped one, one you saved, or one you "
                     "write here — and return at once.",
@@ -346,7 +313,11 @@ TOOL_DEFINITIONS = (
                        "- `export default async (ctx, params)` returns a JobOutcome: "
                        "{job, outcome: done | blocked | failed, reason, result};\n"
                        "- every job is named for an end state and skips what already holds, so "
-                       "running one twice is safe.",
+                       "running one twice is safe.\n"
+                       "For anything no job does — buying, selling, fitting, commissioning a "
+                       "hull, taking a contract — a script calls "
+                       "`command(ctx, 'tool/action', params)`, which is the whole game; "
+                       "`spacemolt_scripts commands` shows the real signatures.",
                        {"script": {"type": "string",
                                    "description": "A script the runner ships or you saved."},
                         "source": {"type": "string",
@@ -363,9 +334,17 @@ TOOL_DEFINITIONS = (
                        "shipped scripts are the worked examples to write yours from. save lints a "
                        "script of yours and keeps it under its name, after which spacemolt_run "
                        "names it and a restart still has it — this is how the pilot builds systems "
-                       "on top of the jobs.",
-                       {"action": {"type": "string", "enum": ["list", "read", "save"],
-                                   "description": "list the library, read one script, or save one."},
+                       "on top of the jobs. commands searches the game's own command reference "
+                       "and returns the matching signatures — the name, the parameters and the "
+                       "return type — so a script calls `command(ctx, 'tool/action', params)` "
+                       "with what the server really takes.",
+                       {"action": {"type": "string",
+                                   "enum": ["list", "read", "save", "commands"],
+                                   "description": "list the library, read one script, save one, "
+                                                  "or search the game's commands."},
+                        "search": {"type": "string",
+                                   "description": "For commands: text a command line must "
+                                                  "contain, such as 'buy' or 'shipyard'."},
                         "name": {"type": "string",
                                  "description": "For read and save: lowercase letters, digits and "
                                                 "hyphens, and your own rather than a shipped one."},
