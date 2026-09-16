@@ -17,9 +17,6 @@ export interface RunRecord {
   params?:Record<string,unknown>;
   /** The run's identity: no counter, no ids to keep unique across restarts. */
   started:string;
-  /** The hold the pilot already had when the run started, so a re-run after a restart still
-   * knows which cargo is the pilot's own and not the take it was carrying home. */
-  keep?:string[];
   last_job?:string;
   last_step?:string;
   ended:boolean;

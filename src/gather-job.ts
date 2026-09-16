@@ -15,21 +15,12 @@ export interface GatherPlan {
   home:{system_id:string;poi_id:string;base_id:string};
   site:{system_id:string;poi_id:string};
   mood:Mood;
-  /** The pilot's own cargo — cabins, spares. Never moved by the job, even if this trip
-   * mined more of it. The hold as it stood at the job's opening read is added to this. */
-  keep?:string[];
 }
 /** `blocked` is a world the pilot can answer at a juncture; `failed` needs a reading. */
 export type StepOutcome='done'|'blocked'|'failed';
-/** The job's steps, in the order they run. The list is also the resume ladder. */
-export const STEPS=['travel','mine','return','dock','settle','service','verify'] as const;
-export type GatherStepName=typeof STEPS[number];
+export type GatherStepName='travel'|'mine'|'return'|'dock'|'settle'|'service'|'verify';
 export interface GatherStep {name:string;outcome:StepOutcome;reason?:string}
 export interface GatherOptions extends TravelOptions {
-  /** This job was already under way when the runner died. The world, not the record, says
-   * where it had got to: the entry read below picks the step and the ones before it are
-   * skipped rather than re-sent. */
-  resume?:boolean;
   /** Each step as it ends, with the numbers that step moved. The job keeps no opinion about
    * what is done with them: `jobs/gather.ts` writes the run record and the journal line. */
   onStep?:(step:GatherStep,moved:{yield:MineYieldRow[];deposited?:MineYieldRow[]})=>void;
@@ -57,52 +48,24 @@ const blocking=(error:unknown)=>error instanceof TravelBlocked||error instanceof
 const message=(error:unknown)=>error instanceof Error?error.message:String(error);
 
 /** What the closing read must agree with before the job may call itself done. */
-function differences(state:GameState,plan:GatherPlan,settled:SettleOutcome|null,own:Set<string>):string[] {
+function differences(state:GameState,plan:GatherPlan,settled:SettleOutcome|null,mine:Set<string>):string[] {
   const {ship,location}=state??{};
   if(!ship||!location)return ['authoritative ship and location unavailable at the end of the job'];
   const out:string[]=[];
   if(location.in_transit)out.push('still in transit');
   if(location.docked_at!==plan.home.base_id)
     out.push(`docked at ${location.docked_at??'nothing'}, not ${plan.home.base_id}`);
-  // No settlement at all is a job resumed past its counter: this trip's take is already
-  // stowed, so the hold has nothing left for the closing read to account for.
-  const accounted=new Set([...own,...settled?.held.map(row=>row.item_id)??[]]);
+  // Only the site's own resources are this job's to account for; a station with no store
+  // leaves them aboard and says so in `held`. Everything else is the pilot's business.
+  const held=new Set(settled?.held.map(row=>row.item_id)??[]);
   for(const [item_id,quantity] of Object.entries(miningInventory(state)))
-    if(quantity>0&&!accounted.has(item_id))out.push(`hold still carries ${quantity} ${item_id}`);
+    if(quantity>0&&mine.has(item_id)&&!held.has(item_id))out.push(`hold still carries ${quantity} ${item_id}`);
   if(ship.fuel<ship.max_fuel)out.push(`fuel ${ship.fuel} of ${ship.max_fuel}`);
   if(ship.hull<ship.max_hull)out.push(`hull ${ship.hull} of ${ship.max_hull}`);
   return out;
 }
 
-/** Where a job that was already under way re-enters, read from the world and nothing else.
- *
- * Every step of a gather job is named for an end state and already sends nothing when that
- * state holds (S42): `travelTo` to a POI the ship is at, `mineToFull` on a full hold,
- * `dockAt` on a dock the ship has, a deposit bounded by what the hold still shows, a
- * service with no fuel or hull due. So resuming is not a special mode — it is entering the
- * same ladder at the rung the world implies, which is what makes it safe to re-run.
- *
- * The one thing the world cannot say is whether a job had begun at all: docked at home with
- * a clear hold is both a gather job's start and its end. Only the runner's record breaks
- * that tie, which is why this is asked for by `resume` and never inferred.
- */
-export function entryStep(state:GameState,plan:GatherPlan,take:number):GatherStepName|{blocked:string} {
-  const {ship,location}=state??{};
-  if(!ship||!location)return {blocked:'authoritative ship and location unavailable'};
-  const here=`${location.system_id}/${location.poi_id??'nowhere'}`;
-  if(location.in_transit)
-    return location.transit_dest_poi_id===plan.site.poi_id?'travel':'return';
-  if(location.docked_at)
-    return location.docked_at!==plan.home.base_id
-      ?{blocked:`docked at ${location.docked_at}, which is neither this job's home ${plan.home.base_id} nor a step of it`}
-      :take>0?'settle':'service';
-  if(location.system_id===plan.site.system_id&&location.poi_id===plan.site.poi_id)
-    return ship.cargo_used>=ship.cargo_capacity?'return':'mine';
-  if(location.system_id===plan.home.system_id&&location.poi_id===plan.home.poi_id)return 'dock';
-  return {blocked:`at ${here}, which is neither the site ${plan.site.system_id}/${plan.site.poi_id} nor home ${plan.home.system_id}/${plan.home.poi_id}`};
-}
-
-/** Two measures of the same hold, summed per item: a resumed job's take plus what it mines. */
+/** Two measures of the same hold, summed per item. */
 const addYield=(rows:MineYieldRow[],more:MineYieldRow[]):MineYieldRow[]=>{
   const totals:Record<string,number>={};
   for(const row of [...rows,...more])totals[row.item_id]=(totals[row.item_id]??0)+row.quantity;
@@ -116,27 +79,29 @@ const hasStorage=async(command:ReadinessCommand)=>{
   catch {return false;}
 };
 
-/** Stow this job's take in the station store. Nothing is ever offered at the market
+/** Stow what the site gives in the station store. Nothing is ever offered at the market
  * counter: a gather job ends with the resources kept for later use, and selling them is
- * a separate counter the agent chooses on its own. Only the mine step's measured yield
- * moves, bounded by what the authoritative read still shows aboard, so the cargo the
- * pilot arrived with — cabins, fitted spares — is untouched by construction (C8). A
- * station with no store leaves the take in the hold, reported as `held`, which is an
- * honest end to the trip and not a failure.
+ * a separate counter the agent chooses on its own.
+ *
+ * What moves is every hold row whose item is one of the site's own resources — whichever
+ * trip mined it, including one an interrupted run left aboard — and nothing else, so the
+ * pilot's cabins, spares and mission goods stay put without a keep list or a guess about
+ * what the hold held at departure (C8). A station with no store leaves the take in the
+ * hold, reported as `held`, which is an honest end to the trip and not a failure.
  */
 async function stowYield(account:ReadinessAccount,command:ReadinessCommand,
-  mined:MineYieldRow[],keep:string[]=[]):Promise<SettleOutcome> {
-  const own=new Set(keep);
+  mine:Set<string>):Promise<SettleOutcome> {
   await account.refresh();
   const credits=account.state.player?.credits??0;
   const outcome:SettleOutcome={sold:[],deposited:[],held:[],unsettled:[],
     credits_before:credits,credits_after:credits};
-  const rows=mined.filter(row=>row.quantity>0&&!own.has(row.item_id));
+  let carried=miningInventory(account.state),drift='';
+  const rows=Object.entries(carried).filter(([item_id,quantity])=>quantity>0&&mine.has(item_id))
+    .map(([item_id,quantity])=>({item_id,quantity}));
   if(!rows.length)return outcome;
   const dock=account.state.location?.docked_at??null;
   if(!dock)throw new Error('Stowing a take requires a docked ship; no station store is reachable');
   const stored=await hasStorage(command);
-  let carried=miningInventory(account.state),drift='';
 
   /** Send one deposit, then read the world. The reply's claim is not evidence. */
   const send=async(item_id:string,quantity:number)=>{
@@ -184,39 +149,18 @@ export async function gatherJob(account:ReadinessAccount,command:ReadinessComman
   plan:GatherPlan,options:GatherOptions={}):Promise<GatherOutcome> {
   const steps:GatherStep[]=[];
   let mined:MineYieldRow[]=[],settled:SettleOutcome|null=null,serviced:ServiceOutcome|null=null;
-  const {resume,onStep,mine:mineOptions,...travelOptions}=options;
+  const {onStep,mine:mineOptions,...travelOptions}=options;
   // maxJumps null: each leg may cross systems, bounded by the mood's fuel reserve rather
   // than a jump count, as travel is.
   const legOptions={maxJumps:null as number|null,...travelOptions,mood:plan.mood};
-  // The hold at the opening read is the pilot's own — cabins, fitted spares, whatever was
-  // already aboard — so the closing read expects it to still be there at the end.
-  const own=new Set(plan.keep??[]);
-  let from=0;
+  // What this site gives, read from the world at the site itself (`V2Location.resources`).
+  // That list, not the hold at departure, is what the job may stow.
+  const gives=new Set<string>();
   // Where the last step left the pilot. Every step reads before it decides, so this is what
   // the next step's reconciling read is measured against.
   let expected:Position|null=null,moved:Reconciliation|undefined;
 
-  if(resume) {
-    // Reconcile before deciding anything: the world moved while the runner was gone.
-    await account.refresh();
-    // A resumed job never saw its own departure, so `keep` is the whole of what it may
-    // treat as the pilot's own; everything else aboard is this job's take.
-    const aboard=Object.entries(miningInventory(account.state))
-      .filter(([item_id,quantity])=>quantity>0&&!own.has(item_id))
-      .map(([item_id,quantity])=>({item_id,quantity}));
-    const entry=entryStep(account.state,plan,aboard.length);
-    if(typeof entry!=='string') {
-      steps.push({name:'resume',outcome:'blocked',reason:entry.blocked});
-      return {outcome:'blocked',steps,yield:[],settled:null,serviced:null,
-        reason:`resume blocked: ${entry.blocked}`};
-    }
-    from=STEPS.indexOf(entry);
-    if(from>STEPS.indexOf('travel'))mined=addYield([],aboard);
-    expected=position(account.state);
-  }
-
   const attempt=async(name:GatherStepName,run:()=>Promise<Omit<GatherStep,'name'>|void>) => {
-    if(STEPS.indexOf(name)<from)return null; // its end state already holds; send nothing
     let report:Omit<GatherStep,'name'>|void;
     // Reconcile from live state before acting: the world moves between every look and every
     // act, and a step that mutates on a stale belief is the one thing this must not do.
@@ -244,15 +188,17 @@ export async function gatherJob(account:ReadinessAccount,command:ReadinessComman
   };
 
   let stop=await attempt('travel',async()=>{
-    await account.refresh();
-    for(const item_id of Object.keys(miningInventory(account.state)))own.add(item_id);
     await travelTo(account,command,plan.site,legOptions);
+    await account.refresh();
+    for(const row of account.state.location?.resources??[])gives.add(String(row.item_id));
   });
   if(stop)return stop;
 
   stop=await attempt('mine',async()=>{
     const dug=await mineToFull(account,command,mineOptions);
     mined=addYield(mined,dug.yield);
+    // A site that answered no resource list still gives what it just put in the hold.
+    for(const row of dug.yield)gives.add(row.item_id);
     if(dug.outcome==='failed')return {outcome:'failed',reason:dug.reason};
     // Tired ends the dig and flies the safe leg home; the pilot's own stop ends the job here.
     if(dug.outcome==='stopped'&&dug.reason!=='tired')return {outcome:'blocked',reason:dug.reason};
@@ -270,7 +216,7 @@ export async function gatherJob(account:ReadinessAccount,command:ReadinessComman
   if(stop)return stop;
 
   stop=await attempt('settle',async()=>{
-    settled=await stowYield(account,command,mined,plan.keep);
+    settled=await stowYield(account,command,gives);
     if(settled.unsettled.length)return {outcome:'blocked',
       reason:settled.unsettled.map(row=>`${row.item_id}: ${row.gap}`).join('; ')};
   });
@@ -281,7 +227,7 @@ export async function gatherJob(account:ReadinessAccount,command:ReadinessComman
 
   stop=await attempt('verify',async()=>{
     await account.refresh();
-    const gaps=differences(account.state,plan,settled,own);
+    const gaps=differences(account.state,plan,settled,gives);
     if(gaps.length)return {outcome:'failed',reason:gaps.join('; ')};
   });
   if(stop)return stop;

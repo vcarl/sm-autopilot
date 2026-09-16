@@ -8,7 +8,7 @@ early. It is also the easiest evening to stagnate in: the same belt, the same tr
 
 | Function | Promise |
 |---|---|
-| `gatherUntil({poi, base?, until?, maxTrips?, then?, keep?})` | one trip by default: out, hold full, back, stow, service; `until` loops trips until the store holds enough; `then: 'sell'` sells each take |
+| `gatherUntil({poi, base?, until?, maxTrips?, then?})` | one trip by default: out, hold full, back, stow, service; `until` loops trips until the store holds enough; `then: 'sell'` sells each take |
 | `survey()` | reveal hidden deep-core deposits (not built yet: `account().commands.spacemolt.survey_system()`) |
 
 Use `scout()` from the root to find belts: a POI with `type: asteroid_belt` (or `ice_field`,
@@ -66,3 +66,6 @@ every two minutes: ticks so far, hold used, what came aboard. A silent run is a 
 - Belts in police-0 systems have pirates. `scout` reports `police_level`.
 - Tired mid-dig ends the mining leg, flies the return leg, stows and services, then stops with
   `ended: 'tired'`. Resupplying clears it; the next `gatherUntil` continues.
+- A trip cut off out at the belt leaves its ore aboard. Re-run `gatherUntil` with the same
+  arguments: it re-enters at the leg the live world implies, and the stow at the base moves
+  every hold row the belt's own resources name — the earlier trip's ore included.

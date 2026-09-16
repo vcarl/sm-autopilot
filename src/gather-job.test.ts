@@ -13,7 +13,9 @@ const prices:Record<string,number>={ore:10,cabin_economy:2,steel_plate:1};
 
 function fixture() {
   const server={
-    location:{system_id:home.system_id,poi_id:home.poi_id,docked_at:home.base_id as string|null,in_transit:false},
+    location:{system_id:home.system_id,poi_id:home.poi_id,docked_at:home.base_id as string|null,in_transit:false,
+      // What the POI the ship is at gives, as the server answers it: the belt's ore, nothing at the station.
+      resources:[] as {item_id:string}[]},
     ship:{id:'ship',fuel:TANK,max_fuel:TANK,hull:100,max_hull:100,shield:5,max_shield:5,
       cargo_used:11,cargo_capacity:CAPACITY,incapacitated:false},
     player:{credits:1_000},
@@ -48,7 +50,8 @@ function fixture() {
     'spacemolt/get_system':()=>({structuredContent:{kind:'normal',system:{id:home.system_id,connections:[]}}}),
     'spacemolt/undock':()=>{server.location.docked_at=null;return {};},
     'spacemolt/dock':()=>{server.location.docked_at=home.base_id;return {};},
-    'spacemolt/travel':({id})=>{server.ship.fuel-=LEG;server.location.poi_id=String(id);return {};},
+    'spacemolt/travel':({id})=>{server.ship.fuel-=LEG;server.location.poi_id=String(id);
+      server.location.resources=String(id)===site.poi_id?[{item_id:'ore'}]:[];return {};},
     'spacemolt/mine':()=>{add('ore',2);return {command:'mine',delta:{details:{kind:'yield',resource_id:'ore',quantity:2}}};},
     'spacemolt_market/view_market':()=>({delta:{details:{action:'view_market',
       items:Object.entries(prices).map(([item_id,buy_price])=>({item_id,buy_price}))}}}),
@@ -99,5 +102,21 @@ test('a gather job stows what it mined and sells nothing; the starting hold stay
     [{item_id:'ore',quantity:4}]);
 
   // The verifying read agrees: what the pilot arrived with is still aboard, untouched.
+  assert.deepEqual(f.server.cargo,[{item_id:'cabin_economy',quantity:1},{item_id:'steel_plate',quantity:10}]);
+});
+
+test('the next run stows the ore an interrupted trip left aboard, by what the site gives',async()=>{
+  const f=fixture();
+  // Two ore from a trip that was cut off mid-mine, beside the pilot's own cabin and plates.
+  f.server.cargo.push({item_id:'ore',quantity:2});
+  f.server.ship.cargo_used+=2;
+  const result=await f.run();
+  assert.equal(result.outcome,'done',result.reason);
+
+  // This run mined 2 more; all 4 are the belt's ore, so all 4 are stowed — no keep list,
+  // no guess that the hold at departure was the pilot's own.
+  assert.deepEqual(result.yield,[{item_id:'ore',quantity:2}]);
+  assert.deepEqual(result.settled!.deposited,[{item_id:'ore',quantity:4}]);
+  assert.deepEqual(f.server.storage,[{item_id:'ore',quantity:4}]);
   assert.deepEqual(f.server.cargo,[{item_id:'cabin_economy',quantity:1},{item_id:'steel_plate',quantity:10}]);
 });
