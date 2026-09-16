@@ -17,7 +17,7 @@ const message=(error:unknown)=>error instanceof Error?error.message:String(error
 
 /** The book here, whole, read once and filtered in memory: one 190 KB reply beats twenty
  * filtered ones against the rate limit, and the pilot never sees it. */
-async function book():Promise<Map<string,MarketListingItem>> {
+export async function book():Promise<Map<string,MarketListingItem>> {
   const reply=details(await command('spacemolt_market/view_market',{})) as ViewMarketResponse;
   return new Map((reply.items??[]).map(item=>[item.item_id,item]));
 }

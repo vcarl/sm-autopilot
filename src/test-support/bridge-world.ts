@@ -47,6 +47,10 @@ export interface WorldOptions {
   /** The hold at the start. 12 of 12 is a full hold: a gather job mines nothing and still
    * has to come home, settle and service before it may call itself done. */
   cargoUsed?:number;
+  /** The hold at the start, row by row, when it is not `cargoUsed` of plain ore. */
+  cargo?:{item_id:string;quantity:number}[];
+  /** Book rows beside the default ore one, so a crafted output has a price here. */
+  market?:{item_id:string;item_name?:string;best_buy:number;best_buy_qty:number;best_sell:number;best_sell_qty:number}[];
   /** What the station store holds before anything is deposited. */
   store?:{item_id:string;name?:string;quantity:number}[];
   /** How much ore one mining cycle puts in the hold. */
@@ -117,6 +121,7 @@ export interface CraftOptions {
    * what was asked for when the inputs only stretch so far. */
   runs?:number;
   quantity?:number;
+  /** Omitted, the bench answers from what this base's store actually holds. */
   have_inputs?:boolean;
   have_credits?:boolean;
   /** Queue reads that still answer `queued` before the job is delivered. */
@@ -137,7 +142,7 @@ export function bridgeWorld(options:WorldOptions={}) {
       cpu_used:0,cpu_capacity:12,power_used:0,power_capacity:24,
       utility_slots:2,weapon_slots:1,defense_slots:1},
     player:{credits:1_000},
-    cargo:(cargoUsed?[{item_id:'ore',quantity:cargoUsed}]:[]) as {item_id:string;quantity:number}[],
+    cargo:(options.cargo??(cargoUsed?[{item_id:'ore',quantity:cargoUsed}]:[])) as {item_id:string;quantity:number}[],
     modules:[] as Record<string,any>[],
   });
   // The fit as the world starts, with the grid it draws: the ship's counters and the module
@@ -301,7 +306,10 @@ export function bridgeWorld(options:WorldOptions={}) {
     // The reply over-claims: only the cargo delta says what the trip actually took.
     'spacemolt/mine':()=>{add('ore',minePerCycle);
       return {command:'mine',delta:{details:{kind:'yield',resource_id:'ore',quantity:99}}};},
-    'spacemolt_market/view_market':()=>({delta:{details:{items:[{item_id:'ore',item_name:'Ore',buy_price:10,best_buy:10,best_buy_qty:99,best_sell:12,best_sell_qty:5}]}}}),
+    'spacemolt_market/view_market':()=>({delta:{details:{items:[
+      {item_id:'ore',item_name:'Ore',buy_price:10,best_buy:10,best_buy_qty:99,best_sell:12,best_sell_qty:5},
+      ...(options.market??[]).map(row=>({item_name:row.item_id,buy_price:row.best_sell,...row})),
+    ]}}}),
     'spacemolt/sell':params=>{
       const quantity=take(String(params.id),Number(params.quantity));
       account.server.player.credits+=quantity*10;
@@ -395,7 +403,9 @@ export function bridgeWorld(options:WorldOptions={}) {
       if(bench.refusal)throw new Error(bench.refusal);
       if(params.dry_run)return {delta:{details:{kind:'quote',action:'craft',recipe:bench.recipe,
         cost:{inputs:bench.inputs,labor:10,fee:9},credits_total:bench.credits_total,dry_run:true,
-        have_inputs:bench.have_inputs,have_credits:bench.have_credits,
+        have_inputs:options.craft?.have_inputs??bench.inputs.every(row=>
+          (store.find(current=>current.item_id===row.item_id)?.quantity??0)>=row.quantity),
+        have_credits:bench.have_credits,
         produces:bench.produces,quantity:bench.quantity,runs:bench.runs}}};
       // A commit escrows: the inputs leave this base's store and the credits leave the wallet.
       for(const row of bench.inputs) {
