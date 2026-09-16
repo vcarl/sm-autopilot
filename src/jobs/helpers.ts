@@ -3,6 +3,7 @@
  * applied, so a script never passes a mood, a reserve or a jump count of its own. */
 import {dockAt,type DockResult} from '../dock.ts';
 import {details} from '../response-details.ts';
+import {resolveAction} from '../commands-ref.ts';
 import {journalRun} from '../run-record.ts';
 import {serviceShip,type ServiceOutcome} from '../servicing.ts';
 import {viewStorage,type StorageView} from '../storage.ts';
@@ -139,6 +140,7 @@ export function step(ctx:Ctx,job:string,name:string,
  * buys twice buys twice. Read the outcome before sending the same mutation again.
  */
 export async function command(ctx:Ctx,action:string,params:Record<string,unknown>={}):Promise<unknown> {
-  await ctx.check(action);
-  return ctx.command(action,params);
+  const spelled=resolveAction(action);
+  await ctx.check(spelled);
+  return ctx.command(spelled,params);
 }

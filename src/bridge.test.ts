@@ -362,15 +362,25 @@ test('scripts lists what the run tool may name, each with the parameters it take
   }
 });
 
+test('a command line is spelled tool/action, and a bare action resolves to its tool', async () => {
+  const found=await fixture().dispatch('scripts',{action:'commands',search:'sell('}) as any;
+  assert.ok(found.lines.some((line:string)=>line.startsWith('- `spacemolt/sell(')),found.lines.join('\n'));
+  const {resolveAction}=await import('./commands-ref.ts');
+  assert.equal(resolveAction('view_market'),'spacemolt_market/view_market');
+  assert.equal(resolveAction('spacemolt/sell'),'spacemolt/sell');
+  assert.equal(resolveAction('sell'),'sell','two tools have a sell: stays bare');
+  assert.equal(resolveAction('no_such_thing'),'no_such_thing');
+});
+
 test('scripts commands answers with the real signatures from the library reference', async () => {
   const found=await fixture().dispatch('scripts',{action:'commands',search:'shipyard'}) as any;
   assert.ok(found.matched>=1,`a shipyard command exists in the reference: ${found.matched}`);
   // Signatures, not prose: every line names a command, what it takes and what it answers.
   for(const line of found.lines) {
-    assert.match(line,/^- `[a-z_]+\(/,line);
+    assert.match(line,/^- `[a-z_]+\/[a-z_]+\(/,line);
     assert.match(line.toLowerCase(),/shipyard/,line);
   }
-  assert.ok(found.lines.some((line:string)=>line.startsWith('- `commission_ship(')),
+  assert.ok(found.lines.some((line:string)=>line.startsWith('- `spacemolt_ship/commission_ship(')),
     `commissioning a hull is reachable: ${found.lines.join(' | ')}`);
   // A search nothing matches is an empty answer, never the whole reference.
   assert.deepEqual(await fixture().dispatch('scripts',{action:'commands',search:'zzzznope'}),
