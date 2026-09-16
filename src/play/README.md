@@ -71,7 +71,7 @@ same goes for `withdraw` of rows the store does not have and `sell` of rows you 
 | `goTo(id?)` | fly to a POI, base or system, jumping as needed; dock if a base; default home |
 | `service()` | full tank and hull, inside the mood's spend margin |
 | `stow(rows)` / `withdraw(rows)` / `storage(base?)` | station storage; rows you name (omit a row's `quantity` for all of it); readable from anywhere |
-| `prices(items?)` / `sell(rows, opts?)` / `buy(item, qty)` | the market here, live at the moment of the act; `sell(rows, {from:'store'})` empties the store a hold-load at a time |
+| `prices(items?)` / `sell(rows, opts?)` / `buy(item, qty)` | the market here, live at the moment of the act, and remembered for `spreads()`; `sell(rows, {from:'store'})` empties the store a hold-load at a time |
 | `refit({install,remove})` / `shipsForSale(opts?)` / `buyShip(id, opts?)` | the hangar: modules on and off within the grid, the hulls for sale here, the next one |
 | `missions()` / `acceptMission(id)` / `completeMissions()` / `abandonMission(id, opts?)` | the board here; the cheapest credits and xp early |
 | `note(text)` | write a line into the journal and the run's stream |
@@ -90,7 +90,7 @@ Everything game-shaped in a `detail` is the lib's own type (`SystemPoi`, `Missio
 
 Careers add more: [`mining/`](mining/README.md) (`gatherUntil`),
 [`hauling/`](hauling/README.md), [`industry/`](industry/README.md), [`combat/`](combat/README.md) (`hunt`, `salvage`),
-[`trading/`](trading/README.md), [`exploration/`](exploration/README.md), [`fleet/`](fleet/README.md).
+[`trading/`](trading/README.md) (`spreads`, `tradeRun`), [`exploration/`](exploration/README.md), [`fleet/`](fleet/README.md).
 Each folder's README is the skill for that career; the one for your stance is loaded beside this.
 
 ## Playing the intro stage

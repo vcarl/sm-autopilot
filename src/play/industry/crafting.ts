@@ -17,8 +17,10 @@ import type {Outcome,Row} from '../types.ts';
 
 /** The catalog recipe beside what it is worth here and what you already hold. */
 export type Craftable=Recipe&{
-  /** Value of outputs minus inputs at this base's live `best_buy`/`best_sell`, when quoted. */
-  margin?:number;
+  /** Value of outputs minus inputs at this base's live `best_buy`/`best_sell`, when quoted.
+   * `null` when this base has no buyer for an output: unknown, not zero. `spreads()` says
+   * which base does buy it. */
+  margin?:number|null;
   /** Each input against what you hold here (hold + store). */
   have:(RecipeInput&{have:number})[];
 };
@@ -74,14 +76,24 @@ async function queue():Promise<JobView[]> {
   return (Array.isArray(reply.jobs)?reply.jobs:[]) as JobView[];
 }
 
-/** What the outputs fetch at this base's top buy level.
+/** What the outputs fetch at this base's top buy level, or `null` when one of them has no
+ * buyer here at all. A missing buyer is not a price of zero: read as zero it says "crafting
+ * is worthless" when what it means is "not here" (session-sonnet-3).
  * ponytail: the top level only (`best_buy × best_buy_qty`), as `prices()` values a hold. A
  * run big enough to eat past it fetches less; `walkBook(row.buy_orders, qty)` is the exact
  * answer the day a margin has to be trusted to the credit. */
-const worth=(outputs:ItemQuantity[]|undefined,listed:Map<string,MarketListingItem>)=>
-  (outputs??[]).reduce((sum,out)=>{
+const worth=(outputs:ItemQuantity[]|undefined,listed:Map<string,MarketListingItem>):number|null=>{
+  let sum=0;
+  for(const out of outputs??[]) {
     const row=listed.get(out.item_id);
-    return sum+(row?row.best_buy*Math.min(out.quantity,row.best_buy_qty):0);},0);
+    if(!row||!(row.best_buy>0))return null;
+    sum+=row.best_buy*Math.min(out.quantity,row.best_buy_qty);
+  }
+  return sum;
+};
+/** The output items a set of recipes makes, for a `next` that names what to go price. */
+const outputsOf=(made:{outputs?:{item_id:string}[]}[])=>
+  [...new Set(made.flatMap(row=>(row.outputs??[]).map(out=>out.item_id)))];
 
 /** What can be made here, right now, out of what this base's store and the hold hold between
  * them: every catalog recipe whose inputs are all covered, each one dry-run for its real fee
@@ -115,27 +127,38 @@ export function recipes(search?:string):Promise<Outcome<{recipes:Craftable[]}>> 
     for(const cov of covered.slice(0,CAP)) {
       const have=(cov.recipe.inputs??[]).map(inp=>({...inp,have:stock[inp.item_id]??0}));
       const quote=await dryRun(cov.recipe.id,1);
-      made.push({...cov.recipe,have,
-        ...'refused' in quote?{}:{margin:Math.round(worth(quote.produces,listed)-Number(quote.credits_total??0))}});
+      if('refused' in quote){made.push({...cov.recipe,have});continue;}
+      const value=worth(quote.produces,listed);
+      made.push({...cov.recipe,have,margin:value===null?null:Math.round(value-Number(quote.credits_total??0))});
     }
     made.sort((a,b)=>(b.margin??-Infinity)-(a.margin??-Infinity));
     const cut=covered.length-made.length;
     const best=made[0];
+    // A margin of null everywhere is the honest headline: the bench works, the counter here
+    // does not buy what it makes. Saying "margin 0" sent a pilot away from crafting entirely.
+    const unpriced=made.filter(row=>row.margin===null||row.margin===undefined);
+    const noBuyer=made.length>0&&unpriced.length===made.length;
     return {status:'done',
       did:`${made.length} recipe${made.length===1?'':'s'} can be made at ${at.base} from what is held and stored here`
         +(cut>0?`; ${cut} more covered recipe${cut===1?'':'s'} not quoted`:'')
-        +(best?`; best margin ${best.name} ${best.margin??'unquoted'} cr`:''),
+        +(noBuyer?`, no buyer here for their outputs; see spreads()`
+          :best&&best.margin!=null?`; best margin ${best.name} ${best.margin} cr`
+          :best?`; best margin ${best.name} unquoted`:''),
       detail:{recipes:made},
-      next:best&&(best.margin??0)>0?[`quote('${best.id}', 10) then craft('${best.id}', 10)`]:[]};
+      next:noBuyer?[`spreads(${JSON.stringify(outputsOf(made).slice(0,5))}) — which base buys what this bench makes`,
+        `craft anyway and carry it: the margin is unknown here, not zero`]
+        :best&&(best.margin??0)>0?[`quote('${best.id}', 10) then craft('${best.id}', 10)`]:[]};
   });
 }
 
 /** One recipe's full cost against what it is worth here. */
 export type Quoted=CraftQuoteResponse&{
-  /** The quoted outputs at this base's top buy level. */
-  output_value:number;
-  /** `output_value` less `credits_total`. Positive is worth crafting here. */
-  margin:number;
+  /** The quoted outputs at this base's top buy level, or `null` when this base has no buyer
+   * for one of them. */
+  output_value:number|null;
+  /** `output_value` less `credits_total`. Positive is worth crafting here; `null` means
+   * unknown here, not zero — `spreads()` says which base buys the output. */
+  margin:number|null;
   /** Inputs this base's store is short of, with the local ask (`best_sell`) when it lists one. */
   missing:(RecipeInput&{have:number;ask:number})[];
 };
@@ -160,15 +183,21 @@ export function quote(recipeId:string,quantity=1):Promise<Outcome<Quoted>> {
       const have=held(store,inp.item_id);
       return {item_id:inp.item_id,quantity:inp.quantity,have,ask:listed.get(inp.item_id)?.best_sell??0};
     }).filter(row=>row.have<row.quantity);
-    const output_value=Math.round(worth(quoted.produces,listed));
-    const detail:Quoted={...quoted,output_value,margin:output_value-Number(quoted.credits_total??0),missing};
+    const valued=worth(quoted.produces,listed);
+    const output_value=valued===null?null:Math.round(valued);
+    const detail:Quoted={...quoted,output_value,
+      margin:output_value===null?null:output_value-Number(quoted.credits_total??0),missing};
     const made=(quoted.produces??[]).map(row=>`${row.quantity} ${row.item_id}`).join(', ')||'nothing';
+    const outs=outputsOf([{outputs:quoted.produces}]);
     return {status:'done',
-      did:`${quoted.recipe}: ${quoted.runs} run${quoted.runs===1?'':'s'} for ${quoted.credits_total} cr makes ${made}, worth ${output_value} cr here — margin ${detail.margin} cr`,
+      did:`${quoted.recipe}: ${quoted.runs} run${quoted.runs===1?'':'s'} for ${quoted.credits_total} cr makes ${made}`
+        +(output_value===null?`, no buyer here for their outputs; see spreads()`
+          :`, worth ${output_value} cr here — margin ${detail.margin} cr`),
       detail,
-      next:[...missing.map(row=>`${row.item_id}: store has ${row.have} of ${row.quantity}`
+      next:[...output_value===null?[`spreads(${JSON.stringify(outs)}) — which base buys it`]:[],
+      ...missing.map(row=>`${row.item_id}: store has ${row.have} of ${row.quantity}`
         +(row.ask>0?`; buy('${row.item_id}', ${row.quantity-row.have}, {deliverTo:'storage'}) at ${row.ask} cr each`:'; not listed here, stow() or mine it')),
-      ...detail.margin>0&&!missing.length?[`craft('${recipeId}', ${quantity})`]:[]].slice(0,3)};
+      ...(detail.margin??0)>0&&!missing.length?[`craft('${recipeId}', ${quantity})`]:[]].slice(0,3)};
   });
 }
 

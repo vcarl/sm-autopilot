@@ -1,10 +1,12 @@
 /** The market counter at the base you are docked at. Prices are read live at the moment of
  * the act, never from a plan. */
 import type {BuyResponse,EstimatePurchaseResponse,MarketListingItem,SellResponse,ViewMarketResponse,ViewStorageResponse} from '@spacemolt/lib';
+import {mkdirSync,readFileSync,renameSync,writeFileSync} from 'node:fs';
+import {join} from 'node:path';
 import {miningInventory} from '../mining-inventory.ts';
 import {details} from '../response-details.ts';
 import {bench,moduleSpec,room,whyNotFit} from './hangar.ts';
-import {acct,admit,checkStop,command,job,pilot,step,wanted} from './runtime.ts';
+import {acct,admit,checkStop,command,job,pilot,runtimeDir,step,wanted} from './runtime.ts';
 import {withdraw} from './storage.ts';
 import type {Outcome,Row,Want} from './types.ts';
 
@@ -15,11 +17,45 @@ export type Quote=MarketListingItem&{held:number;stored:number};
 const CAP=40;
 const message=(error:unknown)=>error instanceof Error?error.message:String(error);
 
+/** A book this pilot has stood in front of, kept so the next base knows what the last one
+ * paid. The game publishes no cross-station prices — `view_market` and `analyze_market` are
+ * both "here" — so memory is the only far price a factionless pilot can have. */
+export interface RememberedBook {base_id:string;at:string;items:MarketListingItem[]}
+const MEMORY='markets.json',BASES=12;
+
+/** Every book read in this runtime dir, newest base first. Empty without a runtime. */
+export function knownBooks():RememberedBook[] {
+  const dir=runtimeDir();
+  if(!dir)return [];
+  try {
+    const stored=JSON.parse(readFileSync(join(dir,MEMORY),'utf8')) as RememberedBook[];
+    return Array.isArray(stored)?stored.filter(row=>row?.base_id&&Array.isArray(row.items)):[];
+  } catch {return [];}
+}
+
+/** Temp file then rename, as `writeRun` does: a torn write would price a trip on a lie.
+ * ponytail: the last 12 bases, whole books. A pilot that walks a wider circuit than that
+ * wants the oldest entry aged out by tick, not by count. */
+function remember(base_id:string,items:MarketListingItem[]):void {
+  const dir=runtimeDir();
+  if(!dir||!base_id)return;
+  const kept=[{base_id,at:new Date().toISOString(),items},...knownBooks().filter(row=>row.base_id!==base_id)].slice(0,BASES);
+  try {
+    mkdirSync(dir,{recursive:true});
+    const path=join(dir,MEMORY),temp=`${path}.${process.pid}.tmp`;
+    writeFileSync(temp,JSON.stringify(kept),{mode:0o600});
+    renameSync(temp,path);
+  } catch {/* a market this pilot cannot remember is still a market it can trade at */}
+}
+
 /** The book here, whole, read once and filtered in memory: one 190 KB reply beats twenty
- * filtered ones against the rate limit, and the pilot never sees it. */
+ * filtered ones against the rate limit, and the pilot never sees it. Every read is also
+ * written to this runtime's market memory, which is what `spreads()` reads. */
 export async function book():Promise<Map<string,MarketListingItem>> {
   const reply=details(await command('spacemolt_market/view_market',{})) as ViewMarketResponse;
-  return new Map((reply.items??[]).map(item=>[item.item_id,item]));
+  const items=reply.items??[];
+  remember(acct().state.location?.docked_at??'',items);
+  return new Map(items.map(item=>[item.item_id,item]));
 }
 
 /** What things are worth here. Default: every item in the hold and in this base's store.

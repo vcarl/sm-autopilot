@@ -44,6 +44,21 @@ test('recipes lists what the store can make, with the margin in credits',async()
   } finally {unbind();}
 });
 
+test('recipes reports a null margin, not zero, when this counter buys none of the outputs',async()=>{
+  // The bench works and the store is stocked; the only thing missing is a buyer for plate.
+  const f=world({mood:'Focused'},{store:[{item_id:'iron_ore',quantity:20}],
+    markets:{sol_base:[{item_id:'iron_ore',best_buy:3,best_buy_qty:99,best_sell:4,best_sell_qty:99}]}});
+  try {
+    const out=await recipes();
+    assert.equal(out.status,'done',out.why);
+    const row=out.detail.recipes[0]!;
+    assert.equal(row.margin,null,'unknown here, not worthless');
+    assert.match(out.did,/no buyer here for their outputs; see spreads\(\)/);
+    assert.match(out.next[0]!,/spreads\(\["steel_plate"\]\)/);
+    assert.equal(f.count('spacemolt/craft'),1,'still quoted: the bench is fine, the market is not');
+  } finally {unbind();}
+});
+
 test('recipes says so when the ore is at a base with no bench',async()=>{
   const f=world({mood:'Focused'},{services:['refuel','storage'],store:[{item_id:'iron_ore',quantity:20}]});
   try {

@@ -55,7 +55,16 @@ export interface WorldOptions {
   /** The hold's size. 12 is the Cobble's; freight needs 100 free for one package. */
   cargoCapacity?:number;
   /** Book rows beside the default ore one, so a crafted output has a price here. */
-  market?:{item_id:string;item_name?:string;best_buy:number;best_buy_qty:number;best_sell:number;best_sell_qty:number}[];
+  market?:MarketRow[];
+  /** Books at other bases, keyed by base id. `view_market` answers with the one for the base
+   * the ship is docked at, so a second visit reads a different counter — which is the only
+   * way a pilot learns that the ore nobody buys here sells there. A base listed here answers
+   * with exactly these rows, default ore row and all. */
+  markets?:Record<string,MarketRow[]>;
+  /** The faction trade ledger `query_trade_intel` answers with. Absent means no faction:
+   * the command throws, as it does for a pilot with no trade-intel facility. */
+  tradeIntel?:{base_id:string;system_id?:string;station_name?:string;submitted_at_tick?:number;
+    items:{item_id:string;item_name?:string;best_buy:number;best_sell?:number;buy_volume?:number;sell_volume?:number}[]}[];
   /** What the station store holds before anything is deposited. */
   store?:{item_id:string;name?:string;quantity:number}[];
   /** How much ore one mining cycle puts in the hold. */
@@ -74,6 +83,9 @@ export interface WorldOptions {
 
 /** The freight board and the carrier behind it. A listing's `reserved_exposure` is the
  * liability it puts against the tier's allowance, which is the number a board filters on. */
+export interface MarketRow {item_id:string;item_name?:string;best_buy:number;best_buy_qty:number;
+  best_sell:number;best_sell_qty:number}
+
 export interface ShippingOptions {
   listings?:{id:string;destination_base_id:string;base_reward:number;reserved_exposure?:number;
     package_id?:string;origin_base_id?:string;eligible?:boolean;reason?:string}[];
@@ -492,10 +504,27 @@ export function bridgeWorld(options:WorldOptions={}) {
     // The reply over-claims: only the cargo delta says what the trip actually took.
     'spacemolt/mine':()=>{add('ore',minePerCycle);
       return {command:'mine',delta:{details:{kind:'yield',resource_id:'ore',quantity:99}}};},
-    'spacemolt_market/view_market':()=>({delta:{details:{items:[
-      {item_id:'ore',item_name:'Ore',buy_price:10,best_buy:10,best_buy_qty:99,best_sell:12,best_sell_qty:5},
-      ...(options.market??[]).map(row=>({item_name:row.item_id,buy_price:row.best_sell,...row})),
-    ]}}}),
+    // The counter you are standing at, never a global book: `markets[base]` overrides the
+    // default entirely, so a base with no buyer for ore is expressible.
+    'spacemolt_market/view_market':()=>{
+      const at=account.server.location.docked_at??'';
+      const own=options.markets?.[at];
+      const rows=own??[{item_id:'ore',item_name:'Ore',best_buy:10,best_buy_qty:99,best_sell:12,best_sell_qty:5},
+        ...options.market??[]];
+      return {delta:{details:{items:rows.map(row=>({item_name:row.item_id,buy_price:row.best_sell,...row}))}}};
+    },
+    'spacemolt_intel/query_trade_intel':params=>{
+      if(!options.tradeIntel)throw new Error('You are not in a faction');
+      const item=params.item_id===undefined?undefined:String(params.item_id);
+      const entries=options.tradeIntel
+        .map(row=>({base_id:row.base_id,system_id:row.system_id??'deep_range',
+          station_name:row.station_name??row.base_id,submitted_at_tick:row.submitted_at_tick??100,
+          submitted_by:'someone',submitter_name:'Someone',
+          items:row.items.filter(cell=>!item||cell.item_id===item)
+            .map(cell=>({item_name:cell.item_id,best_sell:0,buy_volume:0,sell_volume:0,...cell}))}))
+        .filter(row=>row.items.length);
+      return {structuredContent:{entries,intel_level:2,showing:entries.length,total:entries.length}};
+    },
     'spacemolt/sell':params=>{
       const quantity=take(String(params.id),Number(params.quantity));
       account.server.player.credits+=quantity*10;

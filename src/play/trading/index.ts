@@ -1,1 +1,1 @@
-export {findSpread,tradeRun,type Spread,type Traded} from './trading.ts';
+export {spreads,tradeRun,type Spread,type Traded} from './trading.ts';
