@@ -1,104 +1,29 @@
-"""A juncture: a cron fire opens a fresh conversation, reads the menu, dispatches, and exits.
+"""A juncture: a cron fire opens a fresh conversation, reads the present, and plays or holds.
 
-The script then runs on in the bridge, which outlives the conversation (N5). These are the
-three things a fire depends on: the idle fire, the busy fire that must change nothing (N4),
-and the job definition that carries the stance through the cron toolset clamp (N18/N20).
+What a fire depends on: the busy fire that must change nothing (N4), the job definition that
+carries the stance through the cron toolset clamp (N18/N20), and the contract the juncture
+prompt states. The dispatch-era tests (a `script`/`params` tool that returned while the run
+went on) are gone with that design: spacemolt_run now writes and runs pilot/index.ts and
+blocks until it ends.
 """
 from __future__ import annotations
 
 import copy
 import json
-import sys
-
-import pytest
 
 import spacemolt
 from spacemolt import juncture, service
 
-# A bridge that starts one script and keeps it running: nothing here ever finishes, so a
-# tool that returns at all returned before its run ended.
-FAKE_BRIDGE = '''
-import json, sys
 
-running, starts = None, 0
-MENU = {"stance": "Prospector", "mood": "Focused", "objective": "fill the hold",
-        "present": {"docked_at": "sol_base", "fuel": 100, "credits": 1000},
-        "options": [{"job": "J1 Hold full of ore", "reason": "belt quoted", "admissible": True,
-                     "bounds": {"spend": 200, "fuelReserve": 24, "walkAway": 0.4}}],
-        "unavailable": [], "last": None}
-print(json.dumps({"event": "ready"}), flush=True)
-for line in sys.stdin:
-    request = json.loads(line)
-    action, params = request["action"], request.get("params") or {}
-    if action == "menu":
-        result = dict(MENU) if running is None else {"busy": True, **running}
-    elif action == "run":
-        if running is not None:
-            result = {"accepted": False, "reason": "a script is already running", **running}
-        else:
-            starts += 1
-            running = {"script": params["script"],
-                       "record": {"script": params["script"], "started": "2026-09-15T00:00:00Z",
-                                  "last_job": "gather", "ended": False}}
-            result = {"accepted": True, "dispatched": params, **running}
-    elif action == "status":
-        result = {"running": running is not None, "starts": starts, **(running or {})}
-    else:
-        result = {"unexpected": action}
-    print(json.dumps({"id": request["id"], "ok": True, "result": result}), flush=True)
-'''
-
-
-@pytest.fixture
-def bridged(tmp_path, monkeypatch):
-    """The plugin's tools against a stub bridge; no game connection, no model."""
-    stub = tmp_path / "fake_bridge.py"
-    stub.write_text(FAKE_BRIDGE)
-    credentials = tmp_path / "credentials.txt"
-    credentials.write_text("Username: pilot\nPassword: secret\n")
-    monkeypatch.setenv("SPACEMOLT_CREDENTIALS_FILE", str(credentials))
-    monkeypatch.setattr(service, "BRIDGE_COMMAND", [sys.executable, str(stub)])
-    yield
-    service.close_bridge()
-
-
-def test_an_idle_fire_is_given_the_menu_then_dispatches_and_returns_while_the_script_runs(bridged, monkeypatch):
-    monkeypatch.setattr(juncture, "MENU_ENABLED", True)  # this pins the menu path
-    # The fire's first context carries the menu; no tool fetched it.
-    context = juncture.juncture_context({"platform": "cron"})
-    assert "J1 Hold full of ore" in context and "Prospector" in context
-    assert "fill the hold" in context, "the objective the options are weighed against"
-    # A session that is not a juncture never opens the game to build a prompt (N19).
-    assert juncture.juncture_context({"platform": "discord"}) == ""
-    assert juncture.juncture_context({}) == ""
-
-    trips = {"poi_id": "belt", "item_id": "ore", "quantity": 36, "max_runs": 3}
-    started = json.loads(spacemolt._run({"script": "gather-until", "params": trips}))
-    assert started["accepted"] is True
-    assert started["script"] == "gather-until"
-    # The script and its parameters reach the runner exactly as the agent named them.
-    assert started["dispatched"] == {"script": "gather-until", "params": trips}
-    # The conversation may end here: the run is still on its first job.
-    assert started["record"]["ended"] is False
-    assert json.loads(spacemolt._status({}))["running"] is True
-    published = {definition["name"] for definition in spacemolt.TOOL_DEFINITIONS}
-    assert "spacemolt_menu" not in published, "the menu is delivered into the fire, never fetched"
-
-
-def test_a_fire_while_a_script_runs_changes_nothing(bridged):
-    spacemolt._run({"script": "gather", "params": {"poi_id": "belt"}})
-
+def test_a_fire_while_a_script_runs_changes_nothing(monkeypatch):
+    """N4: a fire that lands mid-run offers nothing to choose — it says so and ends the turn."""
+    monkeypatch.setattr(service, "call", lambda action, params=None: {
+        "busy": True, "fn": "gatherUntil", "elapsed_s": 96, "commands": 14})
     busy = juncture.juncture_context({"platform": "cron"})
-    assert "gather" in busy and "end the turn" in busy
-    assert "J1 Hold full of ore" not in busy, "a busy juncture offers nothing to choose"
-
-    refused = json.loads(spacemolt._run({"script": "gather", "params": {"poi_id": "other"}}))
-    assert refused["accepted"] is False
-    assert refused["script"] == "gather"
-
-    status = json.loads(spacemolt._status({}))
-    assert status["starts"] == 1, "the busy fire must not have started a second script"
-    assert status["record"]["ended"] is False
+    assert "a run is still in flight" in busy and "gatherUntil" in busy
+    assert "96" in busy and "14" in busy, "the fire is told how far along the run is"
+    assert "end the turn" in busy
+    assert "option" not in busy, "a busy juncture offers nothing to choose"
 
 
 def test_the_juncture_job_carries_the_stance_and_passes_the_cron_toolset_clamp(tmp_path):
@@ -111,7 +36,8 @@ def test_the_juncture_job_carries_the_stance_and_passes_the_cron_toolset_clamp(t
     job = juncture.ensure_juncture_job()
 
     stored = cron_jobs.get_job(job["id"])
-    assert stored["skills"] == ["spacemolt", "spacemolt-prospector"]
+    # The stance's skill is its career folder's README (STANCE_FOLDER), not the stance name.
+    assert stored["skills"] == ["spacemolt", "spacemolt-mining"]
     # The job tools and the reads; never the operator's toolset — a pilot does not direct itself.
     assert stored["enabled_toolsets"] == ["spacemolt", "spacemolt_observe"]
     assert "spacemolt_operator" not in stored["enabled_toolsets"]
@@ -139,7 +65,7 @@ def test_the_juncture_job_carries_the_stance_and_passes_the_cron_toolset_clamp(t
     juncture.write_pilot({"name": "kvothe", "stance": "Hunter", "mood": "Aggressive"})
     again = juncture.ensure_juncture_job()
     assert again["id"] == job["id"]
-    assert cron_jobs.get_job(again["id"])["skills"] == ["spacemolt", "spacemolt-hunter"]
+    assert cron_jobs.get_job(again["id"])["skills"] == ["spacemolt", "spacemolt-combat"]
     assert len(cron_jobs.load_jobs()) == 1
 
 
@@ -182,33 +108,14 @@ def _rendered(monkeypatch, menu: dict, *, menu_on: bool = True) -> tuple[str, di
     return context, json.loads(context.split("\n", 1)[1])
 
 
-def test_every_option_carries_the_call_it_would_be_taken_with(monkeypatch):
-    _, facts = _rendered(monkeypatch, _menu(12, last=FULL_GATHER))
-    published = {definition["name"] for definition in spacemolt.TOOL_DEFINITIONS}
-    for option in facts["options"]:
-        assert "call" in option, f"{option['job']}: no call to take it with"
-        if option["call"] is None:
-            continue  # hold, watch, and the counters no tool reaches yet
-        assert option["call"]["tool"] in published, option["job"]
-        assert isinstance(option["call"]["params"], dict), option["job"]
-    gather = next(option for option in facts["options"]
-                  if (option["call"] or {}).get("tool") == "spacemolt_run")
-    # Two mining sites are admissible, so the option offers both: the parameters carry the
-    # choice the pilot makes, never a destination chosen for it.
-    poi_id = gather["call"]["params"]["params"]["poi_id"]
-    assert isinstance(poi_id, list) and len(poi_id) == 2, poi_id
-    # The base belongs in base_id. A station id in poi_id is the mistake the menu prevents.
-    assert gather["call"]["params"]["params"]["base_id"] == "sol_base"
-    assert "sol_base" not in poi_id
-
-
 def test_a_full_hold_says_what_it_costs_and_why_the_last_gather_came_back_empty(monkeypatch):
     context, facts = _rendered(monkeypatch, _menu(0, last=EMPTY_GATHER))
     assert "hold full" in context and "a gather needs free hold" in context
     # The line says the act, not just the cost: stow is what frees the hold here.
-    assert "Run stow" in context and "script stow" in context
+    # The line says the acts, not just the cost: selling or stowing is what frees the hold.
+    assert "sell(rows) or stow(rows)" in context and "gatherUntil" in context
     assert facts["present"]["hold_full"]
-    assert "hold was full at departure" in facts["last"]["cause"]
+    assert "the hold was full (cargo_free 0)" in facts["last"]["cause"]
 
     # Room in the hold leaves both off: the fact is timely, not permanent furniture.
     _, roomy = _rendered(monkeypatch, _menu(12, last=FULL_GATHER))
@@ -240,27 +147,31 @@ def test_an_operators_instruction_reaches_the_juncture_and_outranks_the_objectiv
 def test_the_cron_prompt_leaves_the_tools_to_their_own_descriptions():
     """The turn contract only: nothing about which tool does what (playtest 2026-09-15).
 
-    The one exception is the save at rest. Reviewing the shift's code is an act no tool
-    description teaches — the reflect tool speaks for goal, stance and mood — so the prompt
-    that owns rest names the tool that keeps a rewritten script.
+    The exception is how a juncture plays: writing and running pilot/index.ts is the turn
+    contract itself, so the prompt names the two tools that do it — the check before the run,
+    and the run. Everything else is left to its own description.
     """
     named = sorted(definition["name"] for definition in spacemolt.TOOL_DEFINITIONS
                    if definition["name"] in juncture.JUNCTURE_PROMPT)
-    assert named == ["spacemolt_scripts"], f"the prompt names tools the descriptions own: {named}"
+    assert named == ["spacemolt_check", "spacemolt_run"], \
+        f"the prompt names tools the descriptions own: {named}"
     assert "three ways" in juncture.JUNCTURE_PROMPT, "it still teaches how a juncture ends"
 
 
-def test_the_prompt_says_a_juncture_acts_by_running_a_script_and_rest_reviews_them():
-    """Code is the gameplay interface: acting is running a script, and rest reviews the
-    scripts the shift was flown with before the next goal is chosen."""
+def test_the_prompt_says_a_juncture_plays_by_writing_pilot_index_and_rest_reviews_it():
+    """Code is the gameplay interface: playing is writing and running pilot/index.ts, and rest
+    reviews the file the shift was flown with before the next goal is chosen."""
     prompt = juncture.JUNCTURE_PROMPT
-    assert "running a script" in prompt, "acting is running a script"
-    for kind in ("the runner ships", "one you saved", "one you write here"):
+    assert "writing pilot/index.ts with spacemolt_run" in prompt, "playing is running the file"
+    assert "spacemolt_check first when unsure" in prompt
+    for kind in ("play", "hold", "rest at home"):
         assert kind in prompt, kind
-    assert "A script you save is how you keep a way of doing something" in prompt
+    # The skill is the library, and the escape hatch when nothing in it fits is named.
+    assert "the play library's README" in prompt and "`account()` is the whole game" in prompt
+    assert "pilot/<name>.ts" in prompt, "helpers worth keeping have somewhere to live"
     # Rest is a code review before it is a choice of goal.
-    assert "review the scripts you saved against how their runs ended" in prompt
-    assert "rewrite or save" in prompt and "spacemolt_scripts save" in prompt
+    assert "review pilot/index.ts against how its runs ended" in prompt
+    assert "then pick the goal, the stance and the mood" in prompt
 
 
 def test_the_rest_context_carries_the_scripts_the_review_reads(monkeypatch):
@@ -277,7 +188,7 @@ def test_the_rest_context_carries_the_scripts_the_review_reads(monkeypatch):
     assert "buy-hull" in context and "no shipyard here" in context
     # The context says what the section is for, not just that it is there.
     assert "`scripts` is the pilot's own code beside how it ran" in context
-    assert "save a better version under the same name" in context
+    assert "write a better version (spacemolt_check with `source`)" in context
 
 
 def test_loading_the_plugin_wakes_an_idle_pilot_once_and_leaves_a_running_one_alone(monkeypatch):
