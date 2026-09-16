@@ -80,7 +80,10 @@ function render(entry:Record<string,any>):string|null {
   switch(text(entry.event)||(entry.request?'request':'')) {
     case 'run':
       if(entry.phase==='started')return `run ${text(entry.script)} ${asked(entry.params)}`;
-      if(entry.phase==='ended')return `${text(entry.script)} ${text(entry.outcome)}: ${produced(entry)}`;
+      if(entry.phase==='ended') {
+        const what=produced(entry),head=`${text(entry.script)} ${text(entry.outcome)}`;
+        return what.startsWith(head)?what:`${head}: ${what}`;
+      }
       return null;
     case 'step':return step(entry);
     // A command that took is already in the step line above it; one that did not is the
