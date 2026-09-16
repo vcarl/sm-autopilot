@@ -34,7 +34,7 @@ JOURNAL_FILE = "gameplay.jsonl"
 
 JUNCTURE_PROMPT = (
     "A SpaceMolt juncture: the pilot is between jobs and you choose what it does next.\n"
-    "Read the context in front of you — the present, the options and how the last script "
+    "Read the context in front of you — the present and how the last script "
     "ended. If it says a script is still running, say so in one line and end the turn.\n"
     "Otherwise end the juncture one of three ways: act, by running a script — one the "
     "runner ships, one you saved, or one you write here for this move — and ending the "
@@ -56,6 +56,11 @@ JUNCTURE_PROMPT = (
 
 #: The refusals go first when a menu will not fit; the options are the point of it.
 _CONTEXT_BUDGET = 3_500
+#: Carl, 2026-09-16: the menu is off for a while to see how the pilot chooses without one. Off,
+#: the juncture still carries the present, the instruction, the objective and the last run;
+#: the options and refusals the rules computed are dropped before delivery. Flip to True to
+#: restore; nothing else changes.
+MENU_ENABLED = False
 
 
 def juncture_context(session_info: Mapping[str, Any] | None = None) -> str:
@@ -80,6 +85,11 @@ def juncture_context(session_info: Mapping[str, Any] | None = None) -> str:
     if menu.get("at_rest"):
         return _rest_context(menu)
     _hold_full(menu)
+    if not MENU_ENABLED:
+        menu.pop("options", None)
+        menu.pop("unavailable", None)
+        body = json.dumps(menu, separators=(",", ":"), sort_keys=True)
+        return "SpaceMolt juncture — the present and how the last script ended:\n" + body
     body = json.dumps(menu, separators=(",", ":"), sort_keys=True)
     if len(body) > _CONTEXT_BUDGET:
         menu.pop("unavailable", None)

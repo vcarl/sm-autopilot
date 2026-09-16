@@ -62,7 +62,8 @@ def bridged(tmp_path, monkeypatch):
     service.close_bridge()
 
 
-def test_an_idle_fire_is_given_the_menu_then_dispatches_and_returns_while_the_script_runs(bridged):
+def test_an_idle_fire_is_given_the_menu_then_dispatches_and_returns_while_the_script_runs(bridged, monkeypatch):
+    monkeypatch.setattr(juncture, "MENU_ENABLED", True)  # this pins the menu path
     # The fire's first context carries the menu; no tool fetched it.
     context = juncture.juncture_context({"platform": "cron"})
     assert "J1 Hold full of ore" in context and "Prospector" in context
@@ -172,8 +173,10 @@ FULL_GATHER = {"script": "gather", "outcome": "done",
                          "yield": [{"item_id": "ore", "quantity": 12}]}]}
 
 
-def _rendered(monkeypatch, menu: dict) -> tuple[str, dict]:
-    """The context a fire is handed, and the facts inside it."""
+def _rendered(monkeypatch, menu: dict, *, menu_on: bool = True) -> tuple[str, dict]:
+    """The context a fire is handed, and the facts inside it. The menu path is pinned on by
+    default; the switch is Carl's experiment (2026-09-16), tested on its own below."""
+    monkeypatch.setattr(juncture, "MENU_ENABLED", menu_on)
     monkeypatch.setattr(service, "call", lambda action, params=None: copy.deepcopy(menu))
     context = juncture.juncture_context({"platform": "cron"})
     return context, json.loads(context.split("\n", 1)[1])
@@ -293,3 +296,10 @@ def test_loading_the_plugin_wakes_an_idle_pilot_once_and_leaves_a_running_one_al
     spacemolt.wake_on_load()
     job, = cron_jobs.load_jobs()
     assert job["next_run_at"] is not None and job["state"] == "scheduled"
+
+
+def test_with_the_menu_off_the_juncture_keeps_the_present_and_the_last_run_only(monkeypatch):
+    context, facts = _rendered(monkeypatch, _menu(0, last=FULL_GATHER), menu_on=False)
+    assert "options" not in facts and "unavailable" not in facts
+    assert facts["present"]["cargo_free"] == 0 and facts["last"]["script"] == "gather"
+    assert "option" not in context.split("\n", 1)[0]

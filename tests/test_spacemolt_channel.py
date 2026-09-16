@@ -102,7 +102,8 @@ def test_an_inquiry_is_answered_from_state_and_journal_with_nothing_changed(brid
     assert service.pilot_path().read_bytes() == before
 
 
-def test_direction_sets_objective_and_permissions_and_lands_at_the_next_juncture(bridged):
+def test_direction_sets_objective_and_permissions_and_lands_at_the_next_juncture(bridged, monkeypatch):
+    monkeypatch.setattr(juncture, "MENU_ENABLED", True)  # this pins the menu path
     juncture.write_pilot(dict(PILOT))
 
     answer = spacemolt._direct({"objective": "buy a hauler", "permissions": {"credit_reserve": 2000}})
