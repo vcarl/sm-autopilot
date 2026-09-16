@@ -20,7 +20,7 @@ import {orient, missions, acceptMission, exploreNearby, note} from 'play';
 export default async function main() {
   await orient();
   const board = await missions();
-  for (const m of board.detail.board.filter(m => m.fits === 'goTo').slice(0, 2))
+  for (const m of board.detail.board.filter(m => m.fits === 'goTo').slice(0, board.detail.slots_free))
     await acceptMission(m.mission_id);                  // "visit N stations" pays for the trip
   const trip = await exploreNearby({systems: 3, jumps: 2, survey: true});
   note(`saw ${trip.detail.visited.map(v => v.name).join(', ')}`);

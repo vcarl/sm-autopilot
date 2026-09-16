@@ -170,8 +170,24 @@ export function bridgeWorld(options:WorldOptions={}) {
       poi_id:account.server.location.poi_id,cargo:structuredClone(fauna.drops),modules:[]});
     battle=null;
   };
+  // The board at this base, and the missions already taken: the game caps the active list
+  // at five, and a sixth accept is refused by the server.
+  const board=[{mission_id:'m1',title:'Deliver ore',type:'delivery',difficulty:1,
+    objectives:[{item_id:'ore',quantity:20,description:'20 ore to Sol Base'}],rewards:{credits:1_000}},
+  {mission_id:'m2',title:'Visit the outpost',type:'visit',difficulty:1,
+    objectives:[{system_id:'deep_range',description:'visit Deep Range Outpost'}],rewards:{credits:500}}];
+  const taken:Record<string,any>[]=[];
   const sent:{action:string;params:Record<string,unknown>}[]=[];
   const handlers:Record<string,(params:Record<string,unknown>)=>unknown>={
+    'spacemolt/get_missions':()=>({structuredContent:{missions:structuredClone(board)}}),
+    'spacemolt/get_active_missions':()=>({structuredContent:{missions:{active:structuredClone(taken),max_missions:5}}}),
+    'spacemolt/accept_mission':params=>{
+      const wanted=board.find(row=>row.mission_id===String(params.id));
+      if(!wanted)throw new Error(`No mission ${params.id} on this board`);
+      if(taken.length>=5)throw new Error('5 of 5 missions already active');
+      taken.push({...structuredClone(wanted),percent_complete:0});
+      return {structuredContent:{mission_id:wanted.mission_id,title:wanted.title}};
+    },
     'spacemolt/get_nearby':()=>({structuredContent:{poi_id:account.server.location.poi_id,
       count:fauna.creatures.length,creature_count:fauna.creatures.length,
       creatures:structuredClone(fauna.creatures),nearby:[],pirates:[],empire_npcs:[],prizes:[],
@@ -317,6 +333,6 @@ export function bridgeWorld(options:WorldOptions={}) {
     assert.ok(Object.hasOwn(handlers,action),`Unexpected command: ${action}`);
     return handlers[action]!(params);
   };
-  return {account,sent,command,store,queued,
+  return {account,sent,command,store,queued,board,taken,
     count:(action:string)=>sent.filter(call=>call.action===action).length};
 }

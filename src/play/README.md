@@ -97,7 +97,8 @@ out is: first 2,500–10,000 credits, skills 1–3 in mining, trading and naviga
 2. `scout()`. Find a belt (`type: asteroid_belt`) and a station with `market` and `storage`.
    No belt in this system: `scout('<neighbour system id>')` from `connections`, then `goTo` it.
 3. `missions()` at every dock. A difficulty-1 "deliver 20 ore" or "visit X" mission is credits
-   for a trip you were making anyway. Max 5 active. Accept what matches; complete on return.
+   for a trip you were making anyway. Max 5 active: `detail.slots_free` says how many you may
+   still take, so slice the board by it. Accept what matches; complete on return.
 4. `gatherUntil({poi})`: out, mine until full, back to the base you left, stow, service. One call
    is one trip of ~15 minutes. `gatherUntil({poi, until: {item, quantity}})` loops trips.
 5. `prices()` then `sell(rows)`. Trading xp scales with credit volume; ore sells for little, refined

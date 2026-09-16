@@ -7,6 +7,7 @@ import {bind,command,job,outcome,pilot,stop,unbind,type Pilot} from './runtime.t
 import {service} from './service.ts';
 import {sell,prices} from './market.ts';
 import {stow,withdraw} from './storage.ts';
+import {acceptMission,missions} from './missions.ts';
 
 function world(record:Pilot,services=['refuel','repair','storage']) {
   const game=bridgeWorld({services});
@@ -119,6 +120,24 @@ test('sell, stow and withdraw take rows by name and never default to the whole h
     assert.equal(took.status,'partial');
     assert.deepEqual(took.detail.moved,[{item_id:'ore',quantity:3},{item_id:'scrap',quantity:2}]);
     assert.equal(took.detail.short[0]!.why,'not in store');
+  } finally {unbind();}
+});
+
+test('the board leads with the free slots, and a full one refuses without sending',async()=>{
+  const f=world({mood:'Focused'});
+  try {
+    const board=await missions();
+    assert.equal(board.detail.slots_free,5);
+    assert.match(board.did,/^5 slot\(s\) free: 0 of 5 active; 2 on the board/);
+    const took=await acceptMission('m1');
+    assert.equal(took.status,'done',took.why);
+    assert.equal((await missions()).detail.slots_free,4);
+    // Five taken is the cap: the refusal is local and the counter never hears about it.
+    for(const id of ['m1','m1','m1','m1'])f.taken.push({mission_id:id,percent_complete:0});
+    const refused=await acceptMission('m2');
+    assert.equal(refused.status,'refused');
+    assert.match(refused.why!,/no slot free: 5 of 5/);
+    assert.equal(f.count('spacemolt/accept_mission'),1,'only the admitted accept was sent');
   } finally {unbind();}
 });
 

@@ -25,25 +25,31 @@ function offer(mission:MissionInfo):Offer {
 
 /** Active missions from the state section `get_active_missions` refreshes. */
 async function active():Promise<V2Missions> {
-  const reply=details(await command('spacemolt/get_active_missions',{})) as {missions?:V2Missions};
-  const section=reply.missions??(acct().state.missions as V2Missions|undefined);
+  const reply=details(await command('spacemolt/get_active_missions',{})) as {missions?:V2Missions}&Partial<V2Missions>;
+  // The reply itself is the section on a server that answers it flat; the cache is the last
+  // resort, and a stale cache is how a full board looks like a free slot.
+  const section=reply.missions??(Array.isArray(reply.active)?reply as V2Missions:acct().state.missions as V2Missions|undefined);
   return {active:section?.active??[],max_missions:section?.max_missions??5};
 }
 
 /** The board here and your active missions, compact. Over `get_missions` +
  * `get_active_missions` it adds: dialog and description dropped, one `wants` line and a
  * `fits` guess per offer. Reads only. `next` names the offers that fit the intro loops. */
-export function missions():Promise<Outcome<{board:Offer[];active:ActiveMissionInfo[];max:number}>> {
+export function missions():Promise<Outcome<{board:Offer[];active:ActiveMissionInfo[];max:number;slots_free:number}>> {
   return job('missions','',async()=>{
-    if(!acct().state.location?.docked_at)return {status:'refused' as const,did:'read no board',why:'not docked; the board is a station counter',detail:{board:[],active:[],max:0}};
+    if(!acct().state.location?.docked_at)return {status:'refused' as const,did:'read no board',why:'not docked; the board is a station counter',detail:{board:[],active:[],max:0,slots_free:0}};
     const board=(details(await command('spacemolt/get_missions',{})) as GetMissionsResponse).missions??[];
     const mine=await active();
     const offers=board.map(offer);
     const fitting=offers.filter(o=>o.fits);
+    // The slots are the constraint, so they are the first thing said: a board of 15 with
+    // none free is 15 refusals waiting to happen.
+    const free=Math.max(0,mine.max_missions-mine.active.length);
     return {status:'done' as const,
-      did:`${offers.length} on the board, ${mine.active.length} active (max ${mine.max_missions}); ${fitting.length} fit a library call`,
-      detail:{board:offers,active:mine.active,max:mine.max_missions},
-      next:fitting.slice(0,3).map(o=>`acceptMission('${o.mission_id}') — ${o.title}, ${o.rewards?.credits??0} cr, fits ${o.fits}`)};
+      did:`${free} slot(s) free: ${mine.active.length} of ${mine.max_missions} active; ${offers.length} on the board, ${fitting.length} fit a library call`,
+      detail:{board:offers,active:mine.active,max:mine.max_missions,slots_free:free},
+      next:free?fitting.slice(0,Math.min(3,free)).map(o=>`acceptMission('${o.mission_id}') — ${o.title}, ${o.rewards?.credits??0} cr, fits ${o.fits}`)
+        :['every slot is taken: completeMissions() at the base that wants them, or abandon one with account()']};
   });
 }
 
@@ -58,7 +64,9 @@ export function acceptMission(id:string):Promise<Outcome<AcceptMissionResponse>>
     if(!acct().state.location?.docked_at)return {status:'refused',did:`did not accept ${id}`,why:'not docked',detail:none};
     const mine=await active();
     if(mine.active.some(m=>m.mission_id===id))return {status:'done',did:`${id} is already active`,detail:none};
-    if(mine.active.length>=mine.max_missions)return {status:'refused',did:`did not accept ${id}`,why:`${mine.active.length} of ${mine.max_missions} missions already active`,detail:none};
+    // Refused here, with nothing sent: the game's own refusal costs a round trip to learn
+    // what `missions().detail.slots_free` already said.
+    if(mine.active.length>=mine.max_missions)return {status:'refused',did:`did not accept ${id}`,why:`no slot free: ${mine.active.length} of ${mine.max_missions} missions already active`,detail:none};
     const board=(details(await command('spacemolt/get_missions',{})) as GetMissionsResponse).missions??[];
     const wanted=board.find(m=>m.mission_id===id||m.template_id===id);
     if(!wanted)return {status:'refused',did:`did not accept ${id}`,why:'not on the board here',detail:none};

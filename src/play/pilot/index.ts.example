@@ -10,8 +10,10 @@ export default async function main() {
     await sell(look.detail.present.cargo.map(row => ({item_id: row.item_id, quantity: row.quantity})));
 
   // The board here: take the difficulty-1 mining and visit missions, they ride under the trip.
+  // Only as many as there are free slots — five active is the cap, and the sixth is refused.
   const board = await missions();
-  for (const m of board.detail.board.filter(m => m.fits === 'gatherUntil' || m.fits === 'goTo').slice(0, 2))
+  for (const m of board.detail.board.filter(m => m.fits === 'gatherUntil' || m.fits === 'goTo')
+                       .slice(0, board.detail.slots_free))
     await acceptMission(m.mission_id);
 
   // The Telescope has no belt; Unknown Edge next door does.
