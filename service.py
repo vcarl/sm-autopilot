@@ -65,6 +65,12 @@ def pilot_path() -> Path:
     return runtime_dir().parent / "pilot.json"
 
 
+def pilot_file() -> Path:
+    """The one file the pilot plays by editing: ``pilot/index.ts`` under the runtime dir.
+    The bridge installs the example there on the first `check` or `run`."""
+    return runtime_dir() / "pilot" / "index.ts"
+
+
 def render_journal(limit: int) -> str:
     """The tail of the journal, one human line per thing the pilot did.
 
@@ -115,6 +121,10 @@ class Bridge:
                **({"SPACEMOLT_JOURNAL_WEBHOOK": webhook} if webhook else {})}
         self.runtime = runtime
         self.inbox: queue.Queue = queue.Queue()
+        #: One queue per request in flight, keyed by id: a `run` blocks for minutes while
+        #: `status` and `stop` still want answers, so replies are routed, not read in order.
+        self.waiting: dict[str, queue.Queue] = {}
+        self.write_lock = threading.Lock()
         self.counter = 0
         # The bridge gets its own log, never the gateway's stderr: under launchd that stderr is
         # the supervisor wrapper's read pipe, and a bridge holding it open keeps the wrapper
@@ -152,16 +162,24 @@ class Bridge:
     def _read(self) -> None:
         try:
             for line in self.process.stdout:  # type: ignore[union-attr]
-                if line.strip():
-                    self.inbox.put(json.loads(line))
+                if not line.strip():
+                    continue
+                message = json.loads(line)
+                box = self.waiting.get(str(message.get("id")))
+                (box if box is not None else self.inbox).put(message)
         except Exception as error:  # a malformed line kills the bridge rather than desyncing ids
             self.inbox.put(error)
+            for box in list(self.waiting.values()):
+                box.put(error)
         finally:
-            self.inbox.put(EOFError("SpaceMolt bridge closed"))
+            closed = EOFError("SpaceMolt bridge closed")
+            self.inbox.put(closed)
+            for box in list(self.waiting.values()):
+                box.put(closed)
 
-    def _receive(self, timeout: float) -> dict[str, Any]:
+    def _receive(self, timeout: float, box: "queue.Queue | None" = None) -> dict[str, Any]:
         try:
-            value = self.inbox.get(timeout=timeout)
+            value = (box if box is not None else self.inbox).get(timeout=timeout)
         except queue.Empty as error:
             raise TimeoutError(
                 "SpaceMolt did not answer in time; the action's outcome is unknown. Re-observe before acting."
@@ -170,14 +188,26 @@ class Bridge:
             raise value
         return value
 
-    def request(self, action: str, params: dict[str, Any]) -> Any:
-        self.counter += 1
-        request_id = str(self.counter)
-        self.process.stdin.write(json.dumps({"id": request_id, "action": action, "params": params}) + "\n")  # type: ignore[union-attr]
-        self.process.stdin.flush()  # type: ignore[union-attr]
-        reply = self._receive(REQUEST_TIMEOUT)
-        if reply.get("id") != request_id:
-            raise RuntimeError("SpaceMolt bridge response did not match the request")
+    def request(self, action: str, params: dict[str, Any], on_line=None) -> Any:
+        """One request, one reply. Event lines streamed under the same id go to ``on_line``
+        as they arrive; the reply ends the wait."""
+        box: queue.Queue = queue.Queue()
+        with self.write_lock:
+            self.counter += 1
+            request_id = str(self.counter)
+            self.waiting[request_id] = box
+            self.process.stdin.write(json.dumps({"id": request_id, "action": action, "params": params}) + "\n")  # type: ignore[union-attr]
+            self.process.stdin.flush()  # type: ignore[union-attr]
+        try:
+            while True:
+                reply = self._receive(REQUEST_TIMEOUT, box)
+                if reply.get("event") == "line":
+                    if on_line is not None:
+                        on_line(str(reply.get("text", "")))
+                    continue
+                break
+        finally:
+            self.waiting.pop(request_id, None)
         if not reply.get("ok"):
             raise RuntimeError(str(reply.get("error") or "SpaceMolt request failed"))
         return reply.get("result")
@@ -199,8 +229,9 @@ class Bridge:
                 continue
 
 
-def call(action: str, params: dict[str, Any] | None = None) -> Any:
-    """Send one request, spawning or replacing a dead bridge first.
+def call(action: str, params: dict[str, Any] | None = None, on_line=None) -> Any:
+    """Send one request, spawning or replacing a dead bridge first. Requests run
+    concurrently: a `run` blocks for minutes while `status` and `stop` still answer.
 
     ponytail: one bridge per process, not per profile. Key ``_bridge`` by
     ``get_hermes_home()`` when a multiplexed gateway needs several accounts.
@@ -211,13 +242,16 @@ def call(action: str, params: dict[str, Any] | None = None) -> Any:
             _bridge = None
         if _bridge is None:
             _bridge = Bridge()
-        try:
-            return _bridge.request(action, params or {})
-        except (TimeoutError, EOFError, OSError):
-            # The outcome is unknown; drop the connection rather than replay onto it.
-            _bridge.close()
-            _bridge = None
-            raise
+        bridge = _bridge
+    try:
+        return bridge.request(action, params or {}, on_line)
+    except (TimeoutError, EOFError, OSError):
+        # The outcome is unknown; drop the connection rather than replay onto it.
+        with _lock:
+            if _bridge is bridge:
+                _bridge = None
+        bridge.close()
+        raise
 
 
 def close_bridge() -> None:

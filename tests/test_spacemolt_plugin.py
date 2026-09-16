@@ -18,14 +18,15 @@ print(json.dumps({"event": "ready"}), flush=True)
 for line in sys.stdin:
     request = json.loads(line)
     answers = {
-        "where": {"system": {"id": "sol", "name": "Sol"}, "pois": [{"id": "belt", "name": "Belt", "type": "belt"}]},
-        "run": {"accepted": True, "script": request["params"].get("script"),
-                "params": request["params"]},
-        "scripts": {"matched": 1, "lines": ["- `buy({ id: string; quantity: number })`"],
-                    "params": request["params"]},
-        "storage": {"base_id": "sol_base", "items": [{"item_id": "ore", "quantity": 340}],
-                    "ships": 0, "locations": [], "params": request["params"]},
+        "run": {"accepted": True, "status": "done", "reason": "serviced", "prose": "Done: serviced.",
+                "started": "t0", "commands": 3},
+        "check": {"ok": True, "entry": "pilot/index.ts", "sha": "abc", "errors": []},
+        "stop": {"stopping": False, "reason": "nothing is running"},
+        "status": {"running": False, "last": None},
     }
+    if request["action"] == "run":
+        for text in ("run started t0", "▶ service", "✓ service  done", "Done: serviced.", "run ended  done  3 commands"):
+            print(json.dumps({"id": request["id"], "event": "line", "text": text}), flush=True)
     print(json.dumps({"id": request["id"], "ok": True, "result": answers[request["action"]]}), flush=True)
 '''
 
@@ -52,25 +53,21 @@ def bridged(tmp_path, monkeypatch):
     service.close_bridge()
 
 
-def test_every_tool_answers_from_the_one_bridge(bridged):
-    observed = json.loads(spacemolt._where({}))
-    assert observed["system"]["id"] == "sol"
-    assert observed["pois"] == [{"id": "belt", "name": "Belt", "type": "belt"}]
-    # Acting is running a script, and the script and its parameters reach the runner as named.
-    started = json.loads(spacemolt._run({"script": "gather", "params": {"poi_id": "belt"}}))
-    assert started["accepted"] is True
-    assert started["params"] == {"params": {"poi_id": "belt"}, "script": "gather"}
-    # The command reference a script author reads comes over the same connection.
-    found = json.loads(spacemolt._scripts({"action": "commands", "search": "buy"}))
-    assert found["params"] == {"action": "commands", "search": "buy"}
-    # No station named: the bridge defaults to the current base.
-    here = json.loads(spacemolt._storage({}))
-    assert here["params"] == {}
-    # A named station is passed through unchanged, for a look without travelling.
-    elsewhere = json.loads(spacemolt._storage({"station_id": "other_base"}))
-    assert elsewhere["params"] == {"station_id": "other_base"}
+def test_every_tool_answers_from_the_one_bridge(bridged, tmp_path, monkeypatch):
+    monkeypatch.setenv("SPACEMOLT_RUNTIME_DIR", str(tmp_path / "runtime"))
+    # Playing is running pilot/index.ts: a source passed is written there first, and what
+    # comes back is every streamed line, the report last.
+    played = spacemolt._run({"source": "export default async function main() {}\n"})
+    assert played.splitlines()[0] == "run started t0"
+    assert played.splitlines()[-2:] == ["Done: serviced.", "run ended  done  3 commands"]
+    assert service.pilot_file().read_text() == "export default async function main() {}\n"
+    # A check answers the diagnostics beside the file as it stands.
+    checked = json.loads(spacemolt._check({}))
+    assert checked["ok"] is True and checked["source"].startswith("export default")
+    assert json.loads(spacemolt._stop({}))["stopping"] is False
+    assert json.loads(spacemolt._status({}))["running"] is False
     # Every call travelled the same connection: the plugin owns one bridge, not one per tool.
-    assert service._bridge is not None and service._bridge.counter == 5
+    assert service._bridge is not None and service._bridge.counter == 4
 
 
 def test_register_publishes_every_tool_in_the_spacemolt_toolset():
@@ -97,36 +94,25 @@ def test_register_publishes_every_tool_in_the_spacemolt_toolset():
     for name, (toolset, *_rest) in tools.items():
         by_toolset.setdefault(toolset, set()).add(name)
     assert by_toolset == {
-        "spacemolt": {"spacemolt_run", "spacemolt_scripts", "spacemolt_rest",
-                      "spacemolt_reflect"},
-        "spacemolt_observe": {"spacemolt_where", "spacemolt_journal", "spacemolt_storage",
-                              "spacemolt_recipes", "spacemolt_quote"},
-        "spacemolt_operator": {"spacemolt_direct", "spacemolt_status", "spacemolt_dispatch"},
+        "spacemolt": {"spacemolt_run", "spacemolt_check", "spacemolt_rest", "spacemolt_reflect"},
+        "spacemolt_observe": {"spacemolt_journal"},
+        "spacemolt_operator": {"spacemolt_direct", "spacemolt_status", "spacemolt_dispatch",
+                               "spacemolt_stop"},
     }
-    # The pilot runs scripts; the operator sends a sentence. Each names the other's tool never.
-    assert tools["spacemolt_run"][1]["parameters"]["required"] == ["params"]
-    # The jobs a script may compose are named where the script is written, craft among them.
-    assert "craft" in tools["spacemolt_run"][1]["description"]
-    # Moving an input to the bench that wants it is a job of its own, named there too.
-    assert "withdraw" in tools["spacemolt_run"][1]["description"]
-    # Hunting fauna is a job of its own, so a Hunter's script can name it.
-    assert "hunt" in tools["spacemolt_run"][1]["description"]
-    assert tools["spacemolt_scripts"][1]["parameters"]["required"] == ["action"]
+    # The pilot plays by running its file; the operator sends a sentence or stops a run.
+    assert tools["spacemolt_run"][1]["parameters"]["required"] == []
+    assert "pilot/index.ts" in tools["spacemolt_run"][1]["description"]
+    assert "source" in tools["spacemolt_check"][1]["parameters"]["properties"]
     assert tools["spacemolt_dispatch"][1]["parameters"]["required"] == ["instruction"]
     # The standing permissions are the two bounds on spending and owing; whether to hunt is the
     # operator's objective, like any other work.
     assert set(tools["spacemolt_direct"][1]["parameters"]["properties"]["permissions"]
                ["properties"]) == {"credit_reserve", "max_liability"}
-    assert tools["spacemolt_where"][1]["parameters"]["properties"] == {}
-    # Flying, docking and mining are moves inside a script now, not tools of their own: the
-    # pilot composes them in code, so no tool takes a poi id or a base id any more.
-    assert not {"spacemolt_travel", "spacemolt_dock", "spacemolt_gather"} & set(tools)
-    # The rest of the game is reached from a script too, and the signatures are readable.
-    assert "command(ctx, 'tool/action', params)" in tools["spacemolt_run"][1]["description"]
-    assert "commands" in tools["spacemolt_scripts"][1]["parameters"]["properties"]["action"]["enum"]
-    # The bench reads: ranking asks for nothing, a quote names the one recipe it prices.
-    assert tools["spacemolt_recipes"][1]["parameters"]["required"] == []
-    assert tools["spacemolt_quote"][1]["parameters"]["required"] == ["recipe_id"]
+    # Flying, docking, mining and every read are calls inside the pilot's file, not tools.
+    assert not {"spacemolt_travel", "spacemolt_dock", "spacemolt_gather", "spacemolt_where",
+                "spacemolt_storage", "spacemolt_scripts"} & set(tools)
+    # The READMEs of the play library are the skills: the root one and one per career.
+    assert "spacemolt" in skills and "spacemolt-mining" in skills
     # Credentials gate the tools out of the schema, and unload must release the bridge.
     assert all(kwargs["requires_env"] == ["SPACEMOLT_CREDENTIALS_FILE"] for *_, kwargs in tools.values())
     assert sections and unloads == [service.close_bridge]
@@ -155,17 +141,18 @@ def test_the_operators_sentence_is_bounded_and_lands_on_the_pilot():
     assert recorded["objective"] == "fill the hold"
 
 
-def test_the_bench_reads_reach_a_cron_fire():
-    """The workshop counter is offered at a juncture, so the tools it points at have to be in
-    the toolsets a fire carries — a counter whose call names a tool the fire lacks is a dead
-    line on the menu."""
-    from spacemolt import juncture
+def test_a_stance_fire_carries_the_root_readme_and_its_career_readme():
+    """The skills a fire lists are the play README and the stance's folder README, by the
+    names skills_register links into the profile's skills dir."""
+    from spacemolt import juncture, skills_register
 
-    by_toolset: dict[str, set[str]] = {}
-    for definition in spacemolt.TOOL_DEFINITIONS:
-        by_toolset.setdefault(definition["toolset"], set()).add(definition["name"])
-    fire = set().union(*(by_toolset[name] for name in juncture.TOOLSETS))
-    assert {"spacemolt_recipes", "spacemolt_quote"} <= fire
+    named = skills_register.readme_skills(service.HERE)
+    assert "spacemolt" in named and named["spacemolt"].name == "README.md"
+    for stance, folder in juncture.STANCE_FOLDER.items():
+        fields = juncture.job_fields({"stance": stance})
+        assert fields["skills"] == ["spacemolt", f"spacemolt-{folder}"]
+        assert f"spacemolt-{folder}" in named, stance
+    assert juncture.job_fields({})["skills"] == ["spacemolt"]
 
 
 def test_close_bridge_ends_a_bridge_that_ignores_its_closed_stdin(tmp_path, monkeypatch):
@@ -217,7 +204,7 @@ def test_the_bridge_is_handed_the_argv_that_raises_the_next_juncture(tmp_path, m
     monkeypatch.setenv("SPACEMOLT_CREDENTIALS_FILE", str(credentials))
     monkeypatch.setattr(service, "BRIDGE_COMMAND", [sys.executable, str(stub)])
     try:
-        argv = json.loads(service.call("where")["webhook"])
+        argv = json.loads(service.call("status")["webhook"])
     finally:
         service.close_bridge()
     assert argv[0] == sys.executable
@@ -241,9 +228,9 @@ def test_the_journal_webhook_reaches_the_bridge_the_way_the_credentials_path_doe
     monkeypatch.setattr(service, "BRIDGE_COMMAND", [sys.executable, str(stub)])
     try:
         monkeypatch.setenv("SPACEMOLT_JOURNAL_WEBHOOK", "https://example.invalid/hook")
-        assert service.call("where") == {"webhook": "https://example.invalid/hook"}
+        assert service.call("status") == {"webhook": "https://example.invalid/hook"}
         service.close_bridge()
         monkeypatch.delenv("SPACEMOLT_JOURNAL_WEBHOOK")
-        assert service.call("where") == {"webhook": ""}
+        assert service.call("status") == {"webhook": ""}
     finally:
         service.close_bridge()

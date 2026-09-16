@@ -1,20 +1,17 @@
 name: spacemolt
 version: 0.1.0
-description: "SpaceMolt pilot: junctures, jobs, and the operator window."
+description: "SpaceMolt pilot: play by editing pilot/index.ts; junctures and the operator window."
 author: Hermes SpaceMolt
 kind: standalone
 requires_env:
   - SPACEMOLT_CREDENTIALS_FILE
 provides_tools:
-  - spacemolt_where
   - spacemolt_run
-  - spacemolt_scripts
+  - spacemolt_check
+  - spacemolt_stop
   - spacemolt_dispatch
   - spacemolt_status
   - spacemolt_journal
   - spacemolt_direct
-  - spacemolt_storage
-  - spacemolt_recipes
-  - spacemolt_quote
   - spacemolt_rest
   - spacemolt_reflect

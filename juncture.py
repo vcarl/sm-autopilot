@@ -33,26 +33,28 @@ JOB_MOODS = ("Cautious", "Focused", "Opportunistic", "Aggressive")
 JOURNAL_FILE = "gameplay.jsonl"
 
 JUNCTURE_PROMPT = (
-    "A SpaceMolt juncture: the pilot is between jobs and you choose what it does next.\n"
-    "Read the context in front of you — the present and how the last script "
-    "ended. If it says a script is still running, say so in one line and end the turn.\n"
-    "Otherwise end the juncture one of three ways: act, by running a script — one the "
-    "runner ships, one you saved, or one you write here for this move — and ending the "
-    "turn; hold, starting nothing; or rest at home when the objective is done.\n"
-    "A script you save is how you keep a way of doing something, so the next juncture runs "
-    "it by name instead of writing it again.\n"
+    "A SpaceMolt juncture: the pilot is between runs and you choose what it does next.\n"
+    "Read the context in front of you — the present and how the last run ended. If it says "
+    "a run is still in flight, say so in one line and end the turn.\n"
+    "Otherwise end the juncture one of three ways: play, by writing pilot/index.ts with "
+    "spacemolt_run (pass `source`; spacemolt_check first when unsure) and reading the report "
+    "it returns; hold, starting nothing; or rest at home when the objective is done.\n"
+    "Your skill is the play library's README: every function it lists, with literal arguments "
+    "from the present; `account()` is the whole game when nothing there fits. Keep helpers "
+    "you want again in pilot/<name>.ts and import them from './<name>.ts'.\n"
     "Say in one line which of the three you took and why.\n"
     "An instruction from the operator is outside direction: it outranks the objective for "
     "this juncture.\n"
-    "Prefer an admissible option. If you go off the menu, quote the refusal you are "
-    "overriding and say what has changed since it was written.\n"
-    "At rest you are given a report instead of a menu. Read it; review the scripts you "
-    "saved against how their runs ended and rewrite or save the ones that would have served "
-    "better (`spacemolt_scripts save`); then pick the goal, the stance and the mood, reflect "
-    "once, and end the turn.\n"
+    "At rest you are given a report instead of the present. Read it; review pilot/index.ts "
+    "against how its runs ended and rewrite it if it would have served better; then pick the "
+    "goal, the stance and the mood, reflect once, and end the turn.\n"
     "If the report says the operator's objective is done, say so and stop.\n"
     "If no context reached you at all, the runner did not answer: say that and end the turn."
 )
+
+#: Which career folder's README is the stance's skill (``play/<folder>/README.md``).
+STANCE_FOLDER = {"Prospector": "mining", "Industrialist": "industry", "Trader": "trading",
+                 "Carrier": "hauling", "Hunter": "combat", "Scout": "exploration"}
 
 #: The refusals go first when a menu will not fit; the options are the point of it.
 _CONTEXT_BUDGET = 3_500
@@ -76,11 +78,10 @@ def juncture_context(session_info: Mapping[str, Any] | None = None) -> str:
 
     menu = call("menu")
     if menu.get("busy"):
-        record = menu.get("record") or {}
-        step = record.get("last_job") or "its first job"
-        return (f"SpaceMolt juncture: the runner is still running the script "
-                f"{menu.get('script')} (on {step}). "
-                "Say in one line that the script is running and end the turn.")
+        step = menu.get("fn") or "its first move"
+        return (f"SpaceMolt juncture: a run is still in flight (on {step}, "
+                f"{menu.get('elapsed_s', '?')} s, {menu.get('commands', '?')} commands). "
+                "Say in one line that the run is in flight and end the turn.")
     _instruction(menu)
     if menu.get("at_rest"):
         return _rest_context(menu)
@@ -114,9 +115,8 @@ def _instruction(menu: dict[str, Any]) -> None:
 #: The rest of the story a `cargo_free` of 0 leaves untold. A full hold is not a dead end and
 #: it is not a mystery either: it is ore with two places to go and a gather that will return
 #: nothing until it does (playtest 2026-09-15: three gathers dispatched on a full hold).
-_HOLD_FULL = ("hold full: a gather needs free hold. Run stow here if this base has "
-              "storage (spacemolt_run, script stow), or craft with it at a workshop, "
-              "then gather")
+_HOLD_FULL = ("hold full: a gather needs free hold. sell(rows) or stow(rows) here first "
+              "(name the rows from present.hold), then gatherUntil")
 
 
 def _hold_full(menu: dict[str, Any]) -> None:
@@ -130,9 +130,8 @@ def _hold_full(menu: dict[str, Any]) -> None:
         return
     present["hold_full"] = _HOLD_FULL
     last = menu.get("last")
-    jobs = (last or {}).get("jobs") if isinstance(last, dict) else None
-    if jobs and not any(job.get("yield") for job in jobs):
-        last["cause"] = "the hold was full at departure (cargo_free 0), so the gather mined nothing"
+    if isinstance(last, dict) and not (last.get("gained") or {}).get("items"):
+        last["cause"] = "the hold was full (cargo_free 0), so a gather would have mined nothing"
 
 
 def _rest_context(report: dict[str, Any]) -> str:
@@ -155,10 +154,10 @@ def _rest_context(report: dict[str, Any]) -> str:
     return ("SpaceMolt rest — the shift is over, the stance and mood are cleared and nothing is "
             "imposed on the pilot. This is what it has, what it owes, what it has seen, what it "
             "has been doing lately and where it has been standing still.\n"
-            "`scripts` is the pilot's own code beside how it ran: each script it saved with its "
-            "size, what it takes and how its last runs ended. Read the ones whose runs ended "
-            "blocked or failed, and save a better version under the same name — the next shift "
-            "is flown with the scripts this review leaves behind.\n"
+            "`scripts` is the pilot's own code beside how it ran: each pilot/*.ts with its size "
+            "and how the last runs ended. Read the ones whose runs ended refused or failed, and "
+            "write a better version (spacemolt_check with `source`) — the next shift is flown "
+            "with the file this review leaves behind.\n"
             "Choose one goal that serves the objective, then the stance and mood that fit it:\n"
             + json.dumps(report, separators=(",", ":"), sort_keys=True))
 
@@ -208,10 +207,10 @@ def job_fields(pilot: dict[str, Any]) -> dict[str, Any]:
     No ``workdir``, which is what makes cron open the conversation with
     ``skip_context_files=True`` — a juncture is the pilot's world, not a project's.
     """
-    stance = str(pilot.get("stance") or "").strip().lower()
+    folder = STANCE_FOLDER.get(str(pilot.get("stance") or "").strip())
     return {
         "prompt": JUNCTURE_PROMPT,
-        "skills": [SHARED_SKILL] + ([f"{SHARED_SKILL}-{stance}"] if stance else []),
+        "skills": [SHARED_SKILL] + ([f"{SHARED_SKILL}-{folder}"] if folder else []),
         "enabled_toolsets": list(TOOLSETS),
     }
 

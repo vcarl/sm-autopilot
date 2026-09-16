@@ -1,9 +1,10 @@
-"""Make the plugin's own skills loadable by the bare names a juncture fire lists.
+"""Make the play library's READMEs loadable as skills by the bare names a juncture fire lists.
 
-``ctx.register_skill`` only serves the qualified ``spacemolt:<name>`` form, and cron's skill
-loader looks each name up with ``skill_view(<bare name>)`` — which searches the profile's
-skills dir, not the plugin registry. So the directories are linked into
-``<HERMES_HOME>/skills/`` as well; the link keeps one copy of the text, in the plugin.
+The root ``src/play/README.md`` is the shared skill ``spacemolt``; each career folder's README
+is ``spacemolt-<folder>`` (``spacemolt-mining`` …), the one a stance's fire carries. Cron's skill
+loader looks each name up with ``skill_view(<bare name>)`` in the profile's skills dir, so a
+directory per skill is made there with ``SKILL.md`` linked to the README: one copy of the
+text, in the plugin, beside the code it documents.
 """
 from __future__ import annotations
 
@@ -13,24 +14,33 @@ from pathlib import Path
 logger = logging.getLogger("spacemolt")
 
 
+def readme_skills(root: Path) -> dict[str, Path]:
+    """Skill name → README path, for the root and every career folder that has one."""
+    play = Path(root) / "src" / "play"
+    skills = {"spacemolt": play / "README.md"}
+    for readme in sorted(play.glob("*/README.md")):
+        skills[f"spacemolt-{readme.parent.name}"] = readme
+    return {name: path for name, path in skills.items() if path.is_file()}
+
+
 def register_skills(ctx, root: Path) -> list[str]:
-    """Register every ``<root>/skills/<name>/SKILL.md`` and link it into the profile's
-    skills dir. Returns the names now resolvable by bare name."""
+    """Register every README skill and link it into the profile's skills dir. Returns the
+    names now resolvable by bare name."""
     from hermes_constants import get_skills_dir
 
     linked: list[str] = []
     skills_dir = get_skills_dir()
-    for skill_md in sorted(Path(root).glob("skills/*/SKILL.md")):
-        source = skill_md.parent
-        ctx.register_skill(source.name, skill_md)
-        link = skills_dir / source.name
-        if link.is_symlink() and link.readlink() == source:
-            linked.append(source.name)
+    for name, readme in readme_skills(root).items():
+        ctx.register_skill(name, readme)
+        home = skills_dir / name
+        link = home / "SKILL.md"
+        if link.is_symlink() and link.readlink() == readme:
+            linked.append(name)
             continue
         if link.exists() or link.is_symlink():
-            logger.warning("Not linking skill %s: %s already exists", source.name, link)
+            logger.warning("Not linking skill %s: %s already exists", name, link)
             continue
-        skills_dir.mkdir(parents=True, exist_ok=True)
-        link.symlink_to(source, target_is_directory=True)
-        linked.append(source.name)
+        home.mkdir(parents=True, exist_ok=True)
+        link.symlink_to(readme)
+        linked.append(name)
     return linked

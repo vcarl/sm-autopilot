@@ -1,11 +1,11 @@
-"""Hermes plugin: look around a SpaceMolt system and play it by running code.
+"""Hermes plugin: play SpaceMolt by editing pilot/index.ts and running it.
 
 Three toolsets, because a tool name is global and belongs to exactly one of them:
-``spacemolt`` is what a juncture acts with — run a script, keep a script, rest, reflect — ``spacemolt_observe`` the reads every
-client of the runner may make, and ``spacemolt_operator`` the operator's own window tools:
-direction, and the script-is-running read the chat window asks for while a juncture already
-has the answer in its context. A chat window carries observe + operator and never a job tool
-(N19); a cron fire carries spacemolt + observe and never sets its own objective.
+``spacemolt`` is what a juncture acts with — run, check, rest, reflect — ``spacemolt_observe``
+the reads every client of the runner may make (the journal), and ``spacemolt_operator`` the
+operator's own window tools: direction, stop, and the run-in-flight read. A chat window
+carries observe + operator and never a play tool (N19); a cron fire carries spacemolt +
+observe and never sets its own objective.
 """
 from __future__ import annotations
 
@@ -27,18 +27,18 @@ _JOURNAL_DEFAULT, _JOURNAL_CAP = 20, 80
 _INSTRUCTION_LIMIT = 80
 
 _FLIGHT_PROMPT = (
-    "SpaceMolt: you fly one live ship, and you fly it by running code. A script is where "
-    "the jobs, the moves between them and the rest of the game's commands are composed.\n"
+    "SpaceMolt: you fly one live ship, and you fly it by editing one file, pilot/index.ts, "
+    "and running it. The `play` library (its README is your skill) is what the file calls; "
+    "`account()` inside it is the whole game.\n"
     "Report only what tool results say.\n"
-    "The game's clock is real: one call can take a minute or more, so wait it out."
+    "The game's clock is real: a run blocks for minutes and streams what it does, so wait it out."
 )
 
 _WINDOW_PROMPT = (
     "SpaceMolt: you are a window on a pilot the runner flies; this conversation never owns it. "
-    "spacemolt_where reads the ship's live position, fuel and hull, spacemolt_status says "
-    "whether a job is running right now, and spacemolt_journal returns the last few things the "
-    "pilot actually did, and spacemolt_storage reads what it holds at a base without going "
-    "there. Answer from those reads and never from memory: what you report about "
+    "spacemolt_status says whether a run is in flight and where it has got to, "
+    "spacemolt_journal returns the last few things the pilot actually did, and spacemolt_stop "
+    "ends a run at its next safe point. Answer from those reads and never from memory: what you report about "
     "progress, cost and position has to be what the game and the journal say. spacemolt_direct "
     "is the operator's — it sets the objective and the standing permissions, which the pilot "
     "takes up at its next juncture rather than now, and a job already under way runs to its "
@@ -61,62 +61,47 @@ def _schema(name: str, description: str, properties: dict[str, Any], required: l
                            "required": required, "additionalProperties": False}}
 
 
-def _where(arguments: dict[str, Any] | None = None, **_: Any) -> str:
-    return json.dumps(call("where"), separators=(",", ":"))
-
-
-def _storage(arguments: dict[str, Any] | None = None, **_: Any) -> str:
-    station_id = str((arguments or {}).get("station_id") or "")
-    return json.dumps(call("storage", {"station_id": station_id} if station_id else {}), separators=(",", ":"))
-
-
-def _recipes(arguments: dict[str, Any] | None = None, **_: Any) -> str:
-    args = arguments or {}
-    params = {name: str(args[name]) for name in ("search", "base_id") if args.get(name)}
-    return json.dumps(call("recipes", params), separators=(",", ":"))
-
-
-def _quote(arguments: dict[str, Any] | None = None, **_: Any) -> str:
-    args = arguments or {}
-    params: dict[str, Any] = {"recipe_id": str(args.get("recipe_id") or "")}
-    if args.get("quantity"):
-        params["quantity"] = args["quantity"]
-    return json.dumps(call("quote", params), separators=(",", ":"))
+def _write_pilot_file(source: str) -> None:
+    """The pilot's own file, written where the bridge validates and runs it."""
+    from .service import pilot_file
+    path = pilot_file()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(source, encoding="utf-8")
 
 
 def _run(arguments: dict[str, Any] | None = None, **_: Any) -> str:
-    """Start one script in the runner: one the runner has, or one the pilot just wrote.
-
-    The script owns its own parameters, so a script that will not take these says why and
-    this answers with the library — one turn to correct, rather than a guess repeated.
-    """
+    """Run pilot/index.ts: validate, execute, stream. Blocks until the run ends and returns
+    every streamed line, ending with the prose report of the returned Outcome. A refusal
+    (tsc, boundary, policy) comes back as diagnostics and nothing runs."""
     args = arguments or {}
-    params: dict[str, Any] = {"params": args.get("params") or {}}
-    for name in ("script", "source"):
-        if args.get(name):
-            params[name] = str(args[name])
+    if args.get("source"):
+        _write_pilot_file(str(args["source"]))
+    lines: list[str] = []
     try:
-        return json.dumps(call("run", params), separators=(",", ":"))
-    except Exception as error:  # the runner refuses before anything reaches the game
-        return json.dumps({"accepted": False, "reason": str(error),
-                           "scripts": call("scripts", {"action": "list"})}, separators=(",", ":"))
+        result = call("run", {}, on_line=lines.append)
+    except Exception as error:
+        return json.dumps({"accepted": False, "reason": str(error)}, separators=(",", ":"))
+    if not result.get("accepted"):
+        return json.dumps({"accepted": False, "reason": result.get("reason"),
+                           "errors": result.get("errors") or []}, separators=(",", ":"))
+    return "\n".join(lines) or json.dumps(result, separators=(",", ":"))
 
 
-def _scripts(arguments: dict[str, Any] | None = None, **_: Any) -> str:
-    """The pilot's library: what it may run, what a script looks like, and what it keeps.
-
-    A saved script outlives the conversation that wrote it, which is what lets the pilot
-    build its own management systems on top of the jobs rather than retype them.
-    """
+def _check(arguments: dict[str, Any] | None = None, **_: Any) -> str:
+    """Validate pilot/index.ts without running it, and return the file as it stands."""
+    from .service import pilot_file
     args = arguments or {}
-    params: dict[str, Any] = {"action": str(args.get("action") or "list")}
-    for name in ("name", "source", "search"):
-        if args.get(name):
-            params[name] = str(args[name])
-    try:
-        return json.dumps(call("scripts", params), separators=(",", ":"))
-    except Exception as error:  # the lint refuses a script before it is ever written down
-        return json.dumps({"ok": False, "reason": str(error)}, separators=(",", ":"))
+    if args.get("source"):
+        _write_pilot_file(str(args["source"]))
+    verdict = call("check", {})
+    path = pilot_file()
+    verdict["source"] = path.read_text(encoding="utf-8") if path.is_file() else ""
+    return json.dumps(verdict, separators=(",", ":"))
+
+
+def _stop(arguments: dict[str, Any] | None = None, **_: Any) -> str:
+    """Ask the run in flight to stop at its next safe point; it returns `partial`."""
+    return json.dumps(call("stop", {}), separators=(",", ":"))
 
 
 def _status(arguments: dict[str, Any] | None = None, **_: Any) -> str:
@@ -130,32 +115,6 @@ def _rest(arguments: dict[str, Any] | None = None, **_: Any) -> str:
     if result.get("rested"):
         ensure_juncture_job()
     return json.dumps(result, separators=(",", ":"))
-
-
-def _scripts_saved_since_rest() -> list[str]:
-    """The scripts the pilot saved during this rest — what its code review actually changed.
-
-    The bridge already writes one request line per call, so the saves are on record; reading
-    them back keeps the reflection line true without a second tally to fall out of step.
-
-    ponytail: the journal is read whole and walked forward. Rest happens once an evening.
-    """
-    path = runtime_dir() / JOURNAL_FILE
-    if not path.is_file():
-        return []
-    names: list[str] = []
-    for line in path.read_text(encoding="utf-8").splitlines():
-        try:
-            entry = json.loads(line)
-        except ValueError:
-            continue
-        if entry.get("event") == "rest":
-            names.clear()  # a rest opens the review; what came before belongs to the last shift
-        request = entry.get("request") or {}
-        params = request.get("params") or {}
-        if request.get("action") == "scripts" and params.get("action") == "save" and params.get("name"):
-            names.append(str(params["name"]))
-    return names
 
 
 def _reflect(arguments: dict[str, Any] | None = None, **_: Any) -> str:
@@ -188,8 +147,7 @@ def _reflect(arguments: dict[str, Any] | None = None, **_: Any) -> str:
     record.update(goal=goal, stance=stance, mood=mood)
     record.pop("objective_done", None)  # a new goal is the objective being pursued again
     write_pilot(record)
-    journal_event("reflection", goal=goal, stance=stance, mood=mood,
-                  scripts_reviewed=_scripts_saved_since_rest())
+    journal_event("reflection", goal=goal, stance=stance, mood=mood)
     from cron.jobs import trigger_job
 
     trigger_job(ensure_juncture_job()["id"])
@@ -288,73 +246,39 @@ def _dispatch(arguments: dict[str, Any] | None = None, **_: Any) -> str:
 
 
 TOOL_DEFINITIONS = (
-    {"name": "spacemolt_where", "toolset": "spacemolt_observe", "handler": _where,
-     "description": "Read the ship's live location, fuel, hull, the POIs of this system and the systems it connects to.",
-     "schema": _schema("spacemolt_where",
-                       "Read the ship's live location, fuel, hull, the points of interest in this system, "
-                       "and connections: the systems a jump reaches from here.",
-                       {}, [])},
     {"name": "spacemolt_run", "toolset": "spacemolt", "handler": _run,
-     "description": "Run one script in the runner — a shipped one, one you saved, or one you "
-                    "write here — and return at once.",
+     "description": "Run pilot/index.ts: validate it, execute it against the live game, and "
+                    "return what it streamed plus the report.",
      "schema": _schema("spacemolt_run",
-                       "Start the option you chose. The script runs on in the runner after this "
-                       "conversation ends, so this returns immediately. After this call, say what "
-                       "you started and end the turn. The runner raises the next juncture when the "
-                       "script ends, and runs one script at a time. Name either script or source. "
-                       "Scripts you can name: gather, gather-until, stock-up, stow, withdraw, craft, "
-                       "hunt, plus any you saved; spacemolt_scripts lists them with their params.\n"
-                       "A script you write is one module:\n"
-                       "- it imports from '../jobs/index.ts' alone; inside a script you may call the "
-                       "jobs gather, hunt, stow, withdraw, craft, the helpers travel, dock, where, "
-                       "storage, service, journal, and the scripts gatherUntil and stockUp;\n"
-                       "- `export const params` is the JSON schema of what it takes, checked "
-                       "before it runs;\n"
-                       "- `export default async (ctx, params)` returns a JobOutcome: "
-                       "{job, outcome: done | blocked | failed, reason, result};\n"
-                       "- every job is named for an end state and skips what already holds, so "
-                       "running one twice is safe.\n"
-                       "For anything no job does — buying, selling, fitting, commissioning a "
-                       "hull, taking a contract — a script calls "
-                       "`command(ctx, 'tool/action', params)`, which is the whole game; "
-                       "`spacemolt_scripts commands` shows the real signatures.",
-                       {"script": {"type": "string",
-                                   "description": "A script the runner ships or you saved."},
-                        "source": {"type": "string",
-                                   "description": "Instead of script: the TypeScript of a script "
-                                                  "you wrote for this run."},
-                        "params": {"type": "object",
-                                   "description": "What that script's own params schema asks for."}},
-                       ["params"])},
-    {"name": "spacemolt_scripts", "toolset": "spacemolt", "handler": _scripts,
-     "description": "The script library: list what can be run, read one, or save one you wrote.",
-     "schema": _schema("spacemolt_scripts",
-                       "Your library. list names every script with the parameters it takes, the "
-                       "runner's own and the ones you saved. read returns one script's source: the "
-                       "shipped scripts are the worked examples to write yours from. save lints a "
-                       "script of yours and keeps it under its name, after which spacemolt_run "
-                       "names it and a restart still has it — this is how the pilot builds systems "
-                       "on top of the jobs. commands searches the game's own command reference "
-                       "and returns the matching signatures — the name, the parameters and the "
-                       "return type — so a script calls `command(ctx, 'tool/action', params)` "
-                       "with what the server really takes.",
-                       {"action": {"type": "string",
-                                   "enum": ["list", "read", "save", "commands"],
-                                   "description": "list the library, read one script, save one, "
-                                                  "or search the game's commands."},
-                        "search": {"type": "string",
-                                   "description": "For commands: text a command line must "
-                                                  "contain, such as 'buy' or 'shipyard'."},
-                        "name": {"type": "string",
-                                 "description": "For read and save: lowercase letters, digits and "
-                                                "hyphens, and your own rather than a shipped one."},
-                        "source": {"type": "string",
-                                   "description": "For save: the TypeScript of the script."}},
-                       ["action"])},
+                       "Play: run pilot/index.ts. Pass `source` to replace the file first; omit "
+                       "it to run the file as it stands (the example on first use). The file is "
+                       "one module: `import {…} from 'play'` (or 'play/<folder>', '@spacemolt/lib' "
+                       "for types, './<name>.ts' for your own helpers) and "
+                       "`export default async function main()` that returns the last Outcome. It "
+                       "is typechecked, boundary-checked and policy-checked first; a refusal comes "
+                       "back as diagnostics. The run blocks and streams one line per move, then "
+                       "the prose report of the Outcome main returned. No cap; spacemolt_stop "
+                       "ends it. The play README (your skill) lists every function; `account()` "
+                       "is the whole game when nothing there fits.",
+                       {"source": {"type": "string",
+                                   "description": "Optional: the TypeScript of pilot/index.ts, "
+                                                  "written before the run."}},
+                       [])},
+    {"name": "spacemolt_check", "toolset": "spacemolt", "handler": _check,
+     "description": "Validate pilot/index.ts without running it; returns the diagnostics and the file.",
+     "schema": _schema("spacemolt_check",
+                       "Validate without playing: tsc, the import boundary and the game policy "
+                       "over pilot/index.ts and the './<name>.ts' files it imports. Pass `source` "
+                       "to replace the file first. Returns ok, errors, and the file as it stands, "
+                       "so a wrong field name costs a check, not a run.",
+                       {"source": {"type": "string",
+                                   "description": "Optional: the TypeScript of pilot/index.ts, "
+                                                  "written before the check."}},
+                       [])},
     {"name": "spacemolt_rest", "toolset": "spacemolt", "handler": _rest,
      "description": "End the shift: rest at home, which clears the stance and the mood.",
      "schema": _schema("spacemolt_rest",
-                       "Put the evening down. Call this docked at home with the runner idle, on a "
+                       "Put the evening down. Call this docked at home with no run in flight, on a "
                        "ship this base has brought as far up as it can; the refusal says what is "
                        "still missing. It is the one act that ends a shift: it clears the stance, "
                        "the mood and the goal, a Tired the world imposed included, and the next "
@@ -381,56 +305,19 @@ TOOL_DEFINITIONS = (
                                                           "pilot stays at rest until the operator "
                                                           "gives it something new."}},
                        [])},
-    {"name": "spacemolt_storage", "toolset": "spacemolt_observe", "handler": _storage,
-     "description": "Read what the pilot holds in storage at the current base, or a named base, without travelling.",
-     "schema": _schema("spacemolt_storage",
-                       "Read storage at the base the ship is docked at, or a named base, without "
-                       "travelling there. Read-only: it does not deposit, withdraw, or reach a "
-                       "base you have never visited via other characters' storage.",
-                       {"station_id": {"type": "string",
-                                       "description": "Optional: a base id or station poi id to view "
-                                                      "instead of the current base."}},
-                       [])},
-    {"name": "spacemolt_recipes", "toolset": "spacemolt_observe", "handler": _recipes,
-     "description": "Rank the catalog's recipes by what this base's storage, the hold and the other bases hold.",
-     "schema": _schema("spacemolt_recipes",
-                       "Rank the catalog's recipes by what the pilot already holds. Read this "
-                       "docked, before quoting. Reads only. A craft draws its inputs from this "
-                       "base's storage, so craftable now is what this base's storage covers, and "
-                       "after stowing is what a deposit of the hold here would add. Nearly is "
-                       "one or two inputs short, and names the base each one sits at so a fetch "
-                       "is plannable; facility only needs a facility. Each input says how much "
-                       "is held here, how much is in the hold, and what sits elsewhere.",
-                       {"search": {"type": "string",
-                                   "description": "Optional: narrow to recipes whose name, id, "
-                                                  "category or output item contains this text."},
-                        "base_id": {"type": "string",
-                                    "description": "Optional: the base to report against; defaults "
-                                                   "to the base the ship is docked at now."}},
-                       [])},
-    {"name": "spacemolt_quote", "toolset": "spacemolt_observe", "handler": _quote,
-     "description": "Quote one recipe: the exact bill, the output and this base's buy price for it. The buy price is information for an output you mean to sell; an output the objective keeps has no margin test.",
-     "schema": _schema("spacemolt_quote",
-                       "Quote one recipe: the exact bill, output and this base's buy price for "
-                       "it. A dry run; nothing is consumed or queued. Quote before committing. "
-                       "The margin walks the buy book, so it is what the output really fetches "
-                       "rather than the top price times the quantity. The server may quote "
-                       "fewer runs than the quantity asked for and reports the runs it will do; "
-                       "the bill and the margin are for those runs. A base with no workshop, or "
-                       "a recipe that needs a facility, comes back refused with the reason and "
-                       "the nearest place that can make it.",
-                       {"recipe_id": {"type": "string",
-                                      "description": "A recipe id spacemolt_recipes listed."},
-                        "quantity": {"type": "integer", "minimum": 1,
-                                     "description": "How many units of the output to quote. "
-                                                    "Defaults to one."}},
-                       ["recipe_id"])},
+    {"name": "spacemolt_stop", "toolset": "spacemolt_operator", "handler": _stop,
+     "description": "Ask the run in flight to stop at its next safe point.",
+     "schema": _schema("spacemolt_stop",
+                       "End the run in flight: every library function checks the flag between "
+                       "commands, finishes the command it is on, and returns partial. The run's "
+                       "report follows in the conversation that started it.",
+                       {}, [])},
     {"name": "spacemolt_status", "toolset": "spacemolt_operator", "handler": _status,
-     "description": "For the chat window: whether a script runs right now.",
+     "description": "For the chat window: whether a run is in flight right now.",
      "schema": _schema("spacemolt_status",
-                       "For the chat window: whether a script runs right now — the running "
-                       "script and where it has got to, or the last run's outcome when the pilot "
-                       "is idle. A juncture reads the same fact from the context it was given.",
+                       "For the chat window: whether a run is in flight — the function and step "
+                       "it is on, elapsed seconds, commands sent, fuel, hull and credits — or the "
+                       "last run's outcome when the pilot is idle.",
                        {}, [])},
     {"name": "spacemolt_journal", "toolset": "spacemolt_observe", "handler": _journal,
      "description": "Read the last few things the pilot actually did.",
