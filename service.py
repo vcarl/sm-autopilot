@@ -11,10 +11,12 @@ import os
 import queue
 import shutil
 import subprocess
+import sys
 import threading
 from pathlib import Path
 from typing import Any
 
+import hermes_constants
 from agent.secret_scope import UnscopedSecretError, get_secret
 from hermes_constants import get_hermes_home
 
@@ -77,6 +79,23 @@ def render_journal(limit: int) -> str:
     return done.stdout.strip()
 
 
+def wake_argv() -> list[str]:
+    """What the bridge runs when a run ends: this interpreter and the wake one-shot (N4).
+
+    Python tells the bridge exactly what to run rather than the bridge guessing at a venv.
+    """
+    return [sys.executable, str(HERE / "wake_juncture.py")]
+
+
+def wake_env() -> dict[str, str]:
+    """What that one-shot needs to import: the plugin's parent for ``spacemolt`` and the
+    Hermes tree for ``cron``, both read off this process, plus this profile's home."""
+    roots = [str(HERE.parent), str(Path(hermes_constants.__file__).resolve().parent)]
+    existing = os.environ.get("PYTHONPATH")
+    return {"PYTHONPATH": os.pathsep.join([*roots, *([existing] if existing else [])]),
+            "HERMES_HOME": str(get_hermes_home())}
+
+
 def available() -> bool:
     return credentials_file() is not None and shutil.which("node") is not None
 
@@ -92,6 +111,7 @@ class Bridge:
         runtime.mkdir(parents=True, exist_ok=True)
         webhook = journal_webhook()
         env = {**os.environ, "SPACEMOLT_CREDENTIALS_FILE": str(credentials), "SPACEMOLT_RUNTIME_DIR": str(runtime),
+               **wake_env(), "SPACEMOLT_WAKE": json.dumps(wake_argv()),
                **({"SPACEMOLT_JOURNAL_WEBHOOK": webhook} if webhook else {})}
         self.runtime = runtime
         self.inbox: queue.Queue = queue.Queue()

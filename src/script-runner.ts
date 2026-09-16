@@ -5,6 +5,7 @@
  * jobs are handed, keeps the rules between jobs, writes the run down so a restart knows what
  * it was doing, caps the whole thing on the wall clock, and reports one outcome.
  */
+import {execFile} from 'node:child_process';
 import {createHash} from 'node:crypto';
 import {mkdirSync,readFileSync,readdirSync,statSync,symlinkSync,writeFileSync} from 'node:fs';
 import {join} from 'node:path';
@@ -57,7 +58,33 @@ export interface RunOptions {
   /** Every write of the record, so a caller can answer `status` without reading the disk. */
   onProgress?:(record:RunRecord)=>void;
   scriptsDir?:URL;
+  /** How the next juncture is raised when this run ends. Injected by the tests, which spawn
+   * nothing; absent, the argv in the environment is spawned for real. */
+  wake?:Wake;
 }
+
+/** Raising the juncture is running an argv: the cron jobs file is held by a cross-process
+ * lock only Python takes, so the runner asks a Python one-shot rather than editing it. */
+export type Wake=(argv:string[])=>void;
+
+/** The argv the bridge was handed, or nothing at all — a runner started without one raises
+ * no juncture, which is what a test harness and a bare `node src/bridge.ts` both want. */
+export function wakeArgv(value=process.env.SPACEMOLT_WAKE):string[] {
+  try {
+    const argv=JSON.parse(value??'') as unknown;
+    return Array.isArray(argv)&&argv.length?argv.map(String):[];
+  } catch {return [];}
+}
+
+/** Spawn it and do not wait: the run is already over and its record already written, so the
+ * only thing the wake owes anyone is a line saying whether it took. It never throws. */
+export const spawnWake:Wake=argv=>{
+  execFile(argv[0]!,argv.slice(1),(error,_stdout,stderr)=>{
+    console.error(error
+      ?`juncture wake failed: ${String(stderr).trim()||error.message}`
+      :'juncture wake: ok');
+  });
+};
 
 const NAME=/^[a-z][a-z0-9-]*$/;
 /** A script file, in the one spelling a script name can take. A test file, a dotted name and
@@ -295,6 +322,16 @@ export async function runScript(options:RunOptions):Promise<RunOutcome> {
     if(outcome.moved)journalRun(runtime,{script,started:record.started,
       ...outcome.moved as unknown as Record<string,unknown>},'unsolicited_move');
     journalRun(runtime,{phase:'ended',started:record.started,...outcome});
+  }
+  // The pilot's next juncture, raised by the runner rather than waited for (N4). Every run
+  // ends here — dispatched, resumed, capped or thrown — so this is the one place it belongs,
+  // and it comes after the record and the `run ended` line: what the juncture reads is on
+  // disk before anything is asked to read it.
+  const argv=wakeArgv();
+  if(argv.length) {
+    if(runtime)journalRun(runtime,{job:script,message:'juncture raised'},'log');
+    try {(options.wake??spawnWake)(argv);}
+    catch(error){console.error(`juncture wake failed: ${message(error)}`);}
   }
   return outcome;
 }

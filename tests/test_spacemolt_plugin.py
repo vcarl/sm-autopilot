@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import os
 import signal
 import sys
 import time
@@ -203,6 +204,27 @@ for line in sys.stdin:
                       "result": {"webhook": os.environ.get("SPACEMOLT_JOURNAL_WEBHOOK", "")}}),
           flush=True)
 '''
+
+
+def test_the_bridge_is_handed_the_argv_that_raises_the_next_juncture(tmp_path, monkeypatch):
+    """The runner raises the juncture at a run's end (N4), and it does it by running Python:
+    the cron jobs file has a cross-process lock only Python takes, so the bridge is told
+    exactly what to run rather than left to guess at an interpreter or a venv."""
+    stub = tmp_path / "env_bridge.py"
+    stub.write_text(ENV_BRIDGE.replace("SPACEMOLT_JOURNAL_WEBHOOK", "SPACEMOLT_WAKE"))
+    credentials = tmp_path / "credentials.txt"
+    credentials.write_text("Username: pilot\nPassword: secret\n")
+    monkeypatch.setenv("SPACEMOLT_CREDENTIALS_FILE", str(credentials))
+    monkeypatch.setattr(service, "BRIDGE_COMMAND", [sys.executable, str(stub)])
+    try:
+        argv = json.loads(service.call("where")["webhook"])
+    finally:
+        service.close_bridge()
+    assert argv[0] == sys.executable
+    assert argv[1].endswith("wake_juncture.py")
+    # And what that argv needs to import: the plugin's parent and the Hermes tree.
+    roots = service.wake_env()["PYTHONPATH"].split(os.pathsep)
+    assert str(service.HERE.parent) in roots
 
 
 def test_the_journal_webhook_reaches_the_bridge_the_way_the_credentials_path_does(tmp_path, monkeypatch):

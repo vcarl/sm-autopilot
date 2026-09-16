@@ -312,6 +312,33 @@ test('a script composes another script: one entry in the job list, its trips ins
   } finally {f.close();}
 });
 
+test('a run that ends raises the next juncture, and a wake that fails changes nothing (N4)', async () => {
+  const f=runner({cargoUsed:0,store:[]});
+  const before=process.env.SPACEMOLT_WAKE;
+  const argv=['/usr/bin/python3','/plugins/spacemolt/wake_juncture.py'];
+  process.env.SPACEMOLT_WAKE=JSON.stringify(argv);
+  const asked:string[][]=[],phasesWhenAsked:string[][]=[];
+  try {
+    const outcome=await f.run('gather',{poi_id:'belt'},{wake:seen=>{
+      asked.push(seen);
+      phasesWhenAsked.push(f.lines('run').map(line=>String(line.phase)));
+      throw new Error('no such interpreter');
+    }});
+    // The wake is the argv Python handed the bridge, asked for exactly once.
+    assert.deepEqual(asked,[argv]);
+    // And asked for after the run was written down: what the juncture reads is already there.
+    assert.deepEqual(phasesWhenAsked[0],['started','ended']);
+    assert.equal(f.record()!.ended,true);
+    assert.deepEqual(f.lines('log').map(line=>[line.job,line.message]),[['gather','juncture raised']]);
+    // A wake that throws is the wake's problem: the run still ended the way it ended.
+    assert.equal(outcome.outcome,'done',outcome.reason);
+    assert.deepEqual(outcome.jobs.map(job=>job.outcome),['done']);
+  } finally {
+    if(before===undefined)delete process.env.SPACEMOLT_WAKE;else process.env.SPACEMOLT_WAKE=before;
+    f.close();
+  }
+});
+
 test('a gather writes a step line per rung, and the run record advances with it (N22)', async () => {
   const f=runner({cargoUsed:0,store:[]});
   try {
