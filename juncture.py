@@ -86,18 +86,22 @@ def juncture_context(session_info: Mapping[str, Any] | None = None) -> str:
     if menu.get("at_rest"):
         return _rest_context(menu)
     _hold_full(menu)
+    # The menu v2: the rendered moves travel as text under the JSON, so a fire reads calls it
+    # can paste, not a structure it has to decode.
+    text = menu.pop("text", None)
+    tail = ("\n" + text) if text else ""
     if not MENU_ENABLED:
         menu.pop("options", None)
         menu.pop("unavailable", None)
         body = json.dumps(menu, separators=(",", ":"), sort_keys=True)
-        return "SpaceMolt juncture — the present and how the last script ended:\n" + body
+        return "SpaceMolt juncture — the present and how the last script ended:\n" + body + tail
     body = json.dumps(menu, separators=(",", ":"), sort_keys=True)
     if len(body) > _CONTEXT_BUDGET:
         menu.pop("unavailable", None)
         body = json.dumps(menu, separators=(",", ":"), sort_keys=True)
     return ("SpaceMolt juncture — the present, each option with the call it would be taken "
             "with, its reason and bounds, what is unavailable and why, and how the last script "
-            "ended:\n" + body)
+            "ended:\n" + body + tail)
 
 
 def _instruction(menu: dict[str, Any]) -> None:

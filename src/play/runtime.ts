@@ -55,12 +55,21 @@ let mark:Snapshot|null=null;
 /** The opening read of the job now running, so a helper inside it can say what it measured. */
 let jobMark:Snapshot|null=null;
 let unwatch:(()=>void)|undefined;
+/** Every top-level call `main()` made this run, as the menu reads a run: the function, its
+ * first argument, how it ended and what it gained. ponytail: the first whitespace token of
+ * the job's label stands in for "first argument"; it is the poi/id for every job that takes one. */
+export interface Call {fn:string;arg:string;status:Status;credits:number;items:number;xp:number}
+let calls:Call[]=[];
+let tiredClearedFlag=false;
+export const runCalls=()=>calls;
+/** True once Tired was cleared during this run (a menu trigger). */
+export const tiredCleared=()=>tiredClearedFlag;
 
 const need=()=>{if(!bound)throw new Error('the play runtime is not bound: only `run` may execute pilot code');return bound;};
 
 /** Bind the runtime for one run. Resets the stop flag and the counters. */
 export function bind(binding:Binding):void {
-  bound=binding;stopFlag=false;commands=0;started=Date.now();last={fn:'pilot'};
+  bound=binding;stopFlag=false;commands=0;started=Date.now();last={fn:'pilot'};calls=[];tiredClearedFlag=false;
   lastCommandAt=0;pending=null;lastTick=undefined;
   mark=snapshot();
   // A lib Account pushes state between commands (a tick, a fight); the fake in tests does not.
@@ -295,6 +304,8 @@ export async function job<Detail>(fn:string,args:string,body:()=>Promise<Said<De
   // A did the wrapper wrote knows nothing of what happened; the measurement does.
   if(threw)built.did=`${built.did}, ${witness(built)}`;
   line(`${built.status==='done'?'✓':'✗'} ${fn}  ${built.status}  ${seconds(Date.now()-before.at)}  ${built.did}${built.why?`: ${built.why}`:''}`);
+  if(outer.fn==='pilot')calls.push({fn,arg:args.split(' ')[0]??'',status:built.status,credits:built.gained.credits,
+    items:built.gained.items.reduce((n,row)=>n+row.quantity,0),xp:Object.values(built.gained.xp).reduce((n,x)=>n+x,0)});
   last=outer;jobMark=outerMark;
   return built;
 }
@@ -355,7 +366,7 @@ export function imposeTired():void {
   if(crossed(who.mood_before_tired))return;
   const {mood_before_tired,...rest}=who;
   b.setPilot({...rest,mood:mood_before_tired});
-  tiredBy='';
+  tiredBy='';tiredClearedFlag=true;
   if(b.runtime)journalRun(b.runtime,{mood:mood_before_tired},'tired_cleared');
   line(`tired cleared: back inside the ${mood_before_tired} margins`);
 }

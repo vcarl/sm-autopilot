@@ -275,6 +275,13 @@ export function bridgeWorld(options:WorldOptions={}) {
     },
     'spacemolt/get_system':()=>({structuredContent:{kind:'normal',
       system:account.server.location.system_id==='sol'?system:deepRange}}),
+    // The map entry for a system, as a far one answers: never visited, so a neighbour is
+    // always somewhere the menu can point at.
+    'spacemolt/get_map':params=>{
+      const far=String(params.system_id)==='sol'?system:deepRange;
+      return {structuredContent:{system_id:far.id,name:far.name,poi_count:far.pois.length,visited:far.id==='sol',
+        connections:far.connections.map(link=>link.system_id),online:0,position:{x:0,y:0},visited_at:''}};
+    },
     'spacemolt/find_route':params=>{
       const target=homeOf[String(params.id)];
       if(!target)return {found:false,message:`No route to ${params.id}`};

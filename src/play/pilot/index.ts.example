@@ -5,6 +5,7 @@
 import {orient, scout, missions, acceptMission, completeMissions, gatherUntil, prices, sell, service, note} from 'play';
 
 export default async function main() {
+  // A menu move is pasted as it was shown: `const dig = await gatherUntil({poi:'belt'});`
   const look = await orient();
   if (look.detail.present.ship.cargo_used > 0)                       // clear the hold before a gather
     await sell(look.detail.present.cargo.map(row => ({item_id: row.item_id, quantity: row.quantity})));

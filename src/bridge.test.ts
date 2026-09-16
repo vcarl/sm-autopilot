@@ -30,24 +30,22 @@ function heldRun() {
 }
 const settle=()=>new Promise(resolve=>setImmediate(resolve));
 
-test('menu assembles the present from live state and answers with the rules table', async () => {
+test('menu answers with moves from the present, each a paste-able call, and the rendered text', async () => {
   const f=fixture({pilot:()=>PILOT});
   const menu=await f.dispatch('menu') as any;
   assert.equal(f.account.refreshes.length>0,true,'the present must come from an authoritative read');
   assert.equal(menu.stance,'Prospector');
   assert.equal(menu.objective,'fill the hold');
   assert.deepEqual([menu.present.docked_at,menu.present.fuel,menu.present.cargo_free],['sol_base',100,0]);
-  const offered=menu.options.map((option:any)=>option.job);
-  assert.ok(offered.includes('Counter: Services'),offered.join(' | '));
-  assert.ok(offered.includes('J12 Home, serviced'));
-  assert.ok(offered.includes('Travel to belt'),'the route quote for this system governs its POIs');
-  const refused=menu.unavailable.find((row:any)=>row.job.startsWith('J1 '));
-  assert.match(refused.reason,/hold is full/);
+  const calls=menu.moves.map((move:any)=>move.call);
+  assert.ok(calls.includes("sell([{item_id:'ore',quantity:12}])"),calls.join(' | '));
+  assert.ok(menu.not_now.some((row:any)=>row.move==='gatherUntil'&&/hold is full/.test(row.why)),JSON.stringify(menu.not_now));
+  assert.match(menu.text,/^Menu:\n  - `sell\(/);
   assert.equal(menu.last,null,'nothing has run yet');
   // A pilot with no stance and no mood is at rest: the consultation is the reflection (N7).
   const resting=await fixture().dispatch('menu') as any;
   assert.equal(resting.at_rest,true);
-  assert.equal(resting.options,undefined,'a resting pilot is offered no stance work');
+  assert.equal(resting.moves,undefined,'a resting pilot is offered no moves');
 });
 
 test('run blocks until the pilot file ends; status, stop and menu answer meanwhile', async () => {

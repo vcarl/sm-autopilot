@@ -145,7 +145,10 @@ You never set or clear Tired yourself. Rest clears everything.
 
 ## When you are stuck
 
-Call `menu` (a tool, not a function). It reads the present and offers moves from where you stand.
+The menu comes to you: at an idle wakeup, and after a run when the cycle repeats (three runs of
+the same call, two runs not `done`, a run that gained nothing, Tired just cleared) — never after
+every run. Each move is a library call with literal arguments from the present, already passed
+through the rules; paste it into `index.ts`. `not now` says what the rules refuse and why.
 
 ## Saving your own helpers
 

@@ -13,7 +13,8 @@ import {fileURLToPath,pathToFileURL} from 'node:url';
 import {checkTree,specifiers} from './play/boundary.ts';
 import {checkPolicy} from './play/policy.ts';
 import {prose} from './play/prose.ts';
-import {bind,line,outcome as build,progress,unbind,type Binding} from './play/runtime.ts';
+import {menu,menuDue,recentRuns,renderMenu,runSummary} from './play/menu.ts';
+import {bind,line,outcome as build,progress,tiredCleared,unbind,type Binding} from './play/runtime.ts';
 import type {Outcome} from './play/types.ts';
 import {journalRun,writeRun,type RunRecord} from './run-record.ts';
 
@@ -146,9 +147,19 @@ export async function runPilot(deps:RunDeps):Promise<RunResult> {
   } catch(error) {
     result=build('the run broke','failed',{},message(error));
   }
-  const text=prose(result);
+  let text=prose(result);
   for(const said of text.split('\n'))line(said);
   const {commands}=progress();
+  const work=runSummary();
+  journalRun(runtime,{phase:'ended',script:'index.ts',started,outcome:result.status,reason:result.did,commands,...work?{work}:{}});
+  // The menu when the cycle repeats or the run gained nothing — never after every run.
+  if(menuDue(recentRuns(runtime),tiredCleared())) {
+    try {
+      const shown=renderMenu(await menu(runtime));
+      for(const said of shown.split('\n'))line(said);
+      text+=`\n${shown}`;
+    } catch(error){line(`menu: ${message(error)}`);}
+  }
   line(`run ended  ${result.status}  ${commands} commands`);
   unbind();
   record.ended=true;
@@ -156,7 +167,6 @@ export async function runPilot(deps:RunDeps):Promise<RunResult> {
   record.outcome={sha:gate.sha,started,ended:true,status:result.status,did:result.did,
     ...result.why?{why:result.why}:{},prose:text,commands};
   save();
-  journalRun(runtime,{phase:'ended',script:'index.ts',started,outcome:result.status,reason:result.did,commands});
   // A run that failed inside a minute did no work; its juncture would only try the same thing
   // again at once. The schedule carries that one. Real work, however it ended, gets its juncture.
   const brief=result.status!=='done'&&Date.now()-Date.parse(started)<QUICK_FAIL_MS;

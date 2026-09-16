@@ -10,15 +10,15 @@ import {fileURLToPath} from 'node:url';
 import {controllerLock} from './controller-lock.ts';
 import type {ReadinessAccount,ReadinessCommand} from './readiness.ts';
 import {details} from './response-details.ts';
-import {buildMenu} from './menu.ts';
 import type {Mood} from './mood-policy.ts';
 import {reflectReport} from './reflect.ts';
-import {REST_JOB,evaluateMenu,type CounterName,type Facts,type StanceName} from './rules-table.ts';
+import {REST_JOB,evaluateMenu,type Facts,type StanceName} from './rules-table.ts';
 import {journalCommand,journalRun,readRun,type RunRecord} from './run-record.ts';
 import {startHeartbeat} from './heartbeat.ts';
 import {flushJournalDrain,startJournalDrain} from './journal-webhook.ts';
 import {check as checkPilot,runPilot as defaultRunPilot,type RunResult} from './run.ts';
-import {isBound,progress,stop as stopRun} from './play/runtime.ts';
+import {factsNow,menu as buildMenu,renderMenu} from './play/menu.ts';
+import {bind,isBound,progress,stop as stopRun,unbind} from './play/runtime.ts';
 
 /** The one endpoint this runner talks to. */
 export const GAME_WS_URL='wss://game.spacemolt.com/ws/v2';
@@ -29,7 +29,7 @@ export type Dispatch=(action:string,params?:Record<string,unknown>)=>Promise<unk
 const OUTCOME_ACTIONS=new Set(['run','status','rest','reflect','menu','resume','stop','check']);
 const OUTCOME_KEYS=new Set(['accepted','reason','status','record','running','rested','shift_ended','at_rest',
   'cleared','serviced','resumed','busy','objective','objective_done','home','stance','mood','errors','stopping',
-  'ok','fn','did','sha','step','commands','elapsed_s','started']);
+  'ok','fn','did','sha','step','commands','elapsed_s','started','stagnation']);
 
 /** One response as the journal keeps it: whether the thing happened, never the prose or the
  * bodies of a read. */
@@ -40,7 +40,7 @@ export function journalResult(action:string,result:unknown):unknown {
   const kept:Record<string,unknown>={};
   for(const key of Object.keys(body))if(OUTCOME_KEYS.has(key))kept[key]=body[key];
   if(body.last&&typeof body.last==='object')kept.last={status:body.last.status,did:body.last.did};
-  for(const key of ['options','unavailable','stagnation'])
+  for(const key of ['moves','not_now'])
     if(Array.isArray(body[key]))kept[key]=body[key].length;
   return kept;
 }
@@ -79,46 +79,6 @@ export function serve(account:ReadinessAccount,command:ReadinessCommand,options:
   const pilot=options.pilot??(()=>({} as Pilot));
   const runner=options.runPilot??defaultRunPilot;
   const runtime=options.runtime;
-  /** The facts the rules table reads, assembled from live state and the pilot record. */
-  const factsNow=async(who:Pilot):Promise<Facts>=>{
-    if(!who.mood)throw new Error('The pilot record names no mood; the runner sets stance and mood at rest');
-    await account.refresh();
-    const {location,ship,player}=account.state;
-    const system=details(await command('spacemolt/get_system',{})).system as Record<string,any>|undefined;
-    const rows=(system?.pois??[]) as Record<string,any>[];
-    const docked=location?.docked_at??null;
-    const counters:CounterName[]=[];
-    let service_prices:{fuel?:number;hull?:number}|undefined;
-    if(docked) {
-      const base=details(await command('spacemolt/get_base',{}));
-      const fuel=base.fuel_price_all_in,hull=base.base?.repair_price_per_hull;
-      service_prices={...Number.isFinite(fuel)?{fuel}:{},...Number.isFinite(hull)?{hull}:{}};
-      if(service_prices.fuel!==undefined||service_prices.hull!==undefined)counters.push('Services');
-      const services=(Array.isArray(base.services)?base.services:[]).map(String);
-      if(services.includes('storage'))counters.push('Storage');
-      if(services.includes('crafting'))counters.push('Workshop / recipes');
-    }
-    let quoted=NaN;
-    if(location?.system_id&&!location.in_transit)
-      quoted=Number(details(await command('spacemolt/find_route',{id:location.system_id})).estimated_fuel);
-    const sites=Number.isFinite(quoted)?rows.filter(poi=>poi.id!==location?.poi_id).map(poi=>({
-      poi_id:String(poi.id),quoted_fuel:quoted,
-      ...poi.type==='asteroid_belt'?{resource:String(poi.type)}:{},
-      ...poi.base_id?{serviced_base:true}:{}})):[];
-    return {
-      ...who.stance?{stance:who.stance}:{},
-      mood:who.mood,
-      place:{kind:docked?'base':location?.poi_id?'poi':'space',...docked?{base_id:docked}:{},
-        ...docked&&who.home===docked?{is_home:true}:{},counters,
-        ...service_prices?{service_prices}:{},sites},
-      holdings:{fuel:ship?.fuel as number,max_fuel:ship?.max_fuel as number,
-        hull:ship?.hull as number,max_hull:ship?.max_hull as number,
-        cargo_free:(ship?.cargo_capacity??0)-(ship?.cargo_used??0),credits:player?.credits??0,
-        inputs:Array.isArray(account.state.cargo)?[...new Set(account.state.cargo.map(row=>String(row.item_id)))]:[]},
-      obligations:{},permissions:who.permissions??{},observed:{},
-    };
-  };
-
   if(runtime) {startJournalDrain();startHeartbeat(runtime);}
   const stored=()=>runtime?readRun(runtime):null;
   let running:{started:string}|null=null,last:Record<string,unknown>|null=null;
@@ -157,24 +117,28 @@ export function serve(account:ReadinessAccount,command:ReadinessCommand,options:
     return {resumed:true,started:kept.started};
   };
 
+  /** The menu from where the ship stands (DESIGN §4): the present, the moves with the call
+   * each is taken with, what is not on it and why, and how the last run ended. The play
+   * runtime is bound for the reads and released after; a run in flight answers `busy`. */
   const menu=async()=>{
     if(running)return {busy:true,...busy()};
     const who=pilot();
     if(!who.stance||!who.mood)return reflect();
-    const facts=await factsNow(who);
-    const {location,ship,player}=account.state;
-    return {
-      ...who.stance?{stance:who.stance}:{},mood:facts.mood,
-      ...who.objective?{objective:who.objective}:{},
-      present:{system:location?.system_id,poi:location?.poi_id,docked_at:location?.docked_at??null,
-        in_transit:Boolean(location?.in_transit),fuel:ship?.fuel,max_fuel:ship?.max_fuel,
-        hull:ship?.hull,max_hull:ship?.max_hull,
-        cargo_free:facts.holdings.cargo_free,credits:player?.credits,
-        hold:(account.state.cargo??[]).map(row=>({item_id:String(row.item_id),quantity:row.quantity})),
-        storage:(facts.place.counters??[]).includes('Storage'),
-        workshop:(facts.place.counters??[]).includes('Workshop / recipes')},
-      ...buildMenu(facts),last:lastOutcome(),
-    };
+    bind({account,command,pilot,setPilot:options.setPilot??(()=>{}),...runtime?{runtime}:{},emit:()=>{}});
+    try {
+      const built=await buildMenu(runtime);
+      const {location,ship,player}=account.state;
+      return {
+        stance:who.stance,mood:who.mood,
+        ...who.objective?{objective:who.objective}:{},
+        present:{system:location?.system_id,poi:location?.poi_id,docked_at:location?.docked_at??null,
+          in_transit:Boolean(location?.in_transit),fuel:ship?.fuel,max_fuel:ship?.max_fuel,
+          hull:ship?.hull,max_hull:ship?.max_hull,
+          cargo_free:(ship?.cargo_capacity??0)-(ship?.cargo_used??0),credits:player?.credits,
+          hold:(account.state.cargo??[]).map(row=>({item_id:String(row.item_id),quantity:row.quantity}))},
+        ...built,text:renderMenu(built),last:lastOutcome(),
+      };
+    } finally {unbind();}
   };
 
   /** Rest: the one act that ends a shift (N6), and the only thing that touches the stance.
@@ -182,7 +146,7 @@ export function serve(account:ReadinessAccount,command:ReadinessCommand,options:
   const rest=async()=>{
     if(running)return {rested:false,reason:'a run is in flight; rest when it ends',...busy()};
     const who=pilot();
-    const facts=await factsNow(who);
+    const facts=await factsNow(account,command,who);
     const verdict=evaluateMenu(facts).find(row=>row.job===REST_JOB);
     if(!verdict?.admissible)return {rested:false,reason:verdict?.reason??'rest is not admissible here'};
     if(!options.setPilot)return {rested:false,reason:'this runner cannot write the pilot record'};
