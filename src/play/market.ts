@@ -3,6 +3,7 @@
 import type {BuyResponse,EstimatePurchaseResponse,MarketListingItem,SellResponse,ViewMarketResponse,ViewStorageResponse} from '@spacemolt/lib';
 import {miningInventory} from '../mining-inventory.ts';
 import {details} from '../response-details.ts';
+import {bench,moduleSpec,room,whyNotFit} from './hangar.ts';
 import {acct,admit,checkStop,command,job,pilot,step,wanted} from './runtime.ts';
 import {withdraw} from './storage.ts';
 import type {Outcome,Row,Want} from './types.ts';
@@ -154,13 +155,24 @@ export interface Bought {
 /** Buy at market price, here, after an `estimate_purchase` preview. Over `spacemolt/buy` it
  * adds: the estimate read first and refused when `total_cost` would take the wallet under
  * `permissions.credit_reserve`, over `permissions.max_spend` or over `maxEach × quantity`;
- * the refusal names the numbers. Trains trading. Tired or Relaxed: refused. */
-export function buy(itemId:string,quantity:number,opts:{deliverTo?:'cargo'|'storage';maxEach?:number}={}):Promise<Outcome<Bought>> {
+ * the refusal names the numbers. A **module** is checked against the ship's grid first —
+ * free slot of its kind, CPU and power — and refused when it could not be fitted, with
+ * `next` saying what to remove; `{force:true}` skips that check for a pilot buying a spare.
+ * Trains trading. Tired or Relaxed: refused. */
+export function buy(itemId:string,quantity:number,opts:{deliverTo?:'cargo'|'storage';maxEach?:number;force?:boolean}={}):Promise<Outcome<Bought>> {
   return job<Bought>('buy',`${quantity} ${itemId}`,async()=>{
     const none={estimate:{} as EstimatePurchaseResponse};
     const stop=admit('buy');
     if(stop)return {status:'refused',did:`did not buy ${itemId}`,why:stop,detail:none};
     if(!acct().state.location?.docked_at)return {status:'refused',did:`did not buy ${itemId}`,why:'not docked',detail:none};
+    // A module that cannot be fitted is a dead 2,080 cr: the grid is checked before the buy.
+    if(!opts.force) {
+      const spec=await moduleSpec(itemId).catch(()=>null);
+      const why=spec&&whyNotFit(spec,bench());
+      if(why)return {status:'refused',did:`did not buy ${itemId}`,why,detail:none,
+        next:[`refit({remove:[…]}) first, then buy`,`buy('${itemId}', ${quantity}, {force:true}) to hold it as a spare`,
+          room(acct().state.ship as never)]};
+    }
     const estimate=details(await command('spacemolt_market/estimate_purchase',{item_id:itemId,quantity})) as EstimatePurchaseResponse;
     const who=pilot(),credits=acct().state.player?.credits??0;
     const reserve=who.permissions?.credit_reserve??0,cap=who.permissions?.max_spend;

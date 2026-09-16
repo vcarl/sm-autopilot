@@ -5,7 +5,8 @@ import {bridgeWorld,type WorldOptions} from '../test-support/bridge-world.ts';
 import {goTo} from './travel.ts';
 import {bind,command,job,outcome,pilot,progress,stop,unbind,type Pilot} from './runtime.ts';
 import {service} from './service.ts';
-import {sell,prices} from './market.ts';
+import {buy,sell,prices} from './market.ts';
+import {buyShip,refit,shipsForSale} from './hangar.ts';
 import {stow,withdraw} from './storage.ts';
 import {acceptMission,missions} from './missions.ts';
 
@@ -270,4 +271,75 @@ test('a half-open socket the lib never reconnects is forced back, then the comma
     assert.equal(calls,2,'and the read was re-issued once');
     assert.ok(lines.some(l=>l.includes('no reconnect in 60s; forcing one')),lines.join('\n'));
   } finally {unbind();t.mock.timers.reset();}
+});
+
+// The Cobble that lost 2,080 cr: two utility slots, both fitted, and a cargo expander bought
+// anyway. Every check below is that mistake made impossible.
+const cobble=(extra:WorldOptions['hangar']={}):WorldOptions=>
+  ({cargoUsed:0,hangar:{fitted:[
+    {module_id:'m1',type_id:'cargo_expander_ii',slot:'utility',cpu_usage:2,power_usage:3},
+    {module_id:'m2',type_id:'mining_laser_i',slot:'utility',cpu_usage:3,power_usage:4}],...extra}});
+
+test('refit names the full slot and what to remove, and fits once one comes off',async()=>{
+  const f=world({mood:'Focused',permissions:{credit_reserve:0}},['refuel','repair','storage'],cobble());
+  try {
+    f.account.server.cargo.push({item_id:'cargo_expander_ii',quantity:1});
+    f.account.server.ship.cargo_used+=1;
+    await f.account.refresh();
+    const full=await refit({install:['cargo_expander_ii']});
+    assert.equal(full.status,'refused');
+    assert.match(full.why!,/no free utility slot: 2 of 2 fitted; remove one of cargo_expander_ii, mining_laser_i first/);
+    assert.equal(f.count('spacemolt/install_mod'),0,'nothing was sent');
+    // The remove frees the slot the install needs, in the same call and in that order.
+    const swapped=await refit({remove:['mining_laser_i'],install:['cargo_expander_ii']});
+    assert.equal(swapped.status,'done',swapped.why);
+    assert.deepEqual([swapped.detail.removed,swapped.detail.installed],[['mining_laser_i'],['cargo_expander_ii']]);
+    assert.deepEqual(f.account.server.modules.map(row=>row.type_id),['cargo_expander_ii','cargo_expander_ii']);
+    assert.deepEqual([f.account.server.ship.cpu_used,f.account.server.ship.power_used],[4,6]);
+    // A module already off, and one already on by its module_id, are both nothing to do.
+    const again=await refit({remove:['mining_laser_i'],install:['m1']});
+    assert.equal(again.status,'done',again.why);
+    assert.match(again.did,/already fitted: m1; already unfitted: mining_laser_i/);
+    assert.equal(f.count('spacemolt/uninstall_mod'),1,'only the real remove was sent');
+  } finally {unbind();}
+});
+
+test('buying a module that could not be fitted is refused at the counter, forced through only on request',async()=>{
+  const f=world({mood:'Focused',permissions:{credit_reserve:0}},['refuel','repair','storage'],cobble());
+  try {
+    const refused=await buy('cargo_expander_ii',1);
+    assert.equal(refused.status,'refused');
+    assert.match(refused.why!,/no free utility slot: 2 of 2 fitted/);
+    assert.equal(f.count('spacemolt_market/estimate_purchase'),0,'the wallet was never opened');
+    assert.match(refused.next.join(' '),/refit\(\{remove/);
+    // A spare is a legitimate buy: the pilot says so and the check steps aside.
+    const spare=await buy('cargo_expander_ii',1,{force:true});
+    assert.equal(spare.status,'done',spare.why);
+    assert.equal(f.count('spacemolt/buy'),1);
+    // An item that is not a module is never slot-checked at all.
+    const ore=await buy('ore',2);
+    assert.equal(ore.status,'done',ore.why);
+  } finally {unbind();}
+});
+
+test('buyShip refuses a hull that would take the wallet under the reserve, with the numbers',async()=>{
+  const f=world({mood:'Focused',permissions:{credit_reserve:500}},['refuel','repair','storage'],
+    {cargoUsed:0,hangar:{listings:[{listing_id:'l1',ship_id:'s2',class_id:'hauler_ii',price:800}]}});
+  try {
+    const over=await buyShip('l1');
+    assert.equal(over.status,'refused');
+    assert.match(over.why!,/costs 800; credits 1000 less reserve 500 leaves 500/);
+    assert.equal(f.count('spacemolt_ship/buy_listed_ship'),0,'nothing was sent');
+    // Inside the reserve it goes through, and the fleet list is the evidence, not the reply.
+    f.account.server.player.credits=2_000;
+    await f.account.refresh();
+    const bought=await buyShip('l1');
+    assert.equal(bought.status,'done',bought.why);
+    assert.deepEqual([bought.detail.price,bought.detail.switched],[800,false]);
+    assert.deepEqual(f.fleet.map(row=>row.ship_id),['ship','s2']);
+    assert.match(bought.next.join(' '),/switchShip\('s2'\)/);
+    const board=await shipsForSale();
+    assert.equal(board.status,'done',board.why);
+    assert.equal(board.detail.for_sale.length,0,'the only listing was bought');
+  } finally {unbind();}
 });

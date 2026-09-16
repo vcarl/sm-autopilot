@@ -72,6 +72,7 @@ same goes for `withdraw` of rows the store does not have and `sell` of rows you 
 | `service()` | full tank and hull, inside the mood's spend margin |
 | `stow(rows)` / `withdraw(rows)` / `storage(base?)` | station storage; rows you name (omit a row's `quantity` for all of it); readable from anywhere |
 | `prices(items?)` / `sell(rows, opts?)` / `buy(item, qty)` | the market here, live at the moment of the act; `sell(rows, {from:'store'})` empties the store a hold-load at a time |
+| `refit({install,remove})` / `shipsForSale(opts?)` / `buyShip(id, opts?)` | the hangar: modules on and off within the grid, the hulls for sale here, the next one |
 | `missions()` / `acceptMission(id)` / `completeMissions()` | the board here; the cheapest credits and xp early |
 | `note(text)` | write a line into the journal and the run's stream |
 | `account()` | the raw `@spacemolt/lib` Account |
@@ -80,8 +81,7 @@ same goes for `withdraw` of rows the store does not have and `sell` of rows you 
 
 `sell`, `stow` and `withdraw` take explicit rows (`[{item_id, quantity}]`, and `{item_id}` with
 no `quantity` for all of it — a non-finite `quantity` is refused) and never default to
-"everything": you name what you sell. `refit`,
-`shipsForSale`, `buyShip` and the other careers' functions are signatures that throw
+"everything": you name what you sell. The other careers' functions are signatures that throw
 `unimplemented` until their slice lands; `account()` reaches those commands meanwhile.
 
 Everything game-shaped in a `detail` is the lib's own type (`SystemPoi`, `MissionInfo`,
@@ -109,8 +109,21 @@ out is: first 2,500–10,000 credits, skills 1–3 in mining, trading and naviga
    is one trip of ~15 minutes. `gatherUntil({poi, until: {item, quantity}})` loops trips.
 5. `prices()` then `sell(rows)`. Trading xp scales with credit volume; ore sells for little, refined
    for 2–40× more (that is the industry career).
-6. First purchase at ~2,000 cr: a cargo expander (`buy`, then `account().commands.spacemolt.install_mod`),
-   named by every guide as the correct first buy.
+6. First purchase at ~2,000 cr: a cargo expander (`buy`, then `refit({install:['cargo_expander_ii']})`),
+   named by every guide as the correct first buy — but see below: it is only correct if a
+   utility slot is free.
+
+## Getting a better ship
+
+- `shipsForSale()` lists the hulls at or under credits minus your `credit_reserve`, biggest
+  hold first, each with one line of difference against what you fly.
+- `buyShip(listingId, {switchTo:true})` buys it and, at a shipyard, flies it; over the
+  reserve or `permissions.max_spend` it is `refused` with the numbers and nothing is sent.
+- `refit({remove, install})` moves modules across. Check first: a module needs a free slot of
+  its own kind (`utility`, `weapon`, `defense`) and room in `cpu_used/cpu_capacity` and
+  `power_used/power_capacity`. `refit` and `buy` both check before sending; a refusal names
+  what to remove.
+- Modules you remove go back into the hold (or this base's store), so a swap costs nothing.
 
 ## Mood and Tired
 

@@ -55,7 +55,36 @@ export interface WorldOptions {
   craft?:CraftOptions;
   /** The creatures at this world's POIs, and how a fight with one goes. */
   wildlife?:WildlifeOptions;
+  /** The modules on the ship and the hulls listed at this base. */
+  hangar?:HangarOptions;
 }
+
+/** The fit and the exchange: what is bolted to the hull now, and what is for sale here.
+ * The grid is the live Cobble's — two utility slots, one weapon, one defense — because the
+ * mistake this guards against is a module bought for a slot that is already full. */
+export interface HangarOptions {
+  fitted?:{module_id:string;type_id:string;slot:string;cpu_usage:number;power_usage:number}[];
+  listings?:{listing_id:string;ship_id:string;class_id:string;price:number}[];
+}
+
+/** What `inspect` answers for a module id: the slot it takes and its draw on the grid. */
+const MODULES:Record<string,Record<string,unknown>>={
+  cargo_expander_ii:{id:'cargo_expander_ii',type_id:'cargo_expander_ii',name:'Cargo Expander II',
+    description:'',slot:'utility',type:'utility',cpu_usage:2,power_usage:3,size:1,base_value:2_080},
+  mining_laser_i:{id:'mining_laser_i',type_id:'mining_laser_i',name:'Mining Laser I',
+    description:'',slot:'utility',type:'mining',cpu_usage:3,power_usage:4,size:1,base_value:400},
+  hull_reinforcement_i:{id:'hull_reinforcement_i',type_id:'hull_reinforcement_i',name:'Hull Reinforcement I',
+    description:'',slot:'defense',type:'defense',cpu_usage:1,power_usage:2,size:1,base_value:300},
+};
+/** What `inspect` answers for a ship class id. */
+const CLASSES:Record<string,Record<string,unknown>>={
+  cobble:{id:'cobble',name:'Cobble',class:'Hauler',cargo_capacity:12,base_speed:3,base_fuel:120,
+    utility_slots:2,weapon_slots:1,defense_slots:1,minimum_crew:0},
+  hauler_ii:{id:'hauler_ii',name:'Hauler II',class:'Hauler',cargo_capacity:120,base_speed:2,base_fuel:150,
+    utility_slots:3,weapon_slots:1,defense_slots:1,minimum_crew:1},
+};
+const page=(items:Record<string,unknown>[],type:string)=>
+  ({items:structuredClone(items),message:'',page:1,page_size:1,total:items.length,total_pages:1,type});
 
 /** A habitat with creatures in it: what a look answers, how a battle resolves over a few
  * polls, and what the kill leaves in a wreck. The ship's own weapon is here too, because a
@@ -104,11 +133,24 @@ export function bridgeWorld(options:WorldOptions={}) {
     location:{system_id:'sol',poi_id:'station',docked_at:'sol_base' as string|null,in_transit:false},
     // Hull stays above the Cautious D3 line: a ship below it is Tired and starts no job.
     ship:{id:'ship',fuel:100,max_fuel:120,hull:96,max_hull:100,cargo_used:cargoUsed,
-      cargo_capacity:12,speed:3,incapacitated:false},
+      cargo_capacity:12,speed:3,incapacitated:false,class_id:'cobble',class_name:'Cobble',
+      cpu_used:0,cpu_capacity:12,power_used:0,power_capacity:24,
+      utility_slots:2,weapon_slots:1,defense_slots:1},
     player:{credits:1_000},
     cargo:(cargoUsed?[{item_id:'ore',quantity:cargoUsed}]:[]) as {item_id:string;quantity:number}[],
     modules:[] as Record<string,any>[],
   });
+  // The fit as the world starts, with the grid it draws: the ship's counters and the module
+  // list are the same fact, so a test that fits two utility modules gets a full slot bank.
+  for(const row of options.hangar?.fitted??[]) {
+    account.server.modules.push({...MODULES[row.type_id],...row,
+      name:String(MODULES[row.type_id]?.name??row.type_id),type:row.slot,size:1});
+    account.server.ship.cpu_used+=row.cpu_usage;
+    account.server.ship.power_used+=row.power_usage;
+  }
+  const listings=structuredClone(options.hangar?.listings??[]);
+  const fleet:Record<string,any>[]=[{ship_id:'ship',class_id:'cobble',class_name:'Cobble',
+    is_active:true,location_base_id:'sol_base'}];
   const add=(item:string,quantity:number)=>{
     const room=account.server.ship.cargo_capacity-account.server.ship.cargo_used;
     const moved=Math.min(room,quantity);
@@ -258,6 +300,62 @@ export function bridgeWorld(options:WorldOptions={}) {
       account.server.player.credits+=quantity*10;
       return {delta:{details:{action:'sell',item_id:params.id,quantity_sold:quantity,total_earned:quantity*10}}};
     },
+    // The catalog behind a module or a hull: the only place a slot kind and a grid draw
+    // are knowable before the thing is bought.
+    'spacemolt/inspect':params=>{
+      const id=String(params.id);
+      if(Object.hasOwn(MODULES,id))return {structuredContent:{id,kind:'module',source:'catalog',
+        catalog:page([MODULES[id]!],'items')}};
+      if(Object.hasOwn(CLASSES,id))return {structuredContent:{id,kind:'ship_class',source:'catalog',
+        catalog:page([CLASSES[id]!],'ships')}};
+      return {structuredContent:{id,kind:'item',source:'catalog',
+        catalog:page([{id,name:id,description:'',base_value:1,size:1}],'items')}};
+    },
+    'spacemolt/install_mod':params=>{
+      const spec=MODULES[String(params.id)];
+      if(!spec)throw new Error(`No module ${params.id}`);
+      const slot=String(spec.slot),cap=Number((account.server.ship as any)[`${slot}_slots`]??0);
+      if(account.server.modules.filter(row=>row.slot===slot).length>=cap)
+        throw new Error('no_utility_slots');
+      take(String(params.id),1);
+      account.server.modules.push({...spec,module_id:`m${account.server.modules.length+1}`});
+      account.server.ship.cpu_used+=Number(spec.cpu_usage);
+      account.server.ship.power_used+=Number(spec.power_usage);
+      return {delta:{details:{message:'Installed.',module_id:String(spec.id),
+        cpu_used:account.server.ship.cpu_used,power_used:account.server.ship.power_used}}};
+    },
+    'spacemolt/uninstall_mod':params=>{
+      const row=account.server.modules.find(current=>
+        current.module_id===String(params.id)||current.type_id===String(params.id));
+      if(!row)throw new Error(`No module ${params.id} fitted`);
+      account.server.modules=account.server.modules.filter(current=>current!==row);
+      account.server.ship.cpu_used-=Number(row.cpu_usage);
+      account.server.ship.power_used-=Number(row.power_usage);
+      add(String(row.type_id),1);
+      return {delta:{details:{message:'Removed.',module_id:String(row.type_id)}}};
+    },
+    'spacemolt_ship/browse_ships':()=>({structuredContent:{base_id:'sol_base',base_name:'Sol Base',
+      count:listings.length,listings:structuredClone(listings)}}),
+    'spacemolt_ship/buy_listed_ship':params=>{
+      const row=listings.find(current=>current.listing_id===String(params.id));
+      if(!row)throw new Error(`No listing ${params.id}`);
+      account.server.player.credits-=row.price;
+      listings.splice(listings.indexOf(row),1);
+      fleet.push({ship_id:row.ship_id,class_id:row.class_id,class_name:CLASSES[row.class_id]?.name??row.class_id,
+        is_active:false,location_base_id:'sol_base'});
+      return {delta:{details:{message:'Bought.',class_id:row.class_id,price:row.price,
+        ship_id:row.ship_id,credits_left:account.server.player.credits}}};
+    },
+    'spacemolt_ship/list_ships':()=>({structuredContent:{count:fleet.length,
+      active_ship_id:'ship',active_ship_class:'cobble',ships:structuredClone(fleet)}}),
+    'spacemolt_market/estimate_purchase':params=>({structuredContent:{item_id:params.item_id,
+      available:99,quantity:Number(params.quantity),total_cost:Number(params.quantity)*12,sales_tax:0,unfilled:0}}),
+    'spacemolt/buy':params=>{
+      add(String(params.id),Number(params.quantity));
+      account.server.player.credits-=Number(params.quantity)*12;
+      return {delta:{details:{action:'buy',item_id:params.id,quantity:Number(params.quantity),
+        total_cost:Number(params.quantity)*12,unfilled:0}}};
+    },
     'spacemolt/get_base':()=>({delta:{details:{services,fuel_price_all_in:1,
       base:{poi_id:'station',repair_price_per_hull:1}}}}),
     'spacemolt/refuel':()=>{
@@ -333,6 +431,6 @@ export function bridgeWorld(options:WorldOptions={}) {
     assert.ok(Object.hasOwn(handlers,action),`Unexpected command: ${action}`);
     return handlers[action]!(params);
   };
-  return {account,sent,command,store,queued,board,taken,
+  return {account,sent,command,store,queued,board,taken,listings,fleet,
     count:(action:string)=>sent.filter(call=>call.action===action).length};
 }
