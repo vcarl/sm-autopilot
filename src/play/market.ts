@@ -3,9 +3,9 @@
 import type {BuyResponse,EstimatePurchaseResponse,MarketListingItem,SellResponse,ViewMarketResponse,ViewStorageResponse} from '@spacemolt/lib';
 import {miningInventory} from '../mining-inventory.ts';
 import {details} from '../response-details.ts';
-import {acct,admit,checkStop,command,job,pilot,step} from './runtime.ts';
+import {acct,admit,checkStop,command,job,pilot,step,wanted} from './runtime.ts';
 import {withdraw} from './storage.ts';
-import type {Outcome,Row} from './types.ts';
+import type {Outcome,Row,Want} from './types.ts';
 
 /** The lib's per-item book (`best_buy`, `best_buy_qty`, `best_sell`, `best_sell_qty`,
  * `spread`) plus your own position, which the market does not know. */
@@ -55,49 +55,92 @@ export interface Sold {
 }
 
 /** Sell the named rows at market price, here. The pilot names what it sells; nothing is
- * sold by default. Over `spacemolt/sell` it adds: the book re-read before each row so a thin
- * book never sells into nothing, `from:'store'` (withdraw first), a per-item `floor` on
- * `best_buy`, and the wallet measured for `gained.credits`.
+ * sold by default. Over `spacemolt/sell` it adds: the book read before anything moves so a
+ * row with no buyer is never touched, `from:'store'` (withdraw and sell in hold-sized batches
+ * until the named rows are gone), a per-item `floor` on `best_buy`, and the wallet measured
+ * for `gained.credits`.
  *
- * - `items`: rows to sell; quantity `Infinity` means all held.
- * - `from:'store'`: withdraw the rows first, then sell. Default `'hold'`.
+ * - `items`: rows to sell; omit a row's `quantity` to mean all of it.
+ * - `from:'store'`: take the rows out of the store here and sell them, one hold-load at a
+ *   time, however many loads it takes. Rows with no buyer (or under `floor`) stay in the
+ *   store, unwithdrawn, and `did` says so. Default `'hold'`.
  * - `floor`: per-item minimum `best_buy`; below it the row is skipped, not dumped.
  *
  * Trains trading (xp scales with credit volume). Not docked or no market here: `refused`. */
-export function sell(items:Row[],opts:{from?:'hold'|'store';floor?:Record<string,number>}={}):Promise<Outcome<Sold>> {
-  return job<Sold>('sell',items.map(row=>`${row.quantity} ${row.item_id}`).join(', ')+(opts.from==='store'?' from store':''),async()=>{
+export function sell(items:Want[],opts:{from?:'hold'|'store';floor?:Record<string,number>}={}):Promise<Outcome<Sold>> {
+  return job<Sold>('sell',items.map(row=>`${row.quantity??'all'} ${row.item_id}`).join(', ')+(opts.from==='store'?' from store':''),async()=>{
     const docked=acct().state.location?.docked_at??'';
     const empty=():Sold=>({base_id:docked,fills:[],short:[],total:0});
     if(!items.length)return {status:'refused',did:'sold nothing',why:'no rows named; pass [{item_id, quantity}]',detail:empty()};
     if(!docked)return {status:'refused',did:'sold nothing',why:'not docked; a market is a station counter',detail:empty()};
-    if(opts.from==='store') {
-      const took=await withdraw(items);
-      if(took.status==='refused')return {status:'refused',did:'sold nothing',why:`withdraw first: ${took.why}`,detail:empty()};
-    }
+    const want=wanted(items);
+    if('refused' in want)return {status:'refused',did:'sold nothing',why:want.refused,detail:empty()};
+    const asked=want.rows;
+    if(!asked.length)return {status:'refused',did:'sold nothing',why:'no rows named; pass [{item_id, quantity}]',detail:empty()};
     const listed=await book();
     const fills:SellResponse[]=[],short:Sold['short']=[];
     let total=0;
-    for(const row of items) {
+    /** One row out of the hold, bounded by what is aboard; returns what the book took. */
+    const sellRow=async(row:Row):Promise<number>=>{
       checkStop();
       const held=miningInventory(acct().state)[row.item_id]??0;
       const quantity=Math.min(row.quantity,held);
       const quote=listed.get(row.item_id);
       const floor=opts.floor?.[row.item_id];
-      if(quantity<=0){short.push({item_id:row.item_id,requested:row.quantity,sold:0,why:'not held'});continue;}
-      if(!quote||!(quote.best_buy>0)){short.push({item_id:row.item_id,requested:row.quantity,sold:0,why:'no buyer'});continue;}
-      if(floor!==undefined&&quote.best_buy<floor){short.push({item_id:row.item_id,requested:row.quantity,sold:0,why:`under floor: best buy ${quote.best_buy} < ${floor}`});continue;}
+      if(quantity<=0){short.push({item_id:row.item_id,requested:row.quantity,sold:0,why:'not held'});return 0;}
+      if(!quote||!(quote.best_buy>0)){short.push({item_id:row.item_id,requested:row.quantity,sold:0,why:'no buyer'});return 0;}
+      if(floor!==undefined&&quote.best_buy<floor){short.push({item_id:row.item_id,requested:row.quantity,sold:0,why:`under floor: best buy ${quote.best_buy} < ${floor}`});return 0;}
       try {
         const fill=details(await command('spacemolt/sell',{id:row.item_id,quantity})) as SellResponse;
+        const took=Number(fill.quantity_sold??quantity);
         fills.push(fill);total+=Number(fill.total_earned??0);
-        step(`sell ${fill.quantity_sold??quantity} ${row.item_id} +${fill.total_earned??'?'} cr`);
-        if((fill.quantity_sold??quantity)<quantity)short.push({item_id:row.item_id,requested:row.quantity,sold:fill.quantity_sold??0,why:`book took ${fill.quantity_sold}`});
-      } catch(error){short.push({item_id:row.item_id,requested:row.quantity,sold:0,why:message(error)});}
-    }
+        step(`sell ${took} ${row.item_id} +${fill.total_earned??'?'} cr`);
+        if(took<quantity)short.push({item_id:row.item_id,requested:row.quantity,sold:took,why:`book took ${took}`});
+        return took;
+      } catch(error){short.push({item_id:row.item_id,requested:row.quantity,sold:0,why:message(error)});return 0;}
+    };
+    if(opts.from==='store') {
+      // The book decides what leaves the store at all: an unsellable row stays where it is.
+      const left=new Map<string,number>();
+      for(const row of asked) {
+        const quote=listed.get(row.item_id),floor=opts.floor?.[row.item_id];
+        if(!quote||!(quote.best_buy>0)){short.push({item_id:row.item_id,requested:row.quantity,sold:0,why:'no buyer'});continue;}
+        if(floor!==undefined&&quote.best_buy<floor){short.push({item_id:row.item_id,requested:row.quantity,sold:0,why:`under floor: best buy ${quote.best_buy} < ${floor}`});continue;}
+        left.set(row.item_id,(left.get(row.item_id)??0)+row.quantity);
+      }
+      // One hold-load per pass: withdraw what fits, sell it, go back for the rest.
+      let loads=0;
+      while(left.size) {
+        checkStop();
+        const took=await withdraw([...left].map(([item_id,quantity])=>
+          Number.isFinite(quantity)?{item_id,quantity}:{item_id}));
+        if(!loads&&took.status==='refused'&&!took.detail.moved.length)
+          return {status:'refused',did:'sold nothing',why:`withdraw first: ${took.why}`,detail:empty()};
+        if(!took.detail.moved.length)break;
+        // A row the store came up short on is exhausted: sell what came out, then stop asking.
+        const emptied=took.detail.short.filter(row=>row.why==='not in store').map(row=>row.item_id);
+        for(const row of took.detail.moved) {
+          const sold=await sellRow(row);
+          const rest=(left.get(row.item_id)??0)-sold;
+          if(sold<row.quantity||rest<=0)left.delete(row.item_id);
+          else left.set(row.item_id,rest);
+        }
+        for(const item of emptied)left.delete(item);
+        loads++;
+      }
+    } else for(const row of asked)await sellRow(row);
     const detail:Sold={base_id:docked,fills,short,total};
-    const why=short.map(row=>`${row.item_id}: ${row.why}`).join('; ');
-    return {status:short.length?(fills.length?'partial':'refused'):'done',
-      did:fills.length?`sold ${fills.map(f=>`${f.quantity_sold} ${f.item_id}`).join(', ')} at ${docked} for ${total} cr`:`sold nothing at ${docked}`,
-      ...why?{why}:{},detail};
+    // Nothing named was held: the end state already holds, so it is said, not refused.
+    const already=short.filter(row=>row.why==='not held');
+    const blocked=short.filter(row=>!already.includes(row));
+    const kept=opts.from==='store'?blocked.filter(row=>row.why==='no buyer'||row.why.startsWith('under floor')):[];
+    const said=[...kept.length?[`left in the store: ${kept.map(row=>`${row.item_id} ${row.why}`).join(', ')}`]:[],
+      ...already.length?[`nothing to sell: ${already.map(row=>`${row.item_id} not held`).join(', ')}`]:[]].join('; ');
+    const why=blocked.map(row=>`${row.item_id}: ${row.why}`).join('; ');
+    const sold=fills.length?`sold ${fills.map(f=>`${f.quantity_sold} ${f.item_id}`).join(', ')} at ${docked} for ${total} cr`
+      :blocked.length?`sold nothing at ${docked}`:`nothing to sell at ${docked}`;
+    return {status:blocked.length?(fills.length?'partial':'refused'):'done',
+      did:said?`${sold}; ${said}`:sold,...why?{why}:{},detail};
   });
 }
 

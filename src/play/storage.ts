@@ -3,14 +3,15 @@
 import type {V2CargoItem,ViewStorageResponse} from '@spacemolt/lib';
 import {miningInventory} from '../mining-inventory.ts';
 import {details} from '../response-details.ts';
-import {acct,checkStop,command,job,step} from './runtime.ts';
-import type {Outcome,Row} from './types.ts';
+import {acct,checkStop,command,job,step,wanted} from './runtime.ts';
+import type {Outcome,Row,Want} from './types.ts';
 
 export interface Moved {
   base_id:string;
   /** What moved, measured from the hold before and after. */
   moved:Row[];
-  /** What did not move, with the reason: `not held`, `not in store`, `no room`, or the game's refusal. */
+  /** What did not move, with the reason: `not held`, `not in store`, `no room`, or the game's
+   * refusal. The first two mean the end state already holds, so they do not spoil the status. */
   short:{item_id:string;requested:number;moved:number;why:string}[];
   /** The hold and the store after the last move. */
   cargo:V2CargoItem[];
@@ -39,13 +40,14 @@ async function counter(fn:string):Promise<{docked:string}|{refused:string}> {
 
 /** One counter move (deposit or withdraw), row by row; the hold after each send is the
  * evidence, never the reply's claim. */
-async function move(fn:'stow'|'withdraw',items:Row[]):Promise<Outcome<Moved>> {
+async function move(fn:'stow'|'withdraw',items:Want[]):Promise<Outcome<Moved>> {
   const action=fn==='stow'?'spacemolt_storage/deposit':'spacemolt_storage/withdraw';
-  return job<Moved>(fn,items.map(row=>`${row.quantity} ${row.item_id}`).join(', '),async()=>{
-    const asked=items.map(row=>({item_id:String(row.item_id),quantity:Number(row.quantity)}))
-      .filter(row=>row.item_id&&row.quantity>0);
+  return job<Moved>(fn,items.map(row=>`${row.quantity??'all'} ${row.item_id}`).join(', '),async()=>{
     const empty=():Moved=>({base_id:acct().state.location?.docked_at??'',moved:[],short:[],
       cargo:(acct().state.cargo??[]) as V2CargoItem[],store:{} as ViewStorageResponse});
+    const want=wanted(items);
+    if('refused' in want)return {status:'refused',did:`${fn} nothing`,why:want.refused,detail:empty()};
+    const asked=want.rows;
     if(!asked.length)return {status:'refused',did:`${fn} nothing`,why:'no rows named; pass [{item_id, quantity}]',detail:empty()};
     const at=await counter(fn);
     if('refused' in at)return {status:'refused',did:`${fn} nothing`,why:at.refused,detail:empty()};
@@ -77,22 +79,29 @@ async function move(fn:'stow'|'withdraw',items:Row[]):Promise<Outcome<Moved>> {
     if(moved.length)store=await view();
     const detail:Moved={base_id:at.docked,moved,short,cargo:(acct().state.cargo??[]) as V2CargoItem[],store};
     const verb=fn==='stow'?'stowed':'withdrew';
-    const summary=moved.length?`${verb} ${moved.map(row=>`${row.quantity} ${row.item_id}`).join(', ')} at ${at.docked}`:`${verb} nothing at ${at.docked}`;
-    const why=short.map(row=>`${row.item_id}: ${row.why}`).join('; ');
-    return {status:short.length?(moved.length?'partial':'refused'):'done',did:summary,...why?{why}:{},detail};
+    // A row that is not there means the end state already holds: it is said in `did`, not a refusal.
+    const already=short.filter(row=>row.why==='not held'||row.why==='not in store');
+    const blocked=short.filter(row=>!already.includes(row));
+    const nothing=`nothing to ${fn}: ${already.map(row=>`${row.item_id} ${row.why}`).join(', ')}`;
+    const summary=moved.length
+      ?`${verb} ${moved.map(row=>`${row.quantity} ${row.item_id}`).join(', ')} at ${at.docked}${already.length?`; ${nothing}`:''}`
+      :blocked.length?`${verb} nothing at ${at.docked}`:`${nothing} at ${at.docked}`;
+    const why=blocked.map(row=>`${row.item_id}: ${row.why}`).join('; ');
+    return {status:blocked.length?(moved.length?'partial':'refused'):'done',did:summary,...why?{why}:{},detail};
   });
 }
 
 /** Deposit the named rows from the hold into the store here. Over `storage/deposit` it
  * adds: the `storage` counter checked first, each row bounded by what the hold shows, and
- * the store re-read after. Quantity `Infinity` means all held. Refused when not docked or
- * nothing was named; a row not aboard is `short`. Costs nothing. */
-export function stow(items:Row[]):Promise<Outcome<Moved>> {return move('stow',items);}
+ * the store re-read after. Omit a row's `quantity` to mean all held. Refused when not docked
+ * or nothing was named; a row not aboard is `short` and `done`: there was nothing to stow. */
+export function stow(items:Want[]):Promise<Outcome<Moved>> {return move('stow',items);}
 
 /** Take rows out of the store here into the hold. Over `storage/withdraw` it adds: the
  * counter check, each row bounded by the store's count and the hold's room, and the reason
- * the rest stayed. Refused when not docked. Costs nothing. */
-export function withdraw(items:Row[]):Promise<Outcome<Moved>> {return move('withdraw',items);}
+ * the rest stayed. Omit a row's `quantity` to mean all stored. Refused when not docked; a row
+ * the store does not hold is `short` and `done`. Costs nothing. */
+export function withdraw(items:Want[]):Promise<Outcome<Moved>> {return move('withdraw',items);}
 
 /** Read the store at this base, or at a named base or station POI without going there. Works
  * undocked and in another system. `locations` is the whole account's map of holdings. Over

@@ -57,8 +57,10 @@ The field names inside `detail` are in each function's `.ts` file and its JSDoc,
 prose; `check` will tell you when you guess.
 
 Every function is safe to run twice: it is named for an end state and sends nothing when that
-state already holds. `goTo` somewhere you are is `done`. `stow` of rows you do not hold is `refused`
-with `short` saying so.
+state already holds. `goTo` somewhere you are is `done`. `stow` of rows you do not hold is `done`
+too — there was nothing to stow — with `short` and `did` saying which rows were not there; the
+same goes for `withdraw` of rows the store does not have and `sell` of rows you do not hold. A
+`refused` means a real precondition failed: not docked, no counter here, nothing named.
 
 ## The root functions (every stage)
 
@@ -68,16 +70,17 @@ with `short` saying so.
 | `scout(target?)` | POIs of a system (this one by default) with types, stations, resources here, creatures here |
 | `goTo(id?)` | fly to a POI, base or system, jumping as needed; dock if a base; default home |
 | `service()` | full tank and hull, inside the mood's spend margin |
-| `stow(rows)` / `withdraw(rows)` / `storage(base?)` | station storage; rows you name; readable from anywhere |
-| `prices(items?)` / `sell(rows, opts?)` / `buy(item, qty)` | the market here, live at the moment of the act |
+| `stow(rows)` / `withdraw(rows)` / `storage(base?)` | station storage; rows you name (omit a row's `quantity` for all of it); readable from anywhere |
+| `prices(items?)` / `sell(rows, opts?)` / `buy(item, qty)` | the market here, live at the moment of the act; `sell(rows, {from:'store'})` empties the store a hold-load at a time |
 | `missions()` / `acceptMission(id)` / `completeMissions()` | the board here; the cheapest credits and xp early |
 | `note(text)` | write a line into the journal and the run's stream |
 | `account()` | the raw `@spacemolt/lib` Account |
 | `outcome(did, status?, detail?)` | build an Outcome for a helper of your own; the runtime fills cost, gains and the present |
 | `stopped()` | true once `stop` was called; check it in any loop of your own |
 
-`sell`, `stow` and `withdraw` take explicit rows (`[{item_id, quantity}]`, quantity `Infinity`
-for all held) and never default to "everything": you name what you sell. `refit`,
+`sell`, `stow` and `withdraw` take explicit rows (`[{item_id, quantity}]`, and `{item_id}` with
+no `quantity` for all of it — a non-finite `quantity` is refused) and never default to
+"everything": you name what you sell. `refit`,
 `shipsForSale`, `buyShip` and the other careers' functions are signatures that throw
 `unimplemented` until their slice lands; `account()` reaches those commands meanwhile.
 

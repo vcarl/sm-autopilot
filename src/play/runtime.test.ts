@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import type {ReadinessAccount} from '../readiness.ts';
-import {bridgeWorld} from '../test-support/bridge-world.ts';
+import {bridgeWorld,type WorldOptions} from '../test-support/bridge-world.ts';
 import {goTo} from './travel.ts';
 import {bind,command,job,outcome,pilot,progress,stop,unbind,type Pilot} from './runtime.ts';
 import {service} from './service.ts';
@@ -9,8 +9,8 @@ import {sell,prices} from './market.ts';
 import {stow,withdraw} from './storage.ts';
 import {acceptMission,missions} from './missions.ts';
 
-function world(record:Pilot,services=['refuel','repair','storage']) {
-  const game=bridgeWorld({services});
+function world(record:Pilot,services=['refuel','repair','storage'],options:WorldOptions={}) {
+  const game=bridgeWorld({services,...options});
   const lines:string[]=[];
   let who:Pilot=record;
   bind({account:game.account as unknown as ReadinessAccount,command:game.command,
@@ -106,20 +106,73 @@ test('sell, stow and withdraw take rows by name and never default to the whole h
     const nothing=await sell([]);
     assert.equal(nothing.status,'refused');
     assert.equal(f.sent.filter(c=>c.action==='spacemolt/sell').length,0);
+    // A row that is not held needed nothing done: it is said in `did`, and the status stays done.
     const sold=await sell([{item_id:'ore',quantity:5},{item_id:'ice',quantity:1}]);
-    assert.equal(sold.status,'partial');
+    assert.equal(sold.status,'done',sold.why);
+    assert.match(sold.did,/nothing to sell: ice not held/);
     assert.deepEqual(sold.detail.short,[{item_id:'ice',requested:1,sold:0,why:'not held'}]);
     assert.equal(sold.gained.credits,50,'measured from the wallet');
     assert.equal(f.account.server.ship.cargo_used,7);
     const quotes=await prices();
     assert.deepEqual(quotes.detail.quotes.map(q=>[q.item_id,q.held,q.stored]),[['ore',7,340]]);
-    const put=await stow([{item_id:'ore',quantity:Infinity}]);
+    // No quantity on a row means all of it.
+    const put=await stow([{item_id:'ore'}]);
     assert.equal(put.status,'done',put.why);
     assert.deepEqual(put.detail.moved,[{item_id:'ore',quantity:7}]);
     const took=await withdraw([{item_id:'ore',quantity:3},{item_id:'scrap',quantity:9}]);
-    assert.equal(took.status,'partial');
+    assert.equal(took.status,'done',took.why);
     assert.deepEqual(took.detail.moved,[{item_id:'ore',quantity:3},{item_id:'scrap',quantity:2}]);
     assert.equal(took.detail.short[0]!.why,'not in store');
+  } finally {unbind();}
+});
+
+test('a row that is not there is done with nothing to do, and a real precondition is still refused',async()=>{
+  const f=world({mood:'Focused',permissions:{credit_reserve:0}},['refuel','repair','storage']);
+  try {
+    // Nothing of that item is aboard: the end state already holds.
+    const again=await stow([{item_id:'aluminum_ore',quantity:41}]);
+    assert.equal(again.status,'done',again.why);
+    assert.match(again.did,/nothing to stow: aluminum_ore not held/);
+    assert.equal(f.count('spacemolt_storage/deposit'),0,'nothing was sent');
+    // Nor in the store: withdraw says so and is done too.
+    const none=await withdraw([{item_id:'aluminum_ore'}]);
+    assert.equal(none.status,'done',none.why);
+    assert.match(none.did,/nothing to withdraw: aluminum_ore not in store/);
+    // A real precondition failure is still a refusal.
+    f.account.server.location.docked_at=null;
+    await f.account.refresh();
+    const adrift=await stow([{item_id:'ore',quantity:1}]);
+    assert.equal(adrift.status,'refused');
+    assert.match(adrift.why!,/needs a docked ship/);
+  } finally {unbind();}
+});
+
+test('sell from the store keeps withdrawing hold-loads until the named rows are gone, and leaves what has no buyer',async()=>{
+  const f=world({mood:'Focused',permissions:{credit_reserve:0}},['refuel','repair','storage'],
+    {cargoUsed:0,store:[{item_id:'ore',quantity:30},{item_id:'dust',quantity:5}]});
+  try {
+    // The hold takes 12: 30 ore is three loads, and dust has no book here, so it never moves.
+    const out=await sell([{item_id:'ore'},{item_id:'dust',quantity:5}],{from:'store'});
+    assert.equal(out.status,'partial',out.why);
+    assert.equal(out.detail.total,300,'every unit of ore sold, not one hold-load');
+    assert.equal(out.gained.credits,300);
+    assert.equal(f.count('spacemolt_storage/withdraw'),3,'one withdraw per hold-load');
+    assert.deepEqual(f.store.map(row=>[row.item_id,row.quantity]),[['dust',5]],'the unsellable row stayed');
+    assert.match(out.did,/left in the store: dust no buyer/);
+    assert.deepEqual(out.detail.short,[{item_id:'dust',requested:5,sold:0,why:'no buyer'}]);
+  } finally {unbind();}
+});
+
+test('a non-finite quantity is refused, and says to omit it instead',async()=>{
+  const f=world({mood:'Focused'});
+  try {
+    for(const out of [await stow([{item_id:'ore',quantity:Infinity}]),
+      await withdraw([{item_id:'ore',quantity:NaN}]),
+      await sell([{item_id:'ore',quantity:Infinity}])]) {
+      assert.equal(out.status,'refused');
+      assert.match(out.why!,/omit quantity to mean all of it/);
+    }
+    assert.equal(f.sent.filter(c=>['spacemolt/sell','spacemolt_storage/deposit','spacemolt_storage/withdraw'].includes(c.action)).length,0);
   } finally {unbind();}
 });
 

@@ -14,7 +14,7 @@ import {resolveFuelReserve,resolveWalkAway} from '../mood-policy.ts';
 import type {ReadinessAccount,ReadinessCommand} from '../readiness.ts';
 import {journalRun} from '../run-record.ts';
 import {TravelBlocked} from '../travel.ts';
-import type {Outcome,Present,Row,Status} from './types.ts';
+import type {Outcome,Present,Row,Status,Want} from './types.ts';
 
 export type Mood='Cautious'|'Focused'|'Opportunistic'|'Aggressive'|'Relaxed'|'Tired';
 export type Stance='Prospector'|'Industrialist'|'Trader'|'Carrier'|'Hunter'|'Scout';
@@ -101,6 +101,16 @@ export function outcome<Detail=Record<string,unknown>>(did:string,status:Status=
   const built=finish('pilot',before,{status,did,...why===undefined?{}:{why},detail:(detail??{}) as Detail});
   mark=snapshot();
   return built;
+}
+
+/** The rows a pilot asked for, normalised: `quantity` omitted means all of it, carried on as
+ * `Infinity`. A non-finite quantity is a typo, not a way to say "all", and is refused here so
+ * every row-taking function refuses it the same way. */
+export function wanted(rows:Want[]):{rows:Row[]}|{refused:string} {
+  const bad=rows.find(row=>row.quantity!==undefined&&!Number.isFinite(Number(row.quantity)));
+  if(bad)return {refused:`${bad.item_id}: quantity ${bad.quantity} is not a finite number; omit quantity to mean all of it`};
+  return {rows:rows.map(row=>({item_id:String(row.item_id),quantity:row.quantity===undefined?Infinity:Number(row.quantity)}))
+    .filter(row=>row.item_id&&row.quantity>0)};
 }
 
 // ---- internal: the seam, the measurement, the lines ----------------------------------

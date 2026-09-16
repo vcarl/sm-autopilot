@@ -17,6 +17,11 @@ import type {Mood} from './runtime.ts';
  * display fields dropped. Anything the game hands back is the full `V2CargoItem`. */
 export type Row=Pick<V2CargoItem,'item_id'|'quantity'>;
 
+/** A row as a pilot asks for it, for `stow`, `withdraw` and `sell`. `quantity` is optional:
+ * omit it to mean all of it — all held, or all stored. A non-finite `quantity` (`Infinity`,
+ * `NaN`) is refused, with the refusal saying to omit it instead. */
+export type Want=Pick<V2CargoItem,'item_id'>&{quantity?:number};
+
 export type Status=
   /** The end state the function is named for now holds. */
   |'done'
