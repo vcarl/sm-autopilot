@@ -78,6 +78,7 @@ export function wakeArgv(value=process.env.SPACEMOLT_WAKE):string[] {
 
 /** Spawn it and do not wait: the run is already over and its record already written, so the
  * only thing the wake owes anyone is a line saying whether it took. It never throws. */
+export const QUICK_FAIL_MS=60_000;
 export const spawnWake:Wake=argv=>{
   execFile(argv[0]!,argv.slice(1),(error,_stdout,stderr)=>{
     console.error(error
@@ -327,7 +328,12 @@ export async function runScript(options:RunOptions):Promise<RunOutcome> {
   // ends here — dispatched, resumed, capped or thrown — so this is the one place it belongs,
   // and it comes after the record and the `run ended` line: what the juncture reads is on
   // disk before anything is asked to read it.
-  const argv=wakeArgv();
+  // A run that failed inside a minute did no work and its juncture would only try the same
+  // thing again at once (live 2026-09-15 23:46: a hunt at a made-up poi); the schedule carries
+  // that one. Real work, however it ended, gets its juncture now.
+  const brief=outcome.outcome!=='done'&&Date.now()-Date.parse(record.started)<QUICK_FAIL_MS;
+  const argv=brief?[]:wakeArgv();
+  if(brief&&runtime)journalRun(runtime,{job:script,message:'juncture left to the schedule: failed inside a minute'},'log');
   if(argv.length) {
     if(runtime)journalRun(runtime,{job:script,message:'juncture raised'},'log');
     try {(options.wake??spawnWake)(argv);}

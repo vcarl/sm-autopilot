@@ -339,6 +339,22 @@ test('a run that ends raises the next juncture, and a wake that fails changes no
   }
 });
 
+test('a run that fails inside a minute leaves its juncture to the schedule', async () => {
+  const f=runner({cargoUsed:0,store:[]});
+  const before=process.env.SPACEMOLT_WAKE;
+  process.env.SPACEMOLT_WAKE=JSON.stringify(['/usr/bin/python3','/plugins/spacemolt/wake_juncture.py']);
+  const asked:string[][]=[];
+  try {
+    const outcome=await f.run('gather',{poi_id:'nowhere'},{wake:seen=>{asked.push(seen);}});
+    assert.notEqual(outcome.outcome,'done');
+    assert.deepEqual(asked,[]);
+    assert.deepEqual(f.lines('log').map(line=>String(line.message)),['juncture left to the schedule: failed inside a minute']);
+  } finally {
+    if(before===undefined)delete process.env.SPACEMOLT_WAKE;else process.env.SPACEMOLT_WAKE=before;
+    f.close();
+  }
+});
+
 test('a gather writes a step line per rung, and the run record advances with it (N22)', async () => {
   const f=runner({cargoUsed:0,store:[]});
   try {
