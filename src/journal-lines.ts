@@ -88,6 +88,10 @@ function render(entry:Record<string,any>):string|null {
       }
       return null;
     case 'step':return step(entry);
+    // The run's own stream: what a helper said while it worked, already one line.
+    case 'line':return text(entry.text);
+    case 'tired':return `tired: ${text(entry.rule)}`;
+    case 'tired_cleared':return `tired cleared: ${text(entry.mood)} again`;
     // A command that took is already in the step line above it; one that did not is the
     // only account of why the step said what it said.
     case 'command': {

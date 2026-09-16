@@ -9,8 +9,7 @@
   "type": "module",
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "test": "node --test src/*.test.ts src/jobs/*.test.ts",
-    "lint:scripts": "node src/script-lint.ts src/scripts/*.ts"
+    "test": "node --test src/*.test.ts src/play/*.test.ts"
   },
   "private": true,
   "name": "hermes-spacemolt",

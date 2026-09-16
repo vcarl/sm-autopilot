@@ -1,6 +1,6 @@
 import type {GameState} from '@spacemolt/lib';
 import {DockBlocked,dockAt} from './dock.ts';
-import {mineToFull,type MineYieldRow} from './mine.ts';
+import {mineToFull,type MineOptions,type MineYieldRow} from './mine.ts';
 import {miningInventory} from './mining-inventory.ts';
 import type {Mood} from './mood-policy.ts';
 import type {ReadinessAccount,ReadinessCommand} from './readiness.ts';
@@ -33,6 +33,8 @@ export interface GatherOptions extends TravelOptions {
   /** Each step as it ends, with the numbers that step moved. The job keeps no opinion about
    * what is done with them: `jobs/gather.ts` writes the run record and the journal line. */
   onStep?:(step:GatherStep,moved:{yield:MineYieldRow[];deposited?:MineYieldRow[]})=>void;
+  /** The mining loop's own hooks: a stop reason per tick and a running-yield line. */
+  mine?:MineOptions;
 }
 export interface GatherOutcome {
   outcome:StepOutcome;
@@ -182,7 +184,7 @@ export async function gatherJob(account:ReadinessAccount,command:ReadinessComman
   plan:GatherPlan,options:GatherOptions={}):Promise<GatherOutcome> {
   const steps:GatherStep[]=[];
   let mined:MineYieldRow[]=[],settled:SettleOutcome|null=null,serviced:ServiceOutcome|null=null;
-  const {resume,onStep,...travelOptions}=options;
+  const {resume,onStep,mine:mineOptions,...travelOptions}=options;
   // maxJumps null: each leg may cross systems, bounded by the mood's fuel reserve rather
   // than a jump count, as travel is.
   const legOptions={maxJumps:null as number|null,...travelOptions,mood:plan.mood};
@@ -249,9 +251,11 @@ export async function gatherJob(account:ReadinessAccount,command:ReadinessComman
   if(stop)return stop;
 
   stop=await attempt('mine',async()=>{
-    const dug=await mineToFull(account,command);
+    const dug=await mineToFull(account,command,mineOptions);
     mined=addYield(mined,dug.yield);
     if(dug.outcome==='failed')return {outcome:'failed',reason:dug.reason};
+    // Tired ends the dig and flies the safe leg home; the pilot's own stop ends the job here.
+    if(dug.outcome==='stopped'&&dug.reason!=='tired')return {outcome:'blocked',reason:dug.reason};
     // A site that gave nothing is not a trip to finish; one that gave something is.
     if(dug.outcome==='depleted')return {outcome:mined.length?'done':'blocked',reason:dug.reason};
   });

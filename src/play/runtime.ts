@@ -1,0 +1,244 @@
+/** What the runtime lends the library and the pilot's own code: the account, the pilot
+ * record, a journal line, the stop flag, an Outcome builder. Bound once per run by `run`
+ * before the entrypoint is imported; there is exactly one pilot per process.
+ *
+ * Inside, the same module holds what the library needs and the pilot does not see: the
+ * command seam (journal + Tired imposition), the measuring `job()` wrapper, the step line,
+ * and the rules check helpers ask before starting work.
+ *
+ * ponytail: a module singleton, not AsyncLocalStorage. One account per bridge process today;
+ * a multi-account runtime is a second process per account (DESIGN.md "Fleet").
+ */
+import type {Account,SkillProgress,V2CargoItem,V2Location,V2Ship} from '@spacemolt/lib';
+import {resolveFuelReserve,resolveWalkAway} from '../mood-policy.ts';
+import type {ReadinessAccount,ReadinessCommand} from '../readiness.ts';
+import {journalRun} from '../run-record.ts';
+import {TravelBlocked} from '../travel.ts';
+import type {Outcome,Present,Row,Status} from './types.ts';
+
+export type Mood='Cautious'|'Focused'|'Opportunistic'|'Aggressive'|'Relaxed'|'Tired';
+export type Stance='Prospector'|'Industrialist'|'Trader'|'Carrier'|'Hunter'|'Scout';
+
+/** `pilot.json`, read fresh on every call. The pilot never writes it: reflection sets goal,
+ * stance and mood; the runtime imposes and clears Tired; the operator sets the rest. */
+export interface Pilot {
+  name?:string;
+  objective?:string;objective_done?:boolean;
+  goal?:string;stance?:Stance;mood?:Mood;
+  /** The mood Tired replaced, restored when resupply clears Tired. Runtime-owned. */
+  mood_before_tired?:Mood;
+  /** Set by the operator from outside: a Tired that resupply does not clear. Rest does. */
+  tired_forced?:boolean;
+  /** A base id (`V2Player['home_base']` is the game's own; this is the operator's choice). */
+  home?:string;
+  permissions?:{credit_reserve?:number;max_liability?:number;max_spend?:number;no_go?:string[]};
+  instruction?:{text:string;at:string};
+}
+
+export interface Binding {
+  account:ReadinessAccount;
+  command:ReadinessCommand;
+  pilot:()=>Pilot;
+  setPilot:(pilot:Pilot)=>void;
+  /** Where the journal lives. Without one nothing is journalled; lines still stream. */
+  runtime?:string;
+  /** Where a streamed line goes after the journal has it. */
+  emit:(text:string)=>void;
+}
+
+let bound:Binding|null=null;
+let stopFlag=false,commands=0,started=0;
+let last:{fn:string;step?:string}={fn:'pilot'};
+let mark:Snapshot|null=null;
+let unwatch:(()=>void)|undefined;
+
+const need=()=>{if(!bound)throw new Error('the play runtime is not bound: only `run` may execute pilot code');return bound;};
+
+/** Bind the runtime for one run. Resets the stop flag and the counters. */
+export function bind(binding:Binding):void {
+  bound=binding;stopFlag=false;commands=0;started=Date.now();last={fn:'pilot'};
+  mark=snapshot();
+  // A lib Account pushes state between commands (a tick, a fight); the fake in tests does not.
+  const live=binding.account as unknown as {onStateChange?:(fn:()=>void)=>()=>void};
+  unwatch=typeof live.onStateChange==='function'?live.onStateChange(()=>{try {imposeTired();} catch {/* a push is not the place to fail */}}):undefined;
+}
+export function unbind():void {unwatch?.();unwatch=undefined;bound=null;}
+export const isBound=()=>bound!==null;
+
+/** The pilot record as it is right now. Cheap; call it, do not cache it. */
+export function pilot():Pilot {return need().pilot();}
+
+/** The connected `@spacemolt/lib` Account: typed state (`account().ship: V2Ship`,
+ * `.cargo: V2CargoItem[]`, `.location: V2Location`, `.credits`, `.skills`) and every game
+ * command as `account().commands.<tool>.<action>()`. This IS the library; ours are the
+ * conveniences for bulk actions, common failures and precondition checks. Mutations you send
+ * yourself are journalled and margin-checked like any other, but they are NOT idempotent and
+ * NOT rules-checked: read the reply before sending the same one again. */
+export function account():Account {return need().account as unknown as Account;}
+
+/** Write one line to the journal and to the run's stream, under your own words. Use it to
+ * say what you decided and why, so the record shows the reasoning, not only the moves. */
+export function note(text:string):void {line(text);}
+
+/** True once the pilot (or operator) asked the run to stop. Every library function checks it
+ * between commands and returns `partial`; a loop of your own should check it too. */
+export function stopped():boolean {return stopFlag;}
+export function stop():void {stopFlag=true;}
+
+/** Thrown from a travel checkpoint when the pilot asked to stop; the leg in flight finishes. */
+export class Stopped extends TravelBlocked {constructor(){super('stopped by pilot');}}
+export const checkStop=()=>{if(stopFlag)throw new Stopped();};
+
+/** Build an Outcome for a function of your own. You supply the sentence, the status and the
+ * detail; the runtime fills `fn`, `cost`, `gained` and `now` from what it measured since the
+ * run started or since your last `outcome()` call, whichever is later. Return it from your
+ * helper so it composes like ours. */
+export function outcome<Detail=Record<string,unknown>>(did:string,status:Status='done',detail?:Detail,why?:string):Outcome<Detail> {
+  const before=mark??snapshot();
+  const built=finish('pilot',before,{status,did,...why===undefined?{}:{why},detail:(detail??{}) as Detail});
+  mark=snapshot();
+  return built;
+}
+
+// ---- internal: the seam, the measurement, the lines ----------------------------------
+
+/** Every game command a helper sends. Journalled by the bridge's command; counted and
+ * Tired-checked here. */
+export async function command(action:string,params:Record<string,unknown>={}):Promise<unknown> {
+  const b=need();
+  commands++;
+  try {return await b.command(action,params);}
+  finally {imposeTired();}
+}
+export const acct=():ReadinessAccount=>need().account;
+export const runtimeDir=()=>need().runtime;
+
+/** One streamed line: journalled first, then sent. */
+export function line(text:string,extra:Record<string,unknown>={}):void {
+  const b=need();
+  if(b.runtime)journalRun(b.runtime,{text,fn:last.fn,...last.step?{step:last.step}:{},...extra},'line');
+  b.emit(text);
+}
+/** A sub-step inside a helper: an indented line, and the step `status` reports. */
+export function step(text:string):void {last.step=text.split(' ')[0];line(`  ${text}`);}
+
+export const progress=()=>({fn:last.fn,step:last.step,commands,elapsed_s:Math.round((Date.now()-started)/1000)});
+
+/** The rules between one helper and the next: a mood that may not start work. Helpers that
+ * begin something (a gather, a buy, a mission) ask before sending; reads and the safe legs
+ * (service, stow, sell, going to a base) do not. */
+export function admit(fn:string):string|null {
+  const mood=pilot().mood;
+  if(!mood)return `${fn} not started: the pilot record names no mood; reflect at rest first`;
+  if(mood==='Tired')return `${fn} not started: Tired — service here or goTo a base and service there`;
+  if(mood==='Relaxed')return `${fn} not started: Relaxed may not initiate a job; a job mood chosen at reflection admits it`;
+  return null;
+}
+
+interface Snapshot {at:number;credits:number;fuel:number;hull:number;cargo:Record<string,number>;xp:Record<string,number>}
+function snapshot():Snapshot {
+  const state=need().account.state;
+  const cargo:Record<string,number>={};
+  for(const row of state.cargo??[])cargo[row.item_id]=(cargo[row.item_id]??0)+row.quantity;
+  const xp:Record<string,number>={};
+  for(const [id,row] of Object.entries(skillMap(state.skills)))xp[id]=row.xp;
+  return {at:Date.now(),credits:state.player?.credits??0,fuel:state.ship?.fuel??0,hull:state.ship?.hull??0,cargo,xp};
+}
+/** `get_skills` answers a map keyed by skill id (live, C23 replay); some shapes nest it. */
+function skillMap(skills:unknown):Record<string,SkillProgress> {
+  const raw=(skills as any)?.skills??skills;
+  return raw&&typeof raw==='object'&&!Array.isArray(raw)?raw as Record<string,SkillProgress>:{};
+}
+
+export function present():Present {
+  const state=need().account.state,who=pilot();
+  return {ship:state.ship as V2Ship,location:state.location as V2Location,cargo:(state.cargo??[]) as V2CargoItem[],
+    credits:state.player?.credits??0,skills:skillMap(state.skills),mood:who.mood??'Cautious',
+    ...who.mood==='Tired'?{tired_by:tiredBy}:{}};
+}
+
+/** What a helper hands back; the wrapper measures the rest. */
+export interface Said<Detail> {status:Status;did:string;why?:string;detail:Detail;next?:string[]}
+
+function finish<Detail>(fn:string,before:Snapshot,part:Said<Detail>):Outcome<Detail> {
+  const after=snapshot();
+  const items:Row[]=[];
+  for(const [item_id,quantity] of Object.entries(after.cargo))
+    if(quantity>(before.cargo[item_id]??0))items.push({item_id,quantity:quantity-(before.cargo[item_id]??0)});
+  const xp:Record<string,number>={};
+  for(const [id,value] of Object.entries(after.xp))if(value>(before.xp[id]??0))xp[id]=value-(before.xp[id]??0);
+  const credits=after.credits-before.credits;
+  return {fn,status:part.status,did:part.did,...part.why===undefined?{}:{why:part.why},
+    cost:{credits:Math.max(0,-credits),fuel:Math.max(0,before.fuel-after.fuel),hull:Math.max(0,before.hull-after.hull),
+      minutes:Math.round((after.at-before.at)/6000)/10},
+    gained:{credits:Math.max(0,credits),items,xp},
+    now:present(),next:(part.next??[]).slice(0,3),detail:part.detail};
+}
+
+const message=(error:unknown)=>error instanceof Error?error.message:String(error);
+const seconds=(ms:number)=>`${(ms/1000).toFixed(ms<10_000?1:0)}s`;
+
+/** The measuring wrapper every exported function is defined through: snapshot, run, snapshot,
+ * diff. Streams `▶ fn args` on entry and `✓/✗ fn status secs did` on return. A throw is a
+ * `failed` Outcome, a `Stopped` a `partial` one; nothing escapes as an exception. */
+export async function job<Detail>(fn:string,args:string,body:()=>Promise<Said<Detail>>):Promise<Outcome<Detail>> {
+  const outer=last;
+  last={fn};
+  line(`▶ ${fn}${args?` ${args}`:''}`);
+  let before:Snapshot;
+  try {await acct().refresh();before=snapshot();}
+  catch(error){before=snapshot();line(`  ${fn}: the opening read failed (${message(error)}); measuring from cached state`);}
+  let part:Said<Detail>;
+  try {part=await body();}
+  catch(error) {
+    part=error instanceof Stopped
+      ?{status:'partial',did:`${fn} stopped by the pilot`,why:message(error),detail:{} as Detail}
+      :{status:'failed',did:`${fn} broke`,why:message(error),detail:{} as Detail};
+  }
+  try {await acct().refresh();} catch {/* the closing read failed; the cached state stands */}
+  const built=finish(fn,before,part);
+  line(`${built.status==='done'?'✓':'✗'} ${fn}  ${built.status}  ${seconds(Date.now()-before.at)}  ${built.did}${built.why?`: ${built.why}`:''}`);
+  last=outer;
+  return built;
+}
+
+// ---- Tired: imposed and cleared by the runtime, never by a helper -----------------------
+
+let tiredBy='';
+/** The margin the mood crosses, if any: fuel under the reserve, hull under the walk-away
+ * line, credits under the reserve. ponytail: the route home is not quoted here (that is a
+ * find_route per check); the mood's reserve in units stands in for it. Ammunition waits for hunt. */
+function crossed(mood:Mood):string|null {
+  const {ship,player}=need().account.state,who=pilot();
+  if(!ship)return null;
+  if(ship.fuel<resolveFuelReserve(mood))return `fuel ${ship.fuel} under the ${mood} reserve ${resolveFuelReserve(mood)}`;
+  const line=Math.floor(resolveWalkAway(mood)*ship.max_hull);
+  if(ship.hull<line)return `hull ${ship.hull}/${ship.max_hull} under the ${mood} walk-away line ${line}`;
+  const reserve=who.permissions?.credit_reserve??0;
+  if((player?.credits??0)<reserve)return `credits ${player?.credits??0} under the reserve ${reserve}`;
+  return null;
+}
+
+/** After every command and state push: cross a margin and Tired is imposed; back inside the
+ * prior mood's margins (resupplied, anywhere) and it is cleared. The operator's forced Tired
+ * is not cleared here; rest clears everything. */
+export function imposeTired():void {
+  const b=need(),who=b.pilot();
+  if(!who.mood)return;
+  if(who.mood!=='Tired') {
+    const why=crossed(who.mood);
+    if(!why)return;
+    tiredBy=why;
+    b.setPilot({...who,mood:'Tired',mood_before_tired:who.mood});
+    if(b.runtime)journalRun(b.runtime,{rule:why,mood_before:who.mood},'tired');
+    line(`tired: ${why}; finishing the safe leg, then service`);
+    return;
+  }
+  if(who.tired_forced||!who.mood_before_tired)return;
+  if(crossed(who.mood_before_tired))return;
+  const {mood_before_tired,...rest}=who;
+  b.setPilot({...rest,mood:mood_before_tired});
+  tiredBy='';
+  if(b.runtime)journalRun(b.runtime,{mood:mood_before_tired},'tired_cleared');
+  line(`tired cleared: back inside the ${mood_before_tired} margins`);
+}

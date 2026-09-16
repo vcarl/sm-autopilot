@@ -8,7 +8,7 @@ export interface MineYieldRow {item_id:string;quantity:number}
 export interface MineOutcome {
   /** `full` is the end state the step is named for; `depleted` is the site running out,
    * which is not the pilot failing; `failed` is anything that needs a human's reading. */
-  outcome:'full'|'depleted'|'failed';
+  outcome:'full'|'depleted'|'failed'|'stopped';
   /** Measured between authoritative reads, per item. Never a reply's claim. */
   yield:MineYieldRow[];
   /** Mine commands that came back with a reply. A rejection is not a cycle. */
@@ -41,7 +41,14 @@ const replyIsFull=(reply:unknown)=>{
  * one that closed it, so an over-claiming reply — or one whose post-state never moved —
  * contributes nothing.
  */
-export async function mineToFull(account:ReadinessAccount,command:ReadinessCommand):Promise<MineOutcome> {
+export interface MineOptions {
+  /** Asked before every tick: a reason to stop (the pilot, Tired) ends the step `stopped`. */
+  stop?:()=>string|null;
+  /** After every tick, with the running yield: what a long loop says while it works. */
+  onCycle?:(yield_:MineYieldRow[],cycles:number)=>void;
+}
+
+export async function mineToFull(account:ReadinessAccount,command:ReadinessCommand,options:MineOptions={}):Promise<MineOutcome> {
   const site=(state:GameState)=>{
     const {ship,location,cargo}=state??{};
     if(!ship||!location||!Array.isArray(cargo))throw new Error('Authoritative ship, location and cargo required before mining');
@@ -75,6 +82,8 @@ export async function mineToFull(account:ReadinessAccount,command:ReadinessComma
   if(start.full)return done('full');
 
   for(;;) {
+    const halt=options.stop?.();
+    if(halt)return done('stopped',halt);
     let reply:unknown;
     try {
       reply=await command('spacemolt/mine',{});
@@ -93,6 +102,7 @@ export async function mineToFull(account:ReadinessAccount,command:ReadinessComma
     const before=carried;
     await account.refresh();
     carried=miningInventory(account.state);
+    options.onCycle?.(done('full').yield,cycles);
     const now=site(account.state);
     const drift=displaced(now);
     if(drift)return done('failed',`mining interrupted: ${drift}`);

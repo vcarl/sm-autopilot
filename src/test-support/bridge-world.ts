@@ -236,11 +236,11 @@ export function bridgeWorld(options:WorldOptions={}) {
     // The reply over-claims: only the cargo delta says what the trip actually took.
     'spacemolt/mine':()=>{add('ore',minePerCycle);
       return {command:'mine',delta:{details:{kind:'yield',resource_id:'ore',quantity:99}}};},
-    'spacemolt_market/view_market':()=>({delta:{details:{items:[{item_id:'ore',buy_price:10}]}}}),
+    'spacemolt_market/view_market':()=>({delta:{details:{items:[{item_id:'ore',item_name:'Ore',buy_price:10,best_buy:10,best_buy_qty:99,best_sell:12,best_sell_qty:5}]}}}),
     'spacemolt/sell':params=>{
       const quantity=take(String(params.id),Number(params.quantity));
       account.server.player.credits+=quantity*10;
-      return {delta:{details:{action:'sell',quantity_sold:quantity}}};
+      return {delta:{details:{action:'sell',item_id:params.id,quantity_sold:quantity,total_earned:quantity*10}}};
     },
     'spacemolt/get_base':()=>({delta:{details:{services,fuel_price_all_in:1,
       base:{poi_id:'station',repair_price_per_hull:1}}}}),
