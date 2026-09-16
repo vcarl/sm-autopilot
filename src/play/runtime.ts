@@ -58,7 +58,8 @@ let unwatch:(()=>void)|undefined;
 /** Every top-level call `main()` made this run, as the menu reads a run: the function, its
  * first argument, how it ended and what it gained. ponytail: the first whitespace token of
  * the job's label stands in for "first argument"; it is the poi/id for every job that takes one. */
-export interface Call {fn:string;arg:string;status:Status;credits:number;items:number;xp:number}
+export interface Call {fn:string;arg:string;status:Status;did:string;credits:number;items:number;xp:number;
+  cost:Outcome['cost']}
 let calls:Call[]=[];
 let tiredClearedFlag=false;
 export const runCalls=()=>calls;
@@ -304,7 +305,8 @@ export async function job<Detail>(fn:string,args:string,body:()=>Promise<Said<De
   // A did the wrapper wrote knows nothing of what happened; the measurement does.
   if(threw)built.did=`${built.did}, ${witness(built)}`;
   line(`${built.status==='done'?'✓':'✗'} ${fn}  ${built.status}  ${seconds(Date.now()-before.at)}  ${built.did}${built.why?`: ${built.why}`:''}`);
-  if(outer.fn==='pilot')calls.push({fn,arg:args.split(' ')[0]??'',status:built.status,credits:built.gained.credits,
+  if(outer.fn==='pilot')calls.push({fn,arg:args.split(' ')[0]??'',status:built.status,did:built.did,
+    credits:built.gained.credits,cost:built.cost,
     items:built.gained.items.reduce((n,row)=>n+row.quantity,0),xp:Object.values(built.gained.xp).reduce((n,x)=>n+x,0)});
   last=outer;jobMark=outerMark;
   return built;

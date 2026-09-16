@@ -14,7 +14,7 @@ import {checkTree,specifiers} from './play/boundary.ts';
 import {checkPolicy} from './play/policy.ts';
 import {prose} from './play/prose.ts';
 import {menu,menuDue,recentRuns,renderMenu,runSummary} from './play/menu.ts';
-import {bind,line,outcome as build,progress,tiredCleared,unbind,type Binding} from './play/runtime.ts';
+import {bind,line,outcome as build,progress,runCalls,tiredCleared,unbind,type Binding} from './play/runtime.ts';
 import type {Outcome} from './play/types.ts';
 import {journalRun,writeRun,type RunRecord} from './run-record.ts';
 
@@ -147,7 +147,7 @@ export async function runPilot(deps:RunDeps):Promise<RunResult> {
   } catch(error) {
     result=build('the run broke','failed',{},message(error));
   }
-  let text=prose(result);
+  let text=prose(result,runCalls());
   for(const said of text.split('\n'))line(said);
   const {commands}=progress();
   const work=runSummary();

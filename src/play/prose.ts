@@ -1,11 +1,28 @@
 /** `prose(outcome)`: the report at the end of a run, static text assembled from the value.
  * No model, no per-function template (DESIGN.md "Outcome and prose"). */
+import type {Call} from './runtime.ts';
 import type {Outcome} from './types.ts';
 
 const n=(value:number)=>Number.isInteger(value)?value.toLocaleString('en-US'):value.toFixed(1);
 const rows=(items:{item_id:string;quantity:number}[])=>items.map(row=>`${n(row.quantity)} ${row.item_id}`).join(', ');
 
-export function prose(outcome:Outcome<unknown>):string {
+const MAX_LINES=8;
+/** Every top-level call `main()` made, so a trailing idempotent no-op cannot erase the trip
+ * behind it: the whole run's measured cost and gains, then one line per call. */
+function thisRun(calls:Call[]):string {
+  const total=(pick:(call:Call)=>number)=>calls.reduce((sum,call)=>sum+pick(call),0);
+  const spent=[[total(c=>c.cost.credits),'cr'],[total(c=>c.cost.fuel),'fuel'],[total(c=>c.cost.hull),'hull'],
+    [total(c=>c.cost.minutes),'min']].filter(([value])=>value).map(([value,unit])=>`${n(value as number)} ${unit}`);
+  const got=[[total(c=>c.credits),'cr'],[total(c=>c.items),'items'],[total(c=>c.xp),'xp']]
+    .filter(([value])=>value).map(([value,unit])=>`+${n(value as number)} ${unit}`);
+  const shown=calls.length>MAX_LINES?calls.slice(1-MAX_LINES):calls;
+  const lines=shown.map(call=>`  - ${call.fn} ${call.status} ${call.did}`);
+  if(shown.length<calls.length)lines.unshift(`  - (${calls.length-shown.length} earlier call(s))`);
+  return [`This run: ${calls.length} calls, cost ${spent.join(', ')||'nothing'}, gained ${got.join(', ')||'nothing'}.`,
+    ...lines].join('\n');
+}
+
+export function prose(outcome:Outcome<unknown>,calls:Call[]=[]):string {
   const out:string[]=[];
   const head=outcome.status==='done'?'Done':outcome.status[0]!.toUpperCase()+outcome.status.slice(1);
   out.push(`${head}: ${outcome.did}${outcome.status!=='done'&&outcome.why?`: ${outcome.why}`:''}.`);
@@ -31,6 +48,7 @@ export function prose(outcome:Outcome<unknown>):string {
     `hold ${ship?.cargo_used??'?'}/${ship?.cargo_capacity??'?'}, ${n(now.credits)} cr, mood ${now.mood}${now.tired_by?` (Tired: ${now.tired_by})`:''}.`+
     (Array.isArray(missions)&&missions.length?` Active missions: ${missions.length}.`:''));
 
+  if(calls.length>1)out.push(thisRun(calls));
   if(outcome.next.length)out.push(`Consider:\n${outcome.next.map(text=>`  - ${text}`).join('\n')}`);
   return out.join('\n');
 }
