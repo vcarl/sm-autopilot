@@ -49,7 +49,7 @@ operator wants (`objective`), what you chose at your last rest (`goal`, `stance`
 | `why` | the reason, when not `done` |
 | `cost` | credits, fuel, hull, minutes, measured |
 | `gained` | credits, items, xp per skill, measured |
-| `now` | the lib's `V2Ship`, `V2Location`, `V2CargoItem[]`, credits, skills, and your mood |
+| `now` | the lib's `V2Ship`, `V2Location`, `V2CargoItem[]`, credits, skills, and your mood — the present AFTER the function's last leg; a trip that stows ends with an empty hold, so read the take from `gained.items`, not `now.cargo` |
 | `next` | up to three things worth considering |
 | `detail` | the function's own numbers |
 

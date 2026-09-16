@@ -31,6 +31,9 @@ const sum=(rows:Row[]):Row[]=>{
   return Object.entries(totals).sort(([a],[b])=>a<b?-1:1).map(([item_id,quantity])=>({item_id,quantity}));
 };
 const say=(rows:Row[])=>rows.map(row=>`+${row.quantity} ${row.item_id}`).join(', ')||'nothing yet';
+/** The paste-able sale of what was stowed: the take is in the store, not the hold. */
+export const sellStowed=(rows:Row[]):string[]=>rows.length
+  ?[`sell([${rows.map(row=>`{item_id:'${row.item_id}',quantity:${row.quantity}}`).join(', ')}], {from:'store'})`]:[];
 
 async function storeCount(base:string,item:string):Promise<number> {
   const view=details(await command('spacemolt_storage/view',{station_id:base})) as ViewStorageResponse;
@@ -50,6 +53,8 @@ async function storeCount(base:string,item:string):Promise<number> {
  *   withdraws the stowed take and sells it, row by row.
  * The take is what the site gives: at the base every hold row whose item is one of the
  * belt's own resources is stowed, whichever trip mined it, and nothing else is touched.
+ * The trip ends stowed and docked, so the hold — `now.cargo` — is empty: read the take from
+ * `gained.items` (measured) or `detail.settled` (what reached the store), never `now.cargo`.
  *
  * Mining while docked is refused by the game, so a station POI as `poi` is `refused`.
  * Trains mining (+ deep_core_mining with a power-3+ laser), piloting, navigation. */
@@ -136,7 +141,9 @@ export function gatherUntil(opts:{poi:string;base?:string;until?:{item:string;qu
     if(result.ended==='tired')return {status:'partial',did,why:'Tired: home and serviced, no new trip',detail:result};
     if(short)return {status:'partial',did,why:depleted?'the site is depleted':`${maxTrips} trips made`,detail:result,
       next:depleted?['survey() or another belt: this site gave nothing']:[]};
-    return {status:'done',did,detail:result,next:result.ended==='depleted'?['the site is depleting; scout another belt']:[]};
+    return {status:'done',did,detail:result,
+      next:[...(opts.then==='sell'?[]:sellStowed(result.settled)),
+        ...(result.ended==='depleted'?['the site is depleting; scout another belt']:[])]};
   });
 }
 

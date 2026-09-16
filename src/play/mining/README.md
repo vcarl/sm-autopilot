@@ -29,6 +29,10 @@ export default async function main() {
   const run = await gatherUntil({poi: belts[0].id, until: {item: 'aluminum_ore', quantity: 200}, maxTrips: 3});
   if (run.status === 'refused') return run;          // the reason says what would admit it
 
+  // The trip stows at the base, so `run.now.cargo` is empty: the take is `run.gained.items`
+  // (measured aboard) and `run.detail.settled` (what reached the store, ready to sell).
+  note(`took ${run.gained.items.map(r => `${r.quantity} ${r.item_id}`).join(', ')}`);
+
   const worth = await prices();                       // what the take is worth here
   const cheap = run.detail.settled.filter(r => r.item_id !== 'aluminum_ore');
   return sell(cheap, {from: 'store'});                // the rest of the take, by name
