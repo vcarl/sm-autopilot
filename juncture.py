@@ -130,7 +130,8 @@ def _hold_full(menu: dict[str, Any]) -> None:
         return
     present["hold_full"] = _HOLD_FULL
     last = menu.get("last")
-    if isinstance(last, dict) and not (last.get("gained") or {}).get("items"):
+    # The last run is the trimmed record now: its prose is where the gains are said.
+    if isinstance(last, dict) and "Gained:" not in (last.get("prose") or ""):
         last["cause"] = "the hold was full (cargo_free 0), so a gather would have mined nothing"
 
 

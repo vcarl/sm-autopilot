@@ -79,6 +79,10 @@ test('run blocks until the pilot file ends; status, stop and menu answer meanwhi
   const after=await f.dispatch('status') as any;
   assert.equal(after.running,false);
   assert.equal(after.last.status,'done');
+  // Neither answer carries the Outcome: a pilot reads `status` through a tool call, and the
+  // ship, the location, the cargo and every skill stay in run.json and the journal.
+  assert.deepEqual(Object.keys(after.last).sort(),['commands','did','ended','prose','started','status']);
+  assert.deepEqual(Object.keys(result).sort(),['accepted','commands','did','ended','prose','started','status']);
 });
 
 test('shutdown forces exit within the grace even when the account never finishes closing, and stays idempotent', async () => {

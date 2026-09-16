@@ -29,7 +29,7 @@ export type Dispatch=(action:string,params?:Record<string,unknown>)=>Promise<unk
 const OUTCOME_ACTIONS=new Set(['run','status','rest','reflect','menu','resume','stop','check']);
 const OUTCOME_KEYS=new Set(['accepted','reason','status','record','running','rested','shift_ended','at_rest',
   'cleared','serviced','resumed','busy','objective','objective_done','home','stance','mood','errors','stopping',
-  'ok','fn','step','commands','elapsed_s','started']);
+  'ok','fn','did','sha','step','commands','elapsed_s','started']);
 
 /** One response as the journal keeps it: whether the thing happened, never the prose or the
  * bodies of a read. */
@@ -121,9 +121,15 @@ export function serve(account:ReadinessAccount,command:ReadinessCommand,options:
 
   if(runtime) {startJournalDrain();startHeartbeat(runtime);}
   const stored=()=>runtime?readRun(runtime):null;
-  let running:{started:string}|null=null,last:RunResult|null=null;
+  let running:{started:string}|null=null,last:Record<string,unknown>|null=null;
   const busy=()=>({running:true as const,...running!,...isBound()?progress():{},
     fuel:account.state.ship?.fuel,hull:account.state.ship?.hull,credits:account.state.player?.credits});
+  /** The last run as a reader of `status` gets it: what was done, why, and the report. The
+   * whole Outcome — ship, location, nearby players, every skill — stays in `run.json` and
+   * the journal; a pilot reading this through a tool call is paying for every line of it. */
+  const brief=(result:RunResult):Record<string,unknown>=>({...result.sha?{sha:result.sha}:{},
+    started:result.started,ended:true,status:result.status,did:result.reason,
+    ...result.why?{why:result.why}:{},prose:result.prose,commands:result.commands});
   const lastOutcome=()=>last??(stored()?.ended?{...stored()!.outcome as Record<string,unknown>}:null);
 
   /** Run `pilot/index.ts`: validate, execute, stream, and answer with the report when it ends. */
@@ -135,8 +141,9 @@ export function serve(account:ReadinessAccount,command:ReadinessCommand,options:
     try {
       const result=await runner({account,command,pilot,setPilot:options.setPilot??(()=>{}),runtime,
         emit:options.emit??(()=>{}),...resume?{resume}:{}});
-      if(result.accepted)last=result;
-      return result;
+      if(!result.accepted)return result;
+      last=brief(result);
+      return {accepted:true,...last};
     } finally {running=null;}
   };
   const resume=async()=>{

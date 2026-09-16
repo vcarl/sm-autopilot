@@ -101,14 +101,20 @@ export interface RunDeps extends Omit<Binding,'runtime'> {
   /** A record being re-run after a restart. */
   resume?:RunRecord;
 }
+/** What a run answers with: the sentence, the reason and the rendered report — never the
+ * Outcome itself, which is kilobytes of ship, location and skills. That stays in `run.json`
+ * and the journal, where a reader who wants it can go and look. */
 export interface RunResult {
   accepted:boolean;
   status?:Outcome['status'];
+  /** The Outcome's `did`. */
   reason?:string;
+  why?:string;
   /** The rendered report of the returned Outcome. */
   prose?:string;
-  outcome?:Outcome<unknown>;
   errors?:string[];
+  /** The sha of `pilot/index.ts` as it ran. */
+  sha?:string;
   started:string;
   commands?:number;
 }
@@ -147,7 +153,8 @@ export async function runPilot(deps:RunDeps):Promise<RunResult> {
   unbind();
   record.ended=true;
   record.last_job=result.fn;
-  record.outcome={status:result.status,did:result.did,...result.why?{why:result.why}:{},prose:text,fn:result.fn,cost:result.cost,gained:result.gained};
+  record.outcome={sha:gate.sha,started,ended:true,status:result.status,did:result.did,
+    ...result.why?{why:result.why}:{},prose:text,commands};
   save();
   journalRun(runtime,{phase:'ended',script:'index.ts',started,outcome:result.status,reason:result.did,commands});
   // A run that failed inside a minute did no work; its juncture would only try the same thing
@@ -159,7 +166,8 @@ export async function runPilot(deps:RunDeps):Promise<RunResult> {
     journalRun(runtime,{job:'index.ts',message:'juncture raised'},'log');
     try {(deps.wake??spawnWake)(argv);} catch(error){console.error(`juncture wake failed: ${message(error)}`);}
   }
-  return {accepted:true,status:result.status,reason:result.did,prose:text,outcome:result,started,commands};
+  return {accepted:true,status:result.status,reason:result.did,...result.why?{why:result.why}:{},
+    prose:text,sha:gate.sha,started,commands};
 }
 
 /** Where the plugin's own play library is, for a caller that wants to read it. */
