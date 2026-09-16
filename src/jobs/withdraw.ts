@@ -12,7 +12,7 @@ import {details} from '../response-details.ts';
 import {miningInventory} from '../mining-inventory.ts';
 import type {MineYieldRow} from '../mine.ts';
 import type {Ctx,JobOutcome} from './ctx.ts';
-import {storage} from './helpers.ts';
+import {step,storage} from './helpers.ts';
 
 export interface WithdrawParams {
   /** The rows to take out of the store here. */
@@ -30,9 +30,11 @@ const held=(rows:{item_id:string;quantity:number}[],item:string)=>
 
 export async function withdraw(ctx:Ctx,params:WithdrawParams):Promise<JobOutcome> {
   await ctx.check('withdraw');
-  ctx.progress({last_job:'withdraw',last_step:'counter'});
   const done=(outcome:JobOutcome):JobOutcome=>{ctx.jobs.push(outcome);return outcome;};
-  const failed=(reason:string)=>done({job:'withdraw',outcome:'failed',reason});
+  const failed=(reason:string)=>{
+    step(ctx,'withdraw','counter','failed',{reason});
+    return done({job:'withdraw',outcome:'failed',reason});
+  };
 
   const asked:MineYieldRow[]=(params.items??[])
     .map(row=>({item_id:String(row.item_id),quantity:Number(row.quantity)}))
@@ -51,8 +53,8 @@ export async function withdraw(ctx:Ctx,params:WithdrawParams):Promise<JobOutcome
   } catch(error){return failed(`${docked} would not say what it offers: ${message(error)}`);}
   if(!services.includes('storage'))
     return failed(`${docked} has no storage counter; the store is at a base that has one`);
+  step(ctx,'withdraw','counter','done',{base_id:docked});
 
-  ctx.progress({last_job:'withdraw',last_step:'withdraw'});
   let view=await storage(ctx,docked);
   let carried=miningInventory(ctx.account.state);
   const free=()=>{const {ship}=ctx.account.state;
@@ -86,11 +88,17 @@ export async function withdraw(ctx:Ctx,params:WithdrawParams):Promise<JobOutcome
     }
   }
 
+  step(ctx,'withdraw','withdraw',gaps.length?'failed':'done',
+    {base_id:docked,yield:took,...gaps.length?{reason:gaps.join('; ')}
+      :short.length?{reason:short.map(row=>`${row.item_id} ${row.why}`).join(', ')}:{}});
+
   // The store is where the cargo came from, so the store is read again for what is left.
+  if(!took.length)step(ctx,'withdraw','verify','skipped',{base_id:docked});
   if(took.length) {
-    ctx.progress({last_job:'withdraw',last_step:'verify'});
     try {view=await storage(ctx,docked);}
     catch(error){gaps.push(`the store at ${docked} would not answer after the withdraws: ${message(error)}`);}
+    step(ctx,'withdraw','verify',gaps.length?'failed':'done',
+      {base_id:docked,...gaps.length?{reason:gaps.join('; ')}:{}});
   }
 
   const result={base_id:docked,withdrawn:took.length,short,cargo_free:free()};

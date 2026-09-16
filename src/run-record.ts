@@ -57,10 +57,46 @@ export function readJournal(runtime:string,limit=400):Record<string,any>[] {
   } catch {return [];}
 }
 
+/** The one reader of the journal as it is being written: the webhook drain, which renders
+ * each line as it lands rather than watching the file. Null turns it off. One process writes
+ * this journal, so one listener is the whole of the need. */
+let listener:((entry:Record<string,unknown>)=>void)|null=null;
+export function watchJournal(fn:((entry:Record<string,unknown>)=>void)|null):void {listener=fn;}
+
 /** The run's own lines in the pilot's journal, beside the request/response pairs. The
  * runner's other self-made changes take the same line under their own event name (S45). */
 export function journalRun(runtime:string,entry:Record<string,unknown>,event='run'):void {
   mkdirSync(runtime,{recursive:true});
-  appendFileSync(join(runtime,'gameplay.jsonl'),
-    `${JSON.stringify({at:new Date().toISOString(),event,...entry})}\n`,{mode:0o600});
+  const line={at:new Date().toISOString(),event,...entry};
+  appendFileSync(join(runtime,'gameplay.jsonl'),`${JSON.stringify(line)}\n`,{mode:0o600});
+  // A listener that throws is its own problem: it never costs the pilot the line on disk.
+  if(listener)try {listener(line);} catch {/* the journal is written; the reader is not the record */}
+}
+
+const SUMMARY_CHARS=120;
+const text=(value:unknown)=>value===undefined||value===null?'':String(value);
+
+/** What one game command was, in the space a line can afford: the tool and action, the ids
+ * and quantities it named, whether it took, and one sentence off the reply. Never the reply
+ * body — a `get_system` answer is kilobytes and the journal is read by a human. */
+export function journalCommand(runtime:string,action:string,params:Record<string,unknown>|undefined,
+  ok:boolean,reply:unknown):void {
+  const [tool='',name='']=action.split('/');
+  const scalars:Record<string,unknown>={};
+  for(const [key,value] of Object.entries(params??{}))
+    if(value!==null&&typeof value!=='object')
+      scalars[key]=typeof value==='string'?value.slice(0,40):value;
+  journalRun(runtime,{tool,action:name,params:scalars,ok,summary:summarise(ok,reply)},'command');
+}
+
+/** The reply in one short string: what the game says it did, when, and what went wrong. */
+function summarise(ok:boolean,reply:unknown):string {
+  if(!ok)return text(reply instanceof Error?reply.message:reply).slice(0,SUMMARY_CHARS);
+  let body:Record<string,any>={};
+  try {body=(reply as any)?.structuredContent??(reply as any)?.delta?.details??reply??{};} catch {/* not an object */}
+  if(typeof body!=='object'||body===null)return text(body).slice(0,SUMMARY_CHARS);
+  const bits=[text(body.command??body.action??body.kind),
+    body.tick===undefined?'':`tick ${text(body.tick)}`,
+    text(body.error??body.message)];
+  return bits.filter(Boolean).join(' ').slice(0,SUMMARY_CHARS);
 }

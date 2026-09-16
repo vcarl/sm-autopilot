@@ -1,7 +1,7 @@
 /** Minimal SpaceMolt bridge: `where`, `travel` and `dock`, one JSON request per stdin line. */
 import {Account,fetchCatalog,httpBaseFromWs,type Catalog} from '@spacemolt/lib';
 import {createHash} from 'node:crypto';
-import {appendFileSync,existsSync,mkdirSync,readFileSync,renameSync,writeFileSync} from 'node:fs';
+import {existsSync,mkdirSync,readFileSync,renameSync,writeFileSync} from 'node:fs';
 import {resolve} from 'node:path';
 import {createInterface} from 'node:readline';
 import {fileURLToPath} from 'node:url';
@@ -15,7 +15,8 @@ import {buildMenu} from './menu.ts';
 import type {Mood} from './mood-policy.ts';
 import {reflectReport} from './reflect.ts';
 import {REST_JOB,evaluateMenu,type CounterName,type Facts,type StanceName} from './rules-table.ts';
-import {journalRun,readRun,type RunRecord} from './run-record.ts';
+import {journalCommand,journalRun,readRun,type RunRecord} from './run-record.ts';
+import {flushJournalDrain,startJournalDrain} from './journal-webhook.ts';
 import {listScripts,prepareRun,readScript,runScript as defaultRunScript,saveScript,sourceLabel,
   type RunOutcome} from './script-runner.ts';
 import {viewStorage} from './storage.ts';
@@ -27,6 +28,37 @@ import {recipesReport} from './recipes-action.ts';
 export const GAME_WS_URL='wss://game.spacemolt.com/ws/v2';
 
 export type Dispatch=(action:string,params?:Record<string,unknown>)=>Promise<unknown>;
+
+/** The actions whose answer is an outcome, and the ones whose answer is a read. A journal
+ * line keeps the shape of the first and only the size of the second: a `where` reply is
+ * kilobytes of POIs and connections, and none of it is a thing the pilot did. */
+const OUTCOME_ACTIONS=new Set(['run','status','rest','reflect','menu','gather','resume']);
+const READ_ACTIONS=new Set(['where','storage','recipes','quote','scripts']);
+/** What survives the trim on an outcome: did it happen, why, and where the run has got to. */
+const OUTCOME_KEYS=new Set(['accepted','reason','script','record','running','last','rested',
+  'shift_ended','at_rest','cleared','serviced','resumed','busy','outcome','objective',
+  'objective_done','home','stance','mood']);
+
+/** One response as the journal keeps it. The reply the caller gets is untouched; this is
+ * only what gets written down, and a journal a person reads is one without response bodies
+ * in it. Reflection reads a `where` line for the pilot's position, so that much stays. */
+export function journalResult(action:string,result:unknown):unknown {
+  if(result===null||typeof result!=='object')return result;
+  const body=result as Record<string,any>;
+  if(READ_ACTIONS.has(action)) {
+    const bytes=(()=>{try {return JSON.stringify(body).length;} catch {return -1;}})();
+    return {bytes,keys:Object.keys(body),
+      ...action==='where'?{system:body.system,poi:body.poi,docked_at:body.docked_at,
+        in_transit:body.in_transit}:{}};
+  }
+  if(!OUTCOME_ACTIONS.has(action))return result;
+  const kept:Record<string,unknown>={};
+  for(const key of Object.keys(body))if(OUTCOME_KEYS.has(key))kept[key]=body[key];
+  if(Array.isArray(body.jobs))kept.jobs=body.jobs.map((job:any)=>({job:job?.job,outcome:job?.outcome}));
+  for(const key of ['options','unavailable','stagnation'])
+    if(Array.isArray(body[key]))kept[key]=body[key].length;
+  return kept;
+}
 
 /** What the runner set at the last rest. The agent never writes any of it: reflection asks
  * the runner to, and rest asks the runner to take it away. */
@@ -130,6 +162,9 @@ export function serve(account:ReadinessAccount,command:ReadinessCommand,options:
   // flight; `last` is what the next juncture reads, from memory or from the record on disk.
   // The run has no id: it is the script it runs and the moment it started.
   const runtime=options.runtime;
+  // The operator's window onto the shift, when there is one to post to. Absent the webhook
+  // secret this is a no-op: no listener, no timer, nothing sent.
+  if(runtime)startJournalDrain();
   const stored=()=>runtime?readRun(runtime):null;
   let running:{script:string}|null=null,record:RunRecord|undefined,flight:Promise<unknown>|null=null,
     last:Record<string,unknown>|null=null;
@@ -347,8 +382,6 @@ async function main() {
   const credentials=()=>({kind:'login' as const,username,password});
   const runtime=process.env.SPACEMOLT_RUNTIME_DIR??fileURLToPath(new URL('../runtime/',import.meta.url));
   mkdirSync(runtime,{recursive:true});
-  const journal=(entry:Record<string,unknown>)=>
-    appendFileSync(`${runtime}/gameplay.jsonl`,`${JSON.stringify({at:new Date().toISOString(),...entry})}\n`,{mode:0o600});
   // A crash leaves the lock only while its holder lives: an operator inspects the pilot before
   // a second LIVE controller runs, but a dead holder's lock is taken over rather than wedging.
   const unlock=controllerLock(`${runtime}/controller-${createHash('sha256').update(username).digest('hex').slice(0,16)}.lock`);
@@ -359,7 +392,12 @@ async function main() {
   // already journalled. `stopped` also stops the request loop from taking on new work once
   // shutdown has started.
   let stopped=false;
-  const shutdown=createShutdown(account);
+  // The drain gets one last pass on the way out, inside the shutdown's own grace bound: a
+  // shift that ends with lines still buffered should still reach the operator.
+  const shutdown=createShutdown({close:async()=>{
+    await flushJournalDrain().catch(()=>{});
+    return account.close();
+  }});
   const triggerShutdown=()=>{stopped=true;shutdown();};
   process.on('SIGTERM',triggerShutdown);
   process.on('SIGINT',triggerShutdown);
@@ -370,9 +408,18 @@ async function main() {
   await account.connect();
   await account.authenticate(credentials());
   // The lib applies each result's state delta; travelTo re-reads authoritatively at every gate.
-  const command:ReadinessCommand=(action,params)=>{
+  // Every game command a job makes goes through here, so here is where the journal gets its
+  // compact account of them: what was sent, whether it took, one sentence of the reply.
+  const command:ReadinessCommand=async(action,params)=>{
     const [tool,name]=action.split('/');
-    return account.send(tool!,name!,params);
+    try {
+      const reply=await account.send(tool!,name!,params);
+      journalCommand(runtime,action,params,true,reply);
+      return reply;
+    } catch(error) {
+      journalCommand(runtime,action,params,false,error);
+      throw error;
+    }
   };
   // The runner writes the pilot record beside the runtime directory; the agent never does.
   const pilotFile=resolve(runtime,'..','pilot.json');
@@ -392,7 +439,9 @@ async function main() {
     } catch(error) {
       response={id:request?.id,ok:false,error:error instanceof Error?error.message:String(error)};
     }
-    journal({request,response});
+    journalRun(runtime,{request,
+      response:{...response,...'result' in response
+        ?{result:journalResult(String(request?.action??''),response.result)}:{}}},'request');
     console.log(JSON.stringify(response));
   }
   triggerShutdown();

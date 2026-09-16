@@ -1,17 +1,19 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import type {ReadinessAccount} from '../readiness.ts';
-import {bridgeWorld,type WorldOptions} from '../test-support/bridge-world.ts';
+import {bridgeWorld,journalTrap,type WorldOptions} from '../test-support/bridge-world.ts';
 import type {Ctx} from './ctx.ts';
 import {withdraw} from './withdraw.ts';
 
 /** A job is handed a ctx, not a runner: this is the smallest honest one. */
 function fixture(options:WorldOptions={}) {
   const world=bridgeWorld({services:['refuel','repair','storage'],cargoUsed:0,...options});
+  const trap=journalTrap();
   const ctx:Ctx={account:world.account as unknown as ReadinessAccount,command:world.command,
-    mood:'Focused',permissions:{},runtime:undefined,keep:[],jobs:[],
+    mood:'Focused',permissions:{},runtime:trap.runtime,keep:[],jobs:[],
     check:async()=>{},progress:()=>{},resuming:()=>false};
-  return {...world,ctx,withdrawals:()=>world.count('spacemolt_storage/withdraw')};
+  return {...world,ctx,steps:trap.steps,close:trap.close,
+    withdrawals:()=>world.count('spacemolt_storage/withdraw')};
 }
 
 test('withdraw moves the rows it was asked for, and the hold grows by exactly that', async () => {
@@ -98,4 +100,22 @@ test('one withdraw per row moved, never one per row asked for', async () => {
   assert.equal(f.withdrawals(),2,'the row the store never held sent nothing');
   assert.deepEqual((outcome.result as any).short,
     [{item_id:'ghost',requested:5,moved:0,why:'not in store'}]);
+});
+
+test('a withdraw that lands writes the counter, the rows and the check in order', async () => {
+  const f=fixture({store:[{item_id:'ore',quantity:9}]});
+  try {
+    assert.equal((await withdraw(f.ctx,{items:[{item_id:'ore',quantity:5}]})).outcome,'done');
+    assert.deepEqual(f.steps(),[['withdraw','counter','done'],['withdraw','withdraw','done'],
+      ['withdraw','verify','done']]);
+  } finally {f.close();}
+});
+
+test('a withdraw the store cannot fill still writes its rows, with nothing to check', async () => {
+  const f=fixture({store:[]});
+  try {
+    assert.equal((await withdraw(f.ctx,{items:[{item_id:'ore',quantity:5}]})).outcome,'done');
+    assert.deepEqual(f.steps(),[['withdraw','counter','done'],['withdraw','withdraw','done'],
+      ['withdraw','verify','skipped']]);
+  } finally {f.close();}
 });

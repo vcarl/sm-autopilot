@@ -20,6 +20,10 @@ from hermes_constants import get_hermes_home
 
 HERE = Path(__file__).resolve().parent
 BRIDGE_COMMAND = ["node", "src/bridge.ts"]  # tests point this at a stub
+#: The journal's renderer, run as a one-shot rather than reimplemented in Python: the window
+#: and the Discord drain then read the same lines from the same code.
+RENDER_COMMAND = ["node", "src/journal-lines.ts"]
+RENDER_TIMEOUT = 30.0
 BRIDGE_STDERR = "bridge.stderr.log"
 READY_TIMEOUT = 120.0
 REQUEST_TIMEOUT = 1800.0  # one travel leg can wait out many minutes of game ticks
@@ -39,6 +43,15 @@ def credentials_file() -> Path | None:
     return path if path and path.is_file() else None
 
 
+def journal_webhook() -> str:
+    """Where the rendered journal is posted, if the operator set one. This profile's secret,
+    never another's; absent, the bridge starts no drain and posts nothing."""
+    try:
+        return get_secret("SPACEMOLT_JOURNAL_WEBHOOK", "") or ""
+    except UnscopedSecretError:
+        return ""
+
+
 def runtime_dir() -> Path:
     """Where the bridge keeps the journal and its locks, for this profile."""
     return Path(os.environ.get("SPACEMOLT_RUNTIME_DIR") or get_hermes_home() / "spacemolt" / "runtime")
@@ -48,6 +61,20 @@ def pilot_path() -> Path:
     """The runner's pilot record — objective, stance, mood, home. The bridge reads the
     same file (``resolve(runtime,'..','pilot.json')``); the agent never writes it."""
     return runtime_dir().parent / "pilot.json"
+
+
+def render_journal(limit: int) -> str:
+    """The tail of the journal, one human line per thing the pilot did.
+
+    ponytail: a subprocess per call, not a port of ``renderLine`` into Python. One renderer
+    means the window, the drain and the proofs can never disagree about what a shift looked
+    like; a copy in two languages would drift the first time a step gained a field.
+    """
+    done = subprocess.run([*RENDER_COMMAND, str(runtime_dir()), str(limit)],
+                          cwd=HERE, capture_output=True, text=True, timeout=RENDER_TIMEOUT)
+    if done.returncode != 0:
+        raise RuntimeError(done.stderr.strip()[-400:] or "the journal would not render")
+    return done.stdout.strip()
 
 
 def available() -> bool:
@@ -63,7 +90,9 @@ class Bridge:
             raise RuntimeError("SPACEMOLT_CREDENTIALS_FILE must point at a readable credentials file")
         runtime = runtime_dir()
         runtime.mkdir(parents=True, exist_ok=True)
-        env = {**os.environ, "SPACEMOLT_CREDENTIALS_FILE": str(credentials), "SPACEMOLT_RUNTIME_DIR": str(runtime)}
+        webhook = journal_webhook()
+        env = {**os.environ, "SPACEMOLT_CREDENTIALS_FILE": str(credentials), "SPACEMOLT_RUNTIME_DIR": str(runtime),
+               **({"SPACEMOLT_JOURNAL_WEBHOOK": webhook} if webhook else {})}
         self.runtime = runtime
         self.inbox: queue.Queue = queue.Queue()
         self.counter = 0

@@ -311,3 +311,29 @@ test('a script composes another script: one entry in the job list, its trips ins
     assert.deepEqual(f.store,[{item_id:'ore',quantity:52}]);
   } finally {f.close();}
 });
+
+test('a gather writes a step line per rung, and the run record advances with it (N22)', async () => {
+  const f=runner({cargoUsed:0,store:[]});
+  try {
+    const outcome=await f.run('gather',{poi_id:'belt'});
+    assert.equal(outcome.outcome,'done',outcome.reason);
+    assert.deepEqual(f.lines('step').map(line=>[line.job,line.step,line.outcome]),
+      [['gather','travel','done'],['gather','mine','done'],['gather','return','done'],
+        ['gather','dock','done'],['gather','settle','done'],['gather','service','done'],
+        ['gather','verify','done']]);
+    // The numbers, not the reply bodies: the mine step carries the cargo delta and the
+    // settle step carries what actually reached the store.
+    const mine=f.lines('step').find(line=>line.step==='mine')!;
+    assert.deepEqual(mine.yield,[{item_id:'ore',quantity:12}]);
+    const settle=f.lines('step').find(line=>line.step==='settle')!;
+    assert.deepEqual([settle.base_id,settle.yield],[HOME,[{item_id:'ore',quantity:12}]]);
+    assert.ok(f.lines('step').every(line=>JSON.stringify(line).length<300),
+      'a step line is ids and quantities, never a response body');
+
+    // The record advanced through the same rungs while the run was in flight, so a restart
+    // at any point would have found the step the runner was on.
+    const advanced=f.records.map(record=>record.last_step).filter(Boolean);
+    assert.deepEqual([...new Set(advanced)],
+      ['travel','mine','return','dock','settle','service','verify']);
+  } finally {f.close();}
+});

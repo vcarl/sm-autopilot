@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import type {ReadinessAccount} from '../readiness.ts';
-import {bridgeWorld,type WorldOptions} from '../test-support/bridge-world.ts';
+import {bridgeWorld,journalTrap,type WorldOptions} from '../test-support/bridge-world.ts';
 import type {Ctx} from './ctx.ts';
 import {hunt} from './hunt.ts';
 
@@ -11,10 +11,11 @@ const grazer={creature_id:'crt_1',species:'veil_ray',name:'Veil-Ray',speed:2};
 function fixture(options:WorldOptions={},over:Partial<Ctx>={}) {
   const world=bridgeWorld({services:['refuel','repair','storage'],cargoUsed:0,store:[],
     wildlife:{creatures:[grazer]},...options});
+  const trap=journalTrap();
   const ctx:Ctx={account:world.account as unknown as ReadinessAccount,command:world.command,
-    mood:'Focused',home:'sol_base',permissions:{},runtime:undefined,
+    mood:'Focused',home:'sol_base',permissions:{},runtime:trap.runtime,
     keep:[],jobs:[],check:async()=>{},progress:()=>{},resuming:()=>false,...over};
-  return {...world,ctx,
+  return {...world,ctx,steps:trap.steps,close:trap.close,
     fights:()=>world.count('spacemolt/hunt'),
     moves:()=>world.count('spacemolt/travel')+world.count('spacemolt/undock')};
 }
@@ -118,4 +119,23 @@ test('a re-run whose fight already ended comes home instead of attacking again',
   assert.deepEqual(outcome.yield,[{item_id:'creature_carapace',quantity:1}]);
   assert.deepEqual(f.store,[{item_id:'creature_carapace',quantity:1}]);
   assert.equal(f.account.server.location.docked_at,'sol_base');
+});
+
+test('a hunt dock to dock writes every rung it stood on, in order', async () => {
+  const f=fixture();
+  try {
+    assert.equal((await hunt(f.ctx,{poi_id:'belt'})).outcome,'done');
+    assert.deepEqual(f.steps().filter(([job])=>job==='hunt').map(([,name])=>name),
+      ['fit','travel','fight 1','loot','return','dock','stow','service','finish']);
+    // The counter the hunt calls is a job of its own and says so under its own name.
+    assert.ok(f.steps().some(([job,name])=>job==='stow'&&name==='deposit'));
+  } finally {f.close();}
+});
+
+test('a hunt that never gets off the pad writes the rung it failed on and no other', async () => {
+  const f=fixture({wildlife:{creatures:[grazer],weapon:null}});
+  try {
+    assert.equal((await hunt(f.ctx,{poi_id:'belt'})).outcome,'failed');
+    assert.deepEqual(f.steps(),[['hunt','fit','failed']]);
+  } finally {f.close();}
 });

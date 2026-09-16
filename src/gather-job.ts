@@ -30,6 +30,9 @@ export interface GatherOptions extends TravelOptions {
    * where it had got to: the entry read below picks the step and the ones before it are
    * skipped rather than re-sent. */
   resume?:boolean;
+  /** Each step as it ends, with the numbers that step moved. The job keeps no opinion about
+   * what is done with them: `jobs/gather.ts` writes the run record and the journal line. */
+  onStep?:(step:GatherStep,moved:{yield:MineYieldRow[];deposited?:MineYieldRow[]})=>void;
 }
 export interface GatherOutcome {
   outcome:StepOutcome;
@@ -179,7 +182,7 @@ export async function gatherJob(account:ReadinessAccount,command:ReadinessComman
   plan:GatherPlan,options:GatherOptions={}):Promise<GatherOutcome> {
   const steps:GatherStep[]=[];
   let mined:MineYieldRow[]=[],settled:SettleOutcome|null=null,serviced:ServiceOutcome|null=null;
-  const {resume,...travelOptions}=options;
+  const {resume,onStep,...travelOptions}=options;
   // maxJumps null: each leg may cross systems, bounded by the mood's fuel reserve rather
   // than a jump count, as travel is.
   const legOptions={maxJumps:null as number|null,...travelOptions,mood:plan.mood};
@@ -230,7 +233,9 @@ export async function gatherJob(account:ReadinessAccount,command:ReadinessComman
       }
     }
     const {outcome,reason}=report??{outcome:'done' as StepOutcome};
-    steps.push({name,outcome,...reason===undefined?{}:{reason}});
+    const done:GatherStep={name,outcome,...reason===undefined?{}:{reason}};
+    steps.push(done);
+    onStep?.(done,{yield:mined,...settled?{deposited:(settled as SettleOutcome).deposited}:{}});
     if(outcome==='done')expected=position(account.state);
     return outcome==='done'?null:{outcome,steps,yield:mined,settled,serviced,
       ...moved?{moved}:{},reason:`${name} ${outcome}: ${reason}`} satisfies GatherOutcome;

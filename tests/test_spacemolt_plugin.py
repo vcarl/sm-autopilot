@@ -192,3 +192,36 @@ def test_close_bridge_ends_a_bridge_that_ignores_its_closed_stdin(tmp_path, monk
         assert "stubborn bridge up" in (runtime / service.BRIDGE_STDERR).read_text()
     finally:
         bridge.process.kill()
+
+
+ENV_BRIDGE = '''
+import json, os, sys
+print(json.dumps({"event": "ready"}), flush=True)
+for line in sys.stdin:
+    request = json.loads(line)
+    print(json.dumps({"id": request["id"], "ok": True,
+                      "result": {"webhook": os.environ.get("SPACEMOLT_JOURNAL_WEBHOOK", "")}}),
+          flush=True)
+'''
+
+
+def test_the_journal_webhook_reaches_the_bridge_the_way_the_credentials_path_does(tmp_path, monkeypatch):
+    """The drain's destination is a secret of this profile, handed to the child and nowhere else.
+
+    Absent, the child is never handed the name at all, so a bridge with no webhook configured
+    starts no drain rather than starting one pointed at nothing.
+    """
+    stub = tmp_path / "env_bridge.py"
+    stub.write_text(ENV_BRIDGE)
+    credentials = tmp_path / "credentials.txt"
+    credentials.write_text("Username: pilot\nPassword: secret\n")
+    monkeypatch.setenv("SPACEMOLT_CREDENTIALS_FILE", str(credentials))
+    monkeypatch.setattr(service, "BRIDGE_COMMAND", [sys.executable, str(stub)])
+    try:
+        monkeypatch.setenv("SPACEMOLT_JOURNAL_WEBHOOK", "https://example.invalid/hook")
+        assert service.call("where") == {"webhook": "https://example.invalid/hook"}
+        service.close_bridge()
+        monkeypatch.delenv("SPACEMOLT_JOURNAL_WEBHOOK")
+        assert service.call("where") == {"webhook": ""}
+    finally:
+        service.close_bridge()

@@ -296,7 +296,9 @@ test('C23: rest, reflect, goal, stance, script, home, rest — and the journal s
       'no stance, no mood, no goal; the operator\'s two settings and the flag survive');
 
     // The journal agrees with what the pilot says: the shift in order, with the same values.
-    const events=s.journal();
+    // Step and command lines (2026-09-15, Carl: the journal shows every action) sit between
+    // these; the shift's shape is read from the sparse kinds.
+    const events=s.journal().filter(entry=>['reflection','run','rest'].includes(entry.event));
     assert.deepEqual(events.map(entry=>entry.event),['reflection','run','run','rest']);
     assert.deepEqual(events.filter(entry=>entry.event==='run').map(entry=>entry.phase),
       ['started','ended'],'one run: it began once and ended once');

@@ -4,7 +4,7 @@ import {spawnSync} from 'node:child_process';
 import {existsSync,mkdtempSync,readFileSync,rmSync,writeFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
-import {createShutdown,serve,type Pilot,type ServeOptions} from './bridge.ts';
+import {createShutdown,journalResult,serve,type Pilot,type ServeOptions} from './bridge.ts';
 import {controllerLock} from './controller-lock.ts';
 import type {RunOutcome} from './script-runner.ts';
 import type {ReadinessAccount} from './readiness.ts';
@@ -400,4 +400,37 @@ test('the controller lock is taken over from a dead holder and refused to a live
   unlock();
   assert.equal(existsSync(path),false);
   unlock(); // the exit handler may run after an explicit release
+});
+
+test('the journal keeps the outcome of a request and never the body of a read', async () => {
+  const f=fixture({pilot:()=>PILOT},['refuel','repair','storage']);
+  const where=await f.dispatch('where') as any;
+  const kept=journalResult('where',where) as any;
+  // Reflection reads a `where` line for where the pilot has been, so that much survives.
+  assert.deepEqual([kept.system,kept.poi,kept.docked_at,kept.in_transit],
+    [where.system,where.poi,where.docked_at,where.in_transit]);
+  assert.ok(kept.bytes>0&&Array.isArray(kept.keys),'the rest is a size and a shape');
+  assert.ok(!('pois' in kept)&&!('connections' in kept),'never the rows themselves');
+  assert.ok(JSON.stringify(kept).length<JSON.stringify(where).length,
+    'a journal line is smaller than the answer it records');
+
+  const store=await f.dispatch('storage') as any;
+  assert.deepEqual(Object.keys(journalResult('storage',store) as object),['bytes','keys']);
+
+  // An outcome keeps the fields that say whether the thing happened, and nothing else.
+  const status=journalResult('status',{running:false,
+    last:{script:'gather',outcome:'done',reason:'docked at sol_base',
+      jobs:[{job:'gather',outcome:'done',result:{huge:'x'.repeat(5_000)}}]}}) as any;
+  assert.deepEqual(status,{running:false,
+    last:{script:'gather',outcome:'done',reason:'docked at sol_base',
+      jobs:[{job:'gather',outcome:'done',result:{huge:'x'.repeat(5_000)}}]}},
+    'the run record the juncture reads is the outcome itself');
+  const run=journalResult('run',{accepted:true,script:'gather',
+    jobs:[{job:'gather',outcome:'done',yield:[{item_id:'ore',quantity:12}],
+      result:{rows:'x'.repeat(5_000)}}]}) as any;
+  assert.deepEqual(run.jobs,[{job:'gather',outcome:'done'}],'a job is what it is and how it went');
+
+  // An action with no rule of its own is written down whole: travel and dock are already small.
+  const arrival={arrived:true,location:{system:'sol',poi:'belt',docked_at:null}};
+  assert.deepEqual(journalResult('travel',arrival),arrival);
 });

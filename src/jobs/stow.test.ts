@@ -1,17 +1,19 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import type {ReadinessAccount} from '../readiness.ts';
-import {bridgeWorld,type WorldOptions} from '../test-support/bridge-world.ts';
+import {bridgeWorld,journalTrap,type WorldOptions} from '../test-support/bridge-world.ts';
 import type {Ctx} from './ctx.ts';
 import {stow} from './stow.ts';
 
 /** A job is handed a ctx, not a runner: this is the smallest honest one. */
 function fixture(options:WorldOptions={},keep:string[]=[]) {
   const world=bridgeWorld({services:['refuel','repair','storage'],...options});
+  const trap=journalTrap();
   const ctx:Ctx={account:world.account as unknown as ReadinessAccount,command:world.command,
-    mood:'Focused',permissions:{},runtime:undefined,keep,jobs:[],
+    mood:'Focused',permissions:{},runtime:trap.runtime,keep,jobs:[],
     check:async()=>{},progress:()=>{},resuming:()=>false};
-  return {...world,ctx,deposits:()=>world.count('spacemolt_storage/deposit')};
+  return {...world,ctx,steps:trap.steps,close:trap.close,
+    deposits:()=>world.count('spacemolt_storage/deposit')};
 }
 
 test('stow deposits the whole hold but the pilot\'s own, and says what moved', async () => {
@@ -90,4 +92,25 @@ test('one deposit per row stowed, never one per item in the hold', async () => {
   assert.equal((outcome.yield??[]).length,3);
   assert.equal(f.deposits(),3);
   assert.deepEqual(f.account.server.cargo,[]);
+});
+
+test('a stow that lands writes the counter, the deposit and the check in order', async () => {
+  const f=fixture({cargoUsed:0,store:[]});
+  try {
+    f.account.server.cargo=[{item_id:'ore',quantity:8}];
+    f.account.server.ship.cargo_used=8;
+    assert.equal((await stow(f.ctx,{})).outcome,'done');
+    assert.deepEqual(f.steps(),[['stow','counter','done'],['stow','deposit','done'],
+      ['stow','verify','done']]);
+    const deposit=f.steps()[1]!;
+    assert.deepEqual(deposit.slice(0,2),['stow','deposit']);
+  } finally {f.close();}
+});
+
+test('a stow at a base with no store stops at the counter, and says so in one step', async () => {
+  const f=fixture({services:['refuel'],cargoUsed:0});
+  try {
+    assert.equal((await stow(f.ctx,{})).outcome,'failed');
+    assert.deepEqual(f.steps(),[['stow','counter','failed']]);
+  } finally {f.close();}
 });

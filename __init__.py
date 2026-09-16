@@ -10,7 +10,6 @@ has the answer in its context. A chat window carries observe + operator and neve
 from __future__ import annotations
 
 import json
-from collections import deque
 from datetime import datetime, timezone
 from typing import Any, Mapping
 
@@ -18,10 +17,10 @@ from pathlib import Path
 
 from .juncture import (JOB_MOODS, JOURNAL_FILE, JUNCTURE_PLATFORM, STANCES, ensure_juncture_job,
                        journal_event, juncture_context, read_pilot, write_pilot)
-from .service import available, call, close_bridge, runtime_dir
+from .service import available, call, close_bridge, render_journal, runtime_dir
 from .skills_register import register_skills
 
-_JOURNAL_DEFAULT, _JOURNAL_CAP, _RESULT_CHARS = 10, 50, 120
+_JOURNAL_DEFAULT, _JOURNAL_CAP = 20, 80
 
 #: How long an operator's instruction may be. The constraint is the scope of the instruction:
 #: a sentence is direction the pilot reads at its next juncture, not a plan handed down.
@@ -194,35 +193,18 @@ def _reflect(arguments: dict[str, Any] | None = None, **_: Any) -> str:
             "tick, and the mood moves inside the shift from here.")
 
 
-def _journal_row(line: str) -> dict[str, Any]:
-    """One journal line as a window reads it: when, what was asked, whether it took, and the
-    gist. The line is written by another process, so a torn last line says so rather than raising."""
-    try:
-        entry = json.loads(line)
-    except ValueError:
-        return {"at": None, "action": None, "ok": False, "result": "unreadable journal line"}
-    response = entry.get("response") or {}
-    ok = bool(response.get("ok"))
-    payload = response.get("result") if ok else response.get("error")
-    text = payload if isinstance(payload, str) else json.dumps(payload, separators=(",", ":"), sort_keys=True)
-    return {"at": entry.get("at"), "action": (entry.get("request") or {}).get("action"),
-            "ok": ok, "result": text[:_RESULT_CHARS]}
-
-
 def _journal(arguments: dict[str, Any] | None = None, **_: Any) -> str:
-    """The tail of the journal, compacted — the account of past work a decision needs (N15).
+    """The tail of the journal, rendered — the account of past work a decision needs (N15).
 
-    ponytail: every bridge request is journalled, reads included, so a quiet shift's tail is
-    mostly ``where``. Filter by action here once the bridge journals jobs apart from reads.
+    One line per thing that happened, newest last, from the same renderer the Discord drain
+    posts: the steps a job took, the runs, the reflections, the rest, and the refusals.
+    Reads, status polls and commands a step already summarises render to nothing.
     """
     asked = (arguments or {}).get("limit")
     limit = max(1, min(int(asked) if asked else _JOURNAL_DEFAULT, _JOURNAL_CAP))
-    path = runtime_dir() / JOURNAL_FILE
-    if not path.is_file():
-        return json.dumps([], separators=(",", ":"))
-    with path.open(encoding="utf-8", errors="replace") as journal:
-        lines = deque(journal, maxlen=limit)  # bounded: a long shift is never read whole
-    return json.dumps([_journal_row(line) for line in lines if line.strip()], separators=(",", ":"))
+    if not (runtime_dir() / JOURNAL_FILE).is_file():
+        return "The journal is empty: this pilot has done nothing yet."
+    return render_journal(limit) or "Nothing in the journal's tail is worth a line."
 
 
 def _nudge_juncture() -> str:
@@ -291,6 +273,7 @@ def _dispatch(arguments: dict[str, Any] | None = None, **_: Any) -> str:
         return (f"Nothing sent: that is {len(instruction)} characters and the pilot reads at most "
                 f"{_INSTRUCTION_LIMIT}. Say it again in fewer words, keeping the operator's.")
     record = read_pilot()
+    journal_event("instruction", text=instruction)
     record["instruction"] = {"text": instruction,
                              "at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")}
     write_pilot(record)
@@ -472,9 +455,10 @@ TOOL_DEFINITIONS = (
     {"name": "spacemolt_journal", "toolset": "spacemolt_observe", "handler": _journal,
      "description": "Read the last few things the pilot actually did.",
      "schema": _schema("spacemolt_journal",
-                       "The tail of the pilot's journal, newest last: when, what was asked of the "
-                       "game, whether it took, and the gist of the answer. This is the account of "
-                       "past work — never claim progress it does not show.",
+                       "The tail of the pilot's journal, newest last: one line per thing the "
+                       "pilot did — the steps of each job, the runs, the reflections, the rest, "
+                       "and anything the game refused. This is the account of past work — never "
+                       "claim progress it does not show.",
                        {"limit": {"type": "integer", "minimum": 1, "maximum": _JOURNAL_CAP,
                                   "description": f"How many entries, newest last. "
                                                  f"Defaults to {_JOURNAL_DEFAULT}."}},

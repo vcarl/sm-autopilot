@@ -114,3 +114,18 @@ export const storage=(ctx:Ctx,stationId?:string):Promise<StorageView>=>
 export const journal=(ctx:Ctx,entry:Record<string,unknown>,event='script'):void=>{
   if(ctx.runtime)journalRun(ctx.runtime,entry,event);
 };
+
+/** One step of one job, written down as it ends: the run record advances (N22) and the
+ * journal gets a line a person can read (S45).
+ *
+ * Ids and quantities only. A step line is read in a chat window beside dozens of others, so
+ * the reason is cut and the rows are capped rather than letting one step carry a paragraph.
+ */
+export function step(ctx:Ctx,job:string,name:string,
+  outcome:'done'|'skipped'|'failed'|'blocked'='done',extra:Record<string,unknown>={}):void {
+  ctx.progress({last_job:job,last_step:name});
+  const {reason,...rest}=extra;
+  journal(ctx,{job,step:name,outcome,...rest,
+    ...Array.isArray(rest.yield)?{yield:(rest.yield as unknown[]).slice(0,4)}:{},
+    ...reason===undefined?{}:{reason:String(reason).slice(0,120)}},'step');
+}

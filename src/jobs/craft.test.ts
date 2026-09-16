@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import type {ReadinessAccount} from '../readiness.ts';
-import {bridgeWorld,type WorldOptions} from '../test-support/bridge-world.ts';
+import {bridgeWorld,journalTrap,type WorldOptions} from '../test-support/bridge-world.ts';
 import type {Ctx} from './ctx.ts';
 import {craft} from './craft.ts';
 
@@ -9,13 +9,14 @@ import {craft} from './craft.ts';
 function fixture(options:WorldOptions={},over:Partial<Ctx>={}) {
   const world=bridgeWorld({services:['refuel','repair','storage','crafting'],
     store:[{item_id:'iron_ore',quantity:20}],...options});
+  const trap=journalTrap();
   const ctx:Ctx={account:world.account as unknown as ReadinessAccount,command:world.command,
-    mood:'Focused',permissions:{},runtime:undefined,keep:[],jobs:[],
+    mood:'Focused',permissions:{},runtime:trap.runtime,keep:[],jobs:[],
     check:async()=>{},progress:()=>{},resuming:()=>false,...over};
   const calls=(kind:'quote'|'commit')=>world.sent.filter(call=>
     call.action==='spacemolt/craft'&&call.params.id!==undefined
     &&Boolean(call.params.dry_run)===(kind==='quote')).length;
-  return {...world,ctx,calls,
+  return {...world,ctx,calls,steps:trap.steps,close:trap.close,
     held:(item:string)=>world.store.find(row=>row.item_id===item)?.quantity??0};
 }
 
@@ -98,4 +99,21 @@ test('a bench that quotes fewer than was asked for runs those, and says so', asy
   assert.deepEqual(outcome.yield,[{item_id:'steel_plate',quantity:2}]);
   assert.match(String(outcome.reason),/quoted 2 of the 6 asked/);
   assert.equal((outcome.result as any).runs,1);
+});
+
+test('a craft that lands writes bench, quote, commit, wait and confirm in order', async () => {
+  const f=fixture();
+  try {
+    assert.equal((await craft(f.ctx,{recipe_id:'refine_steel',quantity:2})).outcome,'done');
+    assert.deepEqual(f.steps(),[['craft','bench','done'],['craft','quote','done'],
+      ['craft','commit','done'],['craft','wait','done'],['craft','confirm','done']]);
+  } finally {f.close();}
+});
+
+test('a craft short of inputs stops at the quote and never writes a commit', async () => {
+  const f=fixture({store:[{item_id:'iron_ore',quantity:2}],craft:{have_inputs:false}});
+  try {
+    assert.equal((await craft(f.ctx,{recipe_id:'refine_steel',quantity:2})).outcome,'failed');
+    assert.deepEqual(f.steps(),[['craft','bench','done'],['craft','quote','failed']]);
+  } finally {f.close();}
 });

@@ -5,8 +5,25 @@
  * asserts can only have come from an authoritative cargo read.
  */
 import assert from 'node:assert/strict';
+import {mkdtempSync,rmSync} from 'node:fs';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
 import type {ReadinessCommand} from '../readiness.ts';
+import {readJournal} from '../run-record.ts';
 import {FakeLibGoalAccount} from './fake-lib-account.ts';
+
+/** A runtime directory a job's `ctx` can write its journal into, and the step lines it wrote.
+ *
+ * A job with no runtime journals nothing, so a test that wants the steps has to give it
+ * somewhere to put them. The directory is the test's to clean up. */
+export function journalTrap() {
+  const runtime=mkdtempSync(join(tmpdir(),'spacemolt-steps-'));
+  const lines=(event:string)=>readJournal(runtime,10_000).filter(entry=>entry.event===event);
+  return {runtime,lines,
+    /** Each step as `[job, step, outcome]`, in the order the job wrote them. */
+    steps:()=>lines('step').map(entry=>[entry.job,entry.step,entry.outcome] as const),
+    close:()=>rmSync(runtime,{recursive:true,force:true})};
+}
 
 // The station POI and the base docked at it carry different ids, as the live game does.
 export const system={id:'sol',name:'Sol',pois:[

@@ -19,7 +19,7 @@ import {movedOutcome,position,reconcileMove,type Position} from '../reconcile.ts
 import {details} from '../response-details.ts';
 import {ServiceBlocked} from '../servicing.ts';
 import {Blocked,type Ctx,type JobOutcome} from './ctx.ts';
-import {dock,route,service,storage,travel} from './helpers.ts';
+import {dock,route,service,step,storage,travel} from './helpers.ts';
 import {stow} from './stow.ts';
 
 export interface HuntParams {
@@ -189,7 +189,11 @@ export async function hunt(ctx:Ctx,params:HuntParams):Promise<JobOutcome> {
     throw new Error('hunt requires fights: a whole number of fights, at least one');
   const named=params.species===undefined?undefined:String(params.species);
   const targets:TargetReport[]=[];
+  // The rung the job is standing on, so a job that ends mid-ladder names where it stopped.
+  let at='fit';
   const end=(outcome:JobOutcome['outcome'],reason:string,extra:Partial<JobOutcome>={}):JobOutcome=>{
+    step(ctx,'hunt',at,outcome,{poi_id,reason,n:targets.length,
+      ...extra.yield?{yield:extra.yield}:{}});
     const row:JobOutcome={job:'hunt',outcome,reason,...extra};
     ctx.jobs.push(row);
     return row;
@@ -225,12 +229,16 @@ export async function hunt(ctx:Ctx,params:HuntParams):Promise<JobOutcome> {
   const floor=resolveWalkAway(ctx.mood)*Number(ctx.account.state.ship?.max_hull??0);
   const taken:MineYieldRow[]=[];
 
+  step(ctx,'hunt','fit','done',{poi_id,base_id:baseId});
+  at='travel';
   if(from<=STEPS.indexOf('travel')) {
     ctx.progress({last_job:'hunt',last_step:'travel'});
     const out=await travel(ctx,poi_id);
     if(!out.arrived)return end('blocked',`hunt did not reach ${poi_id}: ${out.reason}`);
-  }
+    step(ctx,'hunt','travel','done',{poi_id});
+  } else step(ctx,'hunt','travel','skipped',{poi_id});
 
+  at='fight';
   if(from<=STEPS.indexOf('fight')) {
     ctx.progress({last_job:'hunt',last_step:'fight'});
     await ctx.account.refresh();
@@ -269,6 +277,8 @@ export async function hunt(ctx:Ctx,params:HuntParams):Promise<JobOutcome> {
       }
       const report=await engage(ctx,target,floor);
       targets.push(report);
+      step(ctx,'hunt',`fight ${targets.length}`,report.outcome==='down'?'done':'blocked',
+        {species:report.species,hull:report.hull_after,reason:report.outcome});
       // The world may have taken the pilot out of the fight with no command behind it.
       const drift=await reconcileMove(ctx.account,expected);
       if(drift.moved)
@@ -279,6 +289,8 @@ export async function hunt(ctx:Ctx,params:HuntParams):Promise<JobOutcome> {
       // A wreck with this creature's name on it is the only evidence the fight was won.
       const salvage=await loot(ctx,target.creature_id);
       for(const row of salvage.took)taken.push(row);
+      step(ctx,'hunt','loot',salvage.wrecked?'done':'skipped',
+        {species:target.species,yield:salvage.took});
       if(report.outcome==='escaped'&&salvage.wrecked)report.outcome='down';
       await ctx.account.refresh();
       expected=position(ctx.account.state);
@@ -289,22 +301,27 @@ export async function hunt(ctx:Ctx,params:HuntParams):Promise<JobOutcome> {
     }
   }
 
+  at='return';
   if(from<=STEPS.indexOf('return')) {
     ctx.progress({last_job:'hunt',last_step:'return'});
     const back_=await travel(ctx,back.poi_id);
     if(!back_.arrived)return end('failed',`hunt did not get home to ${back.poi_id}: ${back_.reason}`,
       {yield:taken,result:{poi_id,fights:targets.length,targets,loot:taken,base_id:baseId}});
-  }
+    step(ctx,'hunt','return','done',{poi_id:back.poi_id});
+  } else step(ctx,'hunt','return','skipped',{poi_id:back.poi_id});
 
+  at='dock';
   if(from<=STEPS.indexOf('dock')) {
     ctx.progress({last_job:'hunt',last_step:'dock'});
     const docked=await dock(ctx,baseId);
     if(!docked.docked)return end('failed',`hunt reached ${back.poi_id} but did not dock: ${docked.reason}`,
       {yield:taken,result:{poi_id,fights:targets.length,targets,loot:taken,base_id:baseId}});
-  }
+    step(ctx,'hunt','dock','done',{base_id:baseId});
+  } else step(ctx,'hunt','dock','skipped',{base_id:baseId});
 
   // The store is where the loot went, so the store's delta is what this job yielded.
   let stowed:MineYieldRow[]=[];
+  at='stow';
   if(from<=STEPS.indexOf('stow')) {
     ctx.progress({last_job:'hunt',last_step:'stow'});
     const before=await storage(ctx,baseId);
@@ -314,17 +331,22 @@ export async function hunt(ctx:Ctx,params:HuntParams):Promise<JobOutcome> {
     stowed=after.items.map(item=>({item_id:item.item_id,
       quantity:item.quantity-held(before.items,item.item_id)}))
       .filter(row=>row.quantity>0).sort((a,b)=>a.item_id<b.item_id?-1:1);
-  }
+    step(ctx,'hunt','stow',failure?'failed':'done',
+      {base_id:baseId,yield:stowed,...failure?{reason:failure}:{}});
+  } else step(ctx,'hunt','stow','skipped',{base_id:baseId});
 
+  at='service';
   if(from<=STEPS.indexOf('service')&&!failure) {
     ctx.progress({last_job:'hunt',last_step:'service'});
-    try {await service(ctx);}
+    try {await service(ctx);step(ctx,'hunt','service','done',{base_id:baseId});}
     catch(error) {
       if(error instanceof ServiceBlocked)blocked=blocked??message(error);
       else failure=message(error);
+      step(ctx,'hunt','service',failure?'failed':'blocked',{base_id:baseId,reason:message(error)});
     }
-  }
+  } else step(ctx,'hunt','service','skipped',{base_id:baseId});
 
+  at='finish';
   await ctx.account.refresh();
   const hull=Number(ctx.account.state.ship?.hull??0);
   const result={poi_id,fights:targets.length,targets,loot:stowed.length?stowed:taken,

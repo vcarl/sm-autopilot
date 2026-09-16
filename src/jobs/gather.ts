@@ -7,9 +7,10 @@
  * rules still allow another job.
  */
 import {gatherJob,type GatherPlan} from '../gather-job.ts';
+import type {MineYieldRow} from '../mine.ts';
 import {miningInventory} from '../mining-inventory.ts';
 import type {Ctx,JobOutcome} from './ctx.ts';
-import {route} from './helpers.ts';
+import {route,step} from './helpers.ts';
 
 export interface GatherParams {
   /** The mining site to work: an asteroid belt or field, in this system or another. */
@@ -46,7 +47,18 @@ export async function gather(ctx:Ctx,params:GatherParams):Promise<JobOutcome> {
   const resume=ctx.resuming();
   const sheet=await plan(ctx,params);
   ctx.progress({last_job:'gather',last_step:'travel'});
-  const result=await gatherJob(ctx.account,ctx.command,sheet,resume?{resume:true}:{});
+  // Where a step's numbers come from: the site it flew to, the ore it dug, the rows that
+  // reached the store. Everything else is the step's name and how it ended.
+  const numbers=(name:string,moved:{yield:MineYieldRow[];deposited?:MineYieldRow[]}) =>
+    name==='travel'?{poi_id:sheet.site.poi_id}
+      :name==='mine'?{yield:moved.yield}
+        :name==='return'?{poi_id:sheet.home.poi_id}
+          :name==='dock'?{base_id:sheet.home.base_id}
+            :name==='settle'?{base_id:sheet.home.base_id,yield:moved.deposited??[]}
+              :{};
+  const result=await gatherJob(ctx.account,ctx.command,sheet,{...resume?{resume:true}:{},
+    onStep:(done,moved)=>step(ctx,'gather',done.name,done.outcome,
+      {...numbers(done.name,moved),...done.reason===undefined?{}:{reason:done.reason}})});
   const outcome:JobOutcome={job:'gather',outcome:result.outcome,yield:result.yield,
     ...result.moved?{moved:result.moved}:{},
     ...result.reason===undefined?{}:{reason:result.reason}};

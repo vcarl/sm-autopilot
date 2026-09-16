@@ -14,7 +14,7 @@ import {details} from '../response-details.ts';
 import {miningInventory} from '../mining-inventory.ts';
 import type {MineYieldRow} from '../mine.ts';
 import type {Ctx,JobOutcome} from './ctx.ts';
-import {storage} from './helpers.ts';
+import {step,storage} from './helpers.ts';
 
 export interface StowParams {
   /** Optional: the base to stow at. It must be the one the ship is docked at — this job is a
@@ -28,9 +28,11 @@ const message=(error:unknown)=>error instanceof Error?error.message:String(error
 
 export async function stow(ctx:Ctx,params:StowParams={}):Promise<JobOutcome> {
   await ctx.check('stow');
-  ctx.progress({last_job:'stow',last_step:'counter'});
   const done=(outcome:JobOutcome):JobOutcome=>{ctx.jobs.push(outcome);return outcome;};
-  const failed=(reason:string)=>done({job:'stow',outcome:'failed',reason});
+  const failed=(reason:string)=>{
+    step(ctx,'stow','counter','failed',{reason});
+    return done({job:'stow',outcome:'failed',reason});
+  };
 
   await ctx.account.refresh();
   const docked=ctx.account.state.location?.docked_at??null;
@@ -44,6 +46,7 @@ export async function stow(ctx:Ctx,params:StowParams={}):Promise<JobOutcome> {
   } catch(error){return failed(`${docked} would not say what it offers: ${message(error)}`);}
   if(!services.includes('storage'))
     return failed(`${docked} has no storage counter; the hold stays aboard until a base that has one`);
+  step(ctx,'stow','counter','done',{base_id:docked});
 
   // What a deposit here may move: the hold, less the pilot's own, less anything not named.
   const own=new Set(ctx.keep);
@@ -53,7 +56,6 @@ export async function stow(ctx:Ctx,params:StowParams={}):Promise<JobOutcome> {
     .filter(([item_id,quantity])=>quantity>0&&!own.has(item_id)&&(!named||named.has(item_id)))
     .sort(([a],[b])=>a<b?-1:1).map(([item_id,quantity])=>({item_id,quantity}));
 
-  ctx.progress({last_job:'stow',last_step:'deposit'});
   const stowed:MineYieldRow[]=[],gaps:string[]=[];
   for(const row of rows) {
     // Bounded by what the live read still shows aboard: a resumed job whose deposit already
@@ -75,9 +77,12 @@ export async function stow(ctx:Ctx,params:StowParams={}):Promise<JobOutcome> {
     }
   }
 
+  step(ctx,'stow','deposit',gaps.length?'failed':'done',
+    {base_id:docked,yield:stowed,...gaps.length?{reason:gaps.join('; ')}:{}});
+
   // The store is where the cargo went, so the store is what says it arrived.
+  if(!stowed.length)step(ctx,'stow','verify','skipped',{base_id:docked});
   if(stowed.length) {
-    ctx.progress({last_job:'stow',last_step:'verify'});
     try {
       const view=await storage(ctx);
       const held=new Map(view.items.map(item=>[item.item_id,item.quantity]));
@@ -85,6 +90,8 @@ export async function stow(ctx:Ctx,params:StowParams={}):Promise<JobOutcome> {
         if((held.get(row.item_id)??0)<row.quantity)
           gaps.push(`${row.item_id}: ${row.quantity} left the hold but the store at ${docked} does not show it`);
     } catch(error){gaps.push(`the store at ${docked} would not answer after the deposits: ${message(error)}`);}
+    step(ctx,'stow','verify',gaps.length?'failed':'done',
+      {base_id:docked,...gaps.length?{reason:gaps.join('; ')}:{}});
   }
 
   const {ship}=ctx.account.state;

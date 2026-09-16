@@ -16,6 +16,9 @@ import {viewStorage} from './storage.ts';
 /** Enough of each list to choose from; the whole report stays well under the 3 KB the
  * juncture's own context budget allows it. */
 const CAP={skills:6,visited:16,items:10,runs:5,bases:6};
+/** How many journal entries back a reflection looks. Most of them are steps and commands,
+ * which this report ignores; the runs, rests and reflections it counts are the sparse ones. */
+const JOURNAL_SPAN=6_000;
 
 export interface Pilotish {objective?:string;objective_done?:boolean;home?:string;goal?:string}
 
@@ -72,7 +75,10 @@ export async function reflectReport(account:ReadinessAccount,command:ReadinessCo
     :Number(tax.income_tax_total??0)+Number(tax.property_tax_total??0)-Number(tax.tax_prepaid??0);
 
   // The journal is the account of past work; the present came from the live reads above.
-  const journal=runtime?readJournal(runtime):[];
+  // A shift now writes a line per step and per game command, so the history reflection needs
+  // lives much further back than the default tail: read wide, and let the filters below
+  // pick the few kinds of line that say where the pilot has been.
+  const journal=runtime?readJournal(runtime,JOURNAL_SPAN):[];
   const visited=new Set<string>(),bases=new Set<string>(),chosen=new Set<string>();
   const ranJobs=new Map<string,number>();
   const recent:ReflectReport['recent']=[];

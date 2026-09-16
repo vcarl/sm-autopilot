@@ -10,7 +10,7 @@
 import {details} from '../response-details.ts';
 import type {MineYieldRow} from '../mine.ts';
 import type {Ctx,JobOutcome} from './ctx.ts';
-import {storage} from './helpers.ts';
+import {step,storage} from './helpers.ts';
 
 export interface CraftParams {
   /** The recipe to run, as `spacemolt_recipes` lists it. */
@@ -51,7 +51,11 @@ export async function craft(ctx:Ctx,params:CraftParams):Promise<JobOutcome> {
   const asked=Number(params.quantity);
   if(!Number.isInteger(asked)||asked<1)
     throw new Error('craft requires a quantity: a whole number of output units, at least one');
+  // Where the job is standing when it ends, so the step line names the rung it stopped on.
+  let at='bench';
   const end=(outcome:JobOutcome['outcome'],reason:string,extra:Partial<JobOutcome>={}):JobOutcome=>{
+    step(ctx,'craft',at,outcome,{recipe_id,reason,
+      ...extra.yield?{yield:extra.yield}:{}});
     const row:JobOutcome={job:'craft',outcome,reason,...extra};
     ctx.jobs.push(row);
     return row;
@@ -68,6 +72,7 @@ export async function craft(ctx:Ctx,params:CraftParams):Promise<JobOutcome> {
   } catch(error){return end('failed',`${base_id} would not say what it offers: ${message(error)}`);}
   if(!services.includes('crafting'))
     return end('failed',`no crafting service at ${base_id}; the bench is at a base with a workshop`);
+  step(ctx,'craft','bench','done',{base_id,recipe_id});
 
   const call={id:recipe_id,quantity:asked,source:'storage',deliver_to:'storage',
     ...params.facility_id?{facility_id:String(params.facility_id)}:{}};
@@ -91,7 +96,11 @@ export async function craft(ctx:Ctx,params:CraftParams):Promise<JobOutcome> {
   if(job) {
     runs=Number(job.runs_total??job.runs??0);
     name=String(job.recipe??recipe_id);
+    // Its escrow is already made: this run re-enters at the wait, and says so.
+    step(ctx,'craft','quote','skipped',{recipe_id,job_id:String(job.job_id??'')});
+    step(ctx,'craft','commit','skipped',{recipe_id,job_id:String(job.job_id??'')});
   } else {
+    at='quote';
     ctx.progress({last_job:'craft',last_step:'quote'});
     let quote:Record<string,any>;
     try {quote=details(await ctx.command('spacemolt/craft',{...call,dry_run:true}));}
@@ -114,6 +123,8 @@ export async function craft(ctx:Ctx,params:CraftParams):Promise<JobOutcome> {
       return end('blocked',
         `${name} costs ${cost} credits; ${credits} less the operator's ${reserve} credit reserve cannot cover it`);
 
+    step(ctx,'craft','quote','done',{recipe_id,runs,quantity:quoted,cost});
+    at='commit';
     ctx.progress({last_job:'craft',last_step:'commit'});
     let committed:Record<string,any>;
     try {committed=details(await ctx.command('spacemolt/craft',call));}
@@ -122,6 +133,7 @@ export async function craft(ctx:Ctx,params:CraftParams):Promise<JobOutcome> {
     name=String(committed.recipe??name);
     runs=Number(committed.runs??runs);
     produces=rows(committed.produces);
+    step(ctx,'craft','commit','done',{recipe_id,runs,job_id:String(committed.job_id??''),cost});
   }
 
   // The escrow is made: what this job has left to do is wait and confirm, and the record says
@@ -131,6 +143,7 @@ export async function craft(ctx:Ctx,params:CraftParams):Promise<JobOutcome> {
   ctx.progress({last_job:'craft',
     last_step:`wait ${JSON.stringify({job_id,name,runs,produces,...escrowed?{escrowed}:{}})}`});
 
+  at='wait';
   const eta=Number(job?.eta_ticks);
   const ticks=Number.isFinite(eta)?Math.max(eta,0):1;
   const pause=Math.min(60_000,Math.max(250,ticks*TICK_MS));
@@ -147,6 +160,8 @@ export async function craft(ctx:Ctx,params:CraftParams):Promise<JobOutcome> {
 
   // The store is where the output was delivered, so the store is what says it arrived. The
   // reply's claim is never the evidence: the delta across the two reads is.
+  step(ctx,'craft','wait','done',{recipe_id,job_id});
+  at='confirm';
   ctx.progress({last_job:'craft',last_step:'confirm'});
   const after=await storage(ctx,base_id);
   const made:MineYieldRow[]=produces
