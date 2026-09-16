@@ -478,7 +478,28 @@ TOOL_DEFINITIONS = (
 )
 
 
+def wake_on_load() -> None:
+    """A process that just loaded the pilot owes it one look around: the juncture is marked
+    due now instead of waiting for the idle schedule (Carl, 2026-09-15). A run still in flight
+    raises its own juncture when it ends, so nothing is marked then, and the bridge is not
+    touched: a plugin load opens no game socket. Without a pilot record there is no one to wake.
+    """
+    from .juncture import ensure_juncture_job
+    from .service import pilot_path
+    if not pilot_path().is_file():
+        return
+    record = runtime_dir() / "run.json"
+    try:
+        if record.is_file() and not json.loads(record.read_text()).get("ended", True):
+            return
+        from cron.jobs import trigger_job
+        trigger_job(ensure_juncture_job()["id"])
+    except Exception:  # noqa: BLE001 - a wake that fails costs nothing; the schedule still comes round
+        pass
+
+
 def register(ctx) -> None:
+    wake_on_load()
     for definition in TOOL_DEFINITIONS:
         ctx.register_tool(**definition, check_fn=available,
                           requires_env=["SPACEMOLT_CREDENTIALS_FILE"], emoji="🚀")

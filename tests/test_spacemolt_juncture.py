@@ -275,3 +275,20 @@ def test_the_rest_context_carries_the_scripts_the_review_reads(monkeypatch):
     # The context says what the section is for, not just that it is there.
     assert "`scripts` is the pilot's own code beside how it ran" in context
     assert "save a better version under the same name" in context
+
+
+def test_loading_the_plugin_wakes_an_idle_pilot_once_and_leaves_a_running_one_alone(monkeypatch):
+    from cron import jobs as cron_jobs
+    from spacemolt import service
+    runtime = service.runtime_dir(); runtime.mkdir(parents=True, exist_ok=True)
+    assert cron_jobs.load_jobs() == []
+    spacemolt.wake_on_load()  # no pilot record: no one to wake
+    assert cron_jobs.load_jobs() == []
+    juncture.write_pilot({"name": "kvothe", "stance": "Industrialist", "mood": "Cautious"})
+    (runtime / "run.json").write_text(json.dumps({"script": "gather", "ended": False}))
+    spacemolt.wake_on_load()  # a run in flight raises its own juncture at its end
+    assert cron_jobs.load_jobs() == []
+    (runtime / "run.json").write_text(json.dumps({"script": "gather", "ended": True}))
+    spacemolt.wake_on_load()
+    job, = cron_jobs.load_jobs()
+    assert job["next_run_at"] is not None and job["state"] == "scheduled"
