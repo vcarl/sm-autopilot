@@ -48,18 +48,21 @@ export function goTo(id?:string):Promise<Outcome<Trip>> {
     const detail=():Trip=>({route:quote,location:acct().state.location as V2Location,jumps:0,docked:false});
     if((who.permissions?.no_go??[]).includes(quote.target_system))
       return {status:'refused',did:`did not fly to ${target}`,why:`${quote.target_system} is in permissions.no_go`,detail:detail()};
-    const poi=quote.target_poi??target;
     // A base id is what find_route resolved to a different POI; dock there on arrival.
     const isBase=quote.target_poi!==undefined&&quote.target_poi!==target;
+    // A system id answers with a system and no POI of its own. Passing it on as a `poi_id`
+    // is what the server rejects as "Unknown destination" after the jump was already flown
+    // and paid for: a system is reached wherever in it the jump lands, so name no POI.
+    const poi=quote.target_poi===undefined&&quote.target_system===target?undefined:quote.target_poi??target;
     if(who.mood==='Tired'&&!isBase)
       return {status:'refused',did:`did not fly to ${target}`,why:'Tired: only a base is admitted, to service there',detail:detail()};
     const {location}=acct().state;
-    if(location?.system_id===quote.target_system&&location.poi_id===poi&&(!isBase||location.docked_at===target))
-      return {status:'done',did:`already at ${target}`,detail:{...detail(),docked:Boolean(location.docked_at)}};
-    step(`goTo ${poi} ${quote.total_jumps?`${quote.total_jumps} jump(s)`:'same system'} ${quote.estimated_fuel} fuel quoted`);
+    if(location?.system_id===quote.target_system&&(!poi||location.poi_id===poi)&&(!isBase||location.docked_at===target))
+      return {status:'done',did:`already at ${target}${poi?'':` (${location.poi_id})`}`,detail:{...detail(),docked:Boolean(location.docked_at)}};
+    step(`goTo ${poi??quote.target_system} ${quote.total_jumps?`${quote.total_jumps} jump(s)`:'same system'} ${quote.estimated_fuel} fuel quoted`);
     let jumps=0;
     try {
-      const flown=await travelTo(acct(),command,{system_id:quote.target_system,poi_id:poi},{
+      const flown=await travelTo(acct(),command,{system_id:quote.target_system,...poi?{poi_id:poi}:{}},{
         mood:who.mood??'Cautious',maxJumps:null,
         checkpoint:async()=>checkStop(),
         onJump:()=>{jumps++;step(`jump ${jumps} of ${quote.total_jumps}, fuel ${acct().state.ship?.fuel}`);},
@@ -77,8 +80,8 @@ export function goTo(id?:string):Promise<Outcome<Trip>> {
     let docked=false;
     // The dock is decided by the system's own listing, not the route heuristic: a system id
     // may also answer with a POI, and docking "at a system" would wedge here.
-    const pois=(details(await command('spacemolt/get_system',{})).system?.pois??[]) as {id:string;base_id?:string}[];
+    const pois=poi?(details(await command('spacemolt/get_system',{})).system?.pois??[]) as {id:string;base_id?:string}[]:[];
     if(pois.some(row=>row.id===poi&&row.base_id===target)){await dockAt(acct(),command,target);docked=true;step(`docked at ${target}`);}
-    return {status:'done',did:`arrived at ${target}${docked?' and docked':''} after ${jumps} jump(s)`,detail:{...detail(),jumps,docked}};
+    return {status:'done',did:`arrived at ${target}${poi?'':` (${acct().state.location?.poi_id})`}${docked?' and docked':''} after ${jumps} jump(s)`,detail:{...detail(),jumps,docked}};
   });
 }

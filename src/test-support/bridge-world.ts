@@ -469,7 +469,10 @@ export function bridgeWorld(options:WorldOptions={}) {
       if(!target)return {found:false,message:`No route to ${params.id}`};
       const from=account.server.location.system_id;
       const route=from===target?[from]:[from,target];
-      return {found:true,target_system:target,target_poi:poiOf[String(params.id)]??String(params.id),
+      // A system id answers with a system and no POI of its own: there is no one place in a
+      // system that "is" the system, which is why naming it as a POI is rejected below.
+      return {found:true,target_system:target,
+        ...homeOf[String(params.id)]===String(params.id)?{}:{target_poi:poiOf[String(params.id)]??String(params.id)},
         total_jumps:route.length-1,
         estimated_fuel:7,fuel_per_jump:7,fuel_available:account.server.ship.fuel,
         cargo_used:account.server.ship.cargo_used,route:route.map((system_id,jumps)=>({system_id,jumps}))};
@@ -480,7 +483,12 @@ export function bridgeWorld(options:WorldOptions={}) {
     // The base you dock at is the one behind the POI you are standing at, never a fixed id.
     'spacemolt/dock':()=>{account.server.location.docked_at=baseAt[account.server.location.poi_id]??'sol_base';return {};},
     // The server settles the move before the next authoritative read, as a same-system hop does.
-    'spacemolt/travel':params=>{account.server.ship.fuel-=7;account.server.location.poi_id=String(params.id);return {};},
+    'spacemolt/travel':params=>{
+      // The server's own refusal when the id is not a POI in this system — a system id
+      // handed on as a destination is rejected here, after the jump was flown and paid for.
+      const where=account.server.location.system_id==='sol'?system:deepRange;
+      if(!where.pois.some((row:{id:string})=>row.id===String(params.id)))throw new Error(`Unknown destination: ${params.id}`);
+      account.server.ship.fuel-=7;account.server.location.poi_id=String(params.id);return {};},
     // The reply over-claims: only the cargo delta says what the trip actually took.
     'spacemolt/mine':()=>{add('ore',minePerCycle);
       return {command:'mine',delta:{details:{kind:'yield',resource_id:'ore',quantity:99}}};},

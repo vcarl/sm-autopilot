@@ -101,6 +101,27 @@ test('goTo resolves a base id to the POI it sits at, docks there, and refuses a 
   } finally {unbind();}
 });
 
+test('goTo a system id is done wherever in that system the jump lands, and never names it as a POI',async()=>{
+  const f=world({mood:'Focused'});
+  try {
+    f.account.server.location={system_id:'sol',poi_id:'belt',docked_at:null,in_transit:false};
+    await f.account.refresh();
+    const trip=await goTo('deep_range');
+    assert.equal(trip.status,'done',trip.why);
+    assert.equal(f.account.server.location.system_id,'deep_range');
+    // The jump was flown and paid for; naming the system as a POI afterwards is the server's
+    // "Unknown destination", which is what turned a landed trip into a `failed`.
+    assert.deepEqual(f.sent.filter(c=>c.action==='spacemolt/travel').map(c=>c.params.id),[]);
+    assert.equal(f.sent.filter(c=>c.action==='spacemolt/jump').length,1);
+    assert.match(trip.did,/arrived at deep_range \(gate\) after 1 jump\(s\)/,'the did names the POI landed at');
+    assert.equal(trip.detail.docked,false);
+    // Already in that system: nothing sent, whatever POI the ship is parked at.
+    const before=f.sent.length;
+    assert.match((await goTo('deep_range')).did,/already at deep_range \(gate\)/);
+    assert.equal(f.sent.slice(before).filter(c=>c.action==='spacemolt/jump').length,0);
+  } finally {unbind();}
+});
+
 test('sell, stow and withdraw take rows by name and never default to the whole hold',async()=>{
   const f=world({mood:'Focused'});
   try {
