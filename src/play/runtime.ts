@@ -31,7 +31,9 @@ export interface Pilot {
   tired_forced?:boolean;
   /** A base id (`V2Player['home_base']` is the game's own; this is the operator's choice). */
   home?:string;
-  permissions?:{credit_reserve?:number;max_liability?:number;max_spend?:number;no_go?:string[]};
+  /** `may_attack` is the combat gate: `'pirate'` for any pirate, or a stronghold crew's
+   * `faction` id for that crew alone. Fauna needs no permission; it is legal everywhere. */
+  permissions?:{credit_reserve?:number;max_liability?:number;max_spend?:number;no_go?:string[];may_attack?:string[]};
   instruction?:{text:string;at:string};
 }
 

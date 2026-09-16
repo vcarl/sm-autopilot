@@ -9,7 +9,7 @@
   "type": "module",
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "test": "node --test src/*.test.ts src/play/*.test.ts"
+    "test": "node --test src/*.test.ts src/play/*.test.ts src/play/*/*.test.ts"
   },
   "private": true,
   "name": "hermes-spacemolt",

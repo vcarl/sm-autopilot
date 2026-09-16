@@ -89,7 +89,7 @@ Everything game-shaped in a `detail` is the lib's own type (`SystemPoi`, `Missio
 `.d.ts` files document. `tsc` knows them; guess nothing.
 
 Careers add more: [`mining/`](mining/README.md) (`gatherUntil`),
-[`hauling/`](hauling/README.md), [`industry/`](industry/README.md), [`combat/`](combat/README.md),
+[`hauling/`](hauling/README.md), [`industry/`](industry/README.md), [`combat/`](combat/README.md) (`hunt`, `salvage`),
 [`trading/`](trading/README.md), [`exploration/`](exploration/README.md), [`fleet/`](fleet/README.md).
 Each folder's README is the skill for that career; the one for your stance is loaded beside this.
 

@@ -1,55 +1,113 @@
 # combat — the Hunter's evening
 
-"I'll go fight something." Wildlife is legal everywhere and does not fight back with intent;
-pirates pay bounties and are the only safe way to train shields and armor, which train by
-being hit. Most of the judgement is about what not to engage.
+"I'll go fight something." Wildlife is legal everywhere and needs no permission; pirates pay
+bounties and are the only safe way to train shields and armor, which train by being hit. Most
+of the judgement is about what not to engage.
 
 ## Functions
 
 | Function | Promise |
 |---|---|
-| `hunt({poi, fights?, species?, target?, base?})` | out, up to N fights, loot, home, stow, service; nothing there is `done` with zero fights |
-| `salvage()` | loot every wreck here into the hold, your own first; never tows |
+| `hunt({poi?, fights?, species?, target?})` | up to N fights where you stand (or at `poi`, flown to first), each wreck looted; nothing there is `done` with zero fights |
+| `salvage({tow?})` | loot every wreck here into the hold, your own first; `tow: '<wreck id>'` tows that one instead |
 | [`bounties/`](bounties/README.md) | pirate contracts and sweeps (intermediate+) |
+
+`hunt` fights and loots, and nothing else. The trip around it is yours: `goTo` out, `hunt`,
+`goTo` home, `stow`, `service`. That is the point — the same `hunt` call works whether you
+flew there this run or are standing at the belt already.
 
 ## Worked example
 
 ```ts
-import {orient, scout, hunt, salvage, sell, note} from 'play';
+import {orient, scout, goTo, hunt, stow, service, note} from 'play';
 
 export default async function main() {
-  await orient();                                           // hunt checks the loadout itself; no pre-check by hand
+  await orient();                                          // hunt checks the loadout itself
   const here = await scout();
-  const habitat = here.detail.pois.find(p => p.type === 'asteroid_belt');   // creatures live at belts and fields
+  const habitat = here.detail.pois.find(p => /belt|field|cloud/.test(p.type));  // creatures live at belts and fields
+  // (scout only counts creatures at the POI you are standing at, in detail.here.nearby)
   if (!habitat) { note('no habitat in this system'); return here; }
 
-  const h = await hunt({poi: habitat.id, fights: 2});
-  if (h.detail.ended === 'nothing here') { note('quiet belt; scout a neighbour next run'); return h; }
-  if (h.status !== 'done') return h;
-  return sell(h.detail.stowed, {from: 'store'});           // molt goods and loot, by name
+  const out = await goTo(habitat.id);
+  if (out.status !== 'done') return out;
+
+  const first = await hunt();                              // one fight where you now stand
+  if (first.detail.ended === 'nothing here') { note('quiet belt; scout a neighbour next run'); return first; }
+  const second = await hunt();                             // and another
+  if (second.status === 'refused') return second;          // no rounds left, or the rules said no
+
+  await goTo();                                            // home
+  const took = [...first.gained.items, ...second.gained.items];
+  await stow(took);                                        // by name; nothing stows by default
+  return service();
 }
 ```
 
 ## What a good fight looks like
 
-- The loadout floor: a weapon fitted with rounds loaded and spares in the hold, hull full,
-  fuel out with the way home reserved, free cargo for loot, credits for the repair after.
-- You know the kind: a species you have fought (`species`) or a creature slower than you.
+- The loadout floor: a weapon fitted with rounds loaded, hull full, fuel out with the way home
+  reserved, free cargo for loot, credits for the repair after. `hunt` checks the weapon itself,
+  and reloads an empty magazine from the hold when the rounds are aboard; with no rounds
+  anywhere it is `refused` before anything is sent.
+- You know the kind: `species: 'molt_grazer'` narrows to one you have fought before. Without it
+  `hunt` takes the first creature the world does not decline.
 - The system's `police_level` is above 20 unless you mean to meet pirates.
 - Insurance is current for anything you would mind losing. `service({insure: true})`.
 
+## What trains what
+
+- Every fight: weapons, gunnery, tactics.
+- Shields and armor train by being hit, so only something that shoots back trains them —
+  pirates or the arena, never fauna. See `bounties/`.
+- Creatures train xenobiology; pirates train bounty_hunting.
+- Looting a wreck, here or through `salvage`, trains salvaging.
+
+The numbers are measured, not claimed: `gained.xp` is the per-skill delta the runtime read
+before and after, and `gained.items` is the cargo delta — a `loot` reply over-states quantity.
+
+## Who is legal
+
+- **Fauna, always.** The only creatures declined are one already `in_combat` in someone else's
+  battle, and a `branded` one, which is someone's livestock rather than wildlife.
+- **Pirates, by permission.** `target: 'pirate'` needs `permissions.may_attack` to hold
+  `'pirate'`, or the stronghold crew's `faction` id for that crew alone. Anything whose name
+  carries `[POLICE]` is declined outright: attacking it is the crime, not the hunt.
+- Players outside a declared war are never engaged here at all.
+
+## The flee rule
+
+Every mood has a walk-away fraction of max hull (Cautious 0.95, Focused and Relaxed 0.90,
+Aggressive 0.80). `hunt` reads the hull each round and `battle/retreat`s the moment it crosses
+that line. A ship that escapes at 30% hull keeps everything.
+
+That same line is what imposes **Tired**, so the two arrive together: the round in flight
+finishes, the fight breaks off, no new fight starts, and the Outcome is `partial` with
+`ended: 'tired'`. `goTo` a base and `service()` clears it.
+
+## The loot flow
+
+1. The fight ends. `salvage/wrecks` is read; a wreck whose `victim_id` is the target is the
+   only evidence the fight was won — `outcome` is upgraded from `escaped` to `down` on it.
+2. `salvage/loot` empties it: modules first (each is a slot and most of the value), then cargo,
+   row by row, checking the hold's room before each send and the hold's contents after it.
+3. What does not fit stays in the wreck and is reported in `detail.left` (`salvage`) — it is
+   still there for a second trip until the wreck expires.
+4. Selling and scrapping are the market's. `salvage` never sells, never scraps, and only tows
+   the wreck you name.
+
 ## When to reconsider
 
-- `ended: 'hull'` twice in a row: the walk-away line is doing its job; the hull or the mood is
-  wrong for this habitat, not the script.
-- Loot keeps hitting `hold full`: the constraint is cargo, not the fight. Stow between fights
-  or bring a bigger hold.
-- Gunnery and weapons are climbing but shields and armor are 0: nothing but pirates or the
-  arena trains them. See `bounties/`.
+- `ended: 'hull'` or `'tired'` twice in a row: the walk-away line is doing its job; the hull or
+  the mood is wrong for this habitat, not the script.
+- `ended: 'hold full'`: the constraint is cargo, not the fight. Stow between hunts or bring a
+  bigger hold.
+- Gunnery and weapons climbing while shields and armor stay 0: nothing but pirates or the
+  arena trains them.
 
 ## Pitfalls
 
-- It's a crime to attack anything whose name carries `[POLICE]` or a player outside a declared 
-  war: that means a bounty and police drones in response..
-- Tow costs the speed home. `salvage` never tows; if a wreck is worth it, that is its own trip.
+- A tow costs the speed the way home needs, so `salvage({tow})` is its own trip, not a
+  postscript to a hunt.
 - Death loses the hull and what is on it, nothing else. Keep value in storage.
+- Your own wreck holds ~70% of your modules and half your cargo: `goTo` where you died and
+  `salvage()` — it loots your own wreck first.

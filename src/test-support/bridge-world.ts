@@ -431,6 +431,6 @@ export function bridgeWorld(options:WorldOptions={}) {
     assert.ok(Object.hasOwn(handlers,action),`Unexpected command: ${action}`);
     return handlers[action]!(params);
   };
-  return {account,sent,command,store,queued,board,taken,listings,fleet,
+  return {account,sent,command,store,queued,board,taken,listings,fleet,wrecks,
     count:(action:string)=>sent.filter(call=>call.action===action).length};
 }
