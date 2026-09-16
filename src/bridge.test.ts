@@ -42,10 +42,17 @@ test('menu answers with moves from the present, each a paste-able call, and the 
   assert.ok(menu.not_now.some((row:any)=>row.move==='gatherUntil'&&/hold is full/.test(row.why)),JSON.stringify(menu.not_now));
   assert.match(menu.text,/^Menu:\n  - `sell\(/);
   assert.equal(menu.last,null,'nothing has run yet');
-  // A pilot with no stance and no mood is at rest: the consultation is the reflection (N7).
-  const resting=await fixture().dispatch('menu') as any;
-  assert.equal(resting.at_rest,true);
-  assert.equal(resting.moves,undefined,'a resting pilot is offered no moves');
+  // A pilot with no stance is at rest, and the menu is still never empty (VISION): the moves
+  // are computed all the same and what reflect would set is named beside them.
+  const resting=await fixture({pilot:()=>({objective:'fill the hold',mood:'Focused',home:'sol_base'})}).dispatch('menu') as any;
+  assert.equal(resting.rest.at_rest,true);
+  assert.deepEqual(resting.rest.absent,['goal','stance']);
+  assert.ok(resting.moves?.length,JSON.stringify(resting));
+  assert.ok(resting.moves.some((move:any)=>move.call.startsWith('sell(')),resting.text);
+  // With no mood either, the resting default stands in so the rules still have one.
+  const blank=await fixture().dispatch('menu') as any;
+  assert.deepEqual(blank.rest.absent,['goal','stance','mood']);
+  assert.ok(blank.moves?.length,JSON.stringify(blank));
 });
 
 test('run blocks until the pilot file ends; status, stop and menu answer meanwhile', async () => {

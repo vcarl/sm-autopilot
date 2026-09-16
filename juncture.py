@@ -83,8 +83,10 @@ def juncture_context(session_info: Mapping[str, Any] | None = None) -> str:
                 f"{menu.get('elapsed_s', '?')} s, {menu.get('commands', '?')} commands). "
                 "Say in one line that the run is in flight and end the turn.")
     _instruction(menu)
-    if menu.get("at_rest"):
-        return _rest_context(menu)
+    # At rest the menu still carries moves (VISION: the menu is never empty); the choosing
+    # material a rest needs is the reflection, so the fire gets both.
+    if menu.get("rest") or menu.get("at_rest"):
+        return _rest_context(call("reflect"), menu.get("text"))
     _hold_full(menu)
     # The menu v2: the rendered moves travel as text under the JSON, so a fire reads calls it
     # can paste, not a structure it has to decode.
@@ -139,7 +141,7 @@ def _hold_full(menu: dict[str, Any]) -> None:
         last["cause"] = "the hold was full (cargo_free 0), so a gather would have mined nothing"
 
 
-def _rest_context(report: dict[str, Any]) -> str:
+def _rest_context(report: dict[str, Any], moves: str | None = None) -> str:
     """A fire that lands on a pilot at rest: reflection, not a menu (N7).
 
     There is no stance, so there is no stance work to offer and nothing to choose between.
@@ -164,7 +166,8 @@ def _rest_context(report: dict[str, Any]) -> str:
             "write a better version (spacemolt_check with `source`) — the next shift is flown "
             "with the file this review leaves behind.\n"
             "Choose one goal that serves the objective, then the stance and mood that fit it:\n"
-            + json.dumps(report, separators=(",", ":"), sort_keys=True))
+            + json.dumps(report, separators=(",", ":"), sort_keys=True)
+            + (("\n" + moves) if moves else ""))
 
 
 def read_pilot() -> dict[str, Any]:

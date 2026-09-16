@@ -29,7 +29,7 @@ export type Dispatch=(action:string,params?:Record<string,unknown>)=>Promise<unk
 const OUTCOME_ACTIONS=new Set(['run','status','rest','reflect','menu','resume','stop','check']);
 const OUTCOME_KEYS=new Set(['accepted','reason','status','record','running','rested','shift_ended','at_rest',
   'cleared','serviced','resumed','busy','objective','objective_done','home','stance','mood','errors','stopping',
-  'ok','fn','did','sha','step','commands','elapsed_s','started','stagnation']);
+  'ok','fn','did','sha','step','commands','elapsed_s','started','stagnation','rest']);
 
 /** One response as the journal keeps it: whether the thing happened, never the prose or the
  * bodies of a read. */
@@ -123,13 +123,20 @@ export function serve(account:ReadinessAccount,command:ReadinessCommand,options:
   const menu=async()=>{
     if(running)return {busy:true,...busy()};
     const who=pilot();
-    if(!who.stance||!who.mood)return reflect();
-    bind({account,command,pilot,setPilot:options.setPilot??(()=>{}),...runtime?{runtime}:{},emit:()=>{}});
+    // At rest the stance and the mood are cleared, but the menu is never empty (VISION): the
+    // moves are computed all the same, under the resting default mood, and what reflect would
+    // set is named beside them rather than in place of them.
+    const absent=(['goal','stance','mood'] as const).filter(key=>!who[key]);
+    const resting=!who.stance||!who.mood;
+    const flying:Pilot=resting?{...who,mood:who.mood??'Cautious'}:who;
+    bind({account,command,pilot:()=>flying,setPilot:options.setPilot??(()=>{}),...runtime?{runtime}:{},emit:()=>{}});
     try {
       const built=await buildMenu(runtime);
       const {location,ship,player}=account.state;
       return {
-        stance:who.stance,mood:who.mood,
+        ...who.stance?{stance:who.stance}:{},...who.mood?{mood:who.mood}:{},
+        ...resting?{rest:{at_rest:true,absent,
+          set_by:'reflect names the goal, then the stance and the mood that fit it'}}:{},
         ...who.objective?{objective:who.objective}:{},
         present:{system:location?.system_id,poi:location?.poi_id,docked_at:location?.docked_at??null,
           in_transit:Boolean(location?.in_transit),fuel:ship?.fuel,max_fuel:ship?.max_fuel,
