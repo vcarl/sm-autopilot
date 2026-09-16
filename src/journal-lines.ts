@@ -52,6 +52,8 @@ function produced(entry:Record<string,any>):string {
   return yielded.length?rows(yielded):text(entry.reason);
 }
 
+/** Commands worth a line of their own when they succeed: the pilot moving or acting at a counter. */
+const ACTS=new Set(['travel','jump','undock','dock','deposit','withdraw','craft','refuel','repair','hunt','loot','sell','buy','set_home']);
 const STEP_OUTCOME:Record<string,string>={done:'',skipped:'skipped',failed:'failed',blocked:'blocked'};
 
 function step(entry:Record<string,any>):string {
@@ -88,7 +90,17 @@ function render(entry:Record<string,any>):string|null {
     case 'step':return step(entry);
     // A command that took is already in the step line above it; one that did not is the
     // only account of why the step said what it said.
-    case 'command':return entry.ok?null:`! ${text(entry.tool)}/${text(entry.action)}: ${text(entry.summary)}`;
+    case 'command': {
+      if(!entry.ok)return `! ${text(entry.tool)}/${text(entry.action)}: ${text(entry.summary)}`;
+      // A move or a counter act is the pilot doing something and shows even when it took; a
+      // read is not, and a mine tick is one of many the step line adds up.
+      const action=text(entry.action);
+      if(!ACTS.has(action))return null;
+      const params=(entry.params??{}) as Record<string,unknown>;
+      const target=params.id??params.item_id??params.recipe_id??params.station_id;
+      const qty=params.quantity?` ×${text(params.quantity)}`:'';
+      return `${action}${target?` → ${text(target)}`:''}${qty}`;
+    }
     case 'rest':return `rest${entry.home?` at ${text(entry.home)}`:''}`;
     case 'reflection':
       if(entry.objective_done)return `reflection: objective done — ${text(entry.objective)}`;

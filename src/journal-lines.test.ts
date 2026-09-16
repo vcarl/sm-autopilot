@@ -63,3 +63,9 @@ test('a step with many rows names three and counts the rest', () => {
       {item_id:'d',quantity:4},{item_id:'e',quantity:5}]})!;
   assert.match(text,/@ sol_base \+1 a \+2 b \+3 c \+2 more/);
 });
+
+test('a move or a counter act that took gets a line; a read that took does not', () => {
+  assert.equal(renderLine({at:'2026-09-15T22:00:00Z',event:'command',tool:'spacemolt',action:'travel',params:{id:'frontier_station'},ok:true,summary:'travel'}),'18:00 travel → frontier_station');
+  assert.equal(renderLine({at:'2026-09-15T22:00:00Z',event:'command',tool:'spacemolt',action:'get_system',params:{},ok:true,summary:'get_system'}),null);
+  assert.equal(renderLine({at:'2026-09-15T22:00:00Z',event:'command',tool:'spacemolt',action:'mine',params:{},ok:true,summary:'mine'}),null);
+});

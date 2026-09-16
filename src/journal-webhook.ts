@@ -20,6 +20,8 @@ export const MAX_MS=8*60_000;
 
 export interface PostResult {ok:boolean;retryAfterMs?:number}
 export interface DrainDeps {
+  /** Where the drain says what it did; the bridge passes its stderr. */
+  log?:(line:string)=>void;
   /** How a message is sent. Injected by the tests, which post nothing. */
   post?:(content:string)=>Promise<PostResult>;
   rng?:()=>number;
@@ -95,6 +97,9 @@ export function journalDrain(url:string,deps:DrainDeps={}):Drain {
         try {result=await post(sending.join('\n'));} catch {result={ok:false};}
         if(result.ok)buffer.splice(0,sending.length);
         else wait=result.retryAfterMs;
+        // The operator's only view of the drain is the bridge's stderr log.
+        deps.log?.(result.ok?`journal drain: posted ${sending.length} line(s), ${buffer.length} left`
+          :`journal drain: post failed${wait?`, retry in ${wait} ms`:''}, ${buffer.length} buffered`);
       }
       const chars=buffer.reduce((sum,line)=>sum+line.length+1,0);
       arm(wait??nextDelayMs(chars,rng()));
@@ -103,6 +108,7 @@ export function journalDrain(url:string,deps:DrainDeps={}):Drain {
   };
 
   arm(nextDelayMs(0,rng()));
+  deps.log?.(`journal drain: armed, first post in ${Math.round(delay/1000)} s`);
   return {
     push:line=>{if(!stopped)buffer.push(line);},
     flush,
@@ -118,7 +124,7 @@ let active:Drain|null=null;
 export function startJournalDrain(deps:DrainDeps={}):Drain|null {
   const url=process.env.SPACEMOLT_JOURNAL_WEBHOOK;
   if(!url||active)return active;
-  active=journalDrain(url,deps);
+  active=journalDrain(url,{log:line=>console.error(line),...deps});
   watchJournal(entry=>{
     const line=renderLine(entry);
     if(line)active?.push(line);
