@@ -30,7 +30,7 @@ function offer(mission:MissionInfo):Offer {
 const known=new Set<string>();
 
 /** Active missions from the state section `get_active_missions` refreshes. */
-async function active():Promise<V2Missions> {
+export async function active():Promise<V2Missions> {
   const reply=details(await command('spacemolt/get_active_missions',{})) as {missions?:V2Missions}&Partial<V2Missions>;
   // The reply itself is the section on a server that answers it flat; the cache is the last
   // resort, and a stale cache is how a full board looks like a free slot.

@@ -1,11 +1,18 @@
 /** Getting somewhere and docking. One function; the id decides what it does. */
-import type {FindRouteResponse,V2Location} from '@spacemolt/lib';
+import type {ActiveMissionInfo,CompleteMissionResponse,FindRouteResponse,RouteStep,V2Location} from '@spacemolt/lib';
 import {dockAt} from '../dock.ts';
+import {resolveFuelReserve} from '../mood-policy.ts';
 import {details} from '../response-details.ts';
 import {serviceShip} from '../servicing.ts';
 import {FuelRouteShortfall,TravelBlocked,travelTo} from '../travel.ts';
+import {active} from './missions.ts';
 import {acct,checkStop,command,job,pilot,step} from './runtime.ts';
 import type {Outcome} from './types.ts';
+
+/** How far off the direct route one distress call may sit, in jumps. ponytail: tunable. */
+const DETOUR_JUMPS=1;
+/** The share of the route's own length all detours together may add. ponytail: tunable. */
+const DETOUR_SHARE=0.25;
 
 export interface Trip {
   /** The quote the trip was admitted on: `target_system`, `target_poi`, `estimated_fuel`,
@@ -26,6 +33,66 @@ export async function route(id:string):Promise<FindRouteResponse> {
   return answer;
 }
 
+/** The system an active distress mission wants visited, or undefined when it is not one to
+ * fly to: a `visit_system` objective carries `system_id` and nothing else, and arriving is
+ * what moves it to 1 of 1 — `complete_mission` then claims it. Community and expired ones
+ * are left alone. */
+function distressTarget(mission:ActiveMissionInfo):string|undefined {
+  if(mission.community||mission.expires_in_ticks<=0)return undefined;
+  if(!/distress/i.test(`${mission.type} ${mission.title}`))return undefined;
+  return (mission.objectives??[]).find(o=>!o.completed&&o.system_id)?.system_id;
+}
+
+/** A distress call this trip passes near enough to answer, and what including it costs. */
+export interface Stop {id:string;title:string;system:string;extra:number;at:number}
+/** Which distress calls the quoted route can answer on the way, given a `find_route` leg for
+ * each candidate system that is not already on it. Pure, so the budget is testable. */
+export function distressPlan(quote:Pick<FindRouteResponse,'route'|'total_jumps'|'estimated_fuel'|'fuel_per_jump'|'fuel_available'>,
+  missions:ActiveMissionInfo[],legs:Map<string,{route?:RouteStep[];total_jumps:number}>,noGo:string[],reserve:number):Stop[] {
+  const onRoute=new Set((quote.route??[]).map(s=>s.system_id));
+  let budget=quote.total_jumps*DETOUR_SHARE;
+  const stops:Stop[]=[];
+  for(const mission of missions) {
+    const system=distressTarget(mission);
+    if(!system||noGo.includes(system))continue;
+    const row={id:mission.mission_id,title:mission.title,system};
+    if(onRoute.has(system)) {
+      stops.push({...row,extra:0,at:Math.max(0,(quote.route??[]).findIndex(s=>s.system_id===system))});
+      continue;
+    }
+    const leg=legs.get(system);
+    if(!leg)continue;
+    // ponytail: the detour is counted on the way out only — the hop back onto the route is
+    // never re-quoted, so a dead end costs more than this says. Re-quote from the stop if it bites.
+    const extra=(leg.route??[]).filter(s=>!onRoute.has(s.system_id)).length;
+    if(extra>DETOUR_JUMPS||extra>budget)continue;
+    budget-=extra;
+    stops.push({...row,extra,at:leg.total_jumps});
+  }
+  stops.sort((a,b)=>a.at-b.at);
+  // Each extra jump is paid twice, out and back. Drop the farthest stops until the tank
+  // covers the whole trip plus the mood's reserve.
+  let extra=stops.reduce((sum,s)=>sum+s.extra,0);
+  while(stops.length&&quote.fuel_available<quote.estimated_fuel+extra*quote.fuel_per_jump*2+reserve)
+    extra-=stops.pop()!.extra;
+  return stops;
+}
+
+/** The plan above, with the active list and the one `find_route` per off-route candidate it
+ * needs. Reads only; a read that fails is no stops, never a failed trip. */
+async function distressStops(quote:FindRouteResponse,noGo:string[],reserve:number):Promise<Stop[]> {
+  let mine;
+  try {mine=await active();} catch {return [];}
+  const onRoute=new Set((quote.route??[]).map(s=>s.system_id));
+  const legs=new Map<string,{route?:RouteStep[];total_jumps:number}>();
+  for(const mission of mine.active) {
+    const system=distressTarget(mission);
+    if(!system||onRoute.has(system)||legs.has(system)||noGo.includes(system))continue;
+    try {legs.set(system,await route(system));} catch {/* no route there is no stop */}
+  }
+  return distressPlan(quote,mine.active,legs,noGo,reserve);
+}
+
 /** Fly to a POI, a base, or a system, jumping as many times as the route needs, and dock
  * when the target is a base. No argument means home (`pilot().home`); a run with no home
  * and no argument is refused.
@@ -33,6 +100,11 @@ export async function route(id:string):Promise<FindRouteResponse> {
  * Over `find_route` + `jump`/`travel` + `dock` it adds: base ids resolved to their POI before
  * the arrival wait, the mood's fuel reserve, a refuel first when docked and short, no-go
  * systems refused, and one `partial` on stop instead of a wedged runner.
+ *
+ * On the way it answers active distress calls: a mission whose system is on the route, or at
+ * most `DETOUR_JUMPS` off it while all detours together stay inside `DETOUR_SHARE` of the
+ * route and the tank still covers the rest plus the reserve, is flown through and claimed
+ * with `complete_mission`. It never accepts a mission, and never detours under Tired.
  *
  * Idempotent: already there (and docked, if a base) sends nothing and is `done`.
  * Tired: only a base is admitted (service there clears it); a POI or a system is `refused`. */
@@ -59,21 +131,43 @@ export function goTo(id?:string):Promise<Outcome<Trip>> {
     const {location}=acct().state;
     if(location?.system_id===quote.target_system&&(!poi||location.poi_id===poi)&&(!isBase||location.docked_at===target))
       return {status:'done',did:`already at ${target}${poi?'':` (${location.poi_id})`}`,detail:{...detail(),docked:Boolean(location.docked_at)}};
-    step(`goTo ${poi??quote.target_system} ${quote.total_jumps?`${quote.total_jumps} jump(s)`:'same system'} ${quote.estimated_fuel} fuel quoted`);
-    let jumps=0;
+    const mood=who.mood??'Cautious';
+    // Tired flies straight to the base it is being serviced at; nothing is answered on the way.
+    const stops=mood==='Tired'?[]:await distressStops(quote,who.permissions?.no_go??[],resolveFuelReserve(mood));
+    const planned=quote.total_jumps+stops.reduce((sum,s)=>sum+s.extra*2,0);
+    step(`goTo ${poi??quote.target_system} ${planned?`${planned} jump(s)`:'same system'} ${quote.estimated_fuel} fuel quoted`
+      +(stops.length?`, answering ${stops.length} distress call(s) at ${stops.map(s=>s.system).join(', ')}`:''));
+    let jumps=0,hops=0;
+    const answered:string[]=[];
+    const fly=(destination:{system_id:string;poi_id?:string})=>travelTo(acct(),command,destination,{
+      mood,maxJumps:null,
+      checkpoint:async()=>checkStop(),
+      onJump:()=>{hops++;step(`jump ${hops} of ${planned}, fuel ${acct().state.ship?.fuel}`);},
+      refuel:async()=>{try {await serviceShip(acct(),command,{mood,creditReserve:who.permissions?.credit_reserve??0});} catch {/* the fuel check after decides */}},
+    });
     try {
-      const flown=await travelTo(acct(),command,{system_id:quote.target_system,...poi?{poi_id:poi}:{}},{
-        mood:who.mood??'Cautious',maxJumps:null,
-        checkpoint:async()=>checkStop(),
-        onJump:()=>{jumps++;step(`jump ${jumps} of ${quote.total_jumps}, fuel ${acct().state.ship?.fuel}`);},
-        refuel:async()=>{try {await serviceShip(acct(),command,{mood:who.mood??'Cautious',creditReserve:who.permissions?.credit_reserve??0});} catch {/* the fuel check after decides */}},
-      });
-      jumps=flown.jumps;
+      for(const stop of stops) {
+        jumps+=(await fly({system_id:stop.system})).jumps;
+        try {
+          const paid=details(await command('spacemolt/complete_mission',{id:stop.id})) as CompleteMissionResponse;
+          answered.push(`completed distress ${paid.title??stop.title} at ${stop.system} en route for ${paid.credits_earned??0} cr`);
+          step(`completed distress ${stop.id} at ${stop.system} +${paid.credits_earned??0} cr`);
+        } catch(error) {
+          // Arriving is what the server counts; if it did not, the call is still active and
+          // the trip carries on. It is left for the board, never abandoned here.
+          step(`distress ${stop.title} at ${stop.system} not claimable: ${(error as Error).message}`);
+        }
+      }
+      jumps+=(await fly({system_id:quote.target_system,...poi?{poi_id:poi}:{}})).jumps;
     } catch(error) {
       if(error instanceof FuelRouteShortfall) {
         const {actualFuel,requiredFuel,shortfall}=error.evidence;
-        return {status:'refused',did:`did not fly to ${target}`,why:`fuel ${actualFuel}, need ${requiredFuel} with the ${who.mood} reserve; short ${shortfall}`,
-          detail:detail(),next:['service() where you are docked, or a nearer destination']};
+        // A detour already flown is work behind the refusal, so the trip is partial and the
+        // `did` says where the ship actually is rather than claiming it never left.
+        return {status:jumps?'partial':'refused',
+          did:jumps?`stopped at ${acct().state.location?.system_id} short of ${target} after ${jumps} jump(s)${answered.length?`; ${answered.join('; ')}`:''}`:`did not fly to ${target}`,
+          why:`fuel ${actualFuel}, need ${requiredFuel} with the ${who.mood} reserve; short ${shortfall}`,
+          detail:{...detail(),jumps},next:['service() where you are docked, or a nearer destination']};
       }
       throw error;
     }
@@ -82,6 +176,7 @@ export function goTo(id?:string):Promise<Outcome<Trip>> {
     // may also answer with a POI, and docking "at a system" would wedge here.
     const pois=poi?(details(await command('spacemolt/get_system',{})).system?.pois??[]) as {id:string;base_id?:string}[]:[];
     if(pois.some(row=>row.id===poi&&row.base_id===target)){await dockAt(acct(),command,target);docked=true;step(`docked at ${target}`);}
-    return {status:'done',did:`arrived at ${target}${poi?'':` (${acct().state.location?.poi_id})`}${docked?' and docked':''} after ${jumps} jump(s)`,detail:{...detail(),jumps,docked}};
+    return {status:'done',did:`arrived at ${target}${poi?'':` (${acct().state.location?.poi_id})`}${docked?' and docked':''} after ${jumps} jump(s)`
+      +(answered.length?`; ${answered.join('; ')}`:''),detail:{...detail(),jumps,docked}};
   });
 }

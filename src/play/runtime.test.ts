@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import type {ReadinessAccount} from '../readiness.ts';
 import {bridgeWorld,type WorldOptions} from '../test-support/bridge-world.ts';
-import {goTo} from './travel.ts';
+import {distressPlan,goTo} from './travel.ts';
 import {bind,command,job,outcome,pilot,progress,stop,unbind,type Pilot} from './runtime.ts';
 import {service} from './service.ts';
 import {buy,sell,prices} from './market.ts';
@@ -363,4 +363,45 @@ test('buyShip refuses a hull that would take the wallet under the reserve, with 
     assert.equal(board.status,'done',board.why);
     assert.equal(board.detail.for_sale.length,0,'the only listing was bought');
   } finally {unbind();}
+});
+
+/** A distress call as `get_active_missions` lists one: a single `visit_system` objective,
+ * which arriving in that system is the whole of. */
+const distress=(over:Record<string,unknown>={})=>({mission_id:'d1',title:'Distress: Wexler LAC-X3 in Deep Range',
+  type:'distress',description:'',difficulty:1,accepted_at:'',issuing_base:'sol_base',expires_in_ticks:100,
+  percent_complete:0,rewards:{credits:1_500},
+  objectives:[{description:'Investigate distress call in Deep Range',type:'visit_system',system_id:'deep_range',
+    current:0,required:1,completed:false}],...over});
+
+test('goTo answers a distress call on its route and claims it en route',async()=>{
+  const f=world({mood:'Focused'});
+  try {
+    f.taken.push(distress());
+    const trip=await goTo('range_base');
+    assert.equal(trip.status,'done',trip.why);
+    assert.match(trip.did,/completed distress Distress: Wexler LAC-X3 in Deep Range at deep_range en route for 1500 cr/);
+    assert.equal(f.taken.length,0,'the slot the pilot kept abandoning is paid instead');
+    assert.equal(trip.gained.credits,1_500,'the reward is measured, not claimed');
+    assert.equal(f.count('spacemolt/jump'),1,'a call on the route costs no extra jump');
+    assert.equal(f.count('spacemolt/accept_mission'),0,'travel never accepts a mission');
+  } finally {unbind();}
+});
+
+test('a distress call one jump off the route is answered, two jumps off or expired is not',()=>{
+  // Four jumps a-b-c-d-e, so a quarter of the route is one jump of detour budget.
+  const quote={route:['a','b','c','d','e'].map((system_id,jumps)=>({system_id,jumps,name:system_id})),
+    total_jumps:4,estimated_fuel:28,fuel_per_jump:7,fuel_available:200};
+  const legs=new Map([['x',{route:[{system_id:'a',jumps:0,name:'a'},{system_id:'b',jumps:1,name:'b'},{system_id:'x',jumps:2,name:'x'}],total_jumps:2}],
+    ['y',{route:[{system_id:'a',jumps:0,name:'a'},{system_id:'b',jumps:1,name:'b'},{system_id:'z',jumps:2,name:'z'},{system_id:'y',jumps:3,name:'y'}],total_jumps:3}]]);
+  const at=(id:string,system:string,over:Record<string,unknown>={})=>distress({mission_id:id,title:id,
+    objectives:[{description:`Investigate distress call in ${system}`,type:'visit_system',system_id:system,
+      current:0,required:1,completed:false}],...over}) as never;
+  const plan=distressPlan(quote,[at('onRoute','c'),at('near','x'),at('far','y'),at('dead','c',{expires_in_ticks:0})],
+    legs,[],24);
+  assert.deepEqual(plan.map(s=>[s.id,s.extra]),[['onRoute',0],['near',1]],
+    'two jumps off the route and an expired call are both left alone');
+  // The same plan with a tank that only covers the direct route drops the detour.
+  assert.deepEqual(distressPlan({...quote,fuel_available:56},[at('onRoute','c'),at('near','x')],legs,[],24).map(s=>s.id),['onRoute']);
+  // A no-go system is never a stop, however near it is.
+  assert.deepEqual(distressPlan(quote,[at('near','x')],legs,['x'],24),[]);
 });

@@ -416,6 +416,8 @@ export function bridgeWorld(options:WorldOptions={}) {
         (o.required??0)>(o.current??0)+(o.item_id?held(String(o.item_id)):0));
       if(short)throw new Error(`Objective not met: ${short.description}`);
       taken.splice(taken.indexOf(row),1);
+      // Paid into the account, not just into the reply: a gain a caller measures has to be real.
+      account.server.player.credits+=row.rewards?.credits??0;
       return {delta:{details:{mission_id:row.mission_id,title:row.title,credits_earned:row.rewards?.credits??0,message:'Paid.'}}};
     },
     'spacemolt/abandon_mission':params=>{
@@ -490,7 +492,12 @@ export function bridgeWorld(options:WorldOptions={}) {
         cargo_used:account.server.ship.cargo_used,route:route.map((system_id,jumps)=>({system_id,jumps}))};
     },
     'spacemolt/jump':params=>{account.server.ship.fuel-=7;account.server.location.system_id=String(params.id);
-      account.server.location.poi_id='gate';return {};},
+      account.server.location.poi_id='gate';
+      // Arriving is the whole of a `visit_system` objective: the server ticks it over on the
+      // jump, and nothing else the pilot sends can.
+      for(const row of taken)for(const o of (row.objectives??[]) as Record<string,any>[])
+        if(o.type==='visit_system'&&o.system_id===String(params.id)){o.current=o.required??1;o.completed=true;}
+      return {};},
     'spacemolt/undock':()=>{account.server.location.docked_at=null;return {};},
     // The base you dock at is the one behind the POI you are standing at, never a fixed id.
     'spacemolt/dock':()=>{account.server.location.docked_at=baseAt[account.server.location.poi_id]??'sol_base';return {};},
