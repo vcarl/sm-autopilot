@@ -90,12 +90,12 @@ def test_an_inquiry_is_answered_from_state_and_journal_with_nothing_changed(brid
     assert observed["docked_at"]["base_id"] == "sol_base" and observed["fuel"] == 88
 
     if shutil.which("node"):
-        recent = spacemolt._journal({}).splitlines()
+        recent = json.loads(spacemolt._status({}))["journal"]
         # One line per thing that happened, and the 57 `where` reads are not things that
         # happened: a read that took is not an action, so it renders to nothing.
         assert recent == ["12:00 ! travel: no route to belt with 12 fuel"], recent
         assert all(len(line) <= 160 for line in recent), "a line is a line, not a paragraph"
-        assert len(spacemolt._journal({})) < 4000, "the journal answer stays small (N16)"
+        assert len(json.dumps(recent)) < 4000, "the journal answer stays small (N16)"
 
     # An inquiry asks the game to look, never to act, and moves nothing on disk (T7, T8).
     assert (runtime / "actions.log").read_text().split() == ["where"]
@@ -150,10 +150,9 @@ def test_the_window_carries_no_job_tools_and_the_juncture_no_direction_tool():
     for definition in spacemolt.TOOL_DEFINITIONS:
         by_toolset.setdefault(definition["toolset"], set()).add(definition["name"])
 
-    window = by_toolset["spacemolt_observe"] | by_toolset["spacemolt_operator"]
-    fire = by_toolset["spacemolt"] | by_toolset["spacemolt_observe"]
-    assert {"spacemolt_where", "spacemolt_status", "spacemolt_journal", "spacemolt_storage",
-            "spacemolt_recipes", "spacemolt_quote", "spacemolt_direct", "spacemolt_dispatch"} == window
+    window = by_toolset["spacemolt_operator"]
+    fire = by_toolset["spacemolt"]
+    assert {"spacemolt_status", "spacemolt_direct", "spacemolt_stop"} == window
     assert not window & {"spacemolt_run", "spacemolt_scripts"}
     # Acting is running a script; a fire that could fly by hand would not write one.
     published = {definition["name"] for definition in spacemolt.TOOL_DEFINITIONS}
@@ -165,7 +164,7 @@ def test_the_window_carries_no_job_tools_and_the_juncture_no_direction_tool():
     assert len(names) == len(set(names))
     # The window is told about the tools it has, never about the ones it does not.
     window_prompt = spacemolt._prompt({"platform": "discord"})
-    assert "spacemolt_journal" in window_prompt
+    assert "spacemolt_status" in window_prompt
     assert not any(name in window_prompt for name in ("spacemolt_run", "spacemolt_scripts"))
 
 
@@ -175,12 +174,12 @@ def test_a_cron_fire_cannot_reach_status_while_the_window_can():
     by_toolset: dict[str, set[str]] = {}
     for definition in spacemolt.TOOL_DEFINITIONS:
         by_toolset.setdefault(definition["toolset"], set()).add(definition["name"])
-    resolve = lambda names: set().union(*(by_toolset[name] for name in names))
+    resolve = lambda names: set().union(*(by_toolset.get(name, set()) for name in names))
 
     fire = resolve(juncture.TOOLSETS)
     window = resolve(("spacemolt_observe", "spacemolt_operator"))
     assert "spacemolt_status" not in fire, "a juncture reads the chain from its context"
     assert "spacemolt_status" in window, "the operator's window asks the runner directly"
     # Direction comes from outside the pilot: the window sends the sentence, the fire reads it.
-    assert "spacemolt_dispatch" not in fire, "a pilot does not instruct itself"
-    assert "spacemolt_dispatch" in window, "the operator's window is where a sentence is sent"
+    assert "spacemolt_direct" not in fire, "a pilot does not instruct itself"
+    assert "spacemolt_direct" in window, "the operator's window is where a sentence is sent"

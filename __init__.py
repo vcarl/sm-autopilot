@@ -2,10 +2,11 @@
 
 Three toolsets, because a tool name is global and belongs to exactly one of them:
 ``spacemolt`` is what a juncture acts with — run, check, rest, reflect — ``spacemolt_observe``
-the reads every client of the runner may make (the journal), and ``spacemolt_operator`` the
-operator's own window tools: direction, stop, and the run-in-flight read. A chat window
-carries observe + operator and never a play tool (N19); a cron fire carries spacemolt +
-observe and never sets its own objective.
+the reads every client of the runner may make (empty since the journal folded into status),
+and ``spacemolt_operator`` the operator's own three window tools: spacemolt_status (the
+record, the run and the journal in one read), spacemolt_direct (objective, permissions,
+instruction) and spacemolt_stop. A chat window carries observe + operator and never a play
+tool (N19); a cron fire carries spacemolt + observe and never sets its own objective.
 """
 from __future__ import annotations
 
@@ -36,13 +37,14 @@ _FLIGHT_PROMPT = (
 
 _WINDOW_PROMPT = (
     "SpaceMolt: you are a window on a pilot the runner flies; this conversation never owns it. "
-    "spacemolt_status says whether a run is in flight and where it has got to, "
-    "spacemolt_journal returns the last few things the pilot actually did, and spacemolt_stop "
-    "ends a run at its next safe point. Answer from those reads and never from memory: what you report about "
-    "progress, cost and position has to be what the game and the journal say. spacemolt_direct "
-    "is the operator's — it sets the objective and the standing permissions, which the pilot "
-    "takes up at its next juncture rather than now, and a job already under way runs to its "
-    "outcome first. Nothing here starts, steers or stops a job."
+    "spacemolt_status is the read: the objective and the standing record, whether a run is in "
+    "flight and where it has got to, and the last few things the pilot actually did. Answer "
+    "from it and never from memory: what you report about the objective, progress, cost and "
+    "position has to be what that read says. spacemolt_direct is the operator's — it sets the "
+    "objective, the standing permissions, and one sentence of instruction for the next "
+    "juncture, which the pilot takes up at its next juncture rather than now, and a job "
+    "already under way runs to its outcome first. spacemolt_stop ends a run at its next safe "
+    "point. Nothing here starts or steers a job."
 )
 
 
@@ -105,7 +107,19 @@ def _stop(arguments: dict[str, Any] | None = None, **_: Any) -> str:
 
 
 def _status(arguments: dict[str, Any] | None = None, **_: Any) -> str:
-    return json.dumps(call("status"), separators=(",", ":"))
+    """The whole answer to "what is the pilot doing": the standing record, the run, the journal.
+
+    One read, because the three questions an operator asks are one question: what was asked of
+    the pilot (the record the operator wrote), what it is doing about it right now (the runner),
+    and what it has actually done (the journal). A window that had to call three tools answered
+    the objective from a mining snapshot.
+    """
+    try:
+        run = call("status")
+    except Exception:  # noqa: BLE001 - no bridge means nothing is flying; the record still reads
+        run = None
+    return json.dumps({"pilot": read_pilot(), "run": run, "journal": _journal_lines(arguments)},
+                      separators=(",", ":"))
 
 
 def _rest(arguments: dict[str, Any] | None = None, **_: Any) -> str:
@@ -156,7 +170,7 @@ def _reflect(arguments: dict[str, Any] | None = None, **_: Any) -> str:
             "tick, and the mood moves inside the shift from here.")
 
 
-def _journal(arguments: dict[str, Any] | None = None, **_: Any) -> str:
+def _journal_lines(arguments: dict[str, Any] | None = None) -> list[str]:
     """The tail of the journal, rendered — the account of past work a decision needs (N15).
 
     One line per thing that happened, newest last, from the same renderer the Discord drain
@@ -166,8 +180,8 @@ def _journal(arguments: dict[str, Any] | None = None, **_: Any) -> str:
     asked = (arguments or {}).get("limit")
     limit = max(1, min(int(asked) if asked else _JOURNAL_DEFAULT, _JOURNAL_CAP))
     if not (runtime_dir() / JOURNAL_FILE).is_file():
-        return "The journal is empty: this pilot has done nothing yet."
-    return render_journal(limit) or "Nothing in the journal's tail is worth a line."
+        return []
+    return render_journal(limit).splitlines()
 
 
 def _nudge_juncture() -> str:
@@ -192,15 +206,35 @@ def _nudge_juncture() -> str:
 
 
 def _direct(arguments: dict[str, Any] | None = None, **_: Any) -> str:
-    """Set the objective and the standing permissions. Nothing else in the record moves: stance
-    and mood are the pilot's, chosen at rest, and Tired is the stop, not a direction."""
+    """Set the objective, the standing permissions, and one sentence for the next juncture.
+
+    Nothing else in the record moves: stance and mood are the pilot's, chosen at rest, and
+    Tired is the stop, not a direction.
+
+    RISK (Carl, 2026-09-15): `instruction` is model-generated text conveying a user's
+    intention, and the pilot parses it as outside instruction that outranks the objective for
+    one juncture. A window that paraphrases badly steers the pilot. What bounds it: the 80
+    characters cap how much a sentence can ask for; the lint bounds what any script it leads
+    to may reach; the rules check between jobs, the credit reserve and the wall-clock cap
+    bound what a run can do. Pass the operator's words as they were said, shortened by
+    dropping words.
+    """
     args = arguments or {}
     objective = str(args.get("objective") or "").strip()
     permissions = args.get("permissions") or {}
-    if not objective and not permissions:
-        return ("Nothing to set. Name an objective, or the standing permissions to change: "
-                "max_liability, credit_reserve.")
+    instruction = str(args.get("instruction") or "").strip()
+    if not objective and not permissions and not instruction:
+        return ("Nothing to set. Name an objective, one sentence of instruction for the next "
+                "juncture, or the standing permissions to change: max_liability, credit_reserve.")
+    if len(instruction) > _INSTRUCTION_LIMIT:
+        return (f"Nothing set: that instruction is {len(instruction)} characters and the pilot "
+                f"reads at most {_INSTRUCTION_LIMIT}. Say it again in fewer words, keeping the "
+                "operator's.")
     record = read_pilot()
+    if instruction:
+        journal_event("instruction", text=instruction)
+        record["instruction"] = {"text": instruction,
+                                 "at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")}
     if objective:
         record["objective"] = objective
         # A new objective is not the old finished one: a pilot resting on "done" wakes up.
@@ -209,40 +243,19 @@ def _direct(arguments: dict[str, Any] | None = None, **_: Any) -> str:
         # A bound this call does not name keeps the value it had: asking widens nothing else.
         record["permissions"] = {**(record.get("permissions") or {}), **permissions}
     write_pilot(record)
-    return ("Direction recorded. The pilot takes it up at the next juncture, not now, and a job "
+    set_what = ", ".join(name for name, given in
+                         (("objective", objective), ("permissions", permissions),
+                          ("instruction", instruction)) if given)
+    said = (f" The sentence {instruction!r} outranks the objective for that one juncture."
+            if instruction else "")
+    return (f"Recorded: {set_what}. The pilot takes it up at the next juncture, not now, and a job "
             "already under way runs to its outcome first."
+            + said
             + _nudge_juncture()
             + " Standing now: "
             + json.dumps({"objective": record.get("objective"),
                           "permissions": record.get("permissions") or {}},
                          separators=(",", ":"), sort_keys=True))
-
-
-def _dispatch(arguments: dict[str, Any] | None = None, **_: Any) -> str:
-    """Send the pilot one sentence of direction from the operator's window.
-
-    RISK (Carl, 2026-09-15): this is model-generated text conveying a user's intention, and
-    the pilot parses it as outside instruction that outranks the objective for one juncture.
-    A window that paraphrases badly steers the pilot. What bounds it: the 80 characters cap
-    how much a sentence can ask for; the lint bounds what any script it leads to may reach;
-    the rules check between jobs, the credit reserve and the wall-clock cap bound what a run
-    can do. Pass the operator's words as they were said, shortened by dropping words.
-    """
-    instruction = str((arguments or {}).get("instruction") or "").strip()
-    if not instruction:
-        return ("Nothing sent. Give the pilot one sentence of direction, at most "
-                f"{_INSTRUCTION_LIMIT} characters, in the operator's own words.")
-    if len(instruction) > _INSTRUCTION_LIMIT:
-        return (f"Nothing sent: that is {len(instruction)} characters and the pilot reads at most "
-                f"{_INSTRUCTION_LIMIT}. Say it again in fewer words, keeping the operator's.")
-    record = read_pilot()
-    journal_event("instruction", text=instruction)
-    record["instruction"] = {"text": instruction,
-                             "at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")}
-    write_pilot(record)
-    return (f"Sent: {instruction!r}. The pilot reads it at its next juncture, where it outranks "
-            "the objective, and a job already under way runs to its outcome first."
-            + _nudge_juncture())
 
 
 TOOL_DEFINITIONS = (
@@ -313,31 +326,41 @@ TOOL_DEFINITIONS = (
                        "report follows in the conversation that started it.",
                        {}, [])},
     {"name": "spacemolt_status", "toolset": "spacemolt_operator", "handler": _status,
-     "description": "For the chat window: whether a run is in flight right now.",
+     "description": "The one read: what the objective is, what the pilot is doing, what happened.",
      "schema": _schema("spacemolt_status",
-                       "For the chat window: whether a run is in flight — the function and step "
-                       "it is on, elapsed seconds, commands sent, fuel, hull and credits — or the "
-                       "last run's outcome when the pilot is idle.",
-                       {}, [])},
-    {"name": "spacemolt_journal", "toolset": "spacemolt_observe", "handler": _journal,
-     "description": "Read the last few things the pilot actually did.",
-     "schema": _schema("spacemolt_journal",
-                       "The tail of the pilot's journal, newest last: one line per thing the "
-                       "pilot did — the steps of each job, the runs, the reflections, the rest, "
-                       "and anything the game refused. This is the account of past work — never "
-                       "claim progress it does not show.",
+                       "The whole state of the pilot in one read — call this for \"what is the "
+                       "objective\", \"what is the pilot doing\" and \"what happened\" alike. "
+                       "Returns `pilot` (the standing record the operator wrote: objective, "
+                       "objective_done, goal, stance, mood, home, the last instruction, the "
+                       "permissions), `run` (the run in flight — function and step, elapsed "
+                       "seconds, commands sent, fuel, hull, credits — or the last run's outcome "
+                       "when idle, null when the runner is not up) and `journal` (the tail of "
+                       "the pilot's journal, newest last, one line per thing it actually did). "
+                       "Never claim progress the journal does not show.",
                        {"limit": {"type": "integer", "minimum": 1, "maximum": _JOURNAL_CAP,
-                                  "description": f"How many entries, newest last. "
+                                  "description": f"How many journal entries, newest last. "
                                                  f"Defaults to {_JOURNAL_DEFAULT}."}},
                        [])},
+    # The operator's sentence becomes the pilot's direction: model-generated text conveying a
+    # user's intention, which the pilot reads as outside instruction. The cap is what bounds
+    # how much one sentence can ask for; see the handler's docstring for the rest of the fence.
     {"name": "spacemolt_direct", "toolset": "spacemolt_operator", "handler": _direct,
-     "description": "Set the operator's objective and standing permissions for the pilot.",
+     "description": "Set the operator's objective, standing permissions, or one sentence of "
+                    "instruction for the next juncture.",
      "schema": _schema("spacemolt_direct",
-                       "Record what the operator wants the pilot to accomplish and the bounds it "
-                       "works inside. The pilot takes this up at its next juncture, not now, and a "
-                       "job under way runs to its outcome first. A permission left unnamed keeps "
-                       "the value it had. This sets nothing else: stance and mood are the pilot's.",
-                       {"objective": {"type": "string",
+                       "Record what the operator wants: the objective that outlives every shift, "
+                       "the bounds it works inside, and/or one sentence of instruction for the "
+                       "next juncture only. Pass any one of them; at least one is required. The "
+                       "pilot takes this up at its next juncture, not now, and a job under way "
+                       "runs to its outcome first. A permission left unnamed keeps the value it "
+                       "had. This sets nothing else: stance and mood are the pilot's.",
+                       {"instruction": {"type": "string", "maxLength": _INSTRUCTION_LIMIT,
+                                        "description": "One sentence for the next juncture only, "
+                                                       f"at most {_INSTRUCTION_LIMIT} characters, "
+                                                       "in the operator's own words (shorten by "
+                                                       "dropping words). It outranks the "
+                                                       "objective for that one juncture."},
+                        "objective": {"type": "string",
                                       "description": "What the pilot is to accomplish. Outlives every "
                                                      "shift; bounded or open-ended."},
                         "permissions": {"type": "object", "additionalProperties": False,
@@ -350,18 +373,6 @@ TOOL_DEFINITIONS = (
                                                                "description": "Credits kept back for fuel "
                                                                               "and repair, never spent."}}}},
                        [])},
-    # The operator's sentence becomes the pilot's direction: model-generated text conveying a
-    # user's intention, which the pilot reads as outside instruction. The cap is what bounds
-    # how much one sentence can ask for; see the handler's docstring for the rest of the fence.
-    {"name": "spacemolt_dispatch", "toolset": "spacemolt_operator", "handler": _dispatch,
-     "description": "Send the pilot one sentence of direction from the operator.",
-     "schema": _schema("spacemolt_dispatch",
-                       "Send the pilot one sentence of direction, at most "
-                       f"{_INSTRUCTION_LIMIT} characters. Pass the operator's words as they were "
-                       "said; shorten by dropping words. The pilot reads it at its next juncture.",
-                       {"instruction": {"type": "string", "maxLength": _INSTRUCTION_LIMIT,
-                                        "description": "The operator's sentence, in their words."}},
-                       ["instruction"])},
 )
 
 

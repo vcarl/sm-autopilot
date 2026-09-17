@@ -9,9 +9,7 @@ provides_tools:
   - spacemolt_run
   - spacemolt_check
   - spacemolt_stop
-  - spacemolt_dispatch
   - spacemolt_status
-  - spacemolt_journal
   - spacemolt_direct
   - spacemolt_rest
   - spacemolt_reflect

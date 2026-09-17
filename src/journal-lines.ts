@@ -125,8 +125,8 @@ function render(entry:Record<string,any>):string|null {
   }
 }
 
-/** The tail of a journal file, rendered. The one-shot the plugin's `spacemolt_journal` runs,
- * so the window and the Discord drain read the same lines from the same renderer. */
+/** The tail of a journal file, rendered. The one-shot the plugin's `spacemolt_status` runs
+ * for its `journal` key, so the window and the Discord drain read the same lines from the same renderer. */
 if(process.argv[1]&&fileURLToPath(import.meta.url)===resolve(process.argv[1])) {
   const {readJournal}=await import('./run-record.ts');
   const runtime=process.argv[2]??process.env.SPACEMOLT_RUNTIME_DIR??'';

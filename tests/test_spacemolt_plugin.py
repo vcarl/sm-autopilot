@@ -65,7 +65,7 @@ def test_every_tool_answers_from_the_one_bridge(bridged, tmp_path, monkeypatch):
     checked = json.loads(spacemolt._check({}))
     assert checked["ok"] is True and checked["source"].startswith("export default")
     assert json.loads(spacemolt._stop({}))["stopping"] is False
-    assert json.loads(spacemolt._status({}))["running"] is False
+    assert json.loads(spacemolt._status({}))["run"]["running"] is False
     # Every call travelled the same connection: the plugin owns one bridge, not one per tool.
     assert service._bridge is not None and service._bridge.counter == 4
 
@@ -95,15 +95,16 @@ def test_register_publishes_every_tool_in_the_spacemolt_toolset():
         by_toolset.setdefault(toolset, set()).add(name)
     assert by_toolset == {
         "spacemolt": {"spacemolt_run", "spacemolt_check", "spacemolt_rest", "spacemolt_reflect"},
-        "spacemolt_observe": {"spacemolt_journal"},
-        "spacemolt_operator": {"spacemolt_direct", "spacemolt_status", "spacemolt_dispatch",
-                               "spacemolt_stop"},
+        "spacemolt_operator": {"spacemolt_direct", "spacemolt_status", "spacemolt_stop"},
     }
     # The pilot plays by running its file; the operator sends a sentence or stops a run.
     assert tools["spacemolt_run"][1]["parameters"]["required"] == []
     assert "pilot/index.ts" in tools["spacemolt_run"][1]["description"]
     assert "source" in tools["spacemolt_check"][1]["parameters"]["properties"]
-    assert tools["spacemolt_dispatch"][1]["parameters"]["required"] == ["instruction"]
+    # Direction is one tool: objective, permissions and the sentence, any one of them enough.
+    assert tools["spacemolt_direct"][1]["parameters"]["required"] == []
+    assert (tools["spacemolt_direct"][1]["parameters"]["properties"]["instruction"]["maxLength"]
+            == spacemolt._INSTRUCTION_LIMIT)
     # The standing permissions are the two bounds on spending and owing; whether to hunt is the
     # operator's objective, like any other work.
     assert set(tools["spacemolt_direct"][1]["parameters"]["properties"]["permissions"]
@@ -122,23 +123,43 @@ def test_the_operators_sentence_is_bounded_and_lands_on_the_pilot():
     """One sentence of direction, and the pilot reads it at its next juncture.
 
     The cap is the scope of the instruction: what an operator can ask for in 80 characters is
-    direction, and the pilot's own machinery is what carries it out.
+    direction, and the pilot's own machinery is what carries it out. It rides on the one
+    direction tool beside the objective, and setting it leaves the objective alone.
     """
     from spacemolt import juncture
 
     juncture.write_pilot({"name": "kvothe", "objective": "fill the hold"})
-    refused = spacemolt._dispatch({"instruction": "x" * 81})
+    assert "Nothing to set" in spacemolt._direct({}), "a direction with nothing in it sets nothing"
+    refused = spacemolt._direct({"instruction": "x" * 81})
     assert "81" in refused and "fewer words" in refused
     assert "instruction" not in juncture.read_pilot(), "nothing over the cap reaches the pilot"
+    assert juncture.read_pilot()["objective"] == "fill the hold"
 
     sentence = "y" * 80
-    answer = spacemolt._dispatch({"instruction": sentence})
+    answer = spacemolt._direct({"instruction": sentence})
     recorded = juncture.read_pilot()
     assert recorded["instruction"]["text"] == sentence
     assert recorded["instruction"]["at"].endswith("Z"), "when it was said, so staleness is readable"
     assert "next juncture" in answer
-    # Direction is not a setting: the operator's objective is the other tool's to change.
+    # A sentence is not an objective: the standing one is untouched unless it was named.
     assert recorded["objective"] == "fill the hold"
+
+
+def test_status_answers_the_objective_the_run_and_what_happened_in_one_read(bridged, tmp_path,
+                                                                           monkeypatch):
+    """The window asked "what is our objective?" and got a mining snapshot, because the record
+    was in no read it had. One tool now carries all three."""
+    monkeypatch.setenv("SPACEMOLT_RUNTIME_DIR", str(tmp_path / "runtime"))
+    from spacemolt import juncture
+
+    juncture.write_pilot({"name": "kvothe", "objective": "buy a hauler", "stance": "Prospector",
+                          "mood": "Focused", "permissions": {"credit_reserve": 500}})
+    answer = json.loads(spacemolt._status({}))
+    assert set(answer) == {"pilot", "run", "journal"}
+    assert answer["pilot"]["objective"] == "buy a hauler"
+    assert answer["pilot"]["permissions"] == {"credit_reserve": 500}
+    assert answer["run"]["running"] is False
+    assert answer["journal"] == [], "no journal file yet is an empty account, not an error"
 
 
 def test_a_stance_fire_carries_the_root_readme_and_its_career_readme():
