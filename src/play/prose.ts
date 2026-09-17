@@ -16,7 +16,11 @@ function thisRun(calls:Call[]):string {
   const got=[[total(c=>c.credits),'cr'],[total(c=>c.items),'items'],[total(c=>c.xp),'xp']]
     .filter(([value])=>value).map(([value,unit])=>`+${n(value as number)} ${unit}`);
   const shown=calls.length>MAX_LINES?calls.slice(1-MAX_LINES):calls;
-  const lines=shown.map(call=>`  - ${call.fn} ${call.status} ${call.did}`);
+  // A call that did not end `done` carries its `why`: the reason is what the next script has
+  // to correct itself from (the real ids behind a refused destination), and a `did` alone
+  // drops it. A `done` line has nothing to explain.
+  const lines=shown.map(call=>`  - ${call.fn} ${call.status} ${call.did}`
+    +(call.status!=='done'&&call.why?`: ${call.why}`:''));
   if(shown.length<calls.length)lines.unshift(`  - (${calls.length-shown.length} earlier call(s))`);
   return [`This run: ${calls.length} calls, cost ${spent.join(', ')||'nothing'}, gained ${got.join(', ')||'nothing'}.`,
     ...lines].join('\n');

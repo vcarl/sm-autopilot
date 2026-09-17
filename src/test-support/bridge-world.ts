@@ -47,6 +47,10 @@ const baseAt:Record<string,string>={station:'sol_base',outpost:'range_base'};
 
 export interface WorldOptions {
   services?:string[];
+  /** POIs in Sol beside the built-in station and belt: nameable to `find_route`, listed by
+   * `get_system`, dockable when they carry a `base_id`. A second station is how a world
+   * where "the station in Sol" names no one place is expressible. */
+  pois?:{id:string;name?:string;type?:string;base_id?:string;base_name?:string}[];
   /** The hold at the start. 12 of 12 is a full hold: a gather job mines nothing and still
    * has to come home, settle and service before it may call itself done. */
   cargoUsed?:number;
@@ -198,6 +202,17 @@ export interface CraftOptions {
 export function bridgeWorld(options:WorldOptions={}) {
   const {services=['refuel','repair'],cargoUsed=12,minePerCycle=2}=options;
   const store=options.store??[{item_id:'ore',name:'Ore',quantity:340},{item_id:'scrap',quantity:2}];
+  // Sol as this world lists it, and where the ids in it live, so an added station is a place
+  // the server knows in every reply that mentions places.
+  const extra=(options.pois??[]).map(row=>({type:'station',position:{x:2,y:2},has_base:Boolean(row.base_id),...row,
+    name:row.name??row.id}));
+  const here={...system,pois:[...system.pois,...extra]};
+  const homes:Record<string,string>={...homeOf,
+    ...Object.fromEntries(extra.flatMap(row=>[[row.id,'sol'],...row.base_id?[[row.base_id,'sol']]:[]]))};
+  const poiIds:Record<string,string>={...poiOf,
+    ...Object.fromEntries(extra.filter(row=>row.base_id).map(row=>[row.base_id!,row.id]))};
+  const bases:Record<string,string>={...baseAt,
+    ...Object.fromEntries(extra.filter(row=>row.base_id).map(row=>[row.id,row.base_id!]))};
   const account=new FakeLibGoalAccount({
     location:{system_id:'sol',poi_id:'station',docked_at:'sol_base' as string|null,in_transit:false},
     // Hull stays above the Cautious D3 line: a ship below it is Tired and starts no job.
@@ -479,21 +494,21 @@ export function bridgeWorld(options:WorldOptions={}) {
         wreck_empty:!(wreck.cargo as unknown[]).length}}};
     },
     'spacemolt/get_system':()=>({structuredContent:{kind:'normal',
-      system:account.server.location.system_id==='sol'?system:deepRange}}),
+      system:account.server.location.system_id==='sol'?here:deepRange}}),
     // The map entry for a system, as a far one answers: never visited, so a neighbour is
     // always somewhere the menu can point at.
     'spacemolt/get_map':params=>{
       // No id asked for is the whole galaxy, which is what a name or a near miss is matched
       // against; one id is the entry for that system.
       if(params.system_id===undefined)return {structuredContent:{total_count:2,
-        systems:[system,deepRange].map(s=>({system_id:s.id,name:s.name,poi_count:s.pois.length,visited:s.id==='sol',
+        systems:[here,deepRange].map(s=>({system_id:s.id,name:s.name,poi_count:s.pois.length,visited:s.id==='sol',
           connections:s.connections.map(link=>link.system_id),online:0,position:{x:0,y:0},visited_at:''}))}};
-      const far=String(params.system_id)==='sol'?system:deepRange;
+      const far=String(params.system_id)==='sol'?here:deepRange;
       return {structuredContent:{system_id:far.id,name:far.name,poi_count:far.pois.length,visited:far.id==='sol',
         connections:far.connections.map(link=>link.system_id),online:0,position:{x:0,y:0},visited_at:''}};
     },
     'spacemolt/find_route':params=>{
-      const target=homeOf[String(params.id)];
+      const target=homes[String(params.id)];
       // An id the server cannot place is an error, not a `found:false` body: it assumes the
       // word was a system and says so. That throw is what goTo has to read as "no such place".
       if(!target)throw new Error('Target system not found');
@@ -502,7 +517,7 @@ export function bridgeWorld(options:WorldOptions={}) {
       // A system id answers with a system and no POI of its own: there is no one place in a
       // system that "is" the system, which is why naming it as a POI is rejected below.
       return {found:true,target_system:target,
-        ...homeOf[String(params.id)]===String(params.id)?{}:{target_poi:poiOf[String(params.id)]??String(params.id)},
+        ...homes[String(params.id)]===String(params.id)?{}:{target_poi:poiIds[String(params.id)]??String(params.id)},
         total_jumps:route.length-1,
         estimated_fuel:7,fuel_per_jump:7,fuel_available:account.server.ship.fuel,
         cargo_used:account.server.ship.cargo_used,route:route.map((system_id,jumps)=>({system_id,jumps}))};
@@ -516,12 +531,12 @@ export function bridgeWorld(options:WorldOptions={}) {
       return {};},
     'spacemolt/undock':()=>{account.server.location.docked_at=null;return {};},
     // The base you dock at is the one behind the POI you are standing at, never a fixed id.
-    'spacemolt/dock':()=>{account.server.location.docked_at=baseAt[account.server.location.poi_id]??'sol_base';return {};},
+    'spacemolt/dock':()=>{account.server.location.docked_at=bases[account.server.location.poi_id]??'sol_base';return {};},
     // The server settles the move before the next authoritative read, as a same-system hop does.
     'spacemolt/travel':params=>{
       // The server's own refusal when the id is not a POI in this system — a system id
       // handed on as a destination is rejected here, after the jump was flown and paid for.
-      const where=account.server.location.system_id==='sol'?system:deepRange;
+      const where=account.server.location.system_id==='sol'?here:deepRange;
       if(!where.pois.some((row:{id:string})=>row.id===String(params.id)))throw new Error(`Unknown destination: ${params.id}`);
       account.server.ship.fuel-=7;account.server.location.poi_id=String(params.id);return {};},
     // The reply over-claims: only the cargo delta says what the trip actually took.

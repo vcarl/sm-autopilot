@@ -128,9 +128,36 @@ test('goTo takes a POI id, a display name, or a word that names nothing and says
     assert.equal(f.account.server.location.docked_at,'sol_base');
     // A guess built out of the right words, which is neither a prefix nor a suffix of the
     // real id: the words it shares are what finds the POI it was reaching for.
-    const invented=await goTo('sol_station_a');
+    const invented=await goTo('station_a');
     assert.equal(invented.status,'refused');
     assert.match(invented.why!,/nearest: station \(POI Sol Station\)/);
+  } finally {unbind();}
+});
+
+test('a guess that names a system with one base is that base; with several it is refused with their ids',async()=>{
+  const f=world({mood:'Focused'});
+  try {
+    f.account.server.location={system_id:'sol',poi_id:'belt',docked_at:null,in_transit:false};
+    await f.account.refresh();
+    // "the waystation in Sol" names no place, but Sol has one base, so that is where it meant.
+    // (`sol_station` would not get this far: Sol Station is the display name of a POI here.)
+    const trip=await goTo('sol_waystation');
+    assert.equal(trip.status,'done',trip.why);
+    assert.equal(f.account.server.location.docked_at,'sol_base');
+    assert.equal(trip.detail.docked,true);
+    assert.ok(f.lines.some(line=>line.includes('sol_waystation is not a place; going to sol_base, the one base in Sol')),
+      f.lines.join('\n'));
+  } finally {unbind();}
+  // Two bases in the system: nothing is flown, and both ids are in the refusal.
+  const g=world({mood:'Focused'},['refuel','repair','storage'],
+    {pois:[{id:'refinery',name:'Sol Refinery',base_id:'refinery_base',base_name:'Sol Refinery Base'}]});
+  try {
+    g.account.server.location={system_id:'sol',poi_id:'belt',docked_at:null,in_transit:false};
+    await g.account.refresh();
+    const guess=await goTo('sol_waystation');
+    assert.equal(guess.status,'refused');
+    assert.match(guess.why!,/Sol has 2 base\(s\): sol_base \(Sol Base\), refinery_base \(Sol Refinery Base\)/);
+    assert.equal(g.account.server.location.poi_id,'belt');
   } finally {unbind();}
 });
 

@@ -26,7 +26,7 @@ export interface Trip {
 }
 
 /** A place the pilot can name: a system, a POI, or a base docked at one. */
-interface Place {id:string;name:string;what:'system'|'POI'|'base'}
+export interface Place {id:string;name:string;what:'system'|'POI'|'base'}
 /** Ids and display names compared the way a pilot writes them: `Last Light` and
  * `last_light` are the same word, `lastlight_station` starts with it. */
 const key=(text:string):string=>text.toLowerCase().replace(/[^a-z0-9]+/g,'');
@@ -53,6 +53,23 @@ async function nameable():Promise<Place[]> {
     }
   } catch {/* ditto */}
   return places;
+}
+
+/** The system a guess names and the bases known to be in it: `node_alpha_station` names Node
+ * Alpha, whatever word the pilot suffixed it with. Exactly one base there is what the guess
+ * can only have meant, and `destination` flies to it; several (or none) keep the refusal, with
+ * the bases named in it so the next script writes an id instead of another guess.
+ *
+ * `where` is the system the bases in `places` were listed from; a guess naming any other
+ * system answers nothing. ponytail: that is the system the ship is in, because `get_map`
+ * lists no POIs for a far one (see `scout`, orient.ts). Widen it when a read exists that
+ * lists a far system's bases. */
+export function systemBases(id:string,places:Place[],where?:string):{system:Place;bases:Place[]}|undefined {
+  const want=key(id),asked=new Set(words(id));
+  const system=places.find(place=>place.what==='system'&&place.id===where
+    &&([key(place.id),key(place.name)].some(k=>k.length>=3&&want.startsWith(k))
+      ||words(place.id).every(word=>asked.has(word))));
+  return system?{system,bases:places.filter(place=>place.what==='base')}:undefined;
 }
 
 /** Where a nameable id lives, as the server answers it, and the id it turned out to be. A
@@ -84,6 +101,17 @@ export async function destination(id:string):Promise<{id:string;quote:FindRouteR
     const second=await ask(hit.id);
     if(second.found)return {id:hit.id,quote:second};
   }
+  // "The station in Node Alpha" is one place when the system has one base: go there and say
+  // so, rather than refusing a guess whose intent has only one reading.
+  const named=systemBases(id,places,acct().state.location?.system_id);
+  const one=named?.bases.length===1?named.bases[0]!:undefined;
+  if(one) {
+    const third=await ask(one.id);
+    if(third.found) {
+      step(`${id} is not a place; going to ${one.id}, the one base in ${named!.system.name}`);
+      return {id:one.id,quote:third};
+    }
+  }
   // ponytail: shared words, plus a prefix either way — not an edit distance. A guess built
   // out of the right words (`sirius_station` for `sirius_observatory_station`) and one built
   // by suffixing a system name (`lastlight_station` for `last_light`) both land; a typo
@@ -96,9 +124,13 @@ export async function destination(id:string):Promise<{id:string;quote:FindRouteR
   };
   const near=places.map(place=>({place,score:score(place)})).filter(row=>row.score>0)
     .sort((a,b)=>b.score-a.score).map(row=>row.place);
-  throw new TravelBlocked(`no system, POI or base is named ${id}`
+  // A guess that named a system with more than one base: which ones, by id, because "the
+  // station there" is exactly what could not be picked for it.
+  const several=named&&named.bases.length!==1
+    ?`; ${named.system.name} has ${named.bases.length} base(s)${named.bases.length?`: ${named.bases.map(p=>`${p.id} (${p.name})`).join(', ')}`:''}`:'';
+  throw new TravelBlocked(`no system, POI or base is named ${id}${several}`
     +(near.length?`; nearest: ${near.slice(0,4).map(p=>`${p.id} (${p.what} ${p.name})`).join(', ')}`
-      :'; scout() lists the POIs and bases here, orient() the systems you know'));
+      :several?'':'; scout() lists the POIs and bases here, orient() the systems you know'));
 }
 
 /** The quote alone, for callers that only want the fuel and jumps. */

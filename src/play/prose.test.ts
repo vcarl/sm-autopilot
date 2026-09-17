@@ -39,3 +39,16 @@ test('a trailing no-op cannot erase the trip: the run block names every call it 
   assert.match(many,/ {2}- \(5 earlier call\(s\)\)\n {2}- gatherUntil done trip 5\n/);
   assert.match(many,/Consider:\n {2}- rest$/);
 });
+
+test('a call that did not end done carries its why, so the reason is not dropped from the report',()=>{
+  const refused:Call={fn:'goTo',arg:'node_alpha_station',status:'refused',
+    did:'could not route to node_alpha_station',
+    why:'no system, POI or base is named node_alpha_station; nearest: node_alpha (system Node Alpha)',
+    credits:0,items:0,xp:0,cost:{credits:0,fuel:0,hull:0,minutes:0}};
+  const noop:Call={fn:'service',arg:'',status:'done',did:'already serviced',
+    credits:0,items:0,xp:0,cost:{credits:0,fuel:0,hull:0,minutes:0}};
+  const text=prose(base,[refused,noop]);
+  assert.match(text,/\n {2}- goTo refused could not route to node_alpha_station: no system, POI or base is named node_alpha_station; nearest: node_alpha \(system Node Alpha\)\n/);
+  // A done line has nothing to explain and gains no colon.
+  assert.match(text,/\n {2}- service done already serviced$/);
+});
