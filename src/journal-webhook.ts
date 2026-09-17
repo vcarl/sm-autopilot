@@ -17,6 +17,12 @@ import {watchJournal} from './run-record.ts';
 export const BUDGET=1900;
 export const MIN_MS=3*60_000;
 export const MAX_MS=8*60_000;
+/** Discord webhooks take roughly five requests per two seconds; half a second between the
+ * messages of one burst stays well under that without a bucket to maintain. */
+export const GAP_MS=500;
+/** ponytail: a tick gives up after this much rate-limit waiting so a webhook that answers
+ * 429 forever cannot wedge `flush()`. The lines keep; the next tick tries again. */
+const RETRY_BUDGET_MS=30_000;
 
 export interface PostResult {ok:boolean;retryAfterMs?:number}
 export interface DrainDeps {
@@ -26,6 +32,8 @@ export interface DrainDeps {
   post?:(content:string)=>Promise<PostResult>;
   rng?:()=>number;
   schedule?:(fn:()=>void,ms:number)=>{unref?:()=>void};
+  /** The pause between the messages of one burst. Injected by the tests, which never wait. */
+  sleep?:(ms:number)=>Promise<void>;
 }
 
 export interface Drain {
@@ -77,6 +85,7 @@ export function journalDrain(url:string,deps:DrainDeps={}):Drain {
   const post=deps.post??discordPost(url);
   const rng=deps.rng??Math.random;
   const schedule=deps.schedule??((fn,ms)=>setTimeout(fn,ms));
+  const sleep=deps.sleep??(ms=>new Promise<void>(resolve=>{setTimeout(resolve,ms).unref?.();}));
   const buffer:string[]=[];
   let delay=0,stopped=false,inFlight:Promise<void>|null=null;
 
@@ -89,20 +98,31 @@ export function journalDrain(url:string,deps:DrainDeps={}):Drain {
   const flush=async():Promise<void>=>{
     if(inFlight)return inFlight;
     inFlight=(async()=>{
-      const sending=take(buffer);
-      let wait:number|undefined;
-      if(sending.length) {
+      // A tick empties the backlog: message after message until nothing is left. One message
+      // a tick could not keep up with a busy pilot, and the queue only ever grew.
+      let sent=0,posts=0,waited=0,failed=false;
+      while(buffer.length&&!stopped) {
+        const sending=take(buffer);
         let result:PostResult;
         // A webhook that is down, slow or gone keeps its lines: the next drain carries them.
         try {result=await post(sending.join('\n'));} catch {result={ok:false};}
-        if(result.ok)buffer.splice(0,sending.length);
-        else wait=result.retryAfterMs;
-        // The operator's only view of the drain is the bridge's stderr log.
-        deps.log?.(result.ok?`journal drain: posted ${sending.length} line(s), ${buffer.length} left`
-          :`journal drain: post failed${wait?`, retry in ${wait} ms`:''}, ${buffer.length} buffered`);
+        if(!result.ok) {
+          const retry=result.retryAfterMs;
+          if(!retry||waited+retry>RETRY_BUDGET_MS) {failed=true;break;}
+          // Rate limited: wait exactly as long as Discord asked, then the same lines again.
+          waited+=retry;
+          await sleep(retry);
+          continue;
+        }
+        buffer.splice(0,sending.length);
+        sent+=sending.length;posts++;
+        if(buffer.length)await sleep(GAP_MS);
       }
+      // The operator's only view of the drain is the bridge's stderr log.
+      if(sent)deps.log?.(`journal drain: posted ${sent} line(s) in ${posts} message(s), ${buffer.length} left`);
+      if(failed)deps.log?.(`journal drain: post failed, ${buffer.length} buffered`);
       const chars=buffer.reduce((sum,line)=>sum+line.length+1,0);
-      arm(wait??nextDelayMs(chars,rng()));
+      arm(nextDelayMs(chars,rng()));
     })();
     try {await inFlight;} finally {inFlight=null;}
   };

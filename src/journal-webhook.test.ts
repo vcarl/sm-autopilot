@@ -5,7 +5,7 @@
  */
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import {BUDGET,MAX_MS,MIN_MS,journalDrain,nextDelayMs,type PostResult} from './journal-webhook.ts';
+import {BUDGET,GAP_MS,MAX_MS,MIN_MS,journalDrain,nextDelayMs,type PostResult} from './journal-webhook.ts';
 
 /** A clock that never ticks: the drain arms it, the test reads the delay and fires by hand. */
 function clock() {
@@ -17,14 +17,16 @@ function clock() {
 }
 
 function drainFixture(replies:PostResult[]=[],rolls=[0.5]) {
-  const posted:string[]=[];
+  const posted:string[]=[],slept:number[]=[];
   let roll=0,reply=0;
   const time=clock();
   const drain=journalDrain('https://example.invalid/hook',{
     post:async content=>{posted.push(content);return replies[reply++]??{ok:true};},
     rng:()=>rolls[roll++%rolls.length]!,
-    schedule:time.schedule});
-  return {drain,posted,...time};
+    schedule:time.schedule,
+    // The burst's pauses are recorded, never waited out.
+    sleep:async ms=>{slept.push(ms);}});
+  return {drain,posted,slept,...time};
 }
 
 test('the next drain is always minutes away, and sooner the fuller the buffer is', () => {
@@ -44,25 +46,22 @@ test('the next drain is always minutes away, and sooner the fuller the buffer is
   assert.equal(nextDelayMs(0,0),MIN_MS,'the roll still bounds the range from below');
 });
 
-test('a drain posts as many whole lines as fit and keeps the rest buffered', async () => {
+test('one drain empties the backlog, whole lines, one message at a time', async () => {
   const f=drainFixture();
   const line=(n:number)=>`18:${String(n).padStart(2,'0')} gather mine ${'x'.repeat(90)}`;
+  // ~4,600 characters: more than two messages' worth, so the tick must post three times.
   const lines=Array.from({length:40},(_,index)=>line(index));
   for(const row of lines)f.drain.push(row);
   await f.drain.flush();
 
-  assert.equal(f.posted.length,1,'one message per drain');
-  const sent=f.posted[0]!.split('\n');
-  assert.ok(f.posted[0]!.length<=BUDGET,`${f.posted[0]!.length} characters is over budget`);
-  assert.deepEqual(sent,lines.slice(0,sent.length),'the oldest lines, in order, whole');
-  assert.ok(sent.every(row=>lines.includes(row)),'no line was cut in half');
-  assert.deepEqual(f.drain.buffered(),lines.slice(sent.length),'the rest waits for the next drain');
-  // Still full: the next drain is the soonest one allowed.
-  assert.equal(f.drain.nextDelay(),MIN_MS);
-
-  await f.drain.flush();
-  assert.equal(f.posted.length,2);
-  assert.ok(f.drain.buffered().length<lines.length-sent.length);
+  assert.equal(f.posted.length,3,'the whole backlog went out in one tick');
+  for(const message of f.posted)
+    assert.ok(message.length<=BUDGET,`${message.length} characters is over budget`);
+  assert.deepEqual(f.posted.join('\n').split('\n'),lines,'every line, in order, whole');
+  assert.deepEqual(f.drain.buffered(),[],'nothing is left behind');
+  assert.deepEqual(f.slept,[GAP_MS,GAP_MS],'a gap between messages, none after the last');
+  // Empty now, so the next drain is free to be a lazy one.
+  assert.ok(f.drain.nextDelay()>MIN_MS);
 });
 
 test('a post that does not land keeps every line for the next attempt', async () => {
@@ -76,12 +75,21 @@ test('a post that does not land keeps every line for the next attempt', async ()
   assert.deepEqual(f.drain.buffered(),[],'and clears once it lands');
 });
 
-test('a 429 waits exactly as long as Discord asked', async () => {
+test('a 429 waits exactly as long as Discord asked, then carries on', async () => {
   const f=drainFixture([{ok:false,retryAfterMs:4_500}]);
   f.drain.push('18:35 rest');
   await f.drain.flush();
-  assert.equal(f.drain.nextDelay(),4_500,'the rate limit outranks the random interval');
-  assert.deepEqual(f.drain.buffered(),['18:35 rest']);
+  assert.deepEqual(f.slept,[4_500],'the drain waited out the rate limit inside the tick');
+  assert.equal(f.posted.length,2,'and sent the same line again');
+  assert.deepEqual(f.drain.buffered(),[],'so the tick still ends empty');
+});
+
+test('a 429 that never lets up gives the lines back to the next tick', async () => {
+  const f=drainFixture(Array.from({length:20},()=>({ok:false,retryAfterMs:9_000})));
+  f.drain.push('18:35 rest');
+  await f.drain.flush();
+  assert.ok(f.slept.length<5,`${f.slept.length} retries is not a bounded tick`);
+  assert.deepEqual(f.drain.buffered(),['18:35 rest'],'nothing is dropped');
 });
 
 test('the timer is what drains, and an empty buffer posts nothing', async () => {
