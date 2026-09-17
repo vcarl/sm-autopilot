@@ -108,7 +108,8 @@ out is: first 2,500–10,000 credits, skills 1–3 in mining, trading and naviga
    `slots_free: 0` with nothing completable means a mission is stuck: each `detail.active` row
    carries its `progress` and a `stuck` reason (expired, destination elsewhere, goods you do not
    have), and `abandonMission('<id>')` drops one and frees the slot — it refuses a mission you
-   could turn in here unless you pass `{force:true}`. `completeMissions()` first: it withdraws
+   could turn in here unless you pass `{force:true}`, and refuses an id that was never active
+   (a placeholder id is not a success; already-gone ids stay `done`). `completeMissions()` first: it withdraws
    from the store here for a `deliver N of item` objective the store can cover.
 4. `gatherUntil({poi})`: out, mine until full, back to the base you left, stow, service. One call
    is one trip of ~15 minutes. `gatherUntil({poi, until: {item, quantity}})` loops trips.

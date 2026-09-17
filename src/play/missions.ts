@@ -24,13 +24,20 @@ function offer(mission:MissionInfo):Offer {
   return {...rest,wants,...fits?{fits}:{}};
 }
 
+/** Every mission id seen active in this process, so a gone-but-real id can be told from one
+ * the account never had. ponytail: process memory, not account history — after a restart a
+ * forgotten id reads as unknown, which is the safe direction. */
+const known=new Set<string>();
+
 /** Active missions from the state section `get_active_missions` refreshes. */
 async function active():Promise<V2Missions> {
   const reply=details(await command('spacemolt/get_active_missions',{})) as {missions?:V2Missions}&Partial<V2Missions>;
   // The reply itself is the section on a server that answers it flat; the cache is the last
   // resort, and a stale cache is how a full board looks like a free slot.
   const section=reply.missions??(Array.isArray(reply.active)?reply as V2Missions:acct().state.missions as V2Missions|undefined);
-  return {active:section?.active??[],max_missions:section?.max_missions??5};
+  const mine={active:section?.active??[],max_missions:section?.max_missions??5};
+  for(const m of mine.active)known.add(m.mission_id);
+  return mine;
 }
 
 /** Turnable in now. `percent_complete` is the personal measure; a community mission carries
@@ -162,7 +169,8 @@ export function acceptMission(id:string):Promise<Outcome<AcceptMissionResponse>>
 }
 
 /** Give up one active mission and free its slot. Over `abandon_mission` it adds: the
- * idempotent case (a mission that is not active is `done`, nothing sent), and a refusal when
+ * idempotent case (a mission seen active and now gone is `done`, nothing sent; an id this
+ * account never had active is `refused`, so a placeholder cannot read as a success), and a refusal when
  * the mission could be turned in right here — the slot is about to free itself and pay for
  * it. Pass `{force:true}` to drop it anyway. Costs nothing but the mission. */
 export function abandonMission(id:string,opts:{force?:boolean}={}):Promise<Outcome<AbandonMissionResponse>> {
@@ -170,7 +178,9 @@ export function abandonMission(id:string,opts:{force?:boolean}={}):Promise<Outco
     const none={} as AbandonMissionResponse;
     const mine=await active();
     const mission=mine.active.find(m=>m.mission_id===id);
-    if(!mission)return {status:'done',did:`${id} is not active`,detail:none};
+    if(!mission)return known.has(id)?{status:'done',did:`${id} is not active`,detail:none}
+      :{status:'refused',did:`did not abandon ${id}`,
+        why:`no such mission: ${id} was never active on this account; active ids are ${mine.active.map(m=>m.mission_id).join(', ')||'none'}`,detail:none};
     if(!opts.force&&completable(mission))
       return {status:'refused',did:`kept "${mission.title}"`,
         why:`it is completable here: completeMissions() turns it in and frees the slot, or abandonMission('${id}', {force:true}) to drop it unpaid`,detail:none};

@@ -85,3 +85,17 @@ test('a mission whose goods are elsewhere is stuck, and the store cannot unstick
     assert.match(out.next[0]!,/abandonMission\('away'\)/);
   } finally {unbind();}
 });
+
+test('abandonMission refuses an id the account never had, and stays idempotent for a real one',async()=>{
+  const f=world();
+  try {
+    f.taken.push(row({mission_id:'gone',title:'Old run',expires_in_ticks:0}));
+    assert.equal((await abandonMission('gone')).status,'done');
+    // Genuinely gone: seen active, now abandoned, so the end state already holds.
+    assert.equal((await abandonMission('gone')).status,'done');
+    const out=await abandonMission('??');
+    assert.equal(out.status,'refused','a placeholder id is not a success');
+    assert.match(out.why!,/never active on this account/);
+    assert.equal(f.count('spacemolt/abandon_mission'),1,'nothing was sent for the unknown id');
+  } finally {unbind();}
+});
