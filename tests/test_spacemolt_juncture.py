@@ -10,20 +10,42 @@ from __future__ import annotations
 
 import copy
 import json
+import os
 
 import spacemolt
 from spacemolt import juncture, service
 
 
-def test_a_fire_while_a_script_runs_changes_nothing(monkeypatch):
-    """N4: a fire that lands mid-run offers nothing to choose — it says so and ends the turn."""
-    monkeypatch.setattr(service, "call", lambda action, params=None: {
-        "busy": True, "fn": "gatherUntil", "elapsed_s": 96, "commands": 14})
-    busy = juncture.juncture_context({"platform": "cron"})
-    assert "a run is still in flight" in busy and "gatherUntil" in busy
-    assert "96" in busy and "14" in busy, "the fire is told how far along the run is"
-    assert "end the turn" in busy
-    assert "option" not in busy, "a busy juncture offers nothing to choose"
+def test_a_fire_while_a_script_runs_changes_nothing(monkeypatch, capsys):
+    """N4: a fire that lands mid-run is a true no-op — cron's wake gate ends it before a prompt
+    is built, so there is no model turn at all. The gate reads the run record the bridge keeps,
+    because the shim runs outside the gateway and cannot ask the bridge anything."""
+    from cron.scheduler_prompt import _parse_wake_gate
+
+    runtime = service.runtime_dir()
+    runtime.mkdir(parents=True, exist_ok=True)
+    lock = runtime / "controller-deadbeef.lock"
+    lock.write_text(json.dumps({"pid": os.getpid()}))
+
+    # Nothing running: no record at all, then one that ended.
+    assert juncture.gate_main() == 0
+    assert _parse_wake_gate(capsys.readouterr().out) is True
+    (runtime / "run.json").write_text(json.dumps({"script": "gather", "ended": True}))
+    assert juncture.gate_main() == 0
+    assert _parse_wake_gate(capsys.readouterr().out) is True
+
+    # A run in flight, and a live bridge holding the controller lock: the fire is skipped.
+    (runtime / "run.json").write_text(json.dumps({"script": "gather", "ended": False}))
+    assert juncture.run_in_flight() is True
+    assert juncture.gate_main() == 0
+    assert _parse_wake_gate(capsys.readouterr().out) is False
+
+    # The same record with no live bridge is a gateway that died mid-run, not a run in flight:
+    # the pilot is woken rather than silenced for good.
+    lock.unlink()
+    assert juncture.run_in_flight() is False
+    assert juncture.gate_main() == 0
+    assert _parse_wake_gate(capsys.readouterr().out) is True
 
 
 def test_the_juncture_job_carries_the_stance_and_passes_the_cron_toolset_clamp(tmp_path):
@@ -36,6 +58,10 @@ def test_the_juncture_job_carries_the_stance_and_passes_the_cron_toolset_clamp(t
     job = juncture.ensure_juncture_job()
 
     stored = cron_jobs.get_job(job["id"])
+    # The wake gate cron runs before it builds the prompt, installed where cron will run it from.
+    assert stored["script"].endswith(juncture.GATE_SCRIPT)
+    from cron.scheduler_script import _resolve_script_path
+    assert _resolve_script_path(stored["script"])[0] is not None, "cron must accept the path"
     # The stance's skill is its career folder's README (STANCE_FOLDER), not the stance name.
     assert stored["skills"] == ["spacemolt", "spacemolt-mining"]
     # The job tools and the reads; never the operator's toolset — a pilot does not direct itself.

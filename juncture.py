@@ -8,8 +8,11 @@ job at rest, when the stance changes (N18).
 from __future__ import annotations
 
 import json
+import os
 from datetime import datetime, timezone
 from typing import Any, Mapping
+
+from hermes_constants import get_hermes_home
 
 from .service import pilot_path, runtime_dir
 
@@ -34,9 +37,8 @@ JOURNAL_FILE = "gameplay.jsonl"
 
 JUNCTURE_PROMPT = (
     "A SpaceMolt juncture: the pilot is between runs and you choose what it does next.\n"
-    "Read the context in front of you — the present and how the last run ended. If it says "
-    "a run is still in flight, say so in one line and end the turn.\n"
-    "Otherwise end the juncture one of three ways: play, by writing pilot/index.ts with "
+    "Read the context in front of you — the present and how the last run ended.\n"
+    "End the juncture one of three ways: play, by writing pilot/index.ts with "
     "spacemolt_run (pass `source`; spacemolt_check first when unsure) and reading the report "
     "it returns; hold, starting nothing; or rest at home when the objective is done.\n"
     "Your skill is the play library's README: every function it lists, with literal arguments "
@@ -77,11 +79,6 @@ def juncture_context(session_info: Mapping[str, Any] | None = None) -> str:
     from .service import call
 
     menu = call("menu")
-    if menu.get("busy"):
-        step = menu.get("fn") or "its first move"
-        return (f"SpaceMolt juncture: a run is still in flight (on {step}, "
-                f"{menu.get('elapsed_s', '?')} s, {menu.get('commands', '?')} commands). "
-                "Say in one line that the run is in flight and end the turn.")
     _instruction(menu)
     # At rest the menu still carries moves (VISION: the menu is never empty); the choosing
     # material a rest needs is the reflection, so the fire gets both.
@@ -204,6 +201,78 @@ def journal_event(event: str, **fields: Any) -> None:
         journal.write(json.dumps(entry, separators=(",", ":")) + "\n")
 
 
+#: The gate cron runs before it builds a fire's prompt. Cron only runs scripts that resolve
+#: inside ``HERMES_HOME/scripts`` (``cron.scheduler_script._resolve_script_path``, symlinks
+#: resolved), so the plugin installs a shim there rather than naming a file in its own tree.
+GATE_SCRIPT = "spacemolt-juncture-gate.py"
+#: The shim is a separate process from the gateway, so it cannot ask the bridge anything — a
+#: ``service.call`` would start a *second* bridge and be refused the controller lock. It reads
+#: the same durable signal ``wake_on_load`` reads instead: the run record the bridge keeps.
+_GATE_SHIM = '''"""Written by spacemolt.juncture: the juncture's wake gate. Do not edit."""
+import os, sys
+sys.path[:0] = {roots!r}
+os.environ["HERMES_HOME"] = {home!r}
+from spacemolt.juncture import gate_main
+raise SystemExit(gate_main())
+'''
+
+
+def run_in_flight() -> bool:
+    """Is a run going on right now, as a process outside the gateway can tell?
+
+    The bridge keeps ``running`` in memory, so the only account of it another process can read
+    is ``run.json``: a record that has not ended. A gateway that died mid-run leaves that
+    record un-ended forever, and a gate that believed it would silence the pilot for good — so
+    the controller lock, which a live bridge holds for as long as it runs, has the last word.
+    """
+    runtime = runtime_dir()
+    try:
+        record = json.loads((runtime / "run.json").read_text())
+    except (OSError, ValueError):
+        return False
+    if record.get("ended", True):
+        return False
+    return any(_lock_held(lock) for lock in runtime.glob("controller-*.lock"))
+
+
+def _lock_held(lock: Any) -> bool:
+    """Is the bridge that wrote this lock still alive? ``controller-lock.ts`` reads it the same
+    way: the pid alone, with EPERM meaning alive but not ours."""
+    try:
+        os.kill(int(json.loads(lock.read_text())["pid"]), 0)
+    except PermissionError:
+        return True
+    except (OSError, ValueError, KeyError, TypeError):
+        return False
+    return True
+
+
+def gate_main() -> int:
+    """The wake gate: a fire that lands on a run in flight ends silently, with no model turn.
+
+    Nothing is printed otherwise — anything the script says is prepended to the fire's prompt,
+    and a juncture that is going to happen has nothing to learn from this. A runner that is not
+    up is not in flight, so the fire wakes and the tools say so themselves.
+    """
+    if run_in_flight():
+        print('{"wakeAgent": false}')
+    return 0
+
+
+def install_gate() -> str:
+    """Put the shim where cron will run it from, rewritten every time so a moved plugin or a
+    changed profile cannot leave a stale one behind. Returns the path for the job's ``script``."""
+    from .service import wake_env
+
+    env = wake_env()
+    path = get_hermes_home() / "scripts" / GATE_SCRIPT
+    path.parent.mkdir(parents=True, exist_ok=True)
+    roots = list(dict.fromkeys(env["PYTHONPATH"].split(os.pathsep)))
+    path.write_text(_GATE_SHIM.format(roots=roots, home=env["HERMES_HOME"]))
+    path.chmod(0o700)
+    return str(path)
+
+
 def job_name(pilot: dict[str, Any]) -> str:
     """One job per pilot, found again by this name so rest rewrites rather than adds."""
     return f"spacemolt juncture: {pilot.get('name') or 'pilot'}"
@@ -220,6 +289,10 @@ def job_fields(pilot: dict[str, Any]) -> dict[str, Any]:
         "prompt": JUNCTURE_PROMPT,
         "skills": [SHARED_SKILL] + ([f"{SHARED_SKILL}-{folder}"] if folder else []),
         "enabled_toolsets": list(TOOLSETS),
+        # Cron runs this before it builds the prompt: a fire that lands mid-run ends there,
+        # with no model turn. ``update_job`` merges fields, so a live job gains it on the next
+        # ensure without being deleted.
+        "script": install_gate(),
     }
 
 
@@ -234,3 +307,7 @@ def ensure_juncture_job(schedule: str = IDLE_SCHEDULE) -> dict[str, Any]:
     if existing is not None:
         return update_job(existing["id"], fields)
     return create_job(schedule=schedule, name=name, **fields)
+
+
+if __name__ == "__main__":  # what the shim calls, runnable by hand: python -m spacemolt.juncture
+    raise SystemExit(gate_main())
