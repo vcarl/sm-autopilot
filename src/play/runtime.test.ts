@@ -126,6 +126,11 @@ test('goTo takes a POI id, a display name, or a word that names nothing and says
     assert.match(guess.why!,/nearest: deep_range \(system Deep Range\)/);
     // Nothing was flown on the refusal.
     assert.equal(f.account.server.location.docked_at,'sol_base');
+    // A guess built out of the right words, which is neither a prefix nor a suffix of the
+    // real id: the words it shares are what finds the POI it was reaching for.
+    const invented=await goTo('sol_station_a');
+    assert.equal(invented.status,'refused');
+    assert.match(invented.why!,/nearest: station \(POI Sol Station\)/);
   } finally {unbind();}
 });
 

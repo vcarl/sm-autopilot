@@ -485,7 +485,9 @@ export function bridgeWorld(options:WorldOptions={}) {
     },
     'spacemolt/find_route':params=>{
       const target=homeOf[String(params.id)];
-      if(!target)return {found:false,message:`No route to ${params.id}`};
+      // An id the server cannot place is an error, not a `found:false` body: it assumes the
+      // word was a system and says so. That throw is what goTo has to read as "no such place".
+      if(!target)throw new Error('Target system not found');
       const from=account.server.location.system_id;
       const route=from===target?[from]:[from,target];
       // A system id answers with a system and no POI of its own: there is no one place in a

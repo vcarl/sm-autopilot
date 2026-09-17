@@ -30,6 +30,11 @@ interface Place {id:string;name:string;what:'system'|'POI'|'base'}
 /** Ids and display names compared the way a pilot writes them: `Last Light` and
  * `last_light` are the same word, `lastlight_station` starts with it. */
 const key=(text:string):string=>text.toLowerCase().replace(/[^a-z0-9]+/g,'');
+/** The words in an id or a name, so `sirius_station` and `sirius_observatory_station` are
+ * visibly about the same place even though neither is a prefix of the other. */
+const words=(text:string):string[]=>text.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
+/** How `find_route` says an id names nothing. Anything else it throws is a real failure. */
+const NOT_A_PLACE=/not found|unknown destination|no such/i;
 
 /** Everything a word can be matched against once `find_route` has said no: the systems on
  * the map, and the POIs and the bases docked at them in the system the ship is in. Reads
@@ -60,7 +65,16 @@ async function nameable():Promise<Place[]> {
  * display name is what the pilot meant (names are what prose gives them), and the near
  * misses go in the refusal so the next script can correct itself. */
 export async function destination(id:string):Promise<{id:string;quote:FindRouteResponse}> {
-  const ask=async(target:string)=>details(await command('spacemolt/find_route',{id:target})) as FindRouteResponse;
+  // The live server answers an id it cannot place with an error, not a `found:false` body,
+  // so "no such place" arrives as a throw. Only that one is swallowed — a disconnect, a
+  // rate limit or anything else is a failed trip, not a spelling suggestion.
+  const ask=async(target:string)=>{
+    try {return details(await command('spacemolt/find_route',{id:target})) as FindRouteResponse;}
+    catch(error) {
+      if(!NOT_A_PLACE.test((error as Error).message??''))throw error;
+      return {found:false} as FindRouteResponse;
+    }
+  };
   const first=await ask(id);
   if(first.found)return {id,quote:first};
   const places=await nameable();
@@ -70,10 +84,18 @@ export async function destination(id:string):Promise<{id:string;quote:FindRouteR
     const second=await ask(hit.id);
     if(second.found)return {id:hit.id,quote:second};
   }
-  // ponytail: prefix matching either way, not an edit distance. A typo in the middle of a
-  // word finds nothing; reach for a distance only when that shows up in the journal.
-  const near=places.filter(place=>[key(place.id),key(place.name)].some(k=>
-    k!==want&&k.length>=3&&(k.startsWith(want)||want.startsWith(k))));
+  // ponytail: shared words, plus a prefix either way — not an edit distance. A guess built
+  // out of the right words (`sirius_station` for `sirius_observatory_station`) and one built
+  // by suffixing a system name (`lastlight_station` for `last_light`) both land; a typo
+  // inside a word lands nowhere. Reach for a distance only when that shows up in the journal.
+  const asked=new Set(words(id));
+  const score=(place:Place):number=>{
+    const shared=[...new Set([...words(place.id),...words(place.name)])].filter(word=>asked.has(word)).length;
+    const prefix=[key(place.id),key(place.name)].some(k=>k!==want&&k.length>=3&&(k.startsWith(want)||want.startsWith(k)));
+    return shared+(prefix?1:0);
+  };
+  const near=places.map(place=>({place,score:score(place)})).filter(row=>row.score>0)
+    .sort((a,b)=>b.score-a.score).map(row=>row.place);
   throw new TravelBlocked(`no system, POI or base is named ${id}`
     +(near.length?`; nearest: ${near.slice(0,4).map(p=>`${p.id} (${p.what} ${p.name})`).join(', ')}`
       :'; scout() lists the POIs and bases here, orient() the systems you know'));
