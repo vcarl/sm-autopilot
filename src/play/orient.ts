@@ -1,5 +1,5 @@
 /** Looking around. Reads only; nothing here spends a tick or a credit. */
-import type {ActiveMissionInfo,CarrierProfile,GetNearbyResponse,GetNotificationsResponse,GetWrecksResponse,
+import type {ActiveMissionInfo,CarrierProfile,GetNearbyResponse,GetWrecksResponse,
   ListShipsResponse,MapSystemInfo,ResourceInfo,StorageLocation,SystemConnection,SystemInfo,SystemPoi,
   TaxEstimateResponse,V2Missions,ViewStorageResponse} from '@spacemolt/lib';
 import {details} from '../response-details.ts';
@@ -16,8 +16,6 @@ export interface Orientation {
   active_missions:ActiveMissionInfo[];
   /** What accrues behind your back: the tax estimate and the carrier record with its debt. */
   owes:{tax?:TaxEstimateResponse;carrier?:CarrierProfile;bounty:number};
-  /** Unread, capped at 10 (`get_notifications({limit:10})`). */
-  notifications:GetNotificationsResponse['notifications'];
   pilot:Pilot;
   /** Reads that failed this time, by name. Never guessed. */
   missing:string[];
@@ -30,7 +28,7 @@ async function attempt<T>(missing:string[],name:string,read:()=>Promise<T>):Prom
 }
 
 /** Refresh the whole world model in one call: where you are, what you have, what you owe,
- * what you own elsewhere, your skills, your missions, and the pilot record. Over the eight
+ * what you own elsewhere, your skills, your missions, and the pilot record. Over the seven
  * reads it adds: one call, each reply cut to what a decision needs, and `next` naming the
  * most obvious gap ("no home set", "hold is full", "tax due 16 cr"). Returns `done` always. */
 export function orient():Promise<Outcome<Orientation>> {
@@ -45,7 +43,6 @@ export function orient():Promise<Outcome<Orientation>> {
     });
     const tax=await attempt(missing,'tax',async()=>details(await command('spacemolt/get_tax_estimate',{})) as TaxEstimateResponse);
     const carrier=await attempt(missing,'carrier',async()=>(details(await command('spacemolt_shipping/profile',{})) as {profile?:CarrierProfile}).profile);
-    const notes=await attempt(missing,'notifications',async()=>(details(await command('spacemolt/get_notifications',{limit:10})) as GetNotificationsResponse).notifications??[]);
     const who=pilot(),now=present();
     const bounty=Number((acct().state.player as any)?.bounty??0);
     const taxDue=tax?Number(tax.income_tax_total??0)+Number(tax.property_tax_total??0)-Number(tax.tax_prepaid??0):0;
@@ -59,9 +56,9 @@ export function orient():Promise<Outcome<Orientation>> {
     if(lowest)next.push(`lowest skill: ${lowest[0]} ${lowest[1].level}`);
     const place=now.location?.docked_at?`docked at ${now.location.docked_at}`:`at ${now.location?.poi_id??'?'}`;
     return {status:'done',
-      did:`${place} (${now.location?.system_name??now.location?.system_id}), fuel ${now.ship?.fuel}/${now.ship?.max_fuel}, hull ${now.ship?.hull}/${now.ship?.max_hull}, hold ${now.ship?.cargo_used}/${now.ship?.cargo_capacity}, ${now.credits} cr, ${active?.length??'?'} missions, holdings at ${store?.locations?.length??'?'} bases${missing.length?`; unread: ${missing.join(', ')}`:''}`,
+      did:`${place} (${now.location?.system_name??now.location?.system_id}), fuel ${now.ship?.fuel}/${now.ship?.max_fuel}, hull ${now.ship?.hull}/${now.ship?.max_hull}, hold ${now.ship?.cargo_used}/${now.ship?.cargo_capacity}, ${now.credits} cr, ${active?.length??'?'} missions, holdings at ${store?.locations?.length??'?'} bases${missing.length?`; missing: ${missing.join(', ')}`:''}`,
       detail:{present:now,storage:store?.locations??[],ships:ships?.ships??[],active_missions:active??[],
-        owes:{...tax?{tax}:{},...carrier?{carrier}:{},bounty},notifications:notes??[],pilot:who,missing},
+        owes:{...tax?{tax}:{},...carrier?{carrier}:{},bounty},pilot:who,missing},
       next};
   });
 }
