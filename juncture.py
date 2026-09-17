@@ -250,12 +250,13 @@ def _lock_held(lock: Any) -> bool:
 def gate_main() -> int:
     """The wake gate: a fire that lands on a run in flight ends silently, with no model turn.
 
-    Nothing is printed otherwise — anything the script says is prepended to the fire's prompt,
-    and a juncture that is going to happen has nothing to learn from this. A runner that is not
-    up is not in flight, so the fire wakes and the tools say so themselves.
+    The gate always says which it is. Saying nothing is not "wake normally": a script job whose
+    script printed nothing has no prompt to build, and cron ends that fire silently too
+    (``scheduler.py``: "script produced no output, skipping AI call") — which suppressed every
+    juncture, live, on the first restart. A runner that is not up is not in flight: the fire
+    wakes and the tools say so themselves.
     """
-    if run_in_flight():
-        print('{"wakeAgent": false}')
+    print('{"wakeAgent": false}' if run_in_flight() else '{"wakeAgent": true}')
     return 0
 
 

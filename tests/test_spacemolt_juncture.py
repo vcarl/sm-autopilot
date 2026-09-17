@@ -27,25 +27,32 @@ def test_a_fire_while_a_script_runs_changes_nothing(monkeypatch, capsys):
     lock = runtime / "controller-deadbeef.lock"
     lock.write_text(json.dumps({"pid": os.getpid()}))
 
+    def gate_line() -> str:
+        """The last stdout line, which is the only one cron reads. Asserted literally, never
+        through _parse_wake_gate alone: that answers True to no output at all, and no output is
+        what cron ends a fire on (live 2026-09-17) — it would hide the very bug it looks for."""
+        assert juncture.gate_main() == 0
+        printed = capsys.readouterr().out
+        assert printed.strip(), "an empty stdout ends the fire as surely as wakeAgent=false"
+        return printed.splitlines()[-1]
+
     # Nothing running: no record at all, then one that ended.
-    assert juncture.gate_main() == 0
-    assert _parse_wake_gate(capsys.readouterr().out) is True
+    assert gate_line() == '{"wakeAgent": true}'
     (runtime / "run.json").write_text(json.dumps({"script": "gather", "ended": True}))
-    assert juncture.gate_main() == 0
-    assert _parse_wake_gate(capsys.readouterr().out) is True
+    assert gate_line() == '{"wakeAgent": true}'
 
     # A run in flight, and a live bridge holding the controller lock: the fire is skipped.
     (runtime / "run.json").write_text(json.dumps({"script": "gather", "ended": False}))
     assert juncture.run_in_flight() is True
-    assert juncture.gate_main() == 0
-    assert _parse_wake_gate(capsys.readouterr().out) is False
+    line = gate_line()
+    assert line == '{"wakeAgent": false}' and _parse_wake_gate(line) is False
 
     # The same record with no live bridge is a gateway that died mid-run, not a run in flight:
     # the pilot is woken rather than silenced for good.
     lock.unlink()
     assert juncture.run_in_flight() is False
-    assert juncture.gate_main() == 0
-    assert _parse_wake_gate(capsys.readouterr().out) is True
+    line = gate_line()
+    assert line == '{"wakeAgent": true}' and _parse_wake_gate(line) is True
 
 
 def test_the_juncture_job_carries_the_stance_and_passes_the_cron_toolset_clamp(tmp_path):
