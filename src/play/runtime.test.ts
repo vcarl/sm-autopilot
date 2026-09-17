@@ -101,6 +101,34 @@ test('goTo resolves a base id to the POI it sits at, docks there, and refuses a 
   } finally {unbind();}
 });
 
+test('goTo takes a POI id, a display name, or a word that names nothing and says what does',async()=>{
+  const f=world({mood:'Focused'});
+  try {
+    f.account.server.location={system_id:'sol',poi_id:'station',docked_at:null,in_transit:false};
+    await f.account.refresh();
+    // A POI id ends the trip at that POI, undocked — there is no base to dock at.
+    const belt=await goTo('belt');
+    assert.equal(belt.status,'done',belt.why);
+    assert.equal(f.account.server.location.poi_id,'belt');
+    assert.equal(belt.detail.docked,false);
+    // A display name is what prose gives the pilot, so it resolves to the id and, for a
+    // base, still ends the trip docked.
+    const named=await goTo('Sol Base');
+    assert.equal(named.status,'done',named.why);
+    assert.equal(named.detail.docked,true);
+    assert.equal(f.account.server.location.docked_at,'sol_base');
+    assert.ok(f.lines.some(line=>line.includes('Sol Base is sol_base')),f.lines.join('\n'));
+    // A base id the pilot invented off a system name: the server calls that "Target system
+    // not found", which says nothing; the refusal names the system it was built from.
+    const guess=await goTo('deep_range_outpost');
+    assert.equal(guess.status,'refused');
+    assert.match(guess.why!,/no system, POI or base is named deep_range_outpost/);
+    assert.match(guess.why!,/nearest: deep_range \(system Deep Range\)/);
+    // Nothing was flown on the refusal.
+    assert.equal(f.account.server.location.docked_at,'sol_base');
+  } finally {unbind();}
+});
+
 test('goTo a system id is done wherever in that system the jump lands, and never names it as a POI',async()=>{
   const f=world({mood:'Focused'});
   try {

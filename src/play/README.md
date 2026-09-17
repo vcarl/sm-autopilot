@@ -68,7 +68,7 @@ same goes for `withdraw` of rows the store does not have and `sell` of rows you 
 |---|---|
 | `orient()` | the whole world model in one read: present, skills, storage everywhere, ships, missions, debts |
 | `scout(target?)` | POIs of a system (this one by default) with types, stations, resources here, creatures here |
-| `goTo(id?)` | fly to a POI, base or system, jumping as needed; dock if a base; default home. On the way it flies through and completes any active distress mission whose system is on the route or one jump off it, when the detour stays inside a quarter of the route's length and the tank still covers the rest plus the reserve |
+| `goTo(id?)` | fly to a POI, base or system, jumping as needed; dock if a base; default home. Any of the three ids works, or a display name: a system id ends the trip anywhere in that system, a POI id at that POI, a base id docked at it — and a word that names nothing is `refused` with the nearest ids instead of being flown. On the way it flies through and completes any active distress mission whose system is on the route or one jump off it, when the detour stays inside a quarter of the route's length and the tank still covers the rest plus the reserve |
 | `service()` | full tank and hull, inside the mood's spend margin |
 | `stow(rows)` / `withdraw(rows)` / `storage(base?)` | station storage; rows you name (omit a row's `quantity` for all of it); readable from anywhere |
 | `prices(items?)` / `sell(rows, opts?)` / `buy(item, qty)` | the market here, live at the moment of the act, and remembered for `spreads()`; `sell(rows, {from:'store'})` empties the store a hold-load at a time |

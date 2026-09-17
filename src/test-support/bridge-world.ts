@@ -474,6 +474,11 @@ export function bridgeWorld(options:WorldOptions={}) {
     // The map entry for a system, as a far one answers: never visited, so a neighbour is
     // always somewhere the menu can point at.
     'spacemolt/get_map':params=>{
+      // No id asked for is the whole galaxy, which is what a name or a near miss is matched
+      // against; one id is the entry for that system.
+      if(params.system_id===undefined)return {structuredContent:{total_count:2,
+        systems:[system,deepRange].map(s=>({system_id:s.id,name:s.name,poi_count:s.pois.length,visited:s.id==='sol',
+          connections:s.connections.map(link=>link.system_id),online:0,position:{x:0,y:0},visited_at:''}))}};
       const far=String(params.system_id)==='sol'?system:deepRange;
       return {structuredContent:{system_id:far.id,name:far.name,poi_count:far.pois.length,visited:far.id==='sol',
         connections:far.connections.map(link=>link.system_id),online:0,position:{x:0,y:0},visited_at:''}};

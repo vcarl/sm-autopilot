@@ -1,5 +1,5 @@
 /** Getting somewhere and docking. One function; the id decides what it does. */
-import type {ActiveMissionInfo,CompleteMissionResponse,FindRouteResponse,RouteStep,V2Location} from '@spacemolt/lib';
+import type {ActiveMissionInfo,CompleteMissionResponse,FindRouteResponse,RouteStep,SystemPoi,V2Location} from '@spacemolt/lib';
 import {dockAt} from '../dock.ts';
 import {resolveFuelReserve} from '../mood-policy.ts';
 import {details} from '../response-details.ts';
@@ -25,13 +25,62 @@ export interface Trip {
   docked:boolean;
 }
 
-/** Where a nameable id lives, as the server answers it. A base id answers with the POI it
- * sits at (`target_poi`), which is what the arrival check must wait for (report 01, fix 1). */
-export async function route(id:string):Promise<FindRouteResponse> {
-  const answer=details(await command('spacemolt/find_route',{id})) as FindRouteResponse;
-  if(!answer.found)throw new TravelBlocked(String(answer.message??`No route to ${id}`));
-  return answer;
+/** A place the pilot can name: a system, a POI, or a base docked at one. */
+interface Place {id:string;name:string;what:'system'|'POI'|'base'}
+/** Ids and display names compared the way a pilot writes them: `Last Light` and
+ * `last_light` are the same word, `lastlight_station` starts with it. */
+const key=(text:string):string=>text.toLowerCase().replace(/[^a-z0-9]+/g,'');
+
+/** Everything a word can be matched against once `find_route` has said no: the systems on
+ * the map, and the POIs and the bases docked at them in the system the ship is in. Reads
+ * only, and a read that fails is no suggestions — never a failed trip. */
+async function nameable():Promise<Place[]> {
+  const places:Place[]=[];
+  try {
+    const map=details(await command('spacemolt/get_map',{})) as {systems?:{system_id:string;name?:string}[]};
+    for(const row of map.systems??[])places.push({id:row.system_id,name:row.name??row.system_id,what:'system'});
+  } catch {/* no map is no suggestions */}
+  try {
+    const here=(details(await command('spacemolt/get_system',{})) as {system?:{pois?:SystemPoi[]}}).system;
+    for(const poi of here?.pois??[]) {
+      places.push({id:poi.id,name:poi.name??poi.id,what:'POI'});
+      if(poi.base_id)places.push({id:poi.base_id,name:poi.base_name??poi.base_id,what:'base'});
+    }
+  } catch {/* ditto */}
+  return places;
 }
+
+/** Where a nameable id lives, as the server answers it, and the id it turned out to be. A
+ * base id answers with the POI it sits at (`target_poi`), which is what the arrival check
+ * must wait for (report 01, fix 1).
+ *
+ * The server classifies a word it does not know as a system, so its "Target system not
+ * found" says nothing about what was actually named. When it says that, the word is matched
+ * against the systems on the map and the POIs and bases here: an exact match on an id or a
+ * display name is what the pilot meant (names are what prose gives them), and the near
+ * misses go in the refusal so the next script can correct itself. */
+export async function destination(id:string):Promise<{id:string;quote:FindRouteResponse}> {
+  const ask=async(target:string)=>details(await command('spacemolt/find_route',{id:target})) as FindRouteResponse;
+  const first=await ask(id);
+  if(first.found)return {id,quote:first};
+  const places=await nameable();
+  const want=key(id);
+  const hit=places.find(place=>place.id!==id&&(key(place.id)===want||key(place.name)===want));
+  if(hit) {
+    const second=await ask(hit.id);
+    if(second.found)return {id:hit.id,quote:second};
+  }
+  // ponytail: prefix matching either way, not an edit distance. A typo in the middle of a
+  // word finds nothing; reach for a distance only when that shows up in the journal.
+  const near=places.filter(place=>[key(place.id),key(place.name)].some(k=>
+    k!==want&&k.length>=3&&(k.startsWith(want)||want.startsWith(k))));
+  throw new TravelBlocked(`no system, POI or base is named ${id}`
+    +(near.length?`; nearest: ${near.slice(0,4).map(p=>`${p.id} (${p.what} ${p.name})`).join(', ')}`
+      :'; scout() lists the POIs and bases here, orient() the systems you know'));
+}
+
+/** The quote alone, for callers that only want the fuel and jumps. */
+export async function route(id:string):Promise<FindRouteResponse> {return (await destination(id)).quote;}
 
 /** The system an active distress mission wants visited, or undefined when it is not one to
  * fly to: a `visit_system` objective carries `system_id` and nothing else, and arriving is
@@ -114,22 +163,26 @@ export function goTo(id?:string):Promise<Outcome<Trip>> {
     const target=id??who.home;
     const none={route:{} as FindRouteResponse,location:acct().state.location as V2Location,jumps:0,docked:false};
     if(!target)return {status:'refused',did:'went nowhere',why:'no destination and no home set in pilot.json',detail:none};
-    let quote:FindRouteResponse;
-    try {quote=await route(target);}
+    // What the pilot wrote may be an id or a display name; `named` is the id it turned out
+    // to be, and every comparison below is made against that, never against the word.
+    let quote:FindRouteResponse,named:string;
+    try {({id:named,quote}=await destination(target));}
     catch(error){return {status:'refused',did:`could not route to ${target}`,why:(error as Error).message,detail:none};}
     const detail=():Trip=>({route:quote,location:acct().state.location as V2Location,jumps:0,docked:false});
+    // A name was accepted; say which id it was, so the next script can write the id.
+    if(named!==target)step(`${target} is ${named}`);
     if((who.permissions?.no_go??[]).includes(quote.target_system))
       return {status:'refused',did:`did not fly to ${target}`,why:`${quote.target_system} is in permissions.no_go`,detail:detail()};
     // A base id is what find_route resolved to a different POI; dock there on arrival.
-    const isBase=quote.target_poi!==undefined&&quote.target_poi!==target;
+    const isBase=quote.target_poi!==undefined&&quote.target_poi!==named;
     // A system id answers with a system and no POI of its own. Passing it on as a `poi_id`
     // is what the server rejects as "Unknown destination" after the jump was already flown
     // and paid for: a system is reached wherever in it the jump lands, so name no POI.
-    const poi=quote.target_poi===undefined&&quote.target_system===target?undefined:quote.target_poi??target;
+    const poi=quote.target_poi===undefined&&quote.target_system===named?undefined:quote.target_poi??named;
     if(who.mood==='Tired'&&!isBase)
       return {status:'refused',did:`did not fly to ${target}`,why:'Tired: only a base is admitted, to service there',detail:detail()};
     const {location}=acct().state;
-    if(location?.system_id===quote.target_system&&(!poi||location.poi_id===poi)&&(!isBase||location.docked_at===target))
+    if(location?.system_id===quote.target_system&&(!poi||location.poi_id===poi)&&(!isBase||location.docked_at===named))
       return {status:'done',did:`already at ${target}${poi?'':` (${location.poi_id})`}`,detail:{...detail(),docked:Boolean(location.docked_at)}};
     const mood=who.mood??'Cautious';
     // Tired flies straight to the base it is being serviced at; nothing is answered on the way.
@@ -175,7 +228,7 @@ export function goTo(id?:string):Promise<Outcome<Trip>> {
     // The dock is decided by the system's own listing, not the route heuristic: a system id
     // may also answer with a POI, and docking "at a system" would wedge here.
     const pois=poi?(details(await command('spacemolt/get_system',{})).system?.pois??[]) as {id:string;base_id?:string}[]:[];
-    if(pois.some(row=>row.id===poi&&row.base_id===target)){await dockAt(acct(),command,target);docked=true;step(`docked at ${target}`);}
+    if(pois.some(row=>row.id===poi&&row.base_id===named)){await dockAt(acct(),command,named);docked=true;step(`docked at ${named}`);}
     return {status:'done',did:`arrived at ${target}${poi?'':` (${acct().state.location?.poi_id})`}${docked?' and docked':''} after ${jumps} jump(s)`
       +(answered.length?`; ${answered.join('; ')}`:''),detail:{...detail(),jumps,docked}};
   });
