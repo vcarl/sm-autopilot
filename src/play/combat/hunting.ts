@@ -13,6 +13,8 @@ export interface Fight {
   /** The last `battle/status` read before the battle ended. */
   last_status?:GetBattleStatusResponse;
   outcome:'down'|'escaped'|'broke off'|'unresolved';
+  /** What the loop saw, when the outcome needs it: the quarry running is the case that has one. */
+  why?:string;
   hull_before:number;hull_after:number;
   /** The wreck it left and what was looted from it. */
   wreck?:EnrichedWreck;loot:Row[];
@@ -25,10 +27,11 @@ export interface Hunted {
   ended:'asked'|'nothing here'|'hull'|'hold full'|'stopped'|'tired';
 }
 
-/** ponytail: one poll interval and one ceiling, not a config system. A battle tick is ten
- * seconds of real time and a wildlife fight is a handful of them; five minutes is a fight
- * that is not going to end. Lift them the day a hunt legitimately runs longer. */
-const POLL_MS=250;
+/** ponytail: one tick and one ceiling, not a config system. A battle tick is ten seconds of
+ * real time, the server takes one mutation per tick and throttles reads, so the loop reads
+ * once and acts once a tick; five minutes is a fight that is not going to end. `pace` is a
+ * knob only because the tests cannot sit through real ticks. */
+export const pace={tickMs:10_000};
 const FIGHT_CEILING_MS=5*60_000;
 
 const isCreature=(target:CreatureInfo|PirateInfo):target is CreatureInfo=>'creature_id' in target;
@@ -71,17 +74,21 @@ function decline(target:CreatureInfo|PirateInfo,named:string|undefined,mayAttack
   return null;
 }
 
-/** One fight, from the first shot to the end of the battle. The battle is the game's to run
- * — it flies on auto-pilot in the `fire` stance — so this watches it, closes the distance
- * while the target is out of reach, and breaks off when the hull crosses the mood's line or
- * Tired lands mid-fight. */
+/** One fight, from the first shot to the end of the battle, paced on the battle's own tick.
+ * Ships fire by themselves every tick under their stance — there is no fire command — and the
+ * server takes one mutation a tick, so this reads the status once a tick, makes one decision
+ * and sends at most one command: the `fire` stance and the focus at the open, then `advance`
+ * while the quarry is out of reach or running. It breaks off when our hull crosses the mood's
+ * line or Tired lands mid-fight. */
 async function engage(target:CreatureInfo|PirateInfo,floor:number):Promise<Fight> {
   await acct().refresh();
   const hull_before=Number(acct().state.ship?.hull??0);
   const id=idOf(target);
   await command(isCreature(target)?'spacemolt/hunt':'spacemolt/attack',{id});
   const deadline=Date.now()+FIGHT_CEILING_MS;
-  let outcome:Fight['outcome']='escaped',last:GetBattleStatusResponse|undefined,round=0;
+  let outcome:Fight['outcome']='escaped',last:GetBattleStatusResponse|undefined;
+  let tick=-1,opened=0,fled=0;
+  let seen:{hull:number;far:number}|undefined,first:{hull:number;far:number}|undefined;
   for(;;) {
     let status:GetBattleStatusResponse;
     // The battle answering `not_in_battle` IS its end; that refusal is the evidence.
@@ -90,13 +97,21 @@ async function engage(target:CreatureInfo|PirateInfo,floor:number):Promise<Fight
     if(!status?.battle_id)break;
     last=status;
     const rows=status.participants??[];
+    // The quarry's own row, by id. Ours answers our shield, never the range to it.
     const theirs=rows.find(row=>row.player_id===id);
     if(!theirs)break;
+    // `tick_duration` is the count of ticks the battle has run: the same number is the same
+    // tick and nothing new to decide. Without it, every read stands as its own tick.
+    const now=Number(status.tick_duration??tick+1);
+    if(now===tick){await sleep(pace.tickMs);continue;}
+    tick=now;
     await acct().refresh();
     const ship=acct().state.ship as V2Ship|undefined;
     const hull=Number(ship?.hull??0);
     const mine=rows.find(row=>row.kind==='player');
-    step(`round ${++round} vs ${nameOf(target)}: hull ${hull}/${ship?.max_hull??'?'}, shield ${mine?.shield_pct??0}%, theirs ${theirs.hull_pct??0}%`);
+    const reach=Number(status.combat_state?.max_weapon_reach??0);
+    const theirHull=Number(theirs.hull_pct??0),far=Number(theirs.zone_distance??0);
+    step(`tick ${tick} vs ${nameOf(target)}: hull ${hull}/${ship?.max_hull??'?'}, shield ${mine?.shield_pct??0}%, theirs ${theirHull}% at ${theirs.zone??'?'} ${far}/${reach}`);
     if(ship?.incapacitated){outcome='unresolved';break;}
     const tired=pilot().mood==='Tired';
     if(hull<floor||tired) {
@@ -104,13 +119,23 @@ async function engage(target:CreatureInfo|PirateInfo,floor:number):Promise<Fight
       outcome='broke off';
       break;
     }
-    const reach=Number(status.combat_state?.max_weapon_reach??0);
-    if(Number(mine?.zone_distance??0)>reach)await command('spacemolt_battle/advance',{});
     if(Date.now()>=deadline){outcome='unresolved';break;}
-    await sleep(POLL_MS);
+    // A hull that is not falling while the range opens is the quarry running, not a miss.
+    if(seen)fled=theirHull>=seen.hull&&far>seen.far?fled+1:0;else first={hull:theirHull,far};
+    seen={hull:theirHull,far};
+    // One mutation a tick, in the order that decides the fight: stance, focus, then the chase.
+    if(opened===0){await command('spacemolt_battle/stance',{id:'fire'});step('stance fire');opened=1;}
+    else if(opened===1){await command('spacemolt_battle/target',{id});step(`focus fire on ${nameOf(target)}`);opened=2;}
+    else if(far>reach||(fled>0&&far>0))await command('spacemolt_battle/advance',{});
+    await sleep(pace.tickMs);
   }
   await acct().refresh();
-  return {target,...last?{last_status:last}:{},outcome,hull_before,
+  // ponytail: the chase is `advance`. `stance board` would cancel its retreat outright, but it
+  // costs marines and suppresses our weapons; take it the day a hunt needs a boarding party.
+  const why=outcome==='escaped'&&fled&&seen&&first
+    ?`hull flat at ${seen.hull}% for ${fled} tick(s) while it opened the range ${first.far}→${seen.far}`
+    :undefined;
+  return {target,...last?{last_status:last}:{},outcome,...why?{why}:{},hull_before,
     hull_after:Number(acct().state.ship?.hull??0),loot:[]};
 }
 
@@ -178,9 +203,9 @@ export function hunt(opts:{poi?:string;fights?:number;species?:string;target?:'c
         fight.wreck=wreck;
         const took=await lootWreck(wreck);
         fight.loot=took.items;
-        if(fight.outcome==='escaped')fight.outcome='down';
+        if(fight.outcome==='escaped'){fight.outcome='down';delete fight.why;}
       }
-      step(`fight ${result.fights.length}: ${nameOf(target)} ${fight.outcome}, hull ${fight.hull_before}→${fight.hull_after}, ${say(fight.loot)||'no loot'}`);
+      step(`fight ${result.fights.length}: ${nameOf(target)} ${fight.outcome}${fight.why?` (${fight.why})`:''}, hull ${fight.hull_before}→${fight.hull_after}, ${say(fight.loot)||'no loot'}`);
       if(stopped()){result.ended='stopped';break;}
       if(pilot().mood==='Tired'){result.ended='tired';break;}
       if(fight.outcome==='broke off'||fight.outcome==='unresolved'){result.ended='hull';break;}

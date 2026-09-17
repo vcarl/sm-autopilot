@@ -3,8 +3,11 @@ import test from 'node:test';
 import type {ReadinessAccount} from '../../readiness.ts';
 import {bridgeWorld,type WorldOptions} from '../../test-support/bridge-world.ts';
 import {bind,unbind,type Pilot} from '../runtime.ts';
-import {hunt} from './hunting.ts';
+import {hunt,pace} from './hunting.ts';
 import {salvage} from './salvage.ts';
+
+// A tick is ten seconds of real time; the tests take the same loop at a millisecond.
+pace.tickMs=1;
 
 function world(record:Pilot,options:WorldOptions={}) {
   const game=bridgeWorld({services:['refuel','repair','storage'],cargoUsed:0,...options});
@@ -31,10 +34,39 @@ test('hunt fights a creature through to the wreck and loots it',async()=>{
     assert.deepEqual(fight.loot,[{item_id:'creature_carapace',quantity:2}]);
     assert.deepEqual(out.gained.items,[{item_id:'creature_carapace',quantity:2}]);
     assert.equal(out.cost.hull,3,'one hull a tick, including the tick the kill resolved on');
-    // A line per round, carrying our hull and theirs.
-    const rounds=f.lines.filter(line=>line.includes('round '));
-    assert.equal(rounds.length,2);
-    assert.match(rounds[0]!,/round 1 vs Molt Grazer: hull 95\/100, shield 0%, theirs 100%/);
+    // A line per battle tick, carrying the real tick number, our hull and the quarry's.
+    const ticks=f.lines.filter(line=>line.includes(' vs Molt Grazer'));
+    assert.equal(ticks.length,2);
+    assert.match(ticks[0]!,/tick 1 vs Molt Grazer: hull 95\/100, shield 0%, theirs 100% at inner 2\/2/);
+    assert.match(ticks[1]!,/tick 2 vs Molt Grazer/);
+    // The stance and the focus are sent at the open, one a tick, and nothing is fired by hand.
+    assert.equal(f.count('spacemolt_battle/stance'),1);
+    assert.deepEqual(f.sent.find(call=>call.action==='spacemolt_battle/stance')?.params,{id:'fire'});
+    assert.deepEqual(f.sent.find(call=>call.action==='spacemolt_battle/target')?.params,{id:'c1'});
+    // In reach at distance 2 against a reach of 2: nothing to close.
+    assert.equal(f.count('spacemolt_battle/advance'),0);
+    // At most one mutation a tick, which is what the server's rate limit allows.
+    const mutations=f.sent.filter(call=>/battle\/(stance|target|advance|retreat)/.test(call.action)).length;
+    assert.ok(mutations<=f.count('spacemolt_battle/status'),`${mutations} mutations over ${f.count('spacemolt_battle/status')} reads`);
+  } finally {unbind();}
+});
+
+test('a quarry that runs is chased, and an escape says what was seen',async()=>{
+  const f=world({mood:'Focused'},{wildlife:{creatures:[grazer],polls:5,damage:0,flees:true}});
+  try {
+    const out=await hunt();
+    const fight=out.detail.fights[0]!;
+    assert.equal(fight.outcome,'escaped');
+    assert.equal(fight.wreck,undefined,'no wreck: nothing died');
+    assert.match(fight.why!,/hull flat at 100% for \d+ tick\(s\) while it opened the range 3→8/);
+    const reads=f.count('spacemolt_battle/status');
+    // Two ticks open the fight, every later tick closes the range it keeps opening.
+    assert.equal(f.count('spacemolt_battle/advance'),4);
+    assert.equal(f.count('spacemolt_battle/stance'),1);
+    assert.equal(f.count('spacemolt_battle/target'),1);
+    const mutations=f.sent.filter(call=>/battle\/(stance|target|advance|retreat)/.test(call.action)).length;
+    assert.ok(mutations<=reads,`${mutations} mutations over ${reads} reads`);
+    assert.match(f.lines.join('\n'),/fight 1: Molt Grazer escaped \(hull flat at 100%/);
   } finally {unbind();}
 });
 

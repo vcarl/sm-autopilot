@@ -167,6 +167,9 @@ export interface WildlifeOptions {
   weapon?:{name?:string;type_id?:string;ammo_type?:string;current_ammo?:number}|null;
   /** The poll the ship's crew stops being able to fly it on: the world moving the pilot. */
   incapacitateOn?:number;
+  /** The quarry that runs: its hull stays flat, the range opens a ring a tick, and when the
+   * polls run out the battle simply ends — no kill, no wreck. */
+  flees?:boolean;
 }
 
 /** A bench with one recipe on it: what a dry run answers, what a commit escrows and queues,
@@ -274,6 +277,8 @@ export function bridgeWorld(options:WorldOptions={}) {
     if(fauna.incapacitateOn&&battle.ticks>=fauna.incapacitateOn)
       account.server.ship.incapacitated=true;
     if(battle.left>0){battle.left--;return;}
+    // The one that ran: the battle ends with the creature still in the habitat and no wreck.
+    if(fauna.flees){battle=null;return;}
     // The creature is down: it leaves the habitat and leaves a wreck with its drops in it.
     const target=battle.target;
     fauna.creatures=fauna.creatures.filter(row=>row.creature_id!==target);
@@ -439,18 +444,22 @@ export function bridgeWorld(options:WorldOptions={}) {
     // The server's own refusal when the fight is over, which is how a caller learns it ended.
     'spacemolt_battle/status':()=>{
       if(!battle)throw new Error('No active battle. Use attack to engage a target.');
-      const target=battle.target;
+      const target=battle.target,ticks=battle.ticks+1;
       tick();
       const {ship}=account.server;
-      return {structuredContent:{battle_id:'battle-1',is_participant:true,system_id:'sol',
+      // One tick resolves per status read; `tick_duration` is how the caller tells them apart.
+      return {structuredContent:{battle_id:'battle-1',is_participant:true,system_id:'sol',tick_duration:ticks,
         combat_state:{effective_speed:ship.speed,max_weapon_reach:2,incapacitated:ship.incapacitated},
         participants:[{player_id:'ship',kind:'player',side_id:2,stance:'fire',
           hull_pct:Math.round(100*ship.hull/ship.max_hull),zone:'inner',zone_distance:2},
         ...fauna.creatures.filter(row=>row.creature_id===target).map(row=>({player_id:row.creature_id,
           kind:'creature',is_npc:true,side_id:1,username:row.name,
-          hull_pct:Math.round(100*row.hull/row.max_hull),zone:'inner',zone_distance:2}))]}};
+          hull_pct:Math.round(100*row.hull/row.max_hull),
+          zone:fauna.flees?'outer':'inner',zone_distance:fauna.flees?2+ticks:2}))]}};
     },
     'spacemolt_battle/advance':()=>({structuredContent:{action:'advance',message:'Advancing toward the enemy.'}}),
+    'spacemolt_battle/stance':params=>({structuredContent:{action:'stance',stance:String(params.id),message:'Stance set.'}}),
+    'spacemolt_battle/target':params=>({structuredContent:{action:'target',target:String(params.id),message:'Target set.'}}),
     'spacemolt_battle/retreat':()=>{battle=null;
       return {structuredContent:{action:'retreat',message:'Breaking off.'}};},
     'spacemolt_salvage/wrecks':()=>({structuredContent:{count:wrecks.length,

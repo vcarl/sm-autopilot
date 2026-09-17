@@ -12,8 +12,13 @@ of the judgement is about what not to engage.
 | `salvage({tow?})` | loot every wreck here into the hold, your own first; `tow: '<wreck id>'` tows that one instead |
 | [`bounties/`](bounties/README.md) | pirate contracts and sweeps (intermediate+) |
 
-`hunt` fights and loots, and nothing else. The trip around it is yours: `goTo` out, `hunt`,
-`goTo` home, `stow`, `service`. That is the point — the same `hunt` call works whether you
+`hunt` fights and loots, and nothing else. A fight runs on the battle's own tick — ten seconds
+of real time, one status read, one decision and at most one command each, because the server
+takes one mutation a tick: it sets the `fire` stance and focuses the quarry at the open (ships
+fire by themselves under their stance; there is no fire command), then closes the range while
+the quarry is out of reach or running. A journal line a tick carries the tick number and the
+quarry's hull and zone, so the record answers "how often did we act" directly. The trip around
+it is yours: `goTo` out, `hunt`, `goTo` home, `stow`, `service`. That is the point — the same `hunt` call works whether you
 flew there this run or are standing at the belt already.
 
 ## Worked example
@@ -90,6 +95,12 @@ before and after, and `gained.items` is the cargo delta — a `loot` reply over-
 Every mood has a walk-away fraction of max hull (Cautious 0.95, Focused and Relaxed 0.90,
 Aggressive 0.80). `hunt` reads the hull each round and `battle/retreat`s the moment it crosses
 that line. A ship that escapes at 30% hull keeps everything.
+
+The quarry flees too, and that is the other half of the rule. A creature whose hull stops
+falling while its `zone_distance` grows is running, not being missed: `hunt` chases it with
+`advance`, one a tick, for as long as the range keeps opening. If the battle ends anyway with
+no wreck, the fight is `escaped` and `fight.why` says what was seen — "hull flat at 25% for 6
+tick(s) while it opened the range 2→8" — rather than leaving a bare `escaped` to be guessed at.
 
 That same line is what imposes **Tired**, so the two arrive together: the round in flight
 finishes, the fight breaks off, no new fight starts, and the Outcome is `partial` with
