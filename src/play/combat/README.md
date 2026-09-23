@@ -1,8 +1,8 @@
 # combat — the Hunter's evening
 
-"I'll go fight something." Wildlife is legal everywhere and needs no permission; pirates pay
-bounties and are the only safe way to train shields and armor, which train by being hit. Most
-of the judgement is about what not to engage.
+"I'll go fight something." Wildlife is legal everywhere; pirates pay bounties and are the only
+safe way to train shields and armor, which train by being hit. Neither needs a permission —
+what to engage is your judgement, and most of the judgement is about what not to engage.
 
 ## Functions
 
@@ -84,9 +84,9 @@ before and after, and `gained.items` is the cargo delta — a `loot` reply over-
 
 - **Fauna, always.** The only creatures declined are one already `in_combat` in someone else's
   battle, and a `branded` one, which is someone's livestock rather than wildlife.
-- **Pirates, by permission.** `target: 'pirate'` needs `permissions.may_attack` to hold
-  `'pirate'`, or the stronghold crew's `faction` id for that crew alone. Anything whose name
-  carries `[POLICE]` is declined outright: attacking it is the crime, not the hunt.
+- **Pirates, your call.** `target: 'pirate'` needs no permission — any pirate, any crew, is
+  yours to engage or leave, and the judgement is yours. Anything whose name carries `[POLICE]`
+  is declined outright: attacking it is the crime, not the hunt.
 - Players outside a declared war are never engaged here at all.
 
 ## The flee rule

@@ -61,8 +61,9 @@ async function loadout():Promise<string|null> {
 
 /** Why this one is not the fight to take, or null when it is. Fauna is legal everywhere, so
  * the only creature rules are the world's own: a beast already in someone else's battle, and
- * a branded one, which is livestock rather than wildlife. */
-function decline(target:CreatureInfo|PirateInfo,named:string|undefined,mayAttack:string[]):string|null {
+ * a branded one, which is livestock rather than wildlife. Pirates are the pilot's call; only
+ * police are declined outright. */
+function decline(target:CreatureInfo|PirateInfo,named:string|undefined):string|null {
   if(isCreature(target)) {
     if(target.in_combat)return `${target.name} is already in someone else's battle`;
     if(target.branded)return `${target.name} is branded: someone's livestock, not wildlife`;
@@ -70,8 +71,6 @@ function decline(target:CreatureInfo|PirateInfo,named:string|undefined,mayAttack
     return null;
   }
   if(/\[POLICE]/.test(target.name))return `${target.name} is police; attacking it is the crime, not the hunt`;
-  if(!mayAttack.includes('pirate')&&!mayAttack.includes(target.faction??''))
-    return `${target.name} flies for ${target.faction_name??target.faction??'no crew'}; permissions.may_attack admits ${mayAttack.join(', ')||'nothing'}`;
   return null;
 }
 
@@ -161,10 +160,9 @@ async function engage(target:CreatureInfo|PirateInfo,floor:number):Promise<Fight
 const say=(rows:Row[])=>rows.map(row=>`${row.quantity} ${row.item_id}`).join(', ');
 
 /** One engagement where you stand (or at `poi`, flown to first): read what is here, take up
- * to `fights` fights (default 1) against creatures (default) or pirates (`target:'pirate'`,
- * only with `permissions.may_attack` admitting the crew), and loot the wreck each kill
- * leaves. Coming home, stowing and servicing are `goTo`, `stow` and `service` — this
- * function fights and loots, and nothing else.
+ * to `fights` fights (default 1) against creatures (default) or pirates (`target:'pirate'`),
+ * and loot the wreck each kill leaves. Coming home, stowing and servicing are `goTo`, `stow`
+ * and `service` — this function fights and loots, and nothing else.
  *
  * Nothing to hunt here is `done` with `fights: []` and `ended:'nothing here'`: the fact was
  * learned and nothing was spent. `species` narrows to a kind you have fought before; left
@@ -192,7 +190,6 @@ export function hunt(opts:{poi?:string;fights?:number;species?:string;target?:'c
     const gap=await loadout();
     if(gap)return refuse(gap);
     const floor=resolveWalkAway(who.mood??'Cautious')*Number(acct().state.ship?.max_hull??0);
-    const mayAttack=(who.permissions?.may_attack??[]).map(String);
     const wantPirates=opts.target==='pirate';
     // No species named: an active mission's own words are the next best thing to ask.
     const quarry=!opts.species&&!wantPirates?await huntText():'';
@@ -206,9 +203,9 @@ export function hunt(opts:{poi?:string;fights?:number;species?:string;target?:'c
       const refusals:string[]=[];
       let target:CreatureInfo|PirateInfo|undefined;
       // A mission's quarry, when one is named and legal to take, wins over the first thing here.
-      if(quarry)target=here.find(one=>isCreature(one)&&namesSpecies(quarry,one.species)&&decline(one,undefined,mayAttack)===null);
+      if(quarry)target=here.find(one=>isCreature(one)&&namesSpecies(quarry,one.species)&&decline(one,undefined)===null);
       if(!target)for(const one of here) {
-        const why=decline(one,opts.species,mayAttack);
+        const why=decline(one,opts.species);
         if(why===null){target=one;break;}
         refusals.push(why);
       }

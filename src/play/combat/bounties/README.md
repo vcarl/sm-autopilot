@@ -2,8 +2,8 @@
 
 Pirates patrol systems with `police_level` ≤ 20. Killing them pays bounties, trains
 bounty_hunting, and is the one loop that trains shields and armor. Insurance premiums barely
-move for NPC pirate kills. Needs a T2+ hull, a full weapon fit, and `permissions.may_attack`
-including `pirate`.
+move for NPC pirate kills. Needs a T2+ hull and a full weapon fit; no permission gates it —
+whether a sweep is worth flying is your call.
 
 | Function | Promise |
 |---|---|
