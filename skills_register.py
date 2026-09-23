@@ -40,6 +40,10 @@ def register_skills(ctx, root: Path) -> list[str]:
         if link.exists() or link.is_symlink():
             logger.warning("Not linking skill %s: %s already exists", name, link)
             continue
+        # The SKILL.md-era layout linked the whole directory into the plugin; once that target
+        # was deleted, mkdir on the dangling link raised and took every registration with it.
+        if home.is_symlink() and not home.exists():
+            home.unlink()
         home.mkdir(parents=True, exist_ok=True)
         link.symlink_to(readme)
         linked.append(name)

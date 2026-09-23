@@ -86,8 +86,8 @@ def test_an_inquiry_is_answered_from_state_and_journal_with_nothing_changed(brid
     juncture.write_pilot(dict(PILOT))
     before = service.pilot_path().read_bytes()
 
-    observed = json.loads(spacemolt._where({}))
-    assert observed["docked_at"]["base_id"] == "sol_base" and observed["fuel"] == 88
+    status = json.loads(spacemolt._status({}))
+    assert status["pilot"]["objective"] == "fill the hold"
 
     if shutil.which("node"):
         recent = json.loads(spacemolt._status({}))["journal"]
@@ -98,7 +98,7 @@ def test_an_inquiry_is_answered_from_state_and_journal_with_nothing_changed(brid
         assert len(json.dumps(recent)) < 4000, "the journal answer stays small (N16)"
 
     # An inquiry asks the game to look, never to act, and moves nothing on disk (T7, T8).
-    assert (runtime / "actions.log").read_text().split() == ["where"]
+    assert set((runtime / "actions.log").read_text().split()) == {"status"}
     assert service.pilot_path().read_bytes() == before
 
 
