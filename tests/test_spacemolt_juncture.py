@@ -164,6 +164,12 @@ def test_the_situation_renders_only_the_permissions_the_code_knows(monkeypatch):
     assert "wildlife" not in context
 
 
+def test_a_skill_reads_as_the_object_it_is(monkeypatch):
+    """A bare number is branched on as a number: the level is named as the field it came from."""
+    context = _rendered(monkeypatch, _menu(12, last=LAST))
+    assert "Skills: weapons 3 (.level), gunnery 1 (.level), tactics 2 (.level)." in context
+
+
 def test_a_pre_merge_run_record_is_no_last_run(monkeypatch):
     context = _rendered(monkeypatch, _menu(12, last=PRE_MERGE))
     assert "Last run: none yet." in context

@@ -32,7 +32,7 @@ export type Status=
   /** Something broke mid-way. `why` carries the error; the world may have moved. */
   |'failed';
 
-export interface Outcome<Detail=Record<string,unknown>> {
+export interface Outcome<Detail=unknown> {
   /** The function that answered, e.g. `gatherUntil`. Set by the runtime wrapper. */
   fn:string;
   status:Status;

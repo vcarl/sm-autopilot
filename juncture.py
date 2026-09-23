@@ -176,7 +176,9 @@ def _situation(menu: dict[str, Any], said: dict[str, Any] | None) -> str:
     free = p.get("cargo_free")
     weapons = ", ".join(f"{w.get('id')}" + (f" ({w['loaded']} loaded)" if "loaded" in w else "")
                         for w in p.get("weapons") or []) or "none"
-    skills = ", ".join(f"{k} {v}" for k, v in (p.get("skills") or {}).items()) or "none known"
+    # A skill is an object in the library, not a number: naming the field the number came from
+    # keeps a script from writing `skills.weapons > 2` (playtest 2026-09-22).
+    skills = ", ".join(f"{k} {v} (.level)" for k, v in (p.get("skills") or {}).items()) or "none known"
     facts_after = [f"  Fitted weapons: {weapons}. Skills: {skills}."]
 
     last = menu.get("last")
