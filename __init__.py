@@ -85,6 +85,19 @@ def _run(arguments: dict[str, Any] | None = None, **_: Any) -> str:
     (tsc, boundary, policy) comes back as diagnostics and nothing runs."""
     args = arguments or {}
     if args.get("source"):
+        # Refuse BEFORE writing. A run that outlives the harness's tool deadline leaves the
+        # pilot with no report, so it sends a recovery script; that write used to land on
+        # pilot/index.ts and destroy the script still running, and only then was the run
+        # refused as in flight. The file is the pilot's own work: the check comes first.
+        try:
+            flying = call("status")
+        except Exception:  # noqa: BLE001 - no bridge means nothing is in flight to lose
+            flying = None
+        if isinstance(flying, dict) and flying.get("running"):
+            return json.dumps({"accepted": False,
+                               "reason": "a run is already in flight; pilot/index.ts is left as it is. "
+                                         "Wait for its report, or spacemolt_stop, then send this source again.",
+                               "started": flying.get("started")}, separators=(",", ":"))
         _write_pilot_file(str(args["source"]))
     lines: list[str] = []
     try:

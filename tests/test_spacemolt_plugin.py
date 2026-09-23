@@ -30,6 +30,21 @@ for line in sys.stdin:
     print(json.dumps({"id": request["id"], "ok": True, "result": answers[request["action"]]}), flush=True)
 '''
 
+# A bridge with a run in flight: `status` says so and `run` refuses, as the real one does.
+BUSY_BRIDGE = '''
+import json, sys
+print(json.dumps({"event": "ready"}), flush=True)
+for line in sys.stdin:
+    request = json.loads(line)
+    answers = {
+        "status": {"running": True, "started": "t0", "fn": "hunt"},
+        "run": {"accepted": False, "reason": "a run is already in flight; stop it or wait", "running": True},
+    }
+    print(json.dumps({"id": request["id"], "ok": True,
+                      "result": answers.get(request["action"], {})}), flush=True)
+'''
+
+
 # A bridge that never reads stdin: closing it is not enough to end this one.
 STUBBORN_BRIDGE = """
 import json, sys, time
@@ -67,7 +82,38 @@ def test_every_tool_answers_from_the_one_bridge(bridged, tmp_path, monkeypatch):
     assert json.loads(spacemolt._stop({}))["stopping"] is False
     assert json.loads(spacemolt._status({}))["run"]["running"] is False
     # Every call travelled the same connection: the plugin owns one bridge, not one per tool.
-    assert service._bridge is not None and service._bridge.counter == 4
+    # Five: `run` asks `status` first, before it writes anything (see below).
+    assert service._bridge is not None and service._bridge.counter == 5
+
+
+def test_a_run_sent_while_one_is_in_flight_is_refused_without_touching_the_script(tmp_path, monkeypatch):
+    """The pilot's own work is not overwritten by the recovery script it sends after a timeout.
+
+    A long run outlives the harness's per-tool deadline, so the pilot never sees its report and
+    sends a fresh `spacemolt_run`. That write used to land on pilot/index.ts before the bridge
+    refused it, destroying the script that was still running.
+    """
+    stub = tmp_path / "busy_bridge.py"
+    stub.write_text(BUSY_BRIDGE)
+    credentials = tmp_path / "credentials.txt"
+    credentials.write_text("Username: pilot\nPassword: secret\n")
+    monkeypatch.setenv("SPACEMOLT_CREDENTIALS_FILE", str(credentials))
+    monkeypatch.setenv("SPACEMOLT_RUNTIME_DIR", str(tmp_path / "runtime"))
+    monkeypatch.setattr(service, "BRIDGE_COMMAND", [sys.executable, str(stub)])
+    try:
+        flying = "// the script that is running\nexport default async function main() { return hunt(); }\n"
+        script = service.pilot_file()
+        script.parent.mkdir(parents=True, exist_ok=True)
+        script.write_bytes(flying.encode())
+        before = script.read_bytes()
+
+        answer = json.loads(spacemolt._run({"source": "export default async function main() {}\n"}))
+
+        assert answer["accepted"] is False
+        assert "in flight" in answer["reason"]
+        assert script.read_bytes() == before, "the running script was overwritten"
+    finally:
+        service.close_bridge()
 
 
 def test_register_publishes_every_tool_in_the_spacemolt_toolset():
