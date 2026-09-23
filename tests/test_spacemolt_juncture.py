@@ -153,6 +153,17 @@ def test_the_situation_is_labelled_lines_with_the_last_runs_age(monkeypatch):
     assert "The hold was full (0 free)" in full
 
 
+def test_the_situation_renders_only_the_permissions_the_code_knows(monkeypatch):
+    """A key the code dropped is still in the record, and rendering it raw read as "wildlife
+    False": the pilot spent its first turn weighing whether it could hunt (playtest 2026-09-22).
+    """
+    menu = _menu(12, last=LAST)
+    menu["permissions"] = {"credit_reserve": 5000, "wildlife": False, "no_go": ["deep_range"]}
+    context = _rendered(monkeypatch, menu)
+    assert "Permissions: keep 5,000 credits; never go to deep_range." in context
+    assert "wildlife" not in context
+
+
 def test_a_pre_merge_run_record_is_no_last_run(monkeypatch):
     context = _rendered(monkeypatch, _menu(12, last=PRE_MERGE))
     assert "Last run: none yet." in context

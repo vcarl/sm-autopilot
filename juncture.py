@@ -156,12 +156,15 @@ def _situation(menu: dict[str, Any], said: dict[str, Any] | None) -> str:
                      f"only): {said.get('text')}")
     if menu.get("goal"):
         facts.append(f"Goal (yours, from rest): {menu['goal']}")
-    permits = menu.get("permissions") or {}
+    # Only the keys rendered here: a permission the code no longer knows is one the pilot
+    # cannot act on, and a stale ``wildlife: false`` left in the record read as "wildlife
+    # False" and bought a turn of wondering whether hunting was allowed (playtest 2026-09-22).
+    permits = [_PERMISSION[k].format(v) if k in _PERMISSION else f"never go to {', '.join(map(str, v))}"
+               for k, v in (menu.get("permissions") or {}).items()
+               if (k in _PERMISSION and isinstance(v, (int, float)) and not isinstance(v, bool))
+               or (k == "no_go" and v)]
     if permits:
-        facts.append("Permissions: " + "; ".join(
-            _PERMISSION[k].format(v) if k in _PERMISSION and isinstance(v, (int, float))
-            else f"never go to {', '.join(map(str, v))}" if k == "no_go" else f"{k} {v}"
-            for k, v in permits.items()) + ".")
+        facts.append("Permissions: " + "; ".join(permits) + ".")
     system = p.get("system") or "unknown system"
     where = (f"docked at {p['docked_at']} ({system})" if p.get("docked_at")
              else f"in transit ({system})" if p.get("in_transit")
