@@ -165,7 +165,7 @@ export function serve(account:ReadinessAccount,command:ReadinessCommand,options:
   const rest=async()=>{
     if(running)return {rested:false,reason:'a run is in flight; rest when it ends',...busy()};
     const who=pilot();
-    const facts=await factsNow(account,command,who);
+    const facts=await factsNow(account,command,who,runtime);
     const verdict=evaluateMenu(facts).find(row=>row.job===REST_JOB);
     if(!verdict?.admissible)return {rested:false,reason:verdict?.reason??'rest is not admissible here'};
     if(!options.setPilot)return {rested:false,reason:'this runner cannot write the pilot record'};

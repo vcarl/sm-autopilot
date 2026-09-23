@@ -3,14 +3,16 @@
  * the helper applies (`jobStop`, the mood's margins, permissions, Tired); a move the rules
  * refuse is under `not_now` with the reason. The juncture delivers it once, headed by the
  * stagnation `menuDue` names. Reads only; writes nothing (DESIGN §4). */
-import type {ActiveMissionInfo,GetMissionsResponse,MapSystemInfo,MarketListingItem,ShipClass,ShipListing,
-  SystemInfo,SystemPoi,V2Module,ViewMarketResponse,ViewStorageResponse} from '@spacemolt/lib';
+import type {ActiveMissionInfo,GetNearbyResponse,GetMissionsResponse,MapSystemInfo,MarketListingItem,ShipClass,ShipListing,
+  ShippingListResponse,StationPassengersResponse,SystemInfo,SystemPoi,V2Module,ViewMarketResponse,ViewStorageResponse} from '@spacemolt/lib';
 import {resolveFuelReserve} from '../mood-policy.ts';
 import type {ReadinessAccount,ReadinessCommand} from '../readiness.ts';
 import {details} from '../response-details.ts';
 import {evaluateMenu,jobStop,type CounterName,type Facts} from '../rules-table.ts';
 import {readJournal} from '../run-record.ts';
+import {PACKAGE_CARGO} from './hauling/freight.ts';
 import {bench,moduleSpec,whyNotFit} from './hangar.ts';
+import {knownBooks} from './market.ts';
 import {stuck} from './missions.ts';
 import {acct,command,pilot,present,runCalls,type Pilot} from './runtime.ts';
 import type {Status} from './types.ts';
@@ -61,9 +63,44 @@ export function menuDue(runs:RunSummary[]):string|null {
   return null;
 }
 
+const attempt=async<T>(read:()=>Promise<T>):Promise<T|undefined>=>{try {return await read();} catch {return undefined;}};
+
+/** A trade-run spread, which is the only kind J6 means: buy here at the ask, sell at the best
+ * bid a book read on an earlier visit shows, with depth on both ends. The game publishes no
+ * cross-station prices (see `market.ts`), so the far end is this runtime's market memory; with
+ * no memory there is no spread, which is the same answer J6 gives today. */
+function bestSpread(here:Map<string,MarketListingItem>,at:string,runtime?:string):{item_id:string;margin:number}|undefined {
+  return (runtime?knownBooks(runtime):[]).filter(book=>book.base_id!==at).flatMap(book=>book.items)
+    .flatMap(far=>{
+      const mine=here.get(far.item_id);
+      // Depth on both ends: an ask nobody is filling and a bid for nothing are not a trade.
+      return mine&&mine.best_sell>0&&mine.best_sell_qty>0&&far.best_buy_qty>0
+        ?[{item_id:far.item_id,margin:far.best_buy-mine.best_sell}]:[];
+    }).filter(row=>row.margin>0).sort((a,b)=>b.margin-a.margin)[0];
+}
+
+/** What the location section already knows about a fight at this POI: another pilot or an
+ * empire patrol in combat where the ship is standing. A dock ends the engagement (safety.dock
+ * says so), so a docked ship observes no threat — otherwise one NPC brawling outside a busy
+ * station would hold the menu at safety-only forever, with no rest and no resupply on it.
+ * ponytail: pirates present are deliberately NOT threats. `V2NearbyPirate.status` has no
+ * published values to read, and a Hunter's own quarry may be a pirate — counting them would
+ * refuse every job the Hunter woke up to do. Upgrade when the spec names the statuses. */
+function threatsHere(location:ReadinessAccount['state']['location'],docked:string|null):string[] {
+  if(docked||!location)return [];
+  return [...(location.nearby_players??[]).filter(row=>row.in_combat).map(row=>row.username??row.player_id),
+    ...(location.nearby_empire_npcs??[]).filter(row=>row.in_combat).map(row=>row.name??row.npc_id)];
+}
+
 /** The facts the rules table reads, assembled from live state and the pilot record. The
- * bridge's `rest` and the menu build them the same way, so what one refuses the other does. */
-export async function factsNow(account:ReadinessAccount,send:ReadinessCommand,who:Pilot):Promise<Facts> {
+ * bridge's `rest` and the menu build them the same way, so what one refuses the other does.
+ *
+ * The stance decides which counters are worth a round trip: only a Hunter's J8 reads
+ * `observed.targets`, only a Carrier's J4/J5 read the board, only a Trader's J6 reads a
+ * spread, so those reads are behind the stance that consumes them and a menu build costs the
+ * same as before for everyone else. Every one of them is `attempt`ed: a counter that refuses
+ * leaves its field absent, which is the answer the rule already gave before it was wired. */
+export async function factsNow(account:ReadinessAccount,send:ReadinessCommand,who:Pilot,runtime?:string):Promise<Facts> {
   if(!who.mood)throw new Error('The pilot record names no mood; the runner sets stance and mood at rest');
   await account.refresh();
   const {location,ship,player}=account.state;
@@ -71,7 +108,7 @@ export async function factsNow(account:ReadinessAccount,send:ReadinessCommand,wh
   const rows=(system?.pois??[]) as Record<string,any>[];
   const docked=location?.docked_at??null;
   const counters:CounterName[]=[];
-  let service_prices:{fuel?:number;hull?:number}|undefined;
+  let service_prices:{fuel?:number;hull?:number}|undefined,workshop=false;
   if(docked) {
     const base=details(await send('spacemolt/get_base',{}));
     const fuel=base.fuel_price_all_in,hull=base.base?.repair_price_per_hull;
@@ -79,7 +116,9 @@ export async function factsNow(account:ReadinessAccount,send:ReadinessCommand,wh
     if(service_prices.fuel!==undefined||service_prices.hull!==undefined)counters.push('Services');
     const services=(Array.isArray(base.services)?base.services:[]).map(String);
     if(services.includes('storage'))counters.push('Storage');
-    if(services.includes('crafting'))counters.push('Workshop / recipes');
+    // The bench J7 needs is the same fact as the counter that reaches it, read once.
+    workshop=services.includes('crafting');
+    if(workshop)counters.push('Workshop / recipes');
     if(services.includes('shipyard'))counters.push('Hangar / refit');
   }
   let quoted=NaN;
@@ -89,22 +128,53 @@ export async function factsNow(account:ReadinessAccount,send:ReadinessCommand,wh
     poi_id:String(poi.id),quoted_fuel:quoted,
     ...poi.type==='asteroid_belt'?{resource:String(poi.type)}:{},
     ...poi.base_id?{serviced_base:true}:{}})):[];
+
+  const observed:Facts['observed']={},board:NonNullable<Facts['place']['board']>={};
+  const threats=threatsHere(location,docked);
+  if(threats.length)observed.threats=threats;
+  // Seated berths are the passengers aboard: `total - free` per class, already in the ship
+  // section, so J5's own half of its question costs nothing.
+  const berths=Object.values(ship?.berths??{}) as {total?:number;free?:number}[];
+  const aboard=berths.reduce((n,row)=>n+((row.total??0)-(row.free??0)),0);
+  if(who.stance==='Hunter') {
+    // One read, and only for the stance that acts on it. Declined for the same two reasons
+    // `hunt` declines a creature, so a target on the menu is one the loop will take.
+    const near=await attempt(async()=>details(await send('spacemolt/get_nearby',{})) as GetNearbyResponse);
+    const legal=(near?.creatures??[]).filter(row=>!row.in_combat&&!row.branded);
+    if(legal.length)observed.targets=legal.map(row=>row.name);
+  }
+  if(who.stance==='Carrier'&&docked) {
+    const listed=await attempt(async()=>details(await send('spacemolt_shipping/list',{sort:'reward'})) as ShippingListResponse);
+    const contracts=(listed?.shipments??[]).filter(row=>row.eligible!==false).map(row=>({id:row.contract.id,
+      cargo:PACKAGE_CARGO,liability:row.contract.reserved_exposure??row.contract.appraised_value??0}));
+    if(contracts.length)board.contracts=contracts;
+    const platform=await attempt(async()=>details(await send('spacemolt/list_station_passengers',{})) as StationPassengersResponse);
+    if(platform?.waiting?.length)board.passengers=platform.waiting.length;
+  }
+  if(who.stance==='Trader'&&docked) {
+    const here=await attempt(async()=>new Map(((details(await send('spacemolt_market/view_market',{})) as ViewMarketResponse).items??[])
+      .map(row=>[row.item_id,row])));
+    const spread=here&&bestSpread(here,docked,runtime);
+    if(spread)observed.spread=spread;
+  }
   return {
     ...who.stance?{stance:who.stance}:{},
     mood:who.mood,
     place:{kind:docked?'base':location?.poi_id?'poi':'space',...docked?{base_id:docked}:{},
-      ...docked&&who.home===docked?{is_home:true}:{},counters,
-      ...service_prices?{service_prices}:{},sites},
+      ...docked&&who.home===docked?{is_home:true}:{},counters,workshop,
+      ...service_prices?{service_prices}:{},sites,
+      ...board.contracts||board.passengers?{board}:{}},
     holdings:{fuel:ship?.fuel as number,max_fuel:ship?.max_fuel as number,
       hull:ship?.hull as number,max_hull:ship?.max_hull as number,
       cargo_free:(ship?.cargo_capacity??0)-(ship?.cargo_used??0),credits:player?.credits??0,
       inputs:Array.isArray(account.state.cargo)?[...new Set(account.state.cargo.map(row=>String(row.item_id)))]:[]},
-    obligations:{},permissions:who.permissions??{},observed:{},
+    // Nothing in the rules table reads `obligations.contracts`, so nothing fills it; the
+    // berths J5 asks about are the one obligation a rule consumes.
+    obligations:aboard?{passengers:aboard}:{},permissions:who.permissions??{},observed,
   };
 }
 
 const lit=(value:unknown)=>JSON.stringify(value).replace(/"/g,"'").replace(/'(\w+)':/g,'$1:');
-const attempt=async<T>(read:()=>Promise<T>):Promise<T|undefined>=>{try {return await read();} catch {return undefined;}};
 /** The loop that trains a skill, by the lib's `SkillProgress.category` or the skill id. */
 const TRAINS:[RegExp,string][]=[[/mining/,'gatherUntil'],[/trad|commerce/,'sell'],[/navigation|piloting|explor/,'goTo'],
   [/weapon|gunnery|tactic|xeno|combat|bounty/,'hunt'],[/engineer/,'refit']];
@@ -128,7 +198,7 @@ export async function menu(runtime?:string):Promise<Menu> {
   const who=pilot(),moves:Move[]=[],not_now:Menu['not_now']=[];
   const runs=runtime?recentRuns(runtime):[];
   const stagnation=menuDue(runs)??undefined;
-  const facts=await factsNow(acct(),command,who);
+  const facts=await factsNow(acct(),command,who,runtime);
   await attempt(()=>command('spacemolt/get_skills',{}));
   await acct().refresh();
   const now=present(),{location,ship}=acct().state;

@@ -23,9 +23,10 @@ const message=(error:unknown)=>error instanceof Error?error.message:String(error
 export interface RememberedBook {base_id:string;at:string;items:MarketListingItem[]}
 const MEMORY='markets.json',BASES=12;
 
-/** Every book read in this runtime dir, newest base first. Empty without a runtime. */
-export function knownBooks():RememberedBook[] {
-  const dir=runtimeDir();
+/** Every book read in this runtime dir, newest base first. Empty without a runtime. The
+ * directory is an argument so a caller outside a bound run (the juncture's `factsNow`) can
+ * read the same memory. */
+export function knownBooks(dir=runtimeDir()):RememberedBook[] {
   if(!dir)return [];
   try {
     const stored=JSON.parse(readFileSync(join(dir,MEMORY),'utf8')) as RememberedBook[];

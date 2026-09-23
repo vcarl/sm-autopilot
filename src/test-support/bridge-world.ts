@@ -214,7 +214,12 @@ export function bridgeWorld(options:WorldOptions={}) {
   const bases:Record<string,string>={...baseAt,
     ...Object.fromEntries(extra.filter(row=>row.base_id).map(row=>[row.id,row.base_id!]))};
   const account=new FakeLibGoalAccount({
-    location:{system_id:'sol',poi_id:'station',docked_at:'sol_base' as string|null,in_transit:false},
+    // The location section carries who else is at the POI, as the live one does: a scenario
+    // that wants a fight happening here pushes a row with `in_combat` set.
+    location:{system_id:'sol',poi_id:'station',docked_at:'sol_base' as string|null,in_transit:false} as
+      {system_id:string;poi_id:string;docked_at:string|null;in_transit:boolean;
+        nearby_players?:{player_id:string;username?:string;in_combat:boolean}[];
+        nearby_empire_npcs?:{npc_id:string;name:string;in_combat:boolean}[]},
     // Hull stays above the Cautious D3 line: a ship below it is Tired and starts no job.
     ship:{id:'ship',fuel:100,max_fuel:120,hull:96,max_hull:100,cargo_used:cargoUsed,
       cargo_capacity:options.cargoCapacity??12,speed:3,incapacitated:false,class_id:'cobble',class_name:'Cobble',
