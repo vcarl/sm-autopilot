@@ -28,18 +28,23 @@ def test_a_fire_while_a_script_runs_changes_nothing(monkeypatch, capsys):
     lock.write_text(json.dumps({"pid": os.getpid()}))
 
     def gate_line() -> str:
-        """The last stdout line, which is the only one cron reads. Asserted literally, never
-        through _parse_wake_gate alone: that answers True to no output at all, and no output is
-        what cron ends a fire on (live 2026-09-17) — it would hide the very bug it looks for."""
+        """The last stdout line, which is the only one cron reads. Never judged through
+        _parse_wake_gate alone: that answers True to no output at all, and no output is what
+        cron ends a fire on (live 2026-09-17) — it would hide the very bug it looks for."""
         assert juncture.gate_main() == 0
         printed = capsys.readouterr().out
         assert printed.strip(), "an empty stdout ends the fire as surely as wakeAgent=false"
         return printed.splitlines()[-1]
 
-    # Nothing running: no record at all, then one that ended.
-    assert gate_line() == '{"wakeAgent": true}'
+    # Nothing running: no record at all, then one that ended. The fire wakes, and what the gate
+    # said reaches its prompt as the script's output.
+    from cron.scheduler_prompt import _build_job_prompt
+    idle = gate_line()
+    assert _parse_wake_gate(idle) is True
+    assert idle in _build_job_prompt({"prompt": juncture.JUNCTURE_PROMPT, "script": "gate"},
+                                     prerun_script=(True, idle))
     (runtime / "run.json").write_text(json.dumps({"script": "gather", "ended": True}))
-    assert gate_line() == '{"wakeAgent": true}'
+    assert gate_line() == idle
 
     # A run in flight, and a live bridge holding the controller lock: the fire is skipped.
     (runtime / "run.json").write_text(json.dumps({"script": "gather", "ended": False}))
@@ -51,8 +56,7 @@ def test_a_fire_while_a_script_runs_changes_nothing(monkeypatch, capsys):
     # the pilot is woken rather than silenced for good.
     lock.unlink()
     assert juncture.run_in_flight() is False
-    line = gate_line()
-    assert line == '{"wakeAgent": true}' and _parse_wake_gate(line) is True
+    assert gate_line() == idle
 
 
 def test_the_juncture_job_carries_the_stance_and_passes_the_cron_toolset_clamp(tmp_path):
@@ -169,7 +173,6 @@ def test_an_operators_instruction_reaches_the_juncture_and_outranks_the_objectiv
     context, facts = _rendered(monkeypatch, _menu(12, last=FULL_GATHER))
     assert facts["instruction"] == {"text": "stay in Sol tonight", "at": "2026-09-15T20:00:00Z"}
     assert "stay in Sol tonight" in context
-    assert "outranks the objective" in juncture.JUNCTURE_PROMPT
 
     # Nothing said, nothing carried: the field is the operator's, not furniture.
     juncture.write_pilot({"name": "kvothe", "stance": "Prospector", "mood": "Focused"})
@@ -188,23 +191,8 @@ def test_the_cron_prompt_leaves_the_tools_to_their_own_descriptions():
                    if definition["name"] in juncture.JUNCTURE_PROMPT)
     assert named == ["spacemolt_check", "spacemolt_run"], \
         f"the prompt names tools the descriptions own: {named}"
-    assert "three ways" in juncture.JUNCTURE_PROMPT, "it still teaches how a juncture ends"
-
-
-def test_the_prompt_says_a_juncture_plays_by_writing_pilot_index_and_rest_reviews_it():
-    """Code is the gameplay interface: playing is writing and running pilot/index.ts, and rest
-    reviews the file the shift was flown with before the next goal is chosen."""
-    prompt = juncture.JUNCTURE_PROMPT
-    assert "writing pilot/index.ts with spacemolt_run" in prompt, "playing is running the file"
-    assert "spacemolt_check first when unsure" in prompt
-    for kind in ("play", "hold", "rest at home"):
-        assert kind in prompt, kind
-    # The skill is the library, and the escape hatch when nothing in it fits is named.
-    assert "the play library's README" in prompt and "`account()` is the whole game" in prompt
-    assert "pilot/<name>.ts" in prompt, "helpers worth keeping have somewhere to live"
-    # Rest is a code review before it is a choice of goal.
-    assert "review pilot/index.ts against how its runs ended" in prompt
-    assert "then pick the goal, the stance and the mood" in prompt
+    # The job a fire runs carries the turn contract as its whole prompt.
+    assert juncture.job_fields({"stance": "Hunter"})["prompt"] == juncture.JUNCTURE_PROMPT
 
 
 def test_the_rest_context_carries_the_scripts_the_review_reads(monkeypatch):
@@ -219,9 +207,13 @@ def test_the_rest_context_carries_the_scripts_the_review_reads(monkeypatch):
     monkeypatch.setattr(service, "call", lambda action, params=None: copy.deepcopy(report))
     context = juncture.juncture_context({"platform": "cron"})
     assert "buy-hull" in context and "no shipyard here" in context
-    # The context says what the section is for, not just that it is there.
-    assert "`scripts` is the pilot's own code beside how it ran" in context
-    assert "write a better version (spacemolt_check with `source`)" in context
+    # The rest context carries the whole rest turn: the review, then one reflection.
+    assert "spacemolt_check" in context and "spacemolt_reflect" in context
+    # A travelogue too long for the section is cut before the section is: over the limit, core
+    # would drop the whole of it, the rest turn included.
+    report["seen"] = ["a system seen on the way " * 4] * 200
+    context = juncture.juncture_context({"platform": "cron"})
+    assert len(context) <= juncture.SECTION_LIMIT and "spacemolt_reflect" in context
 
 
 def test_loading_the_plugin_wakes_an_idle_pilot_once_and_leaves_a_running_one_alone(monkeypatch):

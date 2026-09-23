@@ -39,6 +39,32 @@ export default async function main() {
 }
 ```
 
+## Playing the intro stage
+
+You start docked, with a free starter hull, 50–100 cargo, and a few hundred credits. The way
+out is: first 2,500–10,000 credits, skills 1–3 in mining, trading and navigation, one T1 hull
+(~2,000 cr), and a home base near where you work.
+
+1. `orient()`. If `home` is unset, the operator sets it; say so in `note()` and stop.
+2. `scout()`. Find a belt (`type: asteroid_belt`) and a station with `market` and `storage`.
+   No belt in this system: `scout('<neighbour system id>')` from `connections`, then `goTo` it.
+3. `missions()` at every dock. A difficulty-1 "deliver 20 ore" or "visit X" mission is credits
+   for a trip you were making anyway. Max 5 active: `detail.slots_free` says how many you may
+   still take, so slice the board by it. Accept what matches; complete on return.
+   `slots_free: 0` with nothing completable means a mission is stuck: each `detail.active` row
+   carries its `progress` and a `stuck` reason (expired, destination elsewhere, goods you do not
+   have), and `abandonMission('<id>')` drops one and frees the slot — it refuses a mission you
+   could turn in here unless you pass `{force:true}`, and refuses an id that was never active
+   (a placeholder id is not a success; already-gone ids stay `done`). `completeMissions()` first: it withdraws
+   from the store here for a `deliver N of item` objective the store can cover.
+4. `gatherUntil({poi})`: out, mine until full, back to the base you left, stow, service. One call
+   is one trip of ~15 minutes. `gatherUntil({poi, until: {item, quantity}})` loops trips.
+5. `prices()` then `sell(rows)`. Trading xp scales with credit volume; ore sells for little, refined
+   for 2–40× more (that is the industry career).
+6. First purchase at ~2,000 cr: a cargo expander (`buy`, then `refit({install:['cargo_expander_ii']})`),
+   named by every guide as the correct first buy — it is only correct if a utility
+   slot is free (the play README's "Getting a better ship").
+
 ## What a good trip looks like
 
 - The belt is one hop or less from a station with `market` and `storage`. Fuel is the cost.

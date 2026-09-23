@@ -1,35 +1,10 @@
-// pilot/index.ts — the one file you play by editing. `run` executes `main`.
-// Situation: docked at Frontier Station (The Telescope), Prospector, Focused, hold empty,
-// home = frontier_station. Goal this shift: "fill the frontier store with iridium and sell
-// the rest; accept anything on the board that pays for the trip."
-import {orient, scout, missions, acceptMission, completeMissions, gatherUntil, prices, sell, service, note} from 'play';
+// pilot/index.ts — the one file you play by writing. spacemolt_run executes `main`.
+// This run only looks: where the ship is, what it holds, and every skill's level.
+import {orient, note} from 'play';
 
 export default async function main() {
-  // A menu move is pasted as it was shown: `const dig = await gatherUntil({poi:'belt'});`
   const look = await orient();
-  if (look.detail.present.ship.cargo_used > 0)                       // clear the hold before a gather
-    await sell(look.detail.present.cargo.map(row => ({item_id: row.item_id, quantity: row.quantity})));
-
-  // The board here: take the difficulty-1 mining and visit missions, they ride under the trip.
-  // Only as many as there are free slots — five active is the cap, and the sixth is refused.
-  const board = await missions();
-  for (const m of board.detail.board.filter(m => m.fits === 'gatherUntil' || m.fits === 'goTo')
-                       .slice(0, board.detail.slots_free))
-    await acceptMission(m.mission_id);
-
-  // The Telescope has no belt; Unknown Edge next door does.
-  const edge = await scout('unknown_edge');
-  const belt = edge.detail.pois.find(p => p.type === 'asteroid_belt');
-  if (!belt) { note('unknown_edge lists no belt from here; goTo it and scout again next run'); return edge; }
-
-  // Trips until the store at home holds 100 iridium, at most 3 trips, stowing each take.
-  const dig = await gatherUntil({poi: belt.id, base: 'frontier_station',
-    until: {item: 'iridium_ore', quantity: 100}, maxTrips: 3});
-  if (dig.status !== 'done') return dig;                             // partial/refused: the reason is in .why
-
-  await completeMissions();                                          // whatever the trips satisfied
-  await prices(['iridium_ore']);                                     // is it worth more here than stowed?
-  const rest = dig.detail.settled.filter(r => r.item_id !== 'iridium_ore');
-  if (rest.length) await sell(rest, {from: 'store'});                // everything but the iridium, by name
-  return service();                                                  // full tank, full hull
+  for (const [skill, progress] of Object.entries(look.detail.present.skills))
+    note(`${skill} level ${progress.level}`);
+  return look;
 }

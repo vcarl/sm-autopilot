@@ -16,8 +16,9 @@ from typing import Any, Mapping
 
 from pathlib import Path
 
-from .juncture import (JOB_MOODS, JOURNAL_FILE, JUNCTURE_PLATFORM, STANCES, ensure_juncture_job,
-                       journal_event, juncture_context, read_pilot, write_pilot)
+from .juncture import (JOB_MOODS, JOURNAL_FILE, JUNCTURE_PLATFORM, SECTION_LIMIT, STANCES,
+                       ensure_juncture_job, journal_event, juncture_context, read_pilot,
+                       write_pilot)
 from .service import available, call, close_bridge, render_journal, runtime_dir
 from .skills_register import register_skills
 
@@ -28,23 +29,30 @@ _JOURNAL_DEFAULT, _JOURNAL_CAP = 20, 80
 _INSTRUCTION_LIMIT = 80
 
 _FLIGHT_PROMPT = (
-    "SpaceMolt: you fly one live ship, and you fly it by editing one file, pilot/index.ts, "
-    "and running it. The `play` library (its README is your skill) is what the file calls; "
-    "`account()` inside it is the whole game.\n"
-    "Report only what tool results say.\n"
-    "The game's clock is real: a run blocks for minutes and streams what it does, so wait it out."
+    "You act by writing pilot/index.ts and running it with spacemolt_run; it is the one file "
+    "you write, and the play README with your stance's README is the whole reference. A run "
+    "blocks for minutes while the game's clock turns, and its report is what happened. Report"
+    " only what tool results say."
 )
 
 _WINDOW_PROMPT = (
-    "SpaceMolt: you are a window on a pilot the runner flies; this conversation never owns it. "
-    "spacemolt_status is the read: the objective and the standing record, whether a run is in "
-    "flight and where it has got to, and the last few things the pilot actually did. Answer "
-    "from it and never from memory: what you report about the objective, progress, cost and "
-    "position has to be what that read says. spacemolt_direct is the operator's — it sets the "
-    "objective, the standing permissions, and one sentence of instruction for the next "
-    "juncture, which the pilot takes up at its next juncture rather than now, and a job "
-    "already under way runs to its outcome first. spacemolt_stop ends a run at its next safe "
-    "point. Nothing here starts or steers a job."
+    "You are outside the harness: away from your ship and your days, in the presence of the "
+    "operator, a being from another plane whose word sets your objective. Your waking self "
+    "flies on without you; from here you take no action, and that is simply how this place "
+    "is. Meet the operator as yourself, as you would any strange figure of power.\n"
+    "Out here your own recollection is hazy. spacemolt_status is the ledger of your deeds: "
+    "consult it before you speak of your objective, your progress, where you are or what "
+    "anything cost; tell it with the journal's times, and keep what you did apart from what "
+    "you meant to do.\n"
+    "When the operator gives you a word to carry back, spacemolt_direct carries it, and your "
+    "waking self finds it at its next juncture. Your waking self acts only by running one "
+    "script over the play library, so carry an instruction back as a deed it can do in one "
+    'run ("hunt fauna at the Colony Debris Field and note my weapons level") and an objective'
+    " as what done looks like and how you will report it.\n"
+    "spacemolt_stop halts your waking self at its next safe point.\n"
+    "Your memory here is shared with your waking self: keep in it what you would remember of "
+    "your life — people, orders, places that matter — and leave the ledger's numbers to the "
+    "ledger."
 )
 
 
@@ -263,26 +271,23 @@ TOOL_DEFINITIONS = (
      "description": "Run pilot/index.ts: validate it, execute it against the live game, and "
                     "return what it streamed plus the report.",
      "schema": _schema("spacemolt_run",
-                       "Play: run pilot/index.ts. Pass `source` to replace the file first; omit "
-                       "it to run the file as it stands (the example on first use). The file is "
-                       "one module: `import {…} from 'play'` (or 'play/<folder>', '@spacemolt/lib' "
-                       "for types, './<name>.ts' for your own helpers) and "
-                       "`export default async function main()` that returns the last Outcome. It "
-                       "is typechecked, boundary-checked and policy-checked first; a refusal comes "
-                       "back as diagnostics. The run blocks and streams one line per move, then "
-                       "the prose report of the Outcome main returned. No cap; spacemolt_stop "
-                       "ends it. The play README (your skill) lists every function; `account()` "
-                       "is the whole game when nothing there fits.",
+                       "Play: write pilot/index.ts from `source` and run it. The file is "
+                       "typechecked, boundary-checked and policy-checked first; a refusal comes "
+                       "back as diagnostics and nothing runs. The run blocks and streams one line "
+                       "per move, then the prose report of the Outcome main returned. No cap; the "
+                       "operator can stop it at its next safe point.",
                        {"source": {"type": "string",
-                                   "description": "Optional: the TypeScript of pilot/index.ts, "
-                                                  "written before the run."}},
+                                   "description": "The whole of pilot/index.ts, written before "
+                                                  "the run."}},
                        [])},
     {"name": "spacemolt_check", "toolset": "spacemolt", "handler": _check,
-     "description": "Validate pilot/index.ts without running it; returns the diagnostics and the file.",
+     "description": "Validate pilot/index.ts without running it. Use when a run came back "
+                    "refused, to fix the file before running again.",
      "schema": _schema("spacemolt_check",
                        "Validate without playing: tsc, the import boundary and the game policy "
-                       "over pilot/index.ts and the './<name>.ts' files it imports. Pass `source` "
-                       "to replace the file first. Returns ok, errors, and the file as it stands, "
+                       "over pilot/index.ts. Use when a run came back refused, to fix the file "
+                       "before running again. Pass `source` to replace the file first. Returns "
+                       "ok, errors, and the file as it stands, "
                        "so a wrong field name costs a check, not a run.",
                        {"source": {"type": "string",
                                    "description": "Optional: the TypeScript of pilot/index.ts, "
@@ -359,7 +364,10 @@ TOOL_DEFINITIONS = (
                                                        f"at most {_INSTRUCTION_LIMIT} characters, "
                                                        "in the operator's own words (shorten by "
                                                        "dropping words). It outranks the "
-                                                       "objective for that one juncture."},
+                                                       "objective for that one juncture. An "
+                                                       "outcome the pilot can reach in one run; "
+                                                       "it is delivered once, at the next "
+                                                       "juncture."},
                         "objective": {"type": "string",
                                       "description": "What the pilot is to accomplish. Outlives every "
                                                      "shift; bounded or open-ended."},
@@ -407,11 +415,11 @@ def register(ctx) -> None:
                           requires_env=["SPACEMOLT_CREDENTIALS_FILE"], emoji="🚀")
     # One section, rendered from the session's own platform: a fire is told how to fly the
     # ship, a chat window how to watch it. Never from the process env — one backend serves both.
-    ctx.register_system_prompt_section("spacemolt.flight", _prompt, position="after_memory", max_chars=1200)
+    ctx.register_system_prompt_section("spacemolt.flight", _prompt, position="after_memory", max_chars=1600)
     # The menu is delivered, not fetched (N15): core renders this once for a new session and
     # freezes the bytes into its prompt, so a juncture never spends a turn asking what it
     # already needed to know, and nothing changes under the conversation afterwards.
     ctx.register_system_prompt_section("spacemolt.juncture", juncture_context,
-                                       position="after_memory", max_chars=4000)
+                                       position="after_memory", max_chars=SECTION_LIMIT)
     register_skills(ctx, Path(__file__).resolve().parent)
     ctx.on_unload(close_bridge)

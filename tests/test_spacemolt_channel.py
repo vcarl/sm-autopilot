@@ -164,7 +164,7 @@ def test_the_window_carries_no_job_tools_and_the_juncture_no_direction_tool():
     assert len(names) == len(set(names))
     # The window is told about the tools it has, never about the ones it does not.
     window_prompt = spacemolt._prompt({"platform": "discord"})
-    assert "spacemolt_status" in window_prompt
+    assert all(name in window_prompt for name in window), "the window names every tool it has"
     assert not any(name in window_prompt for name in ("spacemolt_run", "spacemolt_scripts"))
 
 

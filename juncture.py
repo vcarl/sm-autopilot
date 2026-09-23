@@ -36,22 +36,29 @@ JOB_MOODS = ("Cautious", "Focused", "Opportunistic", "Aggressive")
 JOURNAL_FILE = "gameplay.jsonl"
 
 JUNCTURE_PROMPT = (
-    "A SpaceMolt juncture: the pilot is between runs and you choose what it does next.\n"
-    "Read the context in front of you — the present and how the last run ended.\n"
-    "End the juncture one of three ways: play, by writing pilot/index.ts with "
-    "spacemolt_run (pass `source`; spacemolt_check first when unsure) and reading the report "
-    "it returns; hold, starting nothing; or rest at home when the objective is done.\n"
-    "Your skill is the play library's README: every function it lists, with literal arguments "
-    "from the present; `account()` is the whole game when nothing there fits. Keep helpers "
-    "you want again in pilot/<name>.ts and import them from './<name>.ts'.\n"
-    "Say in one line which of the three you took and why.\n"
-    "An instruction from the operator is outside direction: it outranks the objective for "
-    "this juncture.\n"
-    "At rest you are given a report instead of the present. Read it; review pilot/index.ts "
-    "against how its runs ended and rewrite it if it would have served better; then pick the "
-    "goal, the stance and the mood, reflect once, and end the turn.\n"
-    "If the report says the operator's objective is done, say so and stop.\n"
-    "If no context reached you at all, the runner did not answer: say that and end the turn."
+    "A SpaceMolt juncture. You choose the pilot's next run, start it, and end the turn.\n"
+    "What to expect:\n"
+    "- The context above is current and is everything you need to choose.\n"
+    "- A run takes minutes of real time; when it ends, the next juncture comes on its own "
+    "with its report as the last run. One run per juncture is the whole job.\n"
+    "- A wrong field costs a spacemolt_check, a wrong move costs a run, and looking costs "
+    "almost nothing: when a fact you need is missing, a run that only looks (orient(), "
+    "scout(), note() the numbers) is a good turn.\n"
+    "- Spending, selling and fighting are the moves that stay done; the permissions bound "
+    "them.\n"
+    "Whose word wins: the operator's instruction for this juncture, then the objective, then "
+    "your goal, then the suggested moves. When the instruction asks for something the library"
+    " can't do, do the nearest thing it can and say so.\n"
+    "Your turn:\n"
+    "1. Pick the move that best serves the instruction or objective, using what the present "
+    "shows.\n"
+    "2. Write the whole of pilot/index.ts and pass it as `source` to spacemolt_run.\n"
+    "3. When the run returns, answer in one or two lines — what ran, how it ended, what it "
+    "measured — and end the turn.\n"
+    "Hold instead when every suggested move is refused, and name the refusal in one line.\n"
+    "At rest the context says what to do instead.\n"
+    'When there is no SpaceMolt context above, say "no context from the runner" and end the '
+    "turn."
 )
 
 #: Which career folder's README is the stance's skill (``play/<folder>/README.md``).
@@ -60,6 +67,8 @@ STANCE_FOLDER = {"Prospector": "mining", "Industrialist": "industry", "Trader": 
 
 #: The refusals go first when a menu will not fit; the options are the point of it.
 _CONTEXT_BUDGET = 3_500
+#: The juncture section's ``max_chars``: core skips a section over it whole, not truncated.
+SECTION_LIMIT = 4_000
 #: Carl, 2026-09-16: the menu is off for a while to see how the pilot chooses without one. Off,
 #: the juncture still carries the present, the instruction, the objective and the last run;
 #: the options and refusals the rules computed are dropped before delivery. Flip to True to
@@ -149,22 +158,27 @@ def _rest_context(report: dict[str, Any], moves: str | None = None) -> str:
         return ("SpaceMolt wakeup: the pilot is at rest and the operator's bounded objective "
                 f"({report.get('objective') or 'unnamed'}) is already done. Say the objective is "
                 "complete and end the turn. The operator sets the next one.")
-    # The choosing is the point: the needs and the stagnation signals outlast the travelogue.
-    for drop in (None, "seen", "recent"):
-        if drop:
+    head = ("SpaceMolt rest — the shift is over and the stance and mood are cleared. Below is "
+            "what the pilot has, owes and has seen, what it did lately, where it stood still, "
+            "and `scripts`: pilot/index.ts beside how its runs ended.\n"
+            "Your turn:\n"
+            "1. Review pilot/index.ts against how its runs ended. When another version would have "
+            "served better, write the whole file as `source` to spacemolt_check; the next shift "
+            "flies the file this review leaves.\n"
+            "2. Choose one goal that serves the objective, then the stance and mood that fit it.\n"
+            "3. Call spacemolt_reflect once with them, and end the turn.\n")
+    render = lambda: (head + json.dumps(report, separators=(",", ":"), sort_keys=True)
+                      + (("\n" + moves) if moves else ""))
+    # Over the section limit core skips the whole section, so the suggested moves go first and
+    # then the travelogue: the needs and the stagnation signals are the choosing.
+    for drop in (None, "moves", "seen", "recent"):
+        if drop == "moves":
+            moves = None
+        elif drop:
             report.pop(drop, None)
-        if len(json.dumps(report, separators=(",", ":"), sort_keys=True)) <= _CONTEXT_BUDGET:
+        if len(render()) <= SECTION_LIMIT:
             break
-    return ("SpaceMolt rest — the shift is over, the stance and mood are cleared and nothing is "
-            "imposed on the pilot. This is what it has, what it owes, what it has seen, what it "
-            "has been doing lately and where it has been standing still.\n"
-            "`scripts` is the pilot's own code beside how it ran: each pilot/*.ts with its size "
-            "and how the last runs ended. Read the ones whose runs ended refused or failed, and "
-            "write a better version (spacemolt_check with `source`) — the next shift is flown "
-            "with the file this review leaves behind.\n"
-            "Choose one goal that serves the objective, then the stance and mood that fit it:\n"
-            + json.dumps(report, separators=(",", ":"), sort_keys=True)
-            + (("\n" + moves) if moves else ""))
+    return render()
 
 
 def read_pilot() -> dict[str, Any]:
@@ -254,9 +268,10 @@ def gate_main() -> int:
     script printed nothing has no prompt to build, and cron ends that fire silently too
     (``scheduler.py``: "script produced no output, skipping AI call") — which suppressed every
     juncture, live, on the first restart. A runner that is not up is not in flight: the fire
-    wakes and the tools say so themselves.
+    wakes and the tools say so themselves. Idle, the line is prose: cron wakes on any output
+    that is not ``{"wakeAgent": false}`` and hands it to the fire as its script output.
     """
-    print('{"wakeAgent": false}' if run_in_flight() else '{"wakeAgent": true}')
+    print('{"wakeAgent": false}' if run_in_flight() else "No run in flight: the pilot is idle.")
     return 0
 
 

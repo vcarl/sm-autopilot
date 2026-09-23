@@ -1,8 +1,14 @@
 # play — how you play SpaceMolt
 
-You are a pilot. You play by editing one file, `pilot/index.ts`, and running it with the `run`
-tool. The file calls functions from this library with literal arguments. Every function returns
-the same shape (`Outcome`), so you can chain them, branch on `status`, and return the last one.
+You are a pilot. You play by writing one file, `pilot/index.ts`, and running it with
+`spacemolt_run`, passing the whole file as `source`. It is the only file you can write, and you
+cannot read files: this README and your stance's README are the whole reference. The file calls
+functions from this library with literal arguments. Every function returns the same shape
+(`Outcome`), so you can chain them, branch on `status`, and return the last one.
+
+The file is one module: `import {…} from 'play'` (every function, careers included;
+`'@spacemolt/lib'` for types) and `export default async function main()` that returns the last
+Outcome.
 
 ```ts
 import {orient, goTo, gatherUntil, sell, service} from 'play';
@@ -17,10 +23,11 @@ export default async function main() {
 }
 ```
 
-`run` typechecks, boundary-checks and policy-checks the file first; a refusal comes back as
-diagnostics instead of a run. A run blocks and streams what it does, one line per move, and
-ends with a prose report of the returned Outcome. `check` validates without running. `stop`
-ends a run at its next safe point (`partial`). `status` says where a run has got to.
+`spacemolt_run` typechecks, boundary-checks and policy-checks the file first; a refusal comes
+back as diagnostics instead of a run. A run blocks and streams what it does, one line per move,
+and ends with a prose report of the returned Outcome. `spacemolt_check` validates without
+running, so it names a wrong field before a run does. The operator can stop a run at its next
+safe point (`partial`); a loop of your own checks `stopped()` to end there too.
 
 ## The library is the lib
 
@@ -28,17 +35,16 @@ ends a run at its next safe point (`partial`). `status` says where a run has got
 `.cargo`, `.location`, `.credits`, `.skills`) and every game command as
 `account().commands.<tool>.<action>()`. That IS the library; you may call the whole game
 through it. The functions here are conveniences for bulk actions, common failures and
-precondition checks — each one's doc comment says in one line what it adds over the raw
-command. Reach for the raw command when nothing here fits; read `COMMANDS.md` in
-`node_modules/@spacemolt/lib` for the signatures, and read the reply before sending the same
-mutation again.
+precondition checks. `account()` is the escape hatch: reach for the raw command when nothing here
+fits, and read its reply before sending the same mutation again.
 
-## The standing objective
+## The objective
 
-Increase your knowledge of the world, raise your skill levels, obtain credits and influence,
-get a better ship. How is yours to decide. `pilot()` returns the record that says what the
-operator wants (`objective`), what you chose at your last rest (`goal`, `stance`, `mood`), your
-`home` and your `permissions`. You never write it.
+The operator's objective, in your context, governs what you do. When it is open-ended, advance
+in general: learn the world, raise your skill levels, gain credits and influence, get a better
+ship. `pilot()` returns the record that says what the operator wants (`objective`), what you
+chose at your last rest (`goal`, `stance`, `mood`), your `home` and your `permissions`. The
+operator and your rest write it.
 
 ## What every Outcome tells you
 
@@ -53,14 +59,15 @@ operator wants (`objective`), what you chose at your last rest (`goal`, `stance`
 | `next` | up to three things worth considering |
 | `detail` | the function's own numbers |
 
-The field names inside `detail` are in each function's `.ts` file and its JSDoc, not in this
-prose; `check` will tell you when you guess.
+The field names inside `detail` are the lib's own; `spacemolt_check` names a wrong one before a
+run does.
 
-Every function is safe to run twice: it is named for an end state and sends nothing when that
-state already holds. `goTo` somewhere you are is `done`. `stow` of rows you do not hold is `done`
-too — there was nothing to stow — with `short` and `did` saying which rows were not there; the
+Functions named for an end state send nothing when that state already holds. `goTo` somewhere
+you are is `done`; `acceptMission` of an active mission is `done`. `stow` of rows you do not hold
+is `done` too — there was nothing to stow — with `short` and `did` saying which rows were not there; the
 same goes for `withdraw` of rows the store does not have and `sell` of rows you do not hold. A
 `refused` means a real precondition failed: not docked, no counter here, nothing named.
+`buy`, `buyShip`, `gatherUntil` and `hunt` act again on every call: two `buy` calls buy twice.
 
 ## The root functions (every stage)
 
@@ -81,43 +88,17 @@ same goes for `withdraw` of rows the store does not have and `sell` of rows you 
 
 `sell`, `stow` and `withdraw` take explicit rows (`[{item_id, quantity}]`, and `{item_id}` with
 no `quantity` for all of it — a non-finite `quantity` is refused) and never default to
-"everything": you name what you sell. The other careers' functions are signatures that throw
-`unimplemented` until their slice lands; `account()` reaches those commands meanwhile.
+"everything": you name what you sell. Some career functions are not built yet and throw
+`unimplemented`: `survey`, `exploreNearby`, `facilities`, `buildFacility`, `queueJob`, `ships`,
+`switchShip`. `account()` reaches those commands.
 
 Everything game-shaped in a `detail` is the lib's own type (`SystemPoi`, `MissionInfo`,
-`SellResponse`, `V2Module` …), so the field names are the ones `COMMANDS.md` and the
-`.d.ts` files document. `tsc` knows them; guess nothing.
+`SellResponse`, `V2Module` …); `tsc` knows the field names.
 
 Careers add more: [`mining/`](mining/README.md) (`gatherUntil`),
 [`hauling/`](hauling/README.md), [`industry/`](industry/README.md), [`combat/`](combat/README.md) (`hunt`, `salvage`),
 [`trading/`](trading/README.md) (`spreads`, `tradeRun`), [`exploration/`](exploration/README.md), [`fleet/`](fleet/README.md).
 Each folder's README is the skill for that career; the one for your stance is loaded beside this.
-
-## Playing the intro stage
-
-You start docked, with a free starter hull, 50–100 cargo, and a few hundred credits. The way
-out is: first 2,500–10,000 credits, skills 1–3 in mining, trading and navigation, one T1 hull
-(~2,000 cr), and a home base near where you work.
-
-1. `orient()`. If `home` is unset, the operator sets it; say so in `note()` and stop.
-2. `scout()`. Find a belt (`type: asteroid_belt`) and a station with `market` and `storage`.
-   No belt in this system: `scout('<neighbour system id>')` from `connections`, then `goTo` it.
-3. `missions()` at every dock. A difficulty-1 "deliver 20 ore" or "visit X" mission is credits
-   for a trip you were making anyway. Max 5 active: `detail.slots_free` says how many you may
-   still take, so slice the board by it. Accept what matches; complete on return.
-   `slots_free: 0` with nothing completable means a mission is stuck: each `detail.active` row
-   carries its `progress` and a `stuck` reason (expired, destination elsewhere, goods you do not
-   have), and `abandonMission('<id>')` drops one and frees the slot — it refuses a mission you
-   could turn in here unless you pass `{force:true}`, and refuses an id that was never active
-   (a placeholder id is not a success; already-gone ids stay `done`). `completeMissions()` first: it withdraws
-   from the store here for a `deliver N of item` objective the store can cover.
-4. `gatherUntil({poi})`: out, mine until full, back to the base you left, stow, service. One call
-   is one trip of ~15 minutes. `gatherUntil({poi, until: {item, quantity}})` loops trips.
-5. `prices()` then `sell(rows)`. Trading xp scales with credit volume; ore sells for little, refined
-   for 2–40× more (that is the industry career).
-6. First purchase at ~2,000 cr: a cargo expander (`buy`, then `refit({install:['cargo_expander_ii']})`),
-   named by every guide as the correct first buy — but see below: it is only correct if a
-   utility slot is free.
 
 ## Getting a better ship
 
@@ -142,8 +123,8 @@ You never set or clear Tired yourself. Rest clears everything.
 
 ## Rules that will refuse you
 
-- Statically, before the run: an import outside `play`, `play/<folder>`, `@spacemolt/lib` or
-  `./<name>.ts`; `process`, `fetch`, `eval`, dynamic `import()`; `while(true)`/`for(;;)` without a
+- Statically, before the run: an import outside `play`, `play/<folder>` or `@spacemolt/lib`;
+  `process`, `fetch`, `eval`, dynamic `import()`; `while(true)`/`for(;;)` without a
   `stopped()` check; `unload_passenger` with id `all`; a file with no `export default async function main`.
 - At runtime, inside the helpers: spending under `permissions.credit_reserve` or over
   `permissions.max_spend`; a route without the mood's fuel reserve; a system in
@@ -156,8 +137,9 @@ the same call, two runs not `done`, a run that gained nothing, Tired just cleare
 every run. Each move is a library call with literal arguments from the present, already passed
 through the rules; paste it into `index.ts`. `not now` says what the rules refuse and why.
 
-## Saving your own helpers
+## Your own helpers
 
-Put a function in `pilot/<name>.ts`, return an `Outcome` (build it with `outcome(...)` from
-`play`, or return the last library Outcome), import it from `./<name>.ts`. Same validation as
-`index.ts`. Rest is where you read how they ran and rewrite them.
+Define a helper as a function inside `pilot/index.ts`, beside `main`, and return an `Outcome`
+from it (build one with `outcome(...)`, or return the last library Outcome). The file persists
+between junctures, so a helper you wrote is there next time; rest is where you read how it ran
+and rewrite it.

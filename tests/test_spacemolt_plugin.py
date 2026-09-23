@@ -81,7 +81,7 @@ def test_register_publishes_every_tool_in_the_spacemolt_toolset():
             tools[name] = (toolset, schema, handler, kwargs)
 
         def register_system_prompt_section(self, id, content, **kwargs):
-            sections[id] = content
+            sections[id] = (content, kwargs)
 
         def on_unload(self, callback):
             unloads.append(callback)
@@ -117,6 +117,12 @@ def test_register_publishes_every_tool_in_the_spacemolt_toolset():
     # Credentials gate the tools out of the schema, and unload must release the bridge.
     assert all(kwargs["requires_env"] == ["SPACEMOLT_CREDENTIALS_FILE"] for *_, kwargs in tools.values())
     assert sections and unloads == [service.close_bridge]
+    # The flight section goes to the cron fire alone, and either rendering fits its limit (core
+    # skips an oversized section whole).
+    flight, flight_kwargs = sections["spacemolt.flight"]
+    assert flight({"platform": "cron"}) == spacemolt._FLIGHT_PROMPT
+    assert flight({"platform": "discord"}) != spacemolt._FLIGHT_PROMPT
+    assert all(len(flight({"platform": p})) <= flight_kwargs["max_chars"] for p in ("cron", "discord"))
 
 
 def test_the_operators_sentence_is_bounded_and_lands_on_the_pilot():

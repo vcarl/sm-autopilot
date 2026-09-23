@@ -10,7 +10,6 @@ of the judgement is about what not to engage.
 |---|---|
 | `hunt({poi?, fights?, species?, target?})` | up to N fights where you stand (or at `poi`, flown to first), each wreck looted; nothing there is `done` with zero fights |
 | `salvage({tow?})` | loot every wreck here into the hold, your own first; `tow: '<wreck id>'` tows that one instead |
-| [`bounties/`](bounties/README.md) | pirate contracts and sweeps (intermediate+) |
 
 `hunt` fights and loots, and nothing else. A fight runs on the battle's own tick — ten seconds
 of real time, one status read, one decision and at most one command each, because the server
@@ -74,7 +73,7 @@ export default async function main() {
 
 - Every fight: weapons, gunnery, tactics.
 - Shields and armor train by being hit, so only something that shoots back trains them —
-  pirates or the arena, never fauna. See `bounties/`.
+  pirates or the arena, never fauna.
 - Creatures train xenobiology; pirates train bounty_hunting.
 - Looting a wreck, here or through `salvage`, trains salvaging.
 
