@@ -23,12 +23,14 @@ export interface Menu {stagnation?:string;moves:Move[];not_now:{move:string;why:
 export interface RunSummary {fn:string;arg:string;status:Status;credits:number;items:number;xp:number;at:string}
 
 const READS=new Set(['orient','scout','missions','prices','storage','shipsForSale']);
-/** The run that just ended, from the runtime's record of top-level calls. */
-export function runSummary():RunSummary|null {
+/** The run that just ended, from the runtime's record of top-level calls. `status` is how the
+ * run itself ended, not how its first work call did: a run that went on to end `partial` or
+ * `refused` read as `done` here, and the stagnation checks below take their answer from it. */
+export function runSummary(status:Status):RunSummary|null {
   const calls=runCalls(),work=calls.find(c=>!READS.has(c.fn))??calls[0];
   if(!work)return null;
   const {location}=acct().state;
-  return {fn:work.fn,arg:work.arg,status:work.status,credits:calls.reduce((n,c)=>n+c.credits,0),
+  return {fn:work.fn,arg:work.arg,status,credits:calls.reduce((n,c)=>n+c.credits,0),
     items:calls.reduce((n,c)=>n+c.items,0),xp:calls.reduce((n,c)=>n+c.xp,0),at:location?.docked_at??location?.poi_id??'?'};
 }
 /** The last `limit` runs, oldest first. */

@@ -111,14 +111,21 @@ def _run(arguments: dict[str, Any] | None = None, **_: Any) -> str:
 
 
 def _check(arguments: dict[str, Any] | None = None, **_: Any) -> str:
-    """Validate pilot/index.ts without running it, and return the file as it stands."""
+    """Validate pilot/index.ts, and echo the file only to a caller that has not just sent it.
+
+    A source passed is the caller's own text: echoing it back was three quarters of every
+    result. The diagnostics carry the offending line themselves (`check` in run.ts), which is
+    the part of the file the caller actually needs back.
+    """
     from .service import pilot_file
     args = arguments or {}
-    if args.get("source"):
+    sent = bool(args.get("source"))
+    if sent:
         _write_pilot_file(str(args["source"]))
     verdict = call("check", {})
-    path = pilot_file()
-    verdict["source"] = path.read_text(encoding="utf-8") if path.is_file() else ""
+    if not sent:
+        path = pilot_file()
+        verdict["source"] = path.read_text(encoding="utf-8") if path.is_file() else ""
     return json.dumps(verdict, separators=(",", ":"))
 
 

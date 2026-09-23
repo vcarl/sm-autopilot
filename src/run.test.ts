@@ -44,6 +44,34 @@ test('a first run installs the example, and the three gates refuse before anythi
   } finally {f.close();}
 });
 
+test('a tsc error carries the offending line, so the pilot need not be sent its own file back',async()=>{
+  const f=harness();
+  try {
+    f.write("import {orient} from 'play';\n"+
+      "export default async function main(){ const o=await orient(); return o.detail.present.ship.fule; }\n");
+    const gate=await check(f.runtime);
+    assert.equal(gate.ok,false);
+    const bad=gate.errors.find(line=>/fule/.test(line))!;
+    assert.match(bad,/\(2,\d+\)/,'the line and column are still named');
+    assert.match(bad,/\n    2 \| .*o\.detail\.present\.ship\.fule/,bad);
+  } finally {f.close();}
+});
+
+test('the run summary says how the run ended, not how its first call did',async()=>{
+  const f=harness();
+  try {
+    // A trip that lands, then a partial the pilot returns: the summary used to read `done`
+    // off goTo and the menu's stagnation checks never saw the run give up.
+    f.write("import {goTo, outcome} from 'play';\n"+
+      "export default async function main(){ await goTo('belt'); return outcome('gave up at the belt','partial'); }\n");
+    const result=await runPilot(f.deps);
+    assert.equal(result.status,'partial');
+    const work=readJournal(f.runtime).find(entry=>entry.phase==='ended')!.work;
+    assert.equal(work.fn,'goTo');
+    assert.equal(work.status,'partial',JSON.stringify(work));
+  } finally {f.close();}
+});
+
 test('a run streams a line per move (journalled first), ends with the prose, writes the record and raises the juncture',async()=>{
   const f=harness();
   try {

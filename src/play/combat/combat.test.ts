@@ -17,6 +17,24 @@ function world(record:Pilot,options:WorldOptions={}) {
     pilot:()=>who,setPilot:next=>{who=next;},emit:text=>lines.push(text)});
   return {...game,lines,record:()=>who};
 }
+
+/** `world`, but `spacemolt_battle/status` answers whatever `tick_duration` the live server
+ * really gave (stuck, not counting up): the same number from the second poll on. Only the
+ * observe path — never the tick gate — can still catch a hull crossing under this. */
+function worldWithStuckTick(record:Pilot,options:WorldOptions={}) {
+  const game=bridgeWorld({services:['refuel','repair','storage'],cargoUsed:0,...options});
+  const lines:string[]=[];
+  let who:Pilot=record,polls=0;
+  const command:typeof game.command=async(action,params)=>{
+    const res=await game.command(action,params);
+    if(action==='spacemolt_battle/status'&&++polls>=2)
+      (res as {structuredContent?:{tick_duration?:number}}).structuredContent!.tick_duration=1;
+    return res;
+  };
+  bind({account:game.account as unknown as ReadinessAccount,command,
+    pilot:()=>who,setPilot:next=>{who=next;},emit:text=>lines.push(text)});
+  return {...game,command,lines,record:()=>who};
+}
 const grazer={creature_id:'c1',species:'molt_grazer',name:'Molt Grazer'};
 
 test('hunt fights a creature through to the wreck and loots it',async()=>{
@@ -105,6 +123,18 @@ test('hunt is refused without a loaded weapon',async()=>{
     assert.equal(out.status,'refused');
     assert.match(out.why!,/no module of type weapon is fitted/);
     assert.equal(f.count('spacemolt/get_nearby'),0,'nothing was sent past the fit check');
+  } finally {unbind();}
+});
+
+test('a hull crossing the walk-away line is caught even while tick_duration is stuck',async()=>{
+  // Aggressive walks away at 0.80 of 100 max hull: 96 less 5 a poll crosses 80 on the fourth.
+  const f=worldWithStuckTick({mood:'Aggressive'},{wildlife:{creatures:[grazer],polls:8,damage:5}});
+  try {
+    const out=await hunt();
+    const fight=out.detail.fights[0]!;
+    assert.equal(fight.outcome,'broke off','the line was crossed; the fight was not won');
+    assert.equal(f.count('spacemolt_battle/retreat'),1,'the tick sat still, but the hull was still read every poll');
+    assert.equal(fight.hull_after,76,'stopped one poll past the line (80), not run down while blind to it');
   } finally {unbind();}
 });
 

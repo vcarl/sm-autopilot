@@ -74,13 +74,32 @@ function tsc(tsconfig:string):Promise<string[]> {
 
 export interface Check {ok:boolean;entry:string;sha:string;errors:string[]}
 
+const FRAME=/^(.+?)\((\d+),(\d+)\)/;
+/** A tsc error with the offending line under it. A line and a column alone send the pilot
+ * back to re-read the file it has just written, which is what the whole-file echo used to
+ * pay for; the line itself is the cheap half of that. */
+function framed(dir:string,errors:string[]):string[] {
+  const cache=new Map<string,string[]>();
+  return errors.map(text=>{
+    const hit=FRAME.exec(text);
+    if(!hit)return text;
+    const [,file,at]=hit;
+    if(!cache.has(file!)) {
+      try {cache.set(file!,readFileSync(resolve(dir,file!),'utf8').split('\n'));}
+      catch {cache.set(file!,[]);}
+    }
+    const source=cache.get(file!)![Number(at)-1];
+    return source===undefined?text:`${text}\n    ${at} | ${source}`;
+  });
+}
+
 /** The three gates over `pilot/index.ts` and every sibling it imports. Any failure is the
  * run's whole answer; nothing is executed. */
 export async function check(runtime:string):Promise<Check> {
   const {entry,tsconfig}=pilotHome(runtime);
   const sha=createHash('sha256').update(readFileSync(entry)).digest('hex').slice(0,12);
   const errors=await tsc(tsconfig);
-  if(errors.length)return {ok:false,entry,sha,errors:errors.map(line=>`tsc: ${line}`)};
+  if(errors.length)return {ok:false,entry,sha,errors:framed(dirname(tsconfig),errors).map(line=>`tsc: ${line}`)};
   const boundary=checkTree(entry);
   if(!boundary.ok)return {ok:false,entry,sha,errors:boundary.errors};
   const policy:string[]=[];
@@ -151,7 +170,7 @@ export async function runPilot(deps:RunDeps):Promise<RunResult> {
   const text=prose(result,runCalls());
   for(const said of text.split('\n'))line(said);
   const {commands}=progress();
-  const work=runSummary();
+  const work=runSummary(result.status);
   journalRun(runtime,{phase:'ended',script:'index.ts',started,outcome:result.status,reason:result.did,commands,...work?{work}:{}});
   line(`run ended  ${result.status}  ${commands} commands`);
   unbind();

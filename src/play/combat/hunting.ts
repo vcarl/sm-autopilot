@@ -100,18 +100,17 @@ async function engage(target:CreatureInfo|PirateInfo,floor:number):Promise<Fight
     // The quarry's own row, by id. Ours answers our shield, never the range to it.
     const theirs=rows.find(row=>row.player_id===id);
     if(!theirs)break;
-    // `tick_duration` is the count of ticks the battle has run: the same number is the same
-    // tick and nothing new to decide. Without it, every read stands as its own tick.
-    const now=Number(status.tick_duration??tick+1);
-    if(now===tick){await sleep(pace.tickMs);continue;}
-    tick=now;
+    // Observe every poll, regardless of the tick: on the live server `tick_duration` is not
+    // monotonic (it sat at 1 for two minutes straight), and a hull crossing the line while it
+    // sits still still has to be seen. The tick below only limits ACTIONS to one a tick.
     await acct().refresh();
     const ship=acct().state.ship as V2Ship|undefined;
     const hull=Number(ship?.hull??0);
     const mine=rows.find(row=>row.kind==='player');
     const reach=Number(status.combat_state?.max_weapon_reach??0);
     const theirHull=Number(theirs.hull_pct??0),far=Number(theirs.zone_distance??0);
-    step(`tick ${tick} vs ${nameOf(target)}: hull ${hull}/${ship?.max_hull??'?'}, shield ${mine?.shield_pct??0}%, theirs ${theirHull}% at ${theirs.zone??'?'} ${far}/${reach}`);
+    const now=Number(status.tick_duration??tick+1);
+    step(`tick ${now} vs ${nameOf(target)}: hull ${hull}/${ship?.max_hull??'?'}, shield ${mine?.shield_pct??0}%, theirs ${theirHull}% at ${theirs.zone??'?'} ${far}/${reach}`);
     if(ship?.incapacitated){outcome='unresolved';break;}
     const tired=pilot().mood==='Tired';
     if(hull<floor||tired) {
@@ -120,6 +119,10 @@ async function engage(target:CreatureInfo|PirateInfo,floor:number):Promise<Fight
       break;
     }
     if(Date.now()>=deadline){outcome='unresolved';break;}
+    // The same tick number is the same tick and nothing new to act on. Without one, every
+    // read stands as its own tick. Checked after the observation above, never before it.
+    if(now===tick){await sleep(pace.tickMs);continue;}
+    tick=now;
     // A hull that is not falling while the range opens is the quarry running, not a miss.
     if(seen)fled=theirHull>=seen.hull&&far>seen.far?fled+1:0;else first={hull:theirHull,far};
     seen={hull:theirHull,far};
