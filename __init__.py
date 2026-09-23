@@ -307,8 +307,9 @@ TOOL_DEFINITIONS = (
                        "Validate without playing: tsc, the import boundary and the game policy "
                        "over pilot/index.ts. Use when a run came back refused, to fix the file "
                        "before running again. Pass `source` to replace the file first. Returns "
-                       "ok, errors, and the file as it stands, "
-                       "so a wrong field name costs a check, not a run.",
+                       "ok and the errors, each with the offending line; the whole file comes "
+                       "back only when you pass no `source`, since you already have the text "
+                       "you sent. A wrong field name costs a check, not a run.",
                        {"source": {"type": "string",
                                    "description": "Optional: the TypeScript of pilot/index.ts, "
                                                   "written before the check."}},
