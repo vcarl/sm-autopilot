@@ -136,6 +136,17 @@ export async function destination(id:string):Promise<{id:string;quote:FindRouteR
 /** The quote alone, for callers that only want the fuel and jumps. */
 export async function route(id:string):Promise<FindRouteResponse> {return (await destination(id)).quote;}
 
+/** Whether `id` is a base sitting at `poiId` in `systemId`, per that system's own POI rows
+ * (`base_id` on the row) — the only way to tell a base from its POI when a base's id is the
+ * same as its POI's, as it is on the live server (report 02, fix 1). A ship not yet in that
+ * system cannot ask; `isBase` below falls back to the route heuristic for that case, the same
+ * reach limit `systemBases` above already lives with. */
+async function baseAt(systemId:string,poiId:string,id:string):Promise<boolean> {
+  if(acct().state.location?.system_id!==systemId)return false;
+  const pois=(details(await command('spacemolt/get_system',{})).system?.pois??[]) as SystemPoi[];
+  return pois.some(row=>row.id===poiId&&row.base_id===id);
+}
+
 /** The system an active distress mission wants visited, or undefined when it is not one to
  * fly to: a `visit_system` objective carries `system_id` and nothing else, and arriving is
  * what moves it to 1 of 1 — `complete_mission` then claims it. Community and expired ones
@@ -227,8 +238,11 @@ export function goTo(id?:string):Promise<Outcome<Trip>> {
     if(named!==target)step(`${target} is ${named}`);
     if((who.permissions?.no_go??[]).includes(quote.target_system))
       return {status:'refused',did:`did not fly to ${target}`,why:`${quote.target_system} is in permissions.no_go`,detail:detail()};
-    // A base id is what find_route resolved to a different POI; dock there on arrival.
-    const isBase=quote.target_poi!==undefined&&quote.target_poi!==named;
+    // A base id is what find_route resolved to a different POI; dock there on arrival. When
+    // it resolved to the SAME id (a base id equal to its POI's, as on the live server) that
+    // heuristic reads "not a base", so the system's own POI rows get the final say (fix 1).
+    const isBase=quote.target_poi!==undefined&&
+      (quote.target_poi!==named||await baseAt(quote.target_system,quote.target_poi,named));
     // A system id answers with a system and no POI of its own. Passing it on as a `poi_id`
     // is what the server rejects as "Unknown destination" after the jump was already flown
     // and paid for: a system is reached wherever in it the jump lands, so name no POI.
@@ -281,8 +295,7 @@ export function goTo(id?:string):Promise<Outcome<Trip>> {
     let docked=false;
     // The dock is decided by the system's own listing, not the route heuristic: a system id
     // may also answer with a POI, and docking "at a system" would wedge here.
-    const pois=poi?(details(await command('spacemolt/get_system',{})).system?.pois??[]) as {id:string;base_id?:string}[]:[];
-    if(pois.some(row=>row.id===poi&&row.base_id===named)){await dockAt(acct(),command,named);docked=true;step(`docked at ${named}`);}
+    if(poi&&await baseAt(quote.target_system,poi,named)){await dockAt(acct(),command,named);docked=true;step(`docked at ${named}`);}
     return {status:'done',did:`arrived at ${target}${poi?'':` (${acct().state.location?.poi_id})`}${docked?' and docked':''} after ${jumps} jump(s)`
       +(answered.length?`; ${answered.join('; ')}`:''),detail:{...detail(),jumps,docked}};
   });
