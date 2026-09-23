@@ -116,6 +116,25 @@ test('nothing to hunt at a POI is done, not blocked',async()=>{
   } finally {unbind();}
 });
 
+test('a hunt with no species named prefers the quarry an active mission names',async()=>{
+  const beltGrazer={creature_id:'c2',species:'belt_grazer',name:'Belt Grazer'};
+  // The Molt Grazer is first in the habitat; the mission's own words point at the other one.
+  const f=world({mood:'Focused'},{wildlife:{creatures:[grazer,beltGrazer],polls:2,damage:1,
+    drops:[{item_id:'creature_carapace',quantity:1}]}});
+  f.taken.push({mission_id:'m9',title:'Cull the herd',type:'hunt',difficulty:1,
+    description:'Hunt 3 Belt-Grazer for the ranchers',accepted_at:new Date().toISOString(),
+    expires_in_ticks:500,percent_complete:0,issuing_base:'sol_base',rewards:{credits:100},
+    objectives:[{description:'3 Belt-Grazer culled',completed:false,current:0,required:3}]});
+  try {
+    const out=await hunt();
+    const fight=out.detail.fights[0]!;
+    assert.equal(fight.target.name,'Belt Grazer',
+      'the mission named the quarry; the pilot cannot read a species id off it, but the fight can still find it');
+    assert.equal(f.count('spacemolt/hunt'),1);
+    assert.deepEqual(f.sent.find(call=>call.action==='spacemolt/hunt')?.params,{id:'c2'});
+  } finally {unbind();}
+});
+
 test('hunt is refused without a loaded weapon',async()=>{
   const f=world({mood:'Focused'},{wildlife:{creatures:[grazer],weapon:null}});
   try {

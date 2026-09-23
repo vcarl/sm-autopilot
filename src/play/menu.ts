@@ -109,6 +109,14 @@ const attempt=async<T>(read:()=>Promise<T>):Promise<T|undefined>=>{try {return a
 const TRAINS:[RegExp,string][]=[[/mining/,'gatherUntil'],[/trad|commerce/,'sell'],[/navigation|piloting|explor/,'goTo'],
   [/weapon|gunnery|tactic|xeno|combat|bounty/,'hunt'],[/engineer/,'refit']];
 const LEADS:Record<string,string>={Prospector:'gatherUntil',Trader:'sell',Hunter:'hunt',Scout:'goTo',Carrier:'acceptMission',Industrialist:'refit'};
+/** The call the pilot's own words name as the work. The objective and the goal decide; the
+ * stance is the fallback. A Hunter told to cull fauna was offered gatherUntil and selling and
+ * no hunt at all, every line tagged [credits]: the menu answered the belt, not the orders. */
+const OBJECTIVES:[RegExp,string][]=[[/hunt|fauna|creature|kill|cull|bounty|pirate/,'hunt'],
+  [/mine|ore|gather|prospect/,'gatherUntil'],[/haul|courier|freight|package/,'haul'],
+  [/explor|scout|survey|visit|map/,'goTo'],[/trade|sell|market/,'sell']];
+export const leadCall=(who:Pilot):string=>
+  OBJECTIVES.find(([re])=>re.test(`${who.objective??''} ${who.goal??''}`.toLowerCase()))?.[1]??LEADS[who.stance??'']??'';
 const FITS:Record<string,string[]>={Prospector:['gatherUntil','goTo'],Hunter:['hunt','goTo'],Scout:['goTo'],Carrier:['haul','goTo'],
   Trader:['goTo','haul'],Industrialist:['gatherUntil','goTo']};
 
@@ -204,6 +212,13 @@ export async function menu(runtime?:string):Promise<Menu> {
     else work({call:`gatherUntil({poi:'${belt.id}'})`,why:`${belt.type} ${belt.name}, ${ship?.cargo_capacity!-ship?.cargo_used!} free in the hold`,advances:'credits'});
   }
 
+  // Hunt when the orders say hunt: the fight is out in the system, never from a dock.
+  const lead=leadCall(who);
+  if(lead==='hunt') {
+    if(docked)not_now.push({move:'hunt',why:`docked at ${docked}; undock or goTo a poi with fauna`});
+    else work({call:'hunt()',why:`the objective names hunting; fauna at ${location?.poi_id??'this poi'} is legal to engage`,advances:'objective'});
+  }
+
   // Explore an unvisited neighbour.
   for(const link of (system?.connections??[]).slice(0,3)) {
     const map=await attempt(async()=>details(await command('spacemolt/get_map',{system_id:link.system_id})) as MapSystemInfo);
@@ -272,7 +287,10 @@ export async function menu(runtime?:string):Promise<Menu> {
   const seen=new Set<string>();
   const ranked=moves.filter(m=>!seen.has(m.call)&&seen.add(m.call)).map(m=>({m,k:key(m)}))
     .sort((a,b)=>b.k[0]!-a.k[0]!||b.k[1]!-a.k[1]!||b.k[2]!-a.k[2]!||b.k[3]!-a.k[3]!).map(({m})=>m).slice(0,5);
-  return {...stagnation?{stagnation}:{},moves:ranked,not_now};
+  // The tag says what a move serves, and what the objective names serves the objective: the
+  // ranking is already settled, so this only corrects the label the pilot reads.
+  const tagged=ranked.map(m=>lead&&m.call.split('(')[0]===lead?{...m,advances:'objective' as const}:m);
+  return {...stagnation?{stagnation}:{},moves:tagged,not_now};
 }
 
 /** The menu as text: one line per move with the call in backticks, then what is not on it. */

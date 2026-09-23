@@ -3,6 +3,7 @@
 import type {CreatureInfo,EnrichedWreck,GetBattleStatusResponse,GetNearbyResponse,PirateInfo,V2Module,V2Ship} from '@spacemolt/lib';
 import {resolveWalkAway} from '../../mood-policy.ts';
 import {details} from '../../response-details.ts';
+import {active as activeMissions} from '../missions.ts';
 import {acct,admit,checkStop,command,job,pilot,step,stopped} from '../runtime.ts';
 import {goTo} from '../travel.ts';
 import type {Outcome,Row} from '../types.ts';
@@ -73,6 +74,21 @@ function decline(target:CreatureInfo|PirateInfo,named:string|undefined,mayAttack
     return `${target.name} flies for ${target.faction_name??target.faction??'no crew'}; permissions.may_attack admits ${mayAttack.join(', ')||'nothing'}`;
   return null;
 }
+
+/** The active missions' own words, flattened for a substring test. Mission data never carries
+ * a species id — a hunt objective is prose ("Hunt 5 Belt-Grazer wildlife") — so this is what
+ * `quarryOf` has to work with; there is no id to read off it.
+ * ponytail: substring match on prose, not a real species id; a mission naming its quarry only
+ * by a word that is not the species (a nickname, a typo) is missed. Upgrade the day a mission
+ * objective carries `target_species`. */
+async function huntText():Promise<string> {
+  const mine=await activeMissions();
+  return mine.active.map(m=>[m.title,m.description,...(m.objectives??[]).map(o=>o.description)].join(' ')).join(' ')
+    .toLowerCase().replace(/[^a-z0-9]+/g,' ');
+}
+
+/** Whether an active mission's own words name this species (its id, space for underscore). */
+const namesSpecies=(text:string,species:string)=>text.includes(species.replace(/_/g,' '));
 
 /** One fight, from the first shot to the end of the battle, paced on the battle's own tick.
  * Ships fire by themselves every tick under their stance — there is no fire command — and the
@@ -151,7 +167,8 @@ const say=(rows:Row[])=>rows.map(row=>`${row.quantity} ${row.item_id}`).join(', 
  * function fights and loots, and nothing else.
  *
  * Nothing to hunt here is `done` with `fights: []` and `ended:'nothing here'`: the fact was
- * learned and nothing was spent. `species` narrows to a kind you have fought before.
+ * learned and nothing was spent. `species` narrows to a kind you have fought before; left
+ * unset, a species an active mission's own words name is preferred over the first legal one.
  *
  * Refused before firing without a fitted weapon (`V2Module.type === 'weapon'`) holding
  * ammunition; an empty magazine whose rounds are in the hold is reloaded instead. Costs
@@ -177,6 +194,8 @@ export function hunt(opts:{poi?:string;fights?:number;species?:string;target?:'c
     const floor=resolveWalkAway(who.mood??'Cautious')*Number(acct().state.ship?.max_hull??0);
     const mayAttack=(who.permissions?.may_attack??[]).map(String);
     const wantPirates=opts.target==='pirate';
+    // No species named: an active mission's own words are the next best thing to ask.
+    const quarry=!opts.species&&!wantPirates?await huntText():'';
     for(let n=0;n<asked;n++) {
       checkStop();
       const ship=acct().state.ship as V2Ship|undefined;
@@ -186,7 +205,9 @@ export function hunt(opts:{poi?:string;fights?:number;species?:string;target?:'c
       const here:(CreatureInfo|PirateInfo)[]=wantPirates?nearby.pirates??[]:nearby.creatures??[];
       const refusals:string[]=[];
       let target:CreatureInfo|PirateInfo|undefined;
-      for(const one of here) {
+      // A mission's quarry, when one is named and legal to take, wins over the first thing here.
+      if(quarry)target=here.find(one=>isCreature(one)&&namesSpecies(quarry,one.species)&&decline(one,undefined,mayAttack)===null);
+      if(!target)for(const one of here) {
         const why=decline(one,opts.species,mayAttack);
         if(why===null){target=one;break;}
         refusals.push(why);

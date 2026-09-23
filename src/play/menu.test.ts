@@ -34,6 +34,23 @@ test('four identical gathers: the stagnation line names them and the top move is
   } finally {f.close();}
 });
 
+test('a Hunter told to cull fauna is offered the hunt, and the move that serves the objective is tagged for it',async()=>{
+  const f=world({mood:'Focused',stance:'Hunter',home:'sol_base',objective:'cull the fauna at the belt'},{cargoUsed:6});
+  try {
+    f.account.server.location.docked_at=null;f.account.server.location.poi_id='belt';
+    const built=await menu(f.runtime);
+    const hunt=built.moves.find(m=>m.call==='hunt()');
+    assert.ok(hunt,`no hunt on the menu: ${JSON.stringify(built.moves)}`);
+    assert.equal(hunt!.advances,'objective','the hunt is not tagged [credits]');
+    assert.ok(!built.moves.every(m=>m.advances==='credits'),'every move tagged [credits]');
+    // Docked, the hunt is out of reach rather than silently absent.
+    f.account.server.location.docked_at='sol_base';
+    const docked=await menu(f.runtime);
+    assert.ok(!docked.moves.some(m=>m.call==='hunt()'));
+    assert.ok(docked.not_now.some(row=>row.move==='hunt'),JSON.stringify(docked.not_now));
+  } finally {f.close();}
+});
+
 test('an unfitted module in the hold with no free slot is under not_now with the slot reason, not a move',async()=>{
   const f=world({mood:'Focused',stance:'Prospector',home:'sol_base'},{cargoUsed:0,
     hangar:{fitted:[{module_id:'m1',type_id:'mining_laser_i',slot:'utility',cpu_usage:3,power_usage:4},
