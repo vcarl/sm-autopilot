@@ -6,9 +6,13 @@ cannot read files: this README and your stance's README are the whole reference.
 functions from this library with literal arguments. Every function returns the same shape
 (`Outcome`), so you can chain them, branch on `status`, and return the last one.
 
-The file is one module: `import {…} from 'play'` (every function, careers included;
-`'@spacemolt/lib'` for types) and `export default async function main()` that returns the last
-Outcome.
+The file is one module: `import {…} from 'play'` (every function, careers included, and the
+types `Outcome` and `Present`; `'@spacemolt/lib'` for game types) and
+`export default async function main()` that returns the last Outcome.
+
+`orient()` returns the present as `look.detail.present`: fuel and hull are on the ship
+(`present.ship.fuel`, `present.ship.hull`, `present.ship.max_hull`), and each skill is an object
+whose number is `.level` (`present.skills.weapons.level`).
 
 ```ts
 import {orient, goTo, gatherUntil, sell, service} from 'play';
