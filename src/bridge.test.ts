@@ -61,6 +61,23 @@ test('menu answers with moves from the present, each a paste-able call, and the 
   assert.ok(blank.moves?.length,JSON.stringify(blank));
 });
 
+test('the menu reports the mood the record holds after its reads, and the walk-away line', async () => {
+  // The reads push state, every push runs `imposeTired`, and Tired clears the moment the ship
+  // is back inside the prior mood's margins. A frozen copy of the record cleared the same Tired
+  // on every push and then reported a mood the pilot no longer had (playtest 2026-09-22).
+  const world=bridgeWorld();
+  let push:(()=>void)|undefined;
+  (world.account as any).onStateChange=(fn:()=>void)=>{push=fn;return ()=>{push=undefined;};};
+  const pushing=async(action:string,params:Record<string,unknown>={})=>{
+    const reply=await world.command(action,params);push?.();return reply;};
+  let record:Pilot={...PILOT,mood:'Tired',mood_before_tired:'Focused'};
+  const writes:Pilot[]=[];
+  const menu=await serve(world.account as unknown as ReadinessAccount,pushing,
+    {pilot:()=>record,setPilot:next=>{writes.push(next);record=next;}})('menu') as any;
+  assert.equal(menu.mood,'Focused','the reads cleared Tired; the menu says so');
+  assert.equal(writes.length,1,'cleared once, not once per push');
+});
+
 test('run blocks until the pilot file ends; status, stop and menu answer meanwhile', async () => {
   const held=heldRun();
   const runtime=mkdtempSync(join(tmpdir(),'spacemolt-bridge-'));

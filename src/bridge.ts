@@ -122,17 +122,20 @@ export function serve(account:ReadinessAccount,command:ReadinessCommand,options:
    * runtime is bound for the reads and released after; a run in flight answers `busy`. */
   const menu=async()=>{
     if(running)return {busy:true,...busy()};
-    const who=pilot();
     // At rest the stance and the mood are cleared, but the menu is never empty (VISION): the
     // moves are computed all the same, under the resting default mood, and what reflect would
-    // set is named beside them rather than in place of them.
-    const absent=(['goal','stance','mood'] as const).filter(key=>!who[key]);
-    const resting=!who.stance||!who.mood;
-    const flying:Pilot=resting?{...who,mood:who.mood??'Cautious'}:who;
-    bind({account,command,pilot:()=>flying,setPilot:options.setPilot??(()=>{}),...runtime?{runtime}:{},emit:()=>{}});
+    // set is named beside them rather than in place of them. The reader stays live: the reads
+    // below push state, every push runs `imposeTired`, and a frozen copy clears the same Tired
+    // on every push and then reports a mood the pilot no longer has (playtest 2026-09-22).
+    const flying=():Pilot=>{const now=pilot();return now.mood?now:{...now,mood:'Cautious'};};
+    bind({account,command,pilot:flying,setPilot:options.setPilot??(()=>{}),...runtime?{runtime}:{},emit:()=>{}});
     try {
       const built=await buildMenu(runtime);
       const {location,ship,player,modules}=account.state;
+      // Read back after the reads, never before: Tired may have been imposed or cleared in them.
+      const who=pilot();
+      const absent=(['goal','stance','mood'] as const).filter(key=>!who[key]);
+      const resting=!who.stance||!who.mood;
       return {
         now:new Date().toISOString(),
         ...who.stance?{stance:who.stance}:{},...who.mood?{mood:who.mood}:{},
