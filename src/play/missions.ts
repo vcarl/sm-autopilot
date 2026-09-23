@@ -223,10 +223,16 @@ export function completeMissions():Promise<Outcome<{completed:CompleteMissionRes
     const after=await active(),{free,notes}=census(after);
     const rest=after.active.map(seen),blocked=rest.filter(r=>r.stuck);
     const tail=`${after.active.length} remain, ${free} slot(s) free${notes.length?` (${notes.join(', ')})`:''}`;
-    return {status:failed.length?'partial' as const:'done' as const,
+    // Nothing turned in is not a mission done: `done` here put "missions done" in the run
+    // summary and the pilot carried it forward into the next script as work already paid for.
+    const status=completed.length?(failed.length?'partial' as const:'done' as const):'refused' as const;
+    const why=failed.length?failed.join('; ')
+      :completed.length?'':blocked.length?blocked.map(r=>`${r.title}: ${r.stuck}`).join('; ')
+        :'no active mission is completable at this dock';
+    return {status,
       did:(completed.length?`completed ${completed.length} mission(s) for ${completed.reduce((s,r)=>s+(r.credits_earned??0),0)} cr`:'nothing completable')
         +`; ${tail}${said.length?`. ${said.join('. ')}`:''}`,
-      ...failed.length?{why:failed.join('; ')}:{},
+      ...why?{why}:{},
       detail:{completed,remaining:rest},
       next:free?[]:blocked.slice(0,3).map(r=>`abandonMission('${r.mission_id}') frees a slot — ${r.title}: ${r.stuck}`)};
   });

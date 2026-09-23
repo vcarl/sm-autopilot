@@ -86,6 +86,19 @@ test('a mission whose goods are elsewhere is stuck, and the store cannot unstick
   } finally {unbind();}
 });
 
+test('completing nothing is refused, not done: "missions done" must not carry forward',async()=>{
+  const f=world();
+  try {
+    f.taken.push(row({objectives:[{description:'20 ore to Sol Base',item_id:'ore',item_name:'ore',
+      type:'deliver',current:0,required:20,completed:false,in_cargo:0,in_storage:0,target_base:'sol_base'}]}));
+    const out=await completeMissions();
+    assert.equal(out.status,'refused');
+    assert.match(out.did,/^nothing completable/);
+    assert.match(out.why!,/needs 20 more ore/);
+    assert.equal(out.detail.completed.length,0);
+  } finally {unbind();}
+});
+
 test('abandonMission refuses an id the account never had, and stays idempotent for a real one',async()=>{
   const f=world();
   try {

@@ -27,8 +27,9 @@ test('a trailing no-op cannot erase the trip: the run block names every call it 
   const noop:Call={fn:'service',arg:'',status:'done',did:'already serviced',
     credits:0,items:0,xp:0,cost:{credits:0,fuel:0,hull:0,minutes:0}};
   const text=prose(base,[trip,noop]);
-  assert.match(text,/^Done: serviced at frontier_station\.\nCost this run: 9 cr, 1 min\.\n/);
-  assert.match(text,/\nThis run: 2 calls, cost 18 fuel, 13\.7 min, gained \+26 items, \+540 xp\.\n/);
+  // One cost, from the calls: the returned Outcome measures only from its own mark.
+  assert.match(text,/^Done: serviced at frontier_station\.\nCost this run: 18 fuel, 13\.7 min\.\n/);
+  assert.match(text,/\nThis run: 2 calls, gained \+26 items, \+540 xp\.\n/);
   assert.match(text,/\n {2}- gatherUntil done mined 26 iridium_ore over 2 trips\n {2}- service done already serviced$/);
   // One call is the returned Outcome's own; no block.
   assert.equal(prose(base,[noop]).includes('This run:'),false);
@@ -38,6 +39,19 @@ test('a trailing no-op cannot erase the trip: the run block names every call it 
   assert.equal(block.split('\n').filter(line=>line.startsWith('  - ')).length,8);
   assert.match(many,/ {2}- \(5 earlier call\(s\)\)\n {2}- gatherUntil done trip 5\n/);
   assert.match(many,/Consider:\n {2}- rest$/);
+});
+
+test('the cost is said once, from the run and not from the returned call\'s own mark',()=>{
+  // The fight cost 28 hull; the no-op it returned after measured nothing since its mark, and
+  // the report said "Cost: nothing" over it.
+  const fight:Call={fn:'hunt',arg:'',status:'done',did:'killed 3',credits:0,items:0,xp:60,
+    cost:{credits:0,fuel:4,hull:28,minutes:9}};
+  const noop:Call={fn:'service',arg:'',status:'done',did:'already serviced',
+    credits:0,items:0,xp:0,cost:{credits:0,fuel:0,hull:0,minutes:0}};
+  const text=prose({...base,cost:{credits:0,fuel:0,hull:0,minutes:0}},[fight,noop]);
+  assert.match(text,/\nCost this run: 4 fuel, 28 hull, 9 min\.\n/);
+  assert.equal(text.includes('Cost: nothing'),false);
+  assert.equal(/cost /.test(text.split('This run:')[1]!),false,'the run block does not say it again');
 });
 
 test('a call that did not end done carries its why, so the reason is not dropped from the report',()=>{
