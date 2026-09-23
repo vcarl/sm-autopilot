@@ -42,6 +42,12 @@ test('menu answers with moves from the present, each a paste-able call, and the 
   assert.ok(menu.not_now.some((row:any)=>row.move==='gatherUntil'&&/hold is full/.test(row.why)),JSON.stringify(menu.not_now));
   assert.match(menu.text,/^Menu:\n  - `sell\(/);
   assert.equal(menu.last,null,'nothing has run yet');
+  // The juncture renders the situation from this one reply: the clock, the record, the ship.
+  assert.ok(Date.parse(menu.now),menu.now);
+  assert.equal(menu.home,'sol_base');
+  const armed=bridgeWorld({wildlife:{creatures:[]}});
+  const fitted=await serve(armed.account as unknown as ReadinessAccount,armed.command,{pilot:()=>PILOT})('menu') as any;
+  assert.deepEqual(fitted.present.weapons,[{id:'autocannon_i',loaded:500}]);
   // A pilot with no stance is at rest, and the menu is still never empty (VISION): the moves
   // are computed all the same and what reflect would set is named beside them.
   const resting=await fixture({pilot:()=>({objective:'fill the hold',mood:'Focused',home:'sol_base'})}).dispatch('menu') as any;

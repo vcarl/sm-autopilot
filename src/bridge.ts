@@ -18,7 +18,7 @@ import {startHeartbeat} from './heartbeat.ts';
 import {flushJournalDrain,startJournalDrain} from './journal-webhook.ts';
 import {check as checkPilot,runPilot as defaultRunPilot,type RunResult} from './run.ts';
 import {factsNow,menu as buildMenu,renderMenu} from './play/menu.ts';
-import {bind,isBound,progress,stop as stopRun,unbind} from './play/runtime.ts';
+import {bind,isBound,present,progress,stop as stopRun,unbind} from './play/runtime.ts';
 
 /** The one endpoint this runner talks to. */
 export const GAME_WS_URL='wss://game.spacemolt.com/ws/v2';
@@ -88,7 +88,7 @@ export function serve(account:ReadinessAccount,command:ReadinessCommand,options:
    * whole Outcome — ship, location, nearby players, every skill — stays in `run.json` and
    * the journal; a pilot reading this through a tool call is paying for every line of it. */
   const brief=(result:RunResult):Record<string,unknown>=>({...result.sha?{sha:result.sha}:{},
-    started:result.started,ended:true,status:result.status,did:result.reason,
+    started:result.started,ended:true,...result.ended_at?{ended_at:result.ended_at}:{},status:result.status,did:result.reason,
     ...result.why?{why:result.why}:{},prose:result.prose,commands:result.commands});
   const lastOutcome=()=>last??(stored()?.ended?{...stored()!.outcome as Record<string,unknown>}:null);
 
@@ -132,9 +132,12 @@ export function serve(account:ReadinessAccount,command:ReadinessCommand,options:
     bind({account,command,pilot:()=>flying,setPilot:options.setPilot??(()=>{}),...runtime?{runtime}:{},emit:()=>{}});
     try {
       const built=await buildMenu(runtime);
-      const {location,ship,player}=account.state;
+      const {location,ship,player,modules}=account.state;
       return {
+        now:new Date().toISOString(),
         ...who.stance?{stance:who.stance}:{},...who.mood?{mood:who.mood}:{},
+        ...who.home?{home:who.home}:{},...who.goal?{goal:who.goal}:{},
+        ...who.permissions?{permissions:who.permissions}:{},
         ...resting?{rest:{at_rest:true,absent,
           set_by:'reflect names the goal, then the stance and the mood that fit it'}}:{},
         ...who.objective?{objective:who.objective}:{},
@@ -142,7 +145,10 @@ export function serve(account:ReadinessAccount,command:ReadinessCommand,options:
           in_transit:Boolean(location?.in_transit),fuel:ship?.fuel,max_fuel:ship?.max_fuel,
           hull:ship?.hull,max_hull:ship?.max_hull,
           cargo_free:(ship?.cargo_capacity??0)-(ship?.cargo_used??0),credits:player?.credits,
-          hold:(account.state.cargo??[]).map(row=>({item_id:String(row.item_id),quantity:row.quantity}))},
+          hold:(account.state.cargo??[]).map(row=>({item_id:String(row.item_id),quantity:row.quantity})),
+          weapons:(modules??[]).filter(row=>row.slot==='weapon')
+            .map(row=>({id:row.type_id,...row.current_ammo!==undefined?{loaded:row.current_ammo}:{}})),
+          skills:Object.fromEntries(Object.entries(present().skills).map(([id,row])=>[id,row.level]))},
         ...built,text:renderMenu(built),last:lastOutcome(),
       };
     } finally {unbind();}

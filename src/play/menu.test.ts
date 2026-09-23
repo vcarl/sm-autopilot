@@ -64,6 +64,5 @@ test('the trigger fires on repetition, on two runs not done, on a run that gaine
   assert.equal(menuDue([gather(),gather(),gather({credits:5})]),'3 runs of gatherUntil at belt, credits +5');
   assert.equal(menuDue([gather({credits:1}),gather({fn:'sell',arg:'12',status:'refused'}),gather({status:'partial'})]),'last 2 runs ended refused, partial (sell, gatherUntil)');
   assert.equal(menuDue([gather({fn:'goTo',arg:'belt',items:0})]),'the last run (goTo belt) gained nothing');
-  assert.equal(menuDue([],true),'Tired cleared: the mood before it is back');
   assert.equal(menuDue([]),null);
 });

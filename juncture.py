@@ -65,15 +65,8 @@ JUNCTURE_PROMPT = (
 STANCE_FOLDER = {"Prospector": "mining", "Industrialist": "industry", "Trader": "trading",
                  "Carrier": "hauling", "Hunter": "combat", "Scout": "exploration"}
 
-#: The refusals go first when a menu will not fit; the options are the point of it.
-_CONTEXT_BUDGET = 3_500
 #: The juncture section's ``max_chars``: core skips a section over it whole, not truncated.
 SECTION_LIMIT = 4_000
-#: Carl, 2026-09-16: the menu is off for a while to see how the pilot chooses without one. Off,
-#: the juncture still carries the present, the instruction, the objective and the last run;
-#: the options and refusals the rules computed are dropped before delivery. Flip to True to
-#: restore; nothing else changes.
-MENU_ENABLED = False
 
 
 def juncture_context(session_info: Mapping[str, Any] | None = None) -> str:
@@ -88,63 +81,137 @@ def juncture_context(session_info: Mapping[str, Any] | None = None) -> str:
     from .service import call
 
     menu = call("menu")
-    _instruction(menu)
     # At rest the menu still carries moves (VISION: the menu is never empty); the choosing
     # material a rest needs is the reflection, so the fire gets both.
     if menu.get("rest") or menu.get("at_rest"):
         return _rest_context(call("reflect"), menu.get("text"))
-    _hold_full(menu)
-    # The menu v2: the rendered moves travel as text under the JSON, so a fire reads calls it
-    # can paste, not a structure it has to decode.
-    text = menu.pop("text", None)
-    tail = ("\n" + text) if text else ""
-    if not MENU_ENABLED:
-        menu.pop("options", None)
-        menu.pop("unavailable", None)
-        body = json.dumps(menu, separators=(",", ":"), sort_keys=True)
-        return "SpaceMolt juncture — the present and how the last script ended:\n" + body + tail
-    body = json.dumps(menu, separators=(",", ":"), sort_keys=True)
-    if len(body) > _CONTEXT_BUDGET:
-        menu.pop("unavailable", None)
-        body = json.dumps(menu, separators=(",", ":"), sort_keys=True)
-    return ("SpaceMolt juncture — the present, each option with the call it would be taken "
-            "with, its reason and bounds, what is unavailable and why, and how the last script "
-            "ended:\n" + body + tail)
-
-
-def _instruction(menu: dict[str, Any]) -> None:
-    """What the operator said, with when they said it, beside the present it applies to.
-
-    The runner builds the menu from the pilot's stance and place; the instruction is the
-    operator's own field of the same record, so it travels with the consultation rather than
-    waiting for a tool call the juncture would have to think to make.
-    """
+    if menu.get("busy"):
+        return "SpaceMolt juncture — a run is already in flight; its report comes with the next one."
     said = read_pilot().get("instruction")
+    context = _situation(menu, said)
     if said:
-        menu["instruction"] = said
+        _deliver(said)
+    return context
 
 
-#: The rest of the story a `cargo_free` of 0 leaves untold. A full hold is not a dead end and
-#: it is not a mystery either: it is ore with two places to go and a gather that will return
+def _deliver(said: dict[str, Any]) -> None:
+    """The instruction is for one juncture: once rendered, it moves to ``instruction_delivered``.
+
+    Re-read just before the write so an instruction the window set in between is not the one
+    moved. ponytail: read-modify-write without a lock; a ``_direct`` landing inside that
+    microsecond window is lost. Add a file lock if the window ever writes in bulk.
+    """
+    record = read_pilot()
+    if record.get("instruction") == said:
+        record["instruction_delivered"] = record.pop("instruction")
+        write_pilot(record)
+
+
+def _when(iso: str | None) -> datetime | None:
+    try:
+        return datetime.fromisoformat(str(iso).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+
+def _stamp(at: datetime | None) -> str:
+    return at.astimezone(timezone.utc).strftime("%m-%d %H:%MZ") if at else "unknown time"
+
+
+def _age(then: datetime, now: datetime) -> str:
+    minutes = int((now - then).total_seconds() // 60)
+    if minutes >= 2 * 1440:
+        return f"{minutes // 1440} days ago"
+    if minutes >= 120:
+        return f"{minutes // 60} hours ago"
+    return f"{max(minutes, 0)} min ago"
+
+
+_PERMISSION = {"credit_reserve": "keep {:,} credits", "max_liability": "owe at most {:,} on one job",
+               "max_spend": "spend at most {:,} on one purchase"}
+
+#: The rest of the story a free hold of 0 leaves untold. A full hold is not a dead end and it
+#: is not a mystery either: it is ore with two places to go and a gather that will return
 #: nothing until it does (playtest 2026-09-15: three gathers dispatched on a full hold).
 _HOLD_FULL = ("hold full: a gather needs free hold. sell(rows) or stow(rows) here first "
-              "(name the rows from present.hold), then gatherUntil")
+              "(name the rows from the hold above), then gatherUntil")
 
 
-def _hold_full(menu: dict[str, Any]) -> None:
-    """Say why the hold being full matters, and name it as the cause of an empty yield.
+def _situation(menu: dict[str, Any], said: dict[str, Any] | None) -> str:
+    """The juncture as labelled lines, each fact once, budgeted on the final string.
 
-    Timely surfacing beats making the model remember: the fact sits beside the count it
-    explains, and the last outcome carries the cause rather than leaving one to be invented.
+    Over ``SECTION_LIMIT`` core drops the section whole, so the suggested moves go first, then
+    the hold list is cut, then the last run's report — never a fact line.
     """
-    present = menu.get("present")
-    if not isinstance(present, dict) or present.get("cargo_free") != 0:
-        return
-    present["hold_full"] = _HOLD_FULL
+    now = _when(menu.get("now")) or datetime.now(timezone.utc)
+    p = menu.get("present") or {}
+    head = f"SpaceMolt juncture — mid-shift. Now {now.strftime('%Y-%m-%d %H:%MZ')}."
+    if menu.get("stance") or menu.get("mood"):
+        head += f" Stance {menu.get('stance') or 'none'}, mood {menu.get('mood') or 'none'}."
+    facts = [head]
+    if menu.get("objective"):
+        facts.append(f"Objective (operator): {menu['objective']}")
+    if said:
+        facts.append(f"Instruction (operator, {_stamp(_when(said.get('at')))}, this juncture "
+                     f"only): {said.get('text')}")
+    if menu.get("goal"):
+        facts.append(f"Goal (yours, from rest): {menu['goal']}")
+    permits = menu.get("permissions") or {}
+    if permits:
+        facts.append("Permissions: " + "; ".join(
+            _PERMISSION[k].format(v) if k in _PERMISSION and isinstance(v, (int, float))
+            else f"never go to {', '.join(map(str, v))}" if k == "no_go" else f"{k} {v}"
+            for k, v in permits.items()) + ".")
+    system = p.get("system") or "unknown system"
+    where = (f"docked at {p['docked_at']} ({system})" if p.get("docked_at")
+             else f"in transit ({system})" if p.get("in_transit")
+             else f"at {p.get('poi') or 'an unknown point'} ({system})")
+    facts.append(f"Present: {where}." + (f" Home {menu['home']}." if menu.get("home") else ""))
+    ship = (f"  Fuel {p.get('fuel')}/{p.get('max_fuel')}, hull {p.get('hull')}/{p.get('max_hull')}, "
+            f"credits {p.get('credits') or 0:,}.")
+    hold = [f"{row.get('item_id')} {row.get('quantity')}" for row in p.get("hold") or []]
+    free = p.get("cargo_free")
+    weapons = ", ".join(f"{w.get('id')}" + (f" ({w['loaded']} loaded)" if "loaded" in w else "")
+                        for w in p.get("weapons") or []) or "none"
+    skills = ", ".join(f"{k} {v}" for k, v in (p.get("skills") or {}).items()) or "none known"
+    facts_after = [f"  Fitted weapons: {weapons}. Skills: {skills}."]
+
     last = menu.get("last")
-    # The last run is the trimmed record now: its prose is where the gains are said.
-    if isinstance(last, dict) and "Gained:" not in (last.get("prose") or ""):
-        last["cause"] = "the hold was full (cargo_free 0), so a gather would have mined nothing"
+    # A record from before the run record carried its sha is another schema: not this pilot's.
+    last = last if isinstance(last, dict) and last.get("sha") else None
+    report = ""
+    if last:
+        ended = _when(last.get("ended_at"))
+        report = str(last.get("prose") or last.get("status") or "")
+        if free == 0 and "Gained:" not in report:
+            report += "\nThe hold was full (0 free), so a gather would have mined nothing."
+        last_head = (f"Last run (ended {_stamp(ended)}, {_age(ended, now)}):" if ended
+                     else "Last run (end time not recorded):")
+    moves = menu.get("text")
+
+    def render(moves: str | None, kept: int, report: str) -> str:
+        shown = hold[:kept] + ([f"+{len(hold) - kept} more"] if kept < len(hold) else [])
+        hold_line = (f" Hold: {', '.join(shown) or 'empty'} ({free} free)."
+                     + (f" {_HOLD_FULL}." if free == 0 else ""))
+        lines = facts + [ship + hold_line] + facts_after
+        lines.append(f"{last_head}\n  " + report.replace("\n", "\n  ") if last
+                     else "Last run: none yet.")
+        if moves:
+            lines.append("Suggested moves (advice, pasteable into main()):\n  "
+                         + moves.replace("\n", "\n  "))
+        return "\n".join(lines)
+
+    kept = len(hold)
+    text = render(moves, kept, report)
+    if len(text) > SECTION_LIMIT:
+        text = render(None, kept, report)
+    while len(text) > SECTION_LIMIT and kept:
+        kept = max(0, kept - max(1, (len(text) - SECTION_LIMIT) // 12))
+        text = render(None, kept, report)
+    if len(text) > SECTION_LIMIT:
+        report = report[:max(0, len(report) - (len(text) - SECTION_LIMIT) - 1)] + "…"
+        text = render(None, kept, report)
+    return text
 
 
 def _rest_context(report: dict[str, Any], moves: str | None = None) -> str:
@@ -195,8 +262,11 @@ def write_pilot(record: dict[str, Any]) -> dict[str, Any]:
     """
     path = pilot_path()
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(record, indent=2, sort_keys=True) + "\n")
-    path.chmod(0o600)
+    # Temp then rename, as the bridge's ``writePilot`` does: its reader throws on half a file.
+    temp = path.with_name(f"{path.name}.{os.getpid()}.tmp")
+    temp.write_text(json.dumps(record, indent=2, sort_keys=True) + "\n")
+    temp.chmod(0o600)
+    os.replace(temp, path)
     return record
 
 

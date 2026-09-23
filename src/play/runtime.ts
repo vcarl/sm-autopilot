@@ -64,16 +64,13 @@ export interface Call {fn:string;arg:string;status:Status;did:string;
   why?:string;
   credits:number;items:number;xp:number;cost:Outcome['cost']}
 let calls:Call[]=[];
-let tiredClearedFlag=false;
 export const runCalls=()=>calls;
-/** True once Tired was cleared during this run (a menu trigger). */
-export const tiredCleared=()=>tiredClearedFlag;
 
 const need=()=>{if(!bound)throw new Error('the play runtime is not bound: only `run` may execute pilot code');return bound;};
 
 /** Bind the runtime for one run. Resets the stop flag and the counters. */
 export function bind(binding:Binding):void {
-  bound=binding;stopFlag=false;commands=0;started=Date.now();last={fn:'pilot'};calls=[];tiredClearedFlag=false;
+  bound=binding;stopFlag=false;commands=0;started=Date.now();last={fn:'pilot'};calls=[];
   lastCommandAt=0;pending=null;lastTick=undefined;
   mark=snapshot();
   // A lib Account pushes state between commands (a tick, a fight); the fake in tests does not.
@@ -372,7 +369,7 @@ export function imposeTired():void {
   if(crossed(who.mood_before_tired))return;
   const {mood_before_tired,...rest}=who;
   b.setPilot({...rest,mood:mood_before_tired});
-  tiredBy='';tiredClearedFlag=true;
+  tiredBy='';
   if(b.runtime)journalRun(b.runtime,{mood:mood_before_tired},'tired_cleared');
   line(`tired cleared: back inside the ${mood_before_tired} margins`);
 }

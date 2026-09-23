@@ -37,9 +37,9 @@ for line in sys.stdin:
         result = {"stance": pilot.get("stance"), "mood": pilot.get("mood"),
                   "objective": pilot.get("objective"), "permissions": pilot.get("permissions"),
                   "present": {"docked_at": "sol_base", "fuel": 88},
-                  "options": [{"job": "J1 Hold full of ore", "reason": "belt quoted",
-                               "admissible": True}],
-                  "unavailable": [], "last": None}
+                  "moves": [], "not_now": [],
+                  "text": "Menu:\\n  - `gatherUntil('belt')` — belt quoted [credits]",
+                  "last": None}
     elif action == "status":
         # A script is running exactly while this marker file exists, read per request.
         result = {"running": os.path.exists(os.path.join(runtime, "run.running")), "last": None}
@@ -102,8 +102,7 @@ def test_an_inquiry_is_answered_from_state_and_journal_with_nothing_changed(brid
     assert service.pilot_path().read_bytes() == before
 
 
-def test_direction_sets_objective_and_permissions_and_lands_at_the_next_juncture(bridged, monkeypatch):
-    monkeypatch.setattr(juncture, "MENU_ENABLED", True)  # this pins the menu path
+def test_direction_sets_objective_and_permissions_and_lands_at_the_next_juncture(bridged):
     juncture.write_pilot(dict(PILOT))
 
     answer = spacemolt._direct({"objective": "buy a hauler", "permissions": {"credit_reserve": 2000}})
@@ -118,7 +117,7 @@ def test_direction_sets_objective_and_permissions_and_lands_at_the_next_juncture
 
     # The next juncture is built from the record the operator wrote (T9, N17).
     context = juncture.juncture_context({"platform": "cron"})
-    assert "buy a hauler" in context and "J1 Hold full of ore" in context
+    assert "buy a hauler" in context and "gatherUntil('belt')" in context
     # The window itself is never handed a menu: it is a client, not the pilot (N2, N19).
     assert juncture.juncture_context({"platform": "discord"}) == ""
 

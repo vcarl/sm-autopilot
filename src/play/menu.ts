@@ -1,8 +1,8 @@
 /** The menu: anti-stagnation guidance, not a list of admissible jobs. Every move is a real
  * library call with literal arguments taken from the present, passed through the same rules
  * the helper applies (`jobStop`, the mood's margins, permissions, Tired); a move the rules
- * refuse is under `not_now` with the reason. Shown at an idle wakeup and when the cycle
- * repeats (`menuDue`), never after every run. Reads only; writes nothing (DESIGN §4). */
+ * refuse is under `not_now` with the reason. The juncture delivers it once, headed by the
+ * stagnation `menuDue` names. Reads only; writes nothing (DESIGN §4). */
 import type {ActiveMissionInfo,GetMissionsResponse,MapSystemInfo,MarketListingItem,ShipClass,ShipListing,
   SystemInfo,SystemPoi,V2Module,ViewMarketResponse,ViewStorageResponse} from '@spacemolt/lib';
 import {resolveFuelReserve} from '../mood-policy.ts';
@@ -44,11 +44,9 @@ function repeats(runs:RunSummary[]):number {
   return n;
 }
 /** Why the menu is due, or null when a productive loop should stay quiet: the last three
- * runs repeat one call, the last two did not end done, the last gained nothing, or Tired
- * was just cleared. The sentence is the menu's `stagnation` line. */
-export function menuDue(runs:RunSummary[],tiredCleared=false):string|null {
+ * runs repeat one call, the last two did not end done, or the last gained nothing. The sentence is the menu's `stagnation` line. */
+export function menuDue(runs:RunSummary[]):string|null {
   const last=runs.at(-1);
-  if(tiredCleared)return 'Tired cleared: the mood before it is back';
   if(!last)return null;
   const n=repeats(runs);
   if(n>=3) {

@@ -106,78 +106,81 @@ def test_the_juncture_job_carries_the_stance_and_passes_the_cron_toolset_clamp(t
     assert len(cron_jobs.load_jobs()) == 1
 
 
-# What the runner answers a juncture with, in the shape the rules table builds: every option
-# carrying the exact call it would be taken with, and a `present` that says what the hold
-# holds. The menu is the bridge's; what these pin is what the context does with it.
-def _menu(cargo_free: int, *, last: dict) -> dict:
-    bounds = {"spend": 1000, "fuelReserve": 24, "walkAway": 0.9}
-    options = [{"job": "Hold position and watch", "reason": "the world moves between looks",
-                "admissible": True, "bounds": bounds, "call": None},
-               {"job": "Counter: Storage", "reason": "offered here", "admissible": True,
-                "bounds": bounds, "call": {"tool": "spacemolt_storage", "params": {}}}]
-    if cargo_free > 0:
-        options.append({"job": "J1 Hold full of ore", "reason": "belt quoted", "admissible": True,
-                        "bounds": bounds,
-                        "call": {"tool": "spacemolt_run",
-                                 "params": {"script": "gather",
-                                            "params": {"poi_id": ["belt", "deep-belt"],
-                                                       "base_id": "sol_base"}}}})
-    return {"stance": "Prospector", "mood": "Focused", "objective": "fill the hold",
-            "present": {"docked_at": "sol_base", "fuel": 100, "credits": 1000,
-                        "cargo_free": cargo_free, "hold": [{"item_id": "ore", "quantity": 12}],
-                        "storage": True, "workshop": False},
-            "options": options, "unavailable": [], "last": last}
+# What the bridge's `menu` answers, in its own shape: the record's fields, the present, the
+# rendered moves and the last run. What these pin is what the context does with it.
+def _menu(cargo_free: int, *, last: dict | None, hold: list | None = None) -> dict:
+    return {"now": "2026-09-23T14:05:00.000Z", "stance": "Hunter", "mood": "Aggressive",
+            "objective": "raise gunnery by 2 hunting fauna", "home": "unknown_edge_waystation",
+            "permissions": {"credit_reserve": 5000, "max_liability": 100000},
+            "present": {"system": "first_step", "docked_at": "first_step_station",
+                        "fuel": 66, "max_fuel": 120, "hull": 105, "max_hull": 105,
+                        "credits": 236373, "cargo_free": cargo_free,
+                        "hold": hold if hold is not None else [{"item_id": "ore", "quantity": 12}],
+                        "weapons": [{"id": "autocannon_i", "loaded": 500}],
+                        "skills": {"weapons": 3, "gunnery": 1, "tactics": 2}},
+            "moves": [], "not_now": [],
+            "text": "Menu:\n  - `hunt()` — trains gunnery (level 1, the lowest) [skill]",
+            "last": last}
 
 
-EMPTY_GATHER = {"script": "gather", "outcome": "done",
-                "jobs": [{"job": "gather", "outcome": "done", "yield": []}]}
-FULL_GATHER = {"script": "gather", "outcome": "done",
-               "jobs": [{"job": "gather", "outcome": "done",
-                         "yield": [{"item_id": "ore", "quantity": 12}]}]}
+LAST = {"sha": "f90d4bf12d9d", "started": "2026-09-16T00:10:00Z",
+        "ended_at": "2026-09-16T00:40:00Z", "ended": True, "status": "done",
+        "did": "gathered", "prose": "Done: mined 12 ore.\nGained: 12 ore."}
+#: A run record from before the sha was carried: another schema, not this pilot's last run.
+PRE_MERGE = {"script": "source:f90d4bf12d9d", "outcome": "done", "jobs": [],
+             "reason": "Home set to frontier_station"}
+
+FACT_LINES = ("SpaceMolt juncture", "Objective (operator):", "Permissions:", "Present:",
+              "  Fuel ", "  Fitted weapons:", "Last run")
 
 
-def _rendered(monkeypatch, menu: dict, *, menu_on: bool = True) -> tuple[str, dict]:
-    """The context a fire is handed, and the facts inside it. The menu path is pinned on by
-    default; the switch is Carl's experiment (2026-09-16), tested on its own below."""
-    monkeypatch.setattr(juncture, "MENU_ENABLED", menu_on)
+def _rendered(monkeypatch, menu: dict) -> str:
     monkeypatch.setattr(service, "call", lambda action, params=None: copy.deepcopy(menu))
-    context = juncture.juncture_context({"platform": "cron"})
-    return context, json.loads(context.split("\n", 1)[1])
+    return juncture.juncture_context({"platform": "cron"})
 
 
-def test_a_full_hold_says_what_it_costs_and_why_the_last_gather_came_back_empty(monkeypatch):
-    context, facts = _rendered(monkeypatch, _menu(0, last=EMPTY_GATHER))
-    assert "hold full" in context and "a gather needs free hold" in context
-    # The line says the act, not just the cost: stow is what frees the hold here.
-    # The line says the acts, not just the cost: selling or stowing is what frees the hold.
-    assert "sell(rows) or stow(rows)" in context and "gatherUntil" in context
-    assert facts["present"]["hold_full"]
-    assert "the hold was full (cargo_free 0)" in facts["last"]["cause"]
+def test_the_situation_is_labelled_lines_with_the_last_runs_age(monkeypatch):
+    context = _rendered(monkeypatch, _menu(12, last=LAST))
+    for label in FACT_LINES + ("Suggested moves",):
+        assert any(line.startswith(label) for line in context.splitlines()), (label, context)
+    assert "Last run (ended 09-16 00:40Z, 7 days ago):" in context
+    assert "hold full" not in context, "room in the hold leaves the full-hold note off"
 
-    # Room in the hold leaves both off: the fact is timely, not permanent furniture.
-    _, roomy = _rendered(monkeypatch, _menu(12, last=FULL_GATHER))
-    assert "hold_full" not in roomy["present"]
-    assert "cause" not in roomy["last"]
+    # A full hold says what it costs, and names itself as the cause of an empty gather.
+    empty = dict(LAST, prose="Done: gathered nothing.")
+    full = _rendered(monkeypatch, _menu(0, last=empty))
+    assert "hold full: a gather needs free hold" in full and "sell(rows) or stow(rows)" in full
+    assert "The hold was full (0 free)" in full
 
 
-def test_an_operators_instruction_reaches_the_juncture_and_outranks_the_objective(monkeypatch):
-    """The sentence the operator sent is direction from outside the pilot.
+def test_a_pre_merge_run_record_is_no_last_run(monkeypatch):
+    context = _rendered(monkeypatch, _menu(12, last=PRE_MERGE))
+    assert "Last run: none yet." in context
+    assert "frontier_station" not in context
 
-    It travels in the consultation the fire is handed, beside the present it applies to, and
-    the prompt says what weight it carries — a juncture never spends a turn asking for it.
-    """
-    juncture.write_pilot({"name": "kvothe", "stance": "Prospector", "mood": "Focused",
-                          "objective": "fill the hold",
+
+def test_an_instruction_reaches_one_juncture_and_not_the_next(monkeypatch):
+    """The operator's sentence is for the next juncture only: once rendered, it is delivered."""
+    juncture.write_pilot({"name": "kvothe", "stance": "Hunter", "mood": "Aggressive",
                           "instruction": {"text": "stay in Sol tonight",
-                                          "at": "2026-09-15T20:00:00Z"}})
-    context, facts = _rendered(monkeypatch, _menu(12, last=FULL_GATHER))
-    assert facts["instruction"] == {"text": "stay in Sol tonight", "at": "2026-09-15T20:00:00Z"}
-    assert "stay in Sol tonight" in context
+                                          "at": "2026-09-23T03:21:00Z"}})
+    first = _rendered(monkeypatch, _menu(12, last=LAST))
+    assert "Instruction (operator, 09-23 03:21Z, this juncture only): stay in Sol tonight" in first
+    second = _rendered(monkeypatch, _menu(12, last=LAST))
+    assert "stay in Sol tonight" not in second
+    assert juncture.read_pilot()["instruction_delivered"]["text"] == "stay in Sol tonight"
 
-    # Nothing said, nothing carried: the field is the operator's, not furniture.
-    juncture.write_pilot({"name": "kvothe", "stance": "Prospector", "mood": "Focused"})
-    _, quiet = _rendered(monkeypatch, _menu(12, last=FULL_GATHER))
-    assert "instruction" not in quiet
+
+def test_an_oversized_situation_fits_the_section_with_every_fact_line(monkeypatch):
+    """Over the limit core drops the section whole, so the moves and the hold list give way."""
+    hold = [{"item_id": f"salvaged_component_{i}", "quantity": i} for i in range(400)]
+    menu = _menu(12, last=dict(LAST, prose="Done: a long run.\n" + "  - hunt done fought\n" * 80),
+                 hold=hold)
+    menu["text"] = "Menu:\n" + "  - `hunt()` — trains gunnery [skill]\n" * 200
+    context = _rendered(monkeypatch, menu)
+    assert len(context) <= juncture.SECTION_LIMIT, len(context)
+    for label in FACT_LINES:
+        assert any(line.startswith(label) for line in context.splitlines()), (label, context)
 
 
 def test_the_cron_prompt_leaves_the_tools_to_their_own_descriptions():
@@ -232,10 +235,3 @@ def test_loading_the_plugin_wakes_an_idle_pilot_once_and_leaves_a_running_one_al
     spacemolt.wake_on_load()
     job, = cron_jobs.load_jobs()
     assert job["next_run_at"] is not None and job["state"] == "scheduled"
-
-
-def test_with_the_menu_off_the_juncture_keeps_the_present_and_the_last_run_only(monkeypatch):
-    context, facts = _rendered(monkeypatch, _menu(0, last=FULL_GATHER), menu_on=False)
-    assert "options" not in facts and "unavailable" not in facts
-    assert facts["present"]["cargo_free"] == 0 and facts["last"]["script"] == "gather"
-    assert "option" not in context.split("\n", 1)[0]

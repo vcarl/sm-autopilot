@@ -13,8 +13,8 @@ import {fileURLToPath,pathToFileURL} from 'node:url';
 import {checkTree,specifiers} from './play/boundary.ts';
 import {checkPolicy} from './play/policy.ts';
 import {prose} from './play/prose.ts';
-import {menu,menuDue,recentRuns,renderMenu,runSummary} from './play/menu.ts';
-import {bind,line,outcome as build,progress,runCalls,tiredCleared,unbind,type Binding} from './play/runtime.ts';
+import {runSummary} from './play/menu.ts';
+import {bind,line,outcome as build,progress,runCalls,unbind,type Binding} from './play/runtime.ts';
 import type {Outcome} from './play/types.ts';
 import {journalRun,writeRun,type RunRecord} from './run-record.ts';
 
@@ -117,6 +117,7 @@ export interface RunResult {
   /** The sha of `pilot/index.ts` as it ran. */
   sha?:string;
   started:string;
+  ended_at?:string;
   commands?:number;
 }
 
@@ -147,24 +148,17 @@ export async function runPilot(deps:RunDeps):Promise<RunResult> {
   } catch(error) {
     result=build('the run broke','failed',{},message(error));
   }
-  let text=prose(result,runCalls());
+  const text=prose(result,runCalls());
   for(const said of text.split('\n'))line(said);
   const {commands}=progress();
   const work=runSummary();
   journalRun(runtime,{phase:'ended',script:'index.ts',started,outcome:result.status,reason:result.did,commands,...work?{work}:{}});
-  // The menu when the cycle repeats or the run gained nothing — never after every run.
-  if(menuDue(recentRuns(runtime),tiredCleared())) {
-    try {
-      const shown=renderMenu(await menu(runtime));
-      for(const said of shown.split('\n'))line(said);
-      text+=`\n${shown}`;
-    } catch(error){line(`menu: ${message(error)}`);}
-  }
   line(`run ended  ${result.status}  ${commands} commands`);
   unbind();
   record.ended=true;
   record.last_job=result.fn;
-  record.outcome={sha:gate.sha,started,ended:true,status:result.status,did:result.did,
+  const ended_at=new Date().toISOString();
+  record.outcome={sha:gate.sha,started,ended:true,ended_at,status:result.status,did:result.did,
     ...result.why?{why:result.why}:{},prose:text,commands};
   save();
   // A run that failed inside a minute did no work; its juncture would only try the same thing
@@ -177,7 +171,7 @@ export async function runPilot(deps:RunDeps):Promise<RunResult> {
     try {(deps.wake??spawnWake)(argv);} catch(error){console.error(`juncture wake failed: ${message(error)}`);}
   }
   return {accepted:true,status:result.status,reason:result.did,...result.why?{why:result.why}:{},
-    prose:text,sha:gate.sha,started,commands};
+    prose:text,sha:gate.sha,started,ended_at,commands};
 }
 
 /** Where the plugin's own play library is, for a caller that wants to read it. */
