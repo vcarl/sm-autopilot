@@ -170,6 +170,16 @@ def test_a_skill_reads_as_the_object_it_is(monkeypatch):
     assert "Skills: weapons 3 (.level), gunnery 1 (.level), tactics 2 (.level)." in context
 
 
+def test_the_walk_away_line_is_told_rather_than_guessed(monkeypatch):
+    """The mood already computes the hull a fight is broken off at; left out of the context the
+    pilot guessed 74% where the Aggressive line is 80% (hull 84)."""
+    menu = _menu(12, last=LAST)
+    menu["present"]["walk_away"] = 84
+    assert "  Walk-away: break off a fight below hull 84." in _rendered(monkeypatch, menu)
+    # And no line at all where the menu carries no number: an older bridge sends none.
+    assert "Walk-away" not in _rendered(monkeypatch, _menu(12, last=LAST))
+
+
 def test_a_pre_merge_run_record_is_no_last_run(monkeypatch):
     context = _rendered(monkeypatch, _menu(12, last=PRE_MERGE))
     assert "Last run: none yet." in context

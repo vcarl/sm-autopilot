@@ -10,7 +10,7 @@ import {fileURLToPath} from 'node:url';
 import {controllerLock} from './controller-lock.ts';
 import type {ReadinessAccount,ReadinessCommand} from './readiness.ts';
 import {details} from './response-details.ts';
-import type {Mood} from './mood-policy.ts';
+import {resolveWalkAway,type Mood} from './mood-policy.ts';
 import {reflectReport} from './reflect.ts';
 import {REST_JOB,evaluateMenu,type Facts,type StanceName} from './rules-table.ts';
 import {journalCommand,journalRun,readRun,type RunRecord} from './run-record.ts';
@@ -151,7 +151,10 @@ export function serve(account:ReadinessAccount,command:ReadinessCommand,options:
           hold:(account.state.cargo??[]).map(row=>({item_id:String(row.item_id),quantity:row.quantity})),
           weapons:(modules??[]).filter(row=>row.slot==='weapon')
             .map(row=>({id:row.type_id,...row.current_ammo!==undefined?{loaded:row.current_ammo}:{}})),
-          skills:Object.fromEntries(Object.entries(present().skills).map(([id,row])=>[id,row.level]))},
+          skills:Object.fromEntries(Object.entries(present().skills).map(([id,row])=>[id,row.level])),
+          // The hull this mood breaks off a fight at, as `imposeTired` computes it: the juncture
+          // cannot reach the D2 table, and a pilot left to guess the line guesses it low.
+          ...ship?.max_hull===undefined?{}:{walk_away:Math.floor(resolveWalkAway(who.mood??'Cautious')*ship.max_hull)}},
         ...built,text:renderMenu(built),last:lastOutcome(),
       };
     } finally {unbind();}

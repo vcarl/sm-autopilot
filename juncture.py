@@ -180,6 +180,8 @@ def _situation(menu: dict[str, Any], said: dict[str, Any] | None) -> str:
     # keeps a script from writing `skills.weapons > 2` (playtest 2026-09-22).
     skills = ", ".join(f"{k} {v} (.level)" for k, v in (p.get("skills") or {}).items()) or "none known"
     facts_after = [f"  Fitted weapons: {weapons}. Skills: {skills}."]
+    if p.get("walk_away") is not None:
+        facts_after.append(f"  Walk-away: break off a fight below hull {p['walk_away']}.")
 
     last = menu.get("last")
     # A record from before the run record carried its sha is another schema: not this pilot's.

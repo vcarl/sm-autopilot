@@ -76,6 +76,8 @@ test('the menu reports the mood the record holds after its reads, and the walk-a
     {pilot:()=>record,setPilot:next=>{writes.push(next);record=next;}})('menu') as any;
   assert.equal(menu.mood,'Focused','the reads cleared Tired; the menu says so');
   assert.equal(writes.length,1,'cleared once, not once per push');
+  // The mood's walk-away line, so the pilot is told the hull it breaks off at, never guessing.
+  assert.equal(menu.present.walk_away,90,'0.90 of a 100 hull is the Focused line');
 });
 
 test('run blocks until the pilot file ends; status, stop and menu answer meanwhile', async () => {
