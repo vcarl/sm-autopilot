@@ -44,7 +44,7 @@ export interface Facts {
   holdings:{fuel:number;max_fuel:number;hull:number;max_hull:number;cargo_free:number;credits:number;inputs?:string[]};
   obligations:{contracts?:string[];passengers?:number};
   permissions:{max_liability?:number;credit_reserve?:number};
-  observed:{threats?:string[];targets?:string[];spread?:{item_id:string;margin:number;age:number}};
+  observed:{threats?:string[];targets?:string[];spread?:{item_id:string;base_id:string;margin:number;age:number}};
 }
 export interface Bounds {spend:number;fuelReserve:number;walkAway:number}
 /** Resolved from the mood alone (D2/R7). Never passed per call, never per option. */

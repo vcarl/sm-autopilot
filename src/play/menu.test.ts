@@ -171,7 +171,7 @@ test('a remembered far book against this counter is the J6 spread',async()=>{
     writeFileSync(join(f.runtime,'markets.json'),JSON.stringify([{base_id:'range_base',at:'earlier',tick:TICK-5,
       items:[{item_id:'ore',best_buy:40,best_buy_qty:99,best_sell:0,best_sell_qty:0}]}]));
     const seen=await facts(f,who);
-    assert.deepEqual(seen.observed.spread,{item_id:'ore',margin:28,age:5});
+    assert.deepEqual(seen.observed.spread,{item_id:'ore',base_id:'range_base',margin:28,age:5});
     assert.equal(verdict(seen,'J6').admissible,true,verdict(seen,'J6').reason);
     assert.match(verdict(seen,'J6').reason,/5 ticks old/,'J6 hands the pilot the age, it does not gate on it');
     // No memory, no spread — which is the answer J6 gave before the field was wired.
@@ -189,7 +189,7 @@ test('a remembered book written before books carried a tick is read as 20 ticks 
     writeFileSync(join(f.runtime,'markets.json'),JSON.stringify([{base_id:'range_base',at:'earlier',
       items:[{item_id:'ore',best_buy:40,best_buy_qty:99,best_sell:0,best_sell_qty:0}]}]));
     const seen=await facts(f,who);
-    assert.deepEqual(seen.observed.spread,{item_id:'ore',margin:28,age:20});
+    assert.deepEqual(seen.observed.spread,{item_id:'ore',base_id:'range_base',margin:28,age:20});
     // Still admissible: the age is reported, never a gate.
     assert.equal(verdict(seen,'J6').admissible,true,verdict(seen,'J6').reason);
     assert.match(verdict(seen,'J6').reason,/20 ticks old/);
@@ -203,9 +203,50 @@ test('a remembered tick ahead of now — a restart or a season rollover — read
     writeFileSync(join(f.runtime,'markets.json'),JSON.stringify([{base_id:'range_base',at:'earlier',tick:TICK+50,
       items:[{item_id:'ore',best_buy:40,best_buy_qty:99,best_sell:0,best_sell_qty:0}]}]));
     const seen=await facts(f,who);
-    assert.deepEqual(seen.observed.spread,{item_id:'ore',margin:28,age:0});
+    assert.deepEqual(seen.observed.spread,{item_id:'ore',base_id:'range_base',margin:28,age:0});
     assert.doesNotMatch(verdict(seen,'J6').reason,/-\d/);
   } finally {f.close();}
+});
+
+test("the J6 spread is a Trader's pasteable tradeRun; a refused J6 says so under not_now; no other stance is offered one",async()=>{
+  const far=JSON.stringify([{base_id:'range_base',at:'earlier',tick:TICK-40,
+    items:[{item_id:'ore',best_buy:40,best_buy_qty:99,best_sell:0,best_sell_qty:0}]}]);
+  // J6 passes: the move names the item and the far base, carries the age, and compiles.
+  const ok=world({mood:'Opportunistic',stance:'Trader'},{cargoUsed:0});
+  try {
+    writeFileSync(join(ok.runtime,'markets.json'),far);
+    const built=await menu(ok.runtime);
+    const run=built.moves.find(m=>m.call==="tradeRun({item:'ore',sellAt:'range_base'})");
+    assert.ok(run,`no tradeRun: ${JSON.stringify(built.moves)} / ${JSON.stringify(built.not_now)}`);
+    assert.match(run!.why,/28 cr a unit on ore at range_base, a bid remembered 40 ticks old/);
+    assert.equal(built.moves[0]!.call,run!.call,'the Trader leads with the run');
+    const runtime=mkdtempSync(join(tmpdir(),'menu-trade-'));
+    mkdirSync(join(runtime,'pilot'),{recursive:true});
+    writeFileSync(join(runtime,'pilot','index.ts'),
+      `import {tradeRun} from 'play';\nexport default async function main() {\n  await ${run!.call};\n}\n`);
+    assert.deepEqual((await check(runtime)).errors,[]);
+  } finally {ok.close();}
+  // J6 fails with a spread in hand (a mood that may not start a job): not_now, with J6's reason.
+  const relaxed=world({mood:'Relaxed',stance:'Trader'},{cargoUsed:0});
+  try {
+    writeFileSync(join(relaxed.runtime,'markets.json'),far);
+    const built=await menu(relaxed.runtime);
+    assert.ok(!built.moves.some(m=>m.call.startsWith('tradeRun(')),JSON.stringify(built.moves));
+    assert.ok(built.not_now.some(row=>row.move==='tradeRun'&&/Relaxed may not initiate a job/.test(row.why)),JSON.stringify(built.not_now));
+  } finally {relaxed.close();}
+  // J6 fails for want of a spread: still said, not silently dropped.
+  const blind=world({mood:'Opportunistic',stance:'Trader'},{cargoUsed:0});
+  try {
+    const built=await menu(blind.runtime);
+    assert.ok(built.not_now.some(row=>row.move==='tradeRun'&&/no quoted spread/.test(row.why)),JSON.stringify(built.not_now));
+  } finally {blind.close();}
+  // Not a Trader: the same spread in memory is no tradeRun, on the menu or under not_now.
+  const miner=world({mood:'Opportunistic',stance:'Prospector'},{cargoUsed:0});
+  try {
+    writeFileSync(join(miner.runtime,'markets.json'),far);
+    const built=await menu(miner.runtime);
+    assert.ok(!built.moves.some(m=>m.call.startsWith('tradeRun('))&&!built.not_now.some(row=>row.move==='tradeRun'),renderMenu(built));
+  } finally {miner.close();}
 });
 
 test("the crafting service is J7's workshop; a base without one still refuses",async()=>{

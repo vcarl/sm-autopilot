@@ -72,14 +72,14 @@ const attempt=async<T>(read:()=>Promise<T>):Promise<T|undefined>=>{try {return a
  * bid a book read on an earlier visit shows, with depth on both ends. The game publishes no
  * cross-station prices (see `market.ts`), so the far end is this runtime's market memory; with
  * no memory there is no spread, which is the same answer J6 gives today. */
-function bestSpread(here:Map<string,MarketListingItem>,at:string,now:number,runtime?:string):{item_id:string;margin:number;age:number}|undefined {
+function bestSpread(here:Map<string,MarketListingItem>,at:string,now:number,runtime?:string):NonNullable<Facts['observed']['spread']>|undefined {
   return (runtime?knownBooks(runtime):[]).filter(book=>book.base_id!==at)
-    .flatMap(book=>book.items.map(far=>({far,age:ticksOld(book.tick,now)})))
-    .flatMap(({far,age})=>{
+    .flatMap(book=>book.items.map(far=>({far,base_id:book.base_id,age:ticksOld(book.tick,now)})))
+    .flatMap(({far,base_id,age})=>{
       const mine=here.get(far.item_id);
       // Depth on both ends: an ask nobody is filling and a bid for nothing are not a trade.
       return mine&&mine.best_sell>0&&mine.best_sell_qty>0&&far.best_buy_qty>0
-        ?[{item_id:far.item_id,margin:far.best_buy-mine.best_sell,age}]:[];
+        ?[{item_id:far.item_id,base_id,margin:far.best_buy-mine.best_sell,age}]:[];
     }).filter(row=>row.margin>0).sort((a,b)=>b.margin-a.margin)[0];
 }
 
@@ -218,7 +218,7 @@ const lit=(value:unknown)=>JSON.stringify(value).replace(/"/g,"'").replace(/'(\w
 /** The loop that trains a skill, by the lib's `SkillProgress.category` or the skill id. */
 const TRAINS:[RegExp,string][]=[[/mining/,'gatherUntil'],[/trad|commerce/,'sell'],[/navigation|piloting|explor/,'goTo'],
   [/weapon|gunnery|tactic|xeno|combat|bounty/,'hunt'],[/engineer/,'refit']];
-const LEADS:Record<string,string>={Prospector:'gatherUntil',Trader:'sell',Hunter:'hunt',Scout:'goTo',Carrier:'acceptMission',Industrialist:'refit'};
+const LEADS:Record<string,string>={Prospector:'gatherUntil',Trader:'tradeRun',Hunter:'hunt',Scout:'goTo',Carrier:'acceptMission',Industrialist:'refit'};
 /** The call the pilot's own words name as the work. The objective and the goal decide; the
  * stance is the fallback. A Hunter told to cull fauna was offered gatherUntil and selling and
  * no hunt at all, every line tagged [credits]: the menu answered the belt, not the orders. */
@@ -245,7 +245,7 @@ export const leadCall=(who:Pilot):string=>{
   return hit?.call??LEADS[who.stance??'']??'';
 };
 const FITS:Record<string,string[]>={Prospector:['gatherUntil','goTo'],Hunter:['hunt','goTo'],Scout:['goTo'],Carrier:['haul','goTo'],
-  Trader:['goTo','haul'],Industrialist:['gatherUntil','goTo']};
+  Trader:['tradeRun','goTo','haul'],Industrialist:['gatherUntil','goTo']};
 
 /** The menu from where the ship stands: the present in one read, the last ten runs, the
  * skills, the store, and when docked the board, the market and the yard. At most five
@@ -344,7 +344,7 @@ export async function menu(runtime?:string):Promise<Menu> {
     const fitting=board.filter(m=>!active.some(a=>a.mission_id===m.mission_id)).map(m=>{
       const text=`${m.type} ${(m.objectives??[]).map(o=>o.description??'').join(' ')}`.toLowerCase();
       const fit=/mine|ore|gather|deliver/.test(text)&&(m.objectives??[]).some(o=>o.item_id)?'gatherUntil'
-        :/kill|hunt|creature|destroy/.test(text)?'hunt':/visit|explore|survey|travel|scout/.test(text)?'goTo':/shipment|package|haul|courier/.test(text)?'haul':'';
+        :/kill|hunt|creature|destroy/.test(text)?'hunt':/visit|explore|survey|travel|scout/.test(text)?'goTo':/shipment|package|haul|courier/.test(text)?'haul':/\b(?:trade|sell|buy|market)/.test(text)?'tradeRun':'';
       return {m,fit};
     }).filter(row=>fits.includes(row.fit)).slice(0,2);
     for(const {m,fit} of fitting) {
@@ -352,6 +352,18 @@ export async function menu(runtime?:string):Promise<Menu> {
       if(free<=0)not_now.push({move:'acceptMission',why:`no slot free: ${active.length} of ${mine?.max_missions??5} active${ready.length?'':', none completable'}`});
       else work(move);
     }
+  }
+
+  // A Trader's run: buy here at the ask, sell at the far bid the J6 spread names. J6 is the gate;
+  // a refused or absent spread is said under not_now, never dropped. `tradeRun` buys what the hold
+  // fits, so a full hold is its own hard refusal — the sell or stow above is the remedy.
+  if(who.stance==='Trader'&&docked) {
+    const j6=verdicts.find(v=>v.job.startsWith('J6')),spread=facts.observed.spread;
+    if(!spread)not_now.push({move:'tradeRun',why:j6?.reason??'no quoted spread with depth on both ends'});
+    else if(j6&&!j6.admissible)not_now.push({move:'tradeRun',why:j6.reason});
+    else if(full)not_now.push({move:'tradeRun',why:'the hold is full and tradeRun buys what the hold fits; sell(rows) or stow(rows) first'});
+    else work({call:`tradeRun(${lit({item:spread.item_id,sellAt:spread.base_id})})`,advances:'credits',
+      why:`${spread.margin} cr a unit on ${spread.item_id} at ${spread.base_id}, a bid remembered ${spread.age} ticks old; the book may have moved, and the fuel there is not priced in`});
   }
 
   // Mine the nearest belt.
