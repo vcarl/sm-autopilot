@@ -143,3 +143,21 @@ test('Tired refuses the outbound leg and still flies the safe leg home',async()=
   assert.equal(result.outcome,'done',String(result.reason));
   assert.equal(crossing.server.location.docked_at,home.base_id);
 });
+
+// S3: the mood the job was planned under is stale by the time the leg home is flown, and the
+// mood is what picks the fuel reserve the leg is quoted against. Fuel short of the planning
+// mood's reserve but inside Tired's own is the shape that shows it: a leg quoted on the frozen
+// mood refuses the trip home the pilot has the fuel for.
+test('the legs are quoted on the mood in force now, not the one the job was planned under',async()=>{
+  const f=fixture();
+  let mood:GatherPlan['mood']='Cautious';
+  const result=await f.run({home,site,mood},{
+    moodNow:()=>mood,
+    // Fuel spent at the site is what imposes Tired; 45 covers the 20 the leg home costs but
+    // not the 30 the Cautious reserve keeps beyond it.
+    onStep:step=>{if(step.name==='mine'){f.server.ship.fuel=45;mood='Tired';}},
+  });
+  assert.equal(result.outcome,'done',String(result.reason));
+  assert.deepEqual(result.steps.filter(step=>step.name==='return').map(step=>step.outcome),['done']);
+  assert.equal(f.server.location.docked_at,home.base_id);
+});

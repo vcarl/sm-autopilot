@@ -26,6 +26,11 @@ export interface GatherOptions extends TravelOptions {
   onStep?:(step:GatherStep,moved:{yield:MineYieldRow[];deposited?:MineYieldRow[]})=>void;
   /** The mining loop's own hooks: a stop reason per tick and a running-yield line. */
   mine?:MineOptions;
+  /** The mood to fly the next leg on, read when that leg starts. The runtime imposes Tired
+   * between any two commands, so the mood the job was planned under is stale by the time the
+   * leg home is flown — and a leg flown on a stale mood is flown on the wrong fuel reserve.
+   * Defaults to `plan.mood`, which is what a caller with no live pilot record has. */
+  moodNow?:()=>Mood;
 }
 export interface GatherOutcome {
   outcome:StepOutcome;
@@ -149,7 +154,11 @@ export async function gatherJob(account:ReadinessAccount,command:ReadinessComman
   plan:GatherPlan,options:GatherOptions={}):Promise<GatherOutcome> {
   const steps:GatherStep[]=[];
   let mined:MineYieldRow[]=[],settled:SettleOutcome|null=null,serviced:ServiceOutcome|null=null;
-  const {onStep,mine:mineOptions,...travelOptions}=options;
+  const {onStep,mine:mineOptions,moodNow,...travelOptions}=options;
+  /** The mood this leg flies on, read as the leg starts rather than when the job was planned:
+   * Tired arrives mid-job and carries its own fuel reserve, and the leg home is quoted against
+   * the mood the pilot is in now. */
+  const mood=()=>moodNow?.()??plan.mood;
   // maxJumps null: each leg may cross systems, bounded by the mood's fuel reserve rather
   // than a jump count, as travel is.
   //
@@ -157,9 +166,9 @@ export async function gatherJob(account:ReadinessAccount,command:ReadinessComman
   // pilot may still be flown, and the whole point of the stop. Every other leg refuses its
   // next move once Tired is imposed, so a crossing ends the route where the ship is sitting
   // rather than one job gate later.
-  const legOptions=(toBase:boolean):TravelOptions=>({maxJumps:null as number|null,...travelOptions,mood:plan.mood,
+  const legOptions=(toBase:boolean):TravelOptions=>({maxJumps:null as number|null,...travelOptions,mood:mood(),
     ...toBase?{}:{checkMove:()=>{
-      if(plan.mood==='Tired')throw new TiredStop('Tired: this leg is not going to a base; only a base is admitted from here');
+      if(mood()==='Tired')throw new TiredStop('Tired: this leg is not going to a base; only a base is admitted from here');
       travelOptions.checkMove?.();
     }}});
   // What this site gives, read from the world at the site itself (`V2Location.resources`).

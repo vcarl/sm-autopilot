@@ -101,7 +101,10 @@ export function gatherUntil(opts:{poi:string;base?:string;until?:{item:string;qu
       }
       checkStop();
       lastLine=Date.now();
-      const trek=await gatherJob(acct(),command,plan,{onStep,mine,checkpoint:async()=>checkStop()});
+      // `moodNow`: the pilot record, not `plan.mood`, says what each leg flies on — the runtime
+      // imposes Tired mid-trip and the leg home is quoted against the mood in force by then.
+      const trek=await gatherJob(acct(),command,plan,{onStep,mine,checkpoint:async()=>checkStop(),
+        moodNow:()=>pilot().mood??'Cautious'});
       result.trips=trip;
       result.yield=sum([...result.yield,...trek.yield]);
       const deposited=trek.settled?.deposited??[];
