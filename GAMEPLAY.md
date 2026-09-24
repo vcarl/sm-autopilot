@@ -110,8 +110,8 @@ shape beyond what `storage.ts` already returns.
 ### Observed live
 
 Observed 2026-09-14/15 at `unknown_edge_waystation`, `frontier_station` and (2026-09-08)
-`first_step_memorial_station`. Fixtures: `proofs/fixtures/unknown-edge-game.json`,
-`proofs/fixtures/c23-replay.json`.
+`first_step_memorial_station`. The fixture captures went with the proof suite on 2026-09-24;
+what follows is the record.
 
 - The reply is `structuredContent`, never a state delta: `{base, condition, construction,
   fuel_price, fuel_price_all_in, fuel_tax_per_unit, life_support, power, services}`.
@@ -135,7 +135,8 @@ Observed 2026-09-14/15 at `unknown_edge_waystation`, `frontier_station` and (202
 
 ### Observed live
 
-Observed 2026-09-14 at Unknown Edge. Fixture: `proofs/fixtures/unknown-edge-game.json`.
+Observed 2026-09-14 at Unknown Edge. The fixture capture went with the proof suite on
+2026-09-24; what follows is the record.
 
 - `spacemolt/refuel` answers `{command:'refuel', tick, delta:{player, ship, cargo, details}}`
   with `details = {action:'refuel', source:'station', fuel, cost, market_cost, tax_amount}`.
@@ -151,8 +152,8 @@ Observed 2026-09-14 at Unknown Edge. Fixture: `proofs/fixtures/unknown-edge-game
 
 ### Observed live
 
-Observed 2026-09-15 on the kvothe pilot. Fixtures: `proofs/fixtures/unknown-edge-bridge.json`,
-`proofs/fixtures/bridge-events.json`.
+Observed 2026-09-15 on the kvothe pilot. The fixture captures went with the proof suite on
+2026-09-24; what follows is the record.
 
 - Mining while docked is refused by the game, and the run reports it verbatim:
   `mine failed: cannot mine: docked at unknown_edge_waystation`. Asking `gather` for a station
@@ -174,9 +175,9 @@ Observed 2026-09-15 on the kvothe pilot. Fixtures: `proofs/fixtures/unknown-edge
   `poi` (the destination system id is unset on a same-system hop, so the key is absent).
 - `resume` was never called and no `unsolicited_move` event was ever journalled; both remain
   live-only claims.
-- `get_skills` (2026-09-08, `proofs/fixtures/c23-replay.json`) answers
+- `get_skills` (2026-09-08, First Step replay capture, since deleted) answers
   `structuredContent:{message:'Skills progress', skills:{...}}` where `skills` is a **map**
   keyed by skill id, each `{category, level, max_level, name, next_level_xp, xp}` — not an
-  array. `spacemolt_shipping/profile` is recorded in the same fixture.
+  array. `spacemolt_shipping/profile` was recorded in the same capture.
 - `get_tax_estimate` and `set_home` appear in neither journal, and neither does a successful
   `repair`.

@@ -75,7 +75,7 @@ def render_journal(limit: int) -> str:
     """The tail of the journal, one human line per thing the pilot did.
 
     ponytail: a subprocess per call, not a port of ``renderLine`` into Python. One renderer
-    means the window, the drain and the proofs can never disagree about what a shift looked
+    means the window and the drain can never disagree about what a shift looked
     like; a copy in two languages would drift the first time a step gained a field.
     """
     done = subprocess.run([*RENDER_COMMAND, str(runtime_dir()), str(limit)],
