@@ -82,9 +82,19 @@ sees the real types, so these are not style notes.
 - **Everything is `await`ed.** Every library function returns a `Promise<Outcome>`.
   `const s = sell(rows)` then `s.status` is `Property 'status' does not exist on type
   'Promise<Outcome<Sold>>'` — the missing `await` is the entire error.
-- **`sell` takes two options and neither names a market.** `{from: 'hold' | 'store'}` and
-  `{floor: {[item_id]: number}}`. `{market: 'local'}` does not exist; `sell` is always the counter
-  you are docked at.
+- **`sell` takes two options and neither names a market.** `sell(rows, {from?, floor?})`:
+  `from: 'hold' | 'store'` and `floor: {[item_id]: number}`, nothing else. `buy(item_id, quantity,
+  {deliverTo?, maxEach?, force?})` names no market either. `{market: 'local'}` does not exist; both
+  are always the counter you are docked at. To sell somewhere else, `goTo` it first, or
+  `tradeRun({item, sellAt})`, which carries what is aboard there.
+- **The fields are not the ones you would guess.** A `sell` answers `detail: Sold` =
+  `{base_id, fills, short, total}`: `total` is the credits, `fills[i]` is the lib's `SellResponse`
+  (`item_id`, `quantity_sold`, `total_earned`, `xp_gained`), and `short[i]` is
+  `{item_id, requested, sold, why}`. There is no `Sold.settled` (`settled` is `gatherUntil`'s).
+  A `Row` is exactly `{item_id, quantity}`, with no `Row.unit_value`. `prices()` answers
+  `detail.quotes`, and each quote is the book plus your position: `item_id`, `best_buy`,
+  `best_buy_qty`, `best_sell`, `best_sell_qty`, `spread`, `held`, `stored`. There is no
+  `detail.sellable`; a quote with `best_buy > 0` is one that sells here.
 - **`Want` to ask with, `Row` to receive.** `{item_id: 'carbon_ore'}` is a `Want`. `Row` requires
   `quantity`, so annotating a list you build `Row[]` is what rejects it.
 - **A raw command is not an Outcome.** `account().commands.<tool>.<action>()` answers
@@ -93,8 +103,9 @@ sees the real types, so these are not style notes.
   unguarded raw command breaks the run: wrap it in `try`/`catch`.
 - **A location has no `id` and no `name`.** `V2Location` is `poi_id`, `poi_name`, `system_id`,
   `system_name`, `docked_at` (null when undocked), plus `connections` and the `nearby_*` counts.
-- **`Cannot find name 'x'` means you did not import it.** There are no globals: `note`, `outcome`,
-  `stopped` and `account` come from `'play'` like everything else.
+- **`Cannot find name 'x'` means you did not import it.** There are no globals. Every function you
+  call, `sell` and `buy` included, and `note`, `outcome`, `stopped` and `account` too, comes from one
+  line: `import {…} from 'play'`. Name each one there.
 
 ## The root functions (every stage)
 
