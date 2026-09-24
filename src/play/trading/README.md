@@ -10,7 +10,7 @@ assembled from everything this pilot is allowed to know.
 | Function | Promise |
 |---|---|
 | `spreads(items?)` | the best buyer known for each thing you hold, anywhere, with the trip priced and netted |
-| `routes({items?})` | every buy-at-A, sell-at-B trade known, sized against both books and the hold, fuelled, and ranked by trust-weighted net per jump; each row carries the call to paste |
+| `routes({items?})` | every buy-at-A, sell-at-B trade known, and every known buyer for what is aboard, sized against both books and the hold, fuelled, and ranked by trust-weighted net per jump; each row carries the call to paste |
 | `tradeRun({item, sellAt, quantity?, from?})` | get `item` sold at `sellAt`: carry what is aboard (`from: 'store'` withdraws what the hold fits from the store here first), or buy `quantity` here when none is aboard; fly; sell there. The realised net from the wallet |
 
 Root functions do the rest: `prices()` for the counter you are standing at, `sell()`/`buy()`
@@ -62,17 +62,19 @@ pilot actually needs.
 
 `routes({items?})` answers `detail: {routes, sources}`. `items` narrows it to those item ids;
 the default is every item on any book known. `sources` is as for `spreads()`. It reads only:
-it computes, you choose. It is refused when not docked or when the hold has no free space.
+it computes, you choose. It is refused when not docked. Goods aboard are candidates in their own
+right: their cost is sunk, so a full hold's best route may be carrying what it has. Goods in the
+store here are not candidates yet.
 
 Each row of `routes` is a `Route`:
 
 | Field | What it is |
 |---|---|
 | `item_id` | the item |
-| `buyAt`, `sellAt` | the base it is bought at and the base it is sold at; either may be this one |
+| `buyAt`, `sellAt` | the base it is bought at and the base it is sold at; either may be this one. `buyAt` is `'held'` for goods already aboard: nothing is bought, `cost` and `sales_tax` are 0, and `buySource`/`buyAge` read `here`/0 |
 | `buySource`, `sellSource` | where each end's price came from: `here`, `faction ledger` or `remembered` |
 | `buyAge`, `sellAge` | each end's age in ticks; 0 for this base's live book |
-| `quantity` | units worth moving: `buyAt`'s asks and `sellAt`'s bids walked level by level up to the free hold, stopped at the last unit whose bid still beats its ask plus tax. A deep book fills the hold; a thin one stops short |
+| `quantity` | units worth moving: `buyAt`'s asks and `sellAt`'s bids walked level by level up to the free hold, stopped at the last unit whose bid still beats its ask plus tax. A deep book fills the hold; a thin one stops short. With the hold full, a buy is sized to the whole hold (what selling frees) and `why` says to sell first. For `'held'`, what is aboard, up to what `sellAt`'s bids take |
 | `cost`, `revenue` | what those units cost at `buyAt` and fetch at `sellAt`, level by level |
 | `sales_tax` | tax on the buy at this base's `sales_tax_rate_bps`; `null` when not known, which is always so for a far `buyAt` (the net is then untaxed and `why` says so) |
 | `total_jumps` | jumps for the trip; `null` when a `find_route` failed |
@@ -80,8 +82,8 @@ Each row of `routes` is a `Route`:
 | `net` | `revenue − cost − sales_tax − fuel` at this base's `fuel_price_all_in`. Fuel is left out when it could not be priced |
 | `confidence` | `0.5 ^ ((buyAge + sellAge) / 360)`: 1 for two live books, half for an hour of age |
 | `score` | the rank: `confidence × net / max(1, total_jumps)`. 0 when the trip could not be priced |
-| `next` | the call to paste: `tradeRun({item, sellAt, quantity})`, preceded by `goTo('<buyAt>') then` when `buyAt` is not here |
-| `why` | what the row could not know: a failed route lookup, an unknown tax. Absent when nothing is missing |
+| `next` | the call to paste: `tradeRun({item, sellAt, quantity})`, preceded by `goTo('<buyAt>') then` when `buyAt` is not here. For `'held'`: `tradeRun({item, sellAt})`, which carries what is aboard, or `sell([{item_id}])` when `sellAt` is here |
+| `why` | what the row could not know or needs first: a failed route lookup, an unknown tax, a full hold. Absent when nothing is missing |
 
 Only the top 5 candidates are priced with `find_route` (each is a game call), so at most 5 rows
 come back, priced ones first. `find_route` answers only from where the ship is, so a trip from
@@ -134,7 +136,7 @@ export default async function main() {
   const best = look.detail.routes.find(row => row.total_jumps !== null && row.net > 0);
   if (!best) return look;
   note(`${best.quantity} ${best.item_id} ${best.buyAt}→${best.sellAt}: net ${best.net}, confidence ${best.confidence.toFixed(2)}`);
-  if (best.buyAt !== look.now.location.docked_at) {
+  if (best.buyAt !== 'held' && best.buyAt !== look.now.location.docked_at) {
     const there = await goTo(best.buyAt);            // buy where it is cheap
     if (there.status !== 'done') return there;
   }

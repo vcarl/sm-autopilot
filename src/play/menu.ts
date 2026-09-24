@@ -391,10 +391,10 @@ export async function menu(runtime?:string):Promise<Menu> {
     else if(full)not_now.push({move:'tradeRun',why:'the hold is full and tradeRun buys what the hold fits; sell(rows) or stow(rows) first'});
     else work({call:`tradeRun(${lit({item:spread.item_id,sellAt:spread.base_id})})`,advances:'credits',
       why:`${spread.margin} cr a unit on ${spread.item_id} at ${spread.base_id}, a bid remembered ${spread.age} ticks old; the book may have moved, and the fuel there is not priced in`});
-    // The search, not the menu's to run: routes() costs up to ~10 find_route calls. A full hold
-    // gets none; the sell and far-buyer moves above cover it.
-    if(!full)work({call:'routes()',advances:'credits',
-      why:'ranks every known trade by net per jump after book depth, fuel and tax; each row carries a pasteable next call. The trading README\'s "the best trade known" acts on the top row in one run'});
+    // The search, not the menu's to run: routes() costs up to ~10 find_route calls. Whatever the
+    // hold: goods aboard are routes of their own.
+    work({call:'routes()',advances:'credits',
+      why:'ranks every known trade, goods aboard included, by net per jump after book depth, fuel and tax; each row carries a pasteable next call. The trading README\'s "the best trade known" acts on the top row in one run'});
   }
 
   // Mine the nearest belt.

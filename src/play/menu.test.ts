@@ -621,7 +621,7 @@ test('nothing in the system is filtered out of a hunt, only ordered',async()=>{
   } finally {f.close();}
 });
 
-test("a docked Trader with room in the hold is offered routes(), below a live J6 run; a full hold or another stance is not",async()=>{
+test("a docked Trader is offered routes(), below a live J6 run, whatever the hold; another stance is not",async()=>{
   const far=JSON.stringify([{base_id:'range_base',at:'earlier',tick:TICK-40,
     items:[{item_id:'ore',best_buy:40,best_buy_qty:99,best_sell:0,best_sell_qty:0}]}]);
   // No spread: routes() is the Trader's lead, and it compiles.
@@ -644,11 +644,11 @@ test("a docked Trader with room in the hold is offered routes(), below a live J6
     const run=calls.indexOf("tradeRun({item:'ore',sellAt:'range_base'})"),search=calls.indexOf('routes()');
     assert.ok(run>=0&&search>run,JSON.stringify(calls));
   } finally {ok.close();}
-  // A full hold: no search; the sell and far-buyer moves cover it.
+  // A full hold: goods aboard are routes too.
   const full=world({mood:'Opportunistic',stance:'Trader'},{cargoUsed:12,cargoCapacity:12});
   try {
     const built=await menu(full.runtime);
-    assert.ok(!built.moves.some(m=>m.call==='routes()'),renderMenu(built));
+    assert.ok(built.moves.some(m=>m.call==='routes()'),renderMenu(built));
   } finally {full.close();}
   // Not a Trader.
   const miner=world({mood:'Opportunistic',stance:'Prospector'},{cargoUsed:0});

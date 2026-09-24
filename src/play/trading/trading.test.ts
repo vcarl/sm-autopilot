@@ -197,6 +197,27 @@ test('routes ranks a stale fat bid below a fresh thin one',async()=>{
   } finally {unbind();rmSync(runtime,{recursive:true,force:true});}
 });
 
+test('a full hold is routed: what is aboard sells at the far bid for the sale less fuel, and ranks first',async()=>{
+  const runtime=remembered([RANGE]);
+  world({mood:'Focused'},{cargo:[{item_id:'gem',quantity:20}],cargoUsed:20,cargoCapacity:20,store:[],markets:HERE},runtime);
+  try {
+    const out=await routes();
+    assert.equal(out.status,'done',out.why);
+    const [held]=out.detail.routes;
+    // 20 gems aboard fetch 110 each a jump away; the purchase is sunk, so only the 7 fuel comes off.
+    assert.equal(held!.buyAt,'held');
+    assert.equal(held!.sellAt,'range_base');
+    assert.equal(held!.quantity,20);
+    assert.equal(held!.cost,0);
+    assert.equal(held!.net,2200-7);
+    assert.equal(held!.next,"tradeRun({item:'gem', sellAt:'range_base'})");
+    // A buy route is sized to the space selling frees, and says so.
+    const bought=out.detail.routes.find(row=>row.buyAt==='sol_base')!;
+    assert.equal(bought.quantity,20);
+    assert.match(bought.why!,/the hold is full: sell what is aboard first/);
+  } finally {unbind();rmSync(runtime,{recursive:true,force:true});}
+});
+
 test('a failed route lookup is a row with a why and a partial, not a throw',async()=>{
   const runtime=remembered([{base_id:'ghost_base',age:0,items:[{item_id:'gem',best_buy:110,best_buy_qty:50}]}]);
   world({mood:'Focused'},{cargo:[],cargoUsed:0,cargoCapacity:20,store:[],markets:HERE},runtime);
