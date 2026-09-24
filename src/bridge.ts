@@ -7,6 +7,7 @@ import {existsSync,mkdirSync,readFileSync,renameSync,writeFileSync} from 'node:f
 import {resolve} from 'node:path';
 import {createInterface} from 'node:readline';
 import {fileURLToPath} from 'node:url';
+import {markAlertsDelivered,pendingAlerts,recordAlert} from './alerts.ts';
 import {controllerLock} from './controller-lock.ts';
 import type {ReadinessAccount,ReadinessCommand} from './readiness.ts';
 import {details} from './response-details.ts';
@@ -43,6 +44,84 @@ export function journalResult(action:string,result:unknown):unknown {
   for(const key of ['moves','not_now'])
     if(Array.isArray(body[key]))kept[key]=body[key].length;
   return kept;
+}
+
+/** The pushes worth keeping. `@spacemolt/lib` emits every frame the socket carries whether
+ * anything registered or not, and the runner discarded all 85 kinds; these are the ones a
+ * pilot waking at the next juncture, or an operator reading the drain, would want. The
+ * journal is the record and the volume measurement; the decision-shaped subset is buffered
+ * into `alerts.json` as well, which is what the wake actually reads.
+ *
+ * `action_result`, `action_error` and `reconnected` are deliberately absent — the lib's own
+ * correlator consumes them and the command seam already journals the reply. */
+export const PUSH_TYPES=['battle_alert','battle_ended','player_died','facility_rent_warning',
+  'facility_reclaimed','base_destroyed','base_raid_update','mining_yield','crafting_update',
+  'skill_level_up','ok','fleet'] as const;
+
+/** The one group buffered into `alerts.json` as well as journalled: the pilot losing real
+ * property while it sleeps. All three carry `base_id`, which is the collapse key. */
+const ALERT_TYPES=new Set(['facility_rent_warning','facility_reclaimed','base_destroyed']);
+
+/** `ok` pushes that echo a command this pilot itself sent: the command seam journalled it
+ * already, so a second line would double-count the same act. */
+const OWN_PUSH=new Set(['travel','jump','dock','arrived','jumped','pathfinder_arrival',
+  'pathfinder_jump','pathfinder_redirect','attack','espionage']);
+/** `ok` pushes that moved the ship without the pilot asking for it: a fleet leader towing it,
+ * the mobile station it was docked at jumping, the server docking it so a command could run,
+ * an emergency stabilizer firing. None of these is an action the client can send, which is
+ * what makes the attribution safe — no timing heuristic is involved. */
+const MOVED_BY_OTHERS=new Set(['fleet_travel','fleet_jump','fleet_dock','fleet_undock',
+  'mobile_capital_transit','passenger_stranded','auto_dock','auto_undock',
+  'emergency_warp_stabilizer_activated']);
+/** Broadcast to every connected player, so it says nothing about this pilot. */
+const PUSH_NOISE=new Set(['new_forum_post']);
+/** ponytail: 20 journal lines a minute per push channel, the rest dropped on the floor. A
+ * battle, a base raid or a mining run can push several frames a tick, and neither
+ * `gameplay.jsonl` nor the webhook drain has a ceiling of its own. Raise it, or window per
+ * action rather than per channel, if a real shift proves it too tight. */
+export const PUSH_PER_MINUTE=20;
+
+/** A push as the journal keeps it: the scalars it named, strings clipped, never a nested
+ * body. The same discipline as `journalCommand` — one push must not be able to append a
+ * kilobyte of frame to the journal. */
+export function pushScalars(payload:unknown):Record<string,unknown> {
+  const kept:Record<string,unknown>={};
+  for(const [key,value] of Object.entries((payload??{}) as Record<string,unknown>))
+    if(value!==null&&typeof value!=='object')
+      kept[key]=typeof value==='string'?value.slice(0,60):value;
+  return kept;
+}
+
+/** Register the allowlist on an account that outlives every run. Called once from `main()`,
+ * never from `bind()`: a handler bound to a run is deaf between junctures, which is the
+ * whole reason these frames were being lost. */
+export function pushJournal(account:{on:(type:string,handler:(payload:Record<string,unknown>)=>void)=>unknown},
+  runtime:string,now:()=>number=Date.now):void {
+  const seen=new Map<string,{minute:number;n:number}>();
+  const spare=(channel:string):boolean=>{
+    const minute=Math.floor(now()/60_000),kept=seen.get(channel);
+    if(!kept||kept.minute!==minute) {seen.set(channel,{minute,n:1});return true;}
+    kept.n+=1;
+    return kept.n<=PUSH_PER_MINUTE;
+  };
+  for(const type of PUSH_TYPES)account.on(type,(payload:Record<string,unknown>)=>{
+    const body=(payload??{}) as Record<string,unknown>;
+    // Most `ok` variants key on `action`, seven on `type`; a variant with neither is the
+    // wildlife kill notice, which the pilot's own hunt step already reports.
+    const cause=type==='ok'?String(body.action??body.type??''):'';
+    if(type==='ok'&&(!cause||OWN_PUSH.has(cause)||PUSH_NOISE.has(cause)))return;
+    const scalars=pushScalars(body);
+    // Buffered before the rate cap, never after: the cap protects the journal and the Discord
+    // drain from a chatty group, and losing a repossession notice to it would be the one
+    // failure this whole path exists to prevent. Collapse by key is its bound instead.
+    if(ALERT_TYPES.has(type)&&typeof body.base_id==='string')
+      recordAlert(runtime,type,`base:${body.base_id}`,scalars);
+    if(!spare(type))return;
+    if(MOVED_BY_OTHERS.has(cause))
+      journalRun(runtime,{cause,
+        evidence:Object.entries(scalars).map(([key,value])=>`${key}=${value}`).join(' ')},'unsolicited_move');
+    else journalRun(runtime,{push:type,...scalars},'push');
+  });
 }
 
 /** What the runner set at the last rest. The agent never writes any of it: reflection asks
@@ -134,6 +213,11 @@ export function serve(account:ReadinessAccount,command:ReadinessCommand,options:
       const {location,ship,player,modules}=account.state;
       // Read back after the reads, never before: Tired may have been imposed or cleared in them.
       const who=pilot();
+      // Handed over and stamped delivered in the same breath: this handler is the single
+      // reader and the single writer, in one process, so once-only needs no lock and none of
+      // the read-modify-write race the instruction's `_deliver` carries.
+      const waiting=runtime?pendingAlerts(runtime):[];
+      if(runtime)markAlertsDelivered(runtime,waiting);
       const absent=(['goal','stance','mood'] as const).filter(key=>!who[key]);
       const resting=!who.stance||!who.mood;
       return {
@@ -156,6 +240,7 @@ export function serve(account:ReadinessAccount,command:ReadinessCommand,options:
           // cannot reach the D2 table, and a pilot left to guess the line guesses it low.
           ...ship?.max_hull===undefined?{}:{walk_away:Math.floor(resolveWalkAway(who.mood??'Cautious')*ship.max_hull)}},
         ...built,text:renderMenu(built),last:lastOutcome(),
+        ...waiting.length?{alerts:waiting.map(({type,key,at,first_at,n,body})=>({type,key,at,first_at,n,body}))}:{},
       };
     } finally {unbind();}
   };
@@ -263,6 +348,8 @@ async function main() {
       throw error;
     }
   };
+  // The pushes, on the one account that outlives every run and every juncture.
+  pushJournal(account,runtime);
   const pilotFile=resolve(runtime,'..','pilot.json');
   // The request whose run is in flight gets the stream; a run started by resume has none.
   let streamTo:string|undefined;

@@ -84,7 +84,7 @@ def juncture_context(session_info: Mapping[str, Any] | None = None) -> str:
     # At rest the menu still carries moves (VISION: the menu is never empty); the choosing
     # material a rest needs is the reflection, so the fire gets both.
     if menu.get("rest") or menu.get("at_rest"):
-        return _rest_context(call("reflect"), menu.get("text"))
+        return _rest_context(call("reflect"), menu.get("text"), _alerts(menu))
     if menu.get("busy"):
         return "SpaceMolt juncture — a run is already in flight; its report comes with the next one."
     said = read_pilot().get("instruction")
@@ -137,6 +137,47 @@ _HOLD_FULL = ("hold full: a gather needs free hold. sell(rows) or stow(rows) her
               "(name the rows from the hold above), then gatherUntil")
 
 
+#: What each buffered alert is, in the pilot's words. A type without an entry renders its own
+#: name: a frame group newly added to the buffer is still worth a line.
+_ALERT_LABEL = {"facility_rent_warning": "rent overdue", "facility_reclaimed": "facilities repossessed",
+                "base_destroyed": "base destroyed"}
+#: ponytail: four alert lines, the rest a count. The buffer already collapses by base, so four
+#: is four bases in trouble at once; raise it if a pilot ever holds that many facilities.
+_ALERT_LINES = 4
+
+
+def _alerts(menu: dict[str, Any]) -> list[str]:
+    """The alerts the bridge handed over with this menu, as fact lines.
+
+    The bridge stamped them delivered as it answered, so they appear at exactly one juncture.
+    They go with the facts, above the cuttable material: a repossession deadline is the one
+    thing a pilot cannot recover by looking again next time.
+    """
+    items = [item for item in (menu.get("alerts") or []) if isinstance(item, dict)]
+    if not items:
+        return []
+    lines = [f"Alerts since your last wake ({len(items)}, shown once):"]
+    for item in items[:_ALERT_LINES]:
+        body = item.get("body") or {}
+        what = _ALERT_LABEL.get(str(item.get("type")), str(item.get("type")))
+        bits = []
+        if isinstance(body.get("credits_owed"), (int, float)):
+            bits.append(f"{body['credits_owed']:,} owed")
+        if body.get("missed_cycles") is not None:
+            bits.append(f"{body['missed_cycles']} of {body.get('grace_cycles', '?')} missed cycles")
+        if body.get("attacker_name"):
+            bits.append(f"attacker {body['attacker_name']}")
+        if not bits and body.get("message"):
+            bits.append(str(body["message"])[:120])
+        seen = (f", seen {item['n']}x since {_stamp(_when(item.get('first_at')))}"
+                if item.get("n", 1) > 1 else "")
+        lines.append(f"  {what} at {body.get('base_name') or item.get('key')}"
+                     + (f": {'; '.join(bits)}" if bits else "") + seen + ".")
+    if len(items) > _ALERT_LINES:
+        lines.append(f"  +{len(items) - _ALERT_LINES} more in the journal.")
+    return lines
+
+
 def _situation(menu: dict[str, Any], said: dict[str, Any] | None) -> str:
     """The juncture as labelled lines, each fact once, budgeted on the final string.
 
@@ -154,6 +195,7 @@ def _situation(menu: dict[str, Any], said: dict[str, Any] | None) -> str:
     if said:
         facts.append(f"Instruction (operator, {_stamp(_when(said.get('at')))}, this juncture "
                      f"only): {said.get('text')}")
+    facts += _alerts(menu)
     if menu.get("goal"):
         facts.append(f"Goal (yours, from rest): {menu['goal']}")
     # Only the keys rendered here: a permission the code no longer knows is one the pilot
@@ -221,7 +263,8 @@ def _situation(menu: dict[str, Any], said: dict[str, Any] | None) -> str:
     return text
 
 
-def _rest_context(report: dict[str, Any], moves: str | None = None) -> str:
+def _rest_context(report: dict[str, Any], moves: str | None = None,
+                  alerts: list[str] | None = None) -> str:
     """A fire that lands on a pilot at rest: reflection, not a menu (N7).
 
     There is no stance, so there is no stance work to offer and nothing to choose between.
@@ -241,6 +284,9 @@ def _rest_context(report: dict[str, Any], moves: str | None = None) -> str:
             "flies the file this review leaves.\n"
             "2. Choose one goal that serves the objective, then the stance and mood that fit it.\n"
             "3. Call spacemolt_reflect once with them, and end the turn.\n")
+    # The menu call above stamped these delivered, so a rest that dropped them would drop them
+    # for good.
+    head += "".join(f"{line}\n" for line in alerts or [])
     render = lambda: (head + json.dumps(report, separators=(",", ":"), sort_keys=True)
                       + (("\n" + moves) if moves else ""))
     # Over the section limit core skips the whole section, so the suggested moves go first and

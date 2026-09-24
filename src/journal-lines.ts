@@ -116,6 +116,14 @@ function render(entry:Record<string,any>):string|null {
     }
     case 'instruction':return `instruction: ${JSON.stringify(text(entry.text))}`;
     case 'unsolicited_move':return `moved (${text(entry.cause)}): ${text(entry.evidence)}`;
+    // Something the game told the pilot without being asked. The ids and scalars only: the
+    // frame body never reaches the journal, so there is nothing else here to print.
+    case 'push': {
+      const skip=new Set(['at','event','push','message']);
+      const fields=Object.entries(entry).filter(([key,value])=>!skip.has(key)&&value!==null&&typeof value!=='object')
+        .map(([key,value])=>`${key}=${text(value)}`);
+      return `push ${text(entry.push)}${fields.length?` ${fields.join(' ')}`:''}${entry.message?` — ${text(entry.message)}`:''}`;
+    }
     // The request/response pairs: every one that took is covered by a line above, so only
     // the refusals earn one. A read that failed is a thing the pilot could not do.
     case 'request':

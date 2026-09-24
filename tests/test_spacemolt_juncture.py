@@ -198,6 +198,36 @@ def test_an_instruction_reaches_one_juncture_and_not_the_next(monkeypatch):
     assert juncture.read_pilot()["instruction_delivered"]["text"] == "stay in Sol tonight"
 
 
+ALERTS = [{"type": "facility_rent_warning", "key": "base:hera_outpost",
+           "at": "2026-09-23T13:55:00Z", "first_at": "2026-09-23T11:40:00Z", "n": 3,
+           "body": {"base_id": "hera_outpost", "base_name": "Hera Outpost", "credits_owed": 4200,
+                    "missed_cycles": 2, "grace_cycles": 4, "message": "Rent is overdue."},
+           "delivered_at": None},
+          {"type": "base_destroyed", "key": "base:far_reach", "at": "2026-09-23T14:01:00Z",
+           "first_at": "2026-09-23T14:01:00Z", "n": 1,
+           "body": {"base_id": "far_reach", "base_name": "Far Reach", "attacker_name": "Vex"},
+           "delivered_at": None}]
+
+
+def test_the_alerts_the_bridge_buffered_reach_the_pilot_as_fact_lines(monkeypatch):
+    """What happened while the pilot was not looking, with the deadline that makes it a decision."""
+    menu = _menu(12, last=LAST)
+    menu["alerts"] = ALERTS
+    context = _rendered(monkeypatch, menu)
+    assert "Alerts since your last wake (2, shown once):" in context
+    assert ("  rent overdue at Hera Outpost: 4,200 owed; 2 of 4 missed cycles, "
+            "seen 3x since 09-23 11:40Z." in context), context
+    assert "  base destroyed at Far Reach: attacker Vex." in context
+    # An alert line is a fact line: it survives the budget that cuts the moves and the hold.
+    big = _menu(12, last=dict(LAST, prose="x" * 6_000))
+    big["alerts"] = ALERTS
+    assert "rent overdue at Hera Outpost" in _rendered(monkeypatch, big)
+    # No alerts is no section at all, not an empty heading.
+    assert "Alerts since" not in _rendered(monkeypatch, _menu(12, last=LAST))
+    # A rest lands on the same menu call, so the alerts cannot be swallowed by it.
+    assert "rent overdue at Hera Outpost" in juncture._rest_context({}, None, juncture._alerts(menu))
+
+
 def test_an_oversized_situation_fits_the_section_with_every_fact_line(monkeypatch):
     """Over the limit core drops the section whole, so the moves and the hold list give way."""
     hold = [{"item_id": f"salvaged_component_{i}", "quantity": i} for i in range(400)]
