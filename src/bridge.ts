@@ -32,8 +32,24 @@ const OUTCOME_KEYS=new Set(['accepted','reason','status','record','running','res
   'cleared','serviced','resumed','busy','objective','objective_done','stance','mood','errors','stopping',
   'ok','fn','did','sha','step','commands','elapsed_s','started','stagnation','rest']);
 
+/** ponytail: at most 5 rows of a menu list reach the journal, 100 characters each, and the
+ * rest is a `+N more` marker. Five is the cap the menu itself ranks down to, so the marker
+ * only ever fires on `not_now`; raise either ceiling, or keep a move's `why` as well, if a
+ * live diagnosis ever needs more than the call and the refusal. */
+export const MENU_ROWS=5,MENU_CHARS=100;
+/** One menu list as the journal keeps it: the short form of each row, capped both ways. */
+const menuRows=(list:unknown[],short:(row:any)=>string):string[]=>{
+  const kept=list.slice(0,MENU_ROWS).map(row=>{const line=short(row);
+    return line.length>MENU_CHARS?`${line.slice(0,MENU_CHARS-1)}…`:line;});
+  return list.length>MENU_ROWS?[...kept,`+${list.length-MENU_ROWS} more`]:kept;
+};
+
 /** One response as the journal keeps it: whether the thing happened, never the prose or the
- * bodies of a read. */
+ * bodies of a read.
+ *
+ * `menu` is the one action whose arrays are kept rather than counted: its reply IS the
+ * pilot's whole view of the world, and `moves:1` says nothing about which move was offered.
+ * Every other action's arrays — storage views, market rows, mission lists — stay counts. */
 export function journalResult(action:string,result:unknown):unknown {
   if(result===null||typeof result!=='object')return result;
   const body=result as Record<string,any>;
@@ -43,6 +59,12 @@ export function journalResult(action:string,result:unknown):unknown {
   if(body.last&&typeof body.last==='object')kept.last={status:body.last.status,did:body.last.did};
   for(const key of ['moves','not_now'])
     if(Array.isArray(body[key]))kept[key]=body[key].length;
+  if(action==='menu') {
+    if(Array.isArray(body.moves))kept.moves=menuRows(body.moves,row=>String(row?.call??''));
+    // A refused move's reason is the informative half — the call alone says only that it was
+    // not offered — so `not_now` keeps both, which is why it is the list that hits the cap.
+    if(Array.isArray(body.not_now))kept.not_now=menuRows(body.not_now,row=>`${row?.move??''}: ${row?.why??''}`);
+  }
   return kept;
 }
 

@@ -4,7 +4,7 @@ import {spawnSync} from 'node:child_process';
 import {existsSync,mkdtempSync,readFileSync,writeFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
-import {createShutdown,journalResult,serve,type Pilot,type ServeOptions} from './bridge.ts';
+import {createShutdown,journalResult,MENU_CHARS,MENU_ROWS,serve,type Pilot,type ServeOptions} from './bridge.ts';
 import {controllerLock} from './controller-lock.ts';
 import type {ReadinessAccount} from './readiness.ts';
 import type {RunResult} from './run.ts';
@@ -158,4 +158,28 @@ test('the journal keeps the outcome of a request and never the prose or a body',
   assert.deepEqual(run,{accepted:true,status:'done',reason:'serviced',started:'t0',commands:3});
   const status=journalResult('status',{running:false,last:{status:'done',did:'serviced',prose:'…'}}) as any;
   assert.deepEqual(status,{running:false,last:{status:'done',did:'serviced'}});
+});
+
+test('the journal keeps a menu move by its call and a refusal by its reason', () => {
+  const menu=journalResult('menu',{stance:'Hunter',mood:'Tired',objective:'cull the fauna',
+    present:{system:'sys_a',hold:[{item_id:'carbon_ore',quantity:61}]},text:'Menu — …\n  - `hunt()` — …',
+    moves:[{call:'service()',why:'Tired: resupply here clears it',advances:'ship'},
+      {call:"goTo('base_iron')",why:'the nearest serviced base',advances:'ship'}],
+    not_now:[{move:'gatherUntil',why:'fuel 12, need 30 with the Cautious reserve 18'}]}) as any;
+  assert.deepEqual(menu.moves,['service()',"goTo('base_iron')"],'the call is what the journal keeps');
+  assert.deepEqual(menu.not_now,['gatherUntil: fuel 12, need 30 with the Cautious reserve 18']);
+  assert.equal(menu.mood,'Tired');
+  assert.equal(menu.present,undefined,'the world body still never reaches the journal');
+  assert.equal(menu.text,undefined,'nor the rendered menu');
+});
+
+test('a long menu is capped both ways and other actions still count their arrays', () => {
+  const menu=journalResult('menu',{moves:[{call:`gatherUntil({poi:'${'x'.repeat(200)}'})`}],
+    not_now:Array.from({length:MENU_ROWS+3},(_,n)=>({move:`m${n}`,why:'no route'}))}) as any;
+  assert.equal(menu.moves[0].length,MENU_CHARS,'a long call is clipped, never wrapped');
+  assert.ok(menu.moves[0].endsWith('…'));
+  assert.equal(menu.not_now.length,MENU_ROWS+1);
+  assert.equal(menu.not_now.at(-1),'+3 more','the rows past the cap are a count');
+  const run=journalResult('run',{status:'done',moves:[{call:'a()'},{call:'b()'}],not_now:[{move:'c'}]}) as any;
+  assert.deepEqual(run,{status:'done',moves:2,not_now:1},'only menu widens; every other action counts');
 });

@@ -126,9 +126,18 @@ function render(entry:Record<string,any>):string|null {
     }
     // The request/response pairs: every one that took is covered by a line above, so only
     // the refusals earn one. A read that failed is a thing the pilot could not do.
-    case 'request':
-      return entry.response&&entry.response.ok===false
-        ?`! ${text(entry.request?.action)}: ${text(entry.response.error)}`:null;
+    case 'request': {
+      if(entry.response&&entry.response.ok===false)return `! ${text(entry.request?.action)}: ${text(entry.response.error)}`;
+      // The one reply worth a line of its own: the menu is the pilot's whole view of the
+      // world at a juncture, and which moves it was offered is what a diagnosis asks.
+      const result=(entry.response?.result??{}) as Record<string,any>;
+      if(text(entry.request?.action)!=='menu'||!Array.isArray(result.moves))return null;
+      const who=[result.stance,result.mood].filter(Boolean).join('/');
+      const offered=result.moves.length?result.moves.map(text).join(' · '):'(nothing)';
+      const refused=Array.isArray(result.not_now)&&result.not_now.length
+        ?` — not now: ${result.not_now.map(text).join(' · ')}`:'';
+      return `menu${who?` ${who}`:''}: ${offered}${refused}`;
+    }
     default:return null;
   }
 }
