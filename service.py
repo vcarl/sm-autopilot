@@ -35,6 +35,21 @@ _lock = threading.RLock()
 _bridge: "Bridge | None" = None
 
 
+def source_fingerprint() -> str:
+    """What the bridge's TypeScript looked like, cheaply enough to ask on every request.
+
+    ponytail: the count and newest mtime of ``src/**/*.ts``, not a git sha — a sha costs a
+    subprocess and misses the uncommitted edit a live session is usually testing. Ceiling:
+    an edit that changes neither the file count nor the newest mtime is invisible.
+
+    ponytail: this closes the *TypeScript* gap only. ``__init__.py``, ``juncture.py`` and
+    this file are imported once by the Hermes process and cannot reload themselves from
+    inside the plugin; a change to the plugin's Python still needs a gateway restart.
+    """
+    files = list((HERE / "src").rglob("*.ts"))
+    return f"{len(files)} files, newest {max((f.stat().st_mtime_ns for f in files), default=0)}"
+
+
 def credentials_file() -> Path | None:
     """This turn's credentials path, never another profile's secret."""
     try:
@@ -120,6 +135,10 @@ class Bridge:
                **wake_env(), "SPACEMOLT_WAKE": json.dumps(wake_argv()),
                **({"SPACEMOLT_JOURNAL_WEBHOOK": webhook} if webhook else {})}
         self.runtime = runtime
+        #: The sources this process booted on, so "is the bridge running the latest code?" is
+        #: answered by reading rather than by dating a pid against a reflog.
+        self.sources = source_fingerprint()
+        self.deferred = ""
         self.inbox: queue.Queue = queue.Queue()
         #: One queue per request in flight, keyed by id: a `run` blocks for minutes while
         #: `status` and `stop` still want answers, so replies are routed, not read in order.
@@ -132,6 +151,8 @@ class Bridge:
         self.stderr_path = runtime / BRIDGE_STDERR
         self._stderr_from = self.stderr_path.stat().st_size if self.stderr_path.exists() else 0
         with self.stderr_path.open("a", encoding="utf-8") as log:
+            log.write(f"[bridge] booting on {self.sources}\n")
+            log.flush()
             self.process = subprocess.Popen(
                 BRIDGE_COMMAND, cwd=HERE, env=env,
                 stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=log, text=True, bufsize=1,
@@ -229,8 +250,26 @@ class Bridge:
                 continue
 
 
+def _in_flight(bridge: "Bridge") -> bool:
+    """Is work going on that a recycle would destroy? A request of ours still waiting for its
+    reply, or a run the bridge has not ended — the same durable signal the wake gate reads."""
+    from .juncture import run_in_flight
+    return bool(bridge.waiting) or run_in_flight()
+
+
+def _defer_reload(bridge: "Bridge", sources: str) -> None:
+    """Say once, in the pilot's journal, that newer code is on disk and the run in flight keeps
+    the bridge it has. Tearing down a working run to pick up an edit costs more than waiting."""
+    if bridge.deferred == sources:
+        return
+    bridge.deferred = sources
+    from .juncture import journal_event
+    journal_event("log", script="bridge", message="reload deferred: a run is in flight",
+                  booted_on=bridge.sources, on_disk=sources)
+
+
 def call(action: str, params: dict[str, Any] | None = None, on_line=None) -> Any:
-    """Send one request, spawning or replacing a dead bridge first. Requests run
+    """Send one request, spawning or replacing a dead — or outdated — bridge first. Requests run
     concurrently: a `run` blocks for minutes while `status` and `stop` still answer.
 
     ponytail: one bridge per process, not per profile. Key ``_bridge`` by
@@ -240,6 +279,14 @@ def call(action: str, params: dict[str, Any] | None = None, on_line=None) -> Any
     with _lock:
         if _bridge is not None and _bridge.process.poll() is not None:
             _bridge = None
+        if _bridge is not None and _bridge.sources != (sources := source_fingerprint()):
+            if _in_flight(_bridge):
+                _defer_reload(_bridge, sources)
+            else:
+                # The old process holds the controller lock and the journal, so it ends before
+                # a new one asks for them — by the same EOF → SIGTERM → SIGKILL escalation.
+                _bridge.close()
+                _bridge = None
         if _bridge is None:
             _bridge = Bridge()
         bridge = _bridge

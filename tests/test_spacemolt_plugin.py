@@ -307,3 +307,65 @@ def test_the_journal_webhook_reaches_the_bridge_the_way_the_credentials_path_doe
         assert service.call("status") == {"webhook": ""}
     finally:
         service.close_bridge()
+
+
+@pytest.fixture
+def reloadable(bridged, tmp_path, monkeypatch):
+    """A bridge whose TypeScript is a temp ``src/`` tree this test can edit."""
+    src = tmp_path / "src"
+    src.mkdir()
+    (src / "bridge.ts").write_text("// v1\n")
+    monkeypatch.setattr(service, "HERE", tmp_path)
+    monkeypatch.setenv("SPACEMOLT_RUNTIME_DIR", str(tmp_path / "runtime"))
+    return src
+
+
+def test_an_unchanged_source_tree_keeps_the_bridge_it_has(reloadable):
+    """A juncture that finds the same code on disk reuses the connection it has: a recycle
+    costs a re-authenticate, so it happens because the code moved, not because time passed."""
+    service.call("status")
+    first = service._bridge
+    service.call("status")
+    assert service._bridge is first
+    # And what it booted on is written down, so which code is running is a read, not a guess.
+    assert first.sources == service.source_fingerprint()
+    log = (service.runtime_dir() / service.BRIDGE_STDERR).read_text()
+    assert f"[bridge] booting on {first.sources}" in log
+
+
+def test_a_changed_source_tree_recycles_the_bridge(reloadable):
+    """The reason the cron pilot never ran new code: Node reads the sources once, and the
+    bridge outlived every commit. A juncture now boots a fresh one when the sources moved."""
+    service.call("status")
+    old = service._bridge
+    (reloadable / "job.ts").write_text("// added since it booted\n")
+
+    service.call("status")
+
+    new = service._bridge
+    assert new is not old and new.process.pid != old.process.pid
+    assert new.sources != old.sources
+    # The stale one went first: it holds the controller lock and the journal a new one wants.
+    assert old.process.poll() is not None, "a stale bridge was left holding the game lock"
+
+
+def test_a_source_change_during_a_run_defers_the_reload(reloadable):
+    """A juncture that arrives mid-run carries on with the bridge it has. Tearing down a
+    working run to pick up an edit costs more than the wait, and the journal says so."""
+    from spacemolt import juncture
+
+    service.call("status")
+    live = service._bridge
+    runtime = service.runtime_dir()
+    (runtime / "run.json").write_text(json.dumps({"script": "hunt", "started": "t0", "ended": False}))
+    (runtime / "controller-1.lock").write_text(json.dumps({"pid": os.getpid()}))
+    (reloadable / "job.ts").write_text("// added while the run is out at the belt\n")
+
+    service.call("status")
+
+    assert service._bridge is live and live.process.poll() is None
+    entries = [json.loads(line) for line
+               in (runtime / juncture.JOURNAL_FILE).read_text().splitlines() if line.strip()]
+    deferred = [entry for entry in entries if "reload deferred" in entry.get("message", "")]
+    assert len(deferred) == 1, "the deferral is recorded, once, not on every read during the run"
+    assert deferred[0]["booted_on"] == live.sources
