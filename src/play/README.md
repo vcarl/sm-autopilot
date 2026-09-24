@@ -73,6 +73,28 @@ same goes for `withdraw` of rows the store does not have and `sell` of rows you 
 `refused` means a real precondition failed: not docked, no counter here, nothing named.
 `buy`, `buyShip`, `gatherUntil` and `hunt` act again on every call: two `buy` calls buy twice.
 
+## Shapes you will get wrong
+
+Every line here has cost a whole juncture at the typecheck gate. `tsc` is the first gate and it
+sees the real types, so these are not style notes.
+
+- **Everything is `await`ed.** Every library function returns a `Promise<Outcome>`.
+  `const s = sell(rows)` then `s.status` is `Property 'status' does not exist on type
+  'Promise<Outcome<Sold>>'` — the missing `await` is the entire error.
+- **`sell` takes two options and neither names a market.** `{from: 'hold' | 'store'}` and
+  `{floor: {[item_id]: number}}`. `{market: 'local'}` does not exist; `sell` is always the counter
+  you are docked at.
+- **`Want` to ask with, `Row` to receive.** `{item_id: 'carbon_ore'}` is a `Want`. `Row` requires
+  `quantity`, so annotating a list you build `Row[]` is what rejects it.
+- **A raw command is not an Outcome.** `account().commands.<tool>.<action>()` answers
+  `QueryResult<T>` (read `.structuredContent`) or `MutationResult<T>` (read `.delta.details`) —
+  never `status`, `did`, `why`, `detail`. A refusal *throws* rather than returning `refused`, so an
+  unguarded raw command breaks the run: wrap it in `try`/`catch`.
+- **A location has no `id` and no `name`.** `V2Location` is `poi_id`, `poi_name`, `system_id`,
+  `system_name`, `docked_at` (null when undocked), plus `connections` and the `nearby_*` counts.
+- **`Cannot find name 'x'` means you did not import it.** There are no globals: `note`, `outcome`,
+  `stopped` and `account` come from `'play'` like everything else.
+
 ## The root functions (every stage)
 
 | Function | Promise |
@@ -82,7 +104,7 @@ same goes for `withdraw` of rows the store does not have and `sell` of rows you 
 | `goTo(id)` | fly to a POI, base or system, jumping as needed; dock if a base. Any of the three ids works, or a display name: a system id ends the trip anywhere in that system, a POI id at that POI, a base id docked at it — a guess that names a system with a single base goes to that base, and any other word that names nothing is `refused` with the nearest ids instead of being flown. On the way it flies through and completes any active distress mission whose system is on the route or one jump off it, when the detour stays inside a quarter of the route's length and the tank still covers the rest plus the reserve |
 | `service()` | full tank and hull, inside the mood's spend margin |
 | `stow(rows)` / `withdraw(rows)` / `storage(base?)` | station storage; rows you name (omit a row's `quantity` for all of it); readable from anywhere |
-| `prices(items?)` / `sell(rows, opts?)` / `buy(item, qty)` | the market here, live at the moment of the act, and remembered for `spreads()`; `sell(rows, {from:'store'})` empties the store a hold-load at a time |
+| `prices(items?)` / `sell(rows, opts?)` / `buy(item, qty)` | the market here, live at the moment of the act, and remembered for `spreads()`. `sell`'s options are exactly two: `{from: 'hold' \| 'store'}` (default `'hold'`; `'store'` empties the store a hold-load at a time) and `{floor: {[item_id]: number}}` (skip a row whose `best_buy` is under it). There is no option naming a market — `sell` is always the counter you are docked at |
 | `refit({install,remove})` / `shipsForSale(opts?)` / `buyShip(id, opts?)` | the hangar: modules on and off within the grid, the hulls for sale here, the next one |
 | `missions()` / `acceptMission(id)` / `completeMissions()` / `abandonMission(id, opts?)` | the board here; the cheapest credits and xp early |
 | `note(text)` | write a line into the journal and the run's stream |
@@ -92,7 +114,10 @@ same goes for `withdraw` of rows the store does not have and `sell` of rows you 
 
 `sell`, `stow` and `withdraw` take explicit rows (`[{item_id, quantity}]`, and `{item_id}` with
 no `quantity` for all of it — a non-finite `quantity` is refused) and never default to
-"everything": you name what you sell. Some career functions are not built yet and throw
+"everything": you name what you sell. The type of a row you *ask* with is `Want`
+(`{item_id, quantity?}`); `Row` — what `gained.items` and `detail.settled` hand back — requires
+`quantity`. Annotate a list you build yourself `Want[]`, or nothing at all: a `Row[]` annotation
+is what makes `{item_id: 'carbon_ore'}` an error. Some career functions are not built yet and throw
 `unimplemented`: `survey`, `exploreNearby`, `facilities`, `buildFacility`, `queueJob`, `ships`,
 `switchShip`. `account()` reaches those commands.
 
@@ -125,9 +150,11 @@ until the ship is brought back up. Tired then **widens** what a resupply may do 
 narrowing where you may go — it lifts the mood's own spend margin, drops its fuel reserve to 0,
 and lets `service()` buy the half a counter posts a price for instead of refusing the lot. It
 never refuses a flight: `goTo` any base you like, which is the only way to reach a counter that
-sells what the one you are at does not. Which base: `account().commands.spacemolt.inspect({id})`
-on a base id answers with that station's own counter when the game will say — the suggested moves
-already carry what it said — and when it says nothing, the price is unknown until you dock there,
+sells what the one you are at does not. Which base: the suggested moves already carry every price
+that is readable from here, so take them rather than re-reading. `inspect` reaches **this system
+only** — `account().commands.spacemolt.inspect({id})` on a base in another system throws "You can
+only inspect a point of interest in your current system", and an uncaught throw from a raw command
+breaks the whole run. For a base outside this system the price is unknown until you dock there,
 which is a trip worth taking anyway over a counter you know will refuse. Resupplying back inside the margins — `service()` here,
 or at any base — clears Tired and restores the mood it replaced. You never set or clear Tired
 yourself. Rest clears everything. `permissions.credit_reserve` is the operator's and Tired does

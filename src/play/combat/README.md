@@ -28,6 +28,7 @@ import {orient, scout, goTo, hunt, stow, service, note} from 'play';
 export default async function main() {
   const start = await orient();                            // hunt checks the loadout itself
   const dock = start.detail.present.location.docked_at;    // the station to bring the take back to
+  if (!dock) return start;                                 // `docked_at` is null when undocked
   const here = await scout();
   const habitat = here.detail.pois.find(p => /belt|field|cloud/.test(p.type));  // creatures live at belts and fields
   // (scout only counts creatures at the POI you are standing at, in detail.here.nearby)
