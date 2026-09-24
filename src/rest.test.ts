@@ -9,7 +9,7 @@ import test from 'node:test';
 import {mkdirSync,mkdtempSync,readFileSync,writeFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
-import {serve,type Pilot} from './bridge.ts';
+import {journalResult,serve,type Pilot} from './bridge.ts';
 import type {RunResult} from './run.ts';
 import type {ReadinessAccount,ReadinessCommand} from './readiness.ts';
 import {journalRun} from './run-record.ts';
@@ -25,7 +25,8 @@ const PILOT:Pilot={name:'kvothe',objective:'fill the hold',goal:'three loads of 
 /** A pilot docked on a serviced ship, with the record the runner would have written at the
  * last reflection. `over` moves whatever this test wants somewhere else. */
 function fixture(over:{ship?:Record<string,number>;pilot?:Pilot;docked?:string|null;
-  fuelPrice?:number|null;credits?:number;runPilot?:any}={}) {
+  fuelPrice?:number|null;credits?:number;runPilot?:any;
+  skills?:Record<string,{name:string;level:number;max_level:number}>}={}) {
   const account=new FakeLibGoalAccount({
     location:{system_id:'sol',poi_id:'station',
       docked_at:(over.docked===undefined?'sol_base':over.docked) as string|null,in_transit:false},
@@ -37,6 +38,7 @@ function fixture(over:{ship?:Record<string,number>;pilot?:Pilot;docked?:string|n
   const handlers:Record<string,(params:Record<string,unknown>)=>unknown>={
     'spacemolt/get_system':()=>({structuredContent:{kind:'normal',system}}),
     'spacemolt/find_route':()=>({found:true,estimated_fuel:7}),
+    ...over.skills?{'spacemolt/get_skills':()=>({structuredContent:{skills:over.skills}})}:{},
     'spacemolt/get_base':()=>({delta:{details:{services:['refuel','repair'],
       ...over.fuelPrice===null?{}:{fuel_price_all_in:over.fuelPrice??1},
       base:{poi_id:'station',...over.fuelPrice===null?{}:{repair_price_per_hull:1}}}}}),
@@ -128,4 +130,36 @@ test("the rest report reviews the pilot's own files against how the runs ended",
   assert.equal(mine.runs,3);
   assert.deepEqual(mine.last.map((run:any)=>run.outcome),['done','refused','failed']);
   assert.match(mine.last.at(-1).reason,/hold was full/);
+});
+
+test('a reflection measures each skill against the earliest one in the journal, and says so when it cannot',async()=>{
+  // An objective phrased as movement ("raise the lowest of weapons/gunnery/tactics by 2 levels")
+  // cannot be judged from a level on its own, and nothing but a past reflection holds the number
+  // it started at. A pilot that cannot check its own claim asserts it — which is how a live
+  // objective was declared done at weapons 2 of a target of 3 (2026-09-24).
+  const levels={weapons:{name:'weapons',level:2,max_level:5},gunnery:{name:'gunnery',level:1,max_level:5}};
+  const bare=fixture({pilot:{name:'kvothe',objective:'raise the lowest by 2 levels'},skills:levels});
+  const first=await bare.dispatch('reflect') as any;
+  assert.deepEqual(first.skills.map((row:any)=>[row.name,row.level,row.was]),
+    [['gunnery',1,undefined],['weapons',2,undefined]]);
+  assert.ok(first.missing.some((row:string)=>/earlier skill levels/.test(row)),
+    `with no earlier reflection the gap is named, never guessed: ${JSON.stringify(first.missing)}`);
+
+  // The record of that first reflection is what the next one measures against.
+  const f=fixture({pilot:{name:'kvothe',objective:'raise the lowest by 2 levels'},skills:levels});
+  journalRun(f.runtime,{request:{action:'reflect'},
+    response:{ok:true,result:journalResult('reflect',first)}},'request');
+  const second=await f.dispatch('reflect') as any;
+  const weapons=second.skills.find((row:any)=>row.name==='weapons');
+  assert.equal(weapons.level,2);
+  assert.equal(weapons.was,undefined,'a level that has not moved carries no movement');
+  const moved=fixture({pilot:{name:'kvothe'},
+    skills:{...levels,weapons:{name:'weapons',level:4,max_level:5}}});
+  journalRun(moved.runtime,{request:{action:'reflect'},
+    response:{ok:true,result:journalResult('reflect',first)}},'request');
+  const after=await moved.dispatch('reflect') as any;
+  const raised=after.skills.find((row:any)=>row.name==='weapons');
+  assert.equal(raised.was,2,`the baseline reaches the report: ${JSON.stringify(after.skills)}`);
+  assert.ok(raised.since,'the baseline says when it was taken');
+  assert.ok(!after.missing.some((row:string)=>/earlier skill levels/.test(row)));
 });

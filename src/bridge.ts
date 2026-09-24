@@ -30,7 +30,11 @@ export type Dispatch=(action:string,params?:Record<string,unknown>)=>Promise<unk
 const OUTCOME_ACTIONS=new Set(['run','status','rest','reflect','menu','resume','stop','check']);
 const OUTCOME_KEYS=new Set(['accepted','reason','status','record','running','rested','shift_ended','at_rest',
   'cleared','serviced','resumed','busy','objective','objective_done','stance','mood','errors','stopping',
-  'ok','fn','did','sha','step','commands','elapsed_s','started','stagnation','rest']);
+  'ok','fn','did','sha','step','commands','elapsed_s','started','stagnation','rest',
+  // A reflection's skill rows, which are small and are the one thing a later reflection cannot
+  // read any other way: they are what "raise this by two levels" is judged against, and without
+  // them in the record every reflection sees only the level it happens to be looking at.
+  'skills']);
 
 /** ponytail: at most 5 rows of a menu list reach the journal, 100 characters each, and the
  * rest is a `+N more` marker. Five is the cap the menu itself ranks down to, so the marker

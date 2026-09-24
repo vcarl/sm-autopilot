@@ -33,8 +33,11 @@ export interface ReflectReport {
   at_rest:true;
   objective?:string;
   objective_done?:boolean;
-  /** The lowest-levelled skills first: what training would move (N7). */
-  skills?:{name:string;level:number;max_level:number}[];
+  /** The lowest-levelled skills first: what training would move (N7). `was`/`since` are the
+   * level this skill stood at in the earliest reflection the journal still holds, so an
+   * objective phrased as movement ("raise the lowest by two levels") is judged against a number
+   * rather than asserted. Absent when no earlier reflection is in the span, or when nothing moved. */
+  skills?:{name:string;level:number;max_level:number;was?:number;since?:string}[];
   ship:{fuel:number;max_fuel:number;hull:number;max_hull:number;cargo_capacity:number;modules:string[]};
   holdings:{credits:number;storage:{base_id:string;items:number;ships:number}[];here?:{item_id:string;quantity:number}[]};
   owes:{tax_due?:number;shipping_debt?:number;carrier_tier?:string};
@@ -87,11 +90,6 @@ export async function reflectReport(account:ReadinessAccount,command:ReadinessCo
     return rows&&typeof rows==='object'
       ?Object.values(rows) as {name?:string;level?:number;max_level?:number}[]:[];
   });
-  const skills=skillRows?.filter(row=>typeof row?.level==='number')
-    .sort((a,b)=>(a.level!-b.level!)||String(a.name).localeCompare(String(b.name)))
-    .slice(0,CAP.skills)
-    .map(row=>({name:String(row.name),level:row.level!,max_level:Number(row.max_level??0)}));
-
   const storage=await attempt(missing,'storage',()=>viewStorage(command));
   const tax=await attempt(missing,'tax',async()=>details(await command('spacemolt/get_tax_estimate',{})));
   const shipping=await attempt(missing,'shipping_debt',async()=>details(await command('spacemolt_shipping/profile',{})));
@@ -104,10 +102,18 @@ export async function reflectReport(account:ReadinessAccount,command:ReadinessCo
   // pick the few kinds of line that say where the pilot has been.
   const journal=runtime?readJournal(runtime,JOURNAL_SPAN):[];
   const visited=new Set<string>(),bases=new Set<string>(),chosen=new Set<string>();
+  /** The oldest reflection in the span and the levels it saw: the baseline this report measures
+   * against. Oldest rather than latest because an objective set several rests ago is measured
+   * from before it, and the date is reported so the pilot knows what window it is reading. */
+  let baseline:{at:string;levels:Map<string,number>}|undefined;
   const ranJobs=new Map<string,number>(),ranScripts=new Map<string,ScriptRun[]>();
   const recent:ReflectReport['recent']=[];
   for(const entry of journal) {
     if(entry.event==='reflection'&&entry.stance)chosen.add(String(entry.stance));
+    const past=entry.request?.action==='reflect'?entry.response?.result?.skills:undefined;
+    if(!baseline&&Array.isArray(past)&&past.length)
+      baseline={at:String(entry.at??'an unrecorded time'),
+        levels:new Map(past.filter((row:any)=>typeof row?.level==='number').map((row:any)=>[String(row.name),row.level as number]))};
     if(entry.event==='run'&&entry.phase==='ended') {
       recent.push({script:entry.script,outcome:entry.outcome,reason:entry.reason});
       const name=String(entry.script??'');
@@ -123,6 +129,15 @@ export async function reflectReport(account:ReadinessAccount,command:ReadinessCo
     const dock=result.docked_at?.base_id??result.location?.docked_at??result.docked_at;
     if(typeof dock==='string'&&dock)bases.add(dock);
   }
+
+  const skills=skillRows?.filter(row=>typeof row?.level==='number')
+    .sort((a,b)=>(a.level!-b.level!)||String(a.name).localeCompare(String(b.name)))
+    .slice(0,CAP.skills)
+    .map(row=>{
+      const was=baseline?.levels.get(String(row.name));
+      return {name:String(row.name),level:row.level!,max_level:Number(row.max_level??0),
+        ...was===undefined||was===row.level?{}:{was,since:baseline!.at}};
+    });
 
   const scripts=scriptReview(ranScripts,runtime);
   const stagnation:string[]=[];
@@ -160,6 +175,7 @@ export async function reflectReport(account:ReadinessAccount,command:ReadinessCo
     stances:STANCES.map(stance=>({name:stance.name,initial_moods:[...stance.initial_moods]})),
     // The ship's fit against each stance's needs has no table behind it yet: D7 names the
     // counters a stance points at, never a hull or a module a stance requires.
-    missing:[...missing,'ship fit against each stance (no per-stance ship requirement exists yet)'],
+    missing:[...missing,'ship fit against each stance (no per-stance ship requirement exists yet)',
+      ...baseline?[]:['earlier skill levels (no reflection inside the journal\'s span to measure movement from)']],
   };
 }

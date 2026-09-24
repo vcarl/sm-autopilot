@@ -31,6 +31,9 @@ def pilot():
         return {}
 
 REFLECT = {"at_rest": True, "objective": "reach a trusted carrier tier",
+           "skills": [{"name": "gunnery", "level": 1, "max_level": 5},
+                      {"name": "weapons", "level": 3, "max_level": 5, "was": 1,
+                       "since": "2026-09-22T10:00:00Z"}],
            "ship": {"fuel": 120, "max_fuel": 120, "hull": 100, "max_hull": 100,
                     "cargo_capacity": 12, "modules": ["mining_laser"]},
            "holdings": {"credits": 4000, "storage": [{"base_id": "sol_base", "items": 2, "ships": 1}]},
@@ -175,3 +178,15 @@ def test_a_record_left_carrying_objective_done_reflects_instead_of_waiting(bridg
     assert record["stance"] == "Scout"
     assert "objective" not in record and "objective_done" not in record
     assert record["objective_completed"] == "pay off the debt"
+
+
+def test_a_rest_fire_carries_the_numbers_the_objective_is_judged_against(bridged):
+    """A movement objective ("by 2 levels") is unjudgeable from a level alone. The fire carries each
+    skill's level beside what it was, and tells the pilot to read them rather than its memory — the
+    live claim of completion was made at weapons 2 of a target of 3, against nothing."""
+    juncture.write_pilot({"name": "kvothe", "objective": "raise the lowest by 2 levels"})
+
+    context = juncture.juncture_context({"platform": "cron"})
+    assert '"was":1' in context and '"level":3' in context, "the baseline reaches the fire"
+    assert "Judge the operator's objective against the numbers" in context
+    assert "objective_done beside them if the numbers say" in context

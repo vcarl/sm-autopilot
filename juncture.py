@@ -275,8 +275,12 @@ def _rest_context(report: dict[str, Any], moves: str | None = None,
             "1. Review pilot/index.ts against how its runs ended. When another version would have "
             "served better, write the whole file as `source` to spacemolt_check; the next shift "
             "flies the file this review leaves.\n"
-            "2. Choose one goal that serves the objective, then the stance and mood that fit it.\n"
-            "3. Call spacemolt_reflect once with them, and end the turn.\n")
+            "2. Judge the operator's objective against the numbers, not against your memory of "
+            "it: each skill row carries its level, and `was`/`since` when it has moved since the "
+            "earliest reflection on record. `missing` names what could not be read.\n"
+            "3. Choose one goal that serves the objective, then the stance and mood that fit it.\n"
+            "4. Call spacemolt_reflect once with them — with objective_done beside them if the "
+            "numbers say the objective is met — and end the turn.\n")
     # A finished objective is not a reason to wait: the pilot retires it and chooses its own goal
     # in the same call. Waiting here is what wedged two junctures and an hour, live (2026-09-24).
     if report.get("objective_done"):
