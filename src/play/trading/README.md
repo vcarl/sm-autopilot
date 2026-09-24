@@ -63,10 +63,15 @@ pilot actually needs.
 A route is an ordered list of 1 to 3 stops, `[{at, buy?}, …]`, flown from where you are with the
 hold you have. At every stop one rule decides two things. First, sell each held unit whose bid
 here is at least the best bid for it at any later stop on the route, each weighed by how much its
-book can be trusted. Then take the stop's `buy` item into the room that frees, one unit at a time,
+book can be trusted. A unit is also never sold for under half the best trusted bid any base **off**
+the route posts: 27 null_matter are not dumped at 1 cr while a remembered book elsewhere bids 445.
+Then take the stop's `buy` item into the room that frees, one unit at a time,
 while the unit's best bid later on the route beats its ask here plus tax. Both walk the books
-level by level. The last stop has nothing after it, so it sells everything it bids for; whatever
-is still aboard after it is `unsold` and is not counted.
+level by level. The last stop has nothing after it, so it sells everything it bids for above that
+floor; whatever is still aboard after it is `unsold` and is not counted. An `unsold` row kept for a
+better bid off the route says where in its `why` (`node_alpha_processing_station bids 445, off this
+route`); a `routes()` row for that base is how to take it there. A stop whose only sales would be
+under that floor sells nothing, so `routes()` never keeps it as a stop that does something.
 
 There is no special case for a full hold, an empty one or a mixed one. "Just sell what is aboard
 over there" is the one-stop route `[{at: 'there'}]`, and "buy here, sell there" is
@@ -91,7 +96,7 @@ Each row of `routes` is a `Route`:
 | Field | What it is |
 |---|---|
 | `legs` | one per stop, in order: `{at, source, age, sold, buy?, bought, cost, sales_tax}` (below) |
-| `unsold` | `{item_id, quantity}` rows still aboard after the last stop: nothing on the route bids for them. Not in the net |
+| `unsold` | `{item_id, quantity, why?}` rows still aboard after the last stop: nothing on the route bids for them, or a base off the route bids at least twice as much (named in `why`). Not in the net |
 | `revenue` | every sale on the route, level by level |
 | `cost` | every buy on the route, level by level (0 from the store) |
 | `sales_tax` | the tax on the buys; `null` when a buying stop's rate is not known, which is so for every stop but the one you are docked at (the net is then untaxed and `why` says so) |
@@ -136,7 +141,7 @@ It answers `detail: Traded` = `{stops, unsold, net}`:
 | Field | What it is |
 |---|---|
 | `stops` | one per stop reached: `{at, sold, bought, spent, why?}`. `sold` is the lib's `SellResponse[]` for this counter, `bought` the units taken on, `spent` their credits, and `why` what fell short here or why nothing was taken |
-| `unsold` | `{item_id, quantity}` rows aboard when the run ended. After the last stop, what no stop bought |
+| `unsold` | `{item_id, quantity, why?}` rows aboard when the run ended. After the last stop, what no stop bought, or what a base off the route bids twice as much for (named in `why`) |
 | `net` | sales, less purchases, less what the flights took out of the wallet |
 
 It never throws. A flight that does not arrive is `partial`, with the stops done so far, and

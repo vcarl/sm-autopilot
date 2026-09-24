@@ -295,3 +295,23 @@ test('the market memory drops a book older than a day at the next read, whatever
     assert.deepEqual(knownBooks(runtime).map(row=>row.base_id),['sol_base','range_base']);
   } finally {unbind();rmSync(runtime,{recursive:true,force:true});}
 });
+
+test('a held good is not dumped for 1 cr while a base off the route bids 445 for it (live: 27 null_matter at nexus)',async()=>{
+  const runtime=remembered([{base_id:'twin_base',age:0,system_id:'sol',items:[{item_id:'null_matter',best_buy:445,best_buy_qty:30}]}]);
+  const f=world({mood:'Focused'},{cargo:[{item_id:'null_matter',quantity:27}],cargoUsed:27,cargoCapacity:100,store:[],
+    pois:[{id:'twin',base_id:'twin_base'}],
+    markets:{sol_base:[{item_id:'null_matter',best_buy:1,best_buy_qty:99,best_sell:0,best_sell_qty:0}]}},runtime);
+  try {
+    const out=await routes();
+    assert.equal(out.status,'done',out.why);
+    assert.deepEqual(out.detail.routes.map(row=>row.next),["tradeRun({stops:[{at:'twin_base'}]})"],
+      'selling here at 1 is not a route: the stop would only be a dump');
+    assert.equal(out.detail.routes[0]!.net,27*445);
+
+    const run=await tradeRun({stops:[{at:'sol_base'}]});
+    assert.equal(run.status,'done',run.why);
+    assert.equal(f.count('spacemolt/sell'),0);
+    assert.deepEqual(run.detail.unsold,[{item_id:'null_matter',quantity:27,why:'twin_base bids 445, off this route'}]);
+    assert.match(run.did,/unsold: 27 null_matter \(twin_base bids 445, off this route\)/);
+  } finally {unbind();rmSync(runtime,{recursive:true,force:true});}
+});
