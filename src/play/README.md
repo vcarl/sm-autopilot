@@ -125,7 +125,10 @@ until the ship is brought back up. Tired then **widens** what a resupply may do 
 narrowing where you may go — it lifts the mood's own spend margin, drops its fuel reserve to 0,
 and lets `service()` buy the half a counter posts a price for instead of refusing the lot. It
 never refuses a flight: `goTo` any base you like, which is the only way to reach a counter that
-sells what the one you are at does not. Resupplying back inside the margins — `service()` here,
+sells what the one you are at does not. Which base: `account().commands.spacemolt.inspect({id})`
+on a base id answers with that station's own counter when the game will say — the suggested moves
+already carry what it said — and when it says nothing, the price is unknown until you dock there,
+which is a trip worth taking anyway over a counter you know will refuse. Resupplying back inside the margins — `service()` here,
 or at any base — clears Tired and restores the mood it replaced. You never set or clear Tired
 yourself. Rest clears everything. `permissions.credit_reserve` is the operator's and Tired does
 not widen it; a fill it refuses says so by name.

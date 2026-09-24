@@ -53,7 +53,11 @@ export interface WorldOptions {
   /** POIs in Sol beside the built-in station and belt: nameable to `find_route`, listed by
    * `get_system`, dockable when they carry a `base_id`. A second station is how a world
    * where "the station in Sol" names no one place is expressible. */
-  pois?:{id:string;name?:string;type?:string;base_id?:string;base_name?:string}[];
+  pois?:{id:string;name?:string;type?:string;base_id?:string;base_name?:string;
+    /** What that base's counter posts, as `inspect({id:<base_id>})` answers for it — the one
+     * read that quotes a station the ship is not standing at. Absent means it posts nothing
+     * readable from here, which is what a live station usually does. */
+    fuel_price?:number;repair_price?:number}[];
   /** The hold at the start. 12 of 12 is a full hold: a gather job mines nothing and still
    * has to come home, settle and service before it may call itself done. */
   cargoUsed?:number;
@@ -210,6 +214,9 @@ export function bridgeWorld(options:WorldOptions={}) {
   const extra=(options.pois??[]).map(row=>({type:'station',position:{x:2,y:2},has_base:Boolean(row.base_id),...row,
     name:row.name??row.id}));
   const here={...system,pois:[...system.pois,...extra]};
+  /** Base id → what `inspect` quotes for it. A base with no entry answers no base body at all. */
+  const quotes=Object.fromEntries(extra.filter(row=>row.base_id&&(row.fuel_price!==undefined||row.repair_price!==undefined))
+    .map(row=>[row.base_id!,{fuel:row.fuel_price,hull:row.repair_price}]));
   const homes:Record<string,string>={...homeOf,
     ...Object.fromEntries(extra.flatMap(row=>[[row.id,'sol'],...row.base_id?[[row.base_id,'sol']]:[]]))};
   const poiIds:Record<string,string>={...poiOf,
@@ -580,6 +587,11 @@ export function bridgeWorld(options:WorldOptions={}) {
     // are knowable before the thing is bought.
     'spacemolt/inspect':params=>{
       const id=String(params.id);
+      // A base named by id answers with the docked-base body, which is how a counter the ship is
+      // not standing at can be quoted at all.
+      if(Object.hasOwn(quotes,id))return {structuredContent:{id,kind:'base',source:'live',
+        base:{...quotes[id]!.fuel===undefined?{}:{fuel_price_all_in:quotes[id]!.fuel},
+          base:{poi_id:id,...quotes[id]!.hull===undefined?{}:{repair_price_per_hull:quotes[id]!.hull}}}}};
       if(Object.hasOwn(MODULES,id))return {structuredContent:{id,kind:'module',source:'catalog',
         catalog:page([MODULES[id]!],'items')}};
       if(Object.hasOwn(CLASSES,id))return {structuredContent:{id,kind:'ship_class',source:'catalog',

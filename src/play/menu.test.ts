@@ -226,3 +226,41 @@ test('the shipping board is J4, and the platform and the berths are J5',async()=
     assert.match(verdict(await facts(f,who),'J4').reason,/no package fits .* 10 credit liability permission/);
   } finally {f.close();}
 });
+
+test('Tired at the only base in the system, posting no repair price, is still offered a flight',async()=>{
+  // The live deadlock (2026-09-24): docked where no counter quotes the repair, no second base in
+  // this system, and the menu was one `service()` that refuses every time. A base the journal has
+  // docked at is a real move — unverifiable until docked, which the line says, and still a move.
+  const f=world({mood:'Tired',stance:'Prospector'},{services:['refuel','storage']});
+  try {
+    journalRun(f.runtime,{response:{result:{docked_at:{base_id:'range_base'}}}},'request');
+    f.account.server.ship.hull=52;
+    const both=await menu(f.runtime);
+    assert.deepEqual(both.moves.map(m=>m.call),['service()',"goTo('range_base')"],JSON.stringify(both.moves));
+
+    // Nothing this counter sells is missing, so `service()` here is structurally refusable and is
+    // not offered at all. The menu must still name something that is not a dead end.
+    f.account.server.ship.fuel=f.account.server.ship.max_fuel;
+    const hullOnly=await menu(f.runtime);
+    assert.deepEqual(hullOnly.moves.map(m=>m.call),["goTo('range_base')"],JSON.stringify(hullOnly.moves));
+    assert.match(hullOnly.moves[0]!.why,/docked at before/);
+    assert.match(hullOnly.moves[0]!.why,/unknown until docked/,'reach it does not have is not claimed');
+  } finally {f.close();}
+});
+
+test('a base in this system that posts a repair price is named with the price, not with hope',async()=>{
+  // `inspect({id})` answers with the docked-base body, so a counter the ship is not standing at
+  // can be quoted from here. Where it answers, the move carries the evidence; where it does not,
+  // the move is still offered and says plainly that nothing is readable.
+  const f=world({mood:'Tired',stance:'Prospector'},{services:['refuel','storage'],
+    pois:[{id:'yard',name:'Sol Yard',base_id:'yard_base',base_name:'Sol Yard Base',repair_price:4},
+      {id:'dark',name:'Sol Dark',base_id:'dark_base',base_name:'Sol Dark Base'}]});
+  try {
+    f.account.server.ship.hull=52;
+    f.account.server.ship.fuel=f.account.server.ship.max_fuel;
+    const built=await menu(f.runtime);
+    assert.deepEqual(built.moves.map(m=>m.call),["goTo('yard_base')","goTo('dark_base')"],JSON.stringify(built.moves));
+    assert.match(built.moves[0]!.why,/posts repair 4 cr\/hull/);
+    assert.match(built.moves[1]!.why,/no price readable from here/);
+  } finally {f.close();}
+});

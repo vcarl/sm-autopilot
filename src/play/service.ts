@@ -18,38 +18,58 @@ export interface Serviced {
   cleared_tired:boolean;
 }
 
-/** Where else the pilot could be brought up, for a refusal's (or a partial fill's) `next`.
- * Only a service clears Tired, so a station that cannot quote what is missing leaves the mood
- * standing: the route to a base that can is the useful line, not a flat reserve.
+/** One base worth flying to for a service, as a move: the call, and everything known about it.
+ * The menu offers these and a refused (or partially filled) `service` names them in `next`, so
+ * the advice a pilot is given is the same advice either way. */
+export interface Elsewhere {call:string;why:string}
+
+/** Where else the pilot could be brought up. Only a service clears Tired, so a station that
+ * cannot quote what is missing leaves the mood standing: the route to a base that might is the
+ * useful line, not a flat reserve.
  *
- * Reads only, and every read may fail — no advice beats a made-up one.
+ * Reads only, and every read may fail — no advice beats a made-up one. What a read cannot answer
+ * is said in the row rather than keeping the row off the list: an unverifiable trip the pilot may
+ * attempt beats a verified dead end, and the judgement is the pilot's (the live deadlock,
+ * 2026-09-24, where the only offered move was a `service()` that refuses every time).
  *
- * ponytail: the honest reach is this system, plus the bases the journal has actually docked
- * at. In `@spacemolt/lib` 14.2.0 `get_system()`, `get_poi()` and `get_base()` all take no id
- * (COMMANDS.md lines 61, 73, 79): they answer for where the ship is, so no far station's
- * repair price is readable from here, and even a base in THIS system publishes only
- * `fuel_price` on its POI row (`SystemPoi`), never a repair price. So the lines below name
- * where to go and price the trip with `find_route`, and say plainly what they cannot know.
- * Widen it when a read lists a far system's service counters — the same reach limit
+ * The prices are `inspect({id})`'s: it names a base by id and answers with the docked-base body
+ * (`InspectResponse.base: GetBaseResponse`), which is the one read that can quote a counter the
+ * ship is not standing at. It may decline for a base the pilot is not docked at, or for one in
+ * another system, so it is `attempt`ed and its silence is reported as silence.
+ *
+ * ponytail: the candidates are this system's bases plus the ones the journal has docked at. Lib
+ * 14.2.0's `get_system()`, `get_poi()` and `get_base()` all take no id (COMMANDS.md 61, 73, 79),
+ * so no far system's station list is readable and a base the pilot has never stood at in one is
+ * unnameable. Widen it when a read lists a far system's counters — the same reach limit
  * `systemBases` in travel.ts lives with. */
-export async function serviceElsewhere(docked:string):Promise<string[]> {
+export async function serviceElsewhere(docked?:string):Promise<Elsewhere[]> {
   const trip=async(id:string):Promise<string>=>{
     try {
       const quote=details(await command('spacemolt/find_route',{id}));
       return quote.found?`${quote.estimated_fuel} fuel, ${quote.total_jumps} jump(s)`:'no route from here';
     } catch {return 'no route quote';}
   };
+  /** What that counter posts, read from here, or the plain admission that nothing does. */
+  const posted=async(base:string,fuelPrice?:number):Promise<string>=>{
+    let quoted:GetBaseResponse|undefined;
+    try {quoted=(details(await command('spacemolt/inspect',{id:base})) as {base?:GetBaseResponse}).base;}
+    catch {/* no quote from here is the answer, not a guess */}
+    const fuel=quoted?.fuel_price_all_in??fuelPrice,hull=quoted?.base?.repair_price_per_hull;
+    const prices=[...Number.isFinite(fuel)?[`refuel ${fuel} cr/unit`]:[],
+      ...Number.isFinite(hull)&&Number(hull)>0?[`repair ${hull} cr/hull`]:[]];
+    return prices.length?`posts ${prices.join(' and ')}; the rest is unknown until docked`
+      :'no price readable from here; unknown until docked';
+  };
   let pois:SystemPoi[]=[];
   try {pois=(details(await command('spacemolt/get_system',{})).system?.pois??[]) as SystemPoi[];} catch {/* no listing is no advice */}
   const system=acct().state.location?.system_id??'this system';
-  const lines:string[]=[];
+  const rows:Elsewhere[]=[];
   for(const row of pois.filter(poi=>poi.base_id&&poi.base_id!==docked).slice(0,3))
-    lines.push(`goTo('${row.base_id}') — ${row.base_name??row.base_id} in ${system}: ${await trip(row.base_id!)}`
-      +(Number.isFinite(row.fuel_price)?`, refuel ${row.fuel_price} cr/unit posted`:'')
-      +'; price unknown until docked');
-  if(lines.length)return lines;
+    rows.push({call:`goTo('${row.base_id}')`,
+      why:`${row.base_name??row.base_id} in ${system}: ${await trip(row.base_id!)}; ${await posted(row.base_id!,row.fuel_price)}`});
+  if(rows.length)return rows;
   // Nothing else in this system. A base the pilot has stood at is the only far one it can
-  // name at all, so it is named as what it is: seen, with nothing known about its counters.
+  // name at all, so it is named as what it is: seen, with whatever a quote from here says.
   const runtime=runtimeDir(),seen=new Set<string>();
   for(const entry of runtime?readJournal(runtime,6_000):[]) {
     const result=entry.response?.result;
@@ -57,10 +77,15 @@ export async function serviceElsewhere(docked:string):Promise<string[]> {
     if(typeof dock==='string'&&dock&&dock!==docked)seen.add(dock);
   }
   for(const base of [...seen].slice(-3))
-    lines.push(`goTo('${base}') — a base this pilot has docked at before: ${await trip(base)}; what it services is unread`);
-  return lines.length?lines
-    :[`no other base in ${system}, and none in the journal: no station's service counter can be read from where you are`];
+    rows.push({call:`goTo('${base}')`,
+      why:`a base this pilot has docked at before: ${await trip(base)}; ${await posted(base)}`});
+  return rows;
 }
+
+/** The same advice as one line per row, which is the shape an Outcome's `next` takes. */
+const asNext=(rows:Elsewhere[],system:string):string[]=>rows.length
+  ?rows.map(row=>`${row.call} — ${row.why}`)
+  :[`no other base in ${system}, and none in the journal: no station's service counter can be read from where you are`];
 
 /** Bring the ship up at the counter you are docked at: full tank and full hull.
  *
@@ -98,12 +123,14 @@ export function service(opts:{fuel?:number;hull?:number;insure?:boolean;dues?:bo
         ?`serviced at ${docked}: ${done.issued.map(action=>action.split('/')[1]).join(' and ')} for ${done.spent} cr; fuel ${done.fuel}, hull ${done.hull}${left.length?`; ${docked} could not: ${left.join('; ')}`:''}`
         :`already serviced at ${docked}: fuel ${done.fuel}, hull ${done.hull}`;
       return {status:'done',did,detail:{base,issued:done.issued,spent:done.spent,short:[...short,...left],cleared_tired:cleared},
-        next:cleared?['Tired cleared: the mood before it is back']:left.length?await serviceElsewhere(docked):[]};
+        next:cleared?['Tired cleared: the mood before it is back']
+          :left.length?asNext(await serviceElsewhere(docked),acct().state.location?.system_id??'this system'):[]};
     } catch(error) {
       if(error instanceof ServiceBlocked)
         return {status:'refused',did:`not serviced at ${docked}`,why:error.blockers.join('; '),
           detail:{base,issued:[],spent:0,short:[...short,...error.blockers],cleared_tired:false},
-          next:[...await serviceElsewhere(docked),'a calmer bill, a bolder mood, or another station admits it']};
+          next:[...asNext(await serviceElsewhere(docked),acct().state.location?.system_id??'this system'),
+            'a calmer bill, a bolder mood, or another station admits it']};
       throw error;
     }
   });

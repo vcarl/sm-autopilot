@@ -15,6 +15,7 @@ import {bench,moduleSpec,whyNotFit} from './hangar.ts';
 import {knownBooks,ticksOld} from './market.ts';
 import {stuck} from './missions.ts';
 import {acct,command,pilot,present,runCalls,type Pilot} from './runtime.ts';
+import {serviceElsewhere} from './service.ts';
 import type {Status} from './types.ts';
 
 export type Advances='knowledge'|'skill'|'credits'|'influence'|'ship'|'objective';
@@ -209,7 +210,6 @@ export async function menu(runtime?:string):Promise<Menu> {
   const system=(await attempt(async()=>(details(await command('spacemolt/get_system',{})) as {system:SystemInfo}).system));
   const pois:SystemPoi[]=system?.pois??[];
   const serviced=verdicts.find(v=>v.job==='J12 Home, serviced');
-  const stations=pois.filter(p=>p.base_id&&p.id!==location?.poi_id);
 
   if(who.mood==='Tired') {
     const why=`Tired (${now.tired_by||'margin crossed'})`,prices=facts.place.service_prices??{};
@@ -220,17 +220,18 @@ export async function menu(runtime?:string):Promise<Menu> {
       ...ship.hull<ship.max_hull?['hull' as const]:[]];
     const uncovered=missing.filter(what=>prices[what]===undefined);
     const covered=missing.filter(what=>prices[what]!==undefined);
-    const base=stations[0]?.base_id;
     if(docked&&!uncovered.length)moves.push({call:'service()',why:`${why}: resupply here clears it`,advances:'ship'});
     else if(docked&&covered.length)moves.push({call:'service()',
       why:`${why}: ${docked} sells ${covered.join(' and ')} but posts no price for ${uncovered.join(' or ')}; buy what it has, then service the rest elsewhere`,advances:'ship'});
-    if(!moves.length&&base)moves.push({call:`goTo('${base}')`,why:docked
-      ?`${why}: ${docked} posts no price for ${uncovered.join(' or ')}; ${base} is the next base in this system; price unknown until docked`
-      :`${why}: the first base listed in this system; dock and service() there to end the shift`,advances:'ship'});
-    else if(uncovered.length&&base)moves.push({call:`goTo('${base}')`,
-      why:`${why}: ${base} is the next base in this system for the ${uncovered.join(' or ')} ${docked} posts no price for; price unknown until docked`,advances:'ship'});
-    else if(docked&&!moves.length)moves.push({call:'service()',
-      why:`${why}: resupply here clears it, if ${docked} will quote ${uncovered.join(' or ')} — no other base is listed in this system`,advances:'ship'});
+    // Every base this runtime can name, whenever this counter cannot finish the job: the same rows
+    // a refused `service()` advises, so the menu and the refusal say one thing. A trip whose
+    // counter is unreadable until docked is still a move the pilot may take, and offering it is
+    // what the deleted permissions settled — code refuses on hard rules, judgement is the
+    // pilot's. The live deadlock was a menu of one `service()` that refused every time.
+    if(!docked||uncovered.length)for(const row of await serviceElsewhere(docked??undefined))
+      moves.push({...row,why:`${why}: ${docked?`${docked} posts no price for ${uncovered.join(' or ')}; `:''}${row.why}`,advances:'ship'});
+    if(docked&&!moves.length)moves.push({call:'service()',
+      why:`${why}: resupply here clears it, if ${docked} will quote ${uncovered.join(' or ')} — no other base is listed in this system and none is in the journal`,advances:'ship'});
     return {...stagnation?{stagnation}:{},moves,not_now};
   }
 

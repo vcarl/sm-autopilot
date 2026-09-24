@@ -59,7 +59,7 @@ test('Tired buys what the counter sells and names the other base for the rest',a
     const next=(out.next??[]).join('\n');
     assert.match(next,/goTo\('yard_base'\)/,next);
     assert.match(next,/7 fuel/,next);
-    assert.match(next,/price unknown until docked/,next);
+    assert.match(next,/unknown until docked/,next);
   } finally {unbind();}
 });
 
