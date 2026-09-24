@@ -338,15 +338,16 @@ let tiredBy='';
  * line, credits under the reserve. ponytail: the route home is not quoted here (that is a
  * find_route per check); the mood's reserve in units stands in for it. Ammunition waits for hunt.
  *
- * ponytail: the fuel line is a flat reserve, not a route. Ceiling: a pilot four jumps from the
- * nearest serviced station is inside a 30 unit reserve and cannot reach anything, while one
- * docked at a station is Tired over a tank it could fill in one command — the reserve is a proxy
- * for the trip home, and it is wrong in both directions the further the two diverge. Upgrade
- * (the one good idea the deleted `fuel-transition.ts` held): quote `find_route` to the nearest
- * serviced station and draw the line at that cost plus the mood's reserve, so a serviced dock
- * owes a full tank and anywhere else owes the route to one. It costs a `find_route` per station
- * per check, which is why it is not here: take it when the station list is a read the runtime
- * already has. */
+ * ponytail: the fuel line is a flat reserve, not a route, and it stays one. Ceiling: a pilot
+ * four jumps from the nearest serviced station is inside a 30 unit reserve and cannot reach
+ * anything, while one docked at a station is Tired over a tank it could fill in one command.
+ * The advice half of that idea now exists where it costs nothing per check: `serviceElsewhere`
+ * (play/service.ts) prices the route to another base with `find_route` when a service is
+ * refused, and the menu offers that move to a Tired pilot whose counter posts no price for
+ * what is missing. Making the line itself a route still waits on a read the runtime does not
+ * have: lib 14.2.0 answers `get_system`/`get_poi`/`get_base` only for where the ship is, so
+ * "the nearest serviced station" is unknowable outside this system, and a per-check
+ * `find_route` per station would pay for it on every command. */
 function crossed(mood:Mood):string|null {
   const {ship,player}=need().account.state,who=pilot();
   if(!ship)return null;

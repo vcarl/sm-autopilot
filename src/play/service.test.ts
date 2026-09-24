@@ -36,3 +36,42 @@ test('the spend margin is the mood the crossing imposed, not the one service ope
     assert.equal(game.account.server.ship.hull,100);
   } finally {unbind();}
 });
+
+// The live juncture: Tired at frontier_station, which posts no all-in repair quote, with the
+// refusal correct and `next` empty. Service is the only thing that clears Tired and a Tired
+// pilot may only goTo a base, so the pilot was stranded three fuel units from working again
+// with nothing telling it where else to go.
+test('a refusal for want of a counter names the other base in this system, with its fuel cost',async()=>{
+  const game=bridgeWorld({services:['refuel'],cargoUsed:0,
+    pois:[{id:'yard',name:'Sol Yard',base_id:'yard_base',base_name:'Sol Yard Base'}]});
+  game.account.server.ship.fuel=117;
+  game.account.server.ship.hull=52;
+  let who:Pilot={mood:'Tired'};
+  bind({account:game.account as unknown as ReadinessAccount,command:game.command,
+    pilot:()=>who,setPilot:next=>{who=next;},emit:()=>{}});
+  try {
+    const out=await service();
+    assert.equal(out.status,'refused',out.did);
+    assert.match(out.why!,/no all-in repair quote at this station/);
+    assert.equal(game.account.server.ship.fuel,117,'a refused service spends nothing');
+    const next=(out.next??[]).join('\n');
+    assert.match(next,/goTo\('yard_base'\)/,next);
+    assert.match(next,/7 fuel/,next);
+    assert.match(next,/repair price is only readable once docked/,next);
+  } finally {unbind();}
+});
+
+test('with no other base to name the refusal says so and claims no station',async()=>{
+  const game=bridgeWorld({services:['refuel'],cargoUsed:0});
+  game.account.server.ship.hull=52;
+  let who:Pilot={mood:'Tired'};
+  bind({account:game.account as unknown as ReadinessAccount,command:game.command,
+    pilot:()=>who,setPilot:next=>{who=next;},emit:()=>{}});
+  try {
+    const out=await service();
+    assert.equal(out.status,'refused',out.did);
+    const next=(out.next??[]).join('\n');
+    assert.doesNotMatch(next,/goTo\('/,next);
+    assert.match(next,/no other base in sol/,next);
+  } finally {unbind();}
+});

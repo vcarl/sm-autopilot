@@ -81,6 +81,19 @@ test('Tired offers only service here, or the nearest serviced base when out',asy
   } finally {f.close();}
 });
 
+test('Tired where the counter posts no repair price is offered the next base, not the service that refuses',async()=>{
+  // The trap: the one move offered was `service()`, and the counter here cannot quote the
+  // repair the hull needs, so the only admitted move refused and `next` named nowhere.
+  const f=world({mood:'Tired',stance:'Prospector'},{services:['refuel','storage'],
+    pois:[{id:'yard',name:'Sol Yard',base_id:'yard_base',base_name:'Sol Yard Base'}]});
+  try {
+    f.account.server.ship.hull=52;
+    const built=await menu(f.runtime);
+    assert.deepEqual(built.moves.map(m=>m.call),["goTo('yard_base')"],JSON.stringify(built.moves));
+    assert.match(built.moves[0]!.why,/posts no price for hull/);
+  } finally {f.close();}
+});
+
 test('the trigger fires on repetition, on two runs not done, on a run that gained nothing, and not after one productive run',()=>{
   assert.equal(menuDue([gather({credits:120})]),null);
   assert.equal(menuDue([gather(),gather(),gather({credits:5})]),'3 runs of gatherUntil at belt, credits +5');

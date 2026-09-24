@@ -632,8 +632,11 @@ export function bridgeWorld(options:WorldOptions={}) {
       return {delta:{details:{action:'buy',item_id:params.id,quantity:Number(params.quantity),
         total_cost:Number(params.quantity)*12,unfilled:0}}};
     },
-    'spacemolt/get_base':()=>({delta:{details:{services,fuel_price_all_in:1,
-      base:{poi_id:'station',repair_price_per_hull:1}}}}),
+    // A counter posts a price only for a service it runs: a station with no repair service
+    // posts no `repair_price_per_hull`, which is the live refusal `service` has to survive.
+    'spacemolt/get_base':()=>({delta:{details:{services,
+      ...services.includes('refuel')?{fuel_price_all_in:1}:{},
+      base:{poi_id:'station',...services.includes('repair')?{repair_price_per_hull:1}:{}}}}}),
     'spacemolt/refuel':()=>{
       const cost=account.server.ship.max_fuel-account.server.ship.fuel;
       account.server.ship.fuel=account.server.ship.max_fuel;
