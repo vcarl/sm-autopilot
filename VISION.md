@@ -22,18 +22,21 @@ player, and how the player hears the human.
 
 ## The player plays by writing code
 
-The player's move is a script. A script is one short module of ordinary code that imports the
-runner's library and composes what it finds there: jobs, helpers, and one door to every command
-the game has. The player writes a script for the move in front of it, gives it a name, and runs
-it. The runner keeps every script the player has written, so the next time the same move is
-needed the player runs it by name instead of writing it again. Over an evening the library grows
-into the player's own way of playing, and at rest the player reads how its scripts fared and
-rewrites the ones that served it badly.
+The player's move is a script: one short file of ordinary code that imports the play library
+and composes what it finds there. The player writes the file for the move in front of it, runs
+it, and reads the report. Composition, loops, conditions, and the arithmetic of a plan belong in
+that file, where the player can see them and change them, not in a runner that would have to
+learn every shape of plan in advance. A tool per game verb would give the player a vocabulary;
+code gives it a grammar.
 
-This is the central bet. A tool per game verb would give the player a vocabulary; code gives it
-a grammar. Composition, loops, conditions, and the arithmetic of a plan belong in the script,
-where the player can see them and change them, not in a runner that would have to learn every
-shape of plan in advance.
+The library the player writes against is the runner's, and it is built for the player rather
+than by it. A player that grows its own library of saved, named scripts over many evenings is
+the ideal, and it is out of reach of the local models that are this project's audience and
+its strict requirement. So the compromise is deliberate: far stronger models build the
+library's jobs and helpers, watch how the local player fares with them, and add or reshape
+what its play shows it needs. The local player's job is to compose well from what it is
+given; the stronger models' job is oversight, making sure it has what it takes to succeed at
+the game.
 
 Because the player writes code, it needs what a programmer needs: the exact signature of every
 function it may call, the game's own command reference, worked examples it can copy, and an
@@ -50,12 +53,13 @@ holds, and measures what it did from the game's state rather than from the reply
 Running a job twice is safe. A job that cannot finish says why, in a sentence, and leaves the
 ship somewhere it can be found.
 
-Jobs are few and they are the runner's to write. Beside them sit helpers for the small moves a
+Jobs are few and they are the library's to provide. Beside them sit helpers for the small moves a
 script needs between jobs, and one function that sends any command the game knows. That
 function is the player's reach into everything the jobs do not yet cover. It asks the rules
 first, it is journalled like everything else, and it promises nothing more: a script that buys
 twice buys twice. When a pattern of raw commands proves itself in the player's scripts, it is a
-candidate to become a job.
+candidate to become a job. That is how the library grows: from what the player's play shows
+it needs, added by the models that oversee it.
 
 ## Junctures are cheap and frequent
 
@@ -69,7 +73,7 @@ At a juncture the player sees the present, read from the live ship; direction fr
 observer if any is waiting; its standing objective; and how the last run ended, in the run's
 own words with the numbers behind them. It sees these because they were delivered, not because
 it fetched them, so the first thing it does is decide. It ends the turn one of three ways: run
-a script, hold and watch, or rest at home.
+a script, hold and watch, or rest.
 
 The runner also computes, from its rules and the present, what the stance and mood would admit
 right now and why, and what they would refuse. Whether that list is shown to the player is a
@@ -83,23 +87,22 @@ objective, a stance that says what kind of evening it is having, and a mood that
 risk and spend the rules allow. The stance brings its skill into the conversation and stays for
 the shift. The mood may move as the evening goes.
 
-Tired is a mood the player may not choose. The world imposes it when fuel, hull, ammunition,
-or credits run down past the mood's margin, and the runner is where that judgement lives. A
-Tired pilot starts nothing new, brings home what it carries, and resupplies; resupply lifts it
-and restores the mood that was there before. When resupply is out of reach, the runner offers
-the ways out it knows: sell what is carried, take cheaper service, hold at a dock that is not
-home, ask the human. Tired can also be imposed from outside as an emergency stop, and only the
-one who imposed it lifts that one.
+Rest and resupply are one act. The pilot rests by docking at a base that meets its needs,
+with nothing running, and taking what the base can give: fuel, hull, unloading, whatever the
+evening spent. Rest clears the stance, the mood, and the goal together. Nothing else clears
+them, and a base that cannot meet the pilot's needs is not where it rests.
 
-Rest is an intentional act and it happens only at home, docked, with nothing running and the
-ship serviced as far as the station can service it. Rest clears the stance, the mood, and the
-goal together, Tired included. Nothing else clears them. Refuelling, repairing, and unloading
-anywhere are not rest.
+Tired is a mood the player may not choose. It is the world saying go and rest. The runner
+imposes it when fuel, hull, ammunition, or credits run down past the mood's margin, and a
+Tired pilot starts nothing new, carries what it has to a base that can resupply it, and rests
+there. When no such base is within reach, the runner offers the ways out it knows: sell what
+is carried, take the cheaper service, hold at the nearest dock, ask the human. Tired can also
+be imposed from outside as an emergency stop, and only the one who imposed it lifts that one.
 
 Reflection happens at rest. The player is handed a report the runner assembled: which skills
 lag, what the ship lacks, what the pilot holds and owes and where, what it has seen, what it
-has been doing, where it has been standing still, and its own scripts beside how their runs
-ended. It reviews its code first, then picks the next goal, stance, and mood. A goal that
+has been doing, where it has been standing still, and how its runs ended. It reads those, then picks the
+next goal, stance, and mood. A goal that
 restates the last one in different words is a poor reflection; reflection exists to change the
 evening. A bounded objective that is complete is recorded as complete, and the pilot stays at
 rest until it has something new.
@@ -153,7 +156,7 @@ kept small. When the model acts wrongly, the first question is what it was not t
 A tool per game verb. A runner that composes plans. An objective that is an itinerary. A
 profit rule that outranks what the output is for. A permission flag per activity. A menu that
 commands. A report written from prose rather than state. A second decision-maker beside the
-player.
+player. A library the local player must build for itself before it can play.
 
 ## Vocabulary
 
@@ -165,7 +168,7 @@ player.
 | Player | The agent: the one decision-maker in the game. In harness it is consulted at junctures; out of harness it is the observer. |
 | Observer | The player in conversation with the human: reads the runner, carries direction in, flies nothing. |
 | Pilot | One game account, the ship and its standing in the world. |
-| Runner | The process that owns the pilot's connection, journal, rules, and record. |
+| Runner | The process that owns the pilot's connection, journal, rules, record, and the play library. |
 
 **When**
 
@@ -174,7 +177,7 @@ player.
 | Shift | Rest to rest. |
 | Run | One script from its start to the juncture at its end. |
 | Juncture | One turn of the player's, with the present and the last run in front of it. |
-| Rest | The act that ends a shift, at home only. |
+| Rest | Resupplying at a base that meets the pilot's needs; the act that ends a shift. |
 | Reflection | The reading and choosing done at rest. |
 
 **What the player holds**
@@ -184,13 +187,13 @@ player.
 | Objective | What the pilot is for, stated as an end. Outlives shifts. |
 | Goal | What this shift does to advance the objective. Chosen at rest. |
 | Stance | The kind of evening the pilot is having. Chosen at rest, held for the shift. |
-| Mood | How much risk and spend the rules allow. May move within a shift. Tired is the mood the world imposes and resupply lifts. |
+| Mood | How much risk and spend the rules allow. May move within a shift. Tired is the mood the world imposes: go and rest. |
 | Instruction | One short sentence of direction carried in by the observer, read at the next juncture. |
 
 **What the runner keeps**
 
 | Word | Meaning |
 |---|---|
-| Script | One module of code the player writes, names, and runs; the player's own tool. |
-| Job | A bounded, idempotent function the runner ships, named for the state it leaves. |
+| Script | The one file of code the player writes and runs for the move in front of it. |
+| Job | A bounded, idempotent function the library provides, named for the state it leaves. |
 | Journal | The pilot's record of everything that happened, one line per event. |
