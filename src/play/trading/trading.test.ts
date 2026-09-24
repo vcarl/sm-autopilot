@@ -5,7 +5,7 @@ import {join} from 'node:path';
 import test from 'node:test';
 import type {ReadinessAccount} from '../../readiness.ts';
 import {bridgeWorld,TICK,type WorldOptions} from '../../test-support/bridge-world.ts';
-import {knownBooks,prices} from '../market.ts';
+import {buy,knownBooks,prices,sell} from '../market.ts';
 import {bind,unbind,type Pilot} from '../runtime.ts';
 import {goTo} from '../travel.ts';
 import {routes,spreads,tradeRun} from './trading.ts';
@@ -293,6 +293,49 @@ test('the market memory drops a book older than a day at the next read, whatever
   try {
     assert.equal((await prices(['ore'])).status,'done');
     assert.deepEqual(knownBooks(runtime).map(row=>row.base_id),['sol_base','range_base']);
+  } finally {unbind();rmSync(runtime,{recursive:true,force:true});}
+});
+
+// Gems at 100 here, 150 a jump away; 250 bps of tax and 28 cr a fuel unit, as live at every station touched.
+const GEM_RANGE=[{item_id:'gem',best_buy:150,best_buy_qty:50,best_sell:0,best_sell_qty:0}];
+const TAXED={cargo:[],cargoUsed:0,cargoCapacity:20,store:[],taxBps:250,fuelPrice:28,
+  markets:{sol_base:[{item_id:'gem',best_buy:90,best_buy_qty:50,best_sell:100,best_sell_qty:50}],range_base:GEM_RANGE}};
+
+test('a taxed buy reports what the wallet paid: buy() says the tax, and tradeRun spends and nets it (live: 32000 + 800)',async()=>{
+  const runtime=remembered([{base_id:'range_base',age:0,system_id:'deep_range',items:GEM_RANGE}]);
+  const f=world({mood:'Focused'},TAXED,runtime);
+  try {
+    const bought=await buy('gem',20);
+    // The fake prices a buy at 12 each: 240 subtotal, 6 of tax floored from 2.5%.
+    assert.match(bought.did,/bought 20 gem for 246 cr \(6 of it tax\)/);
+    assert.equal(bought.cost.credits,246);
+    assert.equal((await sell([{item_id:'gem'}])).status,'done');
+
+    const before=f.account.server.player.credits,tank=f.account.server.ship.fuel;
+    const run=await tradeRun({stops:[{at:'sol_base',buy:'gem'},{at:'range_base'}]});
+    assert.equal(run.status,'done',run.why);
+    assert.equal(run.detail.stops[0]!.bought,20);
+    assert.equal(run.detail.stops[0]!.spent,246,'the subtotal is 240; the wallet paid 246');
+    const wallet=f.account.server.player.credits-before;
+    assert.equal(run.detail.fuel,tank-f.account.server.ship.fuel);
+    assert.equal(run.detail.net,wallet-run.detail.fuel*28,'the wallet, less the fuel burned at this base\'s price');
+  } finally {unbind();rmSync(runtime,{recursive:true,force:true});}
+});
+
+test('Route.net and Traded.net count fuel alike: units burned × this base\'s fuel_price_all_in',async()=>{
+  const runtime=remembered([{base_id:'range_base',age:0,system_id:'deep_range',items:GEM_RANGE}]);
+  world({mood:'Focused'},TAXED,runtime);
+  try {
+    const top=(await routes()).detail.routes[0]!;
+    assert.equal(top.next,"tradeRun({stops:[{at:'sol_base',buy:'gem'},{at:'range_base'}]})");
+    assert.equal(top.fuel,7);
+    assert.equal(top.sales_tax,50,'2000 at 250 bps');
+    assert.equal(top.net,3000-2000-50-7*28);
+    const run=await tradeRun({stops:[{at:'sol_base',buy:'gem'},{at:'range_base'}]});
+    const earned=run.detail.stops.flatMap(visit=>visit.sold).reduce((sum,fill)=>sum+fill.total_earned,0);
+    assert.ok(run.detail.fuel>0);
+    assert.equal(run.detail.net,earned-run.detail.stops[0]!.spent-run.detail.fuel*28);
+    assert.match(run.did,new RegExp(`after ${run.detail.fuel} fuel at 28 cr`));
   } finally {unbind();rmSync(runtime,{recursive:true,force:true});}
 });
 

@@ -243,8 +243,10 @@ export function buy(itemId:string,quantity:number,opts:{deliverTo?:'cargo'|'stor
     if(opts.maxEach!==undefined&&cost>opts.maxEach*quantity)return {status:'refused',did:`did not buy ${itemId}`,why:`costs ${cost}, over maxEach ${opts.maxEach} × ${quantity}`,detail:{estimate}};
     const bought=details(await command('spacemolt/buy',{id:itemId,quantity:Math.min(quantity,estimate.available),
       ...opts.deliverTo?{deliver_to:opts.deliverTo}:{}})) as BuyResponse;
+    // The reply's `total_cost` is the subtotal; the tax on it is charged on top, floored.
+    const subtotal=Number(bought.total_cost??cost),tax=Math.floor(subtotal*(Number(estimate.sales_tax_rate_bps)||0)/10_000);
     return {status:(bought.unfilled??0)>0?'partial':'done',
-      did:`bought ${bought.quantity??quantity} ${itemId} for ${bought.total_cost??cost} cr`,
+      did:`bought ${bought.quantity??quantity} ${itemId} for ${subtotal+tax} cr${tax?` (${tax} of it tax)`:''}`,
       ...(bought.unfilled??0)>0?{why:`${bought.unfilled} unfilled`}:{},detail:{estimate,bought}};
   });
 }

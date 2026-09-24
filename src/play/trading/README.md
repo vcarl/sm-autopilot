@@ -102,7 +102,7 @@ Each row of `routes` is a `Route`:
 | `sales_tax` | the tax on the buys; `null` when a buying stop's rate is not known, which is so for every stop but the one you are docked at (the net is then untaxed and `why` says so) |
 | `total_jumps` | jumps from here through every stop, on the map; `null` when a stop could not be placed |
 | `fuel` | fuel units, `total_jumps × fuel_per_jump`; `null` when the trip is unpriced |
-| `net` | `revenue − cost − sales_tax − fuel` at this base's `fuel_price_all_in`. Fuel is left out when it could not be priced |
+| `net` | `revenue − cost − sales_tax − fuel × fuel_price_all_in` at the base you call from. Fuel is left out when it could not be priced. `Traded.net` counts fuel the same way, so the two compare directly |
 | `confidence` | `0.5 ^ (sum of the stops' book ages / 360)`: 1 when every book is live, half for an hour of age |
 | `score` | the rank: `confidence × net / max(1, total_jumps)`. 0 when the trip could not be priced |
 | `next` | the call to paste: `tradeRun({stops: [...]})` for this route |
@@ -136,13 +136,14 @@ At each stop it reads the live book, re-plans the rest of the route against it (
 their best known books), and does the first leg of that plan: `sell`, then `buy` or `withdraw`.
 A later stop with no known book may bid for anything, so goods are kept for it.
 
-It answers `detail: Traded` = `{stops, unsold, net}`:
+It answers `detail: Traded` = `{stops, unsold, fuel, net}`:
 
 | Field | What it is |
 |---|---|
-| `stops` | one per stop reached: `{at, sold, bought, spent, why?}`. `sold` is the lib's `SellResponse[]` for this counter, `bought` the units taken on, `spent` their credits, and `why` what fell short here or why nothing was taken |
+| `stops` | one per stop reached: `{at, sold, bought, spent, why?}`. `sold` is the lib's `SellResponse[]` for this counter, `bought` the units taken on, `spent` what left the wallet for them, sales tax included, and `why` what fell short here or why nothing was taken |
 | `unsold` | `{item_id, quantity, why?}` rows aboard when the run ended. After the last stop, what no stop bought, or what a base off the route bids twice as much for (named in `why`) |
-| `net` | sales, less purchases, less what the flights took out of the wallet |
+| `fuel` | fuel units the flights burned, measured from the tank |
+| `net` | sales, less `spent` (tax included), less `fuel × fuel_price_all_in` at the first base the run was docked at. Fuel comes from the tank, not the wallet, so it is priced exactly as `Route.net` prices it: realised `net` against the `routes()` row's `net` is like against like |
 
 It never throws. A flight that does not arrive is `partial`, with the stops done so far, and
 `next` is the rest of the route. Re-running the same call starts again at the first stop and
@@ -204,7 +205,8 @@ export default async function main() {
 ## When to reconsider
 
 - A route whose realised `net` (from `tradeRun`) comes in under the `net` `routes()` predicted,
-  twice: someone else is working it. It is contested; drop it and take the next row.
+  twice: someone else is working it. Both nets count tax and fuel the same way, so the gap is the
+  books moving. It is contested; drop it and take the next row.
 - Two `tradeRun`s that reach the far stop and still leave goods `unsold`: the far book is being
   drained by someone else.
   Change the pair.

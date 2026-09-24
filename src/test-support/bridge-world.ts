@@ -91,6 +91,11 @@ export interface WorldOptions {
   shipping?:ShippingOptions;
   /** The berths on the hull and the citizens waiting on the platform. */
   passengers?:PassengerOptions;
+  /** Sales tax on a buy, in basis points. As live: `estimate_purchase` quotes it, the wallet pays
+   * it, and the `buy` reply's `total_cost` leaves it out. Absent: no rate is published, none charged. */
+  taxBps?:number;
+  /** The docked base's `fuel_price_all_in`. Default 1. */
+  fuelPrice?:number;
 }
 
 /** The freight board and the carrier behind it. A listing's `reserved_exposure` is the
@@ -227,6 +232,8 @@ export interface CraftOptions {
 export function bridgeWorld(options:WorldOptions={}) {
   const {services=['refuel','repair'],cargoUsed=12,minePerCycle=2}=options;
   const store=options.store??[{item_id:'ore',name:'Ore',quantity:340},{item_id:'scrap',quantity:2}];
+  // The game floors it: 1823 cr at 250 bps paid 45 live, not 46.
+  const tax=(subtotal:number)=>Math.floor(subtotal*(options.taxBps??0)/10_000);
   // Sol as this world lists it, and where the ids in it live, so an added station is a place
   // the server knows in every reply that mentions places.
   const extra=(options.pois??[]).map(row=>({type:'station',position:{x:2,y:2},has_base:Boolean(row.base_id),...row,
@@ -678,18 +685,21 @@ export function bridgeWorld(options:WorldOptions={}) {
     },
     'spacemolt_ship/list_ships':()=>({structuredContent:{count:fleet.length,
       active_ship_id:'ship',active_ship_class:'cobble',ships:structuredClone(fleet)}}),
-    'spacemolt_market/estimate_purchase':params=>({structuredContent:{item_id:params.item_id,
-      available:99,quantity:Number(params.quantity),total_cost:Number(params.quantity)*12,sales_tax:0,unfilled:0}}),
+    'spacemolt_market/estimate_purchase':params=>{
+      const subtotal=Number(params.quantity)*12,sales_tax=tax(subtotal);
+      return {structuredContent:{item_id:params.item_id,available:99,quantity:Number(params.quantity),subtotal,
+        total_cost:subtotal+sales_tax,sales_tax,...options.taxBps===undefined?{}:{sales_tax_rate_bps:options.taxBps},unfilled:0}};
+    },
     'spacemolt/buy':params=>{
       add(String(params.id),Number(params.quantity));
-      account.server.player.credits-=Number(params.quantity)*12;
+      account.server.player.credits-=Number(params.quantity)*12+tax(Number(params.quantity)*12);
       return {delta:{details:{action:'buy',item_id:params.id,quantity:Number(params.quantity),
         total_cost:Number(params.quantity)*12,unfilled:0}}};
     },
     // A counter posts a price only for a service it runs: a station with no repair service
     // posts no `repair_price_per_hull`, which is the live refusal `service` has to survive.
     'spacemolt/get_base':()=>({delta:{details:{services,
-      ...services.includes('refuel')?{fuel_price_all_in:1}:{},
+      ...services.includes('refuel')?{fuel_price_all_in:options.fuelPrice??1}:{},
       base:{poi_id:'station',...services.includes('repair')?{repair_price_per_hull:1}:{}}}}}),
     'spacemolt/refuel':()=>{
       const cost=account.server.ship.max_fuel-account.server.ship.fuel;

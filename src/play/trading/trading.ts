@@ -292,7 +292,7 @@ export function plan(hold:Record<string,number>,free:number,stops:PlanStop[],els
       const row=here?.get(stop.buy!);if(row&&!stop.asks)row.asks=drop(row.asks,bought);
     }
     return {at:stop.book.base_id,source:stop.book.source,age:stop.book.age,sold,...stop.buy?{buy:stop.buy}:{},bought,cost,
-      sales_tax:!bought||stop.asks?0:stop.rate===null?null:Math.round(cost*stop.rate)};
+      sales_tax:!bought||stop.asks?0:stop.rate===null?null:Math.floor(cost*stop.rate)};
   });
   const revenue=legs.reduce((sum,leg)=>sum+leg.sold.reduce((part,sale)=>part+sale.revenue,0),0);
   const cost=legs.reduce((sum,leg)=>sum+leg.cost,0),tax=legs.reduce((sum,leg)=>sum+(leg.sales_tax??0),0);
@@ -329,7 +329,7 @@ const cargo=()=>{const ship=acct().state.ship;return Math.max(0,(ship?.cargo_cap
 export interface Visit {at:string;
   /** The lib's `SellResponse` per row sold here. */
   sold:SellResponse[];
-  /** Units of the stop's `buy` taken aboard, and the credits that cost. */
+  /** Units of the stop's `buy` taken aboard, and the credits that cost: what left the wallet, tax included. */
   bought:number;spent:number;
   /** What fell short here, or why nothing was taken. */
   why?:string}
@@ -339,7 +339,11 @@ export interface Traded {
   /** What was aboard when the run ended. After the last stop: what no stop bought, or what a base
    * off the route bids more for (named in the row's `why`). */
   unsold:Unsold[];
-  /** Sales, less purchases, less what the flights took out of the wallet. */
+  /** Fuel units burned on the flights: the tank's measured drop across each `goTo`. */
+  fuel:number;
+  /** Sales, less what the buys took out of the wallet (tax included), less `fuel` at the
+   * `fuel_price_all_in` of the first base the run was docked at — counted the way `Route.net`
+   * counts it, so the two compare directly. */
   net:number;
 }
 
@@ -355,27 +359,31 @@ export function tradeRun(opts:{stops:RunStop[]}):Promise<Outcome<Traded>> {
   const route=opts.stops??[];
   return job<Traded>('tradeRun',route.map(stop=>stop.buy?`${stop.at} (${stop.buy})`:stop.at).join(' → '),async()=>{
     const stops:Visit[]=[];
-    let earned=0,spent=0,flown=0;
+    let earned=0,spent=0,fuel=0,fuelPrice:number|undefined;
+    const priced=async()=>{try {fuelPrice??=Number(details(await command('spacemolt/get_base',{})).fuel_price_all_in??1);} catch {/* read at the next stop */}};
     // Every book known off the rest of the route, as of the last stop read.
     let elsewhere:Book[]=[];
     const detail=():Traded=>({stops,unsold:unsoldWhy(Object.entries(miningInventory(acct().state)).filter(([,quantity])=>quantity>0)
-      .map(([item_id,quantity])=>({item_id,quantity})),elsewhere),net:Math.round(earned-spent-flown)});
+      .map(([item_id,quantity])=>({item_id,quantity})),elsewhere),fuel,net:Math.round(earned-spent-fuel*(fuelPrice??0))});
     const blocked=admit('tradeRun');
     if(blocked)return {status:'refused',did:'ran no trade',why:blocked,detail:detail()};
     if(!route.length)return {status:'refused',did:'ran no trade',why:'no stops: pass {stops:[{at, buy?}, …]}',detail:detail()};
     const said=()=>stops.map(visit=>`${visit.at}: ${[...visit.sold.map(fill=>`sold ${fill.quantity_sold} ${fill.item_id}`),
       ...visit.bought?[`took ${visit.bought}`]:[]].join(', ')||'nothing'}`).join(' → ');
     const short:string[]=[];
+    if(acct().state.location?.docked_at)await priced();
     for(const [i,stop] of route.entries()) {
       checkStop();
       if(acct().state.location?.docked_at!==stop.at) {
         const trip=await goTo(stop.at);
-        flown+=trip.cost.credits;
+        // ponytail: the tank's drop; a refuel inside goTo hides the burn it covered.
+        fuel+=trip.cost.fuel;
         if(trip.status!=='done'||!acct().state.location?.docked_at)
           return {status:i?'partial':trip.status==='refused'?'refused':'failed',did:`${said()||'nothing done'}; did not reach ${stop.at}`,
             why:[...short,`${stop.at}: ${trip.why??trip.did}`].join('; '),detail:detail(),next:[runCall(route.slice(i))]};
       }
       const here=acct().state.location!.docked_at!;
+      await priced();
       const visit:Visit={at:here,sold:[],bought:0,spent:0};
       stops.push(visit);
       const notes:string[]=[];
@@ -408,7 +416,8 @@ export function tradeRun(opts:{stops:RunStop[]}):Promise<Outcome<Traded>> {
           if(!visit.bought)short.push(`${here}: withdrew no ${stop.buy}: ${took.why??took.did}`);
         } else {
           const got=await buy(stop.buy,want);
-          visit.bought=Number(got.detail?.bought?.quantity??0);visit.spent=Number(got.detail?.bought?.total_cost??0);spent+=visit.spent;
+          // The wallet, not `total_cost`: the reply's cost is the subtotal, and the tax is on top.
+          visit.bought=Number(got.detail?.bought?.quantity??0);visit.spent=got.cost.credits;spent+=visit.spent;
           if(got.status!=='done')short.push(`${here}: ${got.why??got.did}`);
         }
       }
@@ -416,7 +425,7 @@ export function tradeRun(opts:{stops:RunStop[]}):Promise<Outcome<Traded>> {
       if(why)visit.why=why;
     }
     const end=detail();
-    const did=`${said()} — net ${end.net} cr after ${flown} cr of flight`
+    const did=`${said()} — net ${end.net} cr after ${fuel} fuel at ${fuelPrice??0} cr`
       +(end.unsold.length?`; unsold: ${end.unsold.map(row=>`${row.quantity} ${row.item_id}${row.why?` (${row.why})`:''}`).join(', ')}`:'');
     if(short.length)return {status:'partial',did,why:short.join('; '),detail:end,next:[runCall(route)]};
     return {status:'done',did,detail:end,next:end.net>0?[`${runCall(route)} again while the spread holds`]:[]};
