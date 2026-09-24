@@ -53,7 +53,7 @@ test('spreads ranks by net, netting the fuel to the far buyer against the near o
 test('with no faction ledger, a book read on an earlier visit survives a new runtime binding',async()=>{
   const runtime=mkdtempSync(join(tmpdir(),'spacemolt-markets-'));
   // Trip one: fly to the far base and read its counter. Nothing else learns the price.
-  const first=world({mood:'Focused',home:'sol_base'},{cargo:[],cargoUsed:0,store:[],
+  const first=world({mood:'Focused'},{cargo:[],cargoUsed:0,store:[],
     markets:{sol_base:[],range_base:[{item_id:'ore',best_buy:50,best_buy_qty:99,best_sell:60,best_sell_qty:9}]}},runtime);
   try {
     assert.equal((await goTo('range_base')).status,'done');

@@ -105,7 +105,7 @@ function render(entry:Record<string,any>):string|null {
       const qty=params.quantity?` ×${text(params.quantity)}`:'';
       return `${action}${target?` → ${text(target)}`:''}${qty}`;
     }
-    case 'rest':return `rest${entry.home?` at ${text(entry.home)}`:''}`;
+    case 'rest':return 'rest';
     case 'reflection':
       if(entry.objective_done)return `reflection: objective done — ${text(entry.objective)}`;
       return `reflection: ${text(entry.stance)}/${text(entry.mood)} — ${text(entry.goal)}`;

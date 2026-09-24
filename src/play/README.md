@@ -47,7 +47,7 @@ fits, and read its reply before sending the same mutation again.
 The operator's objective, in your context, governs what you do. When it is open-ended, advance
 in general: learn the world, raise your skill levels, gain credits and influence, get a better
 ship. `pilot()` returns the record that says what the operator wants (`objective`), what you
-chose at your last rest (`goal`, `stance`, `mood`), your `home` and your `permissions`. The
+chose at your last rest (`goal`, `stance`, `mood`) and your `permissions`. The
 operator and your rest write it.
 
 ## What every Outcome tells you
@@ -79,7 +79,7 @@ same goes for `withdraw` of rows the store does not have and `sell` of rows you 
 |---|---|
 | `orient()` | the whole world model in one read: present, skills, storage everywhere, ships, missions, debts |
 | `scout(target?)` | POIs of a system (this one by default) with types, stations, resources here, creatures here |
-| `goTo(id?)` | fly to a POI, base or system, jumping as needed; dock if a base; default home. Any of the three ids works, or a display name: a system id ends the trip anywhere in that system, a POI id at that POI, a base id docked at it — a guess that names a system with a single base goes to that base, and any other word that names nothing is `refused` with the nearest ids instead of being flown. On the way it flies through and completes any active distress mission whose system is on the route or one jump off it, when the detour stays inside a quarter of the route's length and the tank still covers the rest plus the reserve |
+| `goTo(id)` | fly to a POI, base or system, jumping as needed; dock if a base. Any of the three ids works, or a display name: a system id ends the trip anywhere in that system, a POI id at that POI, a base id docked at it — a guess that names a system with a single base goes to that base, and any other word that names nothing is `refused` with the nearest ids instead of being flown. On the way it flies through and completes any active distress mission whose system is on the route or one jump off it, when the detour stays inside a quarter of the route's length and the tank still covers the rest plus the reserve |
 | `service()` | full tank and hull, inside the mood's spend margin |
 | `stow(rows)` / `withdraw(rows)` / `storage(base?)` | station storage; rows you name (omit a row's `quantity` for all of it); readable from anywhere |
 | `prices(items?)` / `sell(rows, opts?)` / `buy(item, qty)` | the market here, live at the moment of the act, and remembered for `spreads()`; `sell(rows, {from:'store'})` empties the store a hold-load at a time |
@@ -121,7 +121,7 @@ Each folder's README is the skill for that career; the one for your stance is lo
 You choose a mood at rest. It sets margins: fuel kept beyond a route, credits a single service
 may spend, the hull fraction a fight breaks off at. When fuel, hull or credits fall through the
 margin, the runtime imposes **Tired**: the function you are in finishes its safe leg and comes
-home; nothing new starts; `goTo` accepts only a base (to service there); resupplying back inside
+to a base; nothing new starts; `goTo` accepts only a base (to service there); resupplying back inside
 the margins — `service()` here, or at any base — clears Tired and restores the mood it replaced.
 You never set or clear Tired yourself. Rest clears everything.
 

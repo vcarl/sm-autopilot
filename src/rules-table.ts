@@ -38,7 +38,7 @@ export interface Site {poi_id:string;quoted_fuel:number;resource?:string;service
 export interface Facts {
   stance?:StanceName;
   mood:Mood;
-  place:{kind:'base'|'poi'|'space';base_id?:string;is_home?:boolean;counters?:CounterName[];
+  place:{kind:'base'|'poi'|'space';base_id?:string;counters?:CounterName[];
     workshop?:boolean;service_prices?:{fuel?:number;hull?:number};sites?:Site[];
     board?:{contracts?:{id:string;cargo:number;liability:number}[];passengers?:number}};
   holdings:{fuel:number;max_fuel:number;hull:number;max_hull:number;cargo_free:number;credits:number;inputs?:string[]};
@@ -52,14 +52,15 @@ export const resolveBounds=(mood:Mood):Bounds=>
   ({spend:resolveServiceSpend(mood),fuelReserve:resolveFuelReserve(mood),walkAway:resolveWalkAway(mood)});
 
 /** `safety` survives danger; `safety`, `resupply` and `rest` survive Tired — a pilot that
- * reached home may put the evening down whatever the world imposed on it, and rest is what
+ * reached a dock may put the evening down whatever the world imposed on it, and rest is what
  * clears an imposed mood for good. */
 type Tag='safety'|'resupply'|'rest'|'shared'|'stance';
 /** The one rest option, named once: the runner's own rest action asks this same rule, so
  * what the menu offers and what the runner accepts cannot drift (R5). */
-export const REST_JOB='Rest and reflect at home';
+export const REST_JOB='Rest and reflect';
 /** The exact call an option would be taken with, so the pilot is never left to invent
- * parameters (playtest 2026-09-15: a gather dispatched at the home station twice). A call
+ * parameters (playtest 2026-09-15: a gather dispatched twice at the station the ship was
+ * already docked at). A call
  * that names several poi ids offers a choice; it never picks the destination. */
 export interface Call {tool:string;params:Record<string,unknown>}
 export interface Verdict {job:string;reason:string;admissible:boolean;tag:Tag;call?:Call|null}
@@ -151,19 +152,20 @@ const RULES:Rule[]=[
   {id:'resupply.travel',apply:facts=>sites(facts).filter(site=>site.serviced_base).map(site=>trip(facts,site,'resupply'))},
   {id:'shared.counters',apply:counters},
   {id:'shared.travel',apply:facts=>sites(facts).filter(site=>!site.serviced_base).map(site=>trip(facts,site,'shared'))},
-  // Rest ends the shift, and only at home (N6). Servicing is wanted only as far as this
-  // base can give it: where the counter quotes and the wallet covers, resting on a ship
-  // that cannot leave is a shift ended badly; where it cannot, rest still happens and
-  // reflection is told the ship is short. Mood does not gate it — rest is what clears one.
-  {id:'rest.home',apply:facts=>{
-    if(facts.place.kind!=='base'||!facts.place.is_home)
-      return no('rest',REST_JOB,'rest happens only at home; travel home to end the shift');
+  // Rest ends the shift, and only docked (N6): an evening is not put down in open space or at
+  // a POI with no counter. Servicing is wanted only as far as this base can give it: where the
+  // counter quotes and the wallet covers, resting on a ship that cannot leave is a shift ended
+  // badly; where it cannot, rest still happens and reflection is told the ship is short. Mood
+  // does not gate it — rest is what clears one.
+  {id:'rest.docked',apply:facts=>{
+    if(facts.place.kind!=='base')
+      return no('rest',REST_JOB,'rest happens docked at a base; dock to end the shift');
     const counter=service(facts);
     if(!serviced(facts)&&counter.admissible)
       return no('rest',REST_JOB,`refuel and repair first — ${counter.reason}`);
     return yes('rest',REST_JOB,serviced(facts)
-      ?'home, safe and serviced: the evening can be put down and a new goal chosen'
-      :`home, and this base cannot bring the ship up (${counter.reason}); the evening can still be put down`,
+      ?'docked, safe and serviced: the evening can be put down and a new goal chosen'
+      :`docked, and this base cannot bring the ship up (${counter.reason}); the evening can still be put down`,
       {tool:'spacemolt_rest',params:{}});
   }},
   // Stance rows (D7 section 2). A stance sees only its own; jobs carry the proposal's

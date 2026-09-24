@@ -208,8 +208,7 @@ async function distressStops(quote:FindRouteResponse,reserve:number):Promise<Sto
 }
 
 /** Fly to a POI, a base, or a system, jumping as many times as the route needs, and dock
- * when the target is a base. No argument means home (`pilot().home`); a run with no home
- * and no argument is refused.
+ * when the target is a base. The destination is always named: there is no default.
  *
  * Over `find_route` + `jump`/`travel` + `dock` it adds: base ids resolved to their POI before
  * the arrival wait, the mood's fuel reserve, a refuel first when docked and short, and one
@@ -222,12 +221,11 @@ async function distressStops(quote:FindRouteResponse,reserve:number):Promise<Sto
  *
  * Idempotent: already there (and docked, if a base) sends nothing and is `done`.
  * Tired: only a base is admitted (service there clears it); a POI or a system is `refused`. */
-export function goTo(id?:string):Promise<Outcome<Trip>> {
-  return job<Trip>('goTo',id??'home',async()=>{
+export function goTo(id:string):Promise<Outcome<Trip>> {
+  return job<Trip>('goTo',id,async()=>{
     const who=pilot();
-    const target=id??who.home;
+    const target=id;
     const none={route:{} as FindRouteResponse,location:acct().state.location as V2Location,jumps:0,docked:false};
-    if(!target)return {status:'refused',did:'went nowhere',why:'no destination and no home set in pilot.json',detail:none};
     // What the pilot wrote may be an id or a display name; `named` is the id it turned out
     // to be, and every comparison below is made against that, never against the word.
     let quote:FindRouteResponse,named:string;

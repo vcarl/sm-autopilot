@@ -29,8 +29,6 @@ export interface Pilot {
   mood_before_tired?:Mood;
   /** Set by the operator from outside: a Tired that resupply does not clear. Rest does. */
   tired_forced?:boolean;
-  /** A base id (`V2Player['home_base']` is the game's own; this is the operator's choice). */
-  home?:string;
   /** Standing bounds the operator sets. Who to fight is not among them: combat targeting is
    * the pilot's judgement, kept honest by the hull floors and the walk-away fraction. */
   permissions?:{credit_reserve?:number;max_liability?:number};

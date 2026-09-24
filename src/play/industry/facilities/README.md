@@ -1,6 +1,6 @@
 # industry/facilities — owning production (advanced)
 
-Not before the advanced stage: 500,000+ credits, corporation_management climbing, a home base
+Not before the advanced stage: 500,000+ credits, corporation_management climbing, a base
 you will keep. A facility earns passive corporation_management xp and lets you rent capacity
 to others, and it bills rent every 100 ticks (~17 min) from your wallet. 260 unpaid cycles
 (~3 days) and the station repossesses it; production facilities are never returned.

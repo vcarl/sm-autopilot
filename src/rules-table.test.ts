@@ -5,7 +5,7 @@ import {evaluateMenu,jobStop,type Facts} from './rules-table.ts';
 // D2/D3: Relaxed and Tired are not initial moods, so neither may initiate a stance job.
 const richProspector=(mood:Facts['mood']):Facts=>({
   mood,stance:'Prospector',
-  place:{kind:'base',base_id:'base',is_home:false,counters:[],
+  place:{kind:'base',base_id:'base',counters:[],
     sites:[{poi_id:'belt',quoted_fuel:5,resource:'ore'}]},
   holdings:{fuel:120,max_fuel:120,hull:100,max_hull:100,cargo_free:50,credits:100_000},
   obligations:{},permissions:{},observed:{}});

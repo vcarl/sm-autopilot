@@ -17,7 +17,7 @@ takes one mutation a tick: it sets the `fire` stance and focuses the quarry at t
 fire by themselves under their stance; there is no fire command), then closes the range while
 the quarry is out of reach or running. A journal line a tick carries the tick number and the
 quarry's hull and zone, so the record answers "how often did we act" directly. The trip around
-it is yours: `goTo` out, `hunt`, `goTo` home, `stow`, `service`. That is the point — the same `hunt` call works whether you
+it is yours: `goTo` out, `hunt`, `goTo` back, `stow`, `service`. That is the point — the same `hunt` call works whether you
 flew there this run or are standing at the belt already.
 
 ## Worked example
@@ -26,7 +26,8 @@ flew there this run or are standing at the belt already.
 import {orient, scout, goTo, hunt, stow, service, note} from 'play';
 
 export default async function main() {
-  await orient();                                          // hunt checks the loadout itself
+  const start = await orient();                            // hunt checks the loadout itself
+  const dock = start.detail.present.location.docked_at;    // the station to bring the take back to
   const here = await scout();
   const habitat = here.detail.pois.find(p => /belt|field|cloud/.test(p.type));  // creatures live at belts and fields
   // (scout only counts creatures at the POI you are standing at, in detail.here.nearby)
@@ -40,7 +41,7 @@ export default async function main() {
   const second = await hunt();                             // and another
   if (second.status === 'refused') return second;          // no rounds left, or the rules said no
 
-  await goTo();                                            // home
+  await goTo(dock);                                        // back to the station you launched from
   const took = [...first.gained.items, ...second.gained.items];
   await stow(took);                                        // by name; nothing stows by default
   return service();

@@ -60,7 +60,7 @@ def runtime_dir() -> Path:
 
 
 def pilot_path() -> Path:
-    """The runner's pilot record — objective, stance, mood, home. The bridge reads the
+    """The runner's pilot record — objective, stance, mood. The bridge reads the
     same file (``resolve(runtime,'..','pilot.json')``); the agent never writes it."""
     return runtime_dir().parent / "pilot.json"
 

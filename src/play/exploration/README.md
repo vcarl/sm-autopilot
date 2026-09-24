@@ -30,15 +30,14 @@ export default async function main() {
 
 ## What a safe circuit looks like
 
-- Three unvisited systems on a loop that ends at home, inside the fuel reserve with margin.
+- Three unvisited systems on a loop that ends where it started, inside the fuel reserve with margin.
 - At least one station on the loop: a market to read, a board to accept from, fuel to buy.
 - `police_level` above 0 on every leg, or an Opportunistic/Aggressive mood that accepts it.
 
 ## When to reconsider
 
-- `unvisited` within two jumps is empty: the neighbourhood is known; widen `jumps` or move home.
-- A visited system had a rich belt and a station with storage: that is a home candidate. Say
-  so in `note()`; the operator sets home.
+- `unvisited` within two jumps is empty: the neighbourhood is known; widen `jumps` or work from a station further out.
+- A visited system had a rich belt and a station with storage: that is a base worth working from.
 
 ## Pitfalls
 

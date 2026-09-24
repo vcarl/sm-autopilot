@@ -43,9 +43,9 @@ export default async function main() {
 
 You start docked, with a free starter hull, 50–100 cargo, and a few hundred credits. The way
 out is: first 2,500–10,000 credits, skills 1–3 in mining, trading and navigation, one T1 hull
-(~2,000 cr), and a home base near where you work.
+(~2,000 cr), and a base near where you work.
 
-1. `orient()`. If `home` is unset, the operator sets it; say so in `note()` and stop.
+1. `orient()`. It names the most obvious gap; say so in `note()` if there is nothing to act on.
 2. `scout()`. Find a belt (`type: asteroid_belt`) and a station with `market` and `storage`.
    No belt in this system: `scout('<neighbour system id>')` from `connections`, then `goTo` it.
 3. `missions()` at every dock. A difficulty-1 "deliver 20 ore" or "visit X" mission is credits
@@ -90,7 +90,7 @@ every two minutes: ticks so far, hold used, what came aboard. A silent run is a 
 
 ## Pitfalls
 
-- A gather that comes home with `yield: []` is not evidence of a take; read `detail.ended`.
+- A gather that comes back with `yield: []` is not evidence of a take; read `detail.ended`.
 - Mining while docked is refused by the game. `gatherUntil` flies first; a station POI or a
   base id as `poi` is a refusal, not a trip.
 - Belts in police-0 systems have pirates. `scout` reports `police_level`.

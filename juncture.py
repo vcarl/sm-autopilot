@@ -208,7 +208,7 @@ def _situation(menu: dict[str, Any], said: dict[str, Any] | None) -> str:
     where = (f"docked at {p['docked_at']} ({system})" if p.get("docked_at")
              else f"in transit ({system})" if p.get("in_transit")
              else f"at {p.get('poi') or 'an unknown point'} ({system})")
-    facts.append(f"Present: {where}." + (f" Home {menu['home']}." if menu.get("home") else ""))
+    facts.append(f"Present: {where}.")
     ship = (f"  Fuel {p.get('fuel')}/{p.get('max_fuel')}, hull {p.get('hull')}/{p.get('max_hull')}, "
             f"credits {p.get('credits') or 0:,}.")
     hold = [f"{row.get('item_id')} {row.get('quantity')}" for row in p.get("hold") or []]
@@ -305,7 +305,7 @@ def read_pilot() -> dict[str, Any]:
 
 
 def write_pilot(record: dict[str, Any]) -> dict[str, Any]:
-    """Set objective, stance, mood and home.
+    """Set objective, stance and mood.
 
     ponytail: a plain file, written by whoever owns rest — for now the operator or a test.
     The runner's own rest path takes it over when there is one; no CLI command until then.

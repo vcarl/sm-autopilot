@@ -163,10 +163,10 @@ Observed 2026-09-15 on the kvothe pilot. Fixtures: `proofs/fixtures/unknown-edge
   `travel failed: Unknown destination: asteroid_belt`.
 - `dock` refuses two ways, both `ok:true` with `docked:false`: `"Docked at X, not Y; undock
   before docking elsewhere"` and `"No station at this location"`.
-- `rest` refuses two ways, both `ok:true` with `rested:false`: `"rest happens only at home;
-  travel home to end the shift"` and `"refuel and repair first — full tank and hull quoted at
+- `rest` refuses two ways, both `ok:true` with `rested:false`: `"rest happens docked at a
+  base; dock to end the shift"` and `"refuel and repair first — full tank and hull quoted at
   N credits, inside the <Mood> margin M"`. A successful rest answers
-  `{rested:true, shift_ended:true, at_rest:true, cleared:{home,stance,mood,goal?}, serviced}`
+  `{rested:true, shift_ended:true, at_rest:true, cleared:{stance,mood,goal?}, serviced}`
   and writes a `rest` event, followed by a `reflection` event once the next shift is chosen.
 - `where.docked_at` is an object `{base_id, name}`. Journal lines before 2026-09-15 11:09
   answer a bare string — the same journal holds both, so a replay must not assume one.

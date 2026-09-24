@@ -16,7 +16,7 @@ function fixture(options:ServeOptions={},services=['refuel','repair']) {
     dispatch:serve(world.account as unknown as ReadinessAccount,world.command,options)};
 }
 
-const PILOT:Pilot={name:'kvothe',objective:'fill the hold',stance:'Prospector',mood:'Focused',home:'sol_base'};
+const PILOT:Pilot={name:'kvothe',objective:'fill the hold',stance:'Prospector',mood:'Focused'};
 
 /** A run that starts and does not finish, so the bridge can be observed mid-flight. */
 function heldRun() {
@@ -44,13 +44,12 @@ test('menu answers with moves from the present, each a paste-able call, and the 
   assert.equal(menu.last,null,'nothing has run yet');
   // The juncture renders the situation from this one reply: the clock, the record, the ship.
   assert.ok(Date.parse(menu.now),menu.now);
-  assert.equal(menu.home,'sol_base');
   const armed=bridgeWorld({wildlife:{creatures:[]}});
   const fitted=await serve(armed.account as unknown as ReadinessAccount,armed.command,{pilot:()=>PILOT})('menu') as any;
   assert.deepEqual(fitted.present.weapons,[{id:'autocannon_i',loaded:500}]);
   // A pilot with no stance is at rest, and the menu is still never empty (VISION): the moves
   // are computed all the same and what reflect would set is named beside them.
-  const resting=await fixture({pilot:()=>({objective:'fill the hold',mood:'Focused',home:'sol_base'})}).dispatch('menu') as any;
+  const resting=await fixture({pilot:()=>({objective:'fill the hold',mood:'Focused'})}).dispatch('menu') as any;
   assert.equal(resting.rest.at_rest,true);
   assert.deepEqual(resting.rest.absent,['goal','stance']);
   assert.ok(resting.moves?.length,JSON.stringify(resting));

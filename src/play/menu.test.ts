@@ -24,7 +24,7 @@ const facts=(f:Game,record:Pilot)=>factsNow(f.account as unknown as ReadinessAcc
 const verdict=(built:Facts,job:string)=>evaluateMenu(built).find(row=>row.job.startsWith(job))!;
 
 test('four identical gathers: the stagnation line names them and the top move is not another gather',async()=>{
-  const f=world({mood:'Focused',stance:'Prospector',home:'sol_base',objective:'obtain credits'},{cargoUsed:6});
+  const f=world({mood:'Focused',stance:'Prospector',objective:'obtain credits'},{cargoUsed:6});
   try {
     for(let i=0;i<4;i++)ended(f.runtime,gather());
     const built=await menu(f.runtime);
@@ -40,7 +40,7 @@ test('four identical gathers: the stagnation line names them and the top move is
 });
 
 test('a Hunter told to cull fauna is offered the hunt, and the move that serves the objective is tagged for it',async()=>{
-  const f=world({mood:'Focused',stance:'Hunter',home:'sol_base',objective:'cull the fauna at the belt'},{cargoUsed:6});
+  const f=world({mood:'Focused',stance:'Hunter',objective:'cull the fauna at the belt'},{cargoUsed:6});
   try {
     f.account.server.location.docked_at=null;f.account.server.location.poi_id='belt';
     const built=await menu(f.runtime);
@@ -57,7 +57,7 @@ test('a Hunter told to cull fauna is offered the hunt, and the move that serves 
 });
 
 test('an unfitted module in the hold with no free slot is under not_now with the slot reason, not a move',async()=>{
-  const f=world({mood:'Focused',stance:'Prospector',home:'sol_base'},{cargoUsed:0,
+  const f=world({mood:'Focused',stance:'Prospector'},{cargoUsed:0,
     hangar:{fitted:[{module_id:'m1',type_id:'mining_laser_i',slot:'utility',cpu_usage:3,power_usage:4},
       {module_id:'m2',type_id:'mining_laser_i',slot:'utility',cpu_usage:3,power_usage:4}]}});
   try {
@@ -71,7 +71,7 @@ test('an unfitted module in the hold with no free slot is under not_now with the
 });
 
 test('Tired offers only service here, or the nearest serviced base when out',async()=>{
-  const f=world({mood:'Tired',stance:'Prospector',home:'sol_base'});
+  const f=world({mood:'Tired',stance:'Prospector'});
   try {
     const docked=await menu(f.runtime);
     assert.deepEqual(docked.moves.map(m=>m.call),['service()']);
@@ -93,7 +93,7 @@ test('the trigger fires on repetition, on two runs not done, on a run that gaine
 // exists for, so a wiring that stops reaching the rules table fails here.
 
 test('a fight at the POI is a threat, and docking ends it: safety-only out there, the whole menu at the counter',async()=>{
-  const who:Pilot={mood:'Focused',stance:'Prospector',home:'sol_base'};
+  const who:Pilot={mood:'Focused',stance:'Prospector'};
   const f=world(who);
   try {
     f.account.server.location.docked_at=null;
@@ -114,7 +114,7 @@ test('a fight at the POI is a threat, and docking ends it: safety-only out there
 });
 
 test('the legal creatures at the POI are J8 targets; one already in a fight and one branded are not',async()=>{
-  const who:Pilot={mood:'Focused',stance:'Hunter',home:'sol_base'};
+  const who:Pilot={mood:'Focused',stance:'Hunter'};
   const f=world(who,{wildlife:{creatures:[{creature_id:'c1',species:'belt_grazer'},
     {creature_id:'c2',species:'sand_eel',in_combat:true},{creature_id:'c3',species:'ranch_cow',branded:true}]}});
   try {
@@ -127,7 +127,7 @@ test('the legal creatures at the POI are J8 targets; one already in a fight and 
 });
 
 test('a remembered far book against this counter is the J6 spread',async()=>{
-  const who:Pilot={mood:'Opportunistic',stance:'Trader',home:'sol_base'};
+  const who:Pilot={mood:'Opportunistic',stance:'Trader'};
   const f=world(who);
   try {
     // A book this pilot read at another base on an earlier visit: ore bids 40 there, and the
@@ -146,7 +146,7 @@ test('a remembered far book against this counter is the J6 spread',async()=>{
 });
 
 test('a remembered book written before books carried a tick is read as 20 ticks old',async()=>{
-  const who:Pilot={mood:'Opportunistic',stance:'Trader',home:'sol_base'};
+  const who:Pilot={mood:'Opportunistic',stance:'Trader'};
   const f=world(who);
   try {
     // A pre-ageing markets.json: no `tick` on the entry. The operator's rule is to assume 20.
@@ -161,7 +161,7 @@ test('a remembered book written before books carried a tick is read as 20 ticks 
 });
 
 test('a remembered tick ahead of now — a restart or a season rollover — reads as 0, not negative',async()=>{
-  const who:Pilot={mood:'Opportunistic',stance:'Trader',home:'sol_base'};
+  const who:Pilot={mood:'Opportunistic',stance:'Trader'};
   const f=world(who);
   try {
     writeFileSync(join(f.runtime,'markets.json'),JSON.stringify([{base_id:'range_base',at:'earlier',tick:TICK+50,
@@ -173,7 +173,7 @@ test('a remembered tick ahead of now — a restart or a season rollover — read
 });
 
 test("the crafting service is J7's workshop; a base without one still refuses",async()=>{
-  const who:Pilot={mood:'Focused',stance:'Industrialist',home:'sol_base'};
+  const who:Pilot={mood:'Focused',stance:'Industrialist'};
   const f=world(who,{services:['refuel','repair','crafting'],cargoUsed:6});
   try {
     const seen=await facts(f,who);
@@ -189,7 +189,7 @@ test("the crafting service is J7's workshop; a base without one still refuses",a
 });
 
 test('the shipping board is J4, and the platform and the berths are J5',async()=>{
-  const who:Pilot={mood:'Cautious',stance:'Carrier',home:'sol_base',permissions:{max_liability:5_000}};
+  const who:Pilot={mood:'Cautious',stance:'Carrier',permissions:{max_liability:5_000}};
   const f=world(who,{cargoUsed:0,cargoCapacity:120,
     shipping:{listings:[{id:'s1',destination_base_id:'range_base',base_reward:1_000}]},
     passengers:{berths:{economy:2},waiting:[{citizen_id:'c1',destination:'range_base'}],

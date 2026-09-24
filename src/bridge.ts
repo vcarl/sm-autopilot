@@ -29,7 +29,7 @@ export type Dispatch=(action:string,params?:Record<string,unknown>)=>Promise<unk
 /** The actions whose answer is an outcome: a journal line keeps its shape, trimmed. */
 const OUTCOME_ACTIONS=new Set(['run','status','rest','reflect','menu','resume','stop','check']);
 const OUTCOME_KEYS=new Set(['accepted','reason','status','record','running','rested','shift_ended','at_rest',
-  'cleared','serviced','resumed','busy','objective','objective_done','home','stance','mood','errors','stopping',
+  'cleared','serviced','resumed','busy','objective','objective_done','stance','mood','errors','stopping',
   'ok','fn','did','sha','step','commands','elapsed_s','started','stagnation','rest']);
 
 /** One response as the journal keeps it: whether the thing happened, never the prose or the
@@ -127,7 +127,7 @@ export function pushJournal(account:{on:(type:string,handler:(payload:Record<str
 /** What the runner set at the last rest. The agent never writes any of it: reflection asks
  * the runner to, and rest asks the runner to take it away. */
 export interface Pilot {name?:string;objective?:string;objective_done?:boolean;goal?:string;
-  stance?:StanceName;mood?:Mood;mood_before_tired?:Mood;tired_forced?:boolean;home?:string;
+  stance?:StanceName;mood?:Mood;mood_before_tired?:Mood;tired_forced?:boolean;
   permissions?:Facts['permissions'];instruction?:{text:string;at:string}}
 export interface ServeOptions {
   pilot?:()=>Pilot;
@@ -223,7 +223,7 @@ export function serve(account:ReadinessAccount,command:ReadinessCommand,options:
       return {
         now:new Date().toISOString(),
         ...who.stance?{stance:who.stance}:{},...who.mood?{mood:who.mood}:{},
-        ...who.home?{home:who.home}:{},...who.goal?{goal:who.goal}:{},
+        ...who.goal?{goal:who.goal}:{},
         ...who.permissions?{permissions:who.permissions}:{},
         ...resting?{rest:{at_rest:true,absent,
           set_by:'reflect names the goal, then the stance and the mood that fit it'}}:{},
@@ -256,7 +256,7 @@ export function serve(account:ReadinessAccount,command:ReadinessCommand,options:
     if(!options.setPilot)return {rested:false,reason:'this runner cannot write the pilot record'};
     const {stance,mood,goal,mood_before_tired:_m,tired_forced:_t,...kept}=who;
     options.setPilot(kept);
-    const cleared={home:facts.place.base_id,...stance?{stance}:{},...mood?{mood}:{},...goal?{goal}:{}};
+    const cleared={...stance?{stance}:{},...mood?{mood}:{},...goal?{goal}:{}};
     if(runtime)journalRun(runtime,cleared,'rest');
     return {rested:true,shift_ended:true,at_rest:true,cleared,
       serviced:facts.holdings.fuel>=facts.holdings.max_fuel&&facts.holdings.hull>=facts.holdings.max_hull};

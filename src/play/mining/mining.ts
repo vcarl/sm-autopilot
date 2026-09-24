@@ -41,7 +41,7 @@ async function storeCount(base:string,item:string):Promise<number> {
 }
 
 /** One gather trip by default: fly to `poi`, mine until the hold is full (or the site is
- * dry), fly back to `base` (default: the base you left, then home), dock, stow the take,
+ * dry), fly back to `base` (default: the base you left), dock, stow the take,
  * service. Over the raw legs it adds: every leg named for an end state and re-entered from
  * the live world, the take measured from cargo reads, the mood's fuel reserve, a streamed
  * yield line every ≤2 minutes, stop between ticks, and Tired ending the loop after the
@@ -67,8 +67,8 @@ export function gatherUntil(opts:{poi:string;base?:string;until?:{item:string;qu
     const cargo=()=>(acct().state.cargo??[]) as V2CargoItem[];
     const stop=admit('gatherUntil');
     if(stop)return {status:'refused',did:'gathered nothing',why:stop,detail:result};
-    const baseId=opts.base??acct().state.location?.docked_at??who.home;
-    if(!baseId)return {status:'refused',did:'gathered nothing',why:'no base to return to: pass base, dock first, or set a home',detail:result};
+    const baseId=opts.base??acct().state.location?.docked_at;
+    if(!baseId)return {status:'refused',did:'gathered nothing',why:'no base to return to: pass base, or dock first',detail:result};
     result.base_id=baseId;
     let site,home;
     try {site=await route(opts.poi);home=await route(baseId);}

@@ -20,7 +20,7 @@ test('every kind of entry renders one short line carrying its numbers', () => {
       /hunt fight 2 blocked: broke off/],
     [{event:'step',job:'craft',step:'confirm',outcome:'done',recipe_id:'fuse_reinforced_glass',
       yield:[{item_id:'reinforced_glass',quantity:5}]},/craft confirm .*\+5 reinforced_glass/],
-    [{event:'rest',home:'first_step_memorial_station'},/rest at first_step_memorial_station/],
+    [{event:'rest',stance:'Prospector',mood:'Tired'},/rest$/],
     [{event:'reflection',stance:'Industrialist',mood:'Cautious',goal:'two loads of ore'},
       /reflection: Industrialist\/Cautious — two loads of ore/],
     [{event:'instruction',text:'go look at the far belt'},/instruction: "go look at the far belt"/],

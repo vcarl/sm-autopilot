@@ -171,7 +171,7 @@ def _reflect(arguments: dict[str, Any] | None = None, **_: Any) -> str:
     record = read_pilot()
     if record.get("stance"):
         return (f"Nothing written: the pilot is on shift in the {record['stance']} stance. "
-                "Reflection happens at rest — rest at home, which clears the stance, and the "
+                "Reflection happens at rest — rest at a base, which clears the stance, and the "
                 "next juncture reflects.")
     if args.get("objective_done"):
         record["objective_done"] = True
@@ -315,9 +315,9 @@ TOOL_DEFINITIONS = (
                                                   "written before the check."}},
                        [])},
     {"name": "spacemolt_rest", "toolset": "spacemolt", "handler": _rest,
-     "description": "End the shift: rest at home, which clears the stance and the mood.",
+     "description": "End the shift: rest at a base, which clears the stance and the mood.",
      "schema": _schema("spacemolt_rest",
-                       "Put the evening down. Call this docked at home with no run in flight, on a "
+                       "Put the evening down. Call this docked at any base with no run in flight, on a "
                        "ship this base has brought as far up as it can; the refusal says what is "
                        "still missing. It is the one act that ends a shift: it clears the stance, "
                        "the mood and the goal, a Tired the world imposed included, and the next "
@@ -357,7 +357,7 @@ TOOL_DEFINITIONS = (
                        "The whole state of the pilot in one read — call this for \"what is the "
                        "objective\", \"what is the pilot doing\" and \"what happened\" alike. "
                        "Returns `pilot` (the standing record the operator wrote: objective, "
-                       "objective_done, goal, stance, mood, home, the last instruction, the "
+                       "objective_done, goal, stance, mood, the last instruction, the "
                        "permissions), `run` (the run in flight — function and step, elapsed "
                        "seconds, commands sent, fuel, hull, credits — or the last run's outcome "
                        "when idle, null when the runner is not up) and `journal` (the tail of "

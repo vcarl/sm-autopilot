@@ -64,6 +64,7 @@ def test_the_juncture_job_carries_the_stance_and_passes_the_cron_toolset_clamp(t
     from cron.scheduler import (_CronAgentSetup, _construct_cron_agent,
                                 _resolve_cron_disabled_toolsets, _resolve_cron_enabled_toolsets)
 
+    # `home` is a key the library dropped; a live record still carries it, and nothing reads it.
     juncture.write_pilot({"name": "kvothe", "stance": "Prospector", "mood": "Focused",
                           "objective": "fill the hold", "home": "sol_base"})
     job = juncture.ensure_juncture_job()
@@ -159,14 +160,17 @@ def test_the_situation_renders_only_the_permissions_the_code_knows(monkeypatch):
 
     The filter is an allowlist, so every permission the library has since dropped —
     `wildlife`, `may_attack`, and now `max_spend` and `no_go` — stays inert in a live record
-    rather than rendering as a bound the pilot cannot act on.
+    rather than rendering as a bound the pilot cannot act on. `home` went the same way: the
+    key survives in live records and the present line no longer looks for it.
     """
     menu = _menu(12, last=LAST)
     menu["permissions"] = {"credit_reserve": 5000, "wildlife": False,
                            "no_go": ["deep_range"], "max_spend": 1000}
     context = _rendered(monkeypatch, menu)
     assert "Permissions: keep 5,000 credits." in context
-    for gone in ("wildlife", "deep_range", "no_go", "max_spend"):
+    assert "Present: docked at first_step_station (first_step)." in context
+    for gone in ("wildlife", "deep_range", "no_go", "max_spend",
+                 "Home", "unknown_edge_waystation"):
         assert gone not in context, gone
 
 
@@ -263,7 +267,7 @@ def test_the_cron_prompt_leaves_the_tools_to_their_own_descriptions():
 
 def test_the_rest_context_carries_the_scripts_the_review_reads(monkeypatch):
     """A resting fire is handed the pilot's own code beside how it ran (N7)."""
-    report = {"at_rest": True, "objective": "buy a combat ship", "home": "sol_base",
+    report = {"at_rest": True, "objective": "buy a combat ship",
               "stagnation": ["stances never chosen: Hunter"],
               "scripts": [{"name": "buy-hull", "saved": True, "bytes": 812, "runs": 2,
                            "params": {"type": "object", "properties": {}},

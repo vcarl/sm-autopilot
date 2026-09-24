@@ -27,13 +27,12 @@ export interface ScriptRun {outcome?:string;reason?:string}
 /** A file of the pilot's own under `pilot/`, with its size and how its runs ended. */
 export interface ScriptReview {name:string;saved?:true;bytes?:number;runs:number;last?:ScriptRun[]}
 
-export interface Pilotish {objective?:string;objective_done?:boolean;home?:string;goal?:string}
+export interface Pilotish {objective?:string;objective_done?:boolean;goal?:string}
 
 export interface ReflectReport {
   at_rest:true;
   objective?:string;
   objective_done?:boolean;
-  home?:string;
   /** The lowest-levelled skills first: what training would move (N7). */
   skills?:{name:string;level:number;max_level:number}[];
   ship:{fuel:number;max_fuel:number;hull:number;max_hull:number;cargo_capacity:number;modules:string[]};
@@ -108,7 +107,6 @@ export async function reflectReport(account:ReadinessAccount,command:ReadinessCo
   const ranJobs=new Map<string,number>(),ranScripts=new Map<string,ScriptRun[]>();
   const recent:ReflectReport['recent']=[];
   for(const entry of journal) {
-    if(entry.event==='rest'&&entry.home)bases.add(String(entry.home));
     if(entry.event==='reflection'&&entry.stance)chosen.add(String(entry.stance));
     if(entry.event==='run'&&entry.phase==='ended') {
       recent.push({script:entry.script,outcome:entry.outcome,reason:entry.reason});
@@ -143,7 +141,6 @@ export async function reflectReport(account:ReadinessAccount,command:ReadinessCo
     at_rest:true,
     ...pilot.objective?{objective:pilot.objective}:{},
     ...pilot.objective_done?{objective_done:true}:{},
-    ...pilot.home?{home:pilot.home}:{},
     ...skills?.length?{skills}:{},
     ship:{fuel:ship?.fuel as number,max_fuel:ship?.max_fuel as number,hull:ship?.hull as number,
       max_hull:ship?.max_hull as number,cargo_capacity:ship?.cargo_capacity as number,

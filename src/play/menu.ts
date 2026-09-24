@@ -163,7 +163,7 @@ export async function factsNow(account:ReadinessAccount,send:ReadinessCommand,wh
     ...who.stance?{stance:who.stance}:{},
     mood:who.mood,
     place:{kind:docked?'base':location?.poi_id?'poi':'space',...docked?{base_id:docked}:{},
-      ...docked&&who.home===docked?{is_home:true}:{},counters,workshop,
+      counters,workshop,
       ...service_prices?{service_prices}:{},sites,
       ...board.contracts||board.passengers?{board}:{}},
     holdings:{fuel:ship?.fuel as number,max_fuel:ship?.max_fuel as number,
@@ -214,7 +214,7 @@ export async function menu(runtime?:string):Promise<Menu> {
   if(who.mood==='Tired') {
     if(docked)moves.push({call:'service()',why:`Tired (${now.tired_by??'margin crossed'}): resupply here clears it`,advances:'ship'});
     else {
-      const base=stations[0]?.base_id??who.home;
+      const base=stations[0]?.base_id;
       if(base)moves.push({call:`goTo('${base}')`,why:`Tired (${now.tired_by??'margin crossed'}): the nearest serviced base; service() there clears it`,advances:'ship'});
     }
     return {...stagnation?{stagnation}:{},moves,not_now};
@@ -336,22 +336,17 @@ export async function menu(runtime?:string):Promise<Menu> {
     else if(loop==='hunt'&&!docked)work({call:`hunt()`,why:`trains ${row.name??id} (level ${row.level}, the lowest)`,advances:'skill'});
   }
 
-  // Service; go home when the objective is done or the shift is long.
+  // Service where the counter admits it.
   if(docked&&serviced) {
     if(serviced.admissible)moves.push({call:'service()',why:serviced.reason,advances:'ship'});
     else if(!/already at the serviced-dock targets/.test(serviced.reason))not_now.push({move:'service',why:serviced.reason});
-  }
-  if(who.home&&docked!==who.home&&(who.objective_done||runs.length>=10)) {
-    const blocked=await flies(who.home);
-    if(blocked)not_now.push({move:`goTo('${who.home}')`,why:blocked});
-    else moves.push({call:`goTo('${who.home}')`,why:`${who.objective_done?'the objective is done':`${runs.length} runs this shift`}; rest at home`,advances:'objective'});
   }
 
   // Rank: break the repetition first, then the goal's own words, then what similar runs measured.
   const repeated=repeats(runs)>=3?runs.at(-1)!.fn:'';
   const goal=`${who.goal??''} ${who.objective??''}`.toLowerCase();
   const wants:Record<Advances,RegExp>={credits:/credit|money|cr\b/,skill:/skill|level|train/,ship:/ship|hull|cargo|upgrade/,
-    knowledge:/know|explor|world|visit|scout/,influence:/influence|reputation|faction/,objective:/objective|goal|home|rest/};
+    knowledge:/know|explor|world|visit|scout/,influence:/influence|reputation|faction/,objective:/objective|goal|rest/};
   const gain=(fn:string)=>{const past=runs.filter(r=>r.fn===fn);return past.length?past.reduce((n,r)=>n+r.credits,0)/past.length:0;};
   const key=(m:Move)=>{const fn=m.call.split('(')[0]!;
     return [repeated&&fn!==repeated?1:0,wants[m.advances].test(goal)?1:0,LEADS[who.stance??'']===fn?1:0,gain(fn)];};

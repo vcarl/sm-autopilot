@@ -20,9 +20,9 @@ const system={id:'sol',name:'Sol',pois:[
     base_id:'sol_base',base_name:'Sol Base'},
 ]};
 const PILOT:Pilot={name:'kvothe',objective:'fill the hold',goal:'three loads of ore',
-  stance:'Prospector',mood:'Focused',home:'sol_base'};
+  stance:'Prospector',mood:'Focused'};
 
-/** A pilot at home on a serviced ship, with the record the runner would have written at the
+/** A pilot docked on a serviced ship, with the record the runner would have written at the
  * last reflection. `over` moves whatever this test wants somewhere else. */
 function fixture(over:{ship?:Record<string,number>;pilot?:Pilot;docked?:string|null;
   fuelPrice?:number|null;credits?:number;runPilot?:any}={}) {
@@ -54,15 +54,20 @@ function fixture(over:{ship?:Record<string,number>;pilot?:Pilot;docked?:string|n
     journal:()=>readFileSync(join(runtime,'gameplay.jsonl'),'utf8').trim().split('\n').map(line=>JSON.parse(line))};
 }
 
-test('rest refuses away from home, on a ship this base could service, and while a script runs, naming what would admit it', async () => {
-  // Docked somewhere that is not the pilot's home: the whole point of rest is where it happens.
-  const away=fixture({docked:'other_base'});
-  const refusedAway=await away.dispatch('rest') as any;
-  assert.equal(refusedAway.rested,false);
-  assert.match(refusedAway.reason,/only at home/);
-  assert.equal(away.record(),undefined,'a refused rest writes no record');
+test('rest refuses undocked, on a ship this base could service, and while a script runs, naming what would admit it', async () => {
+  // Any base will do, but a base is required: an evening is not put down in open space.
+  const adrift=fixture({docked:null});
+  const refusedAdrift=await adrift.dispatch('rest') as any;
+  assert.equal(refusedAdrift.rested,false);
+  assert.match(refusedAdrift.reason,/dock to end the shift/);
+  assert.equal(adrift.record(),undefined,'a refused rest writes no record');
 
-  // Home, but short of fuel at a base that quotes a price the wallet covers: service first.
+  // A base that is not the one the last shift began at is still a base rest happens at: the
+  // deadlock where an unset home meant a pilot could never rest, and so never reflect, is gone.
+  const elsewhere=fixture({docked:'other_base'});
+  assert.equal((await elsewhere.dispatch('rest') as any).rested,true);
+
+  // Docked, but short of fuel at a base that quotes a price the wallet covers: service first.
   const short=fixture({ship:{fuel:60}});
   const refusedShort=await short.dispatch('rest') as any;
   assert.equal(refusedShort.rested,false);
@@ -70,7 +75,7 @@ test('rest refuses away from home, on a ship this base could service, and while 
   assert.equal(short.record(),undefined);
 
   // The same short ship at a base that posts no quote rests anyway, and says it is short:
-  // an unserviceable home is not a reason to keep an evening open forever.
+  // an unserviceable base is not a reason to keep an evening open forever.
   const unserviceable=fixture({ship:{fuel:60},fuelPrice:null});
   const rested=await unserviceable.dispatch('rest') as any;
   assert.equal(rested.rested,true);
@@ -89,7 +94,7 @@ test('rest refuses away from home, on a ship this base could service, and while 
   await flight;
 });
 
-test('at home the pilot rests whatever the world imposed on it, and the shift comes out clear', async () => {
+test('docked, the pilot rests whatever the world imposed on it, and the shift comes out clear', async () => {
   // Tired is the world's, not the agent's — and rest is what takes it away for good.
   const tired=fixture({pilot:{...PILOT,mood:'Tired'}});
   const rested=await tired.dispatch('rest') as any;
@@ -99,18 +104,18 @@ test('at home the pilot rests whatever the world imposed on it, and the shift co
 
   // The record keeps who the pilot is and what the operator wants; the shift's own three
   // settings are gone, so nothing is latched into the next one.
-  assert.deepEqual(tired.record(),{name:'kvothe',objective:'fill the hold',home:'sol_base'});
+  assert.deepEqual(tired.record(),{name:'kvothe',objective:'fill the hold'});
 
   // What was put down is written down: a setting cleared with no record is a mystery later.
   const line=tired.journal().find(entry=>entry.event==='rest');
   assert.ok(line,'rest leaves its own line in the journal');
-  assert.deepEqual({stance:line.stance,mood:line.mood,goal:line.goal,home:line.home},
-    {stance:'Prospector',mood:'Tired',goal:'three loads of ore',home:'sol_base'});
+  assert.deepEqual({stance:line.stance,mood:line.mood,goal:line.goal},
+    {stance:'Prospector',mood:'Tired',goal:'three loads of ore'});
   assert.ok(line.at,'the line is stamped');
 });
 
 test("the rest report reviews the pilot's own files against how the runs ended", async () => {
-  const f=fixture({pilot:{name:'kvothe',objective:'fill the hold',home:'sol_base'}});
+  const f=fixture({pilot:{name:'kvothe',objective:'fill the hold'}});
   mkdirSync(join(f.runtime,'pilot'),{recursive:true});
   writeFileSync(join(f.runtime,'pilot','index.ts'),'export default async function main(){}\n');
   for(const ended of [{outcome:'done',reason:'serviced'},{outcome:'refused',reason:'no route'},

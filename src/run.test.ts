@@ -8,7 +8,7 @@ import {check,runPilot} from './run.ts';
 import {readJournal,readRun} from './run-record.ts';
 import {bridgeWorld} from './test-support/bridge-world.ts';
 
-const PILOT={name:'kvothe',mood:'Focused' as const,stance:'Prospector' as const,home:'sol_base'};
+const PILOT={name:'kvothe',mood:'Focused' as const,stance:'Prospector' as const};
 
 function harness() {
   const runtime=mkdtempSync(join(tmpdir(),'spacemolt-run-'));
