@@ -302,17 +302,33 @@ export async function menu(runtime?:string):Promise<Menu> {
   const here=pois.find(p=>p.id===location?.poi_id);
   const dist=(p:SystemPoi)=>Math.hypot((p.position?.x??0)-(here?.position?.x??0),(p.position?.y??0)-(here?.position?.y??0));
   const belt=pois.filter(p=>/belt|field|cloud/.test(p.type)).sort((a,b)=>dist(a)-dist(b))[0];
+  /** Whether the nearest belt is out of fuel range, read once and reused by the hunt row below,
+   * which flies to the same POI. Left null when a full hold short-circuits the quote. */
+  let beltFuel:string|null=null;
   if(belt) {
-    const blocked=(full?'the hold is full; sell(rows) or stow(rows) first':null)??await flies(belt.id);
+    const blocked=full?'the hold is full; sell(rows) or stow(rows) first':(beltFuel=await flies(belt.id));
     if(blocked)not_now.push({move:'gatherUntil',why:blocked});
     else work({call:`gatherUntil({poi:'${belt.id}'})`,why:`${belt.type} ${belt.name}, ${ship?.cargo_capacity!-ship?.cargo_used!} free in the hold`,advances:'credits'});
   }
 
-  // Hunt when the orders say hunt: the fight is out in the system, never from a dock.
+  // Hunt when the orders say hunt. `hunt({poi})` flies there itself (play/combat/README.md), so
+  // a dock is no blocker: the call undocks and travels, and the destination is the job's business.
+  // Fauna is where the resources are, so the habitat is the same nearest belt/field/cloud the
+  // belt row picked — the regex the career README's own example uses.
   const lead=leadCall(who);
   if(lead==='hunt') {
-    if(docked)not_now.push({move:'hunt',why:`docked at ${docked}; undock or goTo a poi with fauna`});
-    else work({call:'hunt()',why:`the objective names hunting; fauna at ${location?.poi_id??'this poi'} is legal to engage`,advances:'objective'});
+    // J8 reads `observed.targets`; so does the claim here, so the menu cannot assert a creature
+    // the same build's verdict says is not known.
+    const seen=facts.observed.targets??[];
+    const poi=location?.poi_id??'this poi';
+    if(!docked&&seen.length)
+      work({call:'hunt()',why:`the objective names hunting; ${seen.join(', ')} at ${poi} is legal to engage`,advances:'objective'});
+    else if(belt&&belt.id!==location?.poi_id&&!beltFuel)
+      work({call:`hunt({poi:'${belt.id}'})`,advances:'objective',
+        why:`the objective names hunting; ${belt.type} ${belt.name} is where fauna gathers, and hunt flies there itself${docked?` from ${docked}`:''}`});
+    else if(!docked)
+      work({call:'hunt()',why:`the objective names hunting; nothing scanned at ${poi} yet — hunt() reads what is there and spends nothing on an empty habitat`,advances:'objective'});
+    else not_now.push({move:'hunt',why:beltFuel??`docked at ${docked}, and no belt, field or cloud in ${location?.system_id??'this system'} to hunt at; goTo a system with one`});
   }
 
   // Explore an unvisited neighbour.

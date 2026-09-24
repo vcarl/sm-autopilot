@@ -49,11 +49,7 @@ test('a Hunter told to cull fauna is offered the hunt, and the move that serves 
     assert.ok(hunt,`no hunt on the menu: ${JSON.stringify(built.moves)}`);
     assert.equal(hunt!.advances,'objective','the hunt is not tagged [credits]');
     assert.ok(!built.moves.every(m=>m.advances==='credits'),'every move tagged [credits]');
-    // Docked, the hunt is out of reach rather than silently absent.
-    f.account.server.location.docked_at='sol_base';
-    const docked=await menu(f.runtime);
-    assert.ok(!docked.moves.some(m=>m.call==='hunt()'));
-    assert.ok(docked.not_now.some(row=>row.move==='hunt'),JSON.stringify(docked.not_now));
+    // Docked is the next test: `hunt({poi})` flies there itself, so a dock is not a blocker.
   } finally {f.close();}
 });
 
@@ -260,3 +256,52 @@ test('a base in this system that posts a repair price is named with the price, n
     assert.match(built.moves[2]!.why,/no price readable from here/);
   } finally {f.close();}
 });
+
+test("a docked Hunter is offered hunt({poi}) at the habitat, and the call compiles through the gate",async()=>{
+  // Live 2026-09-24: the menu offered a Hunter `hunt()` with no destination, and under a dock only
+  // `not_now: docked at sirius_observatory_station; undock or goTo a poi with fauna` — two remedies
+  // the barrel has no call for (`grep -c undock src/play/index.ts` → 0, and the menu's goTo rows only
+  // ever name unvisited neighbouring systems). `hunt({poi})` flies there itself, so the dock is the
+  // job's business, not the pilot's.
+  const f=world({mood:'Focused',stance:'Hunter',objective:'cull the fauna'});
+  try {
+    f.account.server.location.docked_at='sol_base';f.account.server.location.poi_id='station';
+    const built=await menu(f.runtime);
+    const hunt=built.moves.find(m=>m.call==="hunt({poi:'belt'})");
+    assert.ok(hunt,`no hunt with a destination: ${JSON.stringify(built.moves)} / ${JSON.stringify(built.not_now)}`);
+    assert.match(hunt!.why,/Inner Belt is where fauna gathers, and hunt flies there itself from sol_base/);
+    assert.ok(!built.not_now.some(row=>row.move==='hunt'),JSON.stringify(built.not_now));
+    // The shape the pilot would paste, through the real gate: a wrong one costs a whole juncture.
+    const runtime=mkdtempSync(join(tmpdir(),'menu-hunt-'));
+    mkdirSync(join(runtime,'pilot'),{recursive:true});
+    writeFileSync(join(runtime,'pilot','index.ts'),
+      `import {hunt} from 'play';\nexport default async function main() {\n  await ${hunt!.call};\n}\n`);
+    const gate=await check(runtime);
+    assert.deepEqual(gate.errors,[]);
+  } finally {f.close();}
+});
+
+test('the undocked hunt row claims a legal creature only when one was observed',async()=>{
+  // The same build's J8 verdict reads `observed.targets`; the menu asserted "fauna at X is legal to
+  // engage" without reading it at all, so the two halves of one menu could contradict each other.
+  const bare=world({mood:'Focused',stance:'Hunter',objective:'cull the fauna'});
+  try {
+    bare.account.server.location.docked_at=null;bare.account.server.location.poi_id='belt';
+    const built=await menu(bare.runtime);
+    const hunt=built.moves.find(m=>m.call==='hunt()');
+    assert.ok(hunt,JSON.stringify(built.moves));
+    assert.equal(verdict(await facts(bare,{mood:'Focused',stance:'Hunter'}),'J8').admissible,false);
+    assert.doesNotMatch(hunt!.why,/is legal to engage/);
+    assert.match(hunt!.why,/nothing scanned at belt yet/);
+  } finally {bare.close();}
+  // One that was seen is named, and the claim is the creature's own name.
+  const live=world({mood:'Focused',stance:'Hunter',objective:'cull the fauna'},
+    {wildlife:{creatures:[{creature_id:'c1',species:'rock_grazer'}]}});
+  try {
+    live.account.server.location.docked_at=null;live.account.server.location.poi_id='belt';
+    const built=await menu(live.runtime);
+    const hunt=built.moves.find(m=>m.call==='hunt()');
+    assert.match(hunt!.why,/rock_grazer at belt is legal to engage/);
+  } finally {live.close();}
+});
+
