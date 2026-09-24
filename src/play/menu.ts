@@ -230,11 +230,17 @@ export async function menu(runtime?:string):Promise<Menu> {
   const stop=jobStop(facts);
   /** A move that starts work: refused under a threat or a mood that may not start a job. */
   const work=(move:Move)=>stop?not_now.push({move:move.call.split('(')[0]!,why:stop}):moves.push(move);
+  /** The fuel refusal the last `flies` produced, if any. A pilot that cannot reach anywhere it
+   * was offered needs the way to a counter, whatever the mood — the wedge that stranded the
+   * pilot on 2026-09-24 was an Aggressive one, too far above reserve 12 for Tired to fire. */
+  let shortFuel='';
   const flies=async(id:string):Promise<string|null>=>{
     const quote=await attempt(async()=>details(await command('spacemolt/find_route',{id})));
     if(!quote?.found)return `no route to ${id}`;
     const need=Number(quote.estimated_fuel)+reserve;
-    return fuel<need?`fuel ${fuel}, need ${need} with the ${who.mood} reserve ${reserve}`:null;
+    if(fuel>=need)return null;
+    shortFuel=`fuel ${fuel}, need ${need} with the ${who.mood} reserve ${reserve}`;
+    return shortFuel;
   };
 
   const full=!!ship&&ship.cargo_used>=ship.cargo_capacity;
@@ -381,6 +387,16 @@ export async function menu(runtime?:string):Promise<Menu> {
   if(docked&&serviced) {
     if(serviced.admissible)moves.push({call:'service()',why:serviced.reason,advances:'ship'});
     else if(!/already at the serviced-dock targets/.test(serviced.reason))not_now.push({move:'service',why:serviced.reason});
+  }
+
+  // A fuel refusal out in the open is the wedge: `service()` refuses undocked, and the rows above
+  // are all the shortfall just refused. `serviceElsewhere` is the one code path that names a route
+  // to a counter, and it is used rather than the `resupply.travel` verdicts because those carry no
+  // pasteable call — `trip()` returns `call:null` and its reason names `travel(ctx,…)`, a script
+  // helper, not a barrel call. It unblocks everything the shortfall refused, so it ranks first.
+  if(shortFuel&&!docked)for(const row of await serviceElsewhere()) {
+    moves.push({call:row.call,why:`${shortFuel}; ${row.why}`,advances:'ship'});
+    unblocks.add(row.call);
   }
 
   // Rank: break the repetition first, then the goal's own words, then what similar runs measured.
