@@ -221,7 +221,7 @@ export async function menu(runtime?:string):Promise<Menu> {
     const base=stations[0]?.base_id;
     if(docked&&!uncovered.length)moves.push({call:'service()',why:`${why}: resupply here clears it`,advances:'ship'});
     else if(base)moves.push({call:`goTo('${base}')`,why:docked
-      ?`${why}: ${docked} posts no price for ${uncovered.join(' or ')}; ${base} is the next base in this system; its repair price is only readable once docked there`
+      ?`${why}: ${docked} posts no price for ${uncovered.join(' or ')}; ${base} is the next base in this system; price unknown until docked`
       :`${why}: the first base listed in this system; dock and service() there to end the shift`,advances:'ship'});
     else if(docked)moves.push({call:'service()',
       why:`${why}: resupply here clears it, if ${docked} will quote ${uncovered.join(' or ')} — no other base is listed in this system`,advances:'ship'});

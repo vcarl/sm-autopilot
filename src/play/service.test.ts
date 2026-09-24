@@ -57,7 +57,7 @@ test('a refusal for want of a counter names the other base in this system, with 
     const next=(out.next??[]).join('\n');
     assert.match(next,/goTo\('yard_base'\)/,next);
     assert.match(next,/7 fuel/,next);
-    assert.match(next,/repair price is only readable once docked/,next);
+    assert.match(next,/price unknown until docked/,next);
   } finally {unbind();}
 });
 

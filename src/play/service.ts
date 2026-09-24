@@ -46,7 +46,7 @@ export async function serviceElsewhere(docked:string):Promise<string[]> {
   for(const row of pois.filter(poi=>poi.base_id&&poi.base_id!==docked).slice(0,3))
     lines.push(`goTo('${row.base_id}') — ${row.base_name??row.base_id} in ${system}: ${await trip(row.base_id!)}`
       +(Number.isFinite(row.fuel_price)?`, refuel ${row.fuel_price} cr/unit posted`:'')
-      +'; its repair price is only readable once docked there');
+      +'; price unknown until docked');
   if(lines.length)return lines;
   // Nothing else in this system. A base the pilot has stood at is the only far one it can
   // name at all, so it is named as what it is: seen, with nothing known about its counters.
