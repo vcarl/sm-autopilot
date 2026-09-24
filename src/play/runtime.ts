@@ -20,16 +20,16 @@ export type Mood='Cautious'|'Focused'|'Opportunistic'|'Aggressive'|'Relaxed'|'Ti
 export type Stance='Prospector'|'Industrialist'|'Trader'|'Carrier'|'Hunter'|'Scout';
 
 /** `pilot.json`, read fresh on every call. The pilot never writes it: reflection sets goal,
- * stance and mood; the runtime imposes and clears Tired; the operator sets the rest. */
+ * stance and mood; the runtime imposes and clears Tired; the observer carries in the rest. */
 export interface Pilot {
   name?:string;
   objective?:string;objective_done?:boolean;
   goal?:string;stance?:Stance;mood?:Mood;
   /** The mood Tired replaced, restored when resupply clears Tired. Runtime-owned. */
   mood_before_tired?:Mood;
-  /** Set by the operator from outside: a Tired that resupply does not clear. Rest does. */
+  /** Set from outside the harness: a Tired that resupply does not clear. Rest does. */
   tired_forced?:boolean;
-  /** Standing bounds the operator sets. Who to fight is not among them: combat targeting is
+  /** Standing bounds the human sets. Who to fight is not among them: combat targeting is
    * the pilot's judgement, kept honest by the hull floors and the walk-away fraction. */
   permissions?:{credit_reserve?:number;max_liability?:number};
   instruction?:{text:string;at:string};
@@ -93,7 +93,7 @@ export function account():Account {return need().account as unknown as Account;}
  * say what you decided and why, so the record shows the reasoning, not only the moves. */
 export function note(text:string):void {line(text);}
 
-/** True once the pilot (or operator) asked the run to stop. Every library function checks it
+/** True once the pilot (or the observer) asked the run to stop. Every library function checks it
  * between commands and returns `partial`; a loop of your own should check it too. */
 export function stopped():boolean {return stopFlag;}
 export function stop():void {stopFlag=true;}
@@ -360,7 +360,7 @@ function crossed(mood:Mood):string|null {
 }
 
 /** After every command and state push: cross a margin and Tired is imposed; back inside the
- * prior mood's margins (resupplied, anywhere) and it is cleared. The operator's forced Tired
+ * prior mood's margins (resupplied, anywhere) and it is cleared. A forced Tired
  * is not cleared here; rest clears everything. */
 export function imposeTired():void {
   const b=need(),who=b.pilot();

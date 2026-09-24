@@ -2,7 +2,7 @@
 
 Discord and the command line carry a fixed toolset that never cycles and never holds a job
 tool (N19, N2). An inquiry changes nothing in the game and nothing on disk; direction writes
-the operator's objective and standing permissions only, and lands at the next juncture (N17).
+the objective and standing bounds carried in only, and lands at the next juncture (N17).
 """
 from __future__ import annotations
 
@@ -115,7 +115,7 @@ def test_direction_sets_objective_and_permissions_and_lands_at_the_next_juncture
     assert {key: record[key] for key in ("name", "stance", "mood", "home")} == \
         {"name": "kvothe", "stance": "Prospector", "mood": "Focused", "home": "sol_base"}
 
-    # The next juncture is built from the record the operator wrote (T9, N17).
+    # The next juncture is built from the record the observer wrote (T9, N17).
     context = juncture.juncture_context({"platform": "cron"})
     assert "buy a hauler" in context and "gatherUntil('belt')" in context
     # The window itself is never handed a menu: it is a client, not the pilot (N2, N19).
@@ -149,14 +149,14 @@ def test_the_window_carries_no_job_tools_and_the_juncture_no_direction_tool():
     for definition in spacemolt.TOOL_DEFINITIONS:
         by_toolset.setdefault(definition["toolset"], set()).add(definition["name"])
 
-    window = by_toolset["spacemolt_operator"]
+    window = by_toolset["spacemolt_observer"]
     fire = by_toolset["spacemolt"]
     assert {"spacemolt_status", "spacemolt_direct", "spacemolt_stop"} == window
     assert not window & {"spacemolt_run", "spacemolt_scripts"}
     # Acting is running a script; a fire that could fly by hand would not write one.
     published = {definition["name"] for definition in spacemolt.TOOL_DEFINITIONS}
     assert not published & {"spacemolt_travel", "spacemolt_dock", "spacemolt_gather"}
-    assert "spacemolt_direct" not in fire, "only the operator sets the objective"
+    assert "spacemolt_direct" not in fire, "only the observer sets the objective"
     assert juncture.job_fields({"stance": "Prospector"})["enabled_toolsets"] == list(juncture.TOOLSETS)
     # A tool name is global and has exactly one toolset: no tool may claim two homes.
     names = [definition["name"] for definition in spacemolt.TOOL_DEFINITIONS]
@@ -176,9 +176,9 @@ def test_a_cron_fire_cannot_reach_status_while_the_window_can():
     resolve = lambda names: set().union(*(by_toolset.get(name, set()) for name in names))
 
     fire = resolve(juncture.TOOLSETS)
-    window = resolve(("spacemolt_observe", "spacemolt_operator"))
+    window = resolve(("spacemolt_observe", "spacemolt_observer"))
     assert "spacemolt_status" not in fire, "a juncture reads the chain from its context"
-    assert "spacemolt_status" in window, "the operator's window asks the runner directly"
+    assert "spacemolt_status" in window, "the observer's window asks the runner directly"
     # Direction comes from outside the pilot: the window sends the sentence, the fire reads it.
     assert "spacemolt_direct" not in fire, "a pilot does not instruct itself"
-    assert "spacemolt_direct" in window, "the operator's window is where a sentence is sent"
+    assert "spacemolt_direct" in window, "the observer's window is where a sentence is sent"

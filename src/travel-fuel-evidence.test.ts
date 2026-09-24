@@ -47,7 +47,7 @@ test('fuel refusals retain authoritative fractional evidence at every departure 
     f.server.ship.fuel=required-(stage==='initial'?deficit:0);
     f.configure({undock:stage==='undock'?deficit:0,jump:stage==='jump'?deficit:0});
     assert.equal(f.account.state.ship!.fuel,100,'cache still suggests ample fuel');
-    const options:travel.TravelOptions={mood:'Focused',operatorPolicy:{fuelReserveFloor:reserve},
+    const options:travel.TravelOptions={mood:'Focused',standingPolicy:{fuelReserveFloor:reserve},
       beforeMove:async()=>{if(stage==='hook')f.server.ship.fuel-=deficit;}};
     if(!deficit) {
       const result=await travel.travelTo(f.account,f.command,f.destination,options);

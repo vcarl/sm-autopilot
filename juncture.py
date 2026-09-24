@@ -1,7 +1,7 @@
 """The juncture: one cron job per pilot, and every fire a fresh conversation.
 
 A fire opens a new session carrying the shared skill, the stance's skill and the
-``spacemolt`` toolset; the agent reads the menu, dispatches, and ends the turn. The script
+``spacemolt`` toolset; the agent reads the menu, runs one script, and ends the turn. The script
 then runs on in the bridge, which outlives the conversation (N5). The runner rewrites this
 job at rest, when the stance changes (N18).
 """
@@ -17,7 +17,7 @@ from hermes_constants import get_hermes_home
 from .service import pilot_path, runtime_dir
 
 #: What a fire carries: the job tools plus the reads every client of the runner may make.
-#: ``spacemolt_operator`` is deliberately absent — the pilot does not set its own objective.
+#: ``spacemolt_observer`` is deliberately absent — the pilot does not set its own objective.
 TOOLSETS = ("spacemolt", "spacemolt_observe")
 SHARED_SKILL = "spacemolt"
 #: Cron's platform name. A juncture is the only session the menu is delivered into; a CLI
@@ -46,7 +46,7 @@ JUNCTURE_PROMPT = (
     "scout(), note() the numbers) is a good turn.\n"
     "- Spending, selling and fighting are the moves that stay done; the permissions bound the "
     "money, and who to fight is your judgement.\n"
-    "Whose word wins: the operator's instruction for this juncture, then the objective, then "
+    "Whose word wins: the instruction carried in for this juncture, then the objective, then "
     "your goal, then the suggested moves. When the instruction asks for something the library"
     " can't do, do the nearest thing it can and say so.\n"
     "Your turn:\n"
@@ -190,9 +190,9 @@ def _situation(menu: dict[str, Any], said: dict[str, Any] | None) -> str:
         head += f" Stance {menu.get('stance') or 'none'}, mood {menu.get('mood') or 'none'}."
     facts = [head]
     if menu.get("objective"):
-        facts.append(f"Objective (operator): {menu['objective']}")
+        facts.append(f"Objective (carried in): {menu['objective']}")
     if said:
-        facts.append(f"Instruction (operator, {_stamp(_when(said.get('at')))}, this juncture "
+        facts.append(f"Instruction (carried in, {_stamp(_when(said.get('at')))}, this juncture "
                      f"only): {said.get('text')}")
     facts += _alerts(menu)
     if menu.get("goal"):
@@ -275,7 +275,7 @@ def _rest_context(report: dict[str, Any], moves: str | None = None,
             "1. Review pilot/index.ts against how its runs ended. When another version would have "
             "served better, write the whole file as `source` to spacemolt_check; the next shift "
             "flies the file this review leaves.\n"
-            "2. Judge the operator's objective against the numbers, not against your memory of "
+            "2. Judge your objective against the numbers, not against your memory of "
             "it: each skill row carries its level, and `was`/`since` when it has moved since the "
             "earliest reflection on record. `missing` names what could not be read.\n"
             "3. Choose one goal that serves the objective, then the stance and mood that fit it.\n"
@@ -284,10 +284,10 @@ def _rest_context(report: dict[str, Any], moves: str | None = None,
     # A finished objective is not a reason to wait: the pilot retires it and chooses its own goal
     # in the same call. Waiting here is what wedged two junctures and an hour, live (2026-09-24).
     if report.get("objective_done"):
-        head += (f"The operator's objective ({report.get('objective') or 'unnamed'}) is already "
+        head += (f"Your objective ({report.get('objective') or 'unnamed'}) is already "
                  "complete: pass objective_done beside the goal, stance and mood you choose and it "
                  "is retired. Advance in general — the world, your levels, credits, a better "
-                 "ship — until the operator names another.\n")
+                 "ship — until the human names another.\n")
     # The menu call above stamped these delivered, so a rest that dropped them would drop them
     # for good.
     head += "".join(f"{line}\n" for line in alerts or [])
@@ -314,7 +314,7 @@ def read_pilot() -> dict[str, Any]:
 def write_pilot(record: dict[str, Any]) -> dict[str, Any]:
     """Set objective, stance and mood.
 
-    ponytail: a plain file, written by whoever owns rest — for now the operator or a test.
+    ponytail: a plain file, written by whoever owns rest — for now the observer or a test.
     The runner's own rest path takes it over when there is one; no CLI command until then.
     """
     path = pilot_path()

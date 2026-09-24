@@ -4,7 +4,7 @@ Rest is the bridge's act and is proved in ``spacemolt/src/rest.test.ts``. What i
 is the runner's half of reflection (N7, N8, N12): the fire's context is the report and not the
 menu, the choice writes the record and hands the new stance its own conversation, the choice is
 refused while a stance is held, and every reflection that writes anything leaves a goal and a
-stance behind — a finished operator objective is retired by one, never waited out.
+stance behind — a finished objective is retired by one, never waited out.
 """
 from __future__ import annotations
 
@@ -50,7 +50,7 @@ for line in sys.stdin:
     action = request["action"]
     if action in ("menu", "reflect"):
         # No stance in the record, so the menu the fire asks for is the reflection — and the
-        # report carries the operator's objective and whether it has been declared done.
+        # report carries the objective carried in and whether it has been declared done.
         who = pilot()
         result = {**REFLECT, **{key: who[key] for key in ("objective", "objective_done") if key in who}}
     else:
@@ -140,7 +140,7 @@ def test_a_reflection_that_names_no_goal_or_stance_writes_nothing(bridged):
 def test_a_finished_objective_is_retired_by_the_reflection_that_opens_the_next_shift(bridged):
     """Fault 2: ``objective_done`` used to be recorded beside the objective it finished, so every
     juncture re-reported the same completion. It is resolved exactly once, by the shift that
-    replaces it, and the pilot needs no operator to get there."""
+    replaces it, and the pilot needs no one outside to get there."""
     juncture.write_pilot({"name": "kvothe", "objective": "pay off the debt"})
 
     # A pilot whose objective is done still leaves rest holding a shift of its own.
@@ -186,7 +186,7 @@ def test_a_record_left_carrying_objective_done_reflects_instead_of_waiting(bridg
     context = juncture.juncture_context({"platform": "cron"})
     assert "spacemolt_reflect" in context and "stagnation" in context, \
         "a finished objective still gets the report a choice is made from"
-    assert "The operator sets the next one" not in context, "nothing here waits for the operator"
+    assert "The human sets the next one" not in context, "nothing here waits for the human"
     assert "objective_done beside the goal" in context
 
     spacemolt._reflect({"goal": "learn the near systems", "stance": "Scout", "mood": "Cautious"})
@@ -204,5 +204,5 @@ def test_a_rest_fire_carries_the_numbers_the_objective_is_judged_against(bridged
 
     context = juncture.juncture_context({"platform": "cron"})
     assert '"was":1' in context and '"level":3' in context, "the baseline reaches the fire"
-    assert "Judge the operator's objective against the numbers" in context
+    assert "Judge your objective against the numbers" in context
     assert "objective_done beside them if the numbers say" in context

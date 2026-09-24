@@ -95,7 +95,7 @@ test('unknown location resolves authoritatively at target or permits one freshly
 test('unknown location times out without commands or settlement and remains interruptible with ship identity guarded',async()=>{
   for(const mode of ['timeout','stop','ship']) {
     const f=fixture('other',Infinity);
-    const stop=new Error('operator stop');
+    const stop=new Error('observer stop');
     if(mode==='stop')f.hooks.checkpoint=()=>{if(f.now()>=2_000)throw stop;};
     if(mode==='ship')f.hooks.poll=()=>{f.server.ship.id='replacement';};
     await assert.rejects(f.run(),mode==='timeout'?ArrivalUnresolved:mode==='ship'?/Ship changed/:error=>error===stop);

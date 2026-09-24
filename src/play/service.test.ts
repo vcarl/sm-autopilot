@@ -68,7 +68,7 @@ for(const mood of ['Tired','Cautious'] as const)
 
 // The cost of an unpriced service is knowable only from the charge, so the reserve is enforced on
 // it: what was bought stands, nothing further is, and the refusal names the reserve.
-test('an unpriced repair that eats into the operator reserve is refused by name',async()=>{
+test('an unpriced repair that eats into the standing reserve is refused by name',async()=>{
   const game=bridgeWorld({services:['refuel'],cargoUsed:0});
   game.account.server.ship.fuel=game.account.server.ship.max_fuel;
   game.account.server.ship.hull=52;
@@ -107,10 +107,10 @@ test('an unpriced counter is not tried at all with nothing above the reserve',as
   } finally {unbind();}
 });
 
-// `credit_reserve` is the operator's one money bound, and Tired does not widen it: Tired lifts
+// `credit_reserve` is the one standing money bound, and Tired does not widen it: Tired lifts
 // the mood's own spend margin to unbounded, so the reserve is the only thing left that can
 // refuse a fill — and a refusal a script cannot read is a pilot guessing. It names the reserve.
-test('the operator credit reserve still refuses a Tired fill, by name',async()=>{
+test('the standing credit reserve still refuses a Tired fill, by name',async()=>{
   const game=bridgeWorld({services:['refuel','repair'],cargoUsed:0});
   game.account.server.ship.fuel=10;
   game.account.server.player.credits=100;

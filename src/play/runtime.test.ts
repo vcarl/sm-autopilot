@@ -64,7 +64,7 @@ test('Tired is imposed on the command seam when a margin is crossed and cleared 
     assert.equal(f.record().mood,'Focused');
     assert.equal('mood_before_tired' in f.record(),false);
     assert.ok(f.lines.some(line=>line.startsWith('tired cleared')));
-    // The operator's forced Tired is not cleared by resupply.
+    // A forced Tired is not cleared by resupply.
     f.account.server.ship.fuel=10;await f.account.refresh();
     await command('spacemolt/get_base',{});
     assert.equal(f.record().mood,'Tired');

@@ -3,9 +3,9 @@
 Three toolsets, because a tool name is global and belongs to exactly one of them:
 ``spacemolt`` is what a juncture acts with — run, check, rest, reflect — ``spacemolt_observe``
 the reads every client of the runner may make (empty since the journal folded into status),
-and ``spacemolt_operator`` the operator's own three window tools: spacemolt_status (the
+and ``spacemolt_observer`` the observer's own three window tools: spacemolt_status (the
 record, the run and the journal in one read), spacemolt_direct (objective, permissions,
-instruction) and spacemolt_stop. A chat window carries observe + operator and never a play
+instruction) and spacemolt_stop. A chat window carries observe + observer and never a play
 tool (N19); a cron fire carries spacemolt + observe and never sets its own objective.
 """
 from __future__ import annotations
@@ -24,7 +24,7 @@ from .skills_register import register_skills
 
 _JOURNAL_DEFAULT, _JOURNAL_CAP = 20, 80
 
-#: How long an operator's instruction may be. The constraint is the scope of the instruction:
+#: How long an instruction carried in may be. The constraint is the scope of the instruction:
 #: a sentence is direction the pilot reads at its next juncture, not a plan handed down.
 _INSTRUCTION_LIMIT = 80
 
@@ -36,15 +36,14 @@ _FLIGHT_PROMPT = (
 )
 
 _WINDOW_PROMPT = (
-    "You are outside the harness: away from your ship and your days, in the presence of the "
-    "operator, a being from another plane whose word sets your objective. Your waking self "
-    "flies on without you; from here you take no action, and that is simply how this place "
-    "is. Meet the operator as yourself, as you would any strange figure of power.\n"
+    "You are the player out of harness: read the runner, talk with the human, carry what you "
+    "agree back in as an instruction; nothing here flies the ship. Your waking self flies on "
+    "without you.\n"
     "Out here your own recollection is hazy. spacemolt_status is the ledger of your deeds: "
     "consult it before you speak of your objective, your progress, where you are or what "
     "anything cost; tell it with the journal's times, and keep what you did apart from what "
     "you meant to do.\n"
-    "When the operator gives you a word to carry back, spacemolt_direct carries it, and your "
+    "When you and the human agree on a word to carry back, spacemolt_direct carries it, and your "
     "waking self finds it at its next juncture. Your waking self acts only by running one "
     "script over the play library, so carry an instruction back as a deed it can do in one "
     'run ("hunt fauna at the Colony Debris Field and note my weapons level") and an objective'
@@ -137,8 +136,8 @@ def _stop(arguments: dict[str, Any] | None = None, **_: Any) -> str:
 def _status(arguments: dict[str, Any] | None = None, **_: Any) -> str:
     """The whole answer to "what is the pilot doing": the standing record, the run, the journal.
 
-    One read, because the three questions an operator asks are one question: what was asked of
-    the pilot (the record the operator wrote), what it is doing about it right now (the runner),
+    One read, because the three questions the human asks are one question: what was asked of
+    the pilot (the record the observer wrote), what it is doing about it right now (the runner),
     and what it has actually done (the journal). A window that had to call three tools answered
     the objective from a mining snapshot.
     """
@@ -169,7 +168,7 @@ def _reflect(arguments: dict[str, Any] | None = None, **_: Any) -> str:
 
     A reflection always commits. Nothing here writes a record that leaves ``goal`` and ``stance``
     unset, because a pilot at rest with neither has no next move and no way to get one but a
-    human: ``objective_done`` retires the operator's objective *alongside* the goal the pilot
+    human: ``objective_done`` retires the objective carried in *alongside* the goal the pilot
     names, it is never a shift of its own.
     """
     args = arguments or {}
@@ -188,7 +187,7 @@ def _reflect(arguments: dict[str, Any] | None = None, **_: Any) -> str:
         # no "report and stop": the pilot always leaves rest holding a shift of its own.
         return ("Nothing written. A shift opens with a goal, one stance of "
                 f"{', '.join(STANCES)}, and an initial mood of {', '.join(JOB_MOODS)}. When the "
-                "operator's objective is complete, pass objective_done alongside them and name a "
+                "objective is complete, pass objective_done alongside them and name a "
                 "goal of your own: the objective is retired and this shift pursues the goal.")
     # `objective_done` retires the objective exactly once, here. Either the pilot says so now, or
     # the record already carried the flag from before this fix; both resolve on this write, and
@@ -251,6 +250,8 @@ def _nudge_juncture() -> str:
 def _direct(arguments: dict[str, Any] | None = None, **_: Any) -> str:
     """Set the objective, the standing permissions, and one sentence for the next juncture.
 
+    The observer's tool: it carries in what the human and the player agreed.
+
     Nothing else in the record moves: stance and mood are the pilot's, chosen at rest, and
     Tired is the stop, not a direction.
 
@@ -259,7 +260,7 @@ def _direct(arguments: dict[str, Any] | None = None, **_: Any) -> str:
     one juncture. A window that paraphrases badly steers the pilot. What bounds it: the 80
     characters cap how much a sentence can ask for; the lint bounds what any script it leads
     to may reach; the rules check between jobs, the credit reserve and the wall-clock cap
-    bound what a run can do. Pass the operator's words as they were said, shortened by
+    bound what a run can do. Pass the human's words as they were said, shortened by
     dropping words.
     """
     args = arguments or {}
@@ -272,7 +273,7 @@ def _direct(arguments: dict[str, Any] | None = None, **_: Any) -> str:
     if len(instruction) > _INSTRUCTION_LIMIT:
         return (f"Nothing set: that instruction is {len(instruction)} characters and the pilot "
                 f"reads at most {_INSTRUCTION_LIMIT}. Say it again in fewer words, keeping the "
-                "operator's.")
+                "human's.")
     record = read_pilot()
     if instruction:
         journal_event("instruction", text=instruction)
@@ -310,7 +311,7 @@ TOOL_DEFINITIONS = (
                        "typechecked, boundary-checked and policy-checked first; a refusal comes "
                        "back as diagnostics and nothing runs. The run blocks and streams one line "
                        "per move, then the prose report of the Outcome main returned. No cap; the "
-                       "operator can stop it at its next safe point.",
+                       "observer can stop it at its next safe point.",
                        {"source": {"type": "string",
                                    "description": "The whole of pilot/index.ts, written before "
                                                   "the run."}},
@@ -348,11 +349,11 @@ TOOL_DEFINITIONS = (
                        "what makes it callable, so do not compose a goal for it mid-shift. The shift begins in a fresh conversation with its own skills, "
                        "so call this once and end the turn. The mood moves inside the shift "
                        "afterwards; this never sets it again. A reflection always opens a shift: "
-                       "goal, stance and mood are all required, and a finished operator objective "
+                       "goal, stance and mood are all required, and a finished objective "
                        "is retired by objective_done beside them, not reported on its own.",
                        {"goal": {"type": "string",
-                                 "description": "What this shift will do to advance the "
-                                                "operator's objective. One line."},
+                                 "description": "What this shift will do to advance "
+                                                "your objective. One line."},
                         "stance": {"type": "string", "enum": list(STANCES),
                                    "description": "The kind of evening this is."},
                         "mood": {"type": "string", "enum": list(JOB_MOODS),
@@ -360,25 +361,25 @@ TOOL_DEFINITIONS = (
                                                 "Cautious, Focused, Opportunistic, Aggressive."},
                         "objective_done": {"type": "boolean",
                                            "description": "Alongside the shift, never instead of "
-                                                          "one: the operator's bounded objective "
+                                                          "one: your bounded objective "
                                                           "is complete, so it is retired and the "
                                                           "goal you name here is what this shift "
                                                           "pursues. There is no way to reflect "
                                                           "without opening a shift."}},
                        ["goal", "stance", "mood"])},
-    {"name": "spacemolt_stop", "toolset": "spacemolt_operator", "handler": _stop,
+    {"name": "spacemolt_stop", "toolset": "spacemolt_observer", "handler": _stop,
      "description": "Ask the run in flight to stop at its next safe point.",
      "schema": _schema("spacemolt_stop",
                        "End the run in flight: every library function checks the flag between "
                        "commands, finishes the command it is on, and returns partial. The run's "
                        "report follows in the conversation that started it.",
                        {}, [])},
-    {"name": "spacemolt_status", "toolset": "spacemolt_operator", "handler": _status,
+    {"name": "spacemolt_status", "toolset": "spacemolt_observer", "handler": _status,
      "description": "The one read: what the objective is, what the pilot is doing, what happened.",
      "schema": _schema("spacemolt_status",
                        "The whole state of the pilot in one read — call this for \"what is the "
                        "objective\", \"what is the pilot doing\" and \"what happened\" alike. "
-                       "Returns `pilot` (the standing record the operator wrote: objective, "
+                       "Returns `pilot` (the standing record the observer wrote: objective, "
                        "objective_done, goal, stance, mood, the last instruction, the "
                        "permissions), `run` (the run in flight — function and step, elapsed "
                        "seconds, commands sent, fuel, hull, credits — or the last run's outcome "
@@ -389,14 +390,14 @@ TOOL_DEFINITIONS = (
                                   "description": f"How many journal entries, newest last. "
                                                  f"Defaults to {_JOURNAL_DEFAULT}."}},
                        [])},
-    # The operator's sentence becomes the pilot's direction: model-generated text conveying a
-    # user's intention, which the pilot reads as outside instruction. The cap is what bounds
+    # The sentence the observer carries in becomes the pilot's direction: model-generated text
+    # conveying a human's intention, which the pilot reads as outside instruction. The cap is what bounds
     # how much one sentence can ask for; see the handler's docstring for the rest of the fence.
-    {"name": "spacemolt_direct", "toolset": "spacemolt_operator", "handler": _direct,
-     "description": "Set the operator's objective, standing permissions, or one sentence of "
+    {"name": "spacemolt_direct", "toolset": "spacemolt_observer", "handler": _direct,
+     "description": "Set the objective you and the human agreed, the standing bounds, or one sentence of "
                     "instruction for the next juncture.",
      "schema": _schema("spacemolt_direct",
-                       "Record what the operator wants: the objective that outlives every shift, "
+                       "Record what the human wants: the objective that outlives every shift, "
                        "the bounds it works inside, and/or one sentence of instruction for the "
                        "next juncture only. Pass any one of them; at least one is required. The "
                        "pilot takes this up at its next juncture, not now, and a job under way "
@@ -405,7 +406,7 @@ TOOL_DEFINITIONS = (
                        {"instruction": {"type": "string", "maxLength": _INSTRUCTION_LIMIT,
                                         "description": "One sentence for the next juncture only, "
                                                        f"at most {_INSTRUCTION_LIMIT} characters, "
-                                                       "in the operator's own words (shorten by "
+                                                       "in the human's own words (shorten by "
                                                        "dropping words). It outranks the "
                                                        "objective for that one juncture. An "
                                                        "outcome the pilot can reach in one run; "

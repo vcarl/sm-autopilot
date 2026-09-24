@@ -105,7 +105,7 @@ test('docked, the pilot rests whatever the world imposed on it, and the shift co
   assert.equal(rested.shift_ended,true);
   assert.equal(rested.at_rest,true);
 
-  // The record keeps who the pilot is and what the operator wants; the shift's own three
+  // The record keeps who the pilot is and what was carried in; the shift's own three
   // settings are gone, so nothing is latched into the next one.
   assert.deepEqual(tired.record(),{name:'kvothe',objective:'fill the hold'});
 

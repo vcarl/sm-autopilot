@@ -30,7 +30,7 @@ export default async function main() {
 `spacemolt_run` typechecks, boundary-checks and policy-checks the file first; a refusal comes
 back as diagnostics instead of a run. A run blocks and streams what it does, one line per move,
 and ends with a prose report of the returned Outcome. `spacemolt_check` validates without
-running, so it names a wrong field before a run does. The operator can stop a run at its next
+running, so it names a wrong field before a run does. The observer can stop a run at its next
 safe point (`partial`); a loop of your own checks `stopped()` to end there too.
 
 ## The library is the lib
@@ -44,11 +44,11 @@ fits, and read its reply before sending the same mutation again.
 
 ## The objective
 
-The operator's objective, in your context, governs what you do. When it is open-ended, advance
+Your objective, in your context, governs what you do. When it is open-ended, advance
 in general: learn the world, raise your skill levels, gain credits and influence, get a better
-ship. `pilot()` returns the record that says what the operator wants (`objective`), what you
-chose at your last rest (`goal`, `stance`, `mood`) and your `permissions`. The
-operator and your rest write it.
+ship. `pilot()` returns the record that says what you are for (`objective`), what you
+chose at your last rest (`goal`, `stance`, `mood`) and your `permissions`. What is
+carried in from outside, and your rest, write it.
 
 ## What every Outcome tells you
 
@@ -156,7 +156,7 @@ only inspect a point of interest in your current system", and an uncaught throw 
 breaks the whole run. For a base outside this system the price is unknown until you dock there,
 which is no reason to stay put. Resupplying back inside the margins — `service()` here,
 or at any base — clears Tired and restores the mood it replaced. You never set or clear Tired
-yourself. Rest clears everything. `permissions.credit_reserve` is the operator's and Tired does
+yourself. Rest clears everything. `permissions.credit_reserve` is a standing bound and Tired does
 not widen it; a fill it refuses says so by name.
 
 ## Rules that will refuse you

@@ -141,9 +141,9 @@ def test_register_publishes_every_tool_in_the_spacemolt_toolset():
         by_toolset.setdefault(toolset, set()).add(name)
     assert by_toolset == {
         "spacemolt": {"spacemolt_run", "spacemolt_check", "spacemolt_rest", "spacemolt_reflect"},
-        "spacemolt_operator": {"spacemolt_direct", "spacemolt_status", "spacemolt_stop"},
+        "spacemolt_observer": {"spacemolt_direct", "spacemolt_status", "spacemolt_stop"},
     }
-    # The pilot plays by running its file; the operator sends a sentence or stops a run.
+    # The pilot plays by running its file; the observer sends a sentence or stops a run.
     assert tools["spacemolt_run"][1]["parameters"]["required"] == []
     assert "pilot/index.ts" in tools["spacemolt_run"][1]["description"]
     assert "source" in tools["spacemolt_check"][1]["parameters"]["properties"]
@@ -152,7 +152,7 @@ def test_register_publishes_every_tool_in_the_spacemolt_toolset():
     assert (tools["spacemolt_direct"][1]["parameters"]["properties"]["instruction"]["maxLength"]
             == spacemolt._INSTRUCTION_LIMIT)
     # The standing permissions are the two bounds on spending and owing; whether to hunt is the
-    # operator's objective, like any other work.
+    # objective carried in, like any other work.
     assert set(tools["spacemolt_direct"][1]["parameters"]["properties"]["permissions"]
                ["properties"]) == {"credit_reserve", "max_liability"}
     # Flying, docking, mining and every read are calls inside the pilot's file, not tools.
@@ -171,10 +171,10 @@ def test_register_publishes_every_tool_in_the_spacemolt_toolset():
     assert all(len(flight({"platform": p})) <= flight_kwargs["max_chars"] for p in ("cron", "discord"))
 
 
-def test_the_operators_sentence_is_bounded_and_lands_on_the_pilot():
+def test_the_observers_sentence_is_bounded_and_lands_on_the_pilot():
     """One sentence of direction, and the pilot reads it at its next juncture.
 
-    The cap is the scope of the instruction: what an operator can ask for in 80 characters is
+    The cap is the scope of the instruction: what a human can ask for in 80 characters is
     direction, and the pilot's own machinery is what carries it out. It rides on the one
     direction tool beside the objective, and setting it leaves the objective alone.
     """

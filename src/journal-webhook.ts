@@ -1,6 +1,6 @@
 /** The pilot's journal, rendered, posted to a Discord webhook in bursts.
  *
- * A shift is hours of work and the operator is not watching a terminal. Rather than a
+ * A shift is hours of work and the human is not watching a terminal. Rather than a
  * message per event (rate limits, noise) or a digest at rest (too late to be interesting),
  * lines buffer and drain on a random interval that shortens as the buffer fills: a quiet
  * pilot posts every few minutes, a busy one keeps up.
@@ -13,7 +13,7 @@ import {watchJournal} from './run-record.ts';
 
 /** ponytail: three numbers, not a config system. Discord takes 2000 characters a message
  * and the drain leaves room for the newline joins; three to eight minutes is "a burst, not
- * a stream". Lift them into config.yaml the day an operator wants a different cadence. */
+ * a stream". Lift them into config.yaml the day the human wants a different cadence. */
 export const BUDGET=1900;
 export const MIN_MS=3*60_000;
 export const MAX_MS=8*60_000;
@@ -118,7 +118,7 @@ export function journalDrain(url:string,deps:DrainDeps={}):Drain {
         sent+=sending.length;posts++;
         if(buffer.length)await sleep(GAP_MS);
       }
-      // The operator's only view of the drain is the bridge's stderr log.
+      // The human's only view of the drain is the bridge's stderr log.
       if(sent)deps.log?.(`journal drain: posted ${sent} line(s) in ${posts} message(s), ${buffer.length} left`);
       if(failed)deps.log?.(`journal drain: post failed, ${buffer.length} buffered`);
       const chars=buffer.reduce((sum,line)=>sum+line.length+1,0);
@@ -138,7 +138,7 @@ export function journalDrain(url:string,deps:DrainDeps={}):Drain {
   };
 }
 
-/** The bridge's one drain, if the operator set a webhook. Absent, nothing happens: no
+/** The bridge's one drain, if the human set a webhook. Absent, nothing happens: no
  * listener, no timer, no post. */
 let active:Drain|null=null;
 export function startJournalDrain(deps:DrainDeps={}):Drain|null {

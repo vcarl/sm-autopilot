@@ -76,9 +76,9 @@ def test_the_juncture_job_carries_the_stance_and_passes_the_cron_toolset_clamp(t
     assert _resolve_script_path(stored["script"])[0] is not None, "cron must accept the path"
     # The stance's skill is its career folder's README (STANCE_FOLDER), not the stance name.
     assert stored["skills"] == ["spacemolt", "spacemolt-mining"]
-    # The job tools and the reads; never the operator's toolset — a pilot does not direct itself.
+    # The job tools and the reads; never the observer's toolset — a pilot does not direct itself.
     assert stored["enabled_toolsets"] == ["spacemolt", "spacemolt_observe"]
-    assert "spacemolt_operator" not in stored["enabled_toolsets"]
+    assert "spacemolt_observer" not in stored["enabled_toolsets"]
     # The stance's own tools survive both halves of the cron clamp.
     enabled = _resolve_cron_enabled_toolsets(stored, {})
     assert {"spacemolt", "spacemolt_observe"} <= set(enabled)
@@ -131,7 +131,7 @@ LAST = {"sha": "f90d4bf12d9d", "started": "2026-09-16T00:10:00Z",
 PRE_MERGE = {"script": "source:f90d4bf12d9d", "outcome": "done", "jobs": [],
              "reason": "Home set to frontier_station"}
 
-FACT_LINES = ("SpaceMolt juncture", "Objective (operator):", "Permissions:", "Present:",
+FACT_LINES = ("SpaceMolt juncture", "Objective (carried in):", "Permissions:", "Present:",
               "  Fuel ", "  Fitted weapons:", "Last run")
 
 
@@ -197,12 +197,12 @@ def test_a_pre_merge_run_record_is_no_last_run(monkeypatch):
 
 
 def test_an_instruction_reaches_one_juncture_and_not_the_next(monkeypatch):
-    """The operator's sentence is for the next juncture only: once rendered, it is delivered."""
+    """The observer's sentence is for the next juncture only: once rendered, it is delivered."""
     juncture.write_pilot({"name": "kvothe", "stance": "Hunter", "mood": "Aggressive",
                           "instruction": {"text": "stay in Sol tonight",
                                           "at": "2026-09-23T03:21:00Z"}})
     first = _rendered(monkeypatch, _menu(12, last=LAST))
-    assert "Instruction (operator, 09-23 03:21Z, this juncture only): stay in Sol tonight" in first
+    assert "Instruction (carried in, 09-23 03:21Z, this juncture only): stay in Sol tonight" in first
     second = _rendered(monkeypatch, _menu(12, last=LAST))
     assert "stay in Sol tonight" not in second
     assert juncture.read_pilot()["instruction_delivered"]["text"] == "stay in Sol tonight"

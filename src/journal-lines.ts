@@ -1,7 +1,7 @@
 /** The journal as a person reads it: one short line per thing the pilot actually did.
  *
  * The journal on disk is for machines — the runner resuming, reflection counting, a proof
- * replaying. This is the other half: what the operator sees in a chat window and in the
+ * replaying. This is the other half: what the human sees in a chat window and in the
  * Discord drain, where a shift is a few dozen lines rather than a few thousand JSON objects.
  *
  * Every entry renders to at most one line, or to null when a line would be noise: a status

@@ -61,7 +61,7 @@ def credentials_file() -> Path | None:
 
 
 def journal_webhook() -> str:
-    """Where the rendered journal is posted, if the operator set one. This profile's secret,
+    """Where the rendered journal is posted, if the human set one. This profile's secret,
     never another's; absent, the bridge starts no drain and posts nothing."""
     try:
         return get_secret("SPACEMOLT_JOURNAL_WEBHOOK", "") or ""

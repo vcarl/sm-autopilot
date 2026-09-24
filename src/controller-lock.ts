@@ -18,7 +18,7 @@ function alive(pid:number):boolean {
   catch(error){return (error as NodeJS.ErrnoException).code!=='ESRCH';} // EPERM: alive, just not ours
 }
 
-/** Never steal a lock from a LIVE controller: an operator must first inspect the pilot.
+/** Never steal a lock from a LIVE controller: a human must first inspect the pilot.
  *  A lock whose holder is gone is not a lock — a killed bridge must not wedge every successor. */
 export function controllerLock(path:string) {
   try {take(path);}

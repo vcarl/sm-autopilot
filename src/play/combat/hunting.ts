@@ -190,7 +190,7 @@ export function hunt(opts:{poi?:string;fights?:number;species?:string;target?:'c
     const gap=await loadout();
     if(gap)return refuse(gap);
     // The hull line the mood draws, read at each check rather than once at the top: the pilot
-    // record moves under a running loop (the runtime imposes Tired, the operator rewrites the
+    // record moves under a running loop (the runtime imposes Tired, the observer rewrites the
     // file), and a fight carrying on under a line the pilot has left is the one thing this
     // loop exists to prevent.
     const floor=()=>resolveWalkAway(pilot().mood??'Cautious')*Number(acct().state.ship?.max_hull??0);

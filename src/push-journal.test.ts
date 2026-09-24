@@ -1,5 +1,5 @@
 /** The pushes the game sends without being asked: which reach the journal, which are
- * buffered for the next wake, and what the operator reads. */
+ * buffered for the next wake, and what the human reads. */
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {mkdtempSync,readFileSync,existsSync} from 'node:fs';
@@ -90,7 +90,7 @@ test('a chatty channel cannot flood the journal or the drain', () => {
   assert.equal(lines(runtime).length,PUSH_PER_MINUTE+1);
 });
 
-test('the operator reads a push as one line', () => {
+test('the human reads a push as one line', () => {
   // Stamped in the reader's own local time, as every other line is.
   const at='2026-09-23T18:35:00.000Z';
   const rendered=(entry:Record<string,unknown>)=>renderLine({at,...entry})!.replace(/^\d\d:\d\d /,'');

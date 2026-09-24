@@ -42,7 +42,7 @@ const readActive=async():Promise<ShippingActiveContract[]>=>
     .filter(row=>row.role==='carrier'||row.role==='invited_carrier');
 
 /** The allowance a contract of this liability has to fit inside: the tier's per-package and
- * remaining-aggregate limits, and the operator's own cap. The first one it breaks is the answer. */
+ * remaining-aggregate limits, and the standing cap. The first one it breaks is the answer. */
 function overLimit(liability:number,profile:ShippingProfileResponse):string|null {
   const cap=pilot().permissions?.max_liability;
   const {single_package_liability_limit:single,remaining_aggregate_liability:left,liability_unlimited}=profile.capacity;

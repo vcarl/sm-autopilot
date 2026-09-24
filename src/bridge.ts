@@ -74,7 +74,7 @@ export function journalResult(action:string,result:unknown):unknown {
 
 /** The pushes worth keeping. `@spacemolt/lib` emits every frame the socket carries whether
  * anything registered or not, and the runner discarded all 85 kinds; these are the ones a
- * pilot waking at the next juncture, or an operator reading the drain, would want. The
+ * pilot waking at the next juncture, or a human reading the drain, would want. The
  * journal is the record and the volume measurement; the decision-shaped subset is buffered
  * into `alerts.json` as well, which is what the wake actually reads.
  *

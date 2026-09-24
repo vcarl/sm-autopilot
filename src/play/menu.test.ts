@@ -183,7 +183,7 @@ test('a remembered book written before books carried a tick is read as 20 ticks 
   const who:Pilot={mood:'Opportunistic',stance:'Trader'};
   const f=world(who);
   try {
-    // A pre-ageing markets.json: no `tick` on the entry. The operator's rule is to assume 20.
+    // A pre-ageing markets.json: no `tick` on the entry. The runner's rule is to assume 20.
     writeFileSync(join(f.runtime,'markets.json'),JSON.stringify([{base_id:'range_base',at:'earlier',
       items:[{item_id:'ore',best_buy:40,best_buy_qty:99,best_sell:0,best_sell_qty:0}]}]));
     const seen=await facts(f,who);
@@ -235,7 +235,7 @@ test('the shipping board is J4, and the platform and the berths are J5',async()=
     assert.equal(seen.obligations.passengers,1,'the seated berth is not counted as a passenger aboard');
     assert.equal(verdict(seen,'J4').admissible,true,verdict(seen,'J4').reason);
     assert.match(verdict(seen,'J5').reason,/1 aboard owed a landing/);
-    // The operator's liability permission is what a package has to fit inside, not the board.
+    // The standing liability permission is what a package has to fit inside, not the board.
     who.permissions={max_liability:10};
     assert.match(verdict(await facts(f,who),'J4').reason,/no package fits .* 10 credit liability permission/);
   } finally {f.close();}

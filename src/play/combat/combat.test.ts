@@ -36,7 +36,7 @@ function worldWithStuckTick(record:Pilot,options:WorldOptions={}) {
   return {...game,command,lines,record:()=>who};
 }
 /** `world`, but the pilot record is REPLACED mid-hunt, the way a re-read of `pilot.json` gives
- * a fresh object: the runner's `pilot()` is the file, so the operator moves the mood under a
+ * a fresh object: the runner's `pilot()` is the file, so the observer moves the mood under a
  * running loop. Anything that captured the record at the top of the loop keeps the old mood. */
 function worldWithMoodMoved(record:Pilot,on:string,to:Pilot['mood'],options:WorldOptions={}) {
   const game=bridgeWorld({services:['refuel','repair','storage'],cargoUsed:0,...options});

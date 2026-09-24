@@ -33,7 +33,7 @@ function fixture(local:boolean,fuel:number,cost=10.25) {
   return {server,account,calls,handlers,command,destination,movement};
 }
 
-test('operator floors tighten mood departure boundaries without rounding or weakening them',async()=>{
+test('standing floors tighten mood departure boundaries without rounding or weakening them',async()=>{
   for(const local of [true,false])for(const [mood,base] of [['Cautious',30],['Aggressive',12],['Tired',0]] as const)
     for(const floor of [undefined,0,base,base+0.5])for(const deficit of [0,0.25]) {
       const reserve=Math.max(base,floor??0),required=10.25+reserve;
@@ -41,7 +41,7 @@ test('operator floors tighten mood departure boundaries without rounding or weak
       // A rich cache cannot authorize departure when authoritative fuel is short.
       f.account.state.ship!.fuel=120;
       const trip=travelTo(f.account,f.command,f.destination,{mood,
-        operatorPolicy:floor===undefined?undefined:{fuelReserveFloor:floor}});
+        standingPolicy:floor===undefined?undefined:{fuelReserveFloor:floor}});
       if(deficit) {
         await assert.rejects(trip,error=>error instanceof TravelBlocked&&error.message===
           `fuel_below_route_minimum: have ${required-deficit}, need ${required}; shortfall ${deficit} fuel units`);
@@ -59,18 +59,18 @@ test('operator floors tighten mood departure boundaries without rounding or weak
     }
 });
 
-test('operator policy rejects invalid input before commands and survives refuel and departure refreshes',async()=>{
+test('a standing policy rejects invalid input before commands and survives refuel and departure refreshes',async()=>{
   for(const local of [true,false]) {
     for(const floor of [-1,NaN,Infinity,-Infinity,'40',null,true,{},[]]) {
       const f=fixture(local,120);
       await assert.rejects(travelTo(f.account,f.command,f.destination,
-        {mood:'Cautious',operatorPolicy:{fuelReserveFloor:floor}} as TravelOptions),TravelBlocked);
+        {mood:'Cautious',standingPolicy:{fuelReserveFloor:floor}} as TravelOptions),TravelBlocked);
       assert.deepEqual(f.calls,[]);
       assert.deepEqual(f.account.refreshes,[]);
     }
     for(const options of [
-      {mood:'Cautious',reserve:0,operatorPolicy:{fuelReserveFloor:40}},
-      {reserve:0,operatorPolicy:{fuelReserveFloor:40}},
+      {mood:'Cautious',reserve:0,standingPolicy:{fuelReserveFloor:40}},
+      {reserve:0,standingPolicy:{fuelReserveFloor:40}},
     ]) {
       const f=fixture(local,120);
       await assert.rejects(travelTo(f.account,f.command,f.destination,options as TravelOptions),TravelBlocked);
@@ -85,7 +85,7 @@ test('operator policy rejects invalid input before commands and survives refuel 
       if(mode==='after-undock')f.handlers.spacemolt.undock=()=>{
         f.server.location.docked_at=null;f.server.ship.fuel=50.5;return {};
       };
-      const trip=travelTo(f.account,f.command,f.destination,{mood:'Cautious',operatorPolicy:{fuelReserveFloor:40.5},
+      const trip=travelTo(f.account,f.command,f.destination,{mood:'Cautious',standingPolicy:{fuelReserveFloor:40.5},
         refuel:async minimum=>{
           refuels.push(minimum);f.server.ship.fuel=mode==='partial-refuel'?minimum-0.25:minimum;
           await f.account.refresh();

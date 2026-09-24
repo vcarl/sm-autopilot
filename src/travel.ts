@@ -2,7 +2,7 @@ import {SpacemoltError,type GameState} from '@spacemolt/lib';
 import type {ReadinessAccount,ReadinessCommand} from './readiness.ts';
 import {details} from './response-details.ts';
 import {routeSteps} from './normal-route.ts';
-import {resolveFuelReserve,type Mood,type OperatorFuelPolicy} from './mood-policy.ts';
+import {resolveFuelReserve,type Mood,type StandingFuelPolicy} from './mood-policy.ts';
 import {dockAt} from './dock.ts';
 import {position,reconcileMove,type Position,type Reconciliation} from './reconcile.ts';
 
@@ -45,8 +45,8 @@ export interface TravelOptions {
    * resupply leg the crossing exists to allow. Defaults to `mood`, which is what a caller with
    * no live pilot record has. Same shape as `GatherOptions.moodNow`, for the same reason. */
   moodNow?:()=>Mood;
-  /** Internal operator policy; tightens the mood, never a model-facing allocation. */
-  operatorPolicy?:OperatorFuelPolicy;
+  /** Internal standing policy; tightens the mood, never a model-facing allocation. */
+  standingPolicy?:StandingFuelPolicy;
   /** Internal script allocations only; cannot override a mood's reserve. */
   reserve?:number;maxJumps?:number|null;
   checkpoint?:(settled?:boolean)=>Promise<void>;
@@ -103,12 +103,12 @@ const retryable=(error:unknown)=>error instanceof SpacemoltError&&!error.pending
 /** One shared movement path; policy, spending and command ownership stay with the caller. */
 export async function travelTo(account:ReadinessAccount,command:ReadinessCommand,destination:TravelDestination,options:TravelOptions={}) {
   if(options.mood!==undefined&&options.reserve!==undefined)throw new TravelBlocked('Travel mood cannot be combined with a numeric reserve');
-  if(options.operatorPolicy!==undefined&&options.mood===undefined)throw new TravelBlocked('Operator fuel policy requires a travel mood');
+  if(options.standingPolicy!==undefined&&options.mood===undefined)throw new TravelBlocked('A standing fuel policy requires a travel mood');
   if(options.mood===undefined&&options.reserve===undefined)throw new TravelBlocked('Travel requires a mood or an internal script allocation');
   /** The reserve the next quote is taken against, read then rather than once at departure:
    * the mood moves mid-route and the reserve is what the mood picks. */
   const fuelReserve=():number=>{
-    try {return options.mood!==undefined?resolveFuelReserve(options.moodNow?.()??options.mood,options.operatorPolicy):options.reserve!;}
+    try {return options.mood!==undefined?resolveFuelReserve(options.moodNow?.()??options.mood,options.standingPolicy):options.reserve!;}
     catch(error){throw new TravelBlocked(String(error));}
   };
   let reserve=fuelReserve();

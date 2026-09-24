@@ -93,7 +93,7 @@ test('loaded two-jump return re-quotes each leg and docks with the effective res
   // Independent D2 expectation; production travelTo resolves the mood itself.
   for(const floor of [undefined,30.5]) {
     const reserve=floor??24,options:TravelOptions={mood:'Focused',
-      operatorPolicy:floor===undefined?undefined:{fuelReserveFloor:floor}};
+      standingPolicy:floor===undefined?undefined:{fuelReserveFloor:floor}};
     const f=fixture();await outbound(f,options,reserve);
     const callIndex=f.calls.length;
     const result=await travelTo(f.account,f.command,f.home,options);
@@ -123,7 +123,7 @@ test('loaded two-jump return re-quotes each leg and docks with the effective res
 test('fuel loss after either return jump blocks the next jump or paid local leg despite stale cache',async()=>{
   for(const floor of [undefined,30.5])for(const lossAt of ['b','a']) {
     const reserve=floor??24,options:TravelOptions={mood:'Focused',
-      operatorPolicy:floor===undefined?undefined:{fuelReserveFloor:floor}};
+      standingPolicy:floor===undefined?undefined:{fuelReserveFloor:floor}};
     const f=fixture(lossAt);await outbound(f,options,reserve);
     const callIndex=f.calls.length,required=(lossAt==='b'?10:4)+reserve;
     await assert.rejects(travelTo(f.account,f.command,f.home,options),error=>error instanceof TravelBlocked&&

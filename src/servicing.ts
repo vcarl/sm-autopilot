@@ -13,7 +13,7 @@ export interface ServiceFuelQuote {
 }
 export interface ServiceOptions {
   mood:Mood;
-  /** Operator-owned permission (D11), independent of the mood. */
+  /** A standing permission (D11), independent of the mood. */
   creditReserve?:number;
 }
 export interface ServiceOutcome {satisfied:true;issued:string[];spent:number;fuel:number;hull:number}
@@ -44,7 +44,7 @@ const shortfall=(name:string,have:number,need:number,unit:string)=>
  * sirius_observatory_station, whose `get_base` carries no `repair_price_per_hull`). Requiring
  * that field is what wedged a pilot in Tired for six hours.
  *
- * `creditReserve` is the operator's bound and is never widened. It cannot be quoted exactly
+ * `creditReserve` is the standing bound and is never widened. It cannot be quoted exactly
  * before an unpriced service, so it is enforced twice: the posted estimate must leave it intact
  * beforehand, and the canonical charge is measured against it after each call — a breach stops
  * anything further being bought and names the reserve.

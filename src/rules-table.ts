@@ -204,7 +204,7 @@ const RULES:Rule[]=[
     if(!board.length)return no('stance',job,'the shipping board is empty here; another station may have a package');
     const fits=board.filter(row=>row.cargo<=facts.holdings.cargo_free&&row.liability<=allowed);
     if(!fits.length)return no('stance',job,
-      `no package fits ${facts.holdings.cargo_free} free cargo inside the operator's ${allowed} credit liability permission`);
+      `no package fits ${facts.holdings.cargo_free} free cargo inside the standing ${allowed} credit liability permission`);
     return yes('stance',job,`${fits.length} package(s) fit the hold and the ${allowed} credit liability permission`);
   }},
   {id:'stance.carrier.J5',stance:'Carrier',apply:facts=>{
