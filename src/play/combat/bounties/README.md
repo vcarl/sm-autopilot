@@ -19,7 +19,7 @@ export default async function main() {
   if (bounty) await acceptMission(bounty.mission_id);
   const sweep = await patrol({maxTier: 1, fights: 3});
   if (sweep.status !== 'done') return sweep;
-  return service({insure: true});
+  return service();
 }
 ```
 

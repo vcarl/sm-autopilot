@@ -36,6 +36,27 @@ export class ArrivalUnresolved extends Error {
   /** Set when the reconciling read below showed the world moved the ship (S41, C13). */
   moved?:Reconciliation;
 }
+/** The server's own refusal when a battle owns the ship: `in_battle`. The move is refused and
+ * never retreated from here. Breaking off is a combat decision with consequences, and this
+ * codebase leaves combat to the pilot (the reason the `may_attack` permission was deleted);
+ * a mover that quietly fled a fight would be making that call for it. What the mover owes the
+ * pilot instead is a refusal that names the battle and the call that ends it. */
+export class InBattle extends TravelBlocked {
+  constructor(detail:string) {
+    super(`in_battle: a battle holds the ship, so it cannot travel or jump: ${detail}. `+
+      `disengage() breaks off and waits for the battle to actually end, then travel again`);
+  }
+}
+/** One refused move is evidence; a second with nothing changed is a loop. On 2026-09-24 a
+ * pilot re-issued the same refused `travel` nine times over two and a half minutes while a
+ * Slag-Tortoise shot it from hull 61 to 29, and lost three uninsured ships that way. So the
+ * refusal is remembered here, at the seam every caller moves through, and re-answered without
+ * touching the wire until the battle demonstrably ends: a confirmed `disengage`, a
+ * `battle_ended`/`player_died` push, or a move the server accepted. */
+let battleHolds=false;
+export const battleEnded=()=>{battleHolds=false;};
+const refusedInBattle=(error:unknown)=>error instanceof SpacemoltError&&error.code==='in_battle';
+
 export interface TravelDestination {system_id:string;poi_id?:string;base_id?:string}
 export interface TravelOptions {
   mood?:Mood;
@@ -102,6 +123,7 @@ const retryable=(error:unknown)=>error instanceof SpacemoltError&&!error.pending
 
 /** One shared movement path; policy, spending and command ownership stay with the caller. */
 export async function travelTo(account:ReadinessAccount,command:ReadinessCommand,destination:TravelDestination,options:TravelOptions={}) {
+  if(battleHolds)throw new InBattle('a battle already refused this ship\'s last move and nothing has ended it since');
   if(options.mood!==undefined&&options.reserve!==undefined)throw new TravelBlocked('Travel mood cannot be combined with a numeric reserve');
   if(options.standingPolicy!==undefined&&options.mood===undefined)throw new TravelBlocked('A standing fuel policy requires a travel mood');
   if(options.mood===undefined&&options.reserve===undefined)throw new TravelBlocked('Travel requires a mood or an internal script allocation');
@@ -186,7 +208,13 @@ export async function travelTo(account:ReadinessAccount,command:ReadinessCommand
     // its non-fuel context is validated, then retain the fuel-change guard.
     requireFuel();
     if(departure.ship!.fuel!==plan.ship.fuel)throw new TravelBlocked('Route origin, load or fuel changed before departure');
-    if(account.state.location!.docked_at)await command('spacemolt/undock',{});
+    // Undocking is refused `in_battle` just as the move is, and reaches the pilot the same way.
+    if(account.state.location!.docked_at)
+      try {await command('spacemolt/undock',{});}
+      catch(error) {
+        if(!refusedInBattle(error))throw error;
+        battleHolds=true;throw new InBattle((error as SpacemoltError).message);
+      }
     const next=plan.steps[0];
     if(next) {
       const system=details(await command('spacemolt/get_system',{})).system;
@@ -201,8 +229,9 @@ export async function travelTo(account:ReadinessAccount,command:ReadinessCommand
     if(current.ship!.fuel!==plan.ship.fuel)throw new TravelBlocked('Route origin, load or fuel changed before departure');
     const target=next??destination.poi_id;
     if(!target)throw new TravelBlocked('Route does not reach destination');
-    try {await command(next?'spacemolt/jump':'spacemolt/travel',{id:target});}
+    try {await command(next?'spacemolt/jump':'spacemolt/travel',{id:target});battleHolds=false;}
     catch(error) {
+      if(refusedInBattle(error)) {battleHolds=true;throw new InBattle((error as SpacemoltError).message);}
       if(!retryable(error)||retries--<=0)throw error;
       await waitForArrival(account,stable,waits);
       continue;

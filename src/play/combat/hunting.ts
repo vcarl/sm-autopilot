@@ -3,6 +3,7 @@
 import type {CreatureInfo,EnrichedWreck,GetBattleStatusResponse,GetNearbyResponse,PirateInfo,V2Module,V2Ship} from '@spacemolt/lib';
 import {resolveWalkAway} from '../../mood-policy.ts';
 import {details} from '../../response-details.ts';
+import {battleEnded} from '../../travel.ts';
 import {active as activeMissions} from '../missions.ts';
 import {acct,admit,checkStop,command,job,pilot,step,stopped} from '../runtime.ts';
 import {goTo} from '../travel.ts';
@@ -89,6 +90,31 @@ async function huntText():Promise<string> {
 /** Whether an active mission's own words name this species (its id, space for underscore). */
 const namesSpecies=(text:string,species:string)=>text.includes(species.replace(/_/g,' '));
 
+/** Break off, and see it through. `spacemolt_battle/retreat` is an attempt, not an exit: the
+ * live server answers "Retreating from the enemy." and the battle carries on for ticks
+ * afterwards. On 2026-09-24 one retreat at the walk-away line left the ship in the battle for
+ * two and a half minutes, hull 61 to 29, while every move it tried was refused `in_battle` —
+ * and it lost the ship. So the retreat is re-issued once a tick until the battle itself says
+ * it is over. The stop flag is deliberately not checked: a pilot asking to stop does not mean
+ * abandoning the ship in a fight.
+ *
+ * True when the battle ended. False when the bound ran out with the battle still on, which is
+ * the one state a pilot must be told about, because nothing will move the ship until it ends. */
+export async function disengage(bound=FIGHT_CEILING_MS):Promise<boolean> {
+  const deadline=Date.now()+bound;
+  for(;;) {
+    try {await command('spacemolt_battle/retreat',{});} catch {/* the battle may have ended already */}
+    // The battle answering `not_in_battle` IS its end; that refusal is the evidence.
+    try {
+      const status=details(await command('spacemolt_battle/status',{})) as GetBattleStatusResponse;
+      if(!status?.battle_id){battleEnded();return true;}
+    } catch {battleEnded();return true;}
+    if(Date.now()>=deadline)return false;
+    step('retreating: the battle has not ended yet');
+    await sleep(pace.tickMs);
+  }
+}
+
 /** One fight, from the first shot to the end of the battle, paced on the battle's own tick.
  * Ships fire by themselves every tick under their stance — there is no fire command — and the
  * server takes one mutation a tick, so this reads the status once a tick, makes one decision
@@ -104,6 +130,7 @@ async function engage(target:CreatureInfo|PirateInfo,floor:()=>number):Promise<F
   let outcome:Fight['outcome']='escaped',last:GetBattleStatusResponse|undefined;
   let tick=-1,opened=0,fled=0;
   let seen:{hull:number;far:number}|undefined,first:{hull:number;far:number}|undefined;
+  let stuck=false;
   for(;;) {
     let status:GetBattleStatusResponse;
     // The battle answering `not_in_battle` IS its end; that refusal is the evidence.
@@ -129,8 +156,11 @@ async function engage(target:CreatureInfo|PirateInfo,floor:()=>number):Promise<F
     if(ship?.incapacitated){outcome='unresolved';break;}
     const tired=pilot().mood==='Tired';
     if(hull<floor()||tired) {
-      try {await command('spacemolt_battle/retreat',{});} catch {/* the battle ended first */}
-      outcome='broke off';
+      step(`breaking off: hull ${hull} under the line ${Math.floor(floor())}${tired?', and Tired':''}`);
+      // Out of the battle is `broke off`; still in one when the bound ran out is unresolved,
+      // and the caller must say so — no move will work until it ends.
+      outcome=await disengage()?'broke off':'unresolved';
+      if(outcome==='unresolved')stuck=true;
       break;
     }
     if(Date.now()>=deadline){outcome='unresolved';break;}
@@ -150,9 +180,11 @@ async function engage(target:CreatureInfo|PirateInfo,floor:()=>number):Promise<F
   await acct().refresh();
   // ponytail: the chase is `advance`. `stance board` would cancel its retreat outright, but it
   // costs marines and suppresses our weapons; take it the day a hunt needs a boarding party.
-  const why=outcome==='escaped'&&fled&&seen&&first
-    ?`hull flat at ${seen.hull}% for ${fled} tick(s) while it opened the range ${first.far}→${seen.far}`
-    :undefined;
+  const why=stuck
+    ?'broke off at the hull line, but the battle had not ended when the retreat bound ran out: the ship is still in it and cannot travel or jump'
+    :outcome==='escaped'&&fled&&seen&&first
+      ?`hull flat at ${seen.hull}% for ${fled} tick(s) while it opened the range ${first.far}→${seen.far}`
+      :undefined;
   return {target,...last?{last_status:last}:{},outcome,...why?{why}:{},hull_before,
     hull_after:Number(acct().state.ship?.hull??0),loot:[]};
 }
@@ -244,7 +276,12 @@ export function hunt(opts:{poi?:string;fights?:number;species?:string;target?:'c
     if(result.ended==='tired')return {status:'partial',did,why:'Tired: broke off after the round in flight',detail:result,
       next:['goTo a base and service(); that clears Tired']};
     if(result.ended==='stopped')return {status:'partial',did,why:'stopped by the pilot',detail:result};
-    if(result.ended==='hull')return {status:'partial',did,why:`hull ${hull} against the ${pilot().mood} walk-away line ${Math.floor(floor())}`,detail:result,
+    // A fight that could not be broken off is the fact that outranks the hull number: nothing
+    // the pilot does next will move the ship until that battle ends.
+    if(result.ended==='hull')return {status:'partial',did,
+      why:result.fights.at(-1)?.outcome==='unresolved'&&result.fights.at(-1)?.why
+        ?result.fights.at(-1)!.why!
+        :`hull ${hull} against the ${pilot().mood} walk-away line ${Math.floor(floor())}`,detail:result,
       next:['goTo a base and service(); ended on the hull line twice running means the habitat is wrong, not the script']};
     if(result.ended==='hold full')return {status:'partial',did,why:'the hold is full; loot fought for has nowhere to go',detail:result,
       next:['stow(rows) or sell(rows), then hunt again']};

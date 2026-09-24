@@ -8,6 +8,7 @@ import {resolve} from 'node:path';
 import {createInterface} from 'node:readline';
 import {fileURLToPath} from 'node:url';
 import {markAlertsDelivered,pendingAlerts,recordAlert} from './alerts.ts';
+import {battleEnded} from './travel.ts';
 import {controllerLock} from './controller-lock.ts';
 import type {ReadinessAccount,ReadinessCommand} from './readiness.ts';
 import {details} from './response-details.ts';
@@ -134,6 +135,10 @@ export function pushJournal(account:{on:(type:string,handler:(payload:Record<str
     const body=(payload??{}) as Record<string,unknown>;
     // Most `ok` variants key on `action`, seven on `type`; a variant with neither is the
     // wildlife kill notice, which the pilot's own hunt step already reports.
+    // The two frames that end a battle, wherever the run has got to: the mover's `in_battle`
+    // refusal stands until one of them arrives (or a confirmed `disengage` clears it), so a
+    // battle that ends between junctures does not leave the ship refusing to move.
+    if(type==='battle_ended'||type==='player_died')battleEnded();
     const cause=type==='ok'?String(body.action??body.type??''):'';
     if(type==='ok'&&(!cause||OWN_PUSH.has(cause)||PUSH_NOISE.has(cause)))return;
     const scalars=pushScalars(body);

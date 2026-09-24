@@ -4,7 +4,7 @@ import {dockAt} from '../dock.ts';
 import {resolveFuelReserve,type Mood} from '../mood-policy.ts';
 import {details} from '../response-details.ts';
 import {serviceShip} from '../servicing.ts';
-import {FuelRouteShortfall,TravelBlocked,travelTo} from '../travel.ts';
+import {FuelRouteShortfall,InBattle,TravelBlocked,travelTo} from '../travel.ts';
 import {active} from './missions.ts';
 import {acct,checkStop,command,job,pilot,step} from './runtime.ts';
 import type {Outcome} from './types.ts';
@@ -276,6 +276,14 @@ export function goTo(id:string):Promise<Outcome<Trip>> {
       }
       await fly({system_id:quote.target_system,...poi?{poi_id:poi}:{}});
     } catch(error) {
+      // A battle is a state the trip cannot argue with, and it is not the trip breaking: it is
+      // refused, with the call that ends it named, so the next juncture disengages instead of
+      // re-issuing the same refused move (the loop that lost three ships on 2026-09-24).
+      if(error instanceof InBattle)
+        return {status:jumps?'partial':'refused',
+          did:jumps?`stopped at ${acct().state.location?.system_id} short of ${target}: a battle`:`did not fly to ${target}`,
+          why:error.message,detail:{...detail(),jumps},
+          next:['disengage() — retreat and wait for the battle to end, then goTo again']};
       if(error instanceof FuelRouteShortfall) {
         const {actualFuel,requiredFuel,shortfall}=error.evidence;
         // A detour already flown is work behind the refusal, so the trip is partial and the

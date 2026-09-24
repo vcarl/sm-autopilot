@@ -9,6 +9,7 @@ what to engage is your judgement, and most of the judgement is about what not to
 | Function | Promise |
 |---|---|
 | `hunt({poi?, fights?, species?, target?})` | up to N fights where you stand (or at `poi`, flown to first), each wreck looted; nothing there is `done` with zero fights |
+| `disengage()` | break off whatever battle holds the ship and wait until it has actually ended; true when it has. The one call to make when a move is refused `in_battle` |
 | `salvage({tow?})` | loot every wreck here into the hold, your own first; `tow: '<wreck id>'` tows that one instead |
 
 `hunt` fights and loots, and nothing else. A fight runs on the battle's own tick — ten seconds
@@ -69,7 +70,9 @@ export default async function main() {
 - You know the kind: `species: 'molt_grazer'` narrows to one you have fought before. Without it
   `hunt` takes the first creature the world does not decline.
 - The system's `police_level` is above 20 unless you mean to meet pirates.
-- Insurance is current for anything you would mind losing. `service({insure: true})`.
+- There is no insurance to fall back on. `service({insure: true})` accepts the flag and does
+  nothing — it reports `insure: not implemented yet` and buys no cover — so a hull lost is lost
+  with everything in the hold. The hull line and `disengage()` are the whole of the protection.
 
 ## What trains what
 
@@ -96,6 +99,13 @@ before and after, and `gained.items` is the cargo delta — a `loot` reply over-
 Every mood has a walk-away fraction of max hull (Cautious 0.95, Focused and Relaxed 0.90,
 Aggressive 0.80). `hunt` reads the hull each round and `battle/retreat`s the moment it crosses
 that line. A ship that escapes at 30% hull keeps everything.
+
+`battle/retreat` is an attempt, not an exit: the server accepts it and the battle carries on
+for ticks afterwards, and while it does, every `travel`, `jump` and `undock` is refused
+`in_battle`. So `hunt` re-issues the retreat once a tick until the battle itself says it is
+over, and `disengage()` is that same wait on its own for a pilot that finds a move refused. A
+refused move is never worth re-issuing until the battle has ended — that loop is how ships are
+lost.
 
 The quarry flees too, and that is the other half of the rule. A creature whose hull stops
 falling while its `zone_distance` grows is running, not being missed: `hunt` chases it with

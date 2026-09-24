@@ -5,6 +5,7 @@
  * asserts can only have come from an authoritative cargo read.
  */
 import assert from 'node:assert/strict';
+import {SpacemoltError} from '@spacemolt/lib';
 import {mkdtempSync,rmSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
@@ -181,6 +182,10 @@ export interface WildlifeOptions {
   /** The quarry that runs: its hull stays flat, the range opens a ring a tick, and when the
    * polls run out the battle simply ends — no kill, no wreck. */
   flees?:boolean;
+  /** Retreats the server accepts before the battle actually ends. `retreat` answers
+   * "Retreating from the enemy." and the fight carries on, which is what the live server does
+   * and what killed three ships on 2026-09-24; 0 is a retreat that ends it at once. */
+  retreatTicks?:number;
 }
 
 /** A bench with one recipe on it: what a dry run answers, what a commit escrows and queues,
@@ -287,7 +292,7 @@ export function bridgeWorld(options:WorldOptions={}) {
   };
   // The habitat: creatures at the POI, one battle at a time, and the wrecks a kill leaves.
   const fauna={polls:1,damage:0,drops:[{item_id:'creature_carapace',quantity:1}],
-    incapacitateOn:0,...options.wildlife,
+    incapacitateOn:0,retreatTicks:0,...options.wildlife,
     creatures:(options.wildlife?.creatures??[]).map(row=>({role:'grazer',hull:60,max_hull:60,
       name:row.species,in_combat:false,branded:false,...row}))};
   if(options.wildlife) {
@@ -299,7 +304,12 @@ export function bridgeWorld(options:WorldOptions={}) {
       name:String(weapon.name??'Autocannon I')});
   }
   const wrecks:Record<string,any>[]=[];
-  let battle:{target:string;left:number;ticks:number}|null=null;
+  let battle:{target:string;left:number;ticks:number;retreats:number}|null=null;
+  // A battle owns the ship: the live server refuses every move while one is on, by this code.
+  const notInBattle=()=>{
+    if(battle)throw new SpacemoltError('in_battle',
+      "cannot perform this action while in combat. Use the 'battle' command to fight or flee.");
+  };
   const tick=()=>{
     if(!battle)return;
     battle.ticks++;
@@ -468,7 +478,7 @@ export function bridgeWorld(options:WorldOptions={}) {
     'spacemolt/hunt':params=>{
       const target=fauna.creatures.find(row=>row.creature_id===String(params.id));
       if(!target)throw new Error(`No creature ${params.id} here`);
-      battle={target:target.creature_id,left:Math.max(0,fauna.polls),ticks:0};
+      battle={target:target.creature_id,left:Math.max(0,fauna.polls),ticks:0,retreats:0};
       return {delta:{details:{command:'attack',message:'Engaging.',pending:true}}};
     },
     // The server's own refusal when the fight is over, which is how a caller learns it ended.
@@ -490,8 +500,11 @@ export function bridgeWorld(options:WorldOptions={}) {
     'spacemolt_battle/advance':()=>({structuredContent:{action:'advance',message:'Advancing toward the enemy.'}}),
     'spacemolt_battle/stance':params=>({structuredContent:{action:'stance',stance:String(params.id),message:'Stance set.'}}),
     'spacemolt_battle/target':params=>({structuredContent:{action:'target',target:String(params.id),message:'Target set.'}}),
-    'spacemolt_battle/retreat':()=>{battle=null;
-      return {structuredContent:{action:'retreat',message:'Breaking off.'}};},
+    // A retreat is an attempt, not an exit: the live server takes it and the battle carries on
+    // until it resolves. `retreatTicks` is how many accepted retreats that takes.
+    'spacemolt_battle/retreat':()=>{
+      if(battle&&battle.retreats++>=fauna.retreatTicks)battle=null;
+      return {structuredContent:{action:'retreat',message:'Retreating from the enemy.'}};},
     'spacemolt_salvage/wrecks':()=>({structuredContent:{count:wrecks.length,
       wrecks:structuredClone(wrecks)}}),
     'spacemolt_salvage/loot':params=>{
@@ -537,18 +550,19 @@ export function bridgeWorld(options:WorldOptions={}) {
         estimated_fuel:7,fuel_per_jump:7,fuel_available:account.server.ship.fuel,
         cargo_used:account.server.ship.cargo_used,route:route.map((system_id,jumps)=>({system_id,jumps}))};
     },
-    'spacemolt/jump':params=>{account.server.ship.fuel-=7;account.server.location.system_id=String(params.id);
+    'spacemolt/jump':params=>{notInBattle();account.server.ship.fuel-=7;account.server.location.system_id=String(params.id);
       account.server.location.poi_id='gate';
       // Arriving is the whole of a `visit_system` objective: the server ticks it over on the
       // jump, and nothing else the pilot sends can.
       for(const row of taken)for(const o of (row.objectives??[]) as Record<string,any>[])
         if(o.type==='visit_system'&&o.system_id===String(params.id)){o.current=o.required??1;o.completed=true;}
       return {};},
-    'spacemolt/undock':()=>{account.server.location.docked_at=null;return {};},
+    'spacemolt/undock':()=>{notInBattle();account.server.location.docked_at=null;return {};},
     // The base you dock at is the one behind the POI you are standing at, never a fixed id.
     'spacemolt/dock':()=>{account.server.location.docked_at=bases[account.server.location.poi_id]??'sol_base';return {};},
     // The server settles the move before the next authoritative read, as a same-system hop does.
     'spacemolt/travel':params=>{
+      notInBattle();
       // The server's own refusal when the id is not a POI in this system — a system id
       // handed on as a destination is rejected here, after the jump was flown and paid for.
       const where=account.server.location.system_id==='sol'?here:deepRange;

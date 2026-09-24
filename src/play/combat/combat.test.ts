@@ -3,7 +3,7 @@ import test from 'node:test';
 import type {ReadinessAccount} from '../../readiness.ts';
 import {bridgeWorld,type WorldOptions} from '../../test-support/bridge-world.ts';
 import {bind,unbind,type Pilot} from '../runtime.ts';
-import {hunt,pace} from './hunting.ts';
+import {disengage,hunt,pace} from './hunting.ts';
 import {salvage} from './salvage.ts';
 
 // A tick is ten seconds of real time; the tests take the same loop at a millisecond.
@@ -116,6 +116,42 @@ test('hunt breaks off at the walk-away line, which is also what imposes Tired',a
     assert.equal(f.record().mood,'Tired');
     assert.equal(f.count('spacemolt_battle/retreat'),1);
     assert.match(out.why!,/Tired/);
+  } finally {unbind();}
+});
+
+// A retreat is an attempt, not an exit. On 2026-09-24 the walk-away fired correctly at
+// 22:14:16 (hull 61/80 under the Aggressive line 64), sent one `battle/retreat`, took the
+// server's "Retreating from the enemy." as done and returned — and the battle carried on for
+// two and a half minutes while every move the pilot then tried was refused `in_battle` and a
+// Slag-Tortoise took the hull from 61 to 29. Three ships were lost that way, all uninsured.
+// Breaking off means staying on it until the battle itself says it is over.
+test('breaking off at the hull line waits for the battle to actually end, not for the first accepted retreat',async()=>{
+  const f=world({mood:'Focused'},{wildlife:{creatures:[grazer],polls:20,damage:4,retreatTicks:3}});
+  try {
+    const out=await hunt({fights:2});
+    assert.equal(out.detail.fights[0]!.outcome,'broke off');
+    // Four retreats: the three the server accepted while the fight ran on, and the one it ended on.
+    assert.equal(f.count('spacemolt_battle/retreat'),4,'the retreat is re-issued until the battle ends');
+    // The whole point: the ship can move again. A live battle refuses travel with `in_battle`.
+    await f.command('spacemolt/travel',{id:'belt'});
+    assert.equal(f.account.server.location.poi_id,'belt');
+  } finally {unbind();}
+});
+
+// The same wait on its own, for a pilot that finds a move refused `in_battle`.
+test('disengage reports whether the battle ended, and says so when the bound ran out with it still on',async()=>{
+  const f=world({mood:'Focused'},{wildlife:{creatures:[grazer],polls:20,damage:0,retreatTicks:2}});
+  try {
+    await f.command('spacemolt/hunt',{id:'c1'});
+    assert.equal(await disengage(),true);
+    await f.command('spacemolt/travel',{id:'belt'});
+    assert.equal(f.account.server.location.poi_id,'belt');
+  } finally {unbind();}
+  const g=world({mood:'Focused'},{wildlife:{creatures:[grazer],polls:20,damage:0,retreatTicks:99}});
+  try {
+    await g.command('spacemolt/hunt',{id:'c1'});
+    // A bound of one tick: the battle is still on when it runs out, and that is the answer.
+    assert.equal(await disengage(1),false);
   } finally {unbind();}
 });
 
