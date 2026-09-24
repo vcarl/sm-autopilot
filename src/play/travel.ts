@@ -5,6 +5,7 @@ import {resolveFuelReserve,type Mood} from '../mood-policy.ts';
 import {details} from '../response-details.ts';
 import {serviceShip} from '../servicing.ts';
 import {FuelRouteShortfall,InBattle,TravelBlocked,travelTo} from '../travel.ts';
+import {knownBooks} from './market.ts';
 import {active} from './missions.ts';
 import {acct,checkStop,command,job,pilot,step} from './runtime.ts';
 import type {Outcome} from './types.ts';
@@ -21,7 +22,7 @@ export interface Trip {
   /** Where the ship is now (`GameState['location']`). */
   location:V2Location;
   jumps:number;
-  /** True when the trip ended docked at the base the id named. */
+  /** True when the trip ended docked at the base the id named, or at the one base in the system it named. */
   docked:boolean;
 }
 
@@ -94,7 +95,12 @@ export async function destination(id:string):Promise<{id:string;quote:FindRouteR
   };
   const first=await ask(id);
   if(first.found)return {id,quote:first};
-  const places=await nameable();
+  const local=await nameable();
+  // The bases in the market memory are nameable from anywhere: the one read that knows a far
+  // base's id. It keeps no display name, so `Node Alpha Processing Station` lands on
+  // `node_alpha_processing_station` by the same word match, and a miss lists them as ids.
+  const places=[...local,...knownBooks().filter(book=>!local.some(place=>place.id===book.base_id))
+    .map(book=>({id:book.base_id,name:book.base_id,what:'base' as const}))];
   const want=key(id);
   const hit=places.find(place=>place.id!==id&&(key(place.id)===want||key(place.name)===want));
   if(hit) {
@@ -103,7 +109,7 @@ export async function destination(id:string):Promise<{id:string;quote:FindRouteR
   }
   // "The station in Node Alpha" is one place when the system has one base: go there and say
   // so, rather than refusing a guess whose intent has only one reading.
-  const named=systemBases(id,places,acct().state.location?.system_id);
+  const named=systemBases(id,local,acct().state.location?.system_id);
   const one=named?.bases.length===1?named.bases[0]!:undefined;
   if(one) {
     const third=await ask(one.id);
@@ -208,7 +214,9 @@ async function distressStops(quote:FindRouteResponse,reserve:number):Promise<Sto
 }
 
 /** Fly to a POI, a base, or a system, jumping as many times as the route needs, and dock
- * when the target is a base. The destination is always named: there is no default.
+ * when the target is a base — or a system with exactly one base, whose base is the only place in
+ * it a pilot can trade, service or read a market. A system with several bases (or none) ends
+ * wherever the jump lands. The destination is always named: there is no default.
  *
  * Over `find_route` + `jump`/`travel` + `dock` it adds: base ids resolved to their POI before
  * the arrival wait, the mood's fuel reserve, a refuel first when docked and short, and one
@@ -236,7 +244,18 @@ export function goTo(id:string):Promise<Outcome<Trip>> {
     // A system id answers with a system and no POI of its own. Passing it on as a `poi_id`
     // is what the server rejects as "Unknown destination" after the jump was already flown
     // and paid for: a system is reached wherever in it the jump lands, so name no POI.
-    const poi=quote.target_poi===undefined&&quote.target_system===named?undefined:quote.target_poi??named;
+    let poi=quote.target_poi===undefined&&quote.target_system===named?undefined:quote.target_poi??named;
+    // A system named, and the ship in it: when it has one base, that base is where the trip ends.
+    const settle=async()=>{
+      if(poi||acct().state.location?.system_id!==quote.target_system)return;
+      let bases:SystemPoi[]=[];
+      try {bases=((details(await command('spacemolt/get_system',{})).system?.pois??[]) as SystemPoi[]).filter(row=>row.base_id);}
+      catch {/* no listing: the system is reached wherever the jump landed */}
+      if(bases.length!==1)return;
+      poi=bases[0]!.id;named=bases[0]!.base_id!;
+      step(`${target} has one base; going on to ${named}`);
+    };
+    await settle();
     const {location}=acct().state;
     // Already there, and docked if the place is a base — asked of the system's own POI rows,
     // which only answer for the system the ship is in, which this branch has established.
@@ -275,6 +294,7 @@ export function goTo(id:string):Promise<Outcome<Trip>> {
         }
       }
       await fly({system_id:quote.target_system,...poi?{poi_id:poi}:{}});
+      if(!poi){await settle();if(poi)await fly({system_id:quote.target_system,poi_id:poi});}
     } catch(error) {
       // A battle is a state the trip cannot argue with, and it is not the trip breaking: it is
       // refused, with the call that ends it named, so the next juncture disengages instead of
@@ -299,7 +319,7 @@ export function goTo(id:string):Promise<Outcome<Trip>> {
     // The dock is decided by the system's own listing, not the route heuristic: a system id
     // may also answer with a POI, and docking "at a system" would wedge here.
     if(poi&&await baseAt(quote.target_system,poi,named)){await dockAt(acct(),command,named);docked=true;step(`docked at ${named}`);}
-    return {status:'done',did:`arrived at ${target}${poi?'':` (${acct().state.location?.poi_id})`}${docked?' and docked':''} after ${jumps} jump(s)`
+    return {status:'done',did:`arrived at ${target}${poi?'':` (${acct().state.location?.poi_id})`}${docked?named===target?' and docked':` and docked at ${named}`:''} after ${jumps} jump(s)`
       +(answered.length?`; ${answered.join('; ')}`:''),detail:{...detail(),jumps,docked}};
   });
 }

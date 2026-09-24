@@ -79,6 +79,13 @@ same goes for `withdraw` of rows the store does not have and `sell` of rows you 
 Every line here has cost a whole juncture at the typecheck gate. `tsc` is the first gate and it
 sees the real types, so these are not style notes.
 
+- **A variable you reassign across calls is `Outcome<unknown>`.** `let last = await goTo(base);
+  last = await prices();` is a type error: `last` was inferred `Outcome<Trip>`, and a
+  `prices()` Outcome is not one. Write `let last: Outcome<unknown> = await goTo(base);` (import
+  `Outcome` from `'play'`), or a fresh `const` per call.
+- **`account().cargo` may be undefined.** `account().cargo.map(…)` fails the typecheck; write
+  `(account().cargo ?? []).map(…)`, or read the hold from an Outcome's `now.cargo`, which is always
+  an array.
 - **Everything is `await`ed.** Every library function returns a `Promise<Outcome>`.
   `const s = sell(rows)` then `s.status` is `Property 'status' does not exist on type
   'Promise<Outcome<Sold>>'` — the missing `await` is the entire error.
@@ -115,7 +122,7 @@ sees the real types, so these are not style notes.
 |---|---|
 | `orient()` | the whole world model in one read: present, skills, storage everywhere, ships, missions, debts |
 | `scout(target?)` | POIs of a system (this one by default) with types, stations, resources here, creatures here |
-| `goTo(id)` | fly to a POI, base or system, jumping as needed; dock if a base. Any of the three ids works, or a display name: a system id ends the trip anywhere in that system, a POI id at that POI, a base id docked at it — a guess that names a system with a single base goes to that base, and any other word that names nothing is `refused` with the nearest ids instead of being flown. On the way it flies through and completes any active distress mission whose system is on the route or one jump off it, when the detour stays inside a quarter of the route's length and the tank still covers the rest plus the reserve |
+| `goTo(id)` | fly to a POI, base or system, jumping as needed; dock if a base. Any of the three ids works, or a display name: a system id with one base ends docked at that base (a system with several ends wherever the jump lands, undocked, and `prices()` there is refused until you `goTo` a base id), a POI id at that POI, a base id docked at it. A display name works for a base in this system or in the market memory (any base you have read `prices()` at); a guess that names a system with a single base goes to that base, and any other word that names nothing is `refused` with the nearest ids, remembered bases among them, instead of being flown. On the way it flies through and completes any active distress mission whose system is on the route or one jump off it, when the detour stays inside a quarter of the route's length and the tank still covers the rest plus the reserve |
 | `service()` | full tank and hull at the counter you are docked at, inside the mood's spend margin. A station bills for fuel and repairs after the fact, so it needs no posted price: where it posts one, that is the estimate the spend is checked against first; where it posts none — which is most stations for the hull — the charge itself is checked against `permissions.credit_reserve` and the margin, and nothing further is bought if it breaches either |
 | `stow(rows)` / `withdraw(rows)` / `storage(base?)` | station storage; rows you name (omit a row's `quantity` for all of it); readable from anywhere |
 | `prices(items?)` / `sell(rows, opts?)` / `buy(item, qty)` | the market here, live at the moment of the act, and remembered for `spreads()`. `sell`'s options are exactly two: `{from: 'hold' \| 'store'}` (default `'hold'`; `'store'` empties the store a hold-load at a time) and `{floor: {[item_id]: number}}` (skip a row whose `best_buy` is under it). There is no option naming a market — `sell` is always the counter you are docked at |
