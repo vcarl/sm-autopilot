@@ -109,7 +109,7 @@ Each folder's README is the skill for that career; the one for your stance is lo
 - `shipsForSale()` lists the hulls at or under credits minus your `credit_reserve`, biggest
   hold first, each with one line of difference against what you fly.
 - `buyShip(listingId, {switchTo:true})` buys it and, at a shipyard, flies it; over the
-  reserve or `permissions.max_spend` it is `refused` with the numbers and nothing is sent.
+  reserve it is `refused` with the numbers and nothing is sent.
 - `refit({remove, install})` moves modules across. Check first: a module needs a free slot of
   its own kind (`utility`, `weapon`, `defense`) and room in `cpu_used/cpu_capacity` and
   `power_used/power_capacity`. `refit` and `buy` both check before sending; a refusal names
@@ -130,9 +130,8 @@ You never set or clear Tired yourself. Rest clears everything.
 - Statically, before the run: an import outside `play`, `play/<folder>` or `@spacemolt/lib`;
   `process`, `fetch`, `eval`, dynamic `import()`; `while(true)`/`for(;;)` without a
   `stopped()` check; `unload_passenger` with id `all`; a file with no `export default async function main`.
-- At runtime, inside the helpers: spending under `permissions.credit_reserve` or over
-  `permissions.max_spend`; a route without the mood's fuel reserve; a system in
-  `permissions.no_go`; starting work under Tired or Relaxed.
+- At runtime, inside the helpers: spending under `permissions.credit_reserve`; a route
+  without the mood's fuel reserve; starting work under Tired or Relaxed.
 
 ## When you are stuck
 

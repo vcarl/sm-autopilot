@@ -207,8 +207,7 @@ export interface Bought {
 
 /** Buy at market price, here, after an `estimate_purchase` preview. Over `spacemolt/buy` it
  * adds: the estimate read first and refused when `total_cost` would take the wallet under
- * `permissions.credit_reserve`, over `permissions.max_spend` or over `maxEach × quantity`;
- * the refusal names the numbers. A **module** is checked against the ship's grid first —
+ * `permissions.credit_reserve` or over `maxEach × quantity`; the refusal names the numbers. A **module** is checked against the ship's grid first —
  * free slot of its kind, CPU and power — and refused when it could not be fitted, with
  * `next` saying what to remove; `{force:true}` skips that check for a pilot buying a spare.
  * Trains trading. Tired or Relaxed: refused. */
@@ -228,11 +227,10 @@ export function buy(itemId:string,quantity:number,opts:{deliverTo?:'cargo'|'stor
     }
     const estimate=details(await command('spacemolt_market/estimate_purchase',{item_id:itemId,quantity})) as EstimatePurchaseResponse;
     const who=pilot(),credits=acct().state.player?.credits??0;
-    const reserve=who.permissions?.credit_reserve??0,cap=who.permissions?.max_spend;
+    const reserve=who.permissions?.credit_reserve??0;
     const cost=Number(estimate.total_cost??0);
     if(!(estimate.available>0))return {status:'refused',did:`did not buy ${itemId}`,why:`not on this market: ${estimate.message??'0 available'}`,detail:{estimate}};
     if(credits-cost<reserve)return {status:'refused',did:`did not buy ${itemId}`,why:`costs ${cost}; credits ${credits} less reserve ${reserve} leaves ${credits-reserve}`,detail:{estimate}};
-    if(cap!==undefined&&cost>cap)return {status:'refused',did:`did not buy ${itemId}`,why:`costs ${cost}, over permissions.max_spend ${cap}`,detail:{estimate}};
     if(opts.maxEach!==undefined&&cost>opts.maxEach*quantity)return {status:'refused',did:`did not buy ${itemId}`,why:`costs ${cost}, over maxEach ${opts.maxEach} × ${quantity}`,detail:{estimate}};
     const bought=details(await command('spacemolt/buy',{id:itemId,quantity:Math.min(quantity,estimate.available),
       ...opts.deliverTo?{deliver_to:opts.deliverTo}:{}})) as BuyResponse;

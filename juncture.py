@@ -127,8 +127,7 @@ def _age(then: datetime, now: datetime) -> str:
     return f"{max(minutes, 0)} min ago"
 
 
-_PERMISSION = {"credit_reserve": "keep {:,} credits", "max_liability": "owe at most {:,} on one job",
-               "max_spend": "spend at most {:,} on one purchase"}
+_PERMISSION = {"credit_reserve": "keep {:,} credits", "max_liability": "owe at most {:,} on one job"}
 
 #: The rest of the story a free hold of 0 leaves untold. A full hold is not a dead end and it
 #: is not a mystery either: it is ore with two places to go and a gather that will return

@@ -228,8 +228,7 @@ export interface Purchase {
 
 /** Buy a listed hull (`listing_id`) or commission a class (`class_id` with `commission:true`)
  * and, with `switchTo` and a shipyard here, switch to it. Refused before anything is sent
- * when the price takes the wallet under `permissions.credit_reserve` or over
- * `permissions.max_spend`, with the numbers. A commission that stalls in `sourcing` is
+ * when the price takes the wallet under `permissions.credit_reserve`, with the numbers. A commission that stalls in `sourcing` is
  * `partial` with `materials_to_source` named. Done when `list_ships` shows the new hull.
  * Costs the price; trains nothing. `next` says what is left to do on the new hull. */
 export function buyShip(id:string,opts:{commission?:boolean;switchTo?:boolean}={}):Promise<Outcome<Purchase>> {
@@ -243,7 +242,7 @@ export function buyShip(id:string,opts:{commission?:boolean;switchTo?:boolean}={
     if(!previous.base_id)return no('not docked; a hull changes hands at a station');
 
     const who=pilot(),credits=acct().state.player?.credits??0;
-    const reserve=who.permissions?.credit_reserve??0,cap=who.permissions?.max_spend;
+    const reserve=who.permissions?.credit_reserve??0;
     let price:number,quote:CommissionQuoteResponse|undefined;
     if(opts.commission) {
       quote=details(await command('spacemolt_ship/commission_quote',{id})) as CommissionQuoteResponse;
@@ -258,7 +257,6 @@ export function buyShip(id:string,opts:{commission?:boolean;switchTo?:boolean}={
     }
     if(credits-price<reserve)
       return no(`costs ${price}; credits ${credits} less reserve ${reserve} leaves ${credits-reserve}`);
-    if(cap!==undefined&&price>cap)return no(`costs ${price}, over permissions.max_spend ${cap}`);
 
     let bought:string,sourcing='';
     if(opts.commission) {

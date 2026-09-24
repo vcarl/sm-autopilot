@@ -302,8 +302,8 @@ export async function menu(runtime?:string):Promise<Menu> {
   }
 
   // Upgrade the hull when the budget covers a listing plus the reserve.
-  const credits=now.credits,creditReserve=who.permissions?.credit_reserve??0,cap=who.permissions?.max_spend;
-  const budget=Math.min(credits-creditReserve,cap??Infinity);
+  const credits=now.credits,creditReserve=who.permissions?.credit_reserve??0;
+  const budget=credits-creditReserve;
   if(docked&&facts.place.counters?.includes('Hangar / refit')&&budget>0) {
     const listings=(await attempt(async()=>(details(await command('spacemolt_ship/browse_ships',{max_price:budget})) as {listings?:ShipListing[]}).listings))??[];
     let best:{listing:ShipListing;klass:ShipClass}|undefined;

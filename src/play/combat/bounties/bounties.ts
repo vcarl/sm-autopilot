@@ -16,7 +16,7 @@ export interface Patrolled {
 /** Sweep `systems` (default: the police ≤ 20 neighbours one jump out) for pirates at or
  * below `maxTier`, fight each with `hunt`'s rules, and come home. Takes a bounty mission's
  * targets first when one is active. Refused without insurance when the fitted value exceeds
- * `max_spend`, or in Cautious mood.
+ * in Cautious mood.
  * Trains bounty_hunting, weapons, gunnery, tactics, shields, armor. Costs fuel, ammunition,
  * hull. Tired ends the sweep after the current system. */
 export function patrol(opts?:{systems?:string[];maxTier?:number;fights?:number}):Promise<Outcome<Patrolled>> {throw new Error('unimplemented');}

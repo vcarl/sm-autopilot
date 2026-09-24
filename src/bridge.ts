@@ -128,7 +128,7 @@ export function pushJournal(account:{on:(type:string,handler:(payload:Record<str
  * the runner to, and rest asks the runner to take it away. */
 export interface Pilot {name?:string;objective?:string;objective_done?:boolean;goal?:string;
   stance?:StanceName;mood?:Mood;mood_before_tired?:Mood;tired_forced?:boolean;home?:string;
-  permissions?:Facts['permissions']&{max_spend?:number;no_go?:string[]};instruction?:{text:string;at:string}}
+  permissions?:Facts['permissions']&{no_go?:string[]};instruction?:{text:string;at:string}}
 export interface ServeOptions {
   pilot?:()=>Pilot;
   /** How the runner puts the record back after rest and when Tired is imposed. */

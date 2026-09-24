@@ -33,7 +33,7 @@ export interface Pilot {
   home?:string;
   /** Standing bounds the operator sets. Who to fight is not among them: combat targeting is
    * the pilot's judgement, kept honest by the hull floors and the walk-away fraction. */
-  permissions?:{credit_reserve?:number;max_liability?:number;max_spend?:number;no_go?:string[]};
+  permissions?:{credit_reserve?:number;max_liability?:number;no_go?:string[]};
   instruction?:{text:string;at:string};
 }
 

@@ -12,7 +12,7 @@ export function ships():Promise<Outcome<ListShipsResponse&{active:V2Ship;parked:
 
 /** Swap to a hull parked at the station you are docked at. Needs a shipyard service here.
  * The hold moves to this base's store first (`stow`), modules stay on their own hulls, and
- * the new hull is serviced and, if `permissions.max_spend` allows, insured before the
+ * the new hull is serviced and insured before the
  * function returns. Refused undocked, without a shipyard, or when `minimum_crew` is unmet.
  * Costs the service; trains nothing. */
 export function switchShip(shipId:string):Promise<Outcome<{switched:SwitchShipResponse;ship:V2Ship}>> {throw new Error('unimplemented');}
