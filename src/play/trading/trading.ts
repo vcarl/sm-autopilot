@@ -14,6 +14,7 @@ import {miningInventory} from '../../mining-inventory.ts';
 import {details} from '../../response-details.ts';
 import {book,buy,knownBooks,marketTick,sell,ticksOld} from '../market.ts';
 import {acct,admit,checkStop,command,job,step} from '../runtime.ts';
+import {withdraw} from '../storage.ts';
 import {goTo,route} from '../travel.ts';
 import type {Outcome} from '../types.ts';
 
@@ -152,53 +153,70 @@ async function ledger(items:string[]):Promise<FactionQueryTradeIntelResponse['en
 
 export interface Traded {
   item_id:string;
+  /** The buy preview; empty when nothing was bought because the goods were already aboard. */
   estimate:EstimatePurchaseResponse;
   bought:number;
+  /** Carried rather than bought: what was aboard, plus what `from:'store'` withdrew. */
+  carried:number;
   sold:SellResponse[];
   /** Realised: sales minus purchase minus what the flight took out of the wallet. */
   net:number;
   leg:'bought'|'flown'|'sold';
 }
 
-/** One round, composed from the three functions that already do the work: `buy` `quantity` of
- * `item` here, `goTo(sellAt)`, `sell` it there. Each leg keeps its own rules — `buy` refuses
- * under `credit_reserve`, `goTo` refuses a POI while Tired, `sell` re-reads the far book and leaves a row with no buyer aboard — so this adds
- * only the sequence and the realised net. Quantity defaults to what the hold fits.
+/** One round toward "`item` sold at `sellAt`", composed from the functions that already do the
+ * work. Goods already aboard are delivered instead of buying more; `from:'store'` first
+ * withdraws what the hold fits of `item` from the store here. Only when none is aboard (and
+ * `from` is not `'store'`) does it `buy` `quantity` here. Then `goTo(sellAt)` and `sell` it
+ * there. Each leg keeps its own rules — `buy` refuses under `credit_reserve`, `goTo` refuses a
+ * POI while Tired, `sell` re-reads the far book and leaves a row with no buyer aboard — so this
+ * adds only the sequence and the realised net. Quantity defaults to what the hold fits.
  *
  * `partial` at `leg:'bought'` when the flight did not finish and at `leg:'flown'` when the
  * far book would not take the goods: either way they are aboard, and `next` says so. Trains
  * trading and navigation. */
-export function tradeRun(opts:{item:string;sellAt:string;quantity?:number}):Promise<Outcome<Traded>> {
-  return job<Traded>('tradeRun',`${opts.quantity??'a hold of'} ${opts.item} → ${opts.sellAt}`,async()=>{
-    const none:Traded={item_id:opts.item,estimate:{} as EstimatePurchaseResponse,bought:0,sold:[],net:0,leg:'bought'};
+export function tradeRun(opts:{item:string;sellAt:string;quantity?:number;from?:'hold'|'store'}):Promise<Outcome<Traded>> {
+  return job<Traded>('tradeRun',`${opts.quantity??'a hold of'} ${opts.item} → ${opts.sellAt}${opts.from==='store'?' from store':''}`,async()=>{
+    const none:Traded={item_id:opts.item,estimate:{} as EstimatePurchaseResponse,bought:0,carried:0,sold:[],net:0,leg:'bought'};
     const blocked=admit('tradeRun');
     if(blocked)return {status:'refused',did:`ran no trade in ${opts.item}`,why:blocked,detail:none};
-    const ship=acct().state.ship;
-    const quantity=opts.quantity??Math.max(0,(ship?.cargo_capacity??0)-(ship?.cargo_used??0));
-    if(!(quantity>0))return {status:'refused',did:`ran no trade in ${opts.item}`,why:`no quantity: the hold has ${quantity} free`,detail:none};
-
-    const got=await buy(opts.item,quantity);
-    const estimate=got.detail?.estimate??none.estimate;
-    const spent=Number(got.detail?.bought?.total_cost??0);
-    const bought=Number(got.detail?.bought?.quantity??0);
-    if(!bought)return {status:got.status==='refused'?'refused':'failed',did:`bought no ${opts.item}`,why:got.why??got.did,
-      detail:{...none,estimate}};
-    step(`bought ${bought} ${opts.item} for ${spent} cr`);
+    const aboard=()=>miningInventory(acct().state)[opts.item]??0;
+    if(opts.from==='store') {
+      const took=await withdraw([opts.quantity===undefined?{item_id:opts.item}:{item_id:opts.item,quantity:opts.quantity}]);
+      if(!aboard())return {status:took.status==='refused'?'refused':'done',did:`carried no ${opts.item}: none aboard and ${took.did}`,
+        ...took.why?{why:took.why}:{},detail:none};
+    }
+    let estimate=none.estimate,spent=0,bought=0;
+    const carried=aboard();
+    if(carried)step(`carrying ${carried} ${opts.item} already aboard`);
+    else {
+      const ship=acct().state.ship;
+      const quantity=opts.quantity??Math.max(0,(ship?.cargo_capacity??0)-(ship?.cargo_used??0));
+      if(!(quantity>0))return {status:'refused',did:`ran no trade in ${opts.item}`,why:`no quantity: the hold has ${quantity} free`,detail:none};
+      const got=await buy(opts.item,quantity);
+      estimate=got.detail?.estimate??none.estimate;
+      spent=Number(got.detail?.bought?.total_cost??0);
+      bought=Number(got.detail?.bought?.quantity??0);
+      if(!bought)return {status:got.status==='refused'?'refused':'failed',did:`bought no ${opts.item}`,why:got.why??got.did,
+        detail:{...none,estimate}};
+      step(`bought ${bought} ${opts.item} for ${spent} cr`);
+    }
+    const load=carried?`carried ${carried} ${opts.item}`:`bought ${bought} ${opts.item} for ${spent} cr`;
 
     const flown=await goTo(opts.sellAt);
-    if(flown.status!=='done')return {status:'partial',did:`bought ${bought} ${opts.item} for ${spent} cr; did not reach ${opts.sellAt}`,
-      why:flown.why??flown.did,detail:{...none,estimate,bought,net:-spent-flown.cost.credits,leg:'bought'},
-      next:[`goTo('${opts.sellAt}') again, then sell([{item_id:'${opts.item}'}])`,`spreads(['${opts.item}']) for another buyer`]};
+    if(flown.status!=='done')return {status:'partial',did:`${load}; did not reach ${opts.sellAt}`,
+      why:flown.why??flown.did,detail:{...none,estimate,bought,carried,net:-spent-flown.cost.credits,leg:'bought'},
+      next:[`tradeRun(${JSON.stringify({item:opts.item,sellAt:opts.sellAt}).replace(/"/g,"'")}) again delivers what is aboard`,`spreads(['${opts.item}']) for another buyer`]};
 
     const sold=await sell([{item_id:opts.item}]);
     const earned=sold.detail?.total??0;
     const net=Math.round(earned-spent-flown.cost.credits);
-    const detail:Traded={item_id:opts.item,estimate,bought,sold:sold.detail?.fills??[],net,
+    const detail:Traded={item_id:opts.item,estimate,bought,carried,sold:sold.detail?.fills??[],net,
       leg:sold.status==='done'?'sold':'flown'};
-    if(detail.leg==='flown')return {status:'partial',did:`carried ${bought} ${opts.item} to ${opts.sellAt}; it did not sell`,
+    if(detail.leg==='flown')return {status:'partial',did:`${load} to ${opts.sellAt}; it did not sell`,
       why:sold.why??sold.did,detail,next:[`spreads(['${opts.item}']) — the book here has moved`]};
     return {status:'done',
-      did:`bought ${bought} ${opts.item} for ${spent} cr, flew to ${opts.sellAt}, sold for ${earned} cr — net ${net} cr after ${flown.cost.credits} cr of flight`,
+      did:`${load}, flew to ${opts.sellAt}, sold for ${earned} cr — net ${net} cr after ${flown.cost.credits} cr of flight`,
       detail,next:net>0?[`tradeRun({item:'${opts.item}', sellAt:'${opts.sellAt}'}) again while the spread holds`]:[]};
   });
 }

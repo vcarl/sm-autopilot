@@ -299,8 +299,8 @@ export async function menu(runtime?:string):Promise<Menu> {
   const unblocks=new Set<string>();
 
   // Sell what you hold where there is a bid.
-  const book=docked?await attempt(async()=>new Map(((details(await command('spacemolt_market/view_market',{})) as ViewMarketResponse).items??[])
-    .map((row:MarketListingItem)=>[row.item_id,row]))):undefined;
+  const market=docked?await attempt(async()=>details(await command('spacemolt_market/view_market',{})) as ViewMarketResponse):undefined;
+  const book=market&&new Map((market.items??[]).map((row:MarketListingItem)=>[row.item_id,row]));
   const hold=(acct().state.cargo??[]).filter(row=>row.quantity>0);
   const bids=hold.filter(row=>(book?.get(row.item_id)?.best_buy??0)>0);
   if(bids.length) {
@@ -312,6 +312,33 @@ export async function menu(runtime?:string):Promise<Menu> {
   const stored=(store?.items??[]).filter(row=>row.quantity>0&&(book?.get(row.item_id)?.best_buy??0)>0);
   if(stored.length)moves.push({call:`sell(${lit(stored.map(row=>({item_id:row.item_id})))}, {from:'store'})`,
     why:`the store here holds ${stored.map(row=>`${row.quantity} ${row.item_id}`).join(', ')} with a bid`,advances:'credits'});
+  // Goods with no bid here, aboard or in the store here, and a remembered book elsewhere that bids
+  // for them: every stance strands ore this way. Live 2026-09-24: 63 units stowed at
+  // sirius_observatory_station, which bids for none of them, and no move ever pointed further.
+  // `tradeRun` carries what is aboard (or, `from:'store'`, withdraws it first) before it buys.
+  if(docked&&book) {
+    const tick=Number(market?.current_tick??0);
+    const far=(item_id:string)=>knownBooks(runtime).filter(row=>row.base_id!==docked)
+      .flatMap(row=>row.items.filter(i=>i.item_id===item_id&&i.best_buy>0&&i.best_buy_qty>0)
+        .map(i=>({base_id:row.base_id,best_buy:i.best_buy,best_buy_qty:i.best_buy_qty,age:ticksOld(row.tick,tick)})))
+      .sort((a,b)=>b.best_buy-a.best_buy)[0];
+    const strand=[...hold.filter(row=>!bids.includes(row)).map(row=>({...row,from:'hold' as const})),
+      ...(store?.items??[]).filter(row=>row.quantity>0&&!((book.get(row.item_id)?.best_buy??0)>0)).map(row=>({...row,from:'store' as const}))];
+    const priced=strand.map(row=>({row,buyer:far(row.item_id)})).filter(({row},i,all)=>
+      all.findIndex(other=>other.row.item_id===row.item_id)===i);
+    const unknown=priced.filter(row=>!row.buyer).map(({row})=>`${row.quantity} ${row.item_id}${row.from==='store'?' (stored)':''}`);
+    if(unknown.length)not_now.push({move:'sell',why:`no bid at ${docked} and no remembered book bids for ${unknown.slice(0,5).join(', ')}; goTo another base and prices() there to learn one`});
+    // ponytail: the two most valuable, one find_route each. Widen when a menu has room for more.
+    for(const {row,buyer} of priced.filter(row=>row.buyer).sort((a,b)=>
+      b.buyer!.best_buy*Math.min(b.buyer!.best_buy_qty,b.row.quantity)-a.buyer!.best_buy*Math.min(a.buyer!.best_buy_qty,a.row.quantity)).slice(0,2)) {
+      const call=`tradeRun(${lit({item:row.item_id,sellAt:buyer!.base_id,...row.from==='store'?{from:'store'}:{}})})`;
+      const blocked=await flies(buyer!.base_id);
+      if(blocked){not_now.push({move:call,why:blocked});continue;}
+      work({call,advances:'credits',why:`${row.quantity} ${row.item_id}${row.from==='store'?' in the store here':' aboard'} has no bid at ${docked}; `
+        +`${buyer!.base_id} bid ${buyer!.best_buy} for ${buyer!.best_buy_qty} in a book remembered ${buyer!.age} ticks old — the book may have moved, and the fuel there is not priced in`});
+      if(full&&row.from==='hold')unblocks.add(call);
+    }
+  }
   // A full hold with no bid here for what fills it: the store is the remedy, and the menu owes
   // the call rather than the diagnosis. Live 2026-09-24: `not_now` read "the hold is full;
   // sell(rows) or stow(rows) first" while sirius_observatory_station bid for none of the 63 units

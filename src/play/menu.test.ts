@@ -620,3 +620,36 @@ test('nothing in the system is filtered out of a hunt, only ordered',async()=>{
     assert.match(hunt!.call,/'p1'|'p2'/,`the planets were excluded rather than ranked: ${hunt!.call}`);
   } finally {f.close();}
 });
+
+test('goods with no bid here and a remembered far bid are a pasteable tradeRun in every stance; with no far bid, not_now says so',async()=>{
+  // Live 2026-09-24: dark_matter_residue, iridium, vanadium and copper aboard at a station that
+  // bid for none of them; the menu offered stow and never the base that did bid.
+  const far=JSON.stringify([{base_id:'range_base',at:'earlier',tick:TICK-30,items:[
+    {item_id:'ore',best_buy:40,best_buy_qty:99,best_sell:0,best_sell_qty:0},
+    {item_id:'iridium',best_buy:90,best_buy_qty:50,best_sell:0,best_sell_qty:0}]}]);
+  const held=world({mood:'Focused',stance:'Prospector',goal:'obtain credits'},
+    {cargoUsed:12,cargoCapacity:12,store:[{item_id:'iridium',quantity:30}],markets:{sol_base:[]}});
+  try {
+    writeFileSync(join(held.runtime,'markets.json'),far);
+    const built=await menu(held.runtime);
+    const aboard=built.moves.find(m=>m.call==="tradeRun({item:'ore',sellAt:'range_base'})");
+    assert.ok(aboard,renderMenu(built));
+    assert.match(aboard!.why,/12 ore aboard has no bid at sol_base; range_base bid 40 .* 30 ticks old .* fuel there is not priced in/);
+    assert.equal(built.moves[0]!.call,aboard!.call,'the full hold ranks the far sale above the stow');
+    const stored=built.moves.find(m=>m.call==="tradeRun({item:'iridium',sellAt:'range_base',from:'store'})");
+    assert.ok(stored,renderMenu(built));
+    assert.match(stored!.why,/30 iridium in the store here/);
+    const runtime=mkdtempSync(join(tmpdir(),'menu-far-'));
+    mkdirSync(join(runtime,'pilot'),{recursive:true});
+    writeFileSync(join(runtime,'pilot','index.ts'),
+      `import {tradeRun} from 'play';\nexport default async function main() {\n  await ${aboard!.call};\n  return ${stored!.call};\n}\n`);
+    assert.deepEqual((await check(runtime)).errors,[]);
+  } finally {held.close();}
+  // No book anywhere bids: no move, and the menu says why rather than going quiet.
+  const blind=world({mood:'Focused',stance:'Prospector'},{cargoUsed:12,cargoCapacity:12,store:[],markets:{sol_base:[]}});
+  try {
+    const built=await menu(blind.runtime);
+    assert.ok(!built.moves.some(m=>m.call.startsWith('tradeRun(')),renderMenu(built));
+    assert.ok(built.not_now.some(row=>row.move==='sell'&&/no remembered book bids for 12 ore/.test(row.why)),renderMenu(built));
+  } finally {blind.close();}
+});

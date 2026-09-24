@@ -10,7 +10,7 @@ assembled from everything this pilot is allowed to know.
 | Function | Promise |
 |---|---|
 | `spreads(items?)` | the best buyer known for each thing you hold, anywhere, with the trip priced and netted |
-| `tradeRun({item, sellAt, quantity?})` | buy here, fly, sell there; the realised net from the wallet |
+| `tradeRun({item, sellAt, quantity?, from?})` | get `item` sold at `sellAt`: carry what is aboard (`from: 'store'` withdraws what the hold fits from the store here first), or buy `quantity` here when none is aboard; fly; sell there. The realised net from the wallet |
 
 Root functions do the rest: `prices()` for the counter you are standing at, `sell()`/`buy()`
 for one side only.
@@ -49,11 +49,28 @@ measurement, so treat a flat 20 as "unknown, probably stale".
 
 ## What a row says
 
-`net` is `best_buy × min(best_buy_qty, held)` less the fuel bill to get there, at **this**
+`spreads()` answers `detail: {spreads, sources}`. Each row of `spreads` is `{item_id, held,
+base_id, best_buy, best_buy_qty, source, seen, fuel, jumps, net}`: `fuel` and `jumps` are the
+route quote to `base_id` (both 0 here). `net` is `best_buy × min(best_buy_qty, held)` less the fuel bill to get there, at **this**
 base's `fuel_price_all_in`, from one `find_route` per far base. `held` is the hold plus this
 base's store, because that is what you could put on the counter. Rows are sorted by `net`, so
 a fat price four jumps out can rank below a thin one here — which is the comparison a loaded
 pilot actually needs.
+
+## What a run says
+
+`tradeRun` answers `detail: Traded` = `{item_id, estimate, bought, carried, sold, net, leg}`.
+`bought` is what it bought here (0 when it carried), `carried` is what was already aboard or
+came out of the store, `estimate` is the buy preview (empty when nothing was bought), `sold` is
+the lib's `SellResponse[]` from the far counter, `net` is sales less purchase less what the
+flight took out of the wallet, and `leg` is how far it got: `bought`, `flown` or `sold`. Goods
+already aboard are delivered rather than added to, so a second `tradeRun` after a `partial` at
+`leg: 'bought'` finishes the first one. With `from: 'store'` and nothing stored or aboard it is
+`done`: there was nothing to carry.
+
+The menu offers `tradeRun({item, sellAt})` in every stance when something aboard, or with
+`from: 'store'` stored here, has no bid here and a remembered book elsewhere bids for it. The
+fuel to get there is not priced into that line.
 
 ## Worked example — the ore nobody here will buy
 

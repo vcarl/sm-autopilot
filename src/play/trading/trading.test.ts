@@ -106,3 +106,36 @@ test('tradeRun buys here, flies, sells there, and reports the realised net',asyn
     assert.equal(f.account.server.location.docked_at,'range_base');
   } finally {unbind();}
 });
+
+test('tradeRun delivers goods already aboard instead of buying more',async()=>{
+  const f=world({mood:'Focused'},{cargo:[{item_id:'ore',quantity:5}],cargoUsed:5,cargoCapacity:10,store:[],markets:{sol_base:[]}});
+  try {
+    const out=await tradeRun({item:'ore',sellAt:'range_base'});
+    assert.equal(out.status,'done',out.why);
+    assert.equal(f.count('spacemolt/buy'),0,'nothing bought: the goods were aboard');
+    assert.equal(out.detail.carried,5);
+    assert.equal(out.detail.bought,0);
+    assert.equal(out.detail.net,50,'5 sold at 10, nothing spent');
+    assert.match(out.did,/^carried 5 ore, flew to range_base/);
+  } finally {unbind();}
+});
+
+test("tradeRun from:'store' withdraws what is stored here, carries it, and sells it there",async()=>{
+  const f=world({mood:'Focused'},{cargo:[],cargoUsed:0,cargoCapacity:10,store:[{item_id:'ore',quantity:8}],markets:{sol_base:[]}});
+  try {
+    const out=await tradeRun({item:'ore',sellAt:'range_base',from:'store'});
+    assert.equal(out.status,'done',out.why);
+    assert.equal(f.count('spacemolt/buy'),0);
+    assert.equal(out.detail.carried,8);
+    assert.equal(out.detail.leg,'sold');
+    assert.equal(f.account.server.location.docked_at,'range_base');
+  } finally {unbind();}
+  // Nothing stored and nothing aboard: the end state holds, nothing is bought and nothing flies.
+  const g=world({mood:'Focused'},{cargo:[],cargoUsed:0,cargoCapacity:10,store:[]});
+  try {
+    const out=await tradeRun({item:'ore',sellAt:'range_base',from:'store'});
+    assert.equal(out.status,'done',out.why);
+    assert.equal(g.count('spacemolt/buy'),0);
+    assert.equal(g.account.server.location.docked_at,'sol_base');
+  } finally {unbind();}
+});
