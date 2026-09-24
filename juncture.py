@@ -268,10 +268,6 @@ def _rest_context(report: dict[str, Any], moves: str | None = None,
     What the agent gets instead is the report rest exists for — needs, holdings, debts, what
     has been seen, what has been done, and where it has been standing still.
     """
-    if report.get("objective_done"):
-        return ("SpaceMolt wakeup: the pilot is at rest and the operator's bounded objective "
-                f"({report.get('objective') or 'unnamed'}) is already done. Say the objective is "
-                "complete and end the turn. The operator sets the next one.")
     head = ("SpaceMolt rest — the shift is over and the stance and mood are cleared. Below is "
             "what the pilot has, owes and has seen, what it did lately, where it stood still, "
             "and `scripts`: pilot/index.ts beside how its runs ended.\n"
@@ -281,6 +277,13 @@ def _rest_context(report: dict[str, Any], moves: str | None = None,
             "flies the file this review leaves.\n"
             "2. Choose one goal that serves the objective, then the stance and mood that fit it.\n"
             "3. Call spacemolt_reflect once with them, and end the turn.\n")
+    # A finished objective is not a reason to wait: the pilot retires it and chooses its own goal
+    # in the same call. Waiting here is what wedged two junctures and an hour, live (2026-09-24).
+    if report.get("objective_done"):
+        head += (f"The operator's objective ({report.get('objective') or 'unnamed'}) is already "
+                 "complete: pass objective_done beside the goal, stance and mood you choose and it "
+                 "is retired. Advance in general — the world, your levels, credits, a better "
+                 "ship — until the operator names another.\n")
     # The menu call above stamped these delivered, so a rest that dropped them would drop them
     # for good.
     head += "".join(f"{line}\n" for line in alerts or [])

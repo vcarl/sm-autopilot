@@ -166,6 +166,11 @@ def _reflect(arguments: dict[str, Any] | None = None, **_: Any) -> str:
     (N12): this writes the record, rewrites the cron job for the new stance's skills and asks
     for the next fire, which opens a fresh conversation with those skills and the same
     toolset. Mood moves inside the shift after this; nothing here touches it again.
+
+    A reflection always commits. Nothing here writes a record that leaves ``goal`` and ``stance``
+    unset, because a pilot at rest with neither has no next move and no way to get one but a
+    human: ``objective_done`` retires the operator's objective *alongside* the goal the pilot
+    names, it is never a shift of its own.
     """
     args = arguments or {}
     record = read_pilot()
@@ -173,27 +178,34 @@ def _reflect(arguments: dict[str, Any] | None = None, **_: Any) -> str:
         return (f"Nothing written: the pilot is on shift in the {record['stance']} stance. "
                 "Reflection happens at rest — rest at a base, which clears the stance, and the "
                 "next juncture reflects.")
-    if args.get("objective_done"):
-        record["objective_done"] = True
-        write_pilot(record)
-        journal_event("reflection", objective_done=True, objective=record.get("objective"))
-        return ("Recorded: the operator's objective is done. The pilot stays at rest and says the "
-                "same at every wakeup until the operator gives it something new.")
     goal = str(args.get("goal") or "").strip()
     stance = {name.lower(): name for name in STANCES}.get(str(args.get("stance") or "").strip().lower())
     mood = {name.lower(): name for name in JOB_MOODS}.get(str(args.get("mood") or "").strip().lower())
     if not goal or stance is None or mood is None:
+        # A reflection that writes nothing is what stranded a live pilot for an hour: it read the
+        # report, said the objective was done, committed to no goal and no stance, and every
+        # following juncture read the same finished objective and did the same nothing. There is
+        # no "report and stop": the pilot always leaves rest holding a shift of its own.
         return ("Nothing written. A shift opens with a goal, one stance of "
-                f"{', '.join(STANCES)}, and an initial mood of {', '.join(JOB_MOODS)} — or with "
-                "objective_done when the operator's objective is complete.")
+                f"{', '.join(STANCES)}, and an initial mood of {', '.join(JOB_MOODS)}. When the "
+                "operator's objective is complete, pass objective_done alongside them and name a "
+                "goal of your own: the objective is retired and this shift pursues the goal.")
+    # `objective_done` retires the objective exactly once, here. Either the pilot says so now, or
+    # the record already carried the flag from before this fix; both resolve on this write, and
+    # neither can be reported a second time because the objective it named is gone.
+    finished = bool(args.get("objective_done")) or bool(record.pop("objective_done", None))
+    retired = record.pop("objective", None) if finished else None
     record.update(goal=goal, stance=stance, mood=mood)
-    record.pop("objective_done", None)  # a new goal is the objective being pursued again
+    if retired:
+        record["objective_completed"] = retired
     write_pilot(record)
-    journal_event("reflection", goal=goal, stance=stance, mood=mood)
+    journal_event("reflection", goal=goal, stance=stance, mood=mood,
+                  **({"objective_done": True, "objective": retired} if finished else {}))
     from cron.jobs import trigger_job
 
     trigger_job(ensure_juncture_job()["id"])
-    return (f"Shift open: {stance}, starting {mood}, goal {goal!r}. End the turn — the stance "
+    return ((f"Objective {retired!r} retired as complete. " if retired else "")
+            + f"Shift open: {stance}, starting {mood}, goal {goal!r}. End the turn — the stance "
             "begins in a fresh conversation carrying its own skills, due on the next scheduler "
             "tick, and the mood moves inside the shift from here.")
 
@@ -332,7 +344,9 @@ TOOL_DEFINITIONS = (
                        "refused before it reads your arguments — spacemolt_rest at a base is "
                        "what makes it callable, so do not compose a goal for it mid-shift. The shift begins in a fresh conversation with its own skills, "
                        "so call this once and end the turn. The mood moves inside the shift "
-                       "afterwards; this never sets it again.",
+                       "afterwards; this never sets it again. A reflection always opens a shift: "
+                       "goal, stance and mood are all required, and a finished operator objective "
+                       "is retired by objective_done beside them, not reported on its own.",
                        {"goal": {"type": "string",
                                  "description": "What this shift will do to advance the "
                                                 "operator's objective. One line."},
@@ -342,11 +356,13 @@ TOOL_DEFINITIONS = (
                                  "description": "The attitude the shift starts in: one of "
                                                 "Cautious, Focused, Opportunistic, Aggressive."},
                         "objective_done": {"type": "boolean",
-                                           "description": "Instead of a shift: the operator's "
-                                                          "bounded objective is complete. The "
-                                                          "pilot stays at rest until the operator "
-                                                          "gives it something new."}},
-                       [])},
+                                           "description": "Alongside the shift, never instead of "
+                                                          "one: the operator's bounded objective "
+                                                          "is complete, so it is retired and the "
+                                                          "goal you name here is what this shift "
+                                                          "pursues. There is no way to reflect "
+                                                          "without opening a shift."}},
+                       ["goal", "stance", "mood"])},
     {"name": "spacemolt_stop", "toolset": "spacemolt_operator", "handler": _stop,
      "description": "Ask the run in flight to stop at its next safe point.",
      "schema": _schema("spacemolt_stop",

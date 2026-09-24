@@ -3,7 +3,8 @@
 Rest is the bridge's act and is proved in ``spacemolt/src/rest.test.ts``. What is proved here
 is the runner's half of reflection (N7, N8, N12): the fire's context is the report and not the
 menu, the choice writes the record and hands the new stance its own conversation, the choice is
-refused while a stance is held, and a bounded objective already done offers nothing at all.
+refused while a stance is held, and every reflection that writes anything leaves a goal and a
+stance behind — a finished operator objective is retired by one, never waited out.
 """
 from __future__ import annotations
 
@@ -119,16 +120,58 @@ def test_a_stance_already_held_refuses_the_choice(bridged):
     assert juncture.read_pilot()["goal"] == "three loads of ore"
 
 
-def test_a_bounded_objective_already_done_offers_nothing_and_waits_for_the_operator(bridged):
-    juncture.write_pilot({"name": "kvothe", "home": "sol_base", "objective": "pay off the debt"})
-    spacemolt._reflect({"objective_done": True})
-    assert juncture.read_pilot()["objective_done"] is True
+def test_a_reflection_that_names_no_goal_or_stance_writes_nothing(bridged):
+    """The live deadlock (2026-09-24): ``objective_done`` on its own was accepted, the record kept
+    ``goal: null`` and ``stance: null``, and every juncture after it read the same finished
+    objective and did the same nothing. There is no reflection that ends uncommitted."""
+    juncture.write_pilot({"name": "kvothe", "objective": "pay off the debt"})
+
+    refused = spacemolt._reflect({"objective_done": True})
+    assert "Nothing written" in refused
+    record = juncture.read_pilot()
+    assert "goal" not in record and "stance" not in record
+    assert record["objective"] == "pay off the debt", "an unresolved objective is not retired"
+    assert "objective_done" not in record, "no flag survives a reflection that wrote nothing"
+
+
+def test_a_finished_objective_is_retired_by_the_reflection_that_opens_the_next_shift(bridged):
+    """Fault 2: ``objective_done`` used to be recorded beside the objective it finished, so every
+    juncture re-reported the same completion. It is resolved exactly once, by the shift that
+    replaces it, and the pilot needs no operator to get there."""
+    juncture.write_pilot({"name": "kvothe", "objective": "pay off the debt"})
+
+    # A pilot whose objective is done still leaves rest holding a shift of its own.
+    answer = spacemolt._reflect({"goal": "raise gunnery two levels", "stance": "Hunter",
+                                "mood": "Focused", "objective_done": True})
+    assert "pay off the debt" in answer and "retired" in answer
+    record = juncture.read_pilot()
+    assert (record["goal"], record["stance"], record["mood"]) == \
+        ("raise gunnery two levels", "Hunter", "Focused")
+    assert "objective" not in record and "objective_done" not in record, \
+        "the finished objective cannot be reported a second time: it is gone"
+    assert record["objective_completed"] == "pay off the debt", "what was finished is kept"
+
+    entries = [json.loads(line) for line in
+               (service.runtime_dir() / juncture.JOURNAL_FILE).read_text().splitlines() if line.strip()]
+    assert {"event": "reflection", "objective_done": True, "objective": "pay off the debt",
+            "stance": "Hunter"}.items() <= entries[-1].items()
+
+
+def test_a_record_left_carrying_objective_done_reflects_instead_of_waiting(bridged):
+    """The live record itself: ``objective_done`` already true beside the objective it finished.
+    The wakeup asks for a shift rather than telling the pilot to wait for a human, and the next
+    reflection retires the objective whether or not the pilot repeats the flag."""
+    juncture.write_pilot({"name": "kvothe", "objective": "pay off the debt",
+                          "objective_done": True})
 
     context = juncture.juncture_context({"platform": "cron"})
-    assert "pay off the debt" in context and "done" in context
-    assert "stagnation" not in context, "a finished objective is not reflected on again"
-    assert "end the turn" in context
+    assert "spacemolt_reflect" in context and "stagnation" in context, \
+        "a finished objective still gets the report a choice is made from"
+    assert "The operator sets the next one" not in context, "nothing here waits for the operator"
+    assert "objective_done beside the goal" in context
 
-    # The operator naming a new objective is what wakes it; nothing else does.
-    spacemolt._direct({"objective": "reach a trusted carrier tier"})
-    assert "objective_done" not in juncture.read_pilot()
+    spacemolt._reflect({"goal": "learn the near systems", "stance": "Scout", "mood": "Cautious"})
+    record = juncture.read_pilot()
+    assert record["stance"] == "Scout"
+    assert "objective" not in record and "objective_done" not in record
+    assert record["objective_completed"] == "pay off the debt"
