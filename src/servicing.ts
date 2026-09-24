@@ -16,7 +16,9 @@ export interface ServiceOptions {
   /** Operator-owned permission (D11), independent of the mood. */
   creditReserve?:number;
 }
-export interface ServiceOutcome {satisfied:true;issued:string[];spent:number;fuel:number;hull:number}
+export interface ServiceOutcome {satisfied:true;issued:string[];spent:number;fuel:number;hull:number;
+  /** What this counter could not do, when Tired took what it could anyway. Empty on a full fill. */
+  short?:string[]}
 
 /** Carries the units still missing, so a caller can never mistake it for readiness. */
 export class ServiceBlocked extends Error {
@@ -35,6 +37,13 @@ const shortfall=(name:string,have:number,need:number,unit:string)=>
  * targets. A serviced dock restores the full tank and full hull; the mood's retreat
  * fraction is the away-from-dock line, not a service target. A partial fill is never
  * success — the post-state is read authoritatively and decides.
+ *
+ * Tired widens this, which is what Tired is for: a counter that posts no price for one of the
+ * two still fills the other, and what it could not do comes back in `short` instead of
+ * refusing the lot. A Tired pilot needs the tank to reach a counter that sells the rest, and
+ * refusing wholesale is what wedged one at a station with no repair quote. Every other mood
+ * keeps the all-or-nothing refusal. `creditReserve` is the operator's bound and is never
+ * widened; when it is what refuses, the refusal names it.
  */
 export async function serviceShip(account:ReadinessAccount,command:ReadinessCommand,options:ServiceOptions):Promise<ServiceOutcome> {
   const margin=resolveServiceSpend(options.mood),reserve=options.creditReserve??0;
@@ -82,22 +91,28 @@ export async function serviceShip(account:ReadinessAccount,command:ReadinessComm
   let owed=due();
   if(!owed.fuel&&!owed.hull)return satisfied([],0);
   const unitFuel=base.fuel_price_all_in,perHull=base.base?.repair_price_per_hull;
-  const blockers:string[]=[];
+  const blockers:string[]=[],unquoted:string[]=[];
   // The pinned get_base contract posts no default ship-repair price. Never guess one.
-  if(owed.fuel&&!finite(unitFuel))blockers.push('no all-in fuel quote at this station');
-  if(owed.hull&&!(finite(perHull)&&perHull>0))blockers.push('no all-in repair quote at this station');
+  const unpriced=(what:string,owedUnits:number,priced:boolean)=>{
+    if(!owedUnits||priced)return true;
+    (options.mood==='Tired'?unquoted:blockers).push(`no all-in ${what} quote at this station`);
+    return false;
+  };
+  const fuelPriced=unpriced('fuel',owed.fuel,finite(unitFuel));
+  const hullPriced=unpriced('repair',owed.hull,finite(perHull)&&perHull>0);
   const services=[
-    {action:'spacemolt/refuel',need:owed.fuel,quote:owed.fuel*(unitFuel as number),
+    {action:'spacemolt/refuel',need:fuelPriced?owed.fuel:0,quote:owed.fuel*(unitFuel as number),
       reached:()=>ship().fuel>=ship().max_fuel},
-    {action:'spacemolt/repair',need:owed.hull,quote:owed.hull*(perHull as number),
+    {action:'spacemolt/repair',need:hullPriced?owed.hull:0,quote:owed.hull*(perHull as number),
       reached:()=>ship().hull>=ship().max_hull},
   ].filter(service=>service.need>0);
-  if(!blockers.length) {
+  if(!blockers.length&&services.length) {
     const quoted=services.reduce((sum,service)=>sum+service.quote,0),credits=account.state.player!.credits;
     if(quoted>margin)blockers.push(`quoted ${quoted} credits exceeds the ${options.mood} service spend margin ${margin}`);
     if(credits-quoted<reserve)blockers.push(`credits ${credits} less reserve ${reserve} cannot cover the quoted ${quoted} credits`);
   }
-  if(blockers.length)throw new ServiceBlocked([...blockers,...gaps()]);
+  // Nothing left to attempt is a refusal whatever the mood: no widening buys a fill here.
+  if(blockers.length||!services.length)throw new ServiceBlocked([...blockers,...unquoted,...gaps()]);
 
   const issued:string[]=[];
   let spent=0;
@@ -118,6 +133,8 @@ export async function serviceShip(account:ReadinessAccount,command:ReadinessComm
   await account.refresh();
   verify();
   const remaining=gaps();
-  if(remaining.length)throw new ServiceBlocked(['servicing did not hold the serviced-dock targets',...remaining]);
-  return satisfied(issued,spent);
+  // Under Tired the gap this counter posted no price for is the expected remainder, not a
+  // failure to hold the target: it is reported, and the pilot flies on with what it did buy.
+  if(remaining.length&&!unquoted.length)throw new ServiceBlocked(['servicing did not hold the serviced-dock targets',...remaining]);
+  return {...satisfied(issued,spent),...unquoted.length?{short:[...unquoted,...remaining]}:{}};
 }

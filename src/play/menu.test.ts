@@ -81,16 +81,23 @@ test('Tired offers only service here, or the nearest serviced base when out',asy
   } finally {f.close();}
 });
 
-test('Tired where the counter posts no repair price is offered the next base, not the service that refuses',async()=>{
-  // The trap: the one move offered was `service()`, and the counter here cannot quote the
-  // repair the hull needs, so the only admitted move refused and `next` named nowhere.
+test('Tired where the counter posts no repair price is offered the fuel it does sell, then the next base',async()=>{
+  // The live trap: the hull needs a repair this counter cannot quote, and the tank needs the fuel
+  // it can. Tired buys the priced half, so both moves are offered — the fuel first, because it is
+  // what gets the ship to a counter that sells the rest.
   const f=world({mood:'Tired',stance:'Prospector'},{services:['refuel','storage'],
     pois:[{id:'yard',name:'Sol Yard',base_id:'yard_base',base_name:'Sol Yard Base'}]});
   try {
     f.account.server.ship.hull=52;
     const built=await menu(f.runtime);
-    assert.deepEqual(built.moves.map(m=>m.call),["goTo('yard_base')"],JSON.stringify(built.moves));
-    assert.match(built.moves[0]!.why,/posts no price for hull/);
+    assert.deepEqual(built.moves.map(m=>m.call),['service()',"goTo('yard_base')"],JSON.stringify(built.moves));
+    assert.match(built.moves[0]!.why,/sells fuel but posts no price for hull/);
+    assert.match(built.moves[1]!.why,/posts no price for/);
+
+    // Nothing this counter sells is missing: `service()` would refuse the lot, so only the trip.
+    f.account.server.ship.fuel=f.account.server.ship.max_fuel;
+    const hullOnly=await menu(f.runtime);
+    assert.deepEqual(hullOnly.moves.map(m=>m.call),["goTo('yard_base')"],JSON.stringify(hullOnly.moves));
   } finally {f.close();}
 });
 

@@ -213,17 +213,23 @@ export async function menu(runtime?:string):Promise<Menu> {
 
   if(who.mood==='Tired') {
     const why=`Tired (${now.tired_by||'margin crossed'})`,prices=facts.place.service_prices??{};
-    // What is missing that this counter posts no price for. `service()` refuses wholesale
-    // rather than half-servicing, so offering it here is offering the one move that cannot
-    // work — the trap a pilot Tired at a station with no repair counter sat in.
-    const uncovered=!docked||!ship?[]:[...ship.fuel<ship.max_fuel&&prices.fuel===undefined?['fuel']:[],
-      ...ship.hull<ship.max_hull&&prices.hull===undefined?['hull']:[]];
+    // What is missing here, split by whether this counter posts a price for it. Under Tired
+    // `service()` buys the priced half and reports the rest, so it is offered whenever anything
+    // is priced — the tank that gets the ship to a counter that sells the rest is bought here.
+    const missing=!docked||!ship?[]:[...ship.fuel<ship.max_fuel?['fuel' as const]:[],
+      ...ship.hull<ship.max_hull?['hull' as const]:[]];
+    const uncovered=missing.filter(what=>prices[what]===undefined);
+    const covered=missing.filter(what=>prices[what]!==undefined);
     const base=stations[0]?.base_id;
     if(docked&&!uncovered.length)moves.push({call:'service()',why:`${why}: resupply here clears it`,advances:'ship'});
-    else if(base)moves.push({call:`goTo('${base}')`,why:docked
+    else if(docked&&covered.length)moves.push({call:'service()',
+      why:`${why}: ${docked} sells ${covered.join(' and ')} but posts no price for ${uncovered.join(' or ')}; buy what it has, then service the rest elsewhere`,advances:'ship'});
+    if(!moves.length&&base)moves.push({call:`goTo('${base}')`,why:docked
       ?`${why}: ${docked} posts no price for ${uncovered.join(' or ')}; ${base} is the next base in this system; price unknown until docked`
       :`${why}: the first base listed in this system; dock and service() there to end the shift`,advances:'ship'});
-    else if(docked)moves.push({call:'service()',
+    else if(uncovered.length&&base)moves.push({call:`goTo('${base}')`,
+      why:`${why}: ${base} is the next base in this system for the ${uncovered.join(' or ')} ${docked} posts no price for; price unknown until docked`,advances:'ship'});
+    else if(docked&&!moves.length)moves.push({call:'service()',
       why:`${why}: resupply here clears it, if ${docked} will quote ${uncovered.join(' or ')} — no other base is listed in this system`,advances:'ship'});
     return {...stagnation?{stagnation}:{},moves,not_now};
   }

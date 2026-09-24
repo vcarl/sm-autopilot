@@ -18,9 +18,9 @@ export interface Serviced {
   cleared_tired:boolean;
 }
 
-/** Where else the pilot could be brought up, for a refusal's `next`. A Tired pilot may only
- * `goTo` a base and only a service clears Tired, so a station that cannot quote what is
- * missing strands it: the route to a base that can is the useful line, not a flat reserve.
+/** Where else the pilot could be brought up, for a refusal's (or a partial fill's) `next`.
+ * Only a service clears Tired, so a station that cannot quote what is missing leaves the mood
+ * standing: the route to a base that can is the useful line, not a flat reserve.
  *
  * Reads only, and every read may fail — no advice beats a made-up one.
  *
@@ -69,8 +69,10 @@ export async function serviceElsewhere(docked:string):Promise<string[]> {
  * post-state read to confirm the fill. A full ship sends nothing. Not docked: `refused`.
  *
  * Tired: resupplying back inside the margins is what clears it; the runtime restores the
- * mood Tired replaced and `cleared_tired` says so. `insure` and `dues` are accepted and
- * reported in `short` until a later slice implements them. */
+ * mood Tired replaced and `cleared_tired` says so. Tired also widens the fill — a counter that
+ * posts no price for one of fuel or hull sells the other anyway, and what it could not do lands
+ * in `short` with the bases that might, rather than refusing the lot. `insure` and `dues` are
+ * accepted and reported in `short` until a later slice implements them. */
 export function service(opts:{fuel?:number;hull?:number;insure?:boolean;dues?:boolean|'all'}={}):Promise<Outcome<Serviced>> {
   return job<Serviced>('service',Object.keys(opts).join(' '),async()=>{
     const who=pilot();
@@ -91,11 +93,12 @@ export function service(opts:{fuel?:number;hull?:number;insure?:boolean;dues?:bo
       const mood=pilot().mood??'Cautious';
       const done=await serviceShip(acct(),command,{mood,creditReserve:who.permissions?.credit_reserve??0});
       const cleared=mood==='Tired'&&pilot().mood!=='Tired';
+      const left=done.short??[];
       const did=done.issued.length
-        ?`serviced at ${docked}: ${done.issued.map(action=>action.split('/')[1]).join(' and ')} for ${done.spent} cr; fuel ${done.fuel}, hull ${done.hull}`
+        ?`serviced at ${docked}: ${done.issued.map(action=>action.split('/')[1]).join(' and ')} for ${done.spent} cr; fuel ${done.fuel}, hull ${done.hull}${left.length?`; ${docked} could not: ${left.join('; ')}`:''}`
         :`already serviced at ${docked}: fuel ${done.fuel}, hull ${done.hull}`;
-      return {status:'done',did,detail:{base,issued:done.issued,spent:done.spent,short,cleared_tired:cleared},
-        next:cleared?['Tired cleared: the mood before it is back']:[]};
+      return {status:'done',did,detail:{base,issued:done.issued,spent:done.spent,short:[...short,...left],cleared_tired:cleared},
+        next:cleared?['Tired cleared: the mood before it is back']:left.length?await serviceElsewhere(docked):[]};
     } catch(error) {
       if(error instanceof ServiceBlocked)
         return {status:'refused',did:`not serviced at ${docked}`,why:error.blockers.join('; '),
