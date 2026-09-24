@@ -391,6 +391,10 @@ export async function menu(runtime?:string):Promise<Menu> {
     else if(full)not_now.push({move:'tradeRun',why:'the hold is full and tradeRun buys what the hold fits; sell(rows) or stow(rows) first'});
     else work({call:`tradeRun(${lit({item:spread.item_id,sellAt:spread.base_id})})`,advances:'credits',
       why:`${spread.margin} cr a unit on ${spread.item_id} at ${spread.base_id}, a bid remembered ${spread.age} ticks old; the book may have moved, and the fuel there is not priced in`});
+    // The search, not the menu's to run: routes() costs up to ~10 find_route calls. A full hold
+    // gets none; the sell and far-buyer moves above cover it.
+    if(!full)work({call:'routes()',advances:'credits',
+      why:'ranks every known trade by net per jump after book depth, fuel and tax; each row carries a pasteable next call. The trading README\'s "the best trade known" acts on the top row in one run'});
   }
 
   // Mine the nearest belt.
@@ -589,7 +593,8 @@ export async function menu(runtime?:string):Promise<Menu> {
   // for it. A read that unblocks something still leads, which is why that term stays first.
   const key=(m:Move)=>{const fn=m.call.split('(')[0]!;
     return [unblocks.has(m.call)?1:0,READ_CALLS.has(fn)?0:1,repeated&&fn!==repeated?1:0,
-      stanceWork.has(m.call)?1:0,wants[m.advances].test(goal)?1:0,LEADS[who.stance??'']===fn?1:0,gain(fn)];};
+      stanceWork.has(m.call)?1:0,wants[m.advances].test(goal)?1:0,
+      LEADS[who.stance??'']===fn?2:who.stance==='Trader'&&fn==='routes'?1:0,gain(fn)];};
   const seen=new Set<string>();
   const ranked=moves.filter(m=>!seen.has(m.call)&&seen.add(m.call)).map(m=>({m,k:key(m)}))
     .sort((a,b)=>b.k[0]!-a.k[0]!||b.k[1]!-a.k[1]!||b.k[2]!-a.k[2]!||b.k[3]!-a.k[3]!||b.k[4]!-a.k[4]!

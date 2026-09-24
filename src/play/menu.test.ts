@@ -621,6 +621,43 @@ test('nothing in the system is filtered out of a hunt, only ordered',async()=>{
   } finally {f.close();}
 });
 
+test("a docked Trader with room in the hold is offered routes(), below a live J6 run; a full hold or another stance is not",async()=>{
+  const far=JSON.stringify([{base_id:'range_base',at:'earlier',tick:TICK-40,
+    items:[{item_id:'ore',best_buy:40,best_buy_qty:99,best_sell:0,best_sell_qty:0}]}]);
+  // No spread: routes() is the Trader's lead, and it compiles.
+  const blind=world({mood:'Opportunistic',stance:'Trader'},{cargoUsed:0});
+  try {
+    const built=await menu(blind.runtime);
+    assert.equal(built.moves[0]?.call,'routes()',renderMenu(built));
+    assert.match(built.moves[0]!.why,/net per jump.*next call.*the best trade known/);
+    const runtime=mkdtempSync(join(tmpdir(),'menu-routes-'));
+    mkdirSync(join(runtime,'pilot'),{recursive:true});
+    writeFileSync(join(runtime,'pilot','index.ts'),
+      `import {routes} from 'play';\nexport default async function main() {\n  return ${built.moves[0]!.call};\n}\n`);
+    assert.deepEqual((await check(runtime)).errors,[]);
+  } finally {blind.close();}
+  // A concrete spread beats the search.
+  const ok=world({mood:'Opportunistic',stance:'Trader'},{cargoUsed:0});
+  try {
+    writeFileSync(join(ok.runtime,'markets.json'),far);
+    const calls=(await menu(ok.runtime)).moves.map(m=>m.call);
+    const run=calls.indexOf("tradeRun({item:'ore',sellAt:'range_base'})"),search=calls.indexOf('routes()');
+    assert.ok(run>=0&&search>run,JSON.stringify(calls));
+  } finally {ok.close();}
+  // A full hold: no search; the sell and far-buyer moves cover it.
+  const full=world({mood:'Opportunistic',stance:'Trader'},{cargoUsed:12,cargoCapacity:12});
+  try {
+    const built=await menu(full.runtime);
+    assert.ok(!built.moves.some(m=>m.call==='routes()'),renderMenu(built));
+  } finally {full.close();}
+  // Not a Trader.
+  const miner=world({mood:'Opportunistic',stance:'Prospector'},{cargoUsed:0});
+  try {
+    const built=await menu(miner.runtime);
+    assert.ok(!built.moves.some(m=>m.call==='routes()')&&!built.not_now.some(row=>row.move==='routes'),renderMenu(built));
+  } finally {miner.close();}
+});
+
 test('goods with no bid here and a remembered far bid are a pasteable tradeRun in every stance; with no far bid, not_now says so',async()=>{
   // Live 2026-09-24: dark_matter_residue, iridium, vanadium and copper aboard at a station that
   // bid for none of them; the menu offered stow and never the base that did bid.
