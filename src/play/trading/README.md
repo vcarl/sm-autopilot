@@ -10,7 +10,7 @@ assembled from everything this pilot is allowed to know.
 | Function | Promise |
 |---|---|
 | `spreads(items?)` | the best buyer known for each thing you hold, anywhere, with the trip priced and netted |
-| `routes({items?})` | every route of up to 3 stops known, planned from the hold you have, fuelled, and ranked by trust-weighted net per jump; each row carries the call to paste |
+| `routes({items?, circuit?})` | every route of up to 3 stops known, planned from the hold you have, fuelled, and ranked by trust-weighted net per jump; each row carries the call to paste. With `circuit: {hold}`, every row is a closed lap for a freighter instead |
 | `tradeRun({stops})` | fly the stops in order; at each, sell what pays best there and take on the stop's `buy`, re-planned against the live book. The realised net from the wallet |
 
 Root functions do the rest: `prices()` for the counter you are standing at, `sell()`/`buy()`
@@ -121,6 +121,37 @@ Each leg is:
 At most 5 rows come back, priced ones first. The Outcome's `did` names the best row in short —
 a stop selling more than two kinds says `sell 499 of 10 kinds` — and its legs carry each sale. A stop that could not be placed leaves its row in
 the list with a `why`, a `score` of 0 and the Outcome `partial`.
+
+## Circuits: a lap a freighter repeats
+
+A route need not come back to where it started; one handed to a freighter must, because the
+freighter flies it again and again. `routes({circuit: {hold: 50}})` ranks those instead: every row
+is a closed lap of 2 or 3 different bases, planned for an **empty** hold of `hold` units (what is
+aboard you now is ignored), with at least one buy. The last stop may take on something the first
+stop outbids, so the way back pays too.
+
+A lap is planned three times over and the **middle** lap is the one read: the first starts empty,
+and the last has nothing after it to carry for. The middle one sells at the first stop what the lap
+before carried back. It is still one plan over one set of books, so what lap one bought is gone
+for lap two; a thin book's repeat laps read a little low.
+
+A circuit row is a `Route` whose numbers are that middle lap's: `legs`, `revenue`, `cost`,
+`sales_tax`; `net` is `lap_net`, `total_jumps` is `lap_jumps`, `score` is
+`confidence × lap_net / max(1, lap_jumps)`, `unsold` is empty. A lap is kept only when every stop
+on it trades, `lap_net` is positive and every hop, the last one home included, is on the map. Its
+`next` is the call to paste, `assign('freighter', {…}, {float: 20000})` (see
+[fleet](../fleet/README.md#freighters)), and the lap itself is `circuit`:
+
+| `Circuit` field | What it is |
+|---|---|
+| `closed` | always `true`: the last stop is followed by the first |
+| `hold` | the hold the lap was planned for |
+| `lap_jumps` | jumps round the whole lap, the hop from the last stop back to the first included |
+| `lap_net` | the middle lap's revenue, less cost, tax and `lap_jumps` of fuel at this base's `fuel_price_all_in` |
+| `stops` | in order: `{at, system_id, buy?, sell}` |
+| `stops[i].at`, `.system_id` | the base and its system |
+| `stops[i].buy` | `{item, qty, max_price}`: take on up to `qty` units of `item` at asks of at most `max_price`, which is the planned average ask plus 10% |
+| `stops[i].sell` | `[{item, min_price}]`: sell each held `item` at bids of at least `min_price`, the planned average bid less 10%. Nothing else is sold |
 
 ## What a run says
 

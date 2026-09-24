@@ -398,3 +398,30 @@ test('a held good is not dumped for 1 cr while a base off the route bids 445 for
     assert.match(run.did,/unsold: 27 null_matter \(twin_base bids 445, off this route\)/);
   } finally {unbind();rmSync(runtime,{recursive:true,force:true});}
 });
+
+test('a circuit is read off the middle of three laps: the steady state sells what the last lap carried back',async()=>{
+  // Gems go out from sol at 100 and fetch 150 at range; ore comes back from range at 10 and fetches 30 at sol.
+  const runtime=remembered([{base_id:'range_base',age:0,system_id:'deep_range',items:[
+    {item_id:'gem',best_buy:150,best_buy_qty:50},{item_id:'ore',best_sell:10,best_sell_qty:50}]}]);
+  world({mood:'Focused'},{cargo:[{item_id:'scrap',quantity:5}],cargoUsed:5,cargoCapacity:50,store:[],
+    markets:{sol_base:[{item_id:'gem',best_buy:90,best_buy_qty:50,best_sell:100,best_sell_qty:50},
+      {item_id:'ore',best_buy:30,best_buy_qty:50,best_sell:0,best_sell_qty:0}]}},runtime);
+  try {
+    const out=await routes({circuit:{hold:20}});
+    assert.equal(out.status,'done',out.why);
+    const top=out.detail.routes[0]!,lap=top.circuit!;
+    // Lap one starts empty and sells no ore at sol; the middle lap does: 20×30 + 20×150 − 20×100 − 20×10 − 2 jumps × 7 fuel.
+    assert.equal(lap.lap_net,600+3000-2000-200-14);
+    assert.equal(top.net,lap.lap_net);
+    assert.equal(lap.lap_jumps,2,'sol → deep_range and back, the return leg counted');
+    assert.equal(top.score,lap.lap_net/2);
+    assert.deepEqual(lap.stops,[
+      {at:'sol_base',system_id:'sol',buy:{item:'gem',qty:20,max_price:110},sell:[{item:'ore',min_price:27}]},
+      {at:'range_base',system_id:'deep_range',buy:{item:'ore',qty:20,max_price:11},sell:[{item:'gem',min_price:135}]}]);
+    assert.equal(lap.hold,20,'planned for the hold asked for, not the 5 scrap aboard');
+    assert.equal(out.detail.routes.filter(row=>row.circuit).length,out.detail.routes.length,'every row is a circuit');
+    assert.deepEqual(out.detail.routes.map(row=>row.net),[1386,986,386],
+      'gems one way and ore one way rank under the round trip, and range→sol is not listed again: it is the same circuit turned round');
+    assert.match(top.next,/^assign\('freighter', \{closed:true,hold:20,/);
+  } finally {unbind();rmSync(runtime,{recursive:true,force:true});}
+});
