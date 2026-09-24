@@ -39,8 +39,8 @@ test('fuel lost after undocking reports the refreshed shortfall before jump or l
 
 // Route costs are deliberately asymmetric and change with the return cargo.
 test('travel re-quotes actual remaining fuel, bounds definitive retries, and never replays uncertain movement',async()=>{
-  for(const mode of ['reserve','capacity','replan','uncertain','pending','return','stop']) {
-    let now=0,jumps=0,refuels=0,stopped=false;
+  for(const mode of ['reserve','capacity','replan','uncertain','pending','return']) {
+    let now=0,jumps=0,refuels=0;
     const initial={location:{system_id:'a',poi_id:'a_station',docked_at:'a_base' as string|null,in_transit:false},ship:{id:'ship',fuel:mode==='reserve'?18:100,max_fuel:100,cargo_used:0}};
     const handlers:FakeCommandHandlers={spacemolt:{
       find_route:(params={})=>{
@@ -57,7 +57,7 @@ test('travel re-quotes actual remaining fuel, bounds definitive retries, and nev
         if(mode==='replan')throw new SpacemoltError('in_transit','rejected');
         if(mode==='uncertain')throw new SpacemoltError('mutation_timeout','unknown');
         if(mode==='pending'){const error=new SpacemoltError('in_transit','pending');Object.assign(error,{pendingCommand:{}});throw error;}
-        server.location={system_id:String(params.id),poi_id:'gate',docked_at:null,in_transit:false};server.ship.fuel-=10;stopped=mode==='stop';
+        server.location={system_id:String(params.id),poi_id:'gate',docked_at:null,in_transit:false};server.ship.fuel-=10;
         assert.notDeepEqual(account.state.location,server.location);
         assert.notEqual(account.state.ship!.fuel,server.ship.fuel);
         return {};
@@ -75,7 +75,7 @@ test('travel re-quotes actual remaining fuel, bounds definitive retries, and nev
       return account.send(tool,action,payload);
     };
     const options={reserve:17,now:()=>now,sleep:async(ms:number)=>{now+=ms;},
-      checkMove:()=>{if(stopped)throw new Error('Tired');},refuel:async()=>{refuels++;server.ship.fuel=100;await account.refresh();}};
+      refuel:async()=>{refuels++;server.ship.fuel=100;await account.refresh();}};
     const target={system_id:'b',poi_id:'b_station'};
     if(mode==='return') {
       await travelTo(account,command,target,options);server.ship.cargo_used=80;
@@ -85,7 +85,7 @@ test('travel re-quotes actual remaining fuel, bounds definitive retries, and nev
     } else if(mode==='reserve') {
       await travelTo(account,command,target,options);assert.equal(refuels,1);assert.equal(jumps,1);
     } else {
-      await assert.rejects(travelTo(account,command,target,options),mode==='stop'?/Tired/:mode==='capacity'?/tank capacity/:/rejected|unknown|pending/);
+      await assert.rejects(travelTo(account,command,target,options),mode==='capacity'?/tank capacity/:/rejected|unknown|pending/);
       assert.equal(jumps,mode==='capacity'?0:mode==='replan'?2:1);
       assert.equal(refuels,0);assert.ok(!calls.some(c=>c.tool==='spacemolt'&&c.action==='travel'));
     }

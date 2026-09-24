@@ -124,17 +124,14 @@ test('the next run stows the ore an interrupted trip left aboard, by what the si
   assert.deepEqual(f.server.cargo,[{item_id:'cabin_economy',quantity:1},{item_id:'steel_plate',quantity:10}]);
 });
 
-// S2: `imposeTired()` moves the mood between any two commands. The outbound leg is not going
-// to a base, so a Tired mood must stop it where the ship is; the return leg ends at home's own
-// base, which is the one place a Tired pilot may still be flown — stopping must not strand it.
-test('Tired refuses the outbound leg and still flies the safe leg home',async()=>{
+// S2: `imposeTired()` moves the mood between any two commands, and Tired is what lets a script
+// force the resupply that ends it — so it may not stop a leg. A job planned under Tired runs,
+// and a crossing mid-job flies the rest on Tired's own reserve rather than the stale mood's.
+test('Tired flies the job it is planned under, and the one a crossing lands in',async()=>{
   const tired=fixture();
-  const refused=await tired.run({home,site,mood:'Tired'});
-  assert.equal(refused.outcome,'blocked',String(refused.reason));
-  assert.deepEqual(refused.steps.map(step=>step.name),['travel']);
-  assert.match(refused.reason??'',/only a base is admitted/);
-  // Nothing was sent: the refusal came before the leg's own route quote.
-  assert.deepEqual(tired.calls,[]);
+  const planned=await tired.run({home,site,mood:'Tired'});
+  assert.equal(planned.outcome,'done',String(planned.reason));
+  assert.equal(tired.server.location.docked_at,home.base_id);
 
   // The same mood, imposed after the dig instead of before the trip: the leg home is flown.
   const crossing=fixture();

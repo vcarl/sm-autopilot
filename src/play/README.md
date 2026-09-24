@@ -120,10 +120,15 @@ Each folder's README is the skill for that career; the one for your stance is lo
 
 You choose a mood at rest. It sets margins: fuel kept beyond a route, credits a single service
 may spend, the hull fraction a fight breaks off at. When fuel, hull or credits fall through the
-margin, the runtime imposes **Tired**: the function you are in finishes its safe leg and comes
-to a base; nothing new starts; `goTo` accepts only a base (to service there); resupplying back inside
-the margins — `service()` here, or at any base — clears Tired and restores the mood it replaced.
-You never set or clear Tired yourself. Rest clears everything.
+margin, the runtime imposes **Tired**: the function you are in finishes and nothing new starts,
+until the ship is brought back up. Tired then **widens** what a resupply may do rather than
+narrowing where you may go — it lifts the mood's own spend margin, drops its fuel reserve to 0,
+and lets `service()` buy the half a counter posts a price for instead of refusing the lot. It
+never refuses a flight: `goTo` any base you like, which is the only way to reach a counter that
+sells what the one you are at does not. Resupplying back inside the margins — `service()` here,
+or at any base — clears Tired and restores the mood it replaced. You never set or clear Tired
+yourself. Rest clears everything. `permissions.credit_reserve` is the operator's and Tired does
+not widen it; a fill it refuses says so by name.
 
 ## Rules that will refuse you
 
@@ -131,7 +136,8 @@ You never set or clear Tired yourself. Rest clears everything.
   `process`, `fetch`, `eval`, dynamic `import()`; `while(true)`/`for(;;)` without a
   `stopped()` check; `unload_passenger` with id `all`; a file with no `export default async function main`.
 - At runtime, inside the helpers: spending under `permissions.credit_reserve`; a route
-  without the mood's fuel reserve; starting work under Tired or Relaxed.
+  without the mood's fuel reserve; starting work under Tired or Relaxed. Tired refuses *work*,
+  never movement or resupply.
 
 ## When you are stuck
 

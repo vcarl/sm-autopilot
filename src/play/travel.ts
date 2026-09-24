@@ -4,7 +4,7 @@ import {dockAt} from '../dock.ts';
 import {resolveFuelReserve,type Mood} from '../mood-policy.ts';
 import {details} from '../response-details.ts';
 import {serviceShip} from '../servicing.ts';
-import {FuelRouteShortfall,TiredStop,TravelBlocked,travelTo} from '../travel.ts';
+import {FuelRouteShortfall,TravelBlocked,travelTo} from '../travel.ts';
 import {active} from './missions.ts';
 import {acct,checkStop,command,job,pilot,step} from './runtime.ts';
 import type {Outcome} from './types.ts';
@@ -139,8 +139,8 @@ export async function route(id:string):Promise<FindRouteResponse> {return (await
 /** Whether `id` is a base sitting at `poiId` in `systemId`, per that system's own POI rows
  * (`base_id` on the row) — the only way to tell a base from its POI when a base's id is the
  * same as its POI's, as it is on the live server (report 02, fix 1). A ship not yet in that
- * system cannot ask; `isBase` below falls back to the route heuristic for that case, the same
- * reach limit `systemBases` above already lives with. */
+ * system cannot ask and this answers false, so it is asked only where the ship already is:
+ * once on arrival, to decide the dock, and for the already-there check below. */
 async function baseAt(systemId:string,poiId:string,id:string):Promise<boolean> {
   if(acct().state.location?.system_id!==systemId)return false;
   const pois=(details(await command('spacemolt/get_system',{})).system?.pois??[]) as SystemPoi[];
@@ -219,8 +219,7 @@ async function distressStops(quote:FindRouteResponse,reserve:number):Promise<Sto
  * route and the tank still covers the rest plus the reserve, is flown through and claimed
  * with `complete_mission`. It never accepts a mission, and never detours under Tired.
  *
- * Idempotent: already there (and docked, if a base) sends nothing and is `done`.
- * Tired: only a base is admitted (service there clears it); a POI or a system is `refused`. */
+ * Idempotent: already there (and docked, if a base) sends nothing and is `done`. */
 export function goTo(id:string):Promise<Outcome<Trip>> {
   return job<Trip>('goTo',id,async()=>{
     const who=pilot();
@@ -234,19 +233,15 @@ export function goTo(id:string):Promise<Outcome<Trip>> {
     const detail=():Trip=>({route:quote,location:acct().state.location as V2Location,jumps:0,docked:false});
     // A name was accepted; say which id it was, so the next script can write the id.
     if(named!==target)step(`${target} is ${named}`);
-    // A base id is what find_route resolved to a different POI; dock there on arrival. When
-    // it resolved to the SAME id (a base id equal to its POI's, as on the live server) that
-    // heuristic reads "not a base", so the system's own POI rows get the final say (fix 1).
-    const isBase=quote.target_poi!==undefined&&
-      (quote.target_poi!==named||await baseAt(quote.target_system,quote.target_poi,named));
     // A system id answers with a system and no POI of its own. Passing it on as a `poi_id`
     // is what the server rejects as "Unknown destination" after the jump was already flown
     // and paid for: a system is reached wherever in it the jump lands, so name no POI.
     const poi=quote.target_poi===undefined&&quote.target_system===named?undefined:quote.target_poi??named;
-    if(who.mood==='Tired'&&!isBase)
-      return {status:'refused',did:`did not fly to ${target}`,why:'Tired: only a base is admitted, to service there',detail:detail()};
     const {location}=acct().state;
-    if(location?.system_id===quote.target_system&&(!poi||location.poi_id===poi)&&(!isBase||location.docked_at===named))
+    // Already there, and docked if the place is a base — asked of the system's own POI rows,
+    // which only answer for the system the ship is in, which this branch has established.
+    if(location?.system_id===quote.target_system&&(!poi||location.poi_id===poi)
+      &&(!poi||!await baseAt(quote.target_system,poi,named)||location.docked_at===named))
       return {status:'done',did:`already at ${target}${poi?'':` (${location.poi_id})`}`,detail:{...detail(),docked:Boolean(location.docked_at)}};
     const mood=who.mood??'Cautious';
     // Tired flies straight to the base it is being serviced at; nothing is answered on the way.
@@ -254,29 +249,21 @@ export function goTo(id:string):Promise<Outcome<Trip>> {
     const planned=quote.total_jumps+stops.reduce((sum,s)=>sum+s.extra*2,0);
     step(`goTo ${poi??quote.target_system} ${planned?`${planned} jump(s)`:'same system'} ${quote.estimated_fuel} fuel quoted`
       +(stops.length?`, answering ${stops.length} distress call(s) at ${stops.map(s=>s.system).join(', ')}`:''));
-    let jumps=0,hops=0;
+    let jumps=0;
     const answered:string[]=[];
-    // `toBase` is the leg that ends where a Tired pilot is serviced. Tired is imposed between
-    // any two commands, so every other leg refuses its next move as soon as the mood moves:
-    // the route stops at the system the ship is sitting in, from where a base is still
-    // admitted, rather than flying on to the end on the mood it departed under.
-    //
-    // The mood itself is read per leg and per quote inside it (`moodNow`), never frozen at the
-    // top of the trip: Tired's reserve is 0 where the mood it replaced kept 30, and the base
-    // leg — the one leg Tired still flies — is exactly the leg the stale reserve refuses.
+    // The mood is read per leg and per quote inside it (`moodNow`), never frozen at the top of
+    // the trip: Tired's reserve is 0 where the mood it replaced kept 30, and a crossing
+    // mid-route is exactly when the stale reserve would refuse the leg to a counter.
     const flying=():Mood=>pilot().mood??'Cautious';
-    const fly=(destination:{system_id:string;poi_id?:string},toBase=false)=>travelTo(acct(),command,destination,{
+    const fly=(destination:{system_id:string;poi_id?:string})=>travelTo(acct(),command,destination,{
       mood:flying(),moodNow:flying,maxJumps:null,
       checkpoint:async()=>checkStop(),
-      ...toBase?{}:{checkMove:()=>{
-        if(pilot().mood==='Tired')throw new TiredStop('Tired: this leg is not going to a base; only a base is admitted from here');
-      }},
-      onJump:()=>{hops++;step(`jump ${hops} of ${planned}, fuel ${acct().state.ship?.fuel}`);},
+      onJump:()=>{jumps++;step(`jump ${jumps} of ${planned}, fuel ${acct().state.ship?.fuel}`);},
       refuel:async()=>{try {await serviceShip(acct(),command,{mood:flying(),creditReserve:who.permissions?.credit_reserve??0});} catch {/* the fuel check after decides */}},
     });
     try {
       for(const stop of stops) {
-        jumps+=(await fly({system_id:stop.system})).jumps;
+        await fly({system_id:stop.system});
         try {
           const paid=details(await command('spacemolt/complete_mission',{id:stop.id})) as CompleteMissionResponse;
           answered.push(`completed distress ${paid.title??stop.title} at ${stop.system} en route for ${paid.credits_earned??0} cr`);
@@ -287,17 +274,8 @@ export function goTo(id:string):Promise<Outcome<Trip>> {
           step(`distress ${stop.title} at ${stop.system} not claimable: ${(error as Error).message}`);
         }
       }
-      jumps+=(await fly({system_id:quote.target_system,...poi?{poi_id:poi}:{}},isBase)).jumps;
+      await fly({system_id:quote.target_system,...poi?{poi_id:poi}:{}});
     } catch(error) {
-      // The mood crossed mid-route. What was flown is flown, and the ship is sitting in a
-      // system rather than in transit, so the next call can be the base this stop is for.
-      // `hops`, not `jumps`: the leg that was interrupted never returned its own count, and a
-      // trip that flew a jump and stopped is partial, not a trip that never left.
-      if(error instanceof TiredStop)
-        return {status:hops?'partial':'refused',
-          did:hops?`stopped at ${acct().state.location?.system_id} short of ${target} after ${hops} jump(s)${answered.length?`; ${answered.join('; ')}`:''}`:`did not fly to ${target}`,
-          why:error.message,detail:{...detail(),jumps:hops},
-          next:['goTo a base and service there; this destination is not one']};
       if(error instanceof FuelRouteShortfall) {
         const {actualFuel,requiredFuel,shortfall}=error.evidence;
         // A detour already flown is work behind the refusal, so the trip is partial and the

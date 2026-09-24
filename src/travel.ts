@@ -7,12 +7,6 @@ import {dockAt} from './dock.ts';
 import {position,reconcileMove,type Position,type Reconciliation} from './reconcile.ts';
 
 export class TravelBlocked extends Error {}
-/** A crossing stopped the route. The runtime imposes Tired between any two commands, and a
- * leg that is not going to a base may not carry on under it: a caller's own `checkMove`
- * raises this before the next jump or local travel, so the route stops there rather than a
- * job gate later. The ship is stable and outside transit at every point that check runs, so
- * the pilot can still be flown to a base from where it stopped. */
-export class TiredStop extends TravelBlocked {}
 export interface FuelRouteEvidence {
   kind:'available_fuel'|'capacity';
   actualFuel:number;
@@ -57,7 +51,6 @@ export interface TravelOptions {
   reserve?:number;maxJumps?:number|null;
   checkpoint?:(settled?:boolean)=>Promise<void>;
   beforeMove?:()=>Promise<void>;
-  checkMove?:()=>void;
   refuel?:(minimum:number)=>Promise<void>;
   onJump?:()=>void;
   now?:()=>number;sleep?:(ms:number)=>Promise<void>;
@@ -134,7 +127,6 @@ export async function travelTo(account:ReadinessAccount,command:ReadinessCommand
   // A prior move owns transit until it settles; only then may we quote a new leg.
   if(!stable(account.state))await waitForArrival(account,stable,waits);
   else await checkpoint(true);
-  const moveCheckpoint=async()=>{await checkpoint();options.checkMove?.();};
   let jumps=0,retries=1,refueled=false;
   const quote=async()=>{
     const location=structuredClone(account.state.location),ship=structuredClone(account.state.ship);
@@ -158,7 +150,7 @@ export async function travelTo(account:ReadinessAccount,command:ReadinessCommand
     return {steps,cost:result.estimated_fuel as number,required:result.estimated_fuel+reserve,origin:location!,ship};
   };
   while(!arrived(account.state)) {
-    await moveCheckpoint();
+    await checkpoint();
     let plan=await quote();
     const fuelShortfall=(kind:FuelRouteEvidence['kind'])=>new FuelRouteShortfall({
       kind,actualFuel:account.state.ship!.fuel,quotedCost:plan.cost,effectiveReserve:reserve,
@@ -181,7 +173,7 @@ export async function travelTo(account:ReadinessAccount,command:ReadinessCommand
       if(fuel<plan.required)throw fuelShortfall('available_fuel');
     };
     requireFuel();
-    await moveCheckpoint();
+    await checkpoint();
     await options.beforeMove?.();
     // Hooks may await other work while the server changes. Revalidate the quote
     // before undocking as well as before the jump/travel command.
@@ -200,7 +192,7 @@ export async function travelTo(account:ReadinessAccount,command:ReadinessCommand
       const system=details(await command('spacemolt/get_system',{})).system;
       if(!system?.connections?.some((c:any)=>(typeof c==='string'?c:c.system_id)===next))throw new TravelBlocked('Route is not a verified normal connection');
     }
-    await moveCheckpoint();
+    await checkpoint();
     await account.refresh();
     const current=account.state;
     if(!stable(current)||current.location!.system_id!==plan.origin.system_id||current.location!.poi_id!==plan.origin.poi_id||current.location!.docked_at||
@@ -209,7 +201,6 @@ export async function travelTo(account:ReadinessAccount,command:ReadinessCommand
     if(current.ship!.fuel!==plan.ship.fuel)throw new TravelBlocked('Route origin, load or fuel changed before departure');
     const target=next??destination.poi_id;
     if(!target)throw new TravelBlocked('Route does not reach destination');
-    options.checkMove?.();
     try {await command(next?'spacemolt/jump':'spacemolt/travel',{id:target});}
     catch(error) {
       if(!retryable(error)||retries--<=0)throw error;
@@ -219,9 +210,9 @@ export async function travelTo(account:ReadinessAccount,command:ReadinessCommand
     if(next){jumps++;options.onJump?.();}
     await waitForArrival(account,s=>next?stable(s)&&s.location!.system_id===next:arrived(s),waits);
   }
-  await moveCheckpoint();
+  await checkpoint();
   if(destination.base_id) {
-    await moveCheckpoint();
+    await checkpoint();
     // One dock path for every caller: satisfied docks, lost replies and queued docks included.
     await dockAt(account,command,destination.base_id,waits);
     if(!arrived(account.state))throw new Error('Docking identity not verified');

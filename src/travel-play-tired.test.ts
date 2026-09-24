@@ -5,25 +5,25 @@ import {FakeLibGoalAccount,type FakeCommandHandlers} from './test-support/fake-l
 import {goTo} from './play/travel.ts';
 import {bind,unbind,type Pilot} from './play/runtime.ts';
 
-// S2: `imposeTired()` moves the mood between any two commands, and a `goTo` already in the
-// air used to fly the whole route on the mood it departed under — the stop only bit at the
-// next job gate, one leg too late. A route of two jumps to a POI, with hull lost on the way,
-// is the shape that shows it: the crossing is imposed after the first jump, and the second
-// must not be flown. The trip is `partial` where it stopped, and the pilot is left able to
-// fly to a base, which is what the Tired stop is for.
+// The live juncture (2026-09-24): Tired, docked at `a_station` — a counter that posts no all-in
+// repair quote — with every base that could mend the hull in another system. On the live server
+// a base id IS its POI id, which the fixture below mirrors, so `find_route` resolving a base to
+// "the same id" says nothing about whether it is one, and the system's own POI rows can only be
+// read for the system the ship is in. A Tired pilot that may not fly to a base cannot stop being
+// Tired, so Tired admits the flight: the mood widens what a script may force, never blocks it.
 const SYSTEMS=['a','b','c'];
-const SYSTEM_OF:Record<string,string>={a:'a',b:'b',c:'c',ore_belt:'c',b_station:'b'};
-const POI_OF:Record<string,string|undefined>={ore_belt:'ore_belt',b_station:'b_dock'};
+const SYSTEM_OF:Record<string,string>={a:'a',b:'b',c:'c',ore_belt:'c',b_station:'b',a_station:'a'};
+const POI_OF:Record<string,string|undefined>={ore_belt:'ore_belt',b_station:'b_station',a_station:'a_station'};
 const POIS:Record<string,{id:string;name?:string;base_id?:string;base_name?:string}[]>={
-  a:[{id:'gate',name:'A Gate'}],
-  b:[{id:'gate',name:'B Gate'},{id:'b_dock',name:'B Dock',base_id:'b_station',base_name:'B Station'}],
+  a:[{id:'gate',name:'A Gate'},{id:'a_station',name:'A Station',base_id:'a_station',base_name:'A Station'}],
+  b:[{id:'gate',name:'B Gate'},{id:'b_station',name:'B Station',base_id:'b_station',base_name:'B Station'}],
   c:[{id:'gate',name:'C Gate'},{id:'ore_belt',name:'Ore Belt'}],
 };
 const JUMP=10;
 
 function fixture() {
-  const initial={location:{system_id:'a',poi_id:'gate',docked_at:null as string|null,in_transit:false},
-    ship:{id:'ship',fuel:100,max_fuel:120,hull:100,max_hull:100,cargo_used:0},
+  const initial={location:{system_id:'a',poi_id:'a_station',docked_at:'a_station' as string|null,in_transit:false},
+    ship:{id:'ship',fuel:73,max_fuel:120,hull:59,max_hull:80,cargo_used:0},
     player:{credits:1_000}};
   const handlers:FakeCommandHandlers={spacemolt:{
     find_route:({id}={})=>{
@@ -41,16 +41,16 @@ function fixture() {
       return {system:{connections:[SYSTEMS[here-1],SYSTEMS[here+1]].filter(Boolean),
         pois:POIS[server.location.system_id]}};
     },
+    // `a_station` posts a fuel price and no repair price: the hull cannot be bought here.
+    get_base:()=>({services:['refuel'],base:{poi_id:'a_station'},fuel_price_all_in:5}),
+    undock:()=>{server.location.docked_at=null;return {};},
     jump:({id}={})=>{
       server.ship.fuel-=JUMP;
       server.location.system_id=String(id);server.location.poi_id='gate';
-      // A knock taken on the first hop: hull under the Cautious walk-away line is a crossing,
-      // and the runtime imposes Tired on the next command's return.
-      if(String(id)==='b')server.ship.hull=90;
       return {};
     },
     travel:({id}={})=>{server.location.poi_id=String(id);return {};},
-    dock:()=>{server.location.docked_at='b_station';return {};},
+    dock:()=>{server.location.docked_at=server.location.poi_id;return {};},
   }};
   const account=new FakeLibGoalAccount(initial,handlers);
   const server=account.server;
@@ -58,31 +58,21 @@ function fixture() {
     const [tool,action]=name.split('/');
     return account.send(tool,action,payload);
   };
-  let who:Pilot={mood:'Cautious'};
+  let who:Pilot={mood:'Tired'};
   bind({account:account as unknown as ReadinessAccount,command,
     pilot:()=>who,setPilot:next=>{who=next;},emit:()=>{}});
   return {account,server,command,pilot:()=>who,
     jumps:()=>account.calls.filter(call=>call.action==='jump').length};
 }
 
-test('a crossing mid-route stops the leg in flight, and a base is still reachable',async()=>{
+test('Tired flies to a base in another system, the one move that can end the shift',async()=>{
   const f=fixture();
   try {
-    const trip=await goTo('ore_belt');
-    // One jump flown, the crossing imposed, the second jump never sent.
-    assert.equal(f.pilot().mood,'Tired');
+    const trip=await goTo('b_station');
+    assert.equal(trip.status,'done',`${trip.did}: ${trip.why}`);
     assert.equal(f.jumps(),1);
-    assert.equal(f.server.location.system_id,'b');
-    assert.equal(trip.status,'partial',`${trip.did}: ${trip.why}`);
-    assert.match(trip.why??'',/Tired/);
-    assert.equal(trip.detail.jumps,1);
-
-    // The stop is not a strand: the pilot is sitting in a system, out of transit, and the
-    // one move a Tired pilot is admitted for still goes through.
-    const rescue=await goTo('b_station');
-    assert.equal(rescue.status,'done',`${rescue.did}: ${rescue.why}`);
-    assert.equal(rescue.detail.docked,true);
+    assert.equal(trip.detail.docked,true);
     assert.equal(f.server.location.docked_at,'b_station');
-    assert.equal(f.pilot().mood,'Tired','the hull is still down, so the stop still stands');
+    assert.equal(f.pilot().mood,'Tired','the hull is still down, so the mood of record stands');
   } finally {unbind();}
 });
