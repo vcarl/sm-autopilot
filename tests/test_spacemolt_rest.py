@@ -160,6 +160,22 @@ def test_a_finished_objective_is_retired_by_the_reflection_that_opens_the_next_s
             "stance": "Hunter"}.items() <= entries[-1].items()
 
 
+def test_a_stale_flag_and_a_repeated_one_both_clear_on_the_same_write(bridged):
+    """`or` short-circuits: a pilot that passes ``objective_done`` while the record already
+    carries it must not leave the stale one behind, or the next wakeup hands the pilot its own
+    completion back beside an objective that is already gone."""
+    juncture.write_pilot({"name": "kvothe", "objective": "pay off the debt",
+                          "objective_done": True})
+
+    spacemolt._reflect({"goal": "raise gunnery two levels", "stance": "Hunter",
+                        "mood": "Focused", "objective_done": True})
+
+    record = juncture.read_pilot()
+    assert "objective_done" not in record, \
+        "the flag the pilot repeated cannot outlive the objective it named"
+    assert "objective" not in record and record["objective_completed"] == "pay off the debt"
+
+
 def test_a_record_left_carrying_objective_done_reflects_instead_of_waiting(bridged):
     """The live record itself: ``objective_done`` already true beside the objective it finished.
     The wakeup asks for a shift rather than telling the pilot to wait for a human, and the next

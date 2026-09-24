@@ -193,7 +193,10 @@ def _reflect(arguments: dict[str, Any] | None = None, **_: Any) -> str:
     # `objective_done` retires the objective exactly once, here. Either the pilot says so now, or
     # the record already carried the flag from before this fix; both resolve on this write, and
     # neither can be reported a second time because the objective it named is gone.
-    finished = bool(args.get("objective_done")) or bool(record.pop("objective_done", None))
+    # The pop runs first: `or` short-circuits, so a pilot that passes the flag would leave
+    # a stale one on the record and be handed its own completion back next wakeup.
+    stale = bool(record.pop("objective_done", None))
+    finished = bool(args.get("objective_done")) or stale
     retired = record.pop("objective", None) if finished else None
     record.update(goal=goal, stance=stance, mood=mood)
     if retired:
