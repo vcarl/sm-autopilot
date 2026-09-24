@@ -338,7 +338,17 @@ export function measured():Row[] {
 let tiredBy='';
 /** The margin the mood crosses, if any: fuel under the reserve, hull under the walk-away
  * line, credits under the reserve. ponytail: the route home is not quoted here (that is a
- * find_route per check); the mood's reserve in units stands in for it. Ammunition waits for hunt. */
+ * find_route per check); the mood's reserve in units stands in for it. Ammunition waits for hunt.
+ *
+ * ponytail: the fuel line is a flat reserve, not a route. Ceiling: a pilot four jumps from the
+ * nearest serviced station is inside a 30 unit reserve and cannot reach anything, while one
+ * docked at a station is Tired over a tank it could fill in one command — the reserve is a proxy
+ * for the trip home, and it is wrong in both directions the further the two diverge. Upgrade
+ * (the one good idea the deleted `fuel-transition.ts` held): quote `find_route` to the nearest
+ * serviced station and draw the line at that cost plus the mood's reserve, so a serviced dock
+ * owes a full tank and anywhere else owes the route to one. It costs a `find_route` per station
+ * per check, which is why it is not here: take it when the station list is a read the runtime
+ * already has. */
 function crossed(mood:Mood):string|null {
   const {ship,player}=need().account.state,who=pilot();
   if(!ship)return null;
