@@ -159,8 +159,7 @@ export interface Traded {
 
 /** One round, composed from the three functions that already do the work: `buy` `quantity` of
  * `item` here, `goTo(sellAt)`, `sell` it there. Each leg keeps its own rules — `buy` refuses
- * under `credit_reserve`, `goTo` refuses a no-go system and a POI while
- * Tired, `sell` re-reads the far book and leaves a row with no buyer aboard — so this adds
+ * under `credit_reserve`, `goTo` refuses a POI while Tired, `sell` re-reads the far book and leaves a row with no buyer aboard — so this adds
  * only the sequence and the realised net. Quantity defaults to what the hold fits.
  *
  * `partial` at `leg:'bought'` when the flight did not finish and at `leg:'flown'` when the

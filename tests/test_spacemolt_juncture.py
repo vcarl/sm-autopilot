@@ -156,12 +156,18 @@ def test_the_situation_is_labelled_lines_with_the_last_runs_age(monkeypatch):
 def test_the_situation_renders_only_the_permissions_the_code_knows(monkeypatch):
     """A key the code dropped is still in the record, and rendering it raw read as "wildlife
     False": the pilot spent its first turn weighing whether it could hunt (playtest 2026-09-22).
+
+    The filter is an allowlist, so every permission the library has since dropped —
+    `wildlife`, `may_attack`, and now `max_spend` and `no_go` — stays inert in a live record
+    rather than rendering as a bound the pilot cannot act on.
     """
     menu = _menu(12, last=LAST)
-    menu["permissions"] = {"credit_reserve": 5000, "wildlife": False, "no_go": ["deep_range"]}
+    menu["permissions"] = {"credit_reserve": 5000, "wildlife": False,
+                           "no_go": ["deep_range"], "max_spend": 1000}
     context = _rendered(monkeypatch, menu)
-    assert "Permissions: keep 5,000 credits; never go to deep_range." in context
-    assert "wildlife" not in context
+    assert "Permissions: keep 5,000 credits." in context
+    for gone in ("wildlife", "deep_range", "no_go", "max_spend"):
+        assert gone not in context, gone
 
 
 def test_a_skill_reads_as_the_object_it_is(monkeypatch):

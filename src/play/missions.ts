@@ -157,9 +157,6 @@ export function acceptMission(id:string):Promise<Outcome<AcceptMissionResponse>>
     const board=(details(await command('spacemolt/get_missions',{})) as GetMissionsResponse).missions??[];
     const wanted=board.find(m=>m.mission_id===id||m.template_id===id);
     if(!wanted)return {status:'refused',did:`did not accept ${id}`,why:'not on the board here',detail:none};
-    const noGo=pilot().permissions?.no_go??[];
-    const away=(wanted.objectives??[]).find(o=>o.system_id&&noGo.includes(o.system_id));
-    if(away)return {status:'refused',did:`did not accept ${id}`,why:`objective in no-go system ${away.system_id}`,detail:none};
     const load=Object.values(wanted.provided_items??{}).reduce((sum,q)=>sum+q,0);
     const free=(acct().state.ship?.cargo_capacity??0)-(acct().state.ship?.cargo_used??0);
     if(load>free)return {status:'refused',did:`did not accept ${id}`,why:`provides ${load} units of cargo; the hold has ${free} free`,detail:none};

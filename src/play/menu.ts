@@ -225,7 +225,6 @@ export async function menu(runtime?:string):Promise<Menu> {
   /** A move that starts work: refused under a threat or a mood that may not start a job. */
   const work=(move:Move)=>stop?not_now.push({move:move.call.split('(')[0]!,why:stop}):moves.push(move);
   const flies=async(id:string):Promise<string|null>=>{
-    if((who.permissions?.no_go??[]).includes(id))return `${id} is in permissions.no_go`;
     const quote=await attempt(async()=>details(await command('spacemolt/find_route',{id})));
     if(!quote?.found)return `no route to ${id}`;
     const need=Number(quote.estimated_fuel)+reserve;

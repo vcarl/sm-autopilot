@@ -162,13 +162,13 @@ export interface Stop {id:string;title:string;system:string;extra:number;at:numb
 /** Which distress calls the quoted route can answer on the way, given a `find_route` leg for
  * each candidate system that is not already on it. Pure, so the budget is testable. */
 export function distressPlan(quote:Pick<FindRouteResponse,'route'|'total_jumps'|'estimated_fuel'|'fuel_per_jump'|'fuel_available'>,
-  missions:ActiveMissionInfo[],legs:Map<string,{route?:RouteStep[];total_jumps:number}>,noGo:string[],reserve:number):Stop[] {
+  missions:ActiveMissionInfo[],legs:Map<string,{route?:RouteStep[];total_jumps:number}>,reserve:number):Stop[] {
   const onRoute=new Set((quote.route??[]).map(s=>s.system_id));
   let budget=quote.total_jumps*DETOUR_SHARE;
   const stops:Stop[]=[];
   for(const mission of missions) {
     const system=distressTarget(mission);
-    if(!system||noGo.includes(system))continue;
+    if(!system)continue;
     const row={id:mission.mission_id,title:mission.title,system};
     if(onRoute.has(system)) {
       stops.push({...row,extra:0,at:Math.max(0,(quote.route??[]).findIndex(s=>s.system_id===system))});
@@ -194,17 +194,17 @@ export function distressPlan(quote:Pick<FindRouteResponse,'route'|'total_jumps'|
 
 /** The plan above, with the active list and the one `find_route` per off-route candidate it
  * needs. Reads only; a read that fails is no stops, never a failed trip. */
-async function distressStops(quote:FindRouteResponse,noGo:string[],reserve:number):Promise<Stop[]> {
+async function distressStops(quote:FindRouteResponse,reserve:number):Promise<Stop[]> {
   let mine;
   try {mine=await active();} catch {return [];}
   const onRoute=new Set((quote.route??[]).map(s=>s.system_id));
   const legs=new Map<string,{route?:RouteStep[];total_jumps:number}>();
   for(const mission of mine.active) {
     const system=distressTarget(mission);
-    if(!system||onRoute.has(system)||legs.has(system)||noGo.includes(system))continue;
+    if(!system||onRoute.has(system)||legs.has(system))continue;
     try {legs.set(system,await route(system));} catch {/* no route there is no stop */}
   }
-  return distressPlan(quote,mine.active,legs,noGo,reserve);
+  return distressPlan(quote,mine.active,legs,reserve);
 }
 
 /** Fly to a POI, a base, or a system, jumping as many times as the route needs, and dock
@@ -212,8 +212,8 @@ async function distressStops(quote:FindRouteResponse,noGo:string[],reserve:numbe
  * and no argument is refused.
  *
  * Over `find_route` + `jump`/`travel` + `dock` it adds: base ids resolved to their POI before
- * the arrival wait, the mood's fuel reserve, a refuel first when docked and short, no-go
- * systems refused, and one `partial` on stop instead of a wedged runner.
+ * the arrival wait, the mood's fuel reserve, a refuel first when docked and short, and one
+ * `partial` on stop instead of a wedged runner.
  *
  * On the way it answers active distress calls: a mission whose system is on the route, or at
  * most `DETOUR_JUMPS` off it while all detours together stay inside `DETOUR_SHARE` of the
@@ -236,8 +236,6 @@ export function goTo(id?:string):Promise<Outcome<Trip>> {
     const detail=():Trip=>({route:quote,location:acct().state.location as V2Location,jumps:0,docked:false});
     // A name was accepted; say which id it was, so the next script can write the id.
     if(named!==target)step(`${target} is ${named}`);
-    if((who.permissions?.no_go??[]).includes(quote.target_system))
-      return {status:'refused',did:`did not fly to ${target}`,why:`${quote.target_system} is in permissions.no_go`,detail:detail()};
     // A base id is what find_route resolved to a different POI; dock there on arrival. When
     // it resolved to the SAME id (a base id equal to its POI's, as on the live server) that
     // heuristic reads "not a base", so the system's own POI rows get the final say (fix 1).
@@ -254,7 +252,7 @@ export function goTo(id?:string):Promise<Outcome<Trip>> {
       return {status:'done',did:`already at ${target}${poi?'':` (${location.poi_id})`}`,detail:{...detail(),docked:Boolean(location.docked_at)}};
     const mood=who.mood??'Cautious';
     // Tired flies straight to the base it is being serviced at; nothing is answered on the way.
-    const stops=mood==='Tired'?[]:await distressStops(quote,who.permissions?.no_go??[],resolveFuelReserve(mood));
+    const stops=mood==='Tired'?[]:await distressStops(quote,resolveFuelReserve(mood));
     const planned=quote.total_jumps+stops.reduce((sum,s)=>sum+s.extra*2,0);
     step(`goTo ${poi??quote.target_system} ${planned?`${planned} jump(s)`:'same system'} ${quote.estimated_fuel} fuel quoted`
       +(stops.length?`, answering ${stops.length} distress call(s) at ${stops.map(s=>s.system).join(', ')}`:''));

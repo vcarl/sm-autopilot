@@ -9,13 +9,13 @@ export interface Explored {
   visited:(SystemInfo&{first_visit:boolean;route:FindRouteResponse})[];
   /** Systems still unvisited within reach, for next time. */
   unvisited:MapSystemInfo[];
-  ended:'asked'|'fuel'|'no_go'|'stopped'|'tired';
+  ended:'asked'|'fuel'|'stopped'|'tired';
 }
 
 /** Visit up to `systems` (default 2) unvisited systems within `jumps` (default 2) of here,
  * docking at each one's first station to read its board and market, then come home. Picks
  * the loop that visits the most unvisited systems inside the mood's fuel reserve, skipping
- * `permissions.no_go` and (Cautious, Focused) police 0. Trains exploration (first visits),
+ * (Cautious, Focused) police 0. Trains exploration (first visits),
  * navigation, piloting; scanning when `survey:true` runs a `survey_system` in each. Costs
  * fuel. Every system entered lands in the scout cache, so `scout(id)` answers from it
  * afterwards. Tired turns for home at the next system. */

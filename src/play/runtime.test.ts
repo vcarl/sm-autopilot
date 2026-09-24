@@ -457,11 +457,9 @@ test('a distress call one jump off the route is answered, two jumps off or expir
     objectives:[{description:`Investigate distress call in ${system}`,type:'visit_system',system_id:system,
       current:0,required:1,completed:false}],...over}) as never;
   const plan=distressPlan(quote,[at('onRoute','c'),at('near','x'),at('far','y'),at('dead','c',{expires_in_ticks:0})],
-    legs,[],24);
+    legs,24);
   assert.deepEqual(plan.map(s=>[s.id,s.extra]),[['onRoute',0],['near',1]],
     'two jumps off the route and an expired call are both left alone');
   // The same plan with a tank that only covers the direct route drops the detour.
-  assert.deepEqual(distressPlan({...quote,fuel_available:56},[at('onRoute','c'),at('near','x')],legs,[],24).map(s=>s.id),['onRoute']);
-  // A no-go system is never a stop, however near it is.
-  assert.deepEqual(distressPlan(quote,[at('near','x')],legs,['x'],24),[]);
+  assert.deepEqual(distressPlan({...quote,fuel_available:56},[at('onRoute','c'),at('near','x')],legs,24).map(s=>s.id),['onRoute']);
 });
