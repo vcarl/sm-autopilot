@@ -400,6 +400,7 @@ test('a held good is not dumped for 1 cr while a base off the route bids 445 for
 });
 
 test('a circuit is read off the middle of three laps: the steady state sells what the last lap carried back',async()=>{
+  let next='';
   // Gems go out from sol at 100 and fetch 150 at range; ore comes back from range at 10 and fetches 30 at sol.
   const runtime=remembered([{base_id:'range_base',age:0,system_id:'deep_range',items:[
     {item_id:'gem',best_buy:150,best_buy_qty:50},{item_id:'ore',best_sell:10,best_sell_qty:50}]}]);
@@ -423,5 +424,13 @@ test('a circuit is read off the middle of three laps: the steady state sells wha
     assert.deepEqual(out.detail.routes.map(row=>row.net),[1386,986,386],
       'gems one way and ore one way rank under the round trip, and range→sol is not listed again: it is the same circuit turned round');
     assert.match(top.next,/^assign\('freighter', \{closed:true,hold:20,/);
+    next=top.next;
   } finally {unbind();rmSync(runtime,{recursive:true,force:true});}
+  // The row's call is pasted into a pilot file as it is: it has to get through the gate.
+  const pilot=mkdtempSync(join(tmpdir(),'circuit-next-'));
+  mkdirSync(join(pilot,'pilot'));
+  writeFileSync(join(pilot,'pilot','index.ts'),`import {assign} from 'play';\nexport default async function main() {\n  return ${next};\n}\n`);
+  const gate=await check(pilot);
+  rmSync(pilot,{recursive:true,force:true});
+  assert.deepEqual(gate.errors,[]);
 });

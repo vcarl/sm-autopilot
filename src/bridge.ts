@@ -11,6 +11,7 @@ import {markAlertsDelivered,pendingAlerts,recordAlert} from './alerts.ts';
 import {foldBattleDamage,foldBattleEnded,foldBattleUpdate} from './combat-memory.ts';
 import {battleEnded,battleNow} from './travel.ts';
 import {controllerLock} from './controller-lock.ts';
+import {GAME_WS_URL,readCredentials} from './credentials.ts';
 import type {ReadinessAccount,ReadinessCommand} from './readiness.ts';
 import {details} from './response-details.ts';
 import {resolveWalkAway,type Mood} from './mood-policy.ts';
@@ -20,12 +21,10 @@ import {journalCommand,journalRun,readRun,type RunRecord} from './run-record.ts'
 import {startHeartbeat} from './heartbeat.ts';
 import {flushJournalDrain,startJournalDrain} from './journal-webhook.ts';
 import {check as checkPilot,runPilot as defaultRunPilot,type RunResult} from './run.ts';
-import {menu as buildMenu,renderMenu} from './play/menu.ts';
+import {factsNow,menu as buildMenu,renderMenu} from './play/menu.ts';
+import {fleetBrief,resumeFreighters,stopFreighters} from './play/freighter/host.ts';
 import {restNow,validateNext,type NextShift} from './play/rest.ts';
 import {bind,isBound,present,progress,stop as stopRun,unbind} from './play/runtime.ts';
-
-/** The one endpoint this runner talks to. */
-export const GAME_WS_URL='wss://game.spacemolt.com/ws/v2';
 
 export type Dispatch=(action:string,params?:Record<string,unknown>)=>Promise<unknown>;
 
@@ -299,7 +298,7 @@ export function serve(account:ReadinessAccount,command:ReadinessCommand,options:
           // The hull this mood breaks off a fight at, as `imposeTired` computes it: the juncture
           // cannot reach the D2 table, and a pilot left to guess the line guesses it low.
           ...ship?.max_hull===undefined?{}:{walk_away:Math.floor(resolveWalkAway(who.mood??'Cautious')*ship.max_hull)}},
-        ...built,text:renderMenu(built),last:lastOutcome(),
+        ...built,text:renderMenu(built),...runtime?fleetBrief(runtime):{},last:lastOutcome(),
         ...waiting.length?{alerts:waiting.map(({type,key,at,first_at,n,body})=>({type,key,at,first_at,n,body}))}:{},
       };
     } finally {unbind();}
@@ -370,10 +369,7 @@ export function createShutdown(account:{close:()=>unknown},
 async function main() {
   const credentialPath=process.env.SPACEMOLT_CREDENTIALS_FILE;
   if(!credentialPath)throw new Error('SPACEMOLT_CREDENTIALS_FILE must name a credentials file');
-  const text=readFileSync(credentialPath,'utf8');
-  const username=text.match(/^Username: (.+)$/m)?.[1]?.trim();
-  const password=text.match(/^Password: (.+)$/m)?.[1]?.trim();
-  if(!username||!password)throw new Error('Missing Username or Password field in credentials file');
+  const {username,password}=readCredentials(credentialPath);
   const credentials=()=>({kind:'login' as const,username,password});
   const runtime=process.env.SPACEMOLT_RUNTIME_DIR??fileURLToPath(new URL('../runtime/',import.meta.url));
   mkdirSync(runtime,{recursive:true});
@@ -388,6 +384,7 @@ async function main() {
   const account=new Account({url:GAME_WS_URL,reconnect:true,credentials,fastMutationTimeoutMs:60_000});
   let stopped=false;
   const shutdown=createShutdown({close:async()=>{
+    stopFreighters();
     await flushJournalDrain().catch(()=>{});
     return account.close();
   }});
@@ -419,6 +416,8 @@ async function main() {
   const dispatch=serve(account,command,
     {pilot:()=>readPilot(pilotFile),setPilot:next=>writePilot(pilotFile,next),runtime,emit});
   const resumed=await dispatch('resume',{});
+  // The freighters fly from this process, each on its own account; the pilot's run is not theirs.
+  resumeFreighters(runtime);
   console.log(JSON.stringify({event:'ready',resumed}));
   const handle=async(line:string)=>{
     let request:{id?:string;action:string;params?:Record<string,unknown>}|undefined;

@@ -448,6 +448,18 @@ const ROWS=5;
  * placed with one `find_route` each, at most 5 per call; past that its routes are unpriced rows. */
 const UNPLACED=5;
 
+/** Jumps from one system to another over the map's links (`get_map` connections), breadth first;
+ * null when the map does not connect them. */
+export function hops(links:ReadonlyMap<string,readonly string[]>,from:string,to:string):number|null {
+  let frontier=[from],n=0;
+  const seen=new Set(frontier);
+  while(frontier.length&&!frontier.includes(to)) {
+    n++;
+    frontier=frontier.flatMap(system=>links.get(system)??[]).filter(system=>!seen.has(system)&&!!seen.add(system));
+  }
+  return frontier.length?n:null;
+}
+
 /** A route as `routes()` ranks it: the plan from the hold you have, with the trip priced. */
 export interface Route extends Plan {
   /** Jumps from here through every stop, from the map; null when a stop could not be placed. */
@@ -527,19 +539,11 @@ export function routes(opts:{items?:string[];circuit?:{hold:number}}={}):Promise
       for(const row of (details(await command('spacemolt/get_map',{})) as {systems?:MapSystemInfo[]}).systems??[])
         links.set(row.system_id,row.connections??[]);
     } catch {/* no map: every far stop is unpriced, and says so */}
-    const hops=new Map<string,number|null>();
+    const counted=new Map<string,number|null>();
     const jumps=(from:string,to:string):number|null=>{
       const key=`${from}>${to}`;
-      if(!hops.has(key)) {
-        let frontier=[from],n=0;
-        const seen=new Set(frontier);
-        while(frontier.length&&!frontier.includes(to)) {
-          n++;
-          frontier=frontier.flatMap(system=>links.get(system)??[]).filter(system=>!seen.has(system)&&!!seen.add(system));
-        }
-        hops.set(key,frontier.length?n:null);
-      }
-      return hops.get(key)!;
+      if(!counted.has(key))counted.set(key,hops(links,from,to));
+      return counted.get(key)!;
     };
     const fuelPrice=Number(details(await command('spacemolt/get_base',{})).fuel_price_all_in??1);
 
