@@ -9,7 +9,7 @@
  * reads the ledger when there is one and otherwise remembers: every `book()` read is written
  * to this runtime's market memory, and the second visit knows what the first one saw.
  */
-import type {EstimatePurchaseResponse,FactionQueryTradeIntelResponse,FindRouteResponse,MarketListingItem,OrderLevel,SellResponse} from '@spacemolt/lib';
+import type {EstimatePurchaseResponse,FactionQueryTradeIntelResponse,MapSystemInfo,MarketListingItem,OrderLevel,SellResponse} from '@spacemolt/lib';
 import {miningInventory} from '../../mining-inventory.ts';
 import {walkBook} from '../../order-book.ts';
 import {details} from '../../response-details.ts';
@@ -17,7 +17,7 @@ import {book,buy,knownBooks,marketTick,sell,ticksOld} from '../market.ts';
 import {acct,admit,checkStop,command,job,step} from '../runtime.ts';
 import {withdraw} from '../storage.ts';
 import {goTo,route} from '../travel.ts';
-import type {Outcome} from '../types.ts';
+import type {Outcome,Row} from '../types.ts';
 
 /** One item and the best buyer known for it, with the trip to that buyer priced. */
 export interface Spread {
@@ -117,7 +117,7 @@ export function spreads(items?:string[]):Promise<Outcome<{spreads:Spread[];sourc
       detail:{spreads:rows,sources},
       next:[...rows.slice(0,2).map(row=>row.base_id===here
         ?`sell([{item_id:'${row.item_id}'}]) here — ${row.best_buy} × ${Math.min(row.best_buy_qty,row.held)} ≈ ${row.net} cr net`
-        :`goTo('${row.base_id}') then sell([{item_id:'${row.item_id}'}]) — ${row.best_buy} each (${row.source}, ${row.seen}), ${row.fuel} fuel, ${row.net} cr net`),
+        :`${runCall([{at:row.base_id}])} — ${row.best_buy} each (${row.source}, ${row.seen}), ${row.fuel} fuel, ${row.net} cr net`),
       ...unsellable.length?['no price is known for the rest; goTo another base and prices() there to learn one']:[]].slice(0,3)};
   });
 }
@@ -147,135 +147,57 @@ async function ledger(items:string[]):Promise<FactionQueryTradeIntelResponse['en
 /** A book row as far as a source can say: a ledger entry has the top of book and volumes, no levels. */
 type Listing=Pick<MarketListingItem,'item_id'|'best_buy'|'best_buy_qty'|'best_sell'|'best_sell_qty'>
   &Partial<Pick<MarketListingItem,'buy_orders'|'sell_orders'>>;
-/** A book at another base, with its age in ticks against `now`. */
-interface FarBook {base_id:string;source:'faction ledger'|'remembered';age:number;items:Listing[]}
+/** A book at another base, with its age in ticks against `now`, and its system when the memory kept it. */
+interface FarBook {base_id:string;source:'faction ledger'|'remembered';age:number;system_id?:string;items:Listing[]}
 
 /** Every far book this pilot may know: the faction ledger's entries for `items`, then the books
- * remembered at other bases. What `spreads()` and `routes()` both read. */
+ * remembered at other bases. What `spreads()`, `routes()` and `tradeRun` all read. */
 async function farBooks(items:string[],here:string,now:number):Promise<FarBook[]> {
   const filed=(await ledger(items)).map(entry=>({base_id:entry.base_id,source:'faction ledger' as const,
     age:ticksOld(entry.submitted_at_tick,now),
     items:(entry.items??[]).map(item=>({item_id:item.item_id,best_buy:item.best_buy,best_buy_qty:item.buy_volume,
       best_sell:item.best_sell,best_sell_qty:item.sell_volume}))}));
   const remembered=knownBooks().filter(known=>known.base_id!==here).map(known=>({base_id:known.base_id,
-    source:'remembered' as const,age:ticksOld(known.tick,now),items:known.items}));
+    source:'remembered' as const,age:ticksOld(known.tick,now),...known.system_id?{system_id:known.system_id}:{},items:known.items}));
   return [...filed,...remembered];
-}
-
-export interface Traded {
-  item_id:string;
-  /** The buy preview; empty when nothing was bought because the goods were already aboard. */
-  estimate:EstimatePurchaseResponse;
-  bought:number;
-  /** Carried rather than bought: what was aboard, plus what `from:'store'` withdrew. */
-  carried:number;
-  sold:SellResponse[];
-  /** Realised: sales minus purchase minus what the flight took out of the wallet. */
-  net:number;
-  leg:'bought'|'flown'|'sold';
-}
-
-/** One round toward "`item` sold at `sellAt`", composed from the functions that already do the
- * work. Goods already aboard are delivered instead of buying more; `from:'store'` first
- * withdraws what the hold fits of `item` from the store here. Only when none is aboard (and
- * `from` is not `'store'`) does it `buy` `quantity` here. Then `goTo(sellAt)` and `sell` it
- * there. Each leg keeps its own rules — `buy` refuses under `credit_reserve`, `goTo` refuses a
- * POI while Tired, `sell` re-reads the far book and leaves a row with no buyer aboard — so this
- * adds only the sequence and the realised net. Quantity defaults to what the hold fits.
- *
- * `partial` at `leg:'bought'` when the flight did not finish and at `leg:'flown'` when the
- * far book would not take the goods: either way they are aboard, and `next` says so. Trains
- * trading and navigation. */
-export function tradeRun(opts:{item:string;sellAt:string;quantity?:number;from?:'hold'|'store'}):Promise<Outcome<Traded>> {
-  return job<Traded>('tradeRun',`${opts.quantity??'a hold of'} ${opts.item} → ${opts.sellAt}${opts.from==='store'?' from store':''}`,async()=>{
-    const none:Traded={item_id:opts.item,estimate:{} as EstimatePurchaseResponse,bought:0,carried:0,sold:[],net:0,leg:'bought'};
-    const blocked=admit('tradeRun');
-    if(blocked)return {status:'refused',did:`ran no trade in ${opts.item}`,why:blocked,detail:none};
-    const aboard=()=>miningInventory(acct().state)[opts.item]??0;
-    if(opts.from==='store') {
-      const took=await withdraw([opts.quantity===undefined?{item_id:opts.item}:{item_id:opts.item,quantity:opts.quantity}]);
-      if(!aboard())return {status:took.status==='refused'?'refused':'done',did:`carried no ${opts.item}: none aboard and ${took.did}`,
-        ...took.why?{why:took.why}:{},detail:none};
-    }
-    let estimate=none.estimate,spent=0,bought=0;
-    const carried=aboard();
-    if(carried)step(`carrying ${carried} ${opts.item} already aboard`);
-    else {
-      const ship=acct().state.ship;
-      const quantity=opts.quantity??Math.max(0,(ship?.cargo_capacity??0)-(ship?.cargo_used??0));
-      if(!(quantity>0))return {status:'refused',did:`ran no trade in ${opts.item}`,why:`no quantity: the hold has ${quantity} free`,detail:none};
-      const got=await buy(opts.item,quantity);
-      estimate=got.detail?.estimate??none.estimate;
-      spent=Number(got.detail?.bought?.total_cost??0);
-      bought=Number(got.detail?.bought?.quantity??0);
-      if(!bought)return {status:got.status==='refused'?'refused':'failed',did:`bought no ${opts.item}`,why:got.why??got.did,
-        detail:{...none,estimate}};
-      step(`bought ${bought} ${opts.item} for ${spent} cr`);
-    }
-    const load=carried?`carried ${carried} ${opts.item}`:`bought ${bought} ${opts.item} for ${spent} cr`;
-
-    const flown=await goTo(opts.sellAt);
-    if(flown.status!=='done')return {status:'partial',did:`${load}; did not reach ${opts.sellAt}`,
-      why:flown.why??flown.did,detail:{...none,estimate,bought,carried,net:-spent-flown.cost.credits,leg:'bought'},
-      next:[`tradeRun(${JSON.stringify({item:opts.item,sellAt:opts.sellAt}).replace(/"/g,"'")}) again delivers what is aboard`,`spreads(['${opts.item}']) for another buyer`]};
-
-    const sold=await sell([{item_id:opts.item}]);
-    const earned=sold.detail?.total??0;
-    const net=Math.round(earned-spent-flown.cost.credits);
-    const detail:Traded={item_id:opts.item,estimate,bought,carried,sold:sold.detail?.fills??[],net,
-      leg:sold.status==='done'?'sold':'flown'};
-    if(detail.leg==='flown')return {status:'partial',did:`${load} to ${opts.sellAt}; it did not sell`,
-      why:sold.why??sold.did,detail,next:[`spreads(['${opts.item}']) — the book here has moved`]};
-    return {status:'done',
-      did:`${load}, flew to ${opts.sellAt}, sold for ${earned} cr — net ${net} cr after ${flown.cost.credits} cr of flight`,
-      detail,next:net>0?[`tradeRun({item:'${opts.item}', sellAt:'${opts.sellAt}'}) again while the spread holds`]:[]};
-  });
 }
 
 /** Ticks for a far end's trust to halve: an hour at ten seconds a tick. NPC books move rarely,
  * so an hour-old price still counts half. */
 export const HALF_LIFE=360;
-/** ponytail: only the top 5 candidates (by trust-weighted net before fuel) are priced with
- * `find_route`, one call per distinct base, so at most 10. A route that would only win once
- * fuel is counted, ranked sixth before it, is never seen. Raise it if the rate limit allows. */
-const PRICED=5;
+const trust=(age:number)=>0.5**(age/HALF_LIFE);
 
-/** One buy-there-sell-there opportunity, sized against both books and the hold. */
-export interface Route {
-  item_id:string;
-  /** Where it is bought and where it is sold. Either may be this base. `buyAt` is `'held'` for
-   * goods already aboard: nothing is bought, and `cost` and `sales_tax` are 0. */
-  buyAt:string;sellAt:string;
-  /** Where each end's price came from, as `Spread.source`. */
-  buySource:Spread['source'];sellSource:Spread['source'];
-  /** Age of each end in ticks: 0 for this base's live book. */
-  buyAge:number;sellAge:number;
-  /** Units worth moving: `buyAt`'s asks and `sellAt`'s bids walked level by level up to the
-   * free hold (the whole hold when it is full; `why` says sell first), stopped at the last unit
-   * whose bid still beats its ask plus tax. For `'held'`, what is aboard, up to what the bids take. */
-  quantity:number;
-  /** What those units cost at `buyAt` and fetch at `sellAt`, level by level. */
-  cost:number;revenue:number;
-  /** Tax on the buy, from `estimate_purchase`'s `sales_tax_rate_bps`. Null when not known: only
-   * this base's rate is readable, so a far `buyAt` is netted untaxed and `why` says so. */
+/** A stop's book as the planner reads it. No `items`: nothing is known of that base's book. */
+export interface Book {base_id:string;source:Spread['source'];age:number;items?:Map<string,Listing>}
+/** Units sold at one stop and what they fetch there, level by level. */
+export interface Sale {item_id:string;quantity:number;revenue:number}
+/** What the plan does at one stop. */
+export interface Leg {
+  at:string;
+  /** Where this stop's book came from and its age in ticks, as `Spread.source`; `here`/0 when live. */
+  source:Spread['source'];age:number;
+  /** Held goods sold here: each whose trusted bid here is at least its best trusted bid later on. */
+  sold:Sale[];
+  /** The item taken here, units, and what they cost at the asks (0 from the store). */
+  buy?:string;bought:number;cost:number;
+  /** Tax on that buy; null when this stop's rate is not known (only the docked base's is readable). */
   sales_tax:number|null;
-  /** Jumps for the whole trip (see `routes()`); null when a lookup failed. */
-  total_jumps:number|null;
-  /** Fuel units: the sum of `total_jumps × fuel_per_jump` over the legs. Null when a lookup failed. */
-  fuel:number|null;
-  /** `revenue − cost − sales_tax − fuel × fuel_price_all_in` here. Fuel is left out when it
-   * could not be priced. */
-  net:number;
-  /** `0.5 ^ ((buyAge + sellAge) / HALF_LIFE)`: 1 for two live books. */
-  confidence:number;
-  /** What rows are ranked by: `confidence × net / max(1, total_jumps)`. 0 for an unpriced trip. */
-  score:number;
-  /** The call to paste. */
-  next:string;
-  /** What this row could not know: a failed route lookup, an unknown tax. */
-  why?:string;
 }
+/** A whole route from the hold you have. `net` = `revenue − cost − sales_tax` (known taxes only). */
+export interface Plan {legs:Leg[];
+  /** What is still aboard after the last stop: no stop on the route bids for it. Not in the net. */
+  unsold:Row[];
+  revenue:number;cost:number;sales_tax:number|null;net:number}
+/** One stop handed to `plan`: its book, what to take there, and the tax on taking it. */
+export interface PlanStop {book:Book;buy?:string;
+  /** A cap on `buy`. */
+  quantity?:number;
+  /** Where `buy` comes from when not the market's asks: the store, as one level at price 0. */
+  asks?:OrderLevel[];
+  /** Sales tax on `buy`; null when not known, which sizes it untaxed. */
+  rate:number|null}
 
+type Sides=Map<string,{bids:OrderLevel[];asks:OrderLevel[]}>;
 /** One side of a row, best first: asks are `sell_orders`, bids `buy_orders`. A source that
  * carries no levels (the faction ledger) is one level at the top of book. */
 function levels(row:Listing,side:'asks'|'bids'):OrderLevel[] {
@@ -283,141 +205,335 @@ function levels(row:Listing,side:'asks'|'bids'):OrderLevel[] {
     :[row.buy_orders,row.best_buy,row.best_buy_qty];
   return orders?.length?orders:price_each>0&&quantity>0?[{price_each,quantity}]:[];
 }
-
-/** Units worth moving from `asks` to `bids`, at most `hold`: the last unit whose bid still beats
- * its ask taxed at `rate`. Both books only get worse unit by unit, so the first loser ends it. */
-export function depth(asks:readonly OrderLevel[],bids:readonly OrderLevel[],hold:number,rate:number):number {
-  const unit=(side:readonly OrderLevel[],n:number)=>walkBook(side,n).gross-walkBook(side,n-1).gross;
-  let quantity=0;
-  while(quantity<hold) {
-    const n=quantity+1;
-    if(walkBook(asks,n).unfilled||walkBook(bids,n).unfilled||unit(bids,n)<=unit(asks,n)*(1+rate))break;
-    quantity=n;
-  }
-  return quantity;
+/** The price of the `n`th unit down a side (from 1); 0 past its end. */
+function unit(side:readonly OrderLevel[],n:number):number {
+  for(const level of side){if(n<=level.quantity)return level.price_each;n-=level.quantity;}
+  return 0;
+}
+/** A side with its first `n` units gone. */
+function drop(side:readonly OrderLevel[],n:number):OrderLevel[] {
+  return side.flatMap(level=>{const take=Math.min(n,level.quantity);n-=take;return level.quantity>take?[{...level,quantity:level.quantity-take}]:[];});
 }
 
-/** Buy-at-A, sell-at-B trades over everything this pilot knows — the live book here, the faction
- * ledger, the remembered books — ranked by trust-weighted net per jump. Reads only: it computes,
- * the pilot chooses. `items` narrows it; default is every item on any known book.
+/** One stop's decision, and the only one: `routes()` folds it over a whole route, `tradeRun` runs
+ * it at each stop against the live book. First, sell each held unit whose trusted bid here is at
+ * least its best trusted bid at any later stop (a later stop with no known book may bid for
+ * anything, so goods are kept for it). Then take `buy` into the room that frees, one unit at a
+ * time, while the unit's best later bid beats its ask plus tax. Both walks are level by level.
+ * ponytail: each held item is weighed against one later book at a time, as if the whole carry went
+ * there; a split across two later bases is not planned. */
+function decide(aboard:Record<string,number>,free:number,here:Sides|undefined,trusted:number,
+  later:{trust:number;sides:Sides|undefined}[],stop:PlanStop):{sold:Sale[];bought:number;cost:number} {
+  // The unit a later stop would pay for the `n`th carried unit; the same base as here has had `off` sold into it.
+  const kept=(item_id:string,n:number,off:number)=>Math.max(0,...later.map(next=>!next.sides?Infinity
+    :next.trust*unit(next.sides.get(item_id)?.bids??[],n+(next.sides===here?off:0))));
+  const sold:Sale[]=[];
+  for(const [item_id,held] of Object.entries(aboard)) {
+    const bids=here?.get(item_id)?.bids??[];
+    let n=0;
+    while(n<held&&unit(bids,n+1)>0&&trusted*unit(bids,n+1)>=kept(item_id,held-n,n))n++;
+    if(n)sold.push({item_id,quantity:n,revenue:walkBook(bids,n).gross});
+  }
+  if(!stop.buy)return {sold,bought:0,cost:0};
+  const item=stop.buy,asks=stop.asks??here?.get(item)?.asks??[];
+  const carried=(aboard[item]??0)-(sold.find(row=>row.item_id===item)?.quantity??0);
+  const room=Math.min(free+sold.reduce((sum,row)=>sum+row.quantity,0),stop.quantity??Infinity);
+  const bid=(n:number)=>Math.max(0,...later.map(next=>unit(next.sides?.get(item)?.bids??[],carried+n)));
+  let bought=0;
+  while(bought<room&&!walkBook(asks,bought+1).unfilled&&bid(bought+1)>unit(asks,bought+1)*(1+(stop.rate??0)))bought++;
+  return {sold,bought,cost:walkBook(asks,bought).gross};
+}
+
+/** The route from the hold you have and `free` room: `decide` at each stop, then the hold and the
+ * books move by what it did — a base visited twice is one book, so what the first visit took is
+ * gone for the second. Pure. */
+export function plan(hold:Record<string,number>,free:number,stops:PlanStop[]):Plan {
+  const aboard={...hold};
+  const sides=new Map<string,Sides|undefined>();
+  for(const {book} of stops)if(!sides.has(book.base_id))sides.set(book.base_id,book.items&&new Map([...book.items]
+    .map(([id,row])=>[id,{bids:levels(row,'bids'),asks:levels(row,'asks')}])));
+  const legs=stops.map((stop,i):Leg=>{
+    const here=sides.get(stop.book.base_id);
+    const later=stops.slice(i+1).map(next=>({trust:trust(next.book.age),sides:sides.get(next.book.base_id)}));
+    const {sold,bought,cost}=decide(aboard,free,here,trust(stop.book.age),later,stop);
+    for(const sale of sold) {
+      aboard[sale.item_id]=aboard[sale.item_id]!-sale.quantity;free+=sale.quantity;
+      const row=here!.get(sale.item_id)!;row.bids=drop(row.bids,sale.quantity);
+    }
+    if(bought) {
+      aboard[stop.buy!]=(aboard[stop.buy!]??0)+bought;free-=bought;
+      const row=here?.get(stop.buy!);if(row&&!stop.asks)row.asks=drop(row.asks,bought);
+    }
+    return {at:stop.book.base_id,source:stop.book.source,age:stop.book.age,sold,...stop.buy?{buy:stop.buy}:{},bought,cost,
+      sales_tax:!bought||stop.asks?0:stop.rate===null?null:Math.round(cost*stop.rate)};
+  });
+  const revenue=legs.reduce((sum,leg)=>sum+leg.sold.reduce((part,sale)=>part+sale.revenue,0),0);
+  const cost=legs.reduce((sum,leg)=>sum+leg.cost,0),tax=legs.reduce((sum,leg)=>sum+(leg.sales_tax??0),0);
+  return {legs,unsold:Object.entries(aboard).filter(([,quantity])=>quantity>0).map(([item_id,quantity])=>({item_id,quantity})),
+    revenue,cost,sales_tax:legs.some(leg=>leg.sales_tax===null)?null:tax,net:Math.round(revenue-cost-tax)};
+}
+
+/** One stop of a `tradeRun`: the base, and optionally what to take there. */
+export interface RunStop {at:string;buy?:string;
+  /** A cap on `buy`; the plan sizes it otherwise. */
+  quantity?:number;
+  /** `'store'`: `buy` comes out of this base's store, at no cost, instead of off the market. */
+  from?:'store'}
+/** The call that runs `stops`, as a pilot pastes it. */
+export const runCall=(stops:RunStop[])=>`tradeRun(${JSON.stringify({stops}).replace(/"/g,"'").replace(/'(\w+)':/g,'$1:')})`;
+
+/** The docked base's sales tax on `item_id`: `estimate_purchase` is the only read of it. */
+async function taxRate(item_id:string):Promise<number|null> {
+  try {
+    const bps=Number((details(await command('spacemolt_market/estimate_purchase',{item_id,quantity:1})) as EstimatePurchaseResponse).sales_tax_rate_bps);
+    return Number.isFinite(bps)?bps/10_000:null;
+  } catch {return null;}
+}
+/** Every book known by base, the most trusted reading of each; `here`'s is the live one. */
+function byBase(here:Book,far:FarBook[]):Map<string,Book&{system_id?:string}> {
+  const known=new Map<string,Book&{system_id?:string}>([[here.base_id,here]]);
+  for(const row of far)if(!known.has(row.base_id)||known.get(row.base_id)!.age>row.age)
+    known.set(row.base_id,{...row,items:new Map(row.items.map(item=>[item.item_id,item]))});
+  return known;
+}
+const cargo=()=>{const ship=acct().state.ship;return Math.max(0,(ship?.cargo_capacity??0)-(ship?.cargo_used??0));};
+
+/** What one stop of a run did. */
+export interface Visit {at:string;
+  /** The lib's `SellResponse` per row sold here. */
+  sold:SellResponse[];
+  /** Units of the stop's `buy` taken aboard, and the credits that cost. */
+  bought:number;spent:number;
+  /** What fell short here, or why nothing was taken. */
+  why?:string}
+export interface Traded {
+  /** One per stop reached, in order. */
+  stops:Visit[];
+  /** What was aboard when the run ended. After the last stop: what no stop bought. */
+  unsold:Row[];
+  /** Sales, less purchases, less what the flights took out of the wallet. */
+  net:number;
+}
+
+/** Fly `stops` in order, and at each one sell and buy what the plan says, from the hold you have.
+ * At each stop the live book is read and the rest of the route re-planned against it — the later
+ * stops at their best known books — by the same rule `routes()` ranks with; so a full hold, an
+ * empty one or a mixed one needs no other call. Each leg keeps its own rules (`buy` refuses under
+ * `credit_reserve`, `goTo` refuses a POI while Tired). Never throws: a flight that does not arrive
+ * is `partial` with the stops done so far, and `next` is the rest of the route. Re-running the
+ * same call starts again at the first stop and re-plans from the hold you have. Trains trading and
+ * navigation. */
+export function tradeRun(opts:{stops:RunStop[]}):Promise<Outcome<Traded>> {
+  const route=opts.stops??[];
+  return job<Traded>('tradeRun',route.map(stop=>stop.buy?`${stop.at} (${stop.buy})`:stop.at).join(' → '),async()=>{
+    const stops:Visit[]=[];
+    let earned=0,spent=0,flown=0;
+    const detail=():Traded=>({stops,unsold:Object.entries(miningInventory(acct().state)).filter(([,quantity])=>quantity>0)
+      .map(([item_id,quantity])=>({item_id,quantity})),net:Math.round(earned-spent-flown)});
+    const blocked=admit('tradeRun');
+    if(blocked)return {status:'refused',did:'ran no trade',why:blocked,detail:detail()};
+    if(!route.length)return {status:'refused',did:'ran no trade',why:'no stops: pass {stops:[{at, buy?}, …]}',detail:detail()};
+    const said=()=>stops.map(visit=>`${visit.at}: ${[...visit.sold.map(fill=>`sold ${fill.quantity_sold} ${fill.item_id}`),
+      ...visit.bought?[`took ${visit.bought}`]:[]].join(', ')||'nothing'}`).join(' → ');
+    const short:string[]=[];
+    for(const [i,stop] of route.entries()) {
+      checkStop();
+      if(acct().state.location?.docked_at!==stop.at) {
+        const trip=await goTo(stop.at);
+        flown+=trip.cost.credits;
+        if(trip.status!=='done'||!acct().state.location?.docked_at)
+          return {status:i?'partial':trip.status==='refused'?'refused':'failed',did:`${said()||'nothing done'}; did not reach ${stop.at}`,
+            why:[...short,`${stop.at}: ${trip.why??trip.did}`].join('; '),detail:detail(),next:[runCall(route.slice(i))]};
+      }
+      const here=acct().state.location!.docked_at!;
+      const visit:Visit={at:here,sold:[],bought:0,spent:0};
+      stops.push(visit);
+      const notes:string[]=[];
+      let listed:Map<string,MarketListingItem>;
+      try {listed=await book();}
+      catch(error) {short.push(`${here}: no market (${error instanceof Error?error.message:String(error)})`);visit.why=short.at(-1);continue;}
+      const later=route.slice(i+1).map(next=>next.at);
+      const hold=miningInventory(acct().state);
+      const known=byBase({base_id:here,source:'here',age:0,items:listed},later.some(base=>base!==here)
+        ?await farBooks([...new Set([...Object.keys(hold),...stop.buy?[stop.buy]:[]])],here,marketTick()):[]);
+      const stored=stop.buy&&stop.from==='store'?(await storeRows()).filter(row=>row.item_id===stop.buy).reduce((sum,row)=>sum+row.quantity,0):0;
+      const [leg]=plan(hold,cargo(),[
+        {book:known.get(here)!,...stop.buy?{buy:stop.buy}:{},...stop.quantity===undefined?{}:{quantity:stop.quantity},
+          ...stop.from==='store'?{asks:stored?[{price_each:0,quantity:stored}]:[]}:{},
+          rate:stop.buy&&stop.from!=='store'?await taxRate(stop.buy):0},
+        ...later.map(base=>({book:known.get(base)??{base_id:base,source:'remembered' as const,age:0},rate:null}))]).legs;
+      if(leg!.sold.length) {
+        const sold=await sell(leg!.sold.map(({item_id,quantity})=>({item_id,quantity})));
+        visit.sold=sold.detail?.fills??[];earned+=sold.detail?.total??0;
+        if(sold.status!=='done')short.push(`${here}: ${sold.why??sold.did}`);
+      }
+      if(stop.buy) {
+        const want=Math.min(leg!.bought,cargo());
+        if(!want)notes.push(`took no ${stop.buy}: ${leg!.bought?'no room left after the sales'
+          :`nothing ${stop.from==='store'?'in the store':'on the asks'} here beats the best known bid later on the route`}`);
+        else if(stop.from==='store') {
+          const took=await withdraw([{item_id:stop.buy,quantity:want}]);
+          visit.bought=took.detail?.moved.reduce((sum,row)=>sum+row.quantity,0)??0;
+          if(!visit.bought)short.push(`${here}: withdrew no ${stop.buy}: ${took.why??took.did}`);
+        } else {
+          const got=await buy(stop.buy,want);
+          visit.bought=Number(got.detail?.bought?.quantity??0);visit.spent=Number(got.detail?.bought?.total_cost??0);spent+=visit.spent;
+          if(got.status!=='done')short.push(`${here}: ${got.why??got.did}`);
+        }
+      }
+      const why=[...short.filter(line=>line.startsWith(`${here}:`)),...notes].join('; ');
+      if(why)visit.why=why;
+    }
+    const end=detail();
+    const did=`${said()} — net ${end.net} cr after ${flown} cr of flight`
+      +(end.unsold.length?`; unsold: ${end.unsold.map(row=>`${row.quantity} ${row.item_id}`).join(', ')}`:'');
+    if(short.length)return {status:'partial',did,why:short.join('; '),detail:end,next:[runCall(route)]};
+    return {status:'done',did,detail:end,next:end.net>0?[`${runCall(route)} again while the spread holds`]:[]};
+  });
+}
+
+/** ponytail: routes of at most 3 stops, grown breadth-first keeping the best 20 at each length. A
+ * route that only pays at a fourth stop, or through a prefix ranked 21st, is never seen. Raise
+ * them if the search stays fast. */
+const MAX_STOPS=3,BEAM=20;
+/** Rows returned. */
+const ROWS=5;
+/** ponytail: a base whose system the memory did not keep (a ledger entry, a pre-system memory) is
+ * placed with one `find_route` each, at most 5 per call; past that its routes are unpriced rows. */
+const UNPLACED=5;
+
+/** A route as `routes()` ranks it: the plan from the hold you have, with the trip priced. */
+export interface Route extends Plan {
+  /** Jumps from here through every stop, from the map; null when a stop could not be placed. */
+  total_jumps:number|null;
+  /** Fuel units: `total_jumps × fuel_per_jump`. Null when the trip is unpriced. */
+  fuel:number|null;
+  /** `0.5 ^ (sum of the stops' book ages / HALF_LIFE)`: 1 when every book is live. */
+  confidence:number;
+  /** What rows are ranked by: `confidence × net / max(1, total_jumps)`. 0 for an unpriced trip. */
+  score:number;
+  /** The call to paste. */
+  next:string;
+  /** What this row could not know: an unplaced stop, an unknown tax. */
+  why?:string;
+}
+
+/** Every route worth flying over what this pilot knows — the live book here, the faction ledger,
+ * the remembered books — from the hold you have, ranked by trust-weighted net per jump. A route is
+ * 1 to 3 stops, each maybe taking an item on; every stop is planned by the rule `tradeRun` runs,
+ * so what ranks is what runs. `items` narrows what is taken on; goods aboard are always weighed.
+ * Reads only. Jumps come from `get_map` and each base's system, which the market memory keeps;
+ * fuel per jump from one `find_route`. A stop that could not be placed is a row with a `why` and
+ * the Outcome `partial`, never a throw. Refused when not docked.
  *
- * Each candidate is sized by walking A's asks and B's bids up to the free hold, so the
- * top-of-book spread is not assumed to hold for the whole load. The top 5 are priced with
- * `find_route`, which answers only from where the ship is: the trip here→A→B is quoted as
- * here→A, A→here, here→B — an upper bound, exact when A or B is here. Each row's `next` is the
- * call to paste. A failed lookup is a row with a `why` and the Outcome `partial`, never a throw.
- * Goods aboard are candidates too (`buyAt:'held'`): their cost is sunk, so the net is the sale
- * less fuel. Refused when not docked.
- *
- * ponytail: goods in this base's store are not candidates. `tradeRun({from:'store'})` withdraws
- * into the free hold and delivers it with whatever is aboard, so a store row's quantity is not
- * its own; add it when a store-only run exists. */
+ * ponytail: goods in this base's store are not weighed; `tradeRun` takes them with `from:'store'`. */
 export function routes(opts:{items?:string[]}={}):Promise<Outcome<{routes:Route[];sources:string[]}>> {
   return job<{routes:Route[];sources:string[]}>('routes',(opts.items??[]).join(' '),async()=>{
     const none={routes:[] as Route[],sources:[] as string[]};
     const here=acct().state.location?.docked_at;
     if(!here)return {status:'refused',did:'ranked no routes',why:'not docked; a market is a station counter',
       detail:none,next:['goTo a base, then routes()']};
-    const ship=acct().state.ship;
-    const free=Math.max(0,(ship?.cargo_capacity??0)-(ship?.cargo_used??0));
-    // A full hold sizes buys to the space selling would free; each such row says sell first.
-    const hold=free||(ship?.cargo_capacity??0);
-    const aboard=miningInventory(acct().state);
-
+    const origin=acct().state.location?.system_id??'',free=cargo(),aboard=miningInventory(acct().state);
     const listed=await book();
-    const now=marketTick();
-    const books:{base_id:string;source:Spread['source'];age:number;items:Listing[]}[]=
-      [{base_id:here,source:'here',age:0,items:[...listed.values()]},
-        ...await farBooks(opts.items?.length?opts.items:[...new Set([...listed.keys(),...Object.keys(aboard)])],here,now)];
-    const sources=[...new Set(books.map(known=>known.source))];
-
-    // The tax rate here, once: `estimate_purchase` is the only read of it.
-    let rate:number|null=null;
+    const far=await farBooks(opts.items?.length?opts.items:[...new Set([...listed.keys(),...Object.keys(aboard)])],here,marketTick());
+    const known=byBase({base_id:here,source:'here',age:0,items:listed},far);
+    const sources=[...new Set([...known.values()].map(row=>row.source))];
     const probe=[...listed.values()].find(row=>row.best_sell>0);
-    if(probe)try {
-      const bps=Number((details(await command('spacemolt_market/estimate_purchase',{item_id:probe.item_id,quantity:1})) as EstimatePurchaseResponse).sales_tax_rate_bps);
-      if(Number.isFinite(bps))rate=bps/10_000;
-    } catch {/* unknown, and each row says so */}
+    const rate=probe?await taxRate(probe.item_id):null;
 
-    // Every (item, A, B) whose bid at B beats the ask at A, sized and netted before fuel.
-    const found=new Map<string,Route>();
-    // A base can be known twice (ledger and memory): the more trusted reading wins.
-    const keep=(candidate:Route)=>{
-      const key=`${candidate.item_id}|${candidate.buyAt}|${candidate.sellAt}`;
-      if((found.get(key)?.score??-Infinity)<candidate.score)found.set(key,candidate);
-    };
-    for(const seller of books)for(const buyer of books) {
-      if(seller.base_id===buyer.base_id)continue;
-      for(const row of seller.items) {
-        if(opts.items?.length&&!opts.items.includes(row.item_id))continue;
-        const bid=buyer.items.find(other=>other.item_id===row.item_id);
-        if(!bid||!(row.best_sell>0)||!(bid.best_buy>row.best_sell))continue;
-        const taxed=seller.base_id===here?rate:null;
-        const asks=levels(row,'asks'),bids=levels(bid,'bids');
-        const quantity=depth(asks,bids,hold,taxed??0);
-        if(!quantity)continue;
-        const cost=walkBook(asks,quantity).gross,revenue=walkBook(bids,quantity).gross;
-        const sales_tax=taxed===null?null:Math.round(cost*taxed);
-        const confidence=0.5**((seller.age+buyer.age)/HALF_LIFE);
-        const net=Math.round(revenue-cost-(sales_tax??0));
-        const trade=`tradeRun({item:'${row.item_id}', sellAt:'${buyer.base_id}', quantity:${quantity}})`;
-        const candidate:Route={item_id:row.item_id,buyAt:seller.base_id,sellAt:buyer.base_id,
-          buySource:seller.source,sellSource:buyer.source,buyAge:seller.age,sellAge:buyer.age,
-          quantity,cost,revenue,sales_tax,total_jumps:null,fuel:null,net,confidence,score:confidence*net,
-          next:seller.base_id===here?trade:`goTo('${seller.base_id}') then ${trade}`,
-          ...sales_tax===null?{why:`sales tax at ${seller.base_id} not known; net is untaxed`}:{}};
-        if(!free)candidate.why=['the hold is full: sell what is aboard first',candidate.why].filter(Boolean).join('; ');
-        keep(candidate);
-      }
-    }
-    // Goods aboard, sold at each known bid: the purchase is sunk, so cost is 0.
-    for(const buyer of books)for(const [item_id,held] of Object.entries(aboard)) {
-      if(opts.items?.length&&!opts.items.includes(item_id))continue;
-      const bid=buyer.items.find(other=>other.item_id===item_id);
-      const bids=bid?levels(bid,'bids'):[];
-      const quantity=held-walkBook(bids,held).unfilled;
-      if(!(quantity>0))continue;
-      const revenue=walkBook(bids,quantity).gross,confidence=0.5**(buyer.age/HALF_LIFE);
-      keep({item_id,buyAt:'held',sellAt:buyer.base_id,buySource:'here',sellSource:buyer.source,buyAge:0,sellAge:buyer.age,
-        quantity,cost:0,revenue,sales_tax:0,total_jumps:null,fuel:null,net:revenue,confidence,score:confidence*revenue,
-        next:buyer.base_id===here?`sell([{item_id:'${item_id}'}])`:`tradeRun({item:'${item_id}', sellAt:'${buyer.base_id}'})`});
-    }
-    const top=[...found.values()].sort((a,b)=>b.score-a.score).slice(0,PRICED);
-    if(!top.length)return {status:'done',did:`no known bid beats another base's ask across ${books.length} book(s) (${sources.join(' + ')})`,
-      detail:{routes:[],sources},next:['goTo another base and prices() there to learn its book']};
-
-    // One find_route per distinct far base; a failure is kept as its message.
-    const fuelPrice=Number(details(await command('spacemolt/get_base',{})).fuel_price_all_in??1);
-    const quotes=new Map<string,FindRouteResponse|string>();
-    for(const base of new Set(top.flatMap(row=>[row.buyAt,row.sellAt]))) {
+    // Where each base is: the memory's system, else one find_route (which also prices a jump).
+    const systems=new Map<string,string>([[here,origin]]);
+    for(const row of far)if(row.system_id)systems.set(row.base_id,row.system_id);
+    const lost=new Map<string,string>();
+    let perJump:number|undefined;
+    const place=async(base:string)=>{
       checkStop();
-      if(base===here||base==='held')continue;
-      try {quotes.set(base,await route(base));}
-      catch(error) {quotes.set(base,error instanceof Error?error.message:String(error));}
-    }
-    const failed:string[]=[];
-    for(const row of top) {
-      const legs=(row.buyAt===here||row.buyAt==='held'?[row.sellAt]:[row.buyAt,row.buyAt,row.sellAt])
-        .filter(base=>base!==here).map(base=>quotes.get(base)!);
-      const miss=legs.find((leg):leg is string=>typeof leg==='string');
-      if(miss!==undefined) {
-        failed.push(`${row.item_id} ${row.buyAt}→${row.sellAt}`);
-        row.why=[`no route: ${miss}; fuel not priced`,row.why].filter(Boolean).join('; ');
-        row.score=0;
-        continue;
+      try {const quote=await route(base);systems.set(base,quote.target_system);perJump??=Number(quote.fuel_per_jump??0);}
+      catch(error) {lost.set(base,error instanceof Error?error.message:String(error));}
+    };
+    const unplaced=[...known.keys()].filter(base=>!systems.has(base));
+    for(const base of unplaced.slice(0,UNPLACED))await place(base);
+    for(const base of unplaced.slice(UNPLACED))lost.set(base,`not placed: past the ${UNPLACED} find_route lookups one call makes`);
+    const away=[...known.keys()].filter(base=>systems.has(base)&&base!==here);
+    if(perJump===undefined&&away.length)await place(away[0]!);
+    const links=new Map<string,string[]>();
+    if(away.length)try {
+      for(const row of (details(await command('spacemolt/get_map',{})) as {systems?:MapSystemInfo[]}).systems??[])
+        links.set(row.system_id,row.connections??[]);
+    } catch {/* no map: every far stop is unpriced, and says so */}
+    const hops=new Map<string,number|null>();
+    const jumps=(from:string,to:string):number|null=>{
+      const key=`${from}>${to}`;
+      if(!hops.has(key)) {
+        let frontier=[from],n=0;
+        const seen=new Set(frontier);
+        while(frontier.length&&!frontier.includes(to)) {
+          n++;
+          frontier=frontier.flatMap(system=>links.get(system)??[]).filter(system=>!seen.has(system)&&!!seen.add(system));
+        }
+        hops.set(key,frontier.length?n:null);
       }
-      const priced=legs as FindRouteResponse[];
-      row.total_jumps=priced.reduce((sum,leg)=>sum+Number(leg.total_jumps??0),0);
-      row.fuel=priced.reduce((sum,leg)=>sum+Number(leg.total_jumps??0)*Number(leg.fuel_per_jump??0),0);
-      row.net=Math.round(row.net-row.fuel*fuelPrice);
-      row.score=row.confidence*row.net/Math.max(1,row.total_jumps);
+      return hops.get(key)!;
+    };
+    const fuelPrice=Number(details(await command('spacemolt/get_base',{})).fuel_price_all_in??1);
+
+    const evaluate=(stops:RunStop[]):Route=>{
+      const planned=plan(aboard,free,stops.map(stop=>({book:known.get(stop.at)!,...stop.buy?{buy:stop.buy}:{},rate:stop.at===here?rate:null})));
+      const why:string[]=[];
+      let total:number|null=0,from=origin;
+      for(const stop of stops) {
+        const system=systems.get(stop.at),n=system===undefined?null:jumps(from,system);
+        if(n===null){why.push(`no route to ${stop.at}${lost.has(stop.at)?`: ${lost.get(stop.at)}`:' on the map'}; fuel not priced`);total=null;break;}
+        total+=n;from=system!;
+      }
+      if(planned.sales_tax===null)why.push('sales tax not known; net is untaxed');
+      const fuel=total===null?null:total*(perJump??0);
+      const net=Math.round(planned.net-(fuel??0)*fuelPrice);
+      const confidence=trust([...new Set(stops.map(stop=>stop.at))].reduce((sum,base)=>sum+known.get(base)!.age,0));
+      return {...planned,total_jumps:total,fuel,net,confidence,score:total===null?0:confidence*net/Math.max(1,total),
+        next:runCall(stops),...why.length?{why:why.join('; ')}:{}};
+    };
+
+    // Breadth-first over stop lists: each route grows by one stop, the last stop taking on nothing
+    // or any item whose ask there the new stop outbids.
+    const wanted=(item:string)=>!opts.items?.length||opts.items.includes(item);
+    const found=new Map<string,Route>();
+    // A route pays, and every stop on it does something: a stop that neither sells nor buys is only fuel.
+    const keep=(stops:RunStop[])=>{
+      const row=evaluate(stops),pays=row.revenue>row.cost&&row.legs.every(leg=>leg.sold.length||leg.bought);
+      if(pays)found.set(row.next,row);
+      return pays&&row;
+    };
+    let beam:RunStop[][]=[...known.keys()].map(at=>[{at}]);
+    beam.forEach(keep);
+    for(let length=2;length<=MAX_STOPS;length++) {
+      checkStop();
+      const grown:{stops:RunStop[];score:number}[]=[];
+      for(const stops of beam) {
+        const last=stops.at(-1)!.at,asks=known.get(last)!.items!;
+        for(const [at,next] of known) {
+          if(at===last)continue;
+          const buys=[undefined,...[...asks.values()].filter(row=>row.best_sell>0&&wanted(row.item_id)
+            &&(next.items!.get(row.item_id)?.best_buy??0)>row.best_sell).map(row=>row.item_id)];
+          for(const buy of buys) {
+            const longer=[...stops.slice(0,-1),{at:last,...buy?{buy}:{}},{at}];
+            const row=keep(longer);
+            if(row)grown.push({stops:longer,score:row.score});
+          }
+        }
+      }
+      beam=grown.sort((a,b)=>b.score-a.score).slice(0,BEAM).map(row=>row.stops);
     }
-    // Priced rows by score; a row whose trip could not be priced goes last.
-    const rows=top.sort((a,b)=>Number(a.total_jumps===null)-Number(b.total_jumps===null)||b.score-a.score);
-    const best=rows[0]!;
+
+    const rows=[...found.values()].sort((a,b)=>Number(a.total_jumps===null)-Number(b.total_jumps===null)||b.score-a.score).slice(0,ROWS);
+    if(!rows.length)return {status:'done',did:`no route pays across ${known.size} book(s) (${sources.join(' + ')}) from this hold`,
+      detail:{routes:[],sources},next:['goTo another base and prices() there to learn its book']};
+    const failed=rows.filter(row=>row.total_jumps===null);
+    const says=(row:Route)=>row.legs.map(leg=>[leg.at,...leg.sold.map(sale=>`sell ${sale.quantity} ${sale.item_id}`),
+      ...leg.bought?[`buy ${leg.bought} ${leg.buy}`]:[]].join(' ')).join(' → ');
     return {status:failed.length?'partial':'done',
-      did:`ranked ${rows.length} route(s) over ${books.length} book(s) (${sources.join(' + ')}); best: ${best.quantity} ${best.item_id} ${best.buyAt}→${best.sellAt}, net ${best.net} cr`,
-      ...failed.length?{why:`no route for ${failed.join(', ')}`}:{},
+      did:`ranked ${rows.length} route(s) over ${known.size} book(s) (${sources.join(' + ')}); best: ${says(rows[0]!)}, net ${rows[0]!.net} cr`,
+      ...failed.length?{why:failed.map(row=>`${says(row)}: ${row.why}`).join('; ')}:{},
       detail:{routes:rows,sources},next:rows.slice(0,3).map(row=>row.next)};
   });
 }

@@ -45,7 +45,7 @@ test('spreads ranks by net, netting the fuel to the far buyer against the near o
     assert.equal(second!.net,600-7,'gross less the fuel bill, which is what ranks it second');
     assert.equal(second!.seen,`${TICK-900} ticks old`,'the filed tick is reported as an age, not a tick number');
     assert.deepEqual(out.detail.sources,['here','faction ledger']);
-    assert.match(out.next[1]!,/goTo\('range_base'\)/);
+    assert.match(out.next[1]!,/tradeRun\(\{stops:\[\{at:'range_base'\}\]\}\)/);
     assert.equal(f.count('spacemolt/find_route'),1,'one route per far base, not per item');
   } finally {unbind();}
 });
@@ -91,60 +91,12 @@ test('spreads says so when nothing aboard has a known buyer anywhere',async()=>{
   } finally {unbind();}
 });
 
-test('tradeRun buys here, flies, sells there, and reports the realised net',async()=>{
-  const f=world({mood:'Focused'},{cargo:[],cargoUsed:0,cargoCapacity:10,store:[]});
-  try {
-    const out=await tradeRun({item:'ore',sellAt:'range_base',quantity:10});
-    assert.equal(out.status,'done',out.why);
-    assert.equal(out.detail.leg,'sold');
-    assert.equal(out.detail.bought,10);
-    // Bought at 12 each, sold at 10 each, tank full enough that the flight cost no credits:
-    // a losing run, reported as one rather than as a spread that "worked".
-    assert.equal(out.detail.net,100-120,'sales less purchase less what the flight took');
-    assert.match(out.did,/net -20 cr/);
-    assert.equal(f.count('spacemolt/sell'),1);
-    assert.equal(f.account.server.location.docked_at,'range_base');
-  } finally {unbind();}
-});
-
-test('tradeRun delivers goods already aboard instead of buying more',async()=>{
-  const f=world({mood:'Focused'},{cargo:[{item_id:'ore',quantity:5}],cargoUsed:5,cargoCapacity:10,store:[],markets:{sol_base:[]}});
-  try {
-    const out=await tradeRun({item:'ore',sellAt:'range_base'});
-    assert.equal(out.status,'done',out.why);
-    assert.equal(f.count('spacemolt/buy'),0,'nothing bought: the goods were aboard');
-    assert.equal(out.detail.carried,5);
-    assert.equal(out.detail.bought,0);
-    assert.equal(out.detail.net,50,'5 sold at 10, nothing spent');
-    assert.match(out.did,/^carried 5 ore, flew to range_base/);
-  } finally {unbind();}
-});
-
-test("tradeRun from:'store' withdraws what is stored here, carries it, and sells it there",async()=>{
-  const f=world({mood:'Focused'},{cargo:[],cargoUsed:0,cargoCapacity:10,store:[{item_id:'ore',quantity:8}],markets:{sol_base:[]}});
-  try {
-    const out=await tradeRun({item:'ore',sellAt:'range_base',from:'store'});
-    assert.equal(out.status,'done',out.why);
-    assert.equal(f.count('spacemolt/buy'),0);
-    assert.equal(out.detail.carried,8);
-    assert.equal(out.detail.leg,'sold');
-    assert.equal(f.account.server.location.docked_at,'range_base');
-  } finally {unbind();}
-  // Nothing stored and nothing aboard: the end state holds, nothing is bought and nothing flies.
-  const g=world({mood:'Focused'},{cargo:[],cargoUsed:0,cargoCapacity:10,store:[]});
-  try {
-    const out=await tradeRun({item:'ore',sellAt:'range_base',from:'store'});
-    assert.equal(out.status,'done',out.why);
-    assert.equal(g.count('spacemolt/buy'),0);
-    assert.equal(g.account.server.location.docked_at,'sol_base');
-  } finally {unbind();}
-});
-
 /** A `markets.json` in a fresh runtime dir: books this pilot read at other bases, `age` ticks ago. */
-function remembered(books:{base_id:string;age:number;items:Record<string,unknown>[]}[]):string {
+function remembered(books:{base_id:string;age:number;system_id?:string;items:Record<string,unknown>[]}[]):string {
   const runtime=mkdtempSync(join(tmpdir(),'spacemolt-routes-'));
-  writeFileSync(join(runtime,'markets.json'),JSON.stringify(books.map(({base_id,age,items})=>
-    ({base_id,at:'',tick:TICK-age,items:items.map(row=>({best_buy:0,best_buy_qty:0,best_sell:0,best_sell_qty:0,buy_orders:[],sell_orders:[],...row}))}))));
+  writeFileSync(join(runtime,'markets.json'),JSON.stringify(books.map(({base_id,age,system_id,items})=>
+    ({base_id,at:'',tick:TICK-age,...system_id?{system_id}:{},
+      items:items.map(row=>({best_buy:0,best_buy_qty:0,best_sell:0,best_sell_qty:0,buy_orders:[],sell_orders:[],...row}))}))));
   return runtime;
 }
 // Ore and gems are sold here; the ore bid a jump away is three levels deep, and thins below the ask.
@@ -153,8 +105,11 @@ const HERE={sol_base:[{item_id:'ore',best_buy:8,best_buy_qty:50,best_sell:10,bes
 const RANGE={base_id:'range_base',age:0,items:[
   {item_id:'ore',best_buy:15,best_buy_qty:4,buy_orders:[{price_each:15,quantity:4},{price_each:12,quantity:4},{price_each:9,quantity:10}]},
   {item_id:'gem',best_buy:110,best_buy_qty:50}]};
+/** A route's stops in short: `base+item` where it takes something on. */
+const said=(route:{legs:{at:string;buy?:string;bought:number}[]})=>route.legs.map(leg=>leg.buy?`${leg.at}+${leg.buy}`:leg.at).join(' ');
+const fills=(visit:{sold:{item_id:string;quantity_sold:number}[]})=>visit.sold.map(fill=>[fill.item_id,fill.quantity_sold]);
 
-test('routes ranks by net per jump and sizes each load where the marginal unit stops paying',async()=>{
+test('an empty hold: routes buys here, sells there, and sizes each load where the marginal unit stops paying',async()=>{
   const runtime=remembered([RANGE]);
   const f=world({mood:'Focused'},{cargo:[],cargoUsed:0,cargoCapacity:20,store:[],markets:HERE},runtime);
   try {
@@ -162,21 +117,21 @@ test('routes ranks by net per jump and sizes each load where the marginal unit s
     assert.equal(out.status,'done',out.why);
     const [gem,ore]=out.detail.routes;
     // 20 gems (the hold) bought at 100 here, sold at 110 there, less 7 fuel for the one jump.
-    assert.equal(gem!.item_id,'gem');
-    assert.equal(gem!.quantity,20);
+    assert.equal(gem!.next,"tradeRun({stops:[{at:'sol_base',buy:'gem'},{at:'range_base'}]})");
+    assert.equal(gem!.legs[0]!.bought,20);
+    assert.deepEqual(gem!.legs[1]!.sold,[{item_id:'gem',quantity:20,revenue:2200}]);
     assert.equal(gem!.net,2200-2000-7);
     assert.equal(gem!.total_jumps,1);
-    assert.equal(gem!.next,"tradeRun({item:'gem', sellAt:'range_base', quantity:20})");
+    assert.deepEqual(gem!.unsold,[]);
     // Ore: 4 at 15 and 4 at 12 beat the ask of 10; the ninth unit fetches 9 and is not moved,
     // though the hold has room for twelve more.
-    assert.equal(ore!.item_id,'ore');
-    assert.equal(ore!.quantity,8);
+    assert.equal(said(ore!),'sol_base+ore range_base');
+    assert.equal(ore!.legs[0]!.bought,8);
     assert.equal(ore!.revenue,4*15+4*12);
-    assert.equal(ore!.cost,80);
     assert.equal(ore!.net,108-80-7);
     assert.equal(ore!.sales_tax,null,'the fake publishes no tax rate');
-    assert.match(ore!.why!,/sales tax at sol_base not known/);
-    assert.equal(f.count('spacemolt/find_route'),1,'one route per far base');
+    assert.match(ore!.why!,/sales tax not known/);
+    assert.equal(f.count('spacemolt/find_route'),1,'range_base is placed by one route, which also prices the jump');
   } finally {unbind();rmSync(runtime,{recursive:true,force:true});}
 });
 
@@ -189,32 +144,131 @@ test('routes ranks a stale fat bid below a fresh thin one',async()=>{
     const out=await routes({items:['gem']});
     assert.equal(out.status,'done',out.why);
     const [fresh,stale]=out.detail.routes;
-    assert.equal(fresh!.sellAt,'range_base');
-    assert.equal(stale!.sellAt,'twin_base');
+    assert.equal(said(fresh!),'sol_base+gem range_base');
+    assert.equal(said(stale!),'sol_base+gem twin_base');
     assert.ok(stale!.net>fresh!.net,'the stale route nets more on paper');
-    assert.equal(stale!.sellAge,2000);
+    assert.equal(stale!.legs[1]!.age,2000);
     assert.ok(stale!.confidence<0.05);
   } finally {unbind();rmSync(runtime,{recursive:true,force:true});}
 });
 
-test('a full hold is routed: what is aboard sells at the far bid for the sale less fuel, and ranks first',async()=>{
-  const runtime=remembered([RANGE]);
+test('a full hold with a far bid: the top route is one stop there that sells it, like any other route',async()=>{
+  const runtime=remembered([{...RANGE,system_id:'deep_range'}]);
   world({mood:'Focused'},{cargo:[{item_id:'gem',quantity:20}],cargoUsed:20,cargoCapacity:20,store:[],markets:HERE},runtime);
   try {
     const out=await routes();
     assert.equal(out.status,'done',out.why);
-    const [held]=out.detail.routes;
+    const [top,near]=out.detail.routes;
     // 20 gems aboard fetch 110 each a jump away; the purchase is sunk, so only the 7 fuel comes off.
-    assert.equal(held!.buyAt,'held');
-    assert.equal(held!.sellAt,'range_base');
-    assert.equal(held!.quantity,20);
-    assert.equal(held!.cost,0);
-    assert.equal(held!.net,2200-7);
-    assert.equal(held!.next,"tradeRun({item:'gem', sellAt:'range_base'})");
-    // A buy route is sized to the space selling frees, and says so.
-    const bought=out.detail.routes.find(row=>row.buyAt==='sol_base')!;
-    assert.equal(bought.quantity,20);
-    assert.match(bought.why!,/the hold is full: sell what is aboard first/);
+    assert.equal(top!.next,"tradeRun({stops:[{at:'range_base'}]})");
+    assert.deepEqual(top!.legs[0]!.sold,[{item_id:'gem',quantity:20,revenue:2200}]);
+    assert.equal(top!.cost,0);
+    assert.equal(top!.net,2200-7);
+    // Selling here is the same model with the stop here: 90 each, no trip.
+    assert.equal(near!.next,"tradeRun({stops:[{at:'sol_base'}]})");
+    assert.equal(near!.net,1800);
+  } finally {unbind();rmSync(runtime,{recursive:true,force:true});}
+});
+
+// Scrap sells here and nowhere else; gems fetch more a jump away; ore is cheap here and dear there.
+const MIXED_HERE=[{item_id:'scrap',best_buy:50,best_buy_qty:50,best_sell:0,best_sell_qty:0},
+  {item_id:'gem',best_buy:90,best_buy_qty:50,best_sell:100,best_sell_qty:50},
+  {item_id:'ore',best_buy:5,best_buy_qty:50,best_sell:10,best_sell_qty:50}];
+const MIXED_RANGE=[{item_id:'gem',best_buy:110,best_buy_qty:50,best_sell:0,best_sell_qty:0},
+  {item_id:'ore',best_buy:25,best_buy_qty:50,best_sell:0,best_sell_qty:0}];
+const MIXED={cargo:[{item_id:'scrap',quantity:10},{item_id:'gem',quantity:5}],cargoUsed:15,cargoCapacity:20,store:[],
+  markets:{sol_base:MIXED_HERE,range_base:MIXED_RANGE}};
+
+test('a mixed hold: what pays best here is sold to make room for the buy, what pays more there is carried, and tradeRun does what routes ranked',async()=>{
+  const runtime=remembered([{base_id:'range_base',age:0,system_id:'deep_range',items:MIXED_RANGE}]);
+  const f=world({mood:'Focused'},MIXED,runtime);
+  try {
+    const out=await routes();
+    assert.equal(out.status,'done',out.why);
+    const top=out.detail.routes[0]!;
+    assert.equal(top.next,"tradeRun({stops:[{at:'sol_base',buy:'ore'},{at:'range_base'}]})");
+    // Scrap is sold here (nobody there bids), which frees 10 for 15 ore; the gems ride to 110.
+    assert.deepEqual(top.legs[0]!.sold,[{item_id:'scrap',quantity:10,revenue:500}]);
+    assert.equal(top.legs[0]!.bought,15);
+    assert.deepEqual(top.legs[1]!.sold,[{item_id:'gem',quantity:5,revenue:550},{item_id:'ore',quantity:15,revenue:375}]);
+    assert.deepEqual(top.unsold,[]);
+    assert.equal(top.net,500+550+375-150-7);
+
+    // The same inputs, run: each stop does what the plan's leg said, against the live book.
+    const run=await tradeRun({stops:[{at:'sol_base',buy:'ore'},{at:'range_base'}]});
+    assert.equal(run.status,'done',run.why);
+    const [here,there]=run.detail.stops;
+    assert.deepEqual(fills(here!),top.legs[0]!.sold.map(sale=>[sale.item_id,sale.quantity]));
+    assert.equal(here!.bought,top.legs[0]!.bought);
+    assert.deepEqual(fills(there!),top.legs[1]!.sold.map(sale=>[sale.item_id,sale.quantity]));
+    assert.deepEqual(run.detail.unsold,[]);
+    assert.equal(f.account.server.location.docked_at,'range_base');
+  } finally {unbind();rmSync(runtime,{recursive:true,force:true});}
+});
+
+test('a three-stop route: the middle stop sells what it was bought for and buys for the last',async()=>{
+  const RANGE3=[{item_id:'gem',best_buy:150,best_buy_qty:50,best_sell:0,best_sell_qty:0},
+    {item_id:'ore',best_buy:0,best_buy_qty:0,best_sell:10,best_sell_qty:50}];
+  const TWIN=[{item_id:'ore',best_buy:80,best_buy_qty:50,best_sell:0,best_sell_qty:0}];
+  const runtime=remembered([{base_id:'range_base',age:0,system_id:'deep_range',items:RANGE3},
+    {base_id:'twin_base',age:0,system_id:'sol',items:TWIN}]);
+  const f=world({mood:'Focused'},{cargo:[],cargoUsed:0,cargoCapacity:10,store:[],pois:[{id:'twin',base_id:'twin_base'}],
+    markets:{sol_base:[{item_id:'gem',best_buy:90,best_buy_qty:50,best_sell:100,best_sell_qty:50}],range_base:RANGE3,twin_base:TWIN}},runtime);
+  try {
+    const out=await routes();
+    assert.equal(out.status,'done',out.why);
+    const top=out.detail.routes[0]!;
+    assert.equal(top.next,"tradeRun({stops:[{at:'sol_base',buy:'gem'},{at:'range_base',buy:'ore'},{at:'twin_base'}]})");
+    assert.deepEqual(top.legs[1]!.sold,[{item_id:'gem',quantity:10,revenue:1500}]);
+    assert.equal(top.legs[1]!.bought,10);
+    assert.equal(top.total_jumps,2,'sol → deep_range → sol, counted on the map');
+    assert.equal(top.net,1500+800-1000-100-14);
+    assert.equal(f.count('spacemolt/get_map'),1);
+
+    const run=await tradeRun({stops:[{at:'sol_base',buy:'gem'},{at:'range_base',buy:'ore'},{at:'twin_base'}]});
+    assert.equal(run.status,'done',run.why);
+    assert.deepEqual(fills(run.detail.stops[1]!),[['gem',10]]);
+    assert.equal(run.detail.stops[1]!.bought,10);
+    assert.deepEqual(fills(run.detail.stops[2]!),[['ore',10]]);
+  } finally {unbind();rmSync(runtime,{recursive:true,force:true});}
+});
+
+test('tradeRun re-run after a partial carries on from the hold it has: nothing is bought twice',async()=>{
+  const runtime=remembered([{base_id:'range_base',age:0,system_id:'deep_range',items:MIXED_RANGE}]);
+  const f=world({mood:'Focused'},MIXED,runtime);
+  // The first jump fails; every other command reaches the fake.
+  let jam=true;
+  let who:Pilot={mood:'Focused'};
+  bind({account:f.account as unknown as ReadinessAccount,runtime,pilot:()=>who,setPilot:next=>{who=next;},emit:()=>{},
+    command:async(name,params)=>{
+      if(name==='spacemolt/jump'&&jam){jam=false;throw new Error('jump drive offline');}
+      return f.command(name,params);
+    }});
+  const stops=[{at:'sol_base',buy:'ore'},{at:'range_base'}];
+  try {
+    const first=await tradeRun({stops});
+    assert.equal(first.status,'partial');
+    assert.match(first.why!,/range_base: .*jump drive offline/);
+    assert.equal(first.detail.stops.length,1);
+    assert.equal(first.detail.stops[0]!.bought,15);
+    assert.deepEqual(first.next,["tradeRun({stops:[{at:'range_base'}]})"]);
+    const again=await tradeRun({stops});
+    assert.equal(again.status,'done',again.why);
+    assert.equal(again.detail.stops[0]!.bought,0,'the hold is already full of ore; the plan buys none');
+    assert.equal(f.count('spacemolt/buy'),1);
+    assert.deepEqual(fills(again.detail.stops[1]!),[['gem',5],['ore',15]]);
+  } finally {unbind();rmSync(runtime,{recursive:true,force:true});}
+});
+
+test("tradeRun from:'store' takes the stored goods at the first stop and sells them at the next",async()=>{
+  const runtime=remembered([{base_id:'range_base',age:0,items:[{item_id:'ore',best_buy:10,best_buy_qty:99}]}]);
+  const f=world({mood:'Focused'},{cargo:[],cargoUsed:0,cargoCapacity:10,store:[{item_id:'ore',quantity:8}],markets:{sol_base:[]}},runtime);
+  try {
+    const out=await tradeRun({stops:[{at:'sol_base',buy:'ore',from:'store'},{at:'range_base'}]});
+    assert.equal(out.status,'done',out.why);
+    assert.equal(f.count('spacemolt/buy'),0);
+    assert.equal(out.detail.stops[0]!.bought,8);
+    assert.deepEqual(fills(out.detail.stops[1]!),[['ore',8]]);
   } finally {unbind();rmSync(runtime,{recursive:true,force:true});}
 });
 
@@ -225,10 +279,11 @@ test('a failed route lookup is a row with a why and a partial, not a throw',asyn
     const out=await routes();
     assert.equal(out.status,'partial');
     const row=out.detail.routes[0]!;
-    assert.equal(row.sellAt,'ghost_base');
+    assert.equal(said(row),'sol_base+gem ghost_base');
     assert.equal(row.total_jumps,null);
-    assert.match(row.why!,/no route: .*ghost_base/);
-    assert.match(out.why!,/no route for gem sol_base→ghost_base/);
+    assert.equal(row.score,0);
+    assert.match(row.why!,/no route to ghost_base: .*fuel not priced/);
+    assert.match(out.why!,/sol_base buy 20 gem → ghost_base sell 20 gem: no route to ghost_base/);
   } finally {unbind();rmSync(runtime,{recursive:true,force:true});}
 });
 

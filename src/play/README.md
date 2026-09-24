@@ -86,7 +86,9 @@ sees the real types, so these are not style notes.
   `from: 'hold' | 'store'` and `floor: {[item_id]: number}`, nothing else. `buy(item_id, quantity,
   {deliverTo?, maxEach?, force?})` names no market either. `{market: 'local'}` does not exist; both
   are always the counter you are docked at. To sell somewhere else, `goTo` it first, or
-  `tradeRun({item, sellAt})`, which carries what is aboard there.
+  `tradeRun({stops: [{at}]})`, which flies there and sells what is aboard. `tradeRun` takes only
+  `{stops}`: `{item, sellAt}` and `{buyAt}` do not exist, and a route is one call with no
+  `goTo(...)` before it — each stop is `{at, buy?, quantity?, from?}`.
 - **The fields are not the ones you would guess.** A `sell` answers `detail: Sold` =
   `{base_id, fills, short, total}`: `total` is the credits, `fills[i]` is the lib's `SellResponse`
   (`item_id`, `quantity_sold`, `total_earned`, `xp_gained`), and `short[i]` is
@@ -140,7 +142,7 @@ Everything game-shaped in a `detail` is the lib's own type (`SystemPoi`, `Missio
 
 Careers add more: [`mining/`](mining/README.md) (`gatherUntil`),
 [`hauling/`](hauling/README.md), [`industry/`](industry/README.md), [`combat/`](combat/README.md) (`hunt`, `salvage`),
-[`trading/`](trading/README.md) (`spreads`, `tradeRun`), [`exploration/`](exploration/README.md), [`fleet/`](fleet/README.md).
+[`trading/`](trading/README.md) (`spreads`, `routes`, `tradeRun`), [`exploration/`](exploration/README.md), [`fleet/`](fleet/README.md).
 Each folder's README is the skill for that career; the one for your stance is loaded beside this.
 
 ## Reading a counter before you spend at it

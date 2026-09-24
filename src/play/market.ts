@@ -20,7 +20,10 @@ const message=(error:unknown)=>error instanceof Error?error.message:String(error
 /** A book this pilot has stood in front of, kept so the next base knows what the last one
  * paid. The game publishes no cross-station prices — `view_market` and `analyze_market` are
  * both "here" — so memory is the only far price a factionless pilot can have. */
-export interface RememberedBook {base_id:string;at:string;tick?:number;items:MarketListingItem[]}
+export interface RememberedBook {base_id:string;at:string;tick?:number;
+  /** The system the base is in, as the ship stood there: what lets `routes()` count jumps between
+   * two far bases from the map alone. Absent on entries written before it was kept. */
+  system_id?:string;items:MarketListingItem[]}
 const MEMORY='markets.json';
 /** A book older than this many ticks (a day at ten seconds a tick) is dropped at the next
  * write. NPC books move rarely, so a day-old price is still a lead; a week-old one is not. */
@@ -60,7 +63,7 @@ export function knownBooks(dir=runtimeDir()):RememberedBook[] {
 function remember(base_id:string,items:MarketListingItem[],tick:number):void {
   const dir=runtimeDir();
   if(!dir||!base_id)return;
-  const kept=[{base_id,at:new Date().toISOString(),tick,items},
+  const kept=[{base_id,at:new Date().toISOString(),tick,system_id:acct().state.location?.system_id,items},
     ...knownBooks().filter(row=>row.base_id!==base_id&&ticksOld(row.tick,tick)<=MEMORY_TICKS)].slice(0,BASES);
   try {
     mkdirSync(dir,{recursive:true});

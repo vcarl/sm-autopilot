@@ -216,7 +216,7 @@ test("the J6 spread is a Trader's pasteable tradeRun; a refused J6 says so under
   try {
     writeFileSync(join(ok.runtime,'markets.json'),far);
     const built=await menu(ok.runtime);
-    const run=built.moves.find(m=>m.call==="tradeRun({item:'ore',sellAt:'range_base'})");
+    const run=built.moves.find(m=>m.call==="tradeRun({stops:[{at:'sol_base',buy:'ore'},{at:'range_base'}]})");
     assert.ok(run,`no tradeRun: ${JSON.stringify(built.moves)} / ${JSON.stringify(built.not_now)}`);
     assert.match(run!.why,/28 cr a unit on ore at range_base, a bid remembered 40 ticks old/);
     assert.equal(built.moves[0]!.call,run!.call,'the Trader leads with the run');
@@ -641,7 +641,7 @@ test("a docked Trader is offered routes(), below a live J6 run, whatever the hol
   try {
     writeFileSync(join(ok.runtime,'markets.json'),far);
     const calls=(await menu(ok.runtime)).moves.map(m=>m.call);
-    const run=calls.indexOf("tradeRun({item:'ore',sellAt:'range_base'})"),search=calls.indexOf('routes()');
+    const run=calls.indexOf("tradeRun({stops:[{at:'sol_base',buy:'ore'},{at:'range_base'}]})"),search=calls.indexOf('routes()');
     assert.ok(run>=0&&search>run,JSON.stringify(calls));
   } finally {ok.close();}
   // A full hold: goods aboard are routes too.
@@ -669,11 +669,11 @@ test('goods with no bid here and a remembered far bid are a pasteable tradeRun i
   try {
     writeFileSync(join(held.runtime,'markets.json'),far);
     const built=await menu(held.runtime);
-    const aboard=built.moves.find(m=>m.call==="tradeRun({item:'ore',sellAt:'range_base'})");
+    const aboard=built.moves.find(m=>m.call==="tradeRun({stops:[{at:'range_base'}]})");
     assert.ok(aboard,renderMenu(built));
     assert.match(aboard!.why,/12 ore aboard has no bid at sol_base; range_base bid 40 .* 30 ticks old .* fuel there is not priced in/);
     assert.equal(built.moves[0]!.call,aboard!.call,'the full hold ranks the far sale above the stow');
-    const stored=built.moves.find(m=>m.call==="tradeRun({item:'iridium',sellAt:'range_base',from:'store'})");
+    const stored=built.moves.find(m=>m.call==="tradeRun({stops:[{at:'sol_base',buy:'iridium',from:'store'},{at:'range_base'}]})");
     assert.ok(stored,renderMenu(built));
     assert.match(stored!.why,/30 iridium in the store here/);
     const runtime=mkdtempSync(join(tmpdir(),'menu-far-'));

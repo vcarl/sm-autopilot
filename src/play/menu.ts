@@ -315,7 +315,8 @@ export async function menu(runtime?:string):Promise<Menu> {
   // Goods with no bid here, aboard or in the store here, and a remembered book elsewhere that bids
   // for them: every stance strands ore this way. Live 2026-09-24: 63 units stowed at
   // sirius_observatory_station, which bids for none of them, and no move ever pointed further.
-  // `tradeRun` carries what is aboard (or, `from:'store'`, withdraws it first) before it buys.
+  // `tradeRun({stops:[{at}]})` delivers what is aboard there; a stored row is taken out of the store
+  // here first, as the first stop's `buy` with `from:'store'`.
   if(docked&&book) {
     const tick=Number(market?.current_tick??0);
     const far=(item_id:string)=>knownBooks(runtime).filter(row=>row.base_id!==docked)
@@ -329,9 +330,12 @@ export async function menu(runtime?:string):Promise<Menu> {
     const unknown=priced.filter(row=>!row.buyer).map(({row})=>`${row.quantity} ${row.item_id}${row.from==='store'?' (stored)':''}`);
     if(unknown.length)not_now.push({move:'sell',why:`no bid at ${docked} and no remembered book bids for ${unknown.slice(0,5).join(', ')}; goTo another base and prices() there to learn one`});
     // ponytail: the two most valuable, one find_route each. Widen when a menu has room for more.
+    const offered=new Set<string>();
     for(const {row,buyer} of priced.filter(row=>row.buyer).sort((a,b)=>
       b.buyer!.best_buy*Math.min(b.buyer!.best_buy_qty,b.row.quantity)-a.buyer!.best_buy*Math.min(a.buyer!.best_buy_qty,a.row.quantity)).slice(0,2)) {
-      const call=`tradeRun(${lit({item:row.item_id,sellAt:buyer!.base_id,...row.from==='store'?{from:'store'}:{}})})`;
+      const call=`tradeRun(${lit({stops:[...row.from==='store'?[{at:docked,buy:row.item_id,from:'store'}]:[],{at:buyer!.base_id}]})})`;
+      if(offered.has(call))continue;
+      offered.add(call);
       const blocked=await flies(buyer!.base_id);
       if(blocked){not_now.push({move:call,why:blocked});continue;}
       work({call,advances:'credits',why:`${row.quantity} ${row.item_id}${row.from==='store'?' in the store here':' aboard'} has no bid at ${docked}; `
@@ -382,19 +386,18 @@ export async function menu(runtime?:string):Promise<Menu> {
   }
 
   // A Trader's run: buy here at the ask, sell at the far bid the J6 spread names. J6 is the gate;
-  // a refused or absent spread is said under not_now, never dropped. `tradeRun` buys what the hold
-  // fits, so a full hold is its own hard refusal — the sell or stow above is the remedy.
+  // a refused or absent spread is said under not_now, never dropped. A full hold is no refusal:
+  // `tradeRun` plans from the hold it has, selling here what pays better here first.
   if(who.stance==='Trader'&&docked) {
     const j6=verdicts.find(v=>v.job.startsWith('J6')),spread=facts.observed.spread;
     if(!spread)not_now.push({move:'tradeRun',why:j6?.reason??'no quoted spread with depth on both ends'});
     else if(j6&&!j6.admissible)not_now.push({move:'tradeRun',why:j6.reason});
-    else if(full)not_now.push({move:'tradeRun',why:'the hold is full and tradeRun buys what the hold fits; sell(rows) or stow(rows) first'});
-    else work({call:`tradeRun(${lit({item:spread.item_id,sellAt:spread.base_id})})`,advances:'credits',
+    else work({call:`tradeRun(${lit({stops:[{at:docked,buy:spread.item_id},{at:spread.base_id}]})})`,advances:'credits',
       why:`${spread.margin} cr a unit on ${spread.item_id} at ${spread.base_id}, a bid remembered ${spread.age} ticks old; the book may have moved, and the fuel there is not priced in`});
-    // The search, not the menu's to run: routes() costs up to ~10 find_route calls. Whatever the
-    // hold: goods aboard are routes of their own.
+    // The search, not the menu's to run: routes() costs a map read and up to ~6 find_route calls.
+    // Whatever the hold: every route is planned from it.
     work({call:'routes()',advances:'credits',
-      why:'ranks every known trade, goods aboard included, by net per jump after book depth, fuel and tax; each row carries a pasteable next call. The trading README\'s "the best trade known" acts on the top row in one run'});
+      why:'ranks every known route of up to 3 stops, from the hold you have, by net per jump after book depth, fuel and tax; each row carries a pasteable next call. The trading README\'s "the best trade known" acts on the top row in one run'});
   }
 
   // Mine the nearest belt.
