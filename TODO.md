@@ -2,13 +2,13 @@
 
 ## Using this checklist
 
-- This is the checklist. [VISION.md](VISION.md) is intent; `worklog/` is history, one file per finished task, written by `scripts/codex_workflow.py` from verified artifacts. Neither is edited from here.
+- This is the checklist. [VISION.md](VISION.md) is intent; `worklog/` is history, one file per finished task, written from verified artifacts. Neither is edited from here.
 - Check an item only when its observable result exists. A stub, an accepted command, or a model claim is not completion.
 - Put evidence beside a checked item: path, test command, or reviewed receipt. Name the level (fixture, replay, live).
 - Record progress, decisions, and the next action here before ending work.
 - Reopen an item when later evidence invalidates it.
 - IDs are local to this file. The vision has none; do not invent cross-references to it.
-- Work runs through `scripts/codex_workflow.py` (see `scripts/codex_workflow.md`): the operator names one milestone, usually one item or a few adjacent items from this file, and the fixed checks; while the tree is deliberately broken, checks are task-scoped (`node --test <file>`) or a checked-in script, never the whole suite.
+- Work is scoped by milestone: the operator names one, usually one item or a few adjacent items from this file, and the checks that close it. While the tree is deliberately broken, checks are task-scoped (`node --test <file>`) or a checked-in script, never the whole suite.
 
 ## Decisions (D)
 
