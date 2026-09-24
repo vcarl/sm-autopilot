@@ -99,14 +99,14 @@ Each row of `routes` is a `Route`:
 | `unsold` | `{item_id, quantity, why?}` rows still aboard after the last stop: nothing on the route bids for them, or a base off the route bids at least twice as much (named in `why`). Not in the net |
 | `revenue` | every sale on the route, level by level |
 | `cost` | every buy on the route, level by level (0 from the store) |
-| `sales_tax` | the tax on the buys; `null` when a buying stop's rate is not known, which is so for every stop but the one you are docked at (the net is then untaxed and `why` says so) |
+| `sales_tax` | the tax on the buys. Only the docked base's rate is readable, so a buy at a far stop is taxed at this base's rate and `why` says it is an estimate. `null` when no rate is readable here at all (the net is then untaxed and `why` says so) |
 | `total_jumps` | jumps from here through every stop, on the map; `null` when a stop could not be placed |
 | `fuel` | fuel units, `total_jumps × fuel_per_jump`; `null` when the trip is unpriced |
 | `net` | `revenue − cost − sales_tax − fuel × fuel_price_all_in` at the base you call from. Fuel is left out when it could not be priced. `Traded.net` counts fuel the same way, so the two compare directly |
 | `confidence` | `0.5 ^ (sum of the stops' book ages / 360)`: 1 when every book is live, half for an hour of age |
 | `score` | the rank: `confidence × net / max(1, total_jumps)`. 0 when the trip could not be priced |
 | `next` | the call to paste: `tradeRun({stops: [...]})` for this route |
-| `why` | what the row could not know: a stop with no route, an unknown tax. Absent when nothing is missing |
+| `why` | what the row could not know: a stop with no route, an unknown tax, a far stop's tax estimated at this base's rate. Absent when nothing is missing |
 
 Each leg is:
 
@@ -116,9 +116,10 @@ Each leg is:
 | `source`, `age` | where its book came from (`here`, `faction ledger`, `remembered`) and its age in ticks; `here`/0 when live |
 | `sold` | `{item_id, quantity, revenue}` per held item sold here |
 | `buy`, `bought`, `cost` | the item taken on here, the units, and what they cost at the asks |
-| `sales_tax` | tax on that buy; `null` when this stop's rate is not known |
+| `sales_tax` | tax on that buy, at this base's rate when the stop is far; `null` when no rate is known |
 
-At most 5 rows come back, priced ones first. A stop that could not be placed leaves its row in
+At most 5 rows come back, priced ones first. The Outcome's `did` names the best row in short —
+a stop selling more than two kinds says `sell 499 of 10 kinds` — and its legs carry each sale. A stop that could not be placed leaves its row in
 the list with a `why`, a `score` of 0 and the Outcome `partial`.
 
 ## What a run says
@@ -146,7 +147,9 @@ It answers `detail: Traded` = `{stops, unsold, fuel, net}`:
 | `net` | sales, less `spent` (tax included), less `fuel × fuel_price_all_in` at the first base the run was docked at. Fuel comes from the tank, not the wallet, so it is priced exactly as `Route.net` prices it: realised `net` against the `routes()` row's `net` is like against like |
 
 It never throws. A flight that does not arrive is `partial`, with the stops done so far, and
-`next` is the rest of the route. Re-running the same call starts again at the first stop and
+`next` is the rest of the route. A `done` run's `next` is pasteable calls only: the same
+`tradeRun(...)` again when the route bought something and netted a profit, and `routes()`, which
+is all it offers after a route that only sold the hold. Re-running the same call starts again at the first stop and
 re-plans from the hold you have. A load already aboard is carried on and is not bought twice. A
 sale or buy the game refuses is `partial` too, and the run carries on to the next stop.
 

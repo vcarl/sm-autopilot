@@ -181,7 +181,8 @@ export interface Leg {
   sold:Sale[];
   /** The item taken here, units, and what they cost at the asks (0 from the store). */
   buy?:string;bought:number;cost:number;
-  /** Tax on that buy; null when this stop's rate is not known (only the docked base's is readable). */
+  /** Tax on that buy; null when no rate is known. Only the docked base's rate is readable, so
+   * `routes()` prices a far stop's buy at it, and says so in the row's `why`. */
   sales_tax:number|null;
 }
 /** A held row left aboard, and `why`: the better bid known off the route, when there is one. */
@@ -428,7 +429,10 @@ export function tradeRun(opts:{stops:RunStop[]}):Promise<Outcome<Traded>> {
     const did=`${said()} — net ${end.net} cr after ${fuel} fuel at ${fuelPrice??0} cr`
       +(end.unsold.length?`; unsold: ${end.unsold.map(row=>`${row.quantity} ${row.item_id}${row.why?` (${row.why})`:''}`).join(', ')}`:'');
     if(short.length)return {status:'partial',did,why:short.join('; '),detail:end,next:[runCall(route)]};
-    return {status:'done',did,detail:end,next:end.net>0?[`${runCall(route)} again while the spread holds`]:[]};
+    // Pasteable calls only. A route that bought something may pay again while the spread holds; a
+    // route that only sold the hold has nothing left to do, so the next move is a new search.
+    const again=end.net>0&&route.some(stop=>stop.buy&&stop.from!=='store');
+    return {status:'done',did,detail:end,next:again?[runCall(route),'routes()']:['routes()']};
   });
 }
 
@@ -454,7 +458,7 @@ export interface Route extends Plan {
   score:number;
   /** The call to paste. */
   next:string;
-  /** What this row could not know: an unplaced stop, an unknown tax. */
+  /** What this row could not know: an unplaced stop, an unknown tax, a far stop's tax estimated at this base's rate. */
   why?:string;
 }
 
@@ -518,7 +522,8 @@ export function routes(opts:{items?:string[]}={}):Promise<Outcome<{routes:Route[
     const fuelPrice=Number(details(await command('spacemolt/get_base',{})).fuel_price_all_in??1);
 
     const evaluate=(stops:RunStop[]):Route=>{
-      const planned=plan(aboard,free,stops.map(stop=>({book:known.get(stop.at)!,...stop.buy?{buy:stop.buy}:{},rate:stop.at===here?rate:null})),
+      // Only the docked base's rate is readable; it stands in for every far stop's.
+      const planned=plan(aboard,free,stops.map(stop=>({book:known.get(stop.at)!,...stop.buy?{buy:stop.buy}:{},rate})),
         [...known.values()].filter(book=>!stops.some(stop=>stop.at===book.base_id)));
       const why:string[]=[];
       let total:number|null=0,from=origin;
@@ -528,6 +533,8 @@ export function routes(opts:{items?:string[]}={}):Promise<Outcome<{routes:Route[
         total+=n;from=system!;
       }
       if(planned.sales_tax===null)why.push('sales tax not known; net is untaxed');
+      else for(const leg of planned.legs)if(leg.bought&&leg.at!==here)
+        why.push(`tax at ${leg.at} estimated at ${here}'s ${Math.round(rate!*10_000)} bps`);
       const fuel=total===null?null:total*(perJump??0);
       const net=Math.round(planned.net-(fuel??0)*fuelPrice);
       const confidence=trust([...new Set(stops.map(stop=>stop.at))].reduce((sum,base)=>sum+known.get(base)!.age,0));
@@ -570,7 +577,10 @@ export function routes(opts:{items?:string[]}={}):Promise<Outcome<{routes:Route[
     if(!rows.length)return {status:'done',did:`no route pays across ${known.size} book(s) (${sources.join(' + ')}) from this hold`,
       detail:{routes:[],sources},next:['goTo another base and prices() there to learn its book']};
     const failed=rows.filter(row=>row.total_jumps===null);
-    const says=(row:Route)=>row.legs.map(leg=>[leg.at,...leg.sold.map(sale=>`sell ${sale.quantity} ${sale.item_id}`),
+    // Short: a hold of ten kinds is `sell 499 of 10 kinds`; the legs in `detail` carry the rest.
+    const says=(row:Route)=>row.legs.map(leg=>[leg.at,
+      ...leg.sold.length>2?[`sell ${leg.sold.reduce((sum,sale)=>sum+sale.quantity,0)} of ${leg.sold.length} kinds`]
+        :leg.sold.map(sale=>`sell ${sale.quantity} ${sale.item_id}`),
       ...leg.bought?[`buy ${leg.bought} ${leg.buy}`]:[]].join(' ')).join(' → ');
     return {status:failed.length?'partial':'done',
       did:`ranked ${rows.length} route(s) over ${known.size} book(s) (${sources.join(' + ')}); best: ${says(rows[0]!)}, net ${rows[0]!.net} cr`,

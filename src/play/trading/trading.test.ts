@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import {mkdtempSync,rmSync,writeFileSync} from 'node:fs';
+import {mkdirSync,mkdtempSync,rmSync,writeFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import test from 'node:test';
@@ -8,7 +8,8 @@ import {bridgeWorld,TICK,type WorldOptions} from '../../test-support/bridge-worl
 import {buy,knownBooks,prices,sell} from '../market.ts';
 import {bind,unbind,type Pilot} from '../runtime.ts';
 import {goTo} from '../travel.ts';
-import {routes,spreads,tradeRun} from './trading.ts';
+import {check} from '../../run.ts';
+import {routes,runCall,spreads,tradeRun} from './trading.ts';
 
 function world(record:Pilot,options:WorldOptions={},runtime?:string) {
   const game=bridgeWorld({services:['refuel','repair','storage'],cargoUsed:0,...options});
@@ -337,6 +338,45 @@ test('Route.net and Traded.net count fuel alike: units burned × this base\'s fu
     assert.equal(run.detail.net,earned-run.detail.stops[0]!.spent-run.detail.fuel*28);
     assert.match(run.did,new RegExp(`after ${run.detail.fuel} fuel at 28 cr`));
   } finally {unbind();rmSync(runtime,{recursive:true,force:true});}
+});
+
+test("a buy at a far stop is taxed at this base's rate, and the row says it is an estimate (live: 250 bps at all 4 stations)",async()=>{
+  const runtime=remembered([{base_id:'twin_base',age:0,system_id:'sol',items:[{item_id:'gem',best_sell:100,best_sell_qty:50}]},
+    {base_id:'range_base',age:0,system_id:'deep_range',items:GEM_RANGE}]);
+  world({mood:'Focused'},{...TAXED,pois:[{id:'twin',base_id:'twin_base'}],
+    markets:{sol_base:[{item_id:'ore',best_buy:8,best_buy_qty:50,best_sell:10,best_sell_qty:50}]}},runtime);
+  try {
+    const out=await routes({items:['gem']});
+    const far=out.detail.routes.find(row=>row.next==="tradeRun({stops:[{at:'twin_base',buy:'gem'},{at:'range_base'}]})")!;
+    assert.ok(far,out.detail.routes.map(row=>row.next).join('\n'));
+    assert.equal(far.legs[0]!.sales_tax,50,'2000 at the 250 bps read here');
+    assert.equal(far.sales_tax,50);
+    assert.match(far.why!,/tax at twin_base estimated at sol_base's 250 bps/);
+  } finally {unbind();rmSync(runtime,{recursive:true,force:true});}
+});
+
+test("a done run's next is pasteable: routes() after a sell-only route, and the route call itself compiles",async()=>{
+  const runtime=remembered([{...RANGE,system_id:'deep_range'}]);
+  world({mood:'Focused'},{cargo:[{item_id:'gem',quantity:20}],cargoUsed:20,cargoCapacity:20,store:[],
+    markets:{...HERE,range_base:[{item_id:'gem',best_buy:110,best_buy_qty:50,best_sell:0,best_sell_qty:0}]}},runtime);
+  let next:string[];
+  try {
+    const run=await tradeRun({stops:[{at:'range_base'}]});
+    assert.equal(run.status,'done',run.why);
+    next=run.next;
+  } finally {unbind();rmSync(runtime,{recursive:true,force:true});}
+  assert.deepEqual(next,['routes()'],'a sell-only route has nothing to repeat');
+  const pilot=mkdtempSync(join(tmpdir(),'trade-next-'));
+  mkdirSync(join(pilot,'pilot'));
+  writeFileSync(join(pilot,'pilot','index.ts'),`import {routes, tradeRun} from 'play';
+export default async function main() {
+  ${[...next,runCall([{at:'sol_base',buy:'gem'},{at:'range_base'}])].map(call=>`await ${call};`).join('\n  ')}
+  return routes();
+}
+`);
+  const gate=await check(pilot);
+  rmSync(pilot,{recursive:true,force:true});
+  assert.deepEqual(gate.ok?[]:gate.errors,[]);
 });
 
 test('a held good is not dumped for 1 cr while a base off the route bids 445 for it (live: 27 null_matter at nexus)',async()=>{
