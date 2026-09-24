@@ -10,6 +10,7 @@ assembled from everything this pilot is allowed to know.
 | Function | Promise |
 |---|---|
 | `spreads(items?)` | the best buyer known for each thing you hold, anywhere, with the trip priced and netted |
+| `routes({items?})` | every buy-at-A, sell-at-B trade known, sized against both books and the hold, fuelled, and ranked by trust-weighted net per jump; each row carries the call to paste |
 | `tradeRun({item, sellAt, quantity?, from?})` | get `item` sold at `sellAt`: carry what is aboard (`from: 'store'` withdraws what the hold fits from the store here first), or buy `quantity` here when none is aboard; fly; sell there. The realised net from the wallet |
 
 Root functions do the rest: `prices()` for the counter you are standing at, `sell()`/`buy()`
@@ -32,7 +33,7 @@ the best `best_buy` per item:
 The ledger needs a faction with a trade-intel facility; without one the command throws and
 `spreads()` carries on with the other two, saying so in `did` and in `detail.sources`. The
 memory is free and always there: every `book()` read — by `prices()`, `sell()`, `recipes()`,
-`quote()` — writes that base's whole book to `markets.json` in the runtime dir, last 12 bases.
+`quote()` — writes that base's whole book to `markets.json` in the runtime dir, kept for a day of ticks.
 So the second visit knows what the first one saw, across runs and across restarts. It follows
 that the way to *learn* a price is to go and stand in front of it: `goTo(base)` then
 `prices()`, once, and that base is in the memory for good.
@@ -56,6 +57,37 @@ base's `fuel_price_all_in`, from one `find_route` per far base. `held` is the ho
 base's store, because that is what you could put on the counter. Rows are sorted by `net`, so
 a fat price four jumps out can rank below a thin one here — which is the comparison a loaded
 pilot actually needs.
+
+## What a route says
+
+`routes({items?})` answers `detail: {routes, sources}`. `items` narrows it to those item ids;
+the default is every item on any book known. `sources` is as for `spreads()`. It reads only:
+it computes, you choose. It is refused when not docked or when the hold has no free space.
+
+Each row of `routes` is a `Route`:
+
+| Field | What it is |
+|---|---|
+| `item_id` | the item |
+| `buyAt`, `sellAt` | the base it is bought at and the base it is sold at; either may be this one |
+| `buySource`, `sellSource` | where each end's price came from: `here`, `faction ledger` or `remembered` |
+| `buyAge`, `sellAge` | each end's age in ticks; 0 for this base's live book |
+| `quantity` | units worth moving: `buyAt`'s asks and `sellAt`'s bids walked level by level up to the free hold, stopped at the last unit whose bid still beats its ask plus tax. A deep book fills the hold; a thin one stops short |
+| `cost`, `revenue` | what those units cost at `buyAt` and fetch at `sellAt`, level by level |
+| `sales_tax` | tax on the buy at this base's `sales_tax_rate_bps`; `null` when not known, which is always so for a far `buyAt` (the net is then untaxed and `why` says so) |
+| `total_jumps` | jumps for the trip; `null` when a `find_route` failed |
+| `fuel` | fuel units, `total_jumps × fuel_per_jump`; `null` when a `find_route` failed |
+| `net` | `revenue − cost − sales_tax − fuel` at this base's `fuel_price_all_in`. Fuel is left out when it could not be priced |
+| `confidence` | `0.5 ^ ((buyAge + sellAge) / 360)`: 1 for two live books, half for an hour of age |
+| `score` | the rank: `confidence × net / max(1, total_jumps)`. 0 when the trip could not be priced |
+| `next` | the call to paste: `tradeRun({item, sellAt, quantity})`, preceded by `goTo('<buyAt>') then` when `buyAt` is not here |
+| `why` | what the row could not know: a failed route lookup, an unknown tax. Absent when nothing is missing |
+
+Only the top 5 candidates are priced with `find_route` (each is a game call), so at most 5 rows
+come back, priced ones first. `find_route` answers only from where the ship is, so a trip from
+here to a far `buyAt` and on to `sellAt` is quoted as there, back, and out again: an upper bound,
+exact when either end is here. A route lookup that fails leaves its row in the list with a `why`
+and makes the Outcome `partial`.
 
 ## What a run says
 
@@ -91,20 +123,42 @@ export default async function main() {
 }
 ```
 
+## Worked example — the best trade known
+
+```ts
+import {orient, routes, goTo, tradeRun, note} from 'play';
+
+export default async function main() {
+  await orient();
+  const look = await routes();                       // every known trade, sized, fuelled, ranked
+  const best = look.detail.routes.find(row => row.total_jumps !== null && row.net > 0);
+  if (!best) return look;
+  note(`${best.quantity} ${best.item_id} ${best.buyAt}→${best.sellAt}: net ${best.net}, confidence ${best.confidence.toFixed(2)}`);
+  if (best.buyAt !== look.now.location.docked_at) {
+    const there = await goTo(best.buyAt);            // buy where it is cheap
+    if (there.status !== 'done') return there;
+  }
+  return tradeRun({item: best.item_id, sellAt: best.sellAt, quantity: best.quantity});
+}
+```
+
 ## Pitfalls
 
 - A snapshot goes stale before arrival; we have watched a public market's supply vanish. The
   `source` and `seen` fields are there so you can weigh that before committing fuel — a
   hundred-tick-old bid four jumps out is a guess, not a price.
-- The memory holds the last 12 bases, evicted **by count, not by age**: a stale entry is not
-  dropped to make room for a fresh one. `seen` is how you see that.
+- The memory drops a book **8640 ticks (a day)** after it was read, and holds at most 40 bases.
+  Inside that window nothing is dropped for being stale; `seen` is how you see that.
 - Sales tax is charged at buy time and netted from `gained.credits`.
-- `net` prices the top buy level only. A load big enough to eat past it fetches less.
+- `spreads()`' `net` prices the top buy level only. A load big enough to eat past it fetches
+  less. `routes()` walks the levels.
 - Contraband: `get_empire_info` lists each empire's contraband; a customs scan seizes and
   fines. Neither function checks it yet — read the list before hauling something exotic.
 
 ## When to reconsider
 
+- A route whose realised `net` (from `tradeRun`) comes in under the `net` `routes()` predicted,
+  twice: someone else is working it. It is contested; drop it and take the next row.
 - Two `tradeRun`s `partial` at `leg: 'flown'`: the far book is being drained by someone else.
   Change the pair.
 - Trading is at 5+ and every spread is small: standing orders (`account().commands

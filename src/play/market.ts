@@ -21,7 +21,13 @@ const message=(error:unknown)=>error instanceof Error?error.message:String(error
  * paid. The game publishes no cross-station prices — `view_market` and `analyze_market` are
  * both "here" — so memory is the only far price a factionless pilot can have. */
 export interface RememberedBook {base_id:string;at:string;tick?:number;items:MarketListingItem[]}
-const MEMORY='markets.json',BASES=12;
+const MEMORY='markets.json';
+/** A book older than this many ticks (a day at ten seconds a tick) is dropped at the next
+ * write. NPC books move rarely, so a day-old price is still a lead; a week-old one is not. */
+const MEMORY_TICKS=8640;
+/** ponytail: 40 whole books is ~8 MB of JSON read on every `knownBooks()`; the count is only a
+ * size ceiling now that age is the evictor. Store top levels only if the read ever shows up. */
+const BASES=40;
 /** How old an entry written before books carried a tick is taken to be. An assumption for
  * pre-ageing files, not a measurement: old enough for the pilot to distrust, not old enough
  * to be worth dropping a price nothing else can supply. */
@@ -50,12 +56,12 @@ export function knownBooks(dir=runtimeDir()):RememberedBook[] {
 }
 
 /** Temp file then rename, as `writeRun` does: a torn write would price a trip on a lie.
- * ponytail: the last 12 bases, whole books. A pilot that walks a wider circuit than that
- * wants the oldest entry aged out by tick, not by count. */
+ * Evicted by age (`MEMORY_TICKS`), newest first, capped at `BASES`. */
 function remember(base_id:string,items:MarketListingItem[],tick:number):void {
   const dir=runtimeDir();
   if(!dir||!base_id)return;
-  const kept=[{base_id,at:new Date().toISOString(),tick,items},...knownBooks().filter(row=>row.base_id!==base_id)].slice(0,BASES);
+  const kept=[{base_id,at:new Date().toISOString(),tick,items},
+    ...knownBooks().filter(row=>row.base_id!==base_id&&ticksOld(row.tick,tick)<=MEMORY_TICKS)].slice(0,BASES);
   try {
     mkdirSync(dir,{recursive:true});
     const path=join(dir,MEMORY),temp=`${path}.${process.pid}.tmp`;

@@ -1,14 +1,14 @@
 import assert from 'node:assert/strict';
-import {mkdtempSync,rmSync} from 'node:fs';
+import {mkdtempSync,rmSync,writeFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import test from 'node:test';
 import type {ReadinessAccount} from '../../readiness.ts';
 import {bridgeWorld,TICK,type WorldOptions} from '../../test-support/bridge-world.ts';
-import {prices} from '../market.ts';
+import {knownBooks,prices} from '../market.ts';
 import {bind,unbind,type Pilot} from '../runtime.ts';
 import {goTo} from '../travel.ts';
-import {spreads,tradeRun} from './trading.ts';
+import {routes,spreads,tradeRun} from './trading.ts';
 
 function world(record:Pilot,options:WorldOptions={},runtime?:string) {
   const game=bridgeWorld({services:['refuel','repair','storage'],cargoUsed:0,...options});
@@ -138,4 +138,84 @@ test("tradeRun from:'store' withdraws what is stored here, carries it, and sells
     assert.equal(g.count('spacemolt/buy'),0);
     assert.equal(g.account.server.location.docked_at,'sol_base');
   } finally {unbind();}
+});
+
+/** A `markets.json` in a fresh runtime dir: books this pilot read at other bases, `age` ticks ago. */
+function remembered(books:{base_id:string;age:number;items:Record<string,unknown>[]}[]):string {
+  const runtime=mkdtempSync(join(tmpdir(),'spacemolt-routes-'));
+  writeFileSync(join(runtime,'markets.json'),JSON.stringify(books.map(({base_id,age,items})=>
+    ({base_id,at:'',tick:TICK-age,items:items.map(row=>({best_buy:0,best_buy_qty:0,best_sell:0,best_sell_qty:0,buy_orders:[],sell_orders:[],...row}))}))));
+  return runtime;
+}
+// Ore and gems are sold here; the ore bid a jump away is three levels deep, and thins below the ask.
+const HERE={sol_base:[{item_id:'ore',best_buy:8,best_buy_qty:50,best_sell:10,best_sell_qty:50},
+  {item_id:'gem',best_buy:90,best_buy_qty:50,best_sell:100,best_sell_qty:50}]};
+const RANGE={base_id:'range_base',age:0,items:[
+  {item_id:'ore',best_buy:15,best_buy_qty:4,buy_orders:[{price_each:15,quantity:4},{price_each:12,quantity:4},{price_each:9,quantity:10}]},
+  {item_id:'gem',best_buy:110,best_buy_qty:50}]};
+
+test('routes ranks by net per jump and sizes each load where the marginal unit stops paying',async()=>{
+  const runtime=remembered([RANGE]);
+  const f=world({mood:'Focused'},{cargo:[],cargoUsed:0,cargoCapacity:20,store:[],markets:HERE},runtime);
+  try {
+    const out=await routes();
+    assert.equal(out.status,'done',out.why);
+    const [gem,ore]=out.detail.routes;
+    // 20 gems (the hold) bought at 100 here, sold at 110 there, less 7 fuel for the one jump.
+    assert.equal(gem!.item_id,'gem');
+    assert.equal(gem!.quantity,20);
+    assert.equal(gem!.net,2200-2000-7);
+    assert.equal(gem!.total_jumps,1);
+    assert.equal(gem!.next,"tradeRun({item:'gem', sellAt:'range_base', quantity:20})");
+    // Ore: 4 at 15 and 4 at 12 beat the ask of 10; the ninth unit fetches 9 and is not moved,
+    // though the hold has room for twelve more.
+    assert.equal(ore!.item_id,'ore');
+    assert.equal(ore!.quantity,8);
+    assert.equal(ore!.revenue,4*15+4*12);
+    assert.equal(ore!.cost,80);
+    assert.equal(ore!.net,108-80-7);
+    assert.equal(ore!.sales_tax,null,'the fake publishes no tax rate');
+    assert.match(ore!.why!,/sales tax at sol_base not known/);
+    assert.equal(f.count('spacemolt/find_route'),1,'one route per far base');
+  } finally {unbind();rmSync(runtime,{recursive:true,force:true});}
+});
+
+test('routes ranks a stale fat bid below a fresh thin one',async()=>{
+  // twin_base is in Sol, so its trip is 0 jumps and its bid is higher: only its age sinks it.
+  const runtime=remembered([RANGE,{base_id:'twin_base',age:2000,items:[{item_id:'gem',best_buy:130,best_buy_qty:50}]}]);
+  world({mood:'Focused'},{cargo:[],cargoUsed:0,cargoCapacity:20,store:[],markets:HERE,
+    pois:[{id:'twin',base_id:'twin_base'}]},runtime);
+  try {
+    const out=await routes({items:['gem']});
+    assert.equal(out.status,'done',out.why);
+    const [fresh,stale]=out.detail.routes;
+    assert.equal(fresh!.sellAt,'range_base');
+    assert.equal(stale!.sellAt,'twin_base');
+    assert.ok(stale!.net>fresh!.net,'the stale route nets more on paper');
+    assert.equal(stale!.sellAge,2000);
+    assert.ok(stale!.confidence<0.05);
+  } finally {unbind();rmSync(runtime,{recursive:true,force:true});}
+});
+
+test('a failed route lookup is a row with a why and a partial, not a throw',async()=>{
+  const runtime=remembered([{base_id:'ghost_base',age:0,items:[{item_id:'gem',best_buy:110,best_buy_qty:50}]}]);
+  world({mood:'Focused'},{cargo:[],cargoUsed:0,cargoCapacity:20,store:[],markets:HERE},runtime);
+  try {
+    const out=await routes();
+    assert.equal(out.status,'partial');
+    const row=out.detail.routes[0]!;
+    assert.equal(row.sellAt,'ghost_base');
+    assert.equal(row.total_jumps,null);
+    assert.match(row.why!,/no route: .*ghost_base/);
+    assert.match(out.why!,/no route for gem sol_base→ghost_base/);
+  } finally {unbind();rmSync(runtime,{recursive:true,force:true});}
+});
+
+test('the market memory drops a book older than a day at the next read, whatever the count',async()=>{
+  const runtime=remembered([{base_id:'range_base',age:100,items:[]},{base_id:'old_base',age:9000,items:[]}]);
+  world({mood:'Focused'},{cargo:[],cargoUsed:0,store:[],markets:HERE},runtime);
+  try {
+    assert.equal((await prices(['ore'])).status,'done');
+    assert.deepEqual(knownBooks(runtime).map(row=>row.base_id),['sol_base','range_base']);
+  } finally {unbind();rmSync(runtime,{recursive:true,force:true});}
 });
