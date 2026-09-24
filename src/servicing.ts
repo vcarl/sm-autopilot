@@ -16,9 +16,7 @@ export interface ServiceOptions {
   /** Operator-owned permission (D11), independent of the mood. */
   creditReserve?:number;
 }
-export interface ServiceOutcome {satisfied:true;issued:string[];spent:number;fuel:number;hull:number;
-  /** What this counter could not do, when Tired took what it could anyway. Empty on a full fill. */
-  short?:string[]}
+export interface ServiceOutcome {satisfied:true;issued:string[];spent:number;fuel:number;hull:number}
 
 /** Carries the units still missing, so a caller can never mistake it for readiness. */
 export class ServiceBlocked extends Error {
@@ -38,12 +36,18 @@ const shortfall=(name:string,have:number,need:number,unit:string)=>
  * fraction is the away-from-dock line, not a service target. A partial fill is never
  * success — the post-state is read authoritatively and decides.
  *
- * Tired widens this, which is what Tired is for: a counter that posts no price for one of the
- * two still fills the other, and what it could not do comes back in `short` instead of
- * refusing the lot. A Tired pilot needs the tank to reach a counter that sells the rest, and
- * refusing wholesale is what wedged one at a station with no repair quote. Every other mood
- * keeps the all-or-nothing refusal. `creditReserve` is the operator's bound and is never
- * widened; when it is what refuses, the refusal names it.
+ * A docked counter bills on credits and reports the charge afterwards, so a posted price is an
+ * estimate and never a precondition: `fuel_price_all_in` and `repair_price_per_hull` are
+ * owner-set on player stations ("Owner-set per-hull-point repair price (player station)",
+ * `@spacemolt/lib` types.gen.d.ts), so an ordinary NPC counter posts nothing for the hull and
+ * repairs to full anyway (proved live 2026-09-24: 59 → 80 hull for 105 credits at
+ * sirius_observatory_station, whose `get_base` carries no `repair_price_per_hull`). Requiring
+ * that field is what wedged a pilot in Tired for six hours.
+ *
+ * `creditReserve` is the operator's bound and is never widened. It cannot be quoted exactly
+ * before an unpriced service, so it is enforced twice: the posted estimate must leave it intact
+ * beforehand, and the canonical charge is measured against it after each call — a breach stops
+ * anything further being bought and names the reserve.
  */
 export async function serviceShip(account:ReadinessAccount,command:ReadinessCommand,options:ServiceOptions):Promise<ServiceOutcome> {
   const margin=resolveServiceSpend(options.mood),reserve=options.creditReserve??0;
@@ -88,31 +92,27 @@ export async function serviceShip(account:ReadinessAccount,command:ReadinessComm
   const base=details(await command('spacemolt/get_base',{}));
   await account.refresh();
   verify();
-  let owed=due();
+  const owed=due();
   if(!owed.fuel&&!owed.hull)return satisfied([],0);
   const unitFuel=base.fuel_price_all_in,perHull=base.base?.repair_price_per_hull;
-  const blockers:string[]=[],unquoted:string[]=[];
-  // The pinned get_base contract posts no default ship-repair price. Never guess one.
-  const unpriced=(what:string,owedUnits:number,priced:boolean)=>{
-    if(!owedUnits||priced)return true;
-    (options.mood==='Tired'?unquoted:blockers).push(`no all-in ${what} quote at this station`);
-    return false;
-  };
-  const fuelPriced=unpriced('fuel',owed.fuel,finite(unitFuel));
-  const hullPriced=unpriced('repair',owed.hull,finite(perHull)&&perHull>0);
+  // `estimate` is what a posted price says this will cost, and undefined where nothing is
+  // posted. It bounds the spend before the call; the charge bounds it after.
   const services=[
-    {action:'spacemolt/refuel',need:fuelPriced?owed.fuel:0,quote:owed.fuel*(unitFuel as number),
+    {action:'spacemolt/refuel',need:owed.fuel,estimate:finite(unitFuel)?owed.fuel*unitFuel:undefined,
       reached:()=>ship().fuel>=ship().max_fuel},
-    {action:'spacemolt/repair',need:hullPriced?owed.hull:0,quote:owed.hull*(perHull as number),
+    {action:'spacemolt/repair',need:owed.hull,estimate:finite(perHull)&&perHull>0?owed.hull*perHull:undefined,
       reached:()=>ship().hull>=ship().max_hull},
   ].filter(service=>service.need>0);
-  if(!blockers.length&&services.length) {
-    const quoted=services.reduce((sum,service)=>sum+service.quote,0),credits=account.state.player!.credits;
-    if(quoted>margin)blockers.push(`quoted ${quoted} credits exceeds the ${options.mood} service spend margin ${margin}`);
-    if(credits-quoted<reserve)blockers.push(`credits ${credits} less reserve ${reserve} cannot cover the quoted ${quoted} credits`);
-  }
-  // Nothing left to attempt is a refusal whatever the mood: no widening buys a fill here.
-  if(blockers.length||!services.length)throw new ServiceBlocked([...blockers,...unquoted,...gaps()]);
+  const blockers:string[]=[];
+  const estimated=services.reduce((sum,service)=>sum+(service.estimate??0),0);
+  const opening=account.state.player!.credits;
+  if(estimated>margin)blockers.push(`quoted ${estimated} credits exceeds the ${options.mood} service spend margin ${margin}`);
+  // An unpriced service needs room above the reserve to spend at all; a priced one may fit exactly.
+  const spendable=opening-estimated-reserve;
+  if(spendable<0||(!estimated&&!spendable))blockers.push(estimated
+    ?`credits ${opening} less reserve ${reserve} cannot cover the quoted ${estimated} credits`
+    :`credits ${opening} leave nothing above the reserve ${reserve}, and this counter posts no price to quote against`);
+  if(blockers.length)throw new ServiceBlocked([...blockers,...gaps()]);
 
   const issued:string[]=[];
   let spent=0;
@@ -122,19 +122,24 @@ export async function serviceShip(account:ReadinessAccount,command:ReadinessComm
     issued.push(service.action);
     await account.refresh();
     verify();
-    // Station services have no atomic server-side price cap: the quote is a preflight
-    // estimate and the canonical charge is checked before anything else is bought.
+    // Station services have no atomic server-side price cap and an unposted one cannot be
+    // quoted at all: the canonical charge is the only bound, checked before anything else is
+    // bought. `quantity` is no help — on `repair` it counts repair kits, and a docked repair
+    // service spends credits to full regardless (lib: SpacemoltRepairData.quantity).
     const cost=reply.cost;
     if(!finite(cost))throw new ServiceBlocked([`unpriced accepted ${service.action}: an authoritative cost is required before further spending`,...gaps()]);
-    if(cost>service.quote)throw new ServiceBlocked([`${service.action} charged ${cost} against a ${service.quote} credit quote`,...gaps()]);
     spent+=cost;
+    if(service.estimate!==undefined&&cost>service.estimate)
+      throw new ServiceBlocked([`${service.action} charged ${cost} against a ${service.estimate} credit quote`,...gaps()]);
+    if(account.state.player!.credits<reserve)
+      throw new ServiceBlocked([`${service.action} charged ${cost}, leaving credits ${account.state.player!.credits} under the reserve ${reserve}`,...gaps()]);
+    if(spent>margin)
+      throw new ServiceBlocked([`${service.action} charged ${cost}: ${spent} credits spent exceeds the ${options.mood} service spend margin ${margin}`,...gaps()]);
     if(!service.reached())throw new ServiceBlocked([`${service.action} did not reach the serviced-dock target`,...gaps()]);
   }
   await account.refresh();
   verify();
   const remaining=gaps();
-  // Under Tired the gap this counter posted no price for is the expected remainder, not a
-  // failure to hold the target: it is reported, and the pilot flies on with what it did buy.
-  if(remaining.length&&!unquoted.length)throw new ServiceBlocked(['servicing did not hold the serviced-dock targets',...remaining]);
-  return {...satisfied(issued,spent),...unquoted.length?{short:[...unquoted,...remaining]}:{}};
+  if(remaining.length)throw new ServiceBlocked(['servicing did not hold the serviced-dock targets',...remaining]);
+  return satisfied(issued,spent);
 }

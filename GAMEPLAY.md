@@ -120,16 +120,23 @@ what follows is the record.
   `crafting` appearing there is what the menu turns into the Storage and Workshop counters.
 - Fuel is quoted three ways: `fuel_price` (2), `fuel_tax_per_unit` (1) and `fuel_price_all_in`
   (3, the one to spend against).
-- **No repair price is quoted anywhere in the reply.** `structuredContent.base` is the
-  station's own hull/shield/armour/fuel stock — `{armor, description, empire, facilities,
+- **No repair price is quoted anywhere in the reply, and none is needed.** `structuredContent.base`
+  is the station's own hull/shield/armour/fuel stock — `{armor, description, empire, facilities,
   fuel, hull, id, max_fuel, max_hull, max_shield, name, poi_id, public_access, shield,
-  weapon_dps, weapon_reach}` — and carries no per-hull cost under any name. Production reads
-  `base.base.repair_price_per_hull` (`src/bridge.ts`, `src/servicing.ts`); live it is always
-  `undefined`, so the hull half of a service quote has never been exercised against the real
-  game. Every observed service quote happened to be at full hull, which hides it.
-- `spacemolt/repair` was never sent in either journal. Its reply shape and its cost behaviour
-  (whether the price climbs with damage) remain unobserved — a claim of "climbing cost" has no
-  recorded evidence behind it.
+  weapon_dps, weapon_reach}` — and carries no per-hull cost under any name.
+  `base.base.repair_price_per_hull` is **owner-set on a player station** ("Owner-set per-hull-point
+  repair price (player station); 0 = default", `@spacemolt/lib` types.gen.d.ts on `TrimmedBase`),
+  so an NPC counter posts nothing and bills the default. `src/servicing.ts` treats it as a
+  pre-flight estimate only; requiring it is what wedged a pilot in Tired for six hours
+  (2026-09-24).
+- `spacemolt/repair` sent live, 2026-09-24, docked at `sirius_observatory_station` (no
+  `repair_price_per_hull` in its `get_base` body): `repair({})` →
+  `{"action":"repair","source":"station","repaired":21,"cost":105,"hull":80,"max_hull":80}` —
+  hull 59 → 80 for 105 credits, and engineering +8 xp. It repairs to full on credits and reports
+  the charge afterwards; the cost is not knowable beforehand. `quantity` is **not** a credit lever:
+  it counts repair kits (`SpacemoltRepairData.quantity`: "Number of repair kits to use (default 1)
+  ... Without a target, a docked repair service uses credits"). Whether the rate climbs with
+  damage is still unobserved; the one sample is 5 cr/hull.
 
 ## `refuel` and `mine`: the reply shapes
 

@@ -1,5 +1,9 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import {mkdtempSync} from 'node:fs';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
+import {journalRun} from '../run-record.ts';
 import type {ReadinessAccount} from '../readiness.ts';
 import {bridgeWorld} from '../test-support/bridge-world.ts';
 import {bind,unbind,type Pilot} from './runtime.ts';
@@ -37,44 +41,69 @@ test('the spend margin is the mood the crossing imposed, not the one service ope
   } finally {unbind();}
 });
 
-// The live juncture: Tired at frontier_station, which posts no all-in repair quote. Refusing
-// the whole service left the pilot three fuel units short of being able to fly anywhere, at the
-// one station that would have sold it the fuel. Tired takes what the counter does sell and names
-// where the rest is, because forcing the supply is what the mood is for.
-test('Tired buys what the counter sells and names the other base for the rest',async()=>{
-  const game=bridgeWorld({services:['refuel'],cargoUsed:0,
-    pois:[{id:'yard',name:'Sol Yard',base_id:'yard_base',base_name:'Sol Yard Base'}]});
-  game.account.server.ship.fuel=117;
+// The live juncture (2026-09-24): six hours wedged in Tired at a station whose `get_base` body
+// carries no `repair_price_per_hull` — the field is owner-set on player stations, so an ordinary
+// counter never posts it. Driven by hand, `repair({})` there took hull 59 → 80 for 105 credits.
+// A missing price is an unknown bill, not a closed counter: the fill is issued and the hull comes
+// up, whatever the mood.
+for(const mood of ['Tired','Cautious'] as const)
+  test(`${mood} repairs at a counter that posts no repair price`,async()=>{
+    const game=bridgeWorld({services:['refuel'],cargoUsed:0});
+    game.account.server.ship.fuel=117;
+    game.account.server.ship.hull=52;
+    let who:Pilot={mood};
+    bind({account:game.account as unknown as ReadinessAccount,command:game.command,
+      pilot:()=>who,setPilot:next=>{who=next;},emit:()=>{}});
+    try {
+      const out=await service();
+      assert.equal(out.status,'done',out.why);
+      assert.equal(game.account.server.ship.fuel,120);
+      assert.equal(game.account.server.ship.hull,100,'the unpriced repair is issued and the server bills it');
+      assert.deepEqual(out.detail.issued,['spacemolt/refuel','spacemolt/repair']);
+      assert.equal(out.detail.spent,51,'3 fuel at the posted 1 cr plus the 48 the repair charged');
+      assert.deepEqual(out.detail.short,[],'a full fill leaves nothing short');
+      assert.deepEqual(out.next??[],[],'a full fill advises no other station');
+    } finally {unbind();}
+  });
+
+// The cost of an unpriced service is knowable only from the charge, so the reserve is enforced on
+// it: what was bought stands, nothing further is, and the refusal names the reserve.
+test('an unpriced repair that eats into the operator reserve is refused by name',async()=>{
+  const game=bridgeWorld({services:['refuel'],cargoUsed:0});
+  game.account.server.ship.fuel=game.account.server.ship.max_fuel;
   game.account.server.ship.hull=52;
-  let who:Pilot={mood:'Tired'};
+  game.account.server.player.credits=100;
+  let who:Pilot={mood:'Tired',permissions:{credit_reserve:90}};
   bind({account:game.account as unknown as ReadinessAccount,command:game.command,
     pilot:()=>who,setPilot:next=>{who=next;},emit:()=>{}});
   try {
     const out=await service();
-    assert.equal(out.status,'done',out.why);
-    assert.equal(game.account.server.ship.fuel,120,'the tank is filled from the one counter that quotes');
-    assert.equal(game.account.server.ship.hull,52,'the hull is not bought at a station that posts no price');
-    assert.match(out.detail.short.join('\n'),/no all-in repair quote at this station/);
-    assert.equal(out.detail.cleared_tired,false,'the hull is still down, so the mood stands');
-    const next=(out.next??[]).join('\n');
-    assert.match(next,/goTo\('yard_base'\)/,next);
-    assert.match(next,/7 fuel/,next);
-    assert.match(next,/unknown until docked/,next);
+    assert.equal(out.status,'refused',out.did);
+    assert.match(out.why!,/spacemolt\/repair charged 48, leaving credits 52 under the reserve 90/);
   } finally {unbind();}
 });
 
-test('with no other base to name, the partial fill says so and claims no station',async()=>{
+// Nothing above the reserve and no price to quote against: the call is never sent, and the refusal
+// still names somewhere to go — a base the journal remembers, when this system lists no other.
+test('an unpriced counter is not tried at all with nothing above the reserve',async()=>{
   const game=bridgeWorld({services:['refuel'],cargoUsed:0});
+  game.account.server.ship.fuel=game.account.server.ship.max_fuel;
   game.account.server.ship.hull=52;
-  let who:Pilot={mood:'Tired'};
+  game.account.server.player.credits=90;
+  const runtime=mkdtempSync(join(tmpdir(),'spacemolt-service-'));
+  journalRun(runtime,{response:{result:{docked_at:{base_id:'range_base'}}}},'request');
+  let who:Pilot={mood:'Tired',permissions:{credit_reserve:90}};
   bind({account:game.account as unknown as ReadinessAccount,command:game.command,
-    pilot:()=>who,setPilot:next=>{who=next;},emit:()=>{}});
+    pilot:()=>who,setPilot:next=>{who=next;},emit:()=>{},runtime});
   try {
     const out=await service();
-    assert.equal(out.status,'done',out.why);
+    assert.equal(out.status,'refused',out.did);
+    assert.match(out.why!,/credits 90 leave nothing above the reserve 90/);
     const next=(out.next??[]).join('\n');
-    assert.doesNotMatch(next,/goTo\('/,next);
-    assert.match(next,/no other base in sol/,next);
+    assert.match(next,/goTo\('range_base'\)/,next);
+    assert.match(next,/unknown until docked/,next);
+    assert.equal(game.account.server.ship.hull,52,'nothing was bought');
+    assert.equal(game.account.server.player.credits,90);
   } finally {unbind();}
 });
 

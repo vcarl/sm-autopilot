@@ -7,12 +7,13 @@ import {acct,command,job,pilot,runtimeDir} from './runtime.ts';
 import type {Outcome} from './types.ts';
 
 export interface Serviced {
-  /** The counter's quote the spend was checked against (`fuel_price_all_in`). */
+  /** The counter as it was read before the spend. A posted `fuel_price_all_in` or
+   * `repair_price_per_hull` is an estimate; an absent one is not a refusal. */
   base:GetBaseResponse;
   /** The commands sent (`spacemolt/refuel`, `spacemolt/repair`) and what they cost together. */
   issued:string[];
   spent:number;
-  /** What could not be done here and why (no repair quote, over margin, under reserve). */
+  /** What this call was asked for and did not do (`insure`, `dues`, partial targets). */
   short:string[];
   /** True when this call cleared a Tired mood. */
   cleared_tired:boolean;
@@ -96,11 +97,13 @@ const asNext=(rows:Elsewhere[],system:string):string[]=>rows.length
  * and `permissions.credit_reserve` enforced, the charge checked against the quote, and the
  * post-state read to confirm the fill. A full ship sends nothing. Not docked: `refused`.
  *
+ * A counter bills on credits and reports the charge afterwards, so a station that posts no
+ * price still refuels and repairs: the posted price is only a pre-flight estimate, and the
+ * reserve is held against the charge itself.
+ *
  * Tired: resupplying back inside the margins is what clears it; the runtime restores the
- * mood Tired replaced and `cleared_tired` says so. Tired also widens the fill — a counter that
- * posts no price for one of fuel or hull sells the other anyway, and what it could not do lands
- * in `short` with the bases that might, rather than refusing the lot. `insure` and `dues` are
- * accepted and reported in `short` until a later slice implements them. */
+ * mood Tired replaced and `cleared_tired` says so. `insure` and `dues` are accepted and
+ * reported in `short` until a later slice implements them. */
 export function service(opts:{fuel?:number;hull?:number;insure?:boolean;dues?:boolean|'all'}={}):Promise<Outcome<Serviced>> {
   return job<Serviced>('service',Object.keys(opts).join(' '),async()=>{
     const who=pilot();
@@ -121,13 +124,11 @@ export function service(opts:{fuel?:number;hull?:number;insure?:boolean;dues?:bo
       const mood=pilot().mood??'Cautious';
       const done=await serviceShip(acct(),command,{mood,creditReserve:who.permissions?.credit_reserve??0});
       const cleared=mood==='Tired'&&pilot().mood!=='Tired';
-      const left=done.short??[];
       const did=done.issued.length
-        ?`serviced at ${docked}: ${done.issued.map(action=>action.split('/')[1]).join(' and ')} for ${done.spent} cr; fuel ${done.fuel}, hull ${done.hull}${left.length?`; ${docked} could not: ${left.join('; ')}`:''}`
+        ?`serviced at ${docked}: ${done.issued.map(action=>action.split('/')[1]).join(' and ')} for ${done.spent} cr; fuel ${done.fuel}, hull ${done.hull}`
         :`already serviced at ${docked}: fuel ${done.fuel}, hull ${done.hull}`;
-      return {status:'done',did,detail:{base,issued:done.issued,spent:done.spent,short:[...short,...left],cleared_tired:cleared},
-        next:cleared?['Tired cleared: the mood before it is back']
-          :left.length?asNext(await serviceElsewhere(docked),acct().state.location?.system_id??'this system'):[]};
+      return {status:'done',did,detail:{base,issued:done.issued,spent:done.spent,short,cleared_tired:cleared},
+        next:cleared?['Tired cleared: the mood before it is back']:[]};
     } catch(error) {
       if(error instanceof ServiceBlocked)
         return {status:'refused',did:`not serviced at ${docked}`,why:error.blockers.join('; '),

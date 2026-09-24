@@ -114,9 +114,12 @@ export async function factsNow(account:ReadinessAccount,send:ReadinessCommand,wh
   if(docked) {
     const base=details(await send('spacemolt/get_base',{}));
     const fuel=base.fuel_price_all_in,hull=base.base?.repair_price_per_hull;
+    // A posted price is an estimate, never the counter's existence: `repair_price_per_hull` is
+    // owner-set on player stations, so an ordinary station posts none and repairs anyway. What
+    // the counter runs is `services`.
     service_prices={...Number.isFinite(fuel)?{fuel}:{},...Number.isFinite(hull)?{hull}:{}};
-    if(service_prices.fuel!==undefined||service_prices.hull!==undefined)counters.push('Services');
     const services=(Array.isArray(base.services)?base.services:[]).map(String);
+    if(services.includes('refuel')||services.includes('repair'))counters.push('Services');
     if(services.includes('storage'))counters.push('Storage');
     // The bench J7 needs is the same fact as the counter that reaches it, read once.
     workshop=services.includes('crafting');
@@ -212,26 +215,14 @@ export async function menu(runtime?:string):Promise<Menu> {
   const serviced=verdicts.find(v=>v.job==='J12 Home, serviced');
 
   if(who.mood==='Tired') {
-    const why=`Tired (${now.tired_by||'margin crossed'})`,prices=facts.place.service_prices??{};
-    // What is missing here, split by whether this counter posts a price for it. Under Tired
-    // `service()` buys the priced half and reports the rest, so it is offered whenever anything
-    // is priced — the tank that gets the ship to a counter that sells the rest is bought here.
-    const missing=!docked||!ship?[]:[...ship.fuel<ship.max_fuel?['fuel' as const]:[],
-      ...ship.hull<ship.max_hull?['hull' as const]:[]];
-    const uncovered=missing.filter(what=>prices[what]===undefined);
-    const covered=missing.filter(what=>prices[what]!==undefined);
-    if(docked&&!uncovered.length)moves.push({call:'service()',why:`${why}: resupply here clears it`,advances:'ship'});
-    else if(docked&&covered.length)moves.push({call:'service()',
-      why:`${why}: ${docked} sells ${covered.join(' and ')} but posts no price for ${uncovered.join(' or ')}; buy what it has, then service the rest elsewhere`,advances:'ship'});
-    // Every base this runtime can name, whenever this counter cannot finish the job: the same rows
-    // a refused `service()` advises, so the menu and the refusal say one thing. A trip whose
-    // counter is unreadable until docked is still a move the pilot may take, and offering it is
-    // what the deleted permissions settled — code refuses on hard rules, judgement is the
-    // pilot's. The live deadlock was a menu of one `service()` that refused every time.
-    if(!docked||uncovered.length)for(const row of await serviceElsewhere(docked??undefined))
-      moves.push({...row,why:`${why}: ${docked?`${docked} posts no price for ${uncovered.join(' or ')}; `:''}${row.why}`,advances:'ship'});
-    if(docked&&!moves.length)moves.push({call:'service()',
-      why:`${why}: resupply here clears it, if ${docked} will quote ${uncovered.join(' or ')} — no other base is listed in this system and none is in the journal`,advances:'ship'});
+    const why=`Tired (${now.tired_by||'margin crossed'})`;
+    // A docked counter refuels and repairs on credits whether or not it posts a price, so the
+    // resupply is the move wherever the ship is standing — no splitting the fill by what is
+    // quoted. Undocked, every base this runtime can name is offered instead: the same rows a
+    // refused `service()` advises, so the menu and the refusal say one thing, and a counter
+    // unreadable until docked is still a move the pilot may take.
+    if(docked)moves.push({call:'service()',why:`${why}: resupply here clears it`,advances:'ship'});
+    else for(const row of await serviceElsewhere())moves.push({...row,why:`${why}: ${row.why}`,advances:'ship'});
     return {...stagnation?{stagnation}:{},moves,not_now};
   }
 

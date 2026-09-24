@@ -71,33 +71,19 @@ test('an unfitted module in the hold with no free slot is under not_now with the
 });
 
 test('Tired offers only service here, or the nearest serviced base when out',async()=>{
-  const f=world({mood:'Tired',stance:'Prospector'});
+  // This counter posts a fuel price and no repair price, which is what an ordinary station does:
+  // `repair_price_per_hull` is owner-set on player stations. It repairs on credits and bills
+  // afterwards, so the resupply is the move wherever the ship stands, and the menu does not split
+  // the fill by what is quoted. The live deadlock (2026-09-24) was a menu whose only offer was a
+  // `service()` that refused every time for want of that field.
+  const f=world({mood:'Tired',stance:'Prospector'},{services:['refuel','storage']});
   try {
+    f.account.server.ship.hull=52;
     const docked=await menu(f.runtime);
     assert.deepEqual(docked.moves.map(m=>m.call),['service()']);
     f.account.server.location.docked_at=null;f.account.server.location.poi_id='belt';
     const out=await menu(f.runtime);
     assert.deepEqual(out.moves.map(m=>m.call),["goTo('sol_base')"]);
-  } finally {f.close();}
-});
-
-test('Tired where the counter posts no repair price is offered the fuel it does sell, then the next base',async()=>{
-  // The live trap: the hull needs a repair this counter cannot quote, and the tank needs the fuel
-  // it can. Tired buys the priced half, so both moves are offered — the fuel first, because it is
-  // what gets the ship to a counter that sells the rest.
-  const f=world({mood:'Tired',stance:'Prospector'},{services:['refuel','storage'],
-    pois:[{id:'yard',name:'Sol Yard',base_id:'yard_base',base_name:'Sol Yard Base'}]});
-  try {
-    f.account.server.ship.hull=52;
-    const built=await menu(f.runtime);
-    assert.deepEqual(built.moves.map(m=>m.call),['service()',"goTo('yard_base')"],JSON.stringify(built.moves));
-    assert.match(built.moves[0]!.why,/sells fuel but posts no price for hull/);
-    assert.match(built.moves[1]!.why,/posts no price for/);
-
-    // Nothing this counter sells is missing: `service()` would refuse the lot, so only the trip.
-    f.account.server.ship.fuel=f.account.server.ship.max_fuel;
-    const hullOnly=await menu(f.runtime);
-    assert.deepEqual(hullOnly.moves.map(m=>m.call),["goTo('yard_base')"],JSON.stringify(hullOnly.moves));
   } finally {f.close();}
 });
 
@@ -227,41 +213,22 @@ test('the shipping board is J4, and the platform and the berths are J5',async()=
   } finally {f.close();}
 });
 
-test('Tired at the only base in the system, posting no repair price, is still offered a flight',async()=>{
-  // The live deadlock (2026-09-24): docked where no counter quotes the repair, no second base in
-  // this system, and the menu was one `service()` that refuses every time. A base the journal has
-  // docked at is a real move — unverifiable until docked, which the line says, and still a move.
-  const f=world({mood:'Tired',stance:'Prospector'},{services:['refuel','storage']});
-  try {
-    journalRun(f.runtime,{response:{result:{docked_at:{base_id:'range_base'}}}},'request');
-    f.account.server.ship.hull=52;
-    const both=await menu(f.runtime);
-    assert.deepEqual(both.moves.map(m=>m.call),['service()',"goTo('range_base')"],JSON.stringify(both.moves));
-
-    // Nothing this counter sells is missing, so `service()` here is structurally refusable and is
-    // not offered at all. The menu must still name something that is not a dead end.
-    f.account.server.ship.fuel=f.account.server.ship.max_fuel;
-    const hullOnly=await menu(f.runtime);
-    assert.deepEqual(hullOnly.moves.map(m=>m.call),["goTo('range_base')"],JSON.stringify(hullOnly.moves));
-    assert.match(hullOnly.moves[0]!.why,/docked at before/);
-    assert.match(hullOnly.moves[0]!.why,/unknown until docked/,'reach it does not have is not claimed');
-  } finally {f.close();}
-});
-
 test('a base in this system that posts a repair price is named with the price, not with hope',async()=>{
   // `inspect({id})` answers with the docked-base body for a base in THIS system, so a counter the
   // ship is not standing at can be quoted from here — but only that far. Where it answers, the move
   // carries the evidence; where it does not, the move is still offered and says plainly that
-  // nothing is readable.
+  // nothing is readable. Undocked is where these rows are offered: standing at a counter, the
+  // resupply there is the move.
   const f=world({mood:'Tired',stance:'Prospector'},{services:['refuel','storage'],
     pois:[{id:'yard',name:'Sol Yard',base_id:'yard_base',base_name:'Sol Yard Base',repair_price:4},
       {id:'dark',name:'Sol Dark',base_id:'dark_base',base_name:'Sol Dark Base'}]});
   try {
     f.account.server.ship.hull=52;
     f.account.server.ship.fuel=f.account.server.ship.max_fuel;
+    f.account.server.location.docked_at=null;f.account.server.location.poi_id='belt';
     const built=await menu(f.runtime);
-    assert.deepEqual(built.moves.map(m=>m.call),["goTo('yard_base')","goTo('dark_base')"],JSON.stringify(built.moves));
-    assert.match(built.moves[0]!.why,/posts repair 4 cr\/hull/);
-    assert.match(built.moves[1]!.why,/no price readable from here/);
+    assert.deepEqual(built.moves.map(m=>m.call),["goTo('sol_base')","goTo('yard_base')","goTo('dark_base')"],JSON.stringify(built.moves));
+    assert.match(built.moves[1]!.why,/posts repair 4 cr\/hull/);
+    assert.match(built.moves[2]!.why,/no price readable from here/);
   } finally {f.close();}
 });

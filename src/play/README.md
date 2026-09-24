@@ -102,7 +102,7 @@ sees the real types, so these are not style notes.
 | `orient()` | the whole world model in one read: present, skills, storage everywhere, ships, missions, debts |
 | `scout(target?)` | POIs of a system (this one by default) with types, stations, resources here, creatures here |
 | `goTo(id)` | fly to a POI, base or system, jumping as needed; dock if a base. Any of the three ids works, or a display name: a system id ends the trip anywhere in that system, a POI id at that POI, a base id docked at it — a guess that names a system with a single base goes to that base, and any other word that names nothing is `refused` with the nearest ids instead of being flown. On the way it flies through and completes any active distress mission whose system is on the route or one jump off it, when the detour stays inside a quarter of the route's length and the tank still covers the rest plus the reserve |
-| `service()` | full tank and hull, inside the mood's spend margin |
+| `service()` | full tank and hull at the counter you are docked at, inside the mood's spend margin. A station bills for fuel and repairs after the fact, so it needs no posted price: where it posts one, that is the estimate the spend is checked against first; where it posts none — which is most stations for the hull — the charge itself is checked against `permissions.credit_reserve` and the margin, and nothing further is bought if it breaches either |
 | `stow(rows)` / `withdraw(rows)` / `storage(base?)` | station storage; rows you name (omit a row's `quantity` for all of it); readable from anywhere |
 | `prices(items?)` / `sell(rows, opts?)` / `buy(item, qty)` | the market here, live at the moment of the act, and remembered for `spreads()`. `sell`'s options are exactly two: `{from: 'hold' \| 'store'}` (default `'hold'`; `'store'` empties the store a hold-load at a time) and `{floor: {[item_id]: number}}` (skip a row whose `best_buy` is under it). There is no option naming a market — `sell` is always the counter you are docked at |
 | `refit({install,remove})` / `shipsForSale(opts?)` / `buyShip(id, opts?)` | the hangar: modules on and off within the grid, the hulls for sale here, the next one |
@@ -147,15 +147,14 @@ You choose a mood at rest. It sets margins: fuel kept beyond a route, credits a 
 may spend, the hull fraction a fight breaks off at. When fuel, hull or credits fall through the
 margin, the runtime imposes **Tired**: the function you are in finishes and nothing new starts,
 until the ship is brought back up. Tired then **widens** what a resupply may do rather than
-narrowing where you may go — it lifts the mood's own spend margin, drops its fuel reserve to 0,
-and lets `service()` buy the half a counter posts a price for instead of refusing the lot. It
-never refuses a flight: `goTo` any base you like, which is the only way to reach a counter that
-sells what the one you are at does not. Which base: the suggested moves already carry every price
-that is readable from here, so take them rather than re-reading. `inspect` reaches **this system
-only** — `account().commands.spacemolt.inspect({id})` on a base in another system throws "You can
+narrowing where you may go — it lifts the mood's own spend margin and drops its fuel reserve to 0.
+It never refuses a flight: `goTo` any base you like. Docked anywhere, `service()` is the move:
+a counter does not need to post a price to refuel or repair. Which base, when you are out: the
+suggested moves already carry every price that is readable from here, so take them rather than
+re-reading. `inspect` reaches **this system only** — `account().commands.spacemolt.inspect({id})` on a base in another system throws "You can
 only inspect a point of interest in your current system", and an uncaught throw from a raw command
 breaks the whole run. For a base outside this system the price is unknown until you dock there,
-which is a trip worth taking anyway over a counter you know will refuse. Resupplying back inside the margins — `service()` here,
+which is no reason to stay put. Resupplying back inside the margins — `service()` here,
 or at any base — clears Tired and restores the mood it replaced. You never set or clear Tired
 yourself. Rest clears everything. `permissions.credit_reserve` is the operator's and Tired does
 not widen it; a fill it refuses says so by name.

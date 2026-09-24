@@ -76,9 +76,10 @@ test('rest refuses undocked, on a ship this base could service, and while a scri
   assert.match(refusedShort.reason,/refuel and repair first/);
   assert.equal(short.record(),undefined);
 
-  // The same short ship at a base that posts no quote rests anyway, and says it is short:
-  // an unserviceable base is not a reason to keep an evening open forever.
-  const unserviceable=fixture({ship:{fuel:60},fuelPrice:null});
+  // The same short ship with a wallet that cannot pay the counter rests anyway, and says it is
+  // short: a service that cannot happen is not a reason to keep an evening open forever.
+  // (A counter posting no price is no longer such a case — it bills after the fact.)
+  const unserviceable=fixture({ship:{fuel:60},credits:0});
   const rested=await unserviceable.dispatch('rest') as any;
   assert.equal(rested.rested,true);
   assert.equal(rested.serviced,false,'reflection is told the ship is short');

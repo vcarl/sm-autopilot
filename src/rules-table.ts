@@ -85,21 +85,23 @@ function trip(facts:Facts,site:Site,tag:Tag):Verdict {
   return yes(tag,job,`${quote} and have ${fuel}${site.resource?`; ${site.poi_id} lists ${site.resource}`:''}; a script flies it with travel(ctx,'${site.poi_id}')`);
 }
 
-/** The same quote and margin serviceShip enforces at the counter. */
+/** The same estimate and margin serviceShip enforces at the counter. A posted price is
+ * owner-set on a player station, so most counters post none and bill after the fact: an
+ * unpriced service is an unknown bill, never a refusal. */
 function service(facts:Facts):Verdict {
   const job='J12 Home, serviced',margin=resolveServiceSpend(facts.mood),{place,holdings}=facts;
   if(place.kind!=='base')return no('resupply',job,'dock at a base with a service counter to refuel and repair');
   if(serviced(facts))return no('resupply',job,'fuel and hull are already at the serviced-dock targets');
   const owedFuel=holdings.max_fuel-holdings.fuel,owedHull=holdings.max_hull-holdings.hull;
   const {fuel,hull}=place.service_prices??{};
-  if((owedFuel>0&&!(typeof fuel==='number'))||(owedHull>0&&!(typeof hull==='number')))
-    return no('resupply',job,'this base posts no all-in fuel or repair quote; a station that does admits it');
   const quoted=owedFuel*(fuel??0)+owedHull*(hull??0),reserve=facts.permissions.credit_reserve??0;
   if(quoted>margin)return no('resupply',job,
     `quoted ${quoted} credits exceeds the ${facts.mood} service spend margin ${margin}; a calmer bill or a bolder mood admits it`);
-  if(holdings.credits-quoted<reserve)return no('resupply',job,
-    `credits ${holdings.credits} less reserve ${reserve} cannot cover the quoted ${quoted} credits`);
-  return yes('resupply',job,`full tank and hull quoted at ${quoted} credits, inside the ${facts.mood} margin ${margin}`);
+  if(holdings.credits-quoted<reserve||(!quoted&&holdings.credits<=reserve))return no('resupply',job,
+    `credits ${holdings.credits} less reserve ${reserve} cannot cover the ${quoted?`quoted ${quoted} credits`:'unpriced counter'}`);
+  return yes('resupply',job,quoted
+    ?`full tank and hull quoted at ${quoted} credits, inside the ${facts.mood} margin ${margin}`
+    :`full tank and hull; this counter posts no price, so service() bills it and holds the reserve ${reserve}`);
 }
 
 const TIRED_OPEN:CounterName[]=['Services','Distress'];
@@ -154,8 +156,8 @@ const RULES:Rule[]=[
   {id:'shared.travel',apply:facts=>sites(facts).filter(site=>!site.serviced_base).map(site=>trip(facts,site,'shared'))},
   // Rest ends the shift, and only docked (N6): an evening is not put down in open space or at
   // a POI with no counter. Servicing is wanted only as far as this base can give it: where the
-  // counter quotes and the wallet covers, resting on a ship that cannot leave is a shift ended
-  // badly; where it cannot, rest still happens and reflection is told the ship is short. Mood
+  // wallet covers the bill, resting on a ship that cannot leave is a shift ended badly; where it
+  // cannot, rest still happens and reflection is told the ship is short. Mood
   // does not gate it — rest is what clears one.
   {id:'rest.docked',apply:facts=>{
     if(facts.place.kind!=='base')

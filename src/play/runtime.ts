@@ -343,8 +343,8 @@ let tiredBy='';
  * anything, while one docked at a station is Tired over a tank it could fill in one command.
  * The advice half of that idea now exists where it costs nothing per check: `serviceElsewhere`
  * (play/service.ts) prices the route to another base with `find_route` when a service is
- * refused, and the menu offers that move to a Tired pilot whose counter posts no price for
- * what is missing. Making the line itself a route still waits on a read the runtime does not
+ * refused, and the menu offers that move to a Tired pilot that is not docked at a counter.
+ * Making the line itself a route still waits on a read the runtime does not
  * have: lib 14.2.0 answers `get_system`/`get_poi`/`get_base` only for where the ship is, so
  * "the nearest serviced station" is unknowable outside this system, and a per-check
  * `find_route` per station would pay for it on every command. */
