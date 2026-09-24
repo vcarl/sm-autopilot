@@ -324,10 +324,13 @@ TOOL_DEFINITIONS = (
                        "juncture reflects.",
                        {}, [])},
     {"name": "spacemolt_reflect", "toolset": "spacemolt", "handler": _reflect,
-     "description": "At rest, open the next shift with a goal, a stance and an initial mood.",
+     "description": "At rest only, open the next shift with a goal, a stance and an initial "
+                    "mood. On shift it is refused without writing: rest first.",
      "schema": _schema("spacemolt_reflect",
                        "Open the next shift. Callable only at rest, and the only place a stance "
-                       "is chosen. The shift begins in a fresh conversation with its own skills, "
+                       "is chosen. While a stance is set the pilot is on shift and this is "
+                       "refused before it reads your arguments — spacemolt_rest at a base is "
+                       "what makes it callable, so do not compose a goal for it mid-shift. The shift begins in a fresh conversation with its own skills, "
                        "so call this once and end the turn. The mood moves inside the shift "
                        "afterwards; this never sets it again.",
                        {"goal": {"type": "string",
