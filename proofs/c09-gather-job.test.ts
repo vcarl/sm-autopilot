@@ -12,6 +12,10 @@ const home={system_id:'sol',poi_id:'station',base_id:'home_base'};
 const site={system_id:'sol',poi_id:'belt'};
 const TANK=120,CAPACITY=14,EMPTY=7,LOADED=21,RESERVE=30,FUEL_PRICE=5,HULL_PRICE=5;
 const prices:Record<string,number>={ore:10,carbon:4};
+// What four mine cycles put in the hold, by item. `result.yield` is sorted by `addYield`;
+// a deposit list and the station store are not, so they are compared through `byItem`.
+const TAKE=[{item_id:'carbon',quantity:4},{item_id:'ore',quantity:8}];
+const byItem=<T extends {item_id:string}>(rows:T[])=>[...rows].sort((a,b)=>a.item_id<b.item_id?-1:1);
 const MUTATIONS=new Set(['spacemolt/undock','spacemolt/dock','spacemolt/travel','spacemolt/mine',
   'spacemolt/sell','spacemolt_storage/deposit','spacemolt/refuel','spacemolt/repair']);
 
@@ -102,7 +106,7 @@ function fixture(opts:{fuel?:number;fuelPrice?:number|null}={}) {
   };
   return {server,account,calls,hooks,add,
     mutations:()=>calls.filter(call=>MUTATIONS.has(call.action)).map(call=>call.action),
-    run:()=>gatherJob(account,command,{home,site,mood:'Cautious',keep:['cabin_economy']})};
+    run:()=>gatherJob(account,command,{home,site,mood:'Cautious'})};
 }
 
 test('C9: one gather job runs dock to dock and the world, not the replies, closes it',async()=>{
@@ -118,11 +122,13 @@ test('C9: one gather job runs dock to dock and the world, not the replies, close
   assert.ok(result.steps.every(step=>step.outcome==='done'),JSON.stringify(result.steps));
 
   // Never 99: the yield and the stowed quantities are cargo deltas, not the reply's claim.
-  assert.deepEqual(result.yield,[{item_id:'carbon',quantity:4},{item_id:'ore',quantity:8}]);
+  assert.deepEqual(result.yield,TAKE);
   // A gather job keeps what it gathered: the take goes to the station store, and the
   // market counter is never reached. Composable and idempotent; selling is neither.
-  assert.deepEqual(result.settled!.deposited,[{item_id:'carbon',quantity:4},{item_id:'ore',quantity:8}]);
-  assert.deepEqual(f.server.storage,[{item_id:'carbon',quantity:4},{item_id:'ore',quantity:8}]);
+  // Deposits go out in hold order, which is the server's business, so the rows are compared
+  // by item and not by the order the fixture's cargo happened to grow in.
+  assert.deepEqual(byItem(result.settled!.deposited),TAKE);
+  assert.deepEqual(byItem(f.server.storage),TAKE);
   assert.deepEqual([result.settled!.sold,result.settled!.unsettled,result.settled!.held],[[],[],[]]);
   assert.equal(result.settled!.credits_after,result.settled!.credits_before,'a gather job never moves the wallet');
   assert.equal(result.serviced!.spent,28*FUEL_PRICE+4*HULL_PRICE);
@@ -146,7 +152,7 @@ test('C9: a blocked step ends the job at that step, and a failure is never calle
     'unpriced-service':{opts:{fuelPrice:null},outcome:'blocked',step:'service',
       reason:/no all-in fuel quote at this station/},
     interrupted:{outcome:'failed',step:'mine',reason:/no longer at sol\/belt/},
-    'stray-cargo':{outcome:'failed',step:'verify',reason:/hold still carries 1 salvage/},
+    'stray-cargo':{outcome:'failed',step:'verify',reason:/hold still carries 1 ore/},
   } as const;
 
   for(const [mode,expected] of Object.entries(scenarios)) {
@@ -159,14 +165,16 @@ test('C9: a blocked step ends the job at that step, and a failure is never calle
       return {command:'mine',delta:{details:{kind:'yield',resource_id:'ore',quantity:99}}};
     };
     if(mode==='unsettled')f.hooks.deposit=()=>({delta:{details:{action:'deposit_items',quantity:99,storage_total:99}}});
-    // A crate drifts into the hold once the counter is clear: only a closing read sees it.
+    // A crate of the site's own ore drifts into the hold once the counter is clear: only the
+    // closing read sees it, and what the site gives is what this job must answer for. Cargo
+    // the site does not give is the pilot's own and never fails a job (`src/gather-job.test.ts`).
     if(mode==='stray-cargo') {
       let dropped=false,worked=false;
       f.hooks.read=()=>{
         worked||=f.server.ship.cargo_used===CAPACITY;
         if(dropped||!worked||f.server.location.docked_at!==home.base_id)return;
         if(f.server.cargo.some(row=>row.item_id!=='cabin_economy'))return;
-        dropped=true;f.add('salvage',1);
+        dropped=true;f.add('ore',1);
       };
     }
 
@@ -211,7 +219,7 @@ test('C9: a blocked step ends the job at that step, and a failure is never calle
     if(mode==='stray-cargo') {
       assert.equal(result.serviced!.satisfied,true,'the service itself completed');
       assert.equal(result.settled!.deposited.length,2,mode);
-      assert.equal(f.server.cargo.find(row=>row.item_id==='salvage')?.quantity,1,mode);
+      assert.equal(f.server.cargo.find(row=>row.item_id==='ore')?.quantity,1,mode);
     }
     if(expected.outcome==='blocked')assert.ok(!/\bfailed\b/.test(result.reason!),mode);
     assert.equal(result.serviced===null,mode!=='stray-cargo',mode);
