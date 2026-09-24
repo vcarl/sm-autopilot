@@ -8,6 +8,12 @@ import {dockAt} from './dock.ts';
 import {position,reconcileMove,type Position,type Reconciliation} from './reconcile.ts';
 
 export class TravelBlocked extends Error {}
+/** A crossing stopped the route. The runtime imposes Tired between any two commands, and a
+ * leg that is not going to a base may not carry on under it: a caller's own `checkMove`
+ * raises this before the next jump or local travel, so the route stops there rather than a
+ * job gate later. The ship is stable and outside transit at every point that check runs, so
+ * the pilot can still be flown to a base from where it stopped. */
+export class TiredStop extends TravelBlocked {}
 export interface FuelRouteEvidence {
   kind:'available_fuel'|'capacity';
   actualFuel:number;

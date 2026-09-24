@@ -4,7 +4,7 @@ import {dockAt} from '../dock.ts';
 import {resolveFuelReserve} from '../mood-policy.ts';
 import {details} from '../response-details.ts';
 import {serviceShip} from '../servicing.ts';
-import {FuelRouteShortfall,TravelBlocked,travelTo} from '../travel.ts';
+import {FuelRouteShortfall,TiredStop,TravelBlocked,travelTo} from '../travel.ts';
 import {active} from './missions.ts';
 import {acct,checkStop,command,job,pilot,step} from './runtime.ts';
 import type {Outcome} from './types.ts';
@@ -260,9 +260,16 @@ export function goTo(id?:string):Promise<Outcome<Trip>> {
       +(stops.length?`, answering ${stops.length} distress call(s) at ${stops.map(s=>s.system).join(', ')}`:''));
     let jumps=0,hops=0;
     const answered:string[]=[];
-    const fly=(destination:{system_id:string;poi_id?:string})=>travelTo(acct(),command,destination,{
+    // `toBase` is the leg that ends where a Tired pilot is serviced. Tired is imposed between
+    // any two commands, so every other leg refuses its next move as soon as the mood moves:
+    // the route stops at the system the ship is sitting in, from where a base is still
+    // admitted, rather than flying on to the end on the mood it departed under.
+    const fly=(destination:{system_id:string;poi_id?:string},toBase=false)=>travelTo(acct(),command,destination,{
       mood,maxJumps:null,
       checkpoint:async()=>checkStop(),
+      ...toBase?{}:{checkMove:()=>{
+        if(pilot().mood==='Tired')throw new TiredStop('Tired: this leg is not going to a base; only a base is admitted from here');
+      }},
       onJump:()=>{hops++;step(`jump ${hops} of ${planned}, fuel ${acct().state.ship?.fuel}`);},
       refuel:async()=>{try {await serviceShip(acct(),command,{mood,creditReserve:who.permissions?.credit_reserve??0});} catch {/* the fuel check after decides */}},
     });
@@ -279,8 +286,17 @@ export function goTo(id?:string):Promise<Outcome<Trip>> {
           step(`distress ${stop.title} at ${stop.system} not claimable: ${(error as Error).message}`);
         }
       }
-      jumps+=(await fly({system_id:quote.target_system,...poi?{poi_id:poi}:{}})).jumps;
+      jumps+=(await fly({system_id:quote.target_system,...poi?{poi_id:poi}:{}},isBase)).jumps;
     } catch(error) {
+      // The mood crossed mid-route. What was flown is flown, and the ship is sitting in a
+      // system rather than in transit, so the next call can be the base this stop is for.
+      // `hops`, not `jumps`: the leg that was interrupted never returned its own count, and a
+      // trip that flew a jump and stopped is partial, not a trip that never left.
+      if(error instanceof TiredStop)
+        return {status:hops?'partial':'refused',
+          did:hops?`stopped at ${acct().state.location?.system_id} short of ${target} after ${hops} jump(s)${answered.length?`; ${answered.join('; ')}`:''}`:`did not fly to ${target}`,
+          why:error.message,detail:{...detail(),jumps:hops},
+          next:['goTo a base and service there; this destination is not one']};
       if(error instanceof FuelRouteShortfall) {
         const {actualFuel,requiredFuel,shortfall}=error.evidence;
         // A detour already flown is work behind the refusal, so the trip is partial and the

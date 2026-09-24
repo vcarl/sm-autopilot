@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import type {ReadinessAccount,ReadinessCommand} from './readiness.ts';
-import {gatherJob} from './gather-job.ts';
+import {gatherJob,type GatherOptions,type GatherPlan} from './gather-job.ts';
 
 // Recording handler-map fixture in the C9 style: the server is independent of the cache
 // and only a refresh exposes it. This station quotes EVERY item it is shown and has a
@@ -81,7 +81,10 @@ function fixture() {
     return handlers[action](params??{});
   };
   return {server,account,calls,
-    run:()=>gatherJob(account,command,{home,site,mood:'Cautious'})};
+    // The plan is the caller's own object, so a test may move its mood mid-job the way the
+    // runtime does, and hand the job the hooks a runner passes it.
+    run:(plan:GatherPlan={home,site,mood:'Cautious'},options?:GatherOptions)=>
+      gatherJob(account,command,plan,options)};
 }
 
 test('a gather job stows what it mined and sells nothing; the starting hold stays aboard',async()=>{
@@ -119,4 +122,24 @@ test('the next run stows the ore an interrupted trip left aboard, by what the si
   assert.deepEqual(result.settled!.deposited,[{item_id:'ore',quantity:4}]);
   assert.deepEqual(f.server.storage,[{item_id:'ore',quantity:4}]);
   assert.deepEqual(f.server.cargo,[{item_id:'cabin_economy',quantity:1},{item_id:'steel_plate',quantity:10}]);
+});
+
+// S2: `imposeTired()` moves the mood between any two commands. The outbound leg is not going
+// to a base, so a Tired mood must stop it where the ship is; the return leg ends at home's own
+// base, which is the one place a Tired pilot may still be flown — stopping must not strand it.
+test('Tired refuses the outbound leg and still flies the safe leg home',async()=>{
+  const tired=fixture();
+  const refused=await tired.run({home,site,mood:'Tired'});
+  assert.equal(refused.outcome,'blocked',String(refused.reason));
+  assert.deepEqual(refused.steps.map(step=>step.name),['travel']);
+  assert.match(refused.reason??'',/only a base is admitted/);
+  // Nothing was sent: the refusal came before the leg's own route quote.
+  assert.deepEqual(tired.calls,[]);
+
+  // The same mood, imposed after the dig instead of before the trip: the leg home is flown.
+  const crossing=fixture();
+  const plan:GatherPlan={home,site,mood:'Cautious'};
+  const result=await crossing.run(plan,{onStep:step=>{if(step.name==='mine')plan.mood='Tired';}});
+  assert.equal(result.outcome,'done',String(result.reason));
+  assert.equal(crossing.server.location.docked_at,home.base_id);
 });

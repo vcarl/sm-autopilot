@@ -8,7 +8,7 @@ import {ServiceBlocked,serviceShip,type ServiceOutcome} from './servicing.ts';
 import type {SettleOutcome} from './settle-cargo.ts';
 import {details} from './response-details.ts';
 import {replyLost} from './command-boundary.ts';
-import {ArrivalUnresolved,TravelBlocked,travelTo,type TravelOptions} from './travel.ts';
+import {ArrivalUnresolved,TiredStop,TravelBlocked,travelTo,type TravelOptions} from './travel.ts';
 import {movedOutcome,position,reconcileMove,type Position,type Reconciliation} from './reconcile.ts';
 
 export interface GatherPlan {
@@ -152,7 +152,16 @@ export async function gatherJob(account:ReadinessAccount,command:ReadinessComman
   const {onStep,mine:mineOptions,...travelOptions}=options;
   // maxJumps null: each leg may cross systems, bounded by the mood's fuel reserve rather
   // than a jump count, as travel is.
-  const legOptions={maxJumps:null as number|null,...travelOptions,mood:plan.mood};
+  //
+  // `toBase` is the return leg, which ends at home's own base: that is the one place a Tired
+  // pilot may still be flown, and the whole point of the stop. Every other leg refuses its
+  // next move once Tired is imposed, so a crossing ends the route where the ship is sitting
+  // rather than one job gate later.
+  const legOptions=(toBase:boolean):TravelOptions=>({maxJumps:null as number|null,...travelOptions,mood:plan.mood,
+    ...toBase?{}:{checkMove:()=>{
+      if(plan.mood==='Tired')throw new TiredStop('Tired: this leg is not going to a base; only a base is admitted from here');
+      travelOptions.checkMove?.();
+    }}});
   // What this site gives, read from the world at the site itself (`V2Location.resources`).
   // That list, not the hold at departure, is what the job may stow.
   const gives=new Set<string>();
@@ -188,7 +197,7 @@ export async function gatherJob(account:ReadinessAccount,command:ReadinessComman
   };
 
   let stop=await attempt('travel',async()=>{
-    await travelTo(account,command,plan.site,legOptions);
+    await travelTo(account,command,plan.site,legOptions(false));
     await account.refresh();
     for(const row of account.state.location?.resources??[])gives.add(String(row.item_id));
   });
@@ -208,7 +217,7 @@ export async function gatherJob(account:ReadinessAccount,command:ReadinessComman
   if(stop)return stop;
 
   stop=await attempt('return',async()=>{
-    await travelTo(account,command,{system_id:plan.home.system_id,poi_id:plan.home.poi_id},legOptions);
+    await travelTo(account,command,{system_id:plan.home.system_id,poi_id:plan.home.poi_id},legOptions(true));
   });
   if(stop)return stop;
 
