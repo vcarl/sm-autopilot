@@ -95,7 +95,7 @@ const namesSpecies=(text:string,species:string)=>text.includes(species.replace(/
  * and sends at most one command: the `fire` stance and the focus at the open, then `advance`
  * while the quarry is out of reach or running. It breaks off when our hull crosses the mood's
  * line or Tired lands mid-fight. */
-async function engage(target:CreatureInfo|PirateInfo,floor:number):Promise<Fight> {
+async function engage(target:CreatureInfo|PirateInfo,floor:()=>number):Promise<Fight> {
   await acct().refresh();
   const hull_before=Number(acct().state.ship?.hull??0);
   const id=idOf(target);
@@ -128,7 +128,7 @@ async function engage(target:CreatureInfo|PirateInfo,floor:number):Promise<Fight
     step(`tick ${now} vs ${nameOf(target)}: hull ${hull}/${ship?.max_hull??'?'}, shield ${mine?.shield_pct??0}%, theirs ${theirHull}% at ${theirs.zone??'?'} ${far}/${reach}`);
     if(ship?.incapacitated){outcome='unresolved';break;}
     const tired=pilot().mood==='Tired';
-    if(hull<floor||tired) {
+    if(hull<floor()||tired) {
       try {await command('spacemolt_battle/retreat',{});} catch {/* the battle ended first */}
       outcome='broke off';
       break;
@@ -189,14 +189,18 @@ export function hunt(opts:{poi?:string;fights?:number;species?:string;target?:'c
     result.poi_id=acct().state.location?.poi_id??result.poi_id;
     const gap=await loadout();
     if(gap)return refuse(gap);
-    const floor=resolveWalkAway(who.mood??'Cautious')*Number(acct().state.ship?.max_hull??0);
+    // The hull line the mood draws, read at each check rather than once at the top: the pilot
+    // record moves under a running loop (the runtime imposes Tired, the operator rewrites the
+    // file), and a fight carrying on under a line the pilot has left is the one thing this
+    // loop exists to prevent.
+    const floor=()=>resolveWalkAway(pilot().mood??'Cautious')*Number(acct().state.ship?.max_hull??0);
     const wantPirates=opts.target==='pirate';
     // No species named: an active mission's own words are the next best thing to ask.
     const quarry=!opts.species&&!wantPirates?await huntText():'';
     for(let n=0;n<asked;n++) {
       checkStop();
       const ship=acct().state.ship as V2Ship|undefined;
-      if(Number(ship?.hull??0)<floor){result.ended='hull';break;}
+      if(Number(ship?.hull??0)<floor()){result.ended='hull';break;}
       if(Number(ship?.cargo_capacity??0)-Number(ship?.cargo_used??0)<=0){result.ended='hold full';break;}
       const nearby=details(await command('spacemolt/get_nearby',{})) as GetNearbyResponse;
       const here:(CreatureInfo|PirateInfo)[]=wantPirates?nearby.pirates??[]:nearby.creatures??[];
@@ -240,7 +244,7 @@ export function hunt(opts:{poi?:string;fights?:number;species?:string;target?:'c
     if(result.ended==='tired')return {status:'partial',did,why:'Tired: broke off after the round in flight',detail:result,
       next:['goTo a base and service(); that clears Tired']};
     if(result.ended==='stopped')return {status:'partial',did,why:'stopped by the pilot',detail:result};
-    if(result.ended==='hull')return {status:'partial',did,why:`hull ${hull} against the ${who.mood} walk-away line ${Math.floor(floor)}`,detail:result,
+    if(result.ended==='hull')return {status:'partial',did,why:`hull ${hull} against the ${pilot().mood} walk-away line ${Math.floor(floor())}`,detail:result,
       next:['goTo a base and service(); ended on the hull line twice running means the habitat is wrong, not the script']};
     if(result.ended==='hold full')return {status:'partial',did,why:'the hold is full; loot fought for has nowhere to go',detail:result,
       next:['stow(rows) or sell(rows), then hunt again']};

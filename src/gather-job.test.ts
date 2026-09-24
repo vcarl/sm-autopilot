@@ -161,3 +161,22 @@ test('the legs are quoted on the mood in force now, not the one the job was plan
   assert.deepEqual(result.steps.filter(step=>step.name==='return').map(step=>step.outcome),['done']);
   assert.equal(f.server.location.docked_at,home.base_id);
 });
+
+// S4: the mood also picks the service spend margin, and the `service` step still quoted it on
+// the mood the job was planned under. Tired's row is "service only" — an unbounded budget —
+// where the planning mood keeps a 500 credit ceiling, so here the frozen value is the TIGHTER
+// one: the job flies home for a resupply and then refuses to pay for it.
+test('the service at the end is quoted on the mood in force now, not the planning mood',async()=>{
+  const f=fixture();
+  let mood:GatherPlan['mood']='Cautious';
+  const result=await f.run({home,site,mood},{
+    moodNow:()=>mood,
+    // 30 covers the 20 the leg home costs against Tired's own reserve of 0 and leaves 10 in the
+    // tank: a 110 unit fill at 5 credits a unit is 550, over Cautious's 500 and inside Tired's.
+    onStep:step=>{if(step.name==='mine'){f.server.ship.fuel=30;mood='Tired';}},
+  });
+  assert.equal(result.outcome,'done',String(result.reason));
+  assert.deepEqual(result.steps.filter(step=>step.name==='service').map(step=>step.outcome),['done']);
+  assert.equal(result.serviced?.spent,550);
+  assert.equal(f.server.ship.fuel,TANK);
+});

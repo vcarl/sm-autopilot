@@ -48,6 +48,12 @@ export interface TravelOptions {
   /** Runner-owned durable fuel transition consumer, using this account connection. */
   fuelExecution?:FuelTravelExecution;
   mood?:Mood;
+  /** The mood this leg is quoted on, read as each quote is taken. The runtime imposes Tired
+   * between any two commands and Tired carries its own fuel reserve, so a route already under
+   * way must be quoted against the mood in force now — the mood it departed under refuses the
+   * resupply leg the crossing exists to allow. Defaults to `mood`, which is what a caller with
+   * no live pilot record has. Same shape as `GatherOptions.moodNow`, for the same reason. */
+  moodNow?:()=>Mood;
   /** Internal operator policy; tightens the mood, never a model-facing allocation. */
   operatorPolicy?:OperatorFuelPolicy;
   /** Internal script allocations only; cannot override a mood's reserve. */
@@ -111,9 +117,13 @@ export async function travelTo(account:ReadinessAccount,command:ReadinessCommand
   if(options.mood!==undefined&&options.reserve!==undefined)throw new TravelBlocked('Travel mood cannot be combined with a numeric reserve');
   if(options.operatorPolicy!==undefined&&options.mood===undefined)throw new TravelBlocked('Operator fuel policy requires a travel mood');
   if(options.mood===undefined&&options.reserve===undefined)throw new TravelBlocked('Travel requires a mood or an internal script allocation');
-  let reserve:number;
-  try {reserve=options.mood!==undefined?resolveFuelReserve(options.mood,options.operatorPolicy):options.reserve!;}
-  catch(error){throw new TravelBlocked(String(error));}
+  /** The reserve the next quote is taken against, read then rather than once at departure:
+   * the mood moves mid-route and the reserve is what the mood picks. */
+  const fuelReserve=():number=>{
+    try {return options.mood!==undefined?resolveFuelReserve(options.moodNow?.()??options.mood,options.operatorPolicy):options.reserve!;}
+    catch(error){throw new TravelBlocked(String(error));}
+  };
+  let reserve=fuelReserve();
   let maxJumps=options.maxJumps===null?null:options.maxJumps??2;
   if(!destination.system_id||!Number.isFinite(reserve)||reserve<0||(maxJumps!==null&&(!Number.isSafeInteger(maxJumps)||maxJumps<0)))throw new TravelBlocked('Invalid travel destination or allocation');
   const stable=(s:GameState)=>Boolean(s.location?.system_id&&!s.location.in_transit);
@@ -147,6 +157,9 @@ export async function travelTo(account:ReadinessAccount,command:ReadinessCommand
     if((result.fuel_available!==undefined&&result.fuel_available!==ship.fuel)||(result.cargo_used!==undefined&&result.cargo_used!==ship.cargo_used))throw new TravelBlocked('Route quote does not match current fuel or cargo');
     // Objective travel admits this finite route, not an unlimited rerouting loop.
     maxJumps??=steps.length;
+    // The reserve belongs to this quote, read after the route command that may have imposed the
+    // mood it is read from: the crossing lands in a command's own return, never between legs.
+    reserve=fuelReserve();
     return {steps,cost:result.estimated_fuel as number,required:result.estimated_fuel+reserve,origin:location!,ship};
   };
   while(!arrived(account.state)) {

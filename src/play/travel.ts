@@ -1,7 +1,7 @@
 /** Getting somewhere and docking. One function; the id decides what it does. */
 import type {ActiveMissionInfo,CompleteMissionResponse,FindRouteResponse,RouteStep,SystemPoi,V2Location} from '@spacemolt/lib';
 import {dockAt} from '../dock.ts';
-import {resolveFuelReserve} from '../mood-policy.ts';
+import {resolveFuelReserve,type Mood} from '../mood-policy.ts';
 import {details} from '../response-details.ts';
 import {serviceShip} from '../servicing.ts';
 import {FuelRouteShortfall,TiredStop,TravelBlocked,travelTo} from '../travel.ts';
@@ -264,14 +264,19 @@ export function goTo(id?:string):Promise<Outcome<Trip>> {
     // any two commands, so every other leg refuses its next move as soon as the mood moves:
     // the route stops at the system the ship is sitting in, from where a base is still
     // admitted, rather than flying on to the end on the mood it departed under.
+    //
+    // The mood itself is read per leg and per quote inside it (`moodNow`), never frozen at the
+    // top of the trip: Tired's reserve is 0 where the mood it replaced kept 30, and the base
+    // leg — the one leg Tired still flies — is exactly the leg the stale reserve refuses.
+    const flying=():Mood=>pilot().mood??'Cautious';
     const fly=(destination:{system_id:string;poi_id?:string},toBase=false)=>travelTo(acct(),command,destination,{
-      mood,maxJumps:null,
+      mood:flying(),moodNow:flying,maxJumps:null,
       checkpoint:async()=>checkStop(),
       ...toBase?{}:{checkMove:()=>{
         if(pilot().mood==='Tired')throw new TiredStop('Tired: this leg is not going to a base; only a base is admitted from here');
       }},
       onJump:()=>{hops++;step(`jump ${hops} of ${planned}, fuel ${acct().state.ship?.fuel}`);},
-      refuel:async()=>{try {await serviceShip(acct(),command,{mood,creditReserve:who.permissions?.credit_reserve??0});} catch {/* the fuel check after decides */}},
+      refuel:async()=>{try {await serviceShip(acct(),command,{mood:flying(),creditReserve:who.permissions?.credit_reserve??0});} catch {/* the fuel check after decides */}},
     });
     try {
       for(const stop of stops) {
@@ -303,7 +308,7 @@ export function goTo(id?:string):Promise<Outcome<Trip>> {
         // `did` says where the ship actually is rather than claiming it never left.
         return {status:jumps?'partial':'refused',
           did:jumps?`stopped at ${acct().state.location?.system_id} short of ${target} after ${jumps} jump(s)${answered.length?`; ${answered.join('; ')}`:''}`:`did not fly to ${target}`,
-          why:`fuel ${actualFuel}, need ${requiredFuel} with the ${who.mood} reserve; short ${shortfall}`,
+          why:`fuel ${actualFuel}, need ${requiredFuel} with the ${flying()} reserve; short ${shortfall}`,
           detail:{...detail(),jumps},next:['service() where you are docked, or a nearer destination']};
       }
       throw error;

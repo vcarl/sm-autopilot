@@ -166,7 +166,7 @@ export async function gatherJob(account:ReadinessAccount,command:ReadinessComman
   // pilot may still be flown, and the whole point of the stop. Every other leg refuses its
   // next move once Tired is imposed, so a crossing ends the route where the ship is sitting
   // rather than one job gate later.
-  const legOptions=(toBase:boolean):TravelOptions=>({maxJumps:null as number|null,...travelOptions,mood:mood(),
+  const legOptions=(toBase:boolean):TravelOptions=>({maxJumps:null as number|null,...travelOptions,mood:mood(),moodNow:mood,
     ...toBase?{}:{checkMove:()=>{
       if(mood()==='Tired')throw new TiredStop('Tired: this leg is not going to a base; only a base is admitted from here');
       travelOptions.checkMove?.();
@@ -240,7 +240,10 @@ export async function gatherJob(account:ReadinessAccount,command:ReadinessComman
   });
   if(stop)return stop;
 
-  stop=await attempt('service',async()=>{serviced=await serviceShip(account,command,{mood:plan.mood});});
+  // The spend margin is the mood's too, and the mood by now is the one the crossing imposed:
+  // Tired's row is "service only", so the planning mood's tighter budget is what refuses the
+  // resupply the job just flew home for.
+  stop=await attempt('service',async()=>{serviced=await serviceShip(account,command,{mood:mood()});});
   if(stop)return stop;
 
   stop=await attempt('verify',async()=>{

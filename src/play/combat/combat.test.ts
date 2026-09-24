@@ -35,6 +35,21 @@ function worldWithStuckTick(record:Pilot,options:WorldOptions={}) {
     pilot:()=>who,setPilot:next=>{who=next;},emit:text=>lines.push(text)});
   return {...game,command,lines,record:()=>who};
 }
+/** `world`, but the pilot record is REPLACED mid-hunt, the way a re-read of `pilot.json` gives
+ * a fresh object: the runner's `pilot()` is the file, so the operator moves the mood under a
+ * running loop. Anything that captured the record at the top of the loop keeps the old mood. */
+function worldWithMoodMoved(record:Pilot,on:string,to:Pilot['mood'],options:WorldOptions={}) {
+  const game=bridgeWorld({services:['refuel','repair','storage'],cargoUsed:0,...options});
+  let who:Pilot=record;
+  const command:typeof game.command=async(action,params)=>{
+    const res=await game.command(action,params);
+    if(action===on)who={...who,mood:to};
+    return res;
+  };
+  bind({account:game.account as unknown as ReadinessAccount,command,
+    pilot:()=>who,setPilot:next=>{who=next;},emit:()=>{}});
+  return {...game,command,record:()=>who};
+}
 const grazer={creature_id:'c1',species:'molt_grazer',name:'Molt Grazer'};
 
 test('hunt fights a creature through to the wreck and loots it',async()=>{
@@ -101,6 +116,29 @@ test('hunt breaks off at the walk-away line, which is also what imposes Tired',a
     assert.equal(f.record().mood,'Tired');
     assert.equal(f.count('spacemolt_battle/retreat'),1);
     assert.match(out.why!,/Tired/);
+  } finally {unbind();}
+});
+
+// S4: the walk-away line is the mood's, and the loop read it once at the top — one number for
+// the whole hunt and for every fight inside it. The mood moves under a running loop, so the
+// line has to be read where it is checked: a hunt that opened under Cautious (0.95) and was
+// loosened to Aggressive (0.80) before a shot was fired broke off against a line the pilot had
+// already left, and stopped after one fight of the two it was asked for.
+test('the walk-away line follows the mood the pilot is in now, not the one the hunt opened under',async()=>{
+  const second={creature_id:'c2',species:'molt_grazer',name:'Molt Grazer'};
+  const f=worldWithMoodMoved({mood:'Cautious'},'spacemolt/hunt','Aggressive',
+    {wildlife:{creatures:[grazer,second],polls:1,damage:2}});
+  try {
+    // Two fights of two ticks at 2 hull a tick: 96 down to 88, under Cautious's 95 from the
+    // first tick and never near Aggressive's 80.
+    const out=await hunt({fights:2});
+    assert.equal(f.record().mood,'Aggressive','no crossing: 88 hull is well inside the Aggressive line');
+    assert.equal(out.status,'done',out.why);
+    assert.equal(out.detail.ended,'asked');
+    assert.equal(out.detail.fights.length,2,'both fights were taken against the line in force');
+    assert.deepEqual(out.detail.fights.map(fight=>fight.outcome),['down','down']);
+    assert.equal(f.count('spacemolt_battle/retreat'),0,'nothing broke off; the line was never crossed');
+    assert.equal(out.now.ship.hull,88);
   } finally {unbind();}
 });
 

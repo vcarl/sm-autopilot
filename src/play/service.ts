@@ -40,8 +40,12 @@ export function service(opts:{fuel?:number;hull?:number;insure?:boolean;dues?:bo
     try {base=details(await command('spacemolt/get_base',{})) as GetBaseResponse;}
     catch(error){return {status:'failed',did:`${docked} would not quote`,why:(error as Error).message,detail:empty};}
     try {
-      const done=await serviceShip(acct(),command,{mood:who.mood??'Cautious',creditReserve:who.permissions?.credit_reserve??0});
-      const cleared=who.mood==='Tired'&&pilot().mood!=='Tired';
+      // The quote above was a command, and a command is where Tired is imposed: the mood that
+      // picks the spend margin is read here, not at the top of the job. Tired's row is "service
+      // only" — the mood it replaced would refuse the very bill that clears it.
+      const mood=pilot().mood??'Cautious';
+      const done=await serviceShip(acct(),command,{mood,creditReserve:who.permissions?.credit_reserve??0});
+      const cleared=mood==='Tired'&&pilot().mood!=='Tired';
       const did=done.issued.length
         ?`serviced at ${docked}: ${done.issued.map(action=>action.split('/')[1]).join(' and ')} for ${done.spent} cr; fuel ${done.fuel}, hull ${done.hull}`
         :`already serviced at ${docked}: fuel ${done.fuel}, hull ${done.hull}`;
