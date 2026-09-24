@@ -249,9 +249,10 @@ test('Tired at the only base in the system, posting no repair price, is still of
 });
 
 test('a base in this system that posts a repair price is named with the price, not with hope',async()=>{
-  // `inspect({id})` answers with the docked-base body, so a counter the ship is not standing at
-  // can be quoted from here. Where it answers, the move carries the evidence; where it does not,
-  // the move is still offered and says plainly that nothing is readable.
+  // `inspect({id})` answers with the docked-base body for a base in THIS system, so a counter the
+  // ship is not standing at can be quoted from here — but only that far. Where it answers, the move
+  // carries the evidence; where it does not, the move is still offered and says plainly that
+  // nothing is readable.
   const f=world({mood:'Tired',stance:'Prospector'},{services:['refuel','storage'],
     pois:[{id:'yard',name:'Sol Yard',base_id:'yard_base',base_name:'Sol Yard Base',repair_price:4},
       {id:'dark',name:'Sol Dark',base_id:'dark_base',base_name:'Sol Dark Base'}]});

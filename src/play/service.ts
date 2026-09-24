@@ -33,9 +33,11 @@ export interface Elsewhere {call:string;why:string}
  * 2026-09-24, where the only offered move was a `service()` that refuses every time).
  *
  * The prices are `inspect({id})`'s: it names a base by id and answers with the docked-base body
- * (`InspectResponse.base: GetBaseResponse`), which is the one read that can quote a counter the
- * ship is not standing at. It may decline for a base the pilot is not docked at, or for one in
- * another system, so it is `attempt`ed and its silence is reported as silence.
+ * (`InspectResponse.base: GetBaseResponse`). Its reach is **this system only** — the live server
+ * refuses a far id with "You can only inspect a point of interest in your current system"
+ * (2026-09-24, a run that broke on exactly that) — so it is asked for in-system candidates and
+ * not asked at all for a base the journal remembers in another system, whose row says plainly
+ * that no price is readable from here. It may also decline in-system, so it is still guarded.
  *
  * ponytail: the candidates are this system's bases plus the ones the journal has docked at. Lib
  * 14.2.0's `get_system()`, `get_poi()` and `get_base()` all take no id (COMMANDS.md 61, 73, 79),
@@ -49,7 +51,7 @@ export async function serviceElsewhere(docked?:string):Promise<Elsewhere[]> {
       return quote.found?`${quote.estimated_fuel} fuel, ${quote.total_jumps} jump(s)`:'no route from here';
     } catch {return 'no route quote';}
   };
-  /** What that counter posts, read from here, or the plain admission that nothing does. */
+  /** What an in-system counter posts, read from here, or the plain admission that nothing does. */
   const posted=async(base:string,fuelPrice?:number):Promise<string>=>{
     let quoted:GetBaseResponse|undefined;
     try {quoted=(details(await command('spacemolt/inspect',{id:base})) as {base?:GetBaseResponse}).base;}
@@ -78,7 +80,8 @@ export async function serviceElsewhere(docked?:string):Promise<Elsewhere[]> {
   }
   for(const base of [...seen].slice(-3))
     rows.push({call:`goTo('${base}')`,
-      why:`a base this pilot has docked at before: ${await trip(base)}; ${await posted(base)}`});
+      // No inspect: it is current-system only, so the call could only fail and break nothing usefully.
+      why:`a base this pilot has docked at before: ${await trip(base)}; no price readable from here; unknown until docked`});
   return rows;
 }
 
