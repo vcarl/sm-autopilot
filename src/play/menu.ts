@@ -188,11 +188,28 @@ const LEADS:Record<string,string>={Prospector:'gatherUntil',Trader:'sell',Hunter
 /** The call the pilot's own words name as the work. The objective and the goal decide; the
  * stance is the fallback. A Hunter told to cull fauna was offered gatherUntil and selling and
  * no hunt at all, every line tagged [credits]: the menu answered the belt, not the orders. */
-const OBJECTIVES:[RegExp,string][]=[[/hunt|fauna|creature|kill|cull|bounty|pirate/,'hunt'],
-  [/mine|ore|gather|prospect/,'gatherUntil'],[/haul|courier|freight|package/,'haul'],
-  [/explor|scout|survey|visit|map/,'goTo'],[/trade|sell|market/,'sell']];
-export const leadCall=(who:Pilot):string=>
-  OBJECTIVES.find(([re])=>re.test(`${who.objective??''} ${who.goal??''}`.toLowerCase()))?.[1]??LEADS[who.stance??'']??'';
+/** Every alternative is anchored at a word start. Unanchored, `kill` matched "skill" and `ore`
+ * matched "before", "store" and "explore", so "train every skill to level 5" read as a hunting
+ * objective (live, 2026-09-24) — the earliest match in that whole sentence was `kill` at index 13.
+ * `visit` matched only "unvisited" there, which `explor` catches anyway. Suffixes stay free, which
+ * is the stemming these words rely on ("hunts", "trading", "exploration"); "mining" is spelled out
+ * because `mine` never matched it. */
+const OBJECTIVES:[RegExp,string][]=[[/\b(?:hunt|fauna|creature|kill|cull|bounty|pirate)/,'hunt'],
+  [/\b(?:mine|mining|ore|gather|prospect)/,'gatherUntil'],[/\b(?:haul|courier|freight|package)/,'haul'],
+  [/\b(?:explor|scout|survey|visit|map)/,'goTo'],[/\b(?:trade|sell|market)/,'sell']];
+export const leadCall=(who:Pilot):string=>{
+  const text=`${who.objective??''} ${who.goal??''}`.toLowerCase();
+  // The phase the pilot's own words name first wins, by where the match lands in the text rather
+  // than by which pattern sits earliest in the array. Orders that read "close the gaps in this
+  // order: a gatherUntil mining trip → sell → exploreNearby → hunts → a pirate fight" name five
+  // careers, and the lead is the one they put first.
+  // ponytail: position only. A career mentioned to be ruled out ("no hunting today") still leads,
+  // and a goal read after the objective counts as later text. Upgrade when the orders need
+  // negation or weighting — an intent parser is not wanted here.
+  const hit=OBJECTIVES.map(([re,call])=>({call,at:text.search(re)})).filter(row=>row.at>=0)
+    .sort((a,b)=>a.at-b.at)[0];
+  return hit?.call??LEADS[who.stance??'']??'';
+};
 const FITS:Record<string,string[]>={Prospector:['gatherUntil','goTo'],Hunter:['hunt','goTo'],Scout:['goTo'],Carrier:['haul','goTo'],
   Trader:['goTo','haul'],Industrialist:['gatherUntil','goTo']};
 

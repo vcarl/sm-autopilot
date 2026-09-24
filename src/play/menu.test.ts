@@ -8,7 +8,7 @@ import {check} from '../run.ts';
 import {journalRun} from '../run-record.ts';
 import {evaluateMenu,jobStop,type Facts} from '../rules-table.ts';
 import {bridgeWorld,TICK,type WorldOptions} from '../test-support/bridge-world.ts';
-import {factsNow,menu,menuDue,renderMenu,type RunSummary} from './menu.ts';
+import {factsNow,leadCall,menu,menuDue,renderMenu,type RunSummary} from './menu.ts';
 import {bind,unbind,type Pilot} from './runtime.ts';
 
 function world(record:Pilot,options:WorldOptions={}) {
@@ -330,4 +330,24 @@ test('an undocked pilot short of fuel is offered the route to a counter in a moo
     assert.ok(built.moves.some(m=>m.call==='service()'),JSON.stringify(built.moves));
     assert.ok(!built.moves.some(m=>m.call.startsWith("goTo('sol_base')")),JSON.stringify(built.moves));
   } finally {home.close();}
+});
+
+test("an objective that says \"skill\" is not a hunting objective, and the phase named first leads",()=>{
+  // Live 2026-09-24. Unanchored, the earliest match anywhere in this sentence was `kill` at index
+  // 13 — inside "skill" — so every objective that mentioned skills read as a hunt, and
+  // `OBJECTIVES.find` returned whichever pattern sat earliest in the array rather than the phase
+  // the orders put first. Five of this objective's six phases match some pattern.
+  const objective="Train every skill to level 5. First run: orient() and note() the current level of "
+    +"every skill. Then close the gaps in this order: a gatherUntil mining trip (mining, piloting, "
+    +"navigation) -> sell at a rich counter or a tradeRun (trading) -> exploreNearby on unvisited "
+    +"systems (exploration) -> hunts at a creature habitat -> a pirate fight -> craft at a workshop";
+  assert.notEqual(leadCall({mood:'Focused',stance:'Prospector',objective}),'hunt');
+  assert.equal(leadCall({mood:'Focused',stance:'Prospector',objective}),'gatherUntil');
+  // The stance is still the fallback when nothing is named, and the words still win when they are.
+  assert.equal(leadCall({mood:'Focused',stance:'Hunter',objective}),'gatherUntil');
+  assert.equal(leadCall({mood:'Focused',stance:'Prospector',objective:'cull the fauna at the belt'}),'hunt');
+  assert.equal(leadCall({mood:'Focused',stance:'Hunter'}),'hunt');
+  // The other substrings the anchors close, each one reachable in ordinary orders.
+  assert.equal(leadCall({mood:'Focused',stance:'Hunter',objective:'sell at the store, then explore'}),'sell');
+  assert.equal(leadCall({mood:'Focused',stance:'Scout',objective:'determine what is out there before anything else'}),'goTo');
 });
