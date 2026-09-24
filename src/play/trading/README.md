@@ -26,8 +26,8 @@ the best `best_buy` per item:
 | `source` | What it is | How stale |
 |---|---|---|
 | `here` | this base's live book | live, read this call |
-| `faction ledger` | `spacemolt_intel/query_trade_intel` — other pilots' filed observations | `seen` carries `submitted_at_tick` |
-| `remembered` | a book **this pilot** read at that base on an earlier visit | `seen` carries the timestamp |
+| `faction ledger` | `spacemolt_intel/query_trade_intel` — other pilots' filed observations | `seen` is the age in ticks of `submitted_at_tick` |
+| `remembered` | a book **this pilot** read at that base on an earlier visit | `seen` is the age in ticks of the book |
 
 The ledger needs a faction with a trade-intel facility; without one the command throws and
 `spreads()` carries on with the other two, saying so in `did` and in `detail.sources`. The
@@ -39,6 +39,13 @@ that the way to *learn* a price is to go and stand in front of it: `goTo(base)` 
 
 A remembered or filed price is a memory. The book may have moved. `tradeRun` re-reads at the
 buy and `sell` re-reads at the sell, so nothing is sent against a stale number.
+
+`seen` is an **age in ticks**, measured against the `current_tick` on the live `view_market`
+reply this same call read — so `0 ticks old` means read this tick, `40 ticks old` means the
+bid is forty ticks of other pilots' trading away. Nothing refuses a price for being old: how
+stale is too stale is your call, and the worst a bad call costs is a wasted trip. An entry
+written before books carried a tick reads as **20 ticks old** — an assumption, not a
+measurement, so treat a flat 20 as "unknown, probably stale".
 
 ## What a row says
 
@@ -70,7 +77,10 @@ export default async function main() {
 ## Pitfalls
 
 - A snapshot goes stale before arrival; we have watched a public market's supply vanish. The
-  `source` and `seen` fields are there so you can weigh that before committing fuel.
+  `source` and `seen` fields are there so you can weigh that before committing fuel — a
+  hundred-tick-old bid four jumps out is a guess, not a price.
+- The memory holds the last 12 bases, evicted **by count, not by age**: a stale entry is not
+  dropped to make room for a fresh one. `seen` is how you see that.
 - Sales tax is charged at buy time and netted from `gained.credits`.
 - `net` prices the top buy level only. A load big enough to eat past it fetches less.
 - Contraband: `get_empire_info` lists each empire's contraband; a customs scan seizes and

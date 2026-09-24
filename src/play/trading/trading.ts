@@ -12,7 +12,7 @@
 import type {EstimatePurchaseResponse,FactionQueryTradeIntelResponse,SellResponse} from '@spacemolt/lib';
 import {miningInventory} from '../../mining-inventory.ts';
 import {details} from '../../response-details.ts';
-import {book,buy,knownBooks,sell} from '../market.ts';
+import {book,buy,knownBooks,marketTick,sell,ticksOld} from '../market.ts';
 import {acct,admit,checkStop,command,job,step} from '../runtime.ts';
 import {goTo,route} from '../travel.ts';
 import type {Outcome} from '../types.ts';
@@ -25,9 +25,11 @@ export interface Spread {
   /** The base that pays `best_buy`. `here` when it is this counter. */
   base_id:string;
   best_buy:number;best_buy_qty:number;
-  /** How the price was learned and how stale it is: a live local book, a faction ledger
-   * entry with the tick it was filed at, or a book this pilot read on an earlier visit. */
+  /** How the price was learned: a live local book, a faction ledger entry another pilot
+   * filed, or a book this pilot read on an earlier visit. */
   source:'here'|'faction ledger'|'remembered';
+  /** How stale it is: `live`, or an age in ticks against the tick this call read. An entry
+   * written before books carried a tick reads as `LEGACY_AGE` ticks old. */
   seen:string;
   /** The route quote to that base: fuel units and jumps. Zero for `here`. */
   fuel:number;jumps:number;
@@ -57,6 +59,8 @@ export function spreads(items?:string[]):Promise<Outcome<{spreads:Spread[];sourc
     const stock:Record<string,number>={...miningInventory(acct().state)};
     for(const row of await storeRows())stock[row.item_id]=(stock[row.item_id]??0)+row.quantity;
     const listed=await book();
+    // The tick that same reply came back on: every age below is measured against it.
+    const now=marketTick();
     const wanted=items?.length?items:[...new Set([...Object.keys(stock),...listed.keys()].filter(id=>stock[id]))];
     if(!wanted.length)return {status:'done',did:`nothing aboard or stored at ${here} to price`,detail:{spreads:[],sources:['here']},
       next:['gatherUntil({poi}) or buy() something first']};
@@ -81,7 +85,7 @@ export function spreads(items?:string[]):Promise<Outcome<{spreads:Spread[];sourc
       for(const item of entry.items??[])
         if(wanted.includes(item.item_id))
           offer({item_id:item.item_id,base_id:entry.base_id,best_buy:item.best_buy,best_buy_qty:item.buy_volume,
-            source:'faction ledger',seen:`filed at tick ${entry.submitted_at_tick}`});
+            source:'faction ledger',seen:`${ticksOld(entry.submitted_at_tick,now)} ticks old`});
     }
     for(const remembered of knownBooks()) {
       if(remembered.base_id===here)continue;
@@ -89,7 +93,7 @@ export function spreads(items?:string[]):Promise<Outcome<{spreads:Spread[];sourc
       for(const row of remembered.items)
         if(wanted.includes(row.item_id))
           offer({item_id:row.item_id,base_id:remembered.base_id,best_buy:row.best_buy,best_buy_qty:row.best_buy_qty,
-            source:'remembered',seen:`read ${remembered.at}`});
+            source:'remembered',seen:`${ticksOld(remembered.tick,now)} ticks old`});
     }
 
     // One find_route per far base, not per item: the trip is the same for everything sold there.

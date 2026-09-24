@@ -20,8 +20,23 @@ const message=(error:unknown)=>error instanceof Error?error.message:String(error
 /** A book this pilot has stood in front of, kept so the next base knows what the last one
  * paid. The game publishes no cross-station prices — `view_market` and `analyze_market` are
  * both "here" — so memory is the only far price a factionless pilot can have. */
-export interface RememberedBook {base_id:string;at:string;items:MarketListingItem[]}
+export interface RememberedBook {base_id:string;at:string;tick?:number;items:MarketListingItem[]}
 const MEMORY='markets.json',BASES=12;
+/** How old an entry written before books carried a tick is taken to be. An assumption for
+ * pre-ageing files, not a measurement: old enough for the pilot to distrust, not old enough
+ * to be worth dropping a price nothing else can supply. */
+export const LEGACY_AGE=20;
+/** Age in ticks, computed at read and never stored. An untagged entry reads as `LEGACY_AGE`.
+ * A tick that ran backwards — server restart, season rollover — would read as a negative age,
+ * which is nonsense to hand a pilot, so it clamps to 0: "as fresh as this call". */
+export const ticksOld=(tick:number|undefined,now:number):number=>
+  tick===undefined?LEGACY_AGE:Math.max(0,now-tick);
+
+/** The global tick from the last `view_market` reply this process read.
+ * ponytail: process-local, and only sound read straight after a `book()` in the same job —
+ * which is every consumer. Widen `book()`'s return if that stops being true. */
+let lastTick=0;
+export const marketTick=():number=>lastTick;
 
 /** Every book read in this runtime dir, newest base first. Empty without a runtime. The
  * directory is an argument so a caller outside a bound run (the juncture's `factsNow`) can
@@ -37,10 +52,10 @@ export function knownBooks(dir=runtimeDir()):RememberedBook[] {
 /** Temp file then rename, as `writeRun` does: a torn write would price a trip on a lie.
  * ponytail: the last 12 bases, whole books. A pilot that walks a wider circuit than that
  * wants the oldest entry aged out by tick, not by count. */
-function remember(base_id:string,items:MarketListingItem[]):void {
+function remember(base_id:string,items:MarketListingItem[],tick:number):void {
   const dir=runtimeDir();
   if(!dir||!base_id)return;
-  const kept=[{base_id,at:new Date().toISOString(),items},...knownBooks().filter(row=>row.base_id!==base_id)].slice(0,BASES);
+  const kept=[{base_id,at:new Date().toISOString(),tick,items},...knownBooks().filter(row=>row.base_id!==base_id)].slice(0,BASES);
   try {
     mkdirSync(dir,{recursive:true});
     const path=join(dir,MEMORY),temp=`${path}.${process.pid}.tmp`;
@@ -55,7 +70,8 @@ function remember(base_id:string,items:MarketListingItem[]):void {
 export async function book():Promise<Map<string,MarketListingItem>> {
   const reply=details(await command('spacemolt_market/view_market',{})) as ViewMarketResponse;
   const items=reply.items??[];
-  remember(acct().state.location?.docked_at??'',items);
+  lastTick=Number(reply.current_tick??lastTick);
+  remember(acct().state.location?.docked_at??'',items,lastTick);
   return new Map(items.map(item=>[item.item_id,item]));
 }
 

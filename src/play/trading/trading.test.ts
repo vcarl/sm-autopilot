@@ -4,7 +4,7 @@ import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import test from 'node:test';
 import type {ReadinessAccount} from '../../readiness.ts';
-import {bridgeWorld,type WorldOptions} from '../../test-support/bridge-world.ts';
+import {bridgeWorld,TICK,type WorldOptions} from '../../test-support/bridge-world.ts';
 import {prices} from '../market.ts';
 import {bind,unbind,type Pilot} from '../runtime.ts';
 import {goTo} from '../travel.ts';
@@ -43,7 +43,7 @@ test('spreads ranks by net, netting the fuel to the far buyer against the near o
     assert.equal(second!.source,'faction ledger');
     assert.equal(second!.fuel,7);
     assert.equal(second!.net,600-7,'gross less the fuel bill, which is what ranks it second');
-    assert.match(second!.seen,/tick 900/);
+    assert.equal(second!.seen,`${TICK-900} ticks old`,'the filed tick is reported as an age, not a tick number');
     assert.deepEqual(out.detail.sources,['here','faction ledger']);
     assert.match(out.next[1]!,/goTo\('range_base'\)/);
     assert.equal(f.count('spacemolt/find_route'),1,'one route per far base, not per item');
@@ -70,6 +70,9 @@ test('with no faction ledger, a book read on an earlier visit survives a new run
     const row=out.detail.spreads[0]!;
     assert.equal(row.base_id,'range_base','the memory of the first visit is the only price there is');
     assert.equal(row.source,'remembered');
+    // The book was tagged with the tick it was read on, so a book read this tick reads as new —
+    // not as the 20 ticks an untagged pre-ageing entry is assumed to be.
+    assert.equal(row.seen,'0 ticks old');
     assert.equal(row.net,600-7);
     assert.deepEqual(out.detail.sources,['here','remembered'],'no faction, so no ledger');
     assert.match(out.did,/the best buyer for 1 of them is not sol_base/);

@@ -6,7 +6,7 @@ import {join} from 'node:path';
 import type {ReadinessAccount} from '../readiness.ts';
 import {journalRun} from '../run-record.ts';
 import {evaluateMenu,jobStop,type Facts} from '../rules-table.ts';
-import {bridgeWorld,type WorldOptions} from '../test-support/bridge-world.ts';
+import {bridgeWorld,TICK,type WorldOptions} from '../test-support/bridge-world.ts';
 import {factsNow,menu,menuDue,renderMenu,type RunSummary} from './menu.ts';
 import {bind,unbind,type Pilot} from './runtime.ts';
 
@@ -132,15 +132,43 @@ test('a remembered far book against this counter is the J6 spread',async()=>{
   try {
     // A book this pilot read at another base on an earlier visit: ore bids 40 there, and the
     // ask here is 12, so the circuit is worth 28 a unit.
-    writeFileSync(join(f.runtime,'markets.json'),JSON.stringify([{base_id:'range_base',at:'earlier',
+    writeFileSync(join(f.runtime,'markets.json'),JSON.stringify([{base_id:'range_base',at:'earlier',tick:TICK-5,
       items:[{item_id:'ore',best_buy:40,best_buy_qty:99,best_sell:0,best_sell_qty:0}]}]));
     const seen=await facts(f,who);
-    assert.deepEqual(seen.observed.spread,{item_id:'ore',margin:28});
+    assert.deepEqual(seen.observed.spread,{item_id:'ore',margin:28,age:5});
     assert.equal(verdict(seen,'J6').admissible,true,verdict(seen,'J6').reason);
+    assert.match(verdict(seen,'J6').reason,/5 ticks old/,'J6 hands the pilot the age, it does not gate on it');
     // No memory, no spread — which is the answer J6 gave before the field was wired.
     rmSync(join(f.runtime,'markets.json'));
     assert.equal((await facts(f,who)).observed.spread,undefined);
     assert.equal(verdict(await facts(f,who),'J6').admissible,false);
+  } finally {f.close();}
+});
+
+test('a remembered book written before books carried a tick is read as 20 ticks old',async()=>{
+  const who:Pilot={mood:'Opportunistic',stance:'Trader',home:'sol_base'};
+  const f=world(who);
+  try {
+    // A pre-ageing markets.json: no `tick` on the entry. The operator's rule is to assume 20.
+    writeFileSync(join(f.runtime,'markets.json'),JSON.stringify([{base_id:'range_base',at:'earlier',
+      items:[{item_id:'ore',best_buy:40,best_buy_qty:99,best_sell:0,best_sell_qty:0}]}]));
+    const seen=await facts(f,who);
+    assert.deepEqual(seen.observed.spread,{item_id:'ore',margin:28,age:20});
+    // Still admissible: the age is reported, never a gate.
+    assert.equal(verdict(seen,'J6').admissible,true,verdict(seen,'J6').reason);
+    assert.match(verdict(seen,'J6').reason,/20 ticks old/);
+  } finally {f.close();}
+});
+
+test('a remembered tick ahead of now — a restart or a season rollover — reads as 0, not negative',async()=>{
+  const who:Pilot={mood:'Opportunistic',stance:'Trader',home:'sol_base'};
+  const f=world(who);
+  try {
+    writeFileSync(join(f.runtime,'markets.json'),JSON.stringify([{base_id:'range_base',at:'earlier',tick:TICK+50,
+      items:[{item_id:'ore',best_buy:40,best_buy_qty:99,best_sell:0,best_sell_qty:0}]}]));
+    const seen=await facts(f,who);
+    assert.deepEqual(seen.observed.spread,{item_id:'ore',margin:28,age:0});
+    assert.doesNotMatch(verdict(seen,'J6').reason,/-\d/);
   } finally {f.close();}
 });
 

@@ -44,6 +44,9 @@ const homeOf:Record<string,string>={sol:'sol',station:'sol',belt:'sol',sol_base:
 const poiOf:Record<string,string>={sol_base:'station',range_base:'outpost'};
 /** The base docked at a POI, which is what `dock` answers with — never a fixed id. */
 const baseAt:Record<string,string>={station:'sol_base',outpost:'range_base'};
+/** The global tick every `view_market` reply in this world comes back on, so a test can date
+ * a `markets.json` fixture relative to "now". */
+export const TICK=1000;
 
 export interface WorldOptions {
   services?:string[];
@@ -554,7 +557,7 @@ export function bridgeWorld(options:WorldOptions={}) {
       const own=options.markets?.[at];
       const rows=own??[{item_id:'ore',item_name:'Ore',best_buy:10,best_buy_qty:99,best_sell:12,best_sell_qty:5},
         ...options.market??[]];
-      return {delta:{details:{items:rows.map(row=>({item_name:row.item_id,buy_price:row.best_sell,...row}))}}};
+      return {delta:{details:{current_tick:TICK,items:rows.map(row=>({item_name:row.item_id,buy_price:row.best_sell,...row}))}}};
     },
     'spacemolt_intel/query_trade_intel':params=>{
       if(!options.tradeIntel)throw new Error('You are not in a faction');

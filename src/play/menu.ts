@@ -12,7 +12,7 @@ import {evaluateMenu,jobStop,type CounterName,type Facts} from '../rules-table.t
 import {readJournal} from '../run-record.ts';
 import {PACKAGE_CARGO} from './hauling/freight.ts';
 import {bench,moduleSpec,whyNotFit} from './hangar.ts';
-import {knownBooks} from './market.ts';
+import {knownBooks,ticksOld} from './market.ts';
 import {stuck} from './missions.ts';
 import {acct,command,pilot,present,runCalls,type Pilot} from './runtime.ts';
 import type {Status} from './types.ts';
@@ -69,13 +69,14 @@ const attempt=async<T>(read:()=>Promise<T>):Promise<T|undefined>=>{try {return a
  * bid a book read on an earlier visit shows, with depth on both ends. The game publishes no
  * cross-station prices (see `market.ts`), so the far end is this runtime's market memory; with
  * no memory there is no spread, which is the same answer J6 gives today. */
-function bestSpread(here:Map<string,MarketListingItem>,at:string,runtime?:string):{item_id:string;margin:number}|undefined {
-  return (runtime?knownBooks(runtime):[]).filter(book=>book.base_id!==at).flatMap(book=>book.items)
-    .flatMap(far=>{
+function bestSpread(here:Map<string,MarketListingItem>,at:string,now:number,runtime?:string):{item_id:string;margin:number;age:number}|undefined {
+  return (runtime?knownBooks(runtime):[]).filter(book=>book.base_id!==at)
+    .flatMap(book=>book.items.map(far=>({far,age:ticksOld(book.tick,now)})))
+    .flatMap(({far,age})=>{
       const mine=here.get(far.item_id);
       // Depth on both ends: an ask nobody is filling and a bid for nothing are not a trade.
       return mine&&mine.best_sell>0&&mine.best_sell_qty>0&&far.best_buy_qty>0
-        ?[{item_id:far.item_id,margin:far.best_buy-mine.best_sell}]:[];
+        ?[{item_id:far.item_id,margin:far.best_buy-mine.best_sell,age}]:[];
     }).filter(row=>row.margin>0).sort((a,b)=>b.margin-a.margin)[0];
 }
 
@@ -152,9 +153,10 @@ export async function factsNow(account:ReadinessAccount,send:ReadinessCommand,wh
     if(platform?.waiting?.length)board.passengers=platform.waiting.length;
   }
   if(who.stance==='Trader'&&docked) {
-    const here=await attempt(async()=>new Map(((details(await send('spacemolt_market/view_market',{})) as ViewMarketResponse).items??[])
-      .map(row=>[row.item_id,row])));
-    const spread=here&&bestSpread(here,docked,runtime);
+    // The reply carries the tick the ages are measured against, so it is kept, not discarded.
+    const reply=await attempt(async()=>details(await send('spacemolt_market/view_market',{})) as ViewMarketResponse);
+    const here=reply&&new Map((reply.items??[]).map(row=>[row.item_id,row]));
+    const spread=here&&bestSpread(here,docked,Number(reply.current_tick??0),runtime);
     if(spread)observed.spread=spread;
   }
   return {

@@ -44,7 +44,7 @@ export interface Facts {
   holdings:{fuel:number;max_fuel:number;hull:number;max_hull:number;cargo_free:number;credits:number;inputs?:string[]};
   obligations:{contracts?:string[];passengers?:number};
   permissions:{max_liability?:number;credit_reserve?:number};
-  observed:{threats?:string[];targets?:string[];spread?:{item_id:string;margin:number}};
+  observed:{threats?:string[];targets?:string[];spread?:{item_id:string;margin:number;age:number}};
 }
 export interface Bounds {spend:number;fuelReserve:number;walkAway:number}
 /** Resolved from the mood alone (D2/R7). Never passed per call, never per option. */
@@ -192,7 +192,7 @@ const RULES:Rule[]=[
   {id:'stance.trader.J6',stance:'Trader',apply:facts=>{
     const job='J6 Trade run closed',spread=facts.observed.spread;
     if(!spread||spread.margin<=0)return no('stance',job,'no quoted spread with depth on both ends; walk a price circuit first');
-    return yes('stance',job,`a ${spread.margin} credit spread on ${spread.item_id}, inside the ${facts.mood} spend margin ${resolveServiceSpend(facts.mood)}`);
+    return yes('stance',job,`a ${spread.margin} credit spread on ${spread.item_id} off a remembered bid ${spread.age} ticks old, inside the ${facts.mood} spend margin ${resolveServiceSpend(facts.mood)}`);
   }},
   {id:'stance.carrier.J4',stance:'Carrier',apply:facts=>{
     const job='J4 Freight delivered',allowed=facts.permissions.max_liability??0;
