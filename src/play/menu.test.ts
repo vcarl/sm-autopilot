@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import {mkdtempSync,rmSync,writeFileSync} from 'node:fs';
+import {mkdirSync,mkdtempSync,rmSync,writeFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import type {ReadinessAccount} from '../readiness.ts';
+import {check} from '../run.ts';
 import {journalRun} from '../run-record.ts';
 import {evaluateMenu,jobStop,type Facts} from '../rules-table.ts';
 import {bridgeWorld,TICK,type WorldOptions} from '../test-support/bridge-world.ts';
@@ -54,6 +55,33 @@ test('a Hunter told to cull fauna is offered the hunt, and the move that serves 
     assert.ok(!docked.moves.some(m=>m.call==='hunt()'));
     assert.ok(docked.not_now.some(row=>row.move==='hunt'),JSON.stringify(docked.not_now));
   } finally {f.close();}
+});
+
+test('a full hold gets the remedy as a move, and the remedy the market supports: sell where there is a bid, stow where there is none',async()=>{
+  // Live 2026-09-24: hold 63/63 docked at sirius_observatory_station, `not_now` reading "the hold
+  // is full; sell(rows) or stow(rows) first", and neither call anywhere on the menu — the station
+  // bid for nothing aboard, so the sell was rightly absent and stow was never offered at all.
+  const bid=world({mood:'Focused',stance:'Prospector',goal:'obtain credits'},{cargoUsed:12,cargoCapacity:12});
+  try {
+    const built=await menu(bid.runtime);
+    assert.equal(built.moves[0]!.call,"sell([{item_id:'ore',quantity:12}])",JSON.stringify(built.moves));
+    assert.ok(built.not_now.some(row=>row.move==='gatherUntil'&&/hold is full/.test(row.why)),JSON.stringify(built.not_now));
+  } finally {bid.close();}
+  // The same hold where the counter buys nothing: the store takes it, and the call names all of it.
+  const dry=world({mood:'Focused',stance:'Prospector',goal:'obtain credits'},
+    {cargoUsed:12,cargoCapacity:12,markets:{sol_base:[]}});
+  try {
+    const built=await menu(dry.runtime);
+    assert.ok(!built.moves.some(m=>m.call.startsWith('sell(')),JSON.stringify(built.moves));
+    assert.equal(built.moves[0]!.call,"stow([{item_id:'ore'}])",JSON.stringify(built.moves));
+    // Both remedies are calls the gate accepts, which is the half a wrong shape fails silently.
+    const runtime=mkdtempSync(join(tmpdir(),'menu-remedy-'));
+    mkdirSync(join(runtime,'pilot'),{recursive:true});
+    writeFileSync(join(runtime,'pilot','index.ts'),
+      `import {sell, stow} from 'play';\nexport default async function main() {\n  await sell([{item_id:'ore',quantity:12}]);\n  await ${built.moves[0]!.call};\n}\n`);
+    const gate=await check(runtime);
+    assert.deepEqual(gate.errors,[]);
+  } finally {dry.close();}
 });
 
 test('an unfitted module in the hold with no free slot is under not_now with the slot reason, not a move',async()=>{

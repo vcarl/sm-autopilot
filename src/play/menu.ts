@@ -198,8 +198,8 @@ const FITS:Record<string,string[]>={Prospector:['gatherUntil','goTo'],Hunter:['h
 
 /** The menu from where the ship stands: the present in one read, the last ten runs, the
  * skills, the store, and when docked the board, the market and the yard. At most five
- * moves, ranked to break the repetition seen first, then by what the goal names, then by
- * what similar runs measured. Under Tired: only service here or the nearest serviced base. */
+ * moves, ranked with the move that clears a stated blocker first, then to break the repetition
+ * seen, then by what the goal names, then by what similar runs measured. Under Tired: only service here or the nearest serviced base. */
 export async function menu(runtime?:string):Promise<Menu> {
   const who=pilot(),moves:Move[]=[],not_now:Menu['not_now']=[];
   const runs=runtime?recentRuns(runtime):[];
@@ -237,17 +237,37 @@ export async function menu(runtime?:string):Promise<Menu> {
     return fuel<need?`fuel ${fuel}, need ${need} with the ${who.mood} reserve ${reserve}`:null;
   };
 
+  const full=!!ship&&ship.cargo_used>=ship.cargo_capacity;
+  /** Calls that clear a blocker the menu also states under `not_now`; ranked above everything
+   * else, because a move that unblocks three jobs is worth more than the best of the three. */
+  const unblocks=new Set<string>();
+
   // Sell what you hold where there is a bid.
   const book=docked?await attempt(async()=>new Map(((details(await command('spacemolt_market/view_market',{})) as ViewMarketResponse).items??[])
     .map((row:MarketListingItem)=>[row.item_id,row]))):undefined;
   const hold=(acct().state.cargo??[]).filter(row=>row.quantity>0);
   const bids=hold.filter(row=>(book?.get(row.item_id)?.best_buy??0)>0);
-  if(bids.length)moves.push({call:`sell(${lit(bids.map(row=>({item_id:row.item_id,quantity:row.quantity})))})`,
-    why:`${bids.map(row=>`${row.quantity} ${row.item_id} bids ${book!.get(row.item_id)!.best_buy}`).join(', ')} at ${docked}`,advances:'credits'});
+  if(bids.length) {
+    const call=`sell(${lit(bids.map(row=>({item_id:row.item_id,quantity:row.quantity})))})`;
+    moves.push({call,why:`${bids.map(row=>`${row.quantity} ${row.item_id} bids ${book!.get(row.item_id)!.best_buy}`).join(', ')} at ${docked}`,advances:'credits'});
+    if(full)unblocks.add(call);
+  }
   const store=docked?await attempt(async()=>details(await command('spacemolt_storage/view',{})) as ViewStorageResponse):undefined;
   const stored=(store?.items??[]).filter(row=>row.quantity>0&&(book?.get(row.item_id)?.best_buy??0)>0);
   if(stored.length)moves.push({call:`sell(${lit(stored.map(row=>({item_id:row.item_id})))}, {from:'store'})`,
     why:`the store here holds ${stored.map(row=>`${row.quantity} ${row.item_id}`).join(', ')} with a bid`,advances:'credits'});
+  // A full hold with no bid here for what fills it: the store is the remedy, and the menu owes
+  // the call rather than the diagnosis. Live 2026-09-24: `not_now` read "the hold is full;
+  // sell(rows) or stow(rows) first" while sirius_observatory_station bid for none of the 63 units
+  // aboard — so the sell was rightly absent, and stow was never a move the menu could offer.
+  // Rows with a bid are left to the sell above: selling them pays, stowing them does not.
+  const noBid=full?hold.filter(row=>!bids.includes(row)):[];
+  if(noBid.length&&facts.place.counters?.includes('Storage')) {
+    const call=`stow(${lit(noBid.map(row=>({item_id:row.item_id})))})`;
+    moves.push({call,advances:'ship',
+      why:`the hold is full and ${docked} bids for ${bids.length?'none of the rest':'none of it'}; the store here takes ${noBid.map(row=>`${row.quantity} ${row.item_id}`).join(', ')}`});
+    unblocks.add(call);
+  }
 
   // Turn in a mission; take a fitting one when a slot is free.
   const mine=await attempt(async()=>{
@@ -283,8 +303,7 @@ export async function menu(runtime?:string):Promise<Menu> {
   const dist=(p:SystemPoi)=>Math.hypot((p.position?.x??0)-(here?.position?.x??0),(p.position?.y??0)-(here?.position?.y??0));
   const belt=pois.filter(p=>/belt|field|cloud/.test(p.type)).sort((a,b)=>dist(a)-dist(b))[0];
   if(belt) {
-    const full=ship&&ship.cargo_used>=ship.cargo_capacity?'the hold is full; sell(rows) or stow(rows) first':null;
-    const blocked=full??await flies(belt.id);
+    const blocked=(full?'the hold is full; sell(rows) or stow(rows) first':null)??await flies(belt.id);
     if(blocked)not_now.push({move:'gatherUntil',why:blocked});
     else work({call:`gatherUntil({poi:'${belt.id}'})`,why:`${belt.type} ${belt.name}, ${ship?.cargo_capacity!-ship?.cargo_used!} free in the hold`,advances:'credits'});
   }
@@ -355,10 +374,10 @@ export async function menu(runtime?:string):Promise<Menu> {
     knowledge:/know|explor|world|visit|scout/,influence:/influence|reputation|faction/,objective:/objective|goal|rest/};
   const gain=(fn:string)=>{const past=runs.filter(r=>r.fn===fn);return past.length?past.reduce((n,r)=>n+r.credits,0)/past.length:0;};
   const key=(m:Move)=>{const fn=m.call.split('(')[0]!;
-    return [repeated&&fn!==repeated?1:0,wants[m.advances].test(goal)?1:0,LEADS[who.stance??'']===fn?1:0,gain(fn)];};
+    return [unblocks.has(m.call)?1:0,repeated&&fn!==repeated?1:0,wants[m.advances].test(goal)?1:0,LEADS[who.stance??'']===fn?1:0,gain(fn)];};
   const seen=new Set<string>();
   const ranked=moves.filter(m=>!seen.has(m.call)&&seen.add(m.call)).map(m=>({m,k:key(m)}))
-    .sort((a,b)=>b.k[0]!-a.k[0]!||b.k[1]!-a.k[1]!||b.k[2]!-a.k[2]!||b.k[3]!-a.k[3]!).map(({m})=>m).slice(0,5);
+    .sort((a,b)=>b.k[0]!-a.k[0]!||b.k[1]!-a.k[1]!||b.k[2]!-a.k[2]!||b.k[3]!-a.k[3]!||b.k[4]!-a.k[4]!).map(({m})=>m).slice(0,5);
   // The tag says what a move serves, and what the objective names serves the objective: the
   // ranking is already settled, so this only corrects the label the pilot reads.
   const tagged=ranked.map(m=>lead&&m.call.split('(')[0]===lead?{...m,advances:'objective' as const}:m);
