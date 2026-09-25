@@ -9,6 +9,7 @@ import {journalRun} from '../run-record.ts';
 import {evaluateMenu,jobStop,type Facts} from '../rules-table.ts';
 import {bridgeWorld,TICK,type WorldOptions} from '../test-support/bridge-world.ts';
 import {factsNow,leadCall,menu,menuDue,renderMenu,type RunSummary} from './menu.ts';
+import {orient} from './orient.ts';
 import {bind,unbind,type Pilot} from './runtime.ts';
 
 function world(record:Pilot,options:WorldOptions={}) {
@@ -350,4 +351,21 @@ test("an objective that says \"skill\" is not a hunting objective, and the phase
   // The other substrings the anchors close, each one reachable in ordinary orders.
   assert.equal(leadCall({mood:'Focused',stance:'Hunter',objective:'sell at the store, then explore'}),'sell');
   assert.equal(leadCall({mood:'Focused',stance:'Scout',objective:'determine what is out there before anything else'}),'goTo');
+});
+
+// Live 2026-09-25: a pilot woke at hull 3/80 inside a battle left over from the previous shift
+// and died a second after its first move. `orient` answered where it was, what it held and what
+// it owed, and never that it was in a fight — so the fight goes first, ahead of every other fact.
+test('orient leads with the battle holding the ship',async()=>{
+  const grazer={creature_id:'c1',species:'molt_grazer',name:'Molt Grazer'};
+  const f=world({mood:'Focused',stance:'Hunter'},{wildlife:{creatures:[grazer],polls:20,damage:0}});
+  try {
+    const calm=await orient();
+    assert.ok(!calm.did.includes('IN BATTLE'),calm.did);
+    assert.equal(calm.detail.battle,undefined);
+    await f.command('spacemolt/hunt',{id:'c1'});
+    const out=await orient();
+    assert.match(out.did,/^IN BATTLE with Molt Grazer \(battle tick \d+\): disengage\(\) or fight it;/);
+    assert.equal(out.detail.battle?.opponent,'Molt Grazer');
+  } finally {f.close();}
 });

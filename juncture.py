@@ -84,7 +84,7 @@ def juncture_context(session_info: Mapping[str, Any] | None = None) -> str:
     # At rest the menu still carries moves (VISION: the menu is never empty); the choosing
     # material a rest needs is the reflection, so the fire gets both.
     if menu.get("rest") or menu.get("at_rest"):
-        return _rest_context(call("reflect"), menu.get("text"), _alerts(menu))
+        return _rest_context(call("reflect"), menu.get("text"), _alerts(menu), _battle(menu))
     if menu.get("busy"):
         return "SpaceMolt juncture — a run is already in flight; its report comes with the next one."
     said = read_pilot().get("instruction")
@@ -177,6 +177,23 @@ def _alerts(menu: dict[str, Any]) -> list[str]:
     return lines
 
 
+def _battle(menu: dict[str, Any]) -> str | None:
+    """Whether a battle holds the ship, in one line, ahead of every other fact.
+
+    Live 2026-09-25: a pilot woke at hull 3/80 inside a battle left over from the previous shift
+    and died one second after its first move, because nothing it read said it was in a fight. A
+    live battle also refuses every travel, jump and undock, so it is never a detail.
+    """
+    fight = menu.get("battle")
+    if not isinstance(fight, dict):
+        return None
+    hull = (menu.get("present") or {}).get("hull")
+    at = f", hull {hull}/{(menu.get('present') or {}).get('max_hull')}" if hull is not None else ""
+    return (f"IN BATTLE NOW with {fight.get('opponent') or 'an unnamed opponent'} "
+            f"(battle tick {fight.get('tick') or '?'}{at}). Nothing moves the ship until it ends: "
+            "disengage() breaks off, or fight it with hunt's onTick.")
+
+
 def _situation(menu: dict[str, Any], said: dict[str, Any] | None) -> str:
     """The juncture as labelled lines, each fact once, budgeted on the final string.
 
@@ -188,7 +205,8 @@ def _situation(menu: dict[str, Any], said: dict[str, Any] | None) -> str:
     head = f"SpaceMolt juncture — mid-shift. Now {now.strftime('%Y-%m-%d %H:%MZ')}."
     if menu.get("stance") or menu.get("mood"):
         head += f" Stance {menu.get('stance') or 'none'}, mood {menu.get('mood') or 'none'}."
-    facts = [head]
+    # The battle goes above the head line: it is the one fact that outranks where the ship is.
+    facts = [line for line in (_battle(menu),) if line] + [head]
     if menu.get("objective"):
         facts.append(f"Objective (carried in): {menu['objective']}")
     if said:
@@ -261,7 +279,7 @@ def _situation(menu: dict[str, Any], said: dict[str, Any] | None) -> str:
 
 
 def _rest_context(report: dict[str, Any], moves: str | None = None,
-                  alerts: list[str] | None = None) -> str:
+                  alerts: list[str] | None = None, battle: str | None = None) -> str:
     """A fire that lands on a pilot at rest: reflection, not a menu (N7).
 
     There is no stance, so there is no stance work to offer and nothing to choose between.
@@ -281,6 +299,9 @@ def _rest_context(report: dict[str, Any], moves: str | None = None,
             "3. Choose one goal that serves the objective, then the stance and mood that fit it.\n"
             "4. Call spacemolt_reflect once with them — with objective_done beside them if the "
             "numbers say the objective is met — and end the turn.\n")
+    # Above everything, at rest as mid-shift: a battle still running owns the ship.
+    if battle:
+        head = f"{battle}\n{head}"
     # A finished objective is not a reason to wait: the pilot retires it and chooses its own goal
     # in the same call. Waiting here is what wedged two junctures and an hour, live (2026-09-24).
     if report.get("objective_done"):

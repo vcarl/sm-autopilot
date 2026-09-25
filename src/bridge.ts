@@ -9,7 +9,7 @@ import {createInterface} from 'node:readline';
 import {fileURLToPath} from 'node:url';
 import {markAlertsDelivered,pendingAlerts,recordAlert} from './alerts.ts';
 import {foldBattleDamage,foldBattleEnded,foldBattleUpdate} from './combat-memory.ts';
-import {battleEnded} from './travel.ts';
+import {battleEnded,battleNow} from './travel.ts';
 import {controllerLock} from './controller-lock.ts';
 import type {ReadinessAccount,ReadinessCommand} from './readiness.ts';
 import {details} from './response-details.ts';
@@ -274,9 +274,12 @@ export function serve(account:ReadinessAccount,command:ReadinessCommand,options:
       // the read-modify-write race the instruction's `_deliver` carries.
       const waiting=runtime?pendingAlerts(runtime):[];
       if(runtime)markAlertsDelivered(runtime,waiting);
+      const fight=await battleNow(command);
       const absent=(['goal','stance','mood'] as const).filter(key=>!who[key]);
       const resting=!who.stance||!who.mood;
       return {
+        // First key, first fact: the juncture renders it ahead of everything else.
+        ...fight?{battle:fight}:{},
         now:new Date().toISOString(),
         ...who.stance?{stance:who.stance}:{},...who.mood?{mood:who.mood}:{},
         ...who.goal?{goal:who.goal}:{},

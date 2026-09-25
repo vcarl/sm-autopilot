@@ -183,3 +183,19 @@ test('a long menu is capped both ways and other actions still count their arrays
   const run=journalResult('run',{status:'done',moves:[{call:'a()'},{call:'b()'}],not_now:[{move:'c'}]}) as any;
   assert.deepEqual(run,{status:'done',moves:2,not_now:1},'only menu widens; every other action counts');
 });
+
+// Live 2026-09-25: a pilot woke at hull 3/80 in a battle left over from the previous shift and
+// died one second after its first move, because nothing it read said it was in a fight. Whether
+// a battle holds the ship is the first fact the menu carries, so the juncture can lead with it.
+test('the menu says whether a battle holds the ship, before any other fact',async()=>{
+  const grazer={creature_id:'c1',species:'molt_grazer',name:'Molt Grazer'};
+  const world=bridgeWorld({services:['refuel','repair'],wildlife:{creatures:[grazer],polls:20,damage:0}});
+  const dispatch=serve(world.account as unknown as ReadinessAccount,world.command,{pilot:()=>PILOT});
+  const calm=await dispatch('menu') as any;
+  assert.equal(calm.battle,undefined,'no battle, no line');
+  await world.command('spacemolt/hunt',{id:'c1'});
+  const fighting=await dispatch('menu') as any;
+  assert.equal(fighting.battle?.opponent,'Molt Grazer');
+  assert.ok(Number(fighting.battle?.tick)>=1,JSON.stringify(fighting.battle));
+  assert.equal(Object.keys(fighting).indexOf('battle'),0,'first key: the juncture renders it first');
+});

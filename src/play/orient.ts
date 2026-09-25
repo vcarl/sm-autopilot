@@ -2,6 +2,7 @@
 import type {ActiveMissionInfo,CarrierProfile,GetNearbyResponse,GetWrecksResponse,
   ListShipsResponse,MapSystemInfo,ResourceInfo,StorageLocation,SystemConnection,SystemInfo,SystemPoi,
   TaxEstimateResponse,V2Missions,ViewStorageResponse} from '@spacemolt/lib';
+import {battleNow,type BattleNow} from '../travel.ts';
 import {details} from '../response-details.ts';
 import {acct,command,job,pilot,present,type Pilot} from './runtime.ts';
 import type {Outcome,Present} from './types.ts';
@@ -17,6 +18,9 @@ export interface Orientation {
   /** What accrues behind your back: the tax estimate and the carrier record with its debt. */
   owes:{tax?:TaxEstimateResponse;carrier?:CarrierProfile;bounty:number};
   pilot:Pilot;
+  /** The battle holding the ship right now, or absent when none is. Read first and said first:
+   * nothing else in an orientation matters while a fight is on. */
+  battle?:BattleNow;
   /** Reads that failed this time, by name. Never guessed. */
   missing:string[];
 }
@@ -34,6 +38,9 @@ async function attempt<T>(missing:string[],name:string,read:()=>Promise<T>):Prom
 export function orient():Promise<Outcome<Orientation>> {
   return job<Orientation>('orient','',async()=>{
     const missing:string[]=[];
+    // Before every other read: a pilot that does not know it is in a fight spends its first
+    // move on something the server will refuse `in_battle`, or dies making it (2026-09-25).
+    const fight=await battleNow(command);
     await attempt(missing,'skills',()=>command('spacemolt/get_skills',{}));
     const store=await attempt(missing,'storage',async()=>details(await command('spacemolt_storage/view',{})) as ViewStorageResponse);
     const ships=await attempt(missing,'ships',async()=>details(await command('spacemolt_ship/list_ships',{})) as ListShipsResponse);
@@ -55,9 +62,9 @@ export function orient():Promise<Outcome<Orientation>> {
     if(lowest)next.push(`lowest skill: ${lowest[0]} ${lowest[1].level}`);
     const place=now.location?.docked_at?`docked at ${now.location.docked_at}`:`at ${now.location?.poi_id??'?'}`;
     return {status:'done',
-      did:`${place} (${now.location?.system_name??now.location?.system_id}), fuel ${now.ship?.fuel}/${now.ship?.max_fuel}, hull ${now.ship?.hull}/${now.ship?.max_hull}, hold ${now.ship?.cargo_used}/${now.ship?.cargo_capacity}, ${now.credits} cr, ${active?.length??'?'} missions, holdings at ${store?.locations?.length??'?'} bases${missing.length?`; missing: ${missing.join(', ')}`:''}`,
+      did:`${fight?`IN BATTLE with ${fight.opponent} (battle tick ${fight.tick}): disengage() or fight it; no travel, jump or undock until it ends. `:''}${place} (${now.location?.system_name??now.location?.system_id}), fuel ${now.ship?.fuel}/${now.ship?.max_fuel}, hull ${now.ship?.hull}/${now.ship?.max_hull}, hold ${now.ship?.cargo_used}/${now.ship?.cargo_capacity}, ${now.credits} cr, ${active?.length??'?'} missions, holdings at ${store?.locations?.length??'?'} bases${missing.length?`; missing: ${missing.join(', ')}`:''}`,
       detail:{present:now,storage:store?.locations??[],ships:ships?.ships??[],active_missions:active??[],
-        owes:{...tax?{tax}:{},...carrier?{carrier}:{},bounty},pilot:who,missing},
+        owes:{...tax?{tax}:{},...carrier?{carrier}:{},bounty},pilot:who,...fight?{battle:fight}:{},missing},
       next};
   });
 }

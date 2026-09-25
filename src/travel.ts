@@ -57,6 +57,29 @@ let battleHolds=false;
 export const battleEnded=()=>{battleHolds=false;};
 const refusedInBattle=(error:unknown)=>error instanceof SpacemoltError&&error.code==='in_battle';
 
+/** Whether a battle holds the ship, in the one line a pilot has to read before anything else.
+ * On 2026-09-25 a pilot woke at hull 3/80 inside a battle left over from the previous shift and
+ * died a second after its first move, because nothing it read said it was in a fight. A refusal
+ * from `battle/status` IS "no battle"; anything else is a fight, and the ship cannot travel,
+ * jump or undock until it ends.
+ *
+ * It lives here, beside `battleHolds`, because this is the module that owns whether a battle
+ * holds the ship: an authoritative read is the best answer there is, so it sets the flag the
+ * refused-move memory below is built on rather than becoming a second copy of it. */
+export interface BattleNow {opponent:string;tick:number}
+export async function battleNow(send:ReadinessCommand):Promise<BattleNow|undefined> {
+  try {
+    const status=details(await send('spacemolt_battle/status',{})) as Record<string,any>;
+    if(!status?.battle_id){battleHolds=false;return undefined;}
+    battleHolds=true;
+    const rows=(status.participants??[]) as Record<string,any>[];
+    const theirs=rows.find(row=>row.kind!=='player'||row.is_npc);
+    return {opponent:String(theirs?.username??theirs?.player_id??'an unnamed opponent'),
+      tick:Number(status.tick_duration??0)};
+  } catch {battleHolds=false;return undefined;}
+}
+
+
 export interface TravelDestination {system_id:string;poi_id?:string;base_id?:string}
 export interface TravelOptions {
   mood?:Mood;

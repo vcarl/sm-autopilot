@@ -302,3 +302,25 @@ def test_loading_the_plugin_wakes_an_idle_pilot_once_and_leaves_a_running_one_al
     spacemolt.wake_on_load()
     job, = cron_jobs.load_jobs()
     assert job["next_run_at"] is not None and job["state"] == "scheduled"
+
+
+def test_a_live_battle_is_the_first_line_of_the_context(monkeypatch):
+    """Live 2026-09-25: a pilot woke at hull 3/80 inside a battle left over from the previous
+    shift and died one second after its first move, because nothing it read said it was in a
+    fight. A live battle also refuses every travel, jump and undock, so it goes above the head
+    line — mid-shift and at rest alike."""
+    menu = _menu(12, last=LAST)
+    menu["battle"] = {"opponent": "Slag-Tortoise", "tick": 7}
+    menu["present"]["hull"] = 3
+    menu["present"]["max_hull"] = 80
+    first = _rendered(monkeypatch, menu).splitlines()[0]
+    assert first.startswith("IN BATTLE NOW with Slag-Tortoise (battle tick 7, hull 3/80)."), first
+    assert "disengage()" in first
+    # No battle, no line: the fact costs the budget nothing when there is no fight.
+    assert "IN BATTLE" not in _rendered(monkeypatch, _menu(12, last=LAST))
+    # And a fire that lands at rest is told the same thing, before the rest turn.
+    resting = {"at_rest": True, "rest": {"at_rest": True}, "battle": menu["battle"],
+               "present": menu["present"]}
+    monkeypatch.setattr(service, "call",
+                        lambda action, params=None: copy.deepcopy(resting if action == "menu" else {"at_rest": True}))
+    assert juncture.juncture_context({"platform": "cron"}).splitlines()[0].startswith("IN BATTLE NOW with Slag-Tortoise")
