@@ -164,3 +164,38 @@ test('a reflection measures each skill against the earliest one in the journal, 
   assert.ok(raised.since,'the baseline says when it was taken');
   assert.ok(!after.missing.some((row:string)=>/earlier skill levels/.test(row)));
 });
+
+test('the bridge rests and opens the next shift in one request, so Python needs no second write', async () => {
+  // The turn's new shape: `spacemolt_run` blocks, so when it returns the model is in a turn holding
+  // the report — the one moment that is both well-informed and able to reason. `spacemolt_reflect`
+  // therefore has to do the resting itself, and rest is TS. Rather than have Python clear the record
+  // and then write it again — two writes, with the stanceless state visible between them — the whole
+  // act goes through this one request and the record is written once.
+  const f=fixture();
+  const done=await f.dispatch('rest',{goal:'walk a price circuit',stance:'Scout',mood:'Cautious'}) as any;
+  assert.equal(done.rested,true,done.reason);
+  assert.deepEqual(done.opened,{goal:'walk a price circuit',stance:'Scout',mood:'Cautious'});
+  assert.deepEqual(f.record(),{name:'kvothe',objective:'fill the hold',
+    goal:'walk a price circuit',stance:'Scout',mood:'Cautious'});
+
+  // A stance or mood the rules cannot start work in is refused before anything is written: that
+  // record would be exactly as unusable as the empty one this change exists to prevent.
+  const bad=fixture();
+  const wrong=await bad.dispatch('rest',{goal:'go fast',stance:'Cowboy',mood:'Cautious'}) as any;
+  assert.equal(wrong.rested,false);
+  assert.match(wrong.reason,/Prospector/,`the refusal does not name the stances: ${wrong.reason}`);
+  assert.equal(bad.record(),undefined,'a refused rest wrote a record anyway');
+
+  const moodless=fixture();
+  const tired=await moodless.dispatch('rest',{goal:'go fast',stance:'Scout',mood:'Tired'}) as any;
+  assert.equal(tired.rested,false);
+  assert.match(tired.reason,/Cautious/,tired.reason);
+
+  // And the runner's own argumentless rest still works, because a broken script cannot name a next
+  // shift. That path is what the run guard then catches.
+  const plain=fixture();
+  const bare=await plain.dispatch('rest') as any;
+  assert.equal(bare.rested,true,bare.reason);
+  assert.equal(bare.opened,undefined,'an argumentless rest invented a shift');
+  assert.deepEqual(plain.record(),{name:'kvothe',objective:'fill the hold'});
+});

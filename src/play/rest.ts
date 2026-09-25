@@ -53,6 +53,20 @@ export interface Rested {
   serviced:boolean;
 }
 
+/** The next shift as the rules will accept it, or why they will not. Both entry points — the
+ * barrel's `rest()` and the bridge's `rest` request, which is how `spacemolt_reflect` reaches this
+ * — go through here, so a stance the rules cannot start work in is refused identically on both.
+ * That record would be exactly as unusable as the empty one this call exists to prevent. */
+export function validateNext(asked:Partial<NextShift>|undefined):{next:NextShift}|{error:string} {
+  const goal=String(asked?.goal??'').trim();
+  const stance=STANCES.find(row=>row.name.toLowerCase()===String(asked?.stance??'').trim().toLowerCase())?.name;
+  const mood=JOB_MOODS.find(one=>one.toLowerCase()===String(asked?.mood??'').trim().toLowerCase());
+  if(!goal)return {error:'a shift opens with a goal; name what this one will do to advance the objective'};
+  if(!stance)return {error:`${asked?.stance} is not a stance; one of ${STANCES.map(row=>row.name).join(', ')}`};
+  if(!mood)return {error:`${asked?.mood} is not a mood a shift can open in; one of ${JOB_MOODS.join(', ')}`};
+  return {next:{goal,stance,mood,...asked?.objective_done?{objective_done:true}:{}}};
+}
+
 /** The act itself, on explicit deps so the runner can call it with no runtime bound. */
 export async function restNow(account:ReadinessAccount,send:ReadinessCommand,who:Pilot,
   write:(next:Pilot)=>void,runtime?:string,
@@ -103,16 +117,10 @@ export function rest(next:NextShift):Promise<Outcome<Rested>> {
   const nothing:Rested={shift_ended:false,at_rest:false,cleared:{},serviced:false};
   return job<Rested>('rest',`${next?.stance??'?'} ${next?.mood??'?'}`,async()=>{
     const refuse=(why:string)=>({status:'refused' as const,did:'the shift is still open',why,detail:nothing});
-    // Validated before anything is written, so a shift is never ended on a stance or a mood the
-    // rules cannot start work in — the record would be as unusable as the empty one.
-    const goal=String(next?.goal??'').trim();
-    const stance=STANCES.find(row=>row.name.toLowerCase()===String(next?.stance??'').trim().toLowerCase())?.name;
-    const mood=JOB_MOODS.find(one=>one.toLowerCase()===String(next?.mood??'').trim().toLowerCase());
-    if(!goal)return refuse('a shift opens with a goal; name what this one will do to advance the objective');
-    if(!stance)return refuse(`${next?.stance} is not a stance; one of ${STANCES.map(row=>row.name).join(', ')}`);
-    if(!mood)return refuse(`${next?.mood} is not a mood a shift can open in; one of ${JOB_MOODS.join(', ')}`);
-    const done=await restNow(acct(),command,pilot(),setPilot,runtimeDir(),
-      {goal,stance,mood,...next.objective_done?{objective_done:true}:{}});
+    const checked=validateNext(next);
+    if('error' in checked)return refuse(checked.error);
+    const {goal,stance,mood}=checked.next;
+    const done=await restNow(acct(),command,pilot(),setPilot,runtimeDir(),checked.next);
     if(!done.rested)return refuse(done.reason);
     const {rested:_r,...detail}=done;
     return {status:'done',

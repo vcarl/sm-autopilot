@@ -21,7 +21,7 @@ import {startHeartbeat} from './heartbeat.ts';
 import {flushJournalDrain,startJournalDrain} from './journal-webhook.ts';
 import {check as checkPilot,runPilot as defaultRunPilot,type RunResult} from './run.ts';
 import {menu as buildMenu,renderMenu} from './play/menu.ts';
-import {restNow} from './play/rest.ts';
+import {restNow,validateNext,type NextShift} from './play/rest.ts';
 import {bind,isBound,present,progress,stop as stopRun,unbind} from './play/runtime.ts';
 
 /** The one endpoint this runner talks to. */
@@ -308,11 +308,20 @@ export function serve(account:ReadinessAccount,command:ReadinessCommand,options:
   /** Rest: the one act that ends a shift (N6), and the only thing that touches the stance.
    * The act itself is `play/rest.ts`, which a script reaches as `rest()`; this is the runner's
    * own way in, for the juncture. Admissibility is the menu's own rest rule (R5) either way. */
-  const rest=async()=>{
+  /** Rest, and open the next shift when the caller names one. `spacemolt_reflect` reaches this with
+   * the goal, stance and mood the model chose from the run report it is holding — so the resting and
+   * the naming are one request and the record is written once, never through the stanceless state
+   * that cost a juncture. Called with nothing it is the runner's own rest, which is the path a
+   * broken script leaves behind: it cannot name what comes next, and the run guard catches it. */
+  const rest=async(params:Record<string,unknown>={})=>{
     if(running)return {rested:false,reason:'a run is in flight; rest when it ends',...busy()};
     const write=options.setPilot;
     if(!write)return {rested:false,reason:'this runner cannot write the pilot record'};
-    return restNow(account,command,pilot(),write,runtime);
+    const asked=params.goal!==undefined||params.stance!==undefined||params.mood!==undefined;
+    if(!asked)return restNow(account,command,pilot(),write,runtime);
+    const checked=validateNext(params as Partial<NextShift>);
+    if('error' in checked)return {rested:false,reason:checked.error};
+    return restNow(account,command,pilot(),write,runtime,checked.next);
   };
   const reflect=async()=>reflectReport(account,command,pilot(),runtime);
 
