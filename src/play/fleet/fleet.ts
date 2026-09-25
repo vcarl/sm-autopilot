@@ -6,7 +6,7 @@ import type {ListShipsResponse,MapSystemInfo,StoredShip,SwitchShipResponse,V2Shi
 import {mkdirSync,writeFileSync} from 'node:fs';
 import {dirname} from 'node:path';
 import {details} from '../../response-details.ts';
-import {closure} from '../freighter/index.ts';
+import {closure,type Holding} from '../freighter/index.ts';
 import {flying,gate,held,readFleet,recallLoop,row,script,scriptPath,start,writeFleet,type FreighterRow} from '../freighter/host.ts';
 import {acct,command,job,runtimeDir} from '../runtime.ts';
 import {buysOf,farBooks,hops,routes,type Circuit} from '../trading/trading.ts';
@@ -29,12 +29,23 @@ export function switchShip(shipId:string):Promise<Outcome<{switched:SwitchShipRe
 export const FLOAT_MAX=30_000;
 const BUILD='use routes({circuit:{hold}})';
 
+/** What of `holding` `circuit` never sells, and the hold it leaves the circuit to buy into; undefined
+ * when the circuit sells all of it. Said, never refused: the cargo is the pilot's to clear. */
+export function tiedUp(holding:Holding,circuit:Circuit):string|undefined {
+  const unsold=Object.entries(holding).filter(([item])=>!circuit.stops.some(stop=>stop.sell.some(sale=>sale.item===item)));
+  if(!unsold.length)return undefined;
+  const k=unsold.reduce((sum,[,lot])=>sum+lot.quantity,0),free=circuit.hold-k;
+  return `carrying ${unsold.map(([item,lot])=>`${lot.quantity} ${item}`).join(', ')} the circuit never sells; it fills ${k} of ${circuit.hold} hold, so `
+    +(free>0?`the circuit buys into ${free} until it's sold`:"the circuit can't buy anything until the hold is cleared");
+}
+
 /** Hand `circuit` to the freighter `name`: another account, whose login the operator has put at
  * `freighters/<name>.txt` in this runtime, flies it lap after lap from this process, keeping
  * `caps.float` credits aboard and depositing the rest to you at every stop. Returns at once; the
  * freighter flies on. Refused unless the circuit is closed, of 2+ bases this pilot has read books
  * at, buys somewhere everything it sells, and every hop (the last back to the first too) is on the
- * map; refused over `FLOAT_MAX`, or while `name` is flying (recall it first). */
+ * map; refused over `FLOAT_MAX`, or while `name` is flying (recall it first). Cargo aboard the circuit
+ * never sells is not refused: the `why` says how much of the hold it ties up. */
 export function assign(name:string,circuit:Circuit,caps:{float:number}):Promise<Outcome<{freighter:FreighterRow|null}>> {
   return job<{freighter:FreighterRow|null}>('assign',name,async()=>{
     const refuse=(why:string)=>({status:'refused' as const,did:`assigned no freighter ${name}`,why,detail:{freighter:null}});
@@ -79,10 +90,10 @@ export function assign(name:string,circuit:Circuit,caps:{float:number}):Promise<
     fleet[name]={state:'running',circuit:clean,float:caps.float,owner,lap:0,returned:fleet[name]?.returned??0,
       ...holding?{holding}:{},at:new Date().toISOString()};
     writeFleet(runtime,fleet);
-    const why=start(runtime,name);
+    const why=start(runtime,name),tied=holding&&tiedUp(holding,clean);
     if(why)return refuse(why);
     return {status:'done',did:`assigned ${name}: ${clean.stops.map(stop=>stop.at).join(' → ')} → back, ${clean.lap_net} cr a lap predicted; it flies on its own account now`,
-      detail:{freighter:row(name,readFleet(runtime)[name]!)},next:['freighters()',`recall('${name}')`]};
+      detail:{freighter:row(name,readFleet(runtime)[name]!)},next:['freighters()',`recall('${name}')`],...tied?{why:tied}:{}};
   });
 }
 
@@ -102,13 +113,11 @@ export function reassign(name:string):Promise<Outcome<{freighter:FreighterRow|nu
     if(!top)return refuse(`no circuit for a ${entry.circuit.hold} hold: ${found.why??found.did}`);
     const out=await assign(name,top,{float:entry.float});
     if(out.status!=='done')return {status:out.status,did:out.did,why:out.why??'',detail:out.detail};
-    const unsold=Object.fromEntries(Object.entries(entry.holding??{}).filter(([item])=>!top.stops.some(stop=>stop.sell.some(sale=>sale.item===item))));
-    return {status:'done',did:out.did,detail:out.detail,next:out.next??[],
-      ...held(unsold)?{why:`${held(unsold)} aboard is not sold on this circuit: that capital stays tied up in the hold`}:{}};
+    return {status:'done',did:out.did,detail:out.detail,next:out.next??[],...out.why?{why:out.why}:{}};
   });
 }
 
-/** Ask the freighter `name` home: it finishes the stop it is on, deposits its profit, and parks
+/** Ask the freighter `name` home: it finishes the stop it is on, buying nothing more, deposits its profit, and parks
  * docked there with its cargo aboard. */
 export function recall(name:string):Promise<Outcome<{freighter:FreighterRow|null}>> {
   return job<{freighter:FreighterRow|null}>('recall',name,async()=>{

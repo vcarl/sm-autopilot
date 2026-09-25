@@ -9,7 +9,9 @@
  *   The why it said clears once the stop is reached;
  * - the session taken by another connection: park, and never log in again;
  * - a sale or buy the game refuses: say so and go on; three stops in a row with no trade parks it,
- *   the ring recorded as drained;
+ *   the ring recorded as drained, unless the hold is full of cargo the circuit never sells: then the
+ *   why names that cargo and the ring is not drained;
+ * - recalled: it buys nothing more, and parks after the stop it is on;
  * - a route short of fuel, a blocked flight, no credits for fuel: park, docked where it is;
  * - LOSING_LAPS laps in a row that net 0 or less: park, docked at the lap's last stop, the ring drained.
  * A parked ship keeps its cargo aboard, and `holding` says what it cost. */
@@ -150,7 +152,8 @@ async function visit(f:Freighter,stop:Stop,sent:(credits:number)=>void,bought:(i
     if(n&&await attempt(f,stop.at,`sell ${n} ${item}`,()=>command('spacemolt/sell',{id:item,quantity:n})))traded++;
   }
   await account.refresh();
-  for(const {item,qty,max_price} of buysOf(stop)) {
+  // Recalled: it parks after this stop, so it buys no load it would only strand in the hold.
+  for(const {item,qty,max_price} of f.recalled()?[]:buysOf(stop)) {
     const row=book.get(item),ship=account.state.ship;
     // ponytail: a unit is one unit of hold. A bulkier item's buy is refused by the game and skipped.
     const want=Math.min(qty-(miningInventory(account.state)[item]??0),(ship?.cargo_capacity??0)-(ship?.cargo_used??0));
@@ -233,7 +236,15 @@ export async function lap(f:Freighter,circuit:Circuit):Promise<Lap> {
     f.report({holding:structuredClone(holding)});
     const dead=traded?0:(idle.get(f)??0)+1;
     idle.set(f,dead);
-    if(dead>=DEAD_STOPS)return f.park(`circuit dead: ${dead} stops in a row with no trade`,tick);
+    if(dead>=DEAD_STOPS) {
+      // A hold full of cargo this circuit never sells blocks every buy: the ring is not drained.
+      const cargo=miningInventory(f.account.state),ship=f.account.state.ship;
+      const sells=new Set(circuit.stops.flatMap(stop=>stop.sell.map(sale=>sale.item)));
+      if((ship?.cargo_capacity??0)-(ship?.cargo_used??0)<=0&&Object.keys(cargo).every(item=>!sells.has(item)))
+        return f.park(`hold full of ${Object.entries(cargo).map(([item,n])=>`${n} ${item}`).join(', ')} this circuit never sells, so it cannot buy; `
+          +'assign it a circuit that sells that cargo');
+      return f.park(`circuit dead: ${dead} stops in a row with no trade`,tick);
+    }
     if(f.recalled())return f.park('recalled');
   }
   // The wallet's change, plus the change in cargo aboard at cost: a load kept aboard is not a loss.

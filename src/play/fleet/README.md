@@ -23,7 +23,7 @@ Five different things get called "fleet". Keep them apart:
 | `switchShip(id)` | **not built yet — it throws `unimplemented`.** `account().commands.spacemolt_ship.switch_ship({id})`, and stow and service by hand first |
 | `assign(name, circuit, {float})` | hand a closed circuit to the freighter `name`, which flies it lap after lap on its own account and sends its profit home to you |
 | `reassign(name)` | put a parked freighter on the best circuit now: `routes({circuit: {hold}, ...circuit.scope})` for its hold and the scope its circuit was planned in, past the rings resting, then `assign` of the top row at its float |
-| `recall(name)` | bring it home: it finishes the stop it is on, sends its profit, and parks docked with its cargo aboard |
+| `recall(name)` | bring it home: it finishes the stop it is on (selling, but buying nothing), sends its profit, and parks docked with its cargo aboard |
 | `freighters()` | every freighter: state, lap, stop, wallet, what it has sent home, the last lap against the prediction, the cargo aboard at cost, and why it parked |
 
 ## Worked example
@@ -76,7 +76,10 @@ in turn, one command each, up to its `qty`, counting what is already aboard, at 
 above the float. A circuit assigned before `buys` has one `buy` a stop; it flies as it did, and a
 freighter restarted on one picks it up where it was. A stop the
 connection drops on is done again a minute later; the why it says then clears once the stop is reached. A sale or buy the game refuses is skipped;
-three stops in a row with no trade park it. A route short of fuel, a blocked flight, or no credits
+three stops in a row with no trade park it. When those stops traded nothing because the hold is
+full of cargo the circuit never sells, the why names that cargo (`hold full of 100 copper_wiring
+this circuit never sells, so it cannot buy; …`) and the ring is not recorded as drained: its books
+were never tried. Assign it a circuit that sells that cargo, or clear the hold. A route short of fuel, a blocked flight, or no credits
 for fuel park it docked where it is. Three laps in a row that net 0 or less park it at the lap's
 last stop, the why naming the last lap against the prediction (`3 laps lost money: last -32 vs
 predicted 521`); a lap that pays, however far under `lap_net`, flies on. A parked freighter keeps
@@ -92,12 +95,20 @@ assigned before `scope`), and `assign`s it the
 top row at the float it had. It is refused when no circuit pays (the `why` carries what `routes`
 said, rings skipped included), when you are not docked (`routes` reads the book here), and
 wherever `assign` refuses. Its cargo rides into the new circuit at its cost and is sold there if
-the new circuit sells it; when it does not, the `why` says which of the `holding` stays tied up
-in the hold.
+the new circuit sells it; when it does not, the `why` says so (from `assign`, below).
 
 `assign` answers at once, with the freighter flying. It is refused while that name is flying:
 `recall` it first. Re-assigning a parked one starts it again on the new circuit, its `returned`
-and `holding` kept.
+and `holding` kept. Cargo aboard that the new circuit never sells is never a refusal; the `why`
+says what it ties up, against the circuit's `hold`: `carrying 100 copper_wiring the circuit never
+sells; it fills 100 of 100 hold, so the circuit can't buy anything until the hold is cleared` (or,
+with room left, `so the circuit buys into 50 until it's sold`). A full hold of it parks the
+freighter within three stops, as above.
+
+**Recall.** `recall` parks it after the stop it is on, wherever on the circuit that is: it sells
+there as usual but buys nothing more, so a recall never strands a fresh load bought for a circuit
+it is leaving. Cargo bought before the recall stays aboard; a later `assign` says whether the new
+circuit sells it.
 
 `freighters()` answers `detail.freighters`, one row each, and the menu carries the same rows as
 `freighters`:

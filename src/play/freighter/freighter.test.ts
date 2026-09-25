@@ -7,7 +7,7 @@ import {SpacemoltError} from '@spacemolt/lib';
 import type {ReadinessAccount,ReadinessCommand} from '../../readiness.ts';
 import {check} from '../../run.ts';
 import {bridgeWorld,TICK,type WorldOptions} from '../../test-support/bridge-world.ts';
-import {assign,reassign} from '../fleet/fleet.ts';
+import {assign,reassign,tiedUp} from '../fleet/fleet.ts';
 import {menu,renderMenu} from '../menu.ts';
 import {bind,unbind} from '../runtime.ts';
 import {REST_TICKS,routes,type Circuit} from '../trading/trading.ts';
@@ -79,6 +79,54 @@ test('a refused buy is skipped, not thrown, and three stops in a row with no tra
   assert.equal(laps,2,'sol, range, then sol again');
   assert.equal(drained(),TICK,'parked as drained, on the tick of the book it last read');
   assert.ok(reports.some(r=>/buy 10 gem refused/.test(r.why??'')));
+});
+
+test('a genuine no-price circuit (every ask over the cap) still parks as drained',async()=>{
+  const {world,f,parked,drained}=freighter(130,[],{markets:{sol_base:[{item_id:'gem',best_buy:0,best_buy_qty:0,best_sell:200,best_sell_qty:50}]}});
+  await world.account.refresh();
+  let laps=0,last:Lap;
+  do {last=await lap(f,GEMS);laps++;} while(!last.park&&laps<5);
+  assert.match(parked()!,/^circuit dead/);
+  assert.equal(drained(),TICK);
+});
+
+test('a hold full of cargo the circuit never sells parks naming that cargo, and the ring is not drained (live: 100 copper_wiring after a recall)',async()=>{
+  const {world,f,parked,drained}=freighter(130,[],{cargo:[{item_id:'copper_wiring',quantity:50}],cargoUsed:50,cargoCapacity:50});
+  await world.account.refresh();
+  let laps=0,last:Lap;
+  do {last=await lap(f,GEMS);laps++;} while(!last.park&&laps<5);
+  assert.equal(parked(),'hold full of 50 copper_wiring this circuit never sells, so it cannot buy; assign it a circuit that sells that cargo');
+  assert.equal(drained(),undefined,'not recorded as drained');
+});
+
+test('a recalled freighter buys nothing more at the stop it parks after',async()=>{
+  const {world,f,parked}=freighter(130);
+  f.recalled=()=>true;
+  await world.account.refresh();
+  await lap(f,GEMS);
+  assert.equal(parked(),'recalled');
+  assert.equal(world.count('spacemolt/buy'),0);
+});
+
+test('assign proceeds with cargo the new circuit never sells, and says what it ties up of the hold',async()=>{
+  const runtime=mkdtempSync(join(tmpdir(),'freighter-tied-'));
+  const world=bridgeWorld({tradeIntel:[{base_id:'sol_base',items:[{item_id:'gem',best_buy:0,best_sell:100,sell_volume:50}]},
+    {base_id:'range_base',items:[{item_id:'gem',best_buy:130,buy_volume:50}]}]});
+  (world.account.server.player as {username?:string}).username='B';
+  writeFleet(runtime,{hauler:{state:'parked',circuit:GEMS,float:5_000,owner:'B',lap:3,returned:0,
+    holding:{copper_wiring:{quantity:4,cost:40}},why:'recalled',at:''}});
+  bind({account:world.account as unknown as ReadinessAccount,command:world.command,pilot:()=>({mood:'Focused'}),
+    setPilot:()=>{},emit:()=>{},runtime});
+  try {
+    await world.account.refresh();
+    // Past every check, cargo included: only the operator's login is missing (a start would fly live).
+    assert.match((await assign('hauler',GEMS,{float:5_000})).why!,/^no login at /);
+  } finally {unbind();rmSync(runtime,{recursive:true,force:true});}
+  assert.equal(tiedUp({copper_wiring:{quantity:4,cost:40}},GEMS),
+    "carrying 4 copper_wiring the circuit never sells; it fills 4 of 10 hold, so the circuit buys into 6 until it's sold");
+  assert.equal(tiedUp({copper_wiring:{quantity:10,cost:40}},GEMS),
+    "carrying 10 copper_wiring the circuit never sells; it fills 10 of 10 hold, so the circuit can't buy anything until the hold is cleared");
+  assert.equal(tiedUp({gem:{quantity:10,cost:900}},GEMS),undefined,'a circuit that sells it all says nothing');
 });
 
 test('assign refuses an open path, and writes nothing',async()=>{
