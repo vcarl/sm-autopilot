@@ -570,26 +570,37 @@ export function routes(opts:{items?:string[];circuit?:{hold:number}}={}):Promise
     };
     // A closed lap for an empty `circuit.hold`, whatever is aboard now: three laps planned, the middle
     // one read — the first starts empty, the last has no next lap to carry for. One plan() shares each
-    // base's book between the laps, so the middle lap can sell more than it buys: lap one bought from
-    // the untouched book, lap two from what was left (live: sold 50 steel, bought 21, net 521 where
-    // the lap flown nets -30). A lap repeats only what it buys and sells, so each item counts only
-    // min(sold, bought) units, its sales and buys scaled to that at their average price.
-    // ponytail: average-price scaling ignores which book levels the dropped units were on; walk the
-    // levels if a balanced lap's prediction drifts from the realised net.
-    const lapOf=(stops:RunStop[]):Route=>{
-      const n=stops.length,hold=circuit!.hold;
-      const planned=plan({},hold,[...stops,...stops,...stops].map(stop=>({book:known.get(stop.at)!,...stop.buy?{buy:stop.buy}:{},rate})),
-        [...known.values()].filter(book=>!stops.some(stop=>stop.at===book.base_id)));
-      const middle=planned.legs.slice(n,2*n),total=(pick:(leg:Leg)=>{item:string;quantity:number}[],item:string)=>
-        middle.flatMap(pick).filter(row=>row.item===item).reduce((sum,row)=>sum+row.quantity,0);
-      const soldOf=(leg:Leg)=>leg.sold.map(sale=>({item:sale.item_id,quantity:sale.quantity}));
-      const boughtOf=(leg:Leg)=>leg.bought?[{item:leg.buy!,quantity:leg.bought}]:[];
-      const kept=(item:string,side:typeof soldOf)=>Math.min(total(soldOf,item),total(boughtOf,item))/total(side,item);
+    // base's book between the laps, so the middle lap trades on books one lap has already eaten into.
+    // The lap starts at its first buy: started at a sale, lap one sells nothing, and the middle lap
+    // would sell into the untouched book (live: 965 for 50 steel where the repeat pays 950) — so a
+    // ring read from each end would rank by whichever end flattered it.
+    // ponytail: a ring whose hold is never empty (x bought at A sold at C, y bought at B sold at A)
+    // still reads one item off a book lap one did not touch; plan a fourth lap if that ring ever ranks.
+    // A lap repeats only what it buys and sells, so each item counts only min(sold, bought) units:
+    // sales kept at the dearest legs first, buys at the cheapest (live: sold 50 steel, bought 21, net
+    // 521 where the lap flown nets -30; and 2 targeting computers sold that no stop bought, 16,681).
+    // ponytail: a kept unit is priced at its leg's average; walk the levels if a balanced lap's
+    // prediction drifts from the realised net.
+    const middleOf=(stops:RunStop[])=>plan({},circuit!.hold,[...stops,...stops,...stops].map(stop=>({book:known.get(stop.at)!,...stop.buy?{buy:stop.buy}:{},rate})),
+      [...known.values()].filter(book=>!stops.some(stop=>stop.at===book.base_id))).legs.slice(stops.length,2*stops.length);
+    const lapOf=(given:RunStop[]):Route=>{
+      // Where the lap first buys is only known once planned: a stop named to buy may take nothing.
+      const first=Math.max(0,middleOf(given).findIndex(leg=>leg.bought)),stops=[...given.slice(first),...given.slice(0,first)];
+      const n=stops.length,hold=circuit!.hold,middle=middleOf(stops),sales=middle.flatMap(leg=>leg.sold),buys=middle.filter(leg=>leg.bought);
+      const count=(rows:{item:string;quantity:number}[],item:string)=>rows.filter(row=>row.item===item).reduce((sum,row)=>sum+row.quantity,0);
+      const sold=sales.map(sale=>({item:sale.item_id,quantity:sale.quantity})),bought=buys.map(leg=>({item:leg.buy!,quantity:leg.bought}));
+      const both=new Map([...sold,...bought].map(row=>[row.item,Math.min(count(sold,row.item),count(bought,row.item))]));
+      const allot=<T,>(rows:T[],item:(row:T)=>string,quantity:(row:T)=>number,each:(row:T)=>number)=>{
+        const left=new Map(both);
+        return new Map(rows.toSorted((a,b)=>each(a)-each(b)).map(row=>{
+          const take=Math.min(quantity(row),left.get(item(row))!);left.set(item(row),left.get(item(row))!-take);return [row,take];}));
+      };
+      const keptSales=allot(sales,sale=>sale.item_id,sale=>sale.quantity,sale=>-sale.revenue/sale.quantity);
+      const keptBuys=allot(buys,leg=>leg.buy!,leg=>leg.bought,leg=>leg.cost/leg.bought);
       const legs=middle.map((leg):Leg=>{
-        const share=leg.bought?kept(leg.buy!,boughtOf):0,cost=leg.cost*share;
-        return {...leg,sold:leg.sold.map(sale=>{const part=kept(sale.item_id,soldOf);
-          return {...sale,quantity:Math.round(sale.quantity*part),revenue:sale.revenue*part};}).filter(sale=>sale.quantity>0),
-          bought:Math.round(leg.bought*share),cost,sales_tax:leg.sales_tax===null?null:Math.floor(cost*(rate??0))};
+        const took=keptBuys.get(leg)??0,cost=took?leg.cost*took/leg.bought:0;
+        return {...leg,sold:leg.sold.map(sale=>{const quantity=keptSales.get(sale)!;return {...sale,quantity,revenue:sale.revenue*quantity/sale.quantity};})
+          .filter(sale=>sale.quantity>0),bought:took,cost,sales_tax:leg.sales_tax===null?null:Math.floor(cost*(rate??0))};
       });
       let lap:number|null=0;
       for(const [i,stop] of stops.entries()) {
@@ -617,11 +628,12 @@ export function routes(opts:{items?:string[];circuit?:{hold:number}}={}):Promise
     const wanted=(item:string)=>!opts.items?.length||opts.items.includes(item);
     const found=new Map<string,Route>();
     // A route pays, and every stop on it does something: a stop that neither sells nor buys is only fuel.
-    // A circuit pays once round a whole lap, fuel and all; its rotations are one circuit.
+    // A circuit pays once round a whole lap, fuel and all. One ring of bases is one circuit: its
+    // rotations, and the other buys that ring could make, rank as the best of them alone.
     const keep=(stops:RunStop[])=>{
       const row=circuit?lapOf(stops):evaluate(stops),trades=row.legs.every(leg=>leg.sold.length||leg.bought);
       const pays=trades&&(circuit?row.total_jumps!==null&&row.net>0:row.revenue>row.cost);
-      const key=circuit?stops.map(stop=>`${stop.at}+${stop.buy??''}`).map((_,i,keys)=>[...keys.slice(i),...keys.slice(0,i)].join(' ')).sort()[0]!:row.next;
+      const key=circuit?stops.map(stop=>stop.at).map((_,i,keys)=>[...keys.slice(i),...keys.slice(0,i)].join(' ')).sort()[0]!:row.next;
       if(pays&&!((found.get(key)?.score??-Infinity)>=row.score))found.set(key,row);
       return pays&&row;
     };

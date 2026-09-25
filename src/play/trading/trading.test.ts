@@ -421,8 +421,8 @@ test('a circuit is read off the middle of three laps: the steady state sells wha
       {at:'range_base',system_id:'deep_range',buy:{item:'ore',qty:20,max_price:11},sell:[{item:'gem',min_price:135}]}]);
     assert.equal(lap.hold,20,'planned for the hold asked for, not the 5 scrap aboard');
     assert.equal(out.detail.routes.filter(row=>row.circuit).length,out.detail.routes.length,'every row is a circuit');
-    assert.deepEqual(out.detail.routes.map(row=>row.net),[1386,986,386],
-      'gems one way and ore one way rank under the round trip, and range→sol is not listed again: it is the same circuit turned round');
+    assert.deepEqual(out.detail.routes.map(row=>row.net),[1386],
+      'gems one way and ore one way are the same ring of bases as the round trip, and range→sol is it turned round: one row');
     assert.match(top.next,/^assign\('freighter', \{closed:true,hold:20,/);
     next=top.next;
   } finally {unbind();rmSync(runtime,{recursive:true,force:true});}
@@ -452,4 +452,43 @@ test('a circuit counts only what a lap both buys and sells: the carry lap one bo
       assert.deepEqual(out.detail.routes.map(row=>[row.net,row.circuit!.stops]),[],`${depth} deep: the steel and neon lap loses money`);
     } finally {unbind();rmSync(runtime,{recursive:true,force:true});}
   }
+});
+
+test('a circuit never sells what its lap does not buy (live: 16,681 from 2 targeting computers the lap never bought)',async()=>{
+  // The scout's books (tick 1971711), cut to the three goods that ranked. central_nexus is sol_base (here) and
+  // node_alpha is range_base, the far base this world's find_route can place. Nexus bids targeting_computer 8360 and
+  // asks soma 85; alpha asks targeting_computer 8144 × 2 and bids soma 110 × 10 then 105 × 2, steel 20 × 15 then 19;
+  // beta asks steel 18 and bids soma 110 × 1. Lap one takes alpha's two computers, so the steady lap takes none: the
+  // next is 8443, over nexus's 8360. Beta ↔ alpha (one system, 0 jumps): 50 steel at 19, the 20s gone in lap one:
+  // 950 − 900 − floor(900 × 2.5%) = 28. Beta → alpha → nexus (2 jumps × 7 fuel × 1 cr): beta sells the 1 soma it bids
+  // 110 for and buys 39 steel (the 11 soma lap one over-bought still ride to alpha), alpha takes the 39 at 19, nexus
+  // buys 1 soma at 85: 110 + 741 − 702 − 17 − 85 − 2 − 14 = 31.
+  const runtime=remembered([
+    {base_id:'range_base',age:46,system_id:'deep_range',items:[
+      {item_id:'targeting_computer',best_sell:8144,best_sell_qty:2,sell_orders:[{price_each:8144,quantity:2},{price_each:8443,quantity:1},{price_each:8610,quantity:1}]},
+      {item_id:'voidborn_neural_soma',best_buy:110,best_buy_qty:10,buy_orders:[{price_each:110,quantity:10},{price_each:105,quantity:2},{price_each:73,quantity:4}]},
+      {item_id:'steel_plate',best_buy:20,best_buy_qty:15,buy_orders:[{price_each:20,quantity:15},{price_each:19,quantity:1072},{price_each:13,quantity:1824}],
+        best_sell:100,best_sell_qty:78792}]},
+    {base_id:'node_beta_industrial_station',age:17,system_id:'deep_range',items:[
+      {item_id:'targeting_computer',best_buy:35,best_buy_qty:667},
+      {item_id:'voidborn_neural_soma',best_buy:110,best_buy_qty:1,buy_orders:[{price_each:110,quantity:1},{price_each:73,quantity:31}],best_sell:464,best_sell_qty:12},
+      {item_id:'steel_plate',best_sell:18,best_sell_qty:140298,sell_orders:[{price_each:18,quantity:140298},{price_each:66,quantity:417}]}]}]);
+  world({mood:'Focused'},{cargo:[],cargoUsed:0,cargoCapacity:1200,store:[],taxBps:250,fuelPrice:1,
+    markets:{sol_base:[
+      {item_id:'targeting_computer',best_buy:8360,best_buy_qty:7,buy_orders:[{price_each:8360,quantity:7},{price_each:7600,quantity:15}],best_sell:0,best_sell_qty:0},
+      {item_id:'voidborn_neural_soma',best_buy:0,best_buy_qty:0,best_sell:85,best_sell_qty:4440,sell_orders:[{price_each:85,quantity:4440},{price_each:89,quantity:31264}]},
+      {item_id:'steel_plate',best_buy:12,best_buy_qty:58,buy_orders:[{price_each:12,quantity:58}],best_sell:180,best_sell_qty:9118}]}},runtime);
+  try {
+    const out=await routes({circuit:{hold:50}});
+    assert.equal(out.status,'done',out.why);
+    for(const row of out.detail.routes) {
+      const bought=new Set(row.circuit!.stops.flatMap(stop=>stop.buy?[stop.buy.item]:[]));
+      for(const stop of row.circuit!.stops)for(const sale of stop.sell)
+        assert.ok(bought.has(sale.item),`${stop.at} sells ${sale.item}, which no stop on the lap buys`);
+    }
+    assert.deepEqual(out.detail.routes.map(row=>[row.net,row.circuit!.stops.map(stop=>stop.at)]),[
+      [28,['node_beta_industrial_station','range_base']],
+      [31,['node_beta_industrial_station','range_base','sol_base']]],
+      'one row per ring of bases, steel the only thing either repeats');
+  } finally {unbind();rmSync(runtime,{recursive:true,force:true});}
 });

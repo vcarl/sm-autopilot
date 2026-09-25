@@ -131,11 +131,12 @@ aboard you now is ignored), with at least one buy. The last stop may take on som
 stop outbids, so the way back pays too.
 
 A lap is planned three times over and the **middle** lap is the one read: the first starts empty,
-and the last has nothing after it to carry for. The middle one sells at the first stop what the lap
-before carried back. It is one plan over one set of books, so what lap one bought is gone for lap
-two, and the middle lap can sell more than it buys. A lap repeats only what it both buys and sells,
-so each item counts `min(sold, bought)` units, at their average price; an item sold with none bought
-on the lap is carry from lap one and is not counted.
+and the last has nothing after it to carry for. The lap starts at its first buy, so lap one has
+already traded on every book the middle lap reads. It is one plan over one set of books, so what
+lap one took is gone for lap two, and the middle lap can sell more than it buys. A lap repeats only
+what it both buys and sells, so each item counts `min(sold, bought)` units, sold at its best bids
+and bought at its cheapest asks; an item sold with none bought on the lap is carry from lap one and
+is not counted. One ring of bases is one row: its rotations and other buys rank as the best of them.
 
 A circuit row is a `Route` whose numbers are that middle lap's: `legs`, `revenue`, `cost`,
 `sales_tax`; `net` is `lap_net`, `total_jumps` is `lap_jumps`, `score` is
