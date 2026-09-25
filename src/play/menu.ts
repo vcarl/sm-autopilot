@@ -470,13 +470,20 @@ export async function menu(runtime?:string):Promise<Menu> {
    * the generic rows every stance gets. A Hunter offered a mining trip and no hunt at all was the
    * same bug read from the other end (2026-09-24). */
   const stanceWork=new Set<string>();
+  /** The rules' own refusals, held back until they can be ranked and capped. `not_now` is prompt
+   * budget as much as `moves` is: `shared.travel` refuses once per site, so a single fuel shortfall
+   * would otherwise bury the stance row that actually explains why the shift is stuck. */
+  const refused:{move:string;why:string;rank:number}[]=[];
+  const REFUSAL_RANK:Record<string,number>={stance:0,resupply:1,rest:2,shared:3,safety:4};
   for(const verdict of verdicts) {
     const fn=verdict.play?.split('(')[0]??'';
     if(!verdict.admissible) {
-      // A refused verdict is a sentence, never a call. `already serviced` is not a refusal worth
-      // a line — it is the ship being fine.
-      if(fn&&!/already at the serviced-dock targets/.test(verdict.reason))
-        not_now.push({move:fn,why:verdict.reason});
+      // A refused verdict carries no call — `no()` sets no `play` — so the job names it. Deriving
+      // the label from `play` meant this branch never fired at all and every rules-table reason
+      // was computed and dropped, while `play/README.md` promised the pilot the opposite.
+      // `already serviced` is not a refusal worth a line: it is the ship being fine.
+      if(!/already at the serviced-dock targets/.test(verdict.reason))
+        refused.push({move:fn||verdict.job,why:verdict.reason,rank:REFUSAL_RANK[verdict.tag]??9});
       continue;
     }
     if(!verdict.play||MENU_OWNS.has(fn))continue;
@@ -497,6 +504,19 @@ export async function menu(runtime?:string):Promise<Menu> {
   if(shortFuel&&!docked)for(const row of await serviceElsewhere()) {
     moves.push({call:row.call,why:`${shortFuel}; ${row.why}`,advances:'ship'});
     unblocks.add(row.call);
+  }
+
+  // The rules' refusals, ranked by what they explain and capped. One travel shortfall stands for
+  // all of them: five POIs refused for the same missing fuel is one fact, not five.
+  const travelSaid=new Set<string>();
+  for(const row of refused.sort((a,b)=>a.rank-b.rank)) {
+    if(/^Travel to /.test(row.move)) {
+      if(travelSaid.size)continue;
+      travelSaid.add(row.move);
+    }
+    if(not_now.some(seen=>seen.move===row.move&&seen.why===row.why))continue;
+    if(not_now.length>=6)break;
+    not_now.push({move:row.move,why:row.why});
   }
 
   // Rank: break the repetition first, then the goal's own words, then what similar runs measured.

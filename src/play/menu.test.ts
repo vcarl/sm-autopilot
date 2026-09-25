@@ -490,3 +490,41 @@ test('a docked, serviced pilot is offered rest, because the menu is now the only
     assert.deepEqual((await check(runtime)).errors,[]);
   } finally {f.close();}
 });
+
+test("the rules' own refusals reach not_now, which is what the pilot was promised they would",async()=>{
+  // `play/README.md` tells the pilot "not now says what the rules refuse and why". It did not.
+  // `no()` never sets `play`, so the label was derived from a field that is always absent for an
+  // inadmissible verdict, the `if(fn&&…)` guard was always false, and every one of the rules
+  // table's refusal reasons — J1's "no reachable POI is quoted with resources", J4's liability
+  // line, the service bill — was computed on every build and dropped. Every `not_now` row the
+  // pilot has ever read came from the menu's own inline rows.
+  const f=world({mood:'Cautious',stance:'Carrier',goal:'land passengers',
+    permissions:{max_liability:10}},{cargoUsed:0,cargoCapacity:120,
+      shipping:{listings:[{id:'s1',destination_base_id:'range_base',base_reward:1_000,reserved_exposure:9_000}]}});
+  try {
+    const built=await menu(f.runtime);
+    // J4 is refused here: the one package on the board is far over the standing liability.
+    const refused=built.not_now.find(row=>/liability/.test(row.why));
+    assert.ok(refused,`the J4 refusal never reached the pilot: ${JSON.stringify(built.not_now)}`);
+    // And it is labelled with something the pilot can act on rather than an empty string.
+    assert.ok(refused!.move.length>0,'a refusal with no label at all');
+    assert.ok(!built.not_now.some(row=>row.move===''),`an unlabelled not_now row: ${JSON.stringify(built.not_now)}`);
+  } finally {f.close();}
+});
+
+test('the refusals the rules produce are capped and ranked, because not_now is prompt budget too',async()=>{
+  // `shared.travel` maps over every site in the system, so a fuel shortfall refuses one verdict per
+  // POI and would bury the stance refusal that actually explains why the shift is stuck. The rows
+  // that say why the pilot cannot do its job come first, and the tail is dropped rather than shown.
+  const f=world({mood:'Cautious',stance:'Prospector',goal:'obtain credits'},
+    {pois:[{id:'a',name:'A'},{id:'b',name:'B'},{id:'c',name:'C'},{id:'d',name:'D'},{id:'e',name:'E'}]});
+  try {
+    f.account.server.location.docked_at=null;
+    f.account.server.location.poi_id='belt';
+    f.account.server.ship.fuel=8;
+    const built=await menu(f.runtime);
+    const travel=built.not_now.filter(row=>/^Travel to /.test(row.move));
+    assert.ok(travel.length<=1,`one shortfall became ${travel.length} near-identical rows: ${JSON.stringify(travel)}`);
+    assert.ok(built.not_now.length<=6,`not_now ran to ${built.not_now.length} rows`);
+  } finally {f.close();}
+});
