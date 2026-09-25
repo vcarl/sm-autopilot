@@ -186,6 +186,11 @@ export interface WildlifeOptions {
    * "Retreating from the enemy." and the fight carries on, which is what the live server does
    * and what killed three ships on 2026-09-24; 0 is a retreat that ends it at once. */
   retreatTicks?:number;
+  /** Ticks under `stance flee` before the ship actually escapes and the battle ends. `flee`
+   * is the exit the server has (0% dealt, 100% taken, auto-retreats to escape) and 0 is an
+   * escape on the next tick; a high number is the faster opponent that kites the flee and
+   * keeps the ship in the fight, which is why breaking off needs somewhere to go. */
+  fleeTicks?:number;
 }
 
 /** A bench with one recipe on it: what a dry run answers, what a commit escrows and queues,
@@ -292,7 +297,7 @@ export function bridgeWorld(options:WorldOptions={}) {
   };
   // The habitat: creatures at the POI, one battle at a time, and the wrecks a kill leaves.
   const fauna={polls:1,damage:0,drops:[{item_id:'creature_carapace',quantity:1}],
-    incapacitateOn:0,retreatTicks:0,...options.wildlife,
+    incapacitateOn:0,retreatTicks:0,fleeTicks:0,...options.wildlife,
     creatures:(options.wildlife?.creatures??[]).map(row=>({role:'grazer',hull:60,max_hull:60,
       name:row.species,in_combat:false,branded:false,...row}))};
   if(options.wildlife) {
@@ -304,7 +309,7 @@ export function bridgeWorld(options:WorldOptions={}) {
       name:String(weapon.name??'Autocannon I')});
   }
   const wrecks:Record<string,any>[]=[];
-  let battle:{target:string;left:number;ticks:number;retreats:number}|null=null;
+  let battle:{target:string;left:number;ticks:number;retreats:number;stance:string;fled:number}|null=null;
   // A battle owns the ship: the live server refuses every move while one is on, by this code.
   const notInBattle=()=>{
     if(battle)throw new SpacemoltError('in_battle',
@@ -316,6 +321,9 @@ export function bridgeWorld(options:WorldOptions={}) {
     account.server.ship.hull=Math.max(0,account.server.ship.hull-fauna.damage);
     if(fauna.incapacitateOn&&battle.ticks>=fauna.incapacitateOn)
       account.server.ship.incapacitated=true;
+    // Fleeing is the exit: the damage of this tick lands (flee takes all of it) and then the
+    // ship is out, once it has held the stance long enough to get away.
+    if(battle.stance==='flee'&&battle.fled++>=fauna.fleeTicks){battle=null;return;}
     if(battle.left>0){battle.left--;return;}
     // The one that ran: the battle ends with the creature still in the habitat and no wreck.
     if(fauna.flees){battle=null;return;}
@@ -478,7 +486,7 @@ export function bridgeWorld(options:WorldOptions={}) {
     'spacemolt/hunt':params=>{
       const target=fauna.creatures.find(row=>row.creature_id===String(params.id));
       if(!target)throw new Error(`No creature ${params.id} here`);
-      battle={target:target.creature_id,left:Math.max(0,fauna.polls),ticks:0,retreats:0};
+      battle={target:target.creature_id,left:Math.max(0,fauna.polls),ticks:0,retreats:0,stance:'fire',fled:0};
       return {delta:{details:{command:'attack',message:'Engaging.',pending:true}}};
     },
     // The server's own refusal when the fight is over, which is how a caller learns it ended.
@@ -498,7 +506,9 @@ export function bridgeWorld(options:WorldOptions={}) {
           zone:fauna.flees?'outer':'inner',zone_distance:fauna.flees?2+ticks:2}))]}};
     },
     'spacemolt_battle/advance':()=>({structuredContent:{action:'advance',message:'Advancing toward the enemy.'}}),
-    'spacemolt_battle/stance':params=>({structuredContent:{action:'stance',stance:String(params.id),message:'Stance set.'}}),
+    'spacemolt_battle/stance':params=>{
+      if(battle)battle.stance=String(params.id);
+      return {structuredContent:{action:'stance',stance:String(params.id),message:'Stance set.'}};},
     'spacemolt_battle/target':params=>({structuredContent:{action:'target',target:String(params.id),message:'Target set.'}}),
     // A retreat is an attempt, not an exit: the live server takes it and the battle carries on
     // until it resolves. `retreatTicks` is how many accepted retreats that takes.

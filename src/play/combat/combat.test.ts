@@ -118,24 +118,28 @@ test('hunt breaks off at the walk-away line, which is also what imposes Tired',a
     assert.equal(out.detail.fights.length,1,'the second fight never starts');
     assert.ok(out.now.ship.hull<90,`hull ${out.now.ship.hull} is under the line`);
     assert.equal(f.record().mood,'Tired');
-    assert.equal(f.count('spacemolt_battle/retreat'),1);
+    // The exit is the flee stance, never a retreat: `retreat` only opens the range.
+    assert.deepEqual(f.sent.filter(call=>call.action==='spacemolt_battle/stance').map(call=>call.params).at(-1),{id:'flee'});
+    assert.equal(f.count('spacemolt_battle/retreat'),0);
     assert.match(out.why!,/Tired/);
   } finally {unbind();}
 });
 
-// A retreat is an attempt, not an exit. On 2026-09-24 the walk-away fired correctly at
+// A retreat is not an exit at all — it is the range maneuver `backOff`. On 2026-09-24 the walk-away fired correctly at
 // 22:14:16 (hull 61/80 under the Aggressive line 64), sent one `battle/retreat`, took the
 // server's "Retreating from the enemy." as done and returned — and the battle carried on for
 // two and a half minutes while every move the pilot then tried was refused `in_battle` and a
 // Slag-Tortoise took the hull from 61 to 29. Three ships were lost that way, all uninsured.
-// Breaking off means staying on it until the battle itself says it is over.
-test('breaking off at the hull line waits for the battle to actually end, not for the first accepted retreat',async()=>{
-  const f=world({mood:'Focused'},{wildlife:{creatures:[grazer],polls:20,damage:4,retreatTicks:3}});
+// Breaking off means holding the flee stance until the battle itself says it is over.
+test('breaking off at the hull line waits for the battle to actually end, not for the first accepted stance',async()=>{
+  const f=world({mood:'Focused'},{wildlife:{creatures:[grazer],polls:20,damage:4,retreatTicks:99,fleeTicks:3}});
   try {
     const out=await hunt({fights:2});
     assert.equal(out.detail.fights[0]!.outcome,'broke off');
-    // Four retreats: the three the server accepted while the fight ran on, and the one it ended on.
-    assert.equal(f.count('spacemolt_battle/retreat'),4,'the retreat is re-issued until the battle ends');
+    // One flee, held for the four ticks the escape took: a stance stays set, so it is not re-sent.
+    assert.deepEqual(f.sent.filter(call=>call.action==='spacemolt_battle/stance').map(call=>call.params).filter(p=>p.id==='flee'),
+      [{id:'flee'}],'the flee stance is set once and held until the battle ends');
+    assert.equal(f.count('spacemolt_battle/retreat'),0,'a retreat would have opened the range and left the ship in it');
     // The whole point: the ship can move again. A live battle refuses travel with `in_battle`.
     await f.command('spacemolt/travel',{id:'belt'});
     assert.equal(f.account.server.location.poi_id,'belt');
@@ -144,14 +148,14 @@ test('breaking off at the hull line waits for the battle to actually end, not fo
 
 // The same wait on its own, for a pilot that finds a move refused `in_battle`.
 test('disengage reports whether the battle ended, and says so when the bound ran out with it still on',async()=>{
-  const f=world({mood:'Focused'},{wildlife:{creatures:[grazer],polls:20,damage:0,retreatTicks:2}});
+  const f=world({mood:'Focused'},{wildlife:{creatures:[grazer],polls:20,damage:0,fleeTicks:2}});
   try {
     await f.command('spacemolt/hunt',{id:'c1'});
     assert.equal(await disengage(),true);
     await f.command('spacemolt/travel',{id:'belt'});
     assert.equal(f.account.server.location.poi_id,'belt');
   } finally {unbind();}
-  const g=world({mood:'Focused'},{wildlife:{creatures:[grazer],polls:20,damage:0,retreatTicks:99}});
+  const g=world({mood:'Focused'},{wildlife:{creatures:[grazer],polls:20,damage:0,fleeTicks:99}});
   try {
     await g.command('spacemolt/hunt',{id:'c1'});
     // A bound of one tick: the battle is still on when it runs out, and that is the answer.
@@ -230,8 +234,11 @@ test('a hull crossing the walk-away line is caught even while tick_duration is s
     const out=await hunt();
     const fight=out.detail.fights[0]!;
     assert.equal(fight.outcome,'broke off','the line was crossed; the fight was not won');
-    assert.equal(f.count('spacemolt_battle/retreat'),1,'the tick sat still, but the hull was still read every poll');
-    assert.equal(fight.hull_after,76,'stopped one poll past the line (80), not run down while blind to it');
+    assert.deepEqual(f.sent.filter(call=>call.action==='spacemolt_battle/stance').map(call=>call.params).at(-1),{id:'flee'},
+      'the tick sat still, but the hull was still read every poll');
+    // One poll past the line (80), plus the tick the escape itself took: `flee` takes 100% of
+    // the incoming damage, which is the price of the only exit the game has.
+    assert.equal(fight.hull_after,71,'stopped one poll past the line, not run down while blind to it');
   } finally {unbind();}
 });
 
@@ -299,7 +306,7 @@ test('a per-tick callback decides the stance, the range and the exit, and hunt s
     assert.equal(seen[0]!.stats?.win_chance,undefined);
     // Each decision applied, one mutation a tick, and never a command the callback sent itself.
     assert.deepEqual(f.sent.filter(call=>call.action==='spacemolt_battle/stance').map(call=>call.params),
-      [{id:'brace'}]);
+      [{id:'brace'},{id:'flee'}],'the brace the callback asked for, then the flee that left the battle');
     assert.equal(f.count('spacemolt_battle/advance'),1,'closeIn is advance, and it is not an exit');
     // Twice: the `undefined` tick fell back to the default ladder, which still owed the focus,
     // and the callback asked for it again on its own tick. `undefined` is "no change", which is
@@ -337,11 +344,11 @@ test('the walk-away floor overrides a reckless callback and names what it refuse
     const out=await hunt({onTick:()=>({stance:'fire'})});
     const fight=out.detail.fights[0]!;
     assert.equal(fight.outcome,'broke off','the floor won');
-    assert.equal(fight.hull_after,94,'stopped one poll past the line, not run down by the callback');
+    assert.equal(fight.hull_after,93,'one poll past the line plus the tick the flee took, not run down by the callback');
     assert.match(f.lines.join('\n'),
       /override: onTick asked \{"stance":"fire"\}, and the Cautious walk-away line 95 wins/);
     assert.match(f.lines.join('\n'),/breaking off: hull 94 under the line 95/);
-    assert.equal(f.count('spacemolt_battle/retreat'),1);
+    assert.match(f.lines.join('\n'),/breaking off: stance flee, which auto-retreats to escape/);
   } finally {unbind();}
 });
 
@@ -365,6 +372,34 @@ test('no callback fights exactly as it did before, and braces only once the line
     await hunt();
     assert.match(losing.lines.join('\n'),/stance brace: shields flat, theirs 100% against ours, and the line 80 is close/);
     assert.deepEqual(losing.sent.filter(call=>call.action==='spacemolt_battle/stance').map(call=>call.params),
-      [{id:'fire'},{id:'brace'},{id:'fire'}],'one brace a fight, then back to firing');
+      [{id:'fire'},{id:'brace'},{id:'fire'},{id:'flee'}],'one brace a fight, back to firing, and the flee it broke off on');
+  } finally {unbind();}
+});
+
+// `spacemolt_battle/retreat` is a RANGE maneuver, not an exit: `BattleResponse.action` lists it
+// beside `advance`, and the live server answers "Retreating from the enemy." while the battle
+// carries on. Re-issuing it is what the 2026-09-25 23:39 log did — one "breaking off" and
+// fourteen "the battle has not ended yet" in ninety seconds, waiting for an end no retreat
+// could bring. The exit is `stance flee`, which auto-retreats to escape. Because flee takes
+// 100% of incoming damage and a faster opponent can kite it, a flee that is not escaping falls
+// back to `brace` (0% dealt, 25% taken, shields regen 2×) and waits the battle out there.
+test('breaking off sets the flee stance, and braces when the flee cannot escape',async()=>{
+  const f=world({mood:'Focused'},{wildlife:{creatures:[grazer],polls:8,damage:0,retreatTicks:99,fleeTicks:99}});
+  try {
+    await f.command('spacemolt/hunt',{id:'c1'});
+    assert.equal(await disengage(),true,'the battle ended on its own, as every observed one does');
+    assert.equal(f.count('spacemolt_battle/retreat'),0,'retreat is a range maneuver, never the exit');
+    assert.deepEqual(f.sent.filter(call=>call.action==='spacemolt_battle/stance').map(call=>call.params),
+      [{id:'flee'},{id:'brace'}],'flee first, then brace once it is plainly not getting away');
+  } finally {unbind();}
+  // The flee that works: one stance, no fallback, and the ship can move again.
+  const g=world({mood:'Focused'},{wildlife:{creatures:[grazer],polls:20,damage:0,fleeTicks:1}});
+  try {
+    await g.command('spacemolt/hunt',{id:'c1'});
+    assert.equal(await disengage(),true);
+    assert.deepEqual(g.sent.filter(call=>call.action==='spacemolt_battle/stance').map(call=>call.params),
+      [{id:'flee'}],'the flee escaped; nothing else was needed');
+    await g.command('spacemolt/travel',{id:'belt'});
+    assert.equal(g.account.server.location.poi_id,'belt');
   } finally {unbind();}
 });

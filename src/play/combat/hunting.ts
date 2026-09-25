@@ -80,7 +80,8 @@ export interface TickDecision {
   move?:'closeIn'|'backOff';
   /** Focus fire on this participant id. */
   focus?:string;
-  /** Break off and stay on the retreat until the battle itself ends. The only exit there is. */
+  /** Break off: `stance flee` until the battle ends, bracing if the flee cannot get away. The
+   * only exit there is — `backOff` above opens the range and leaves the ship in the fight. */
   disengage?:true;
 }
 
@@ -145,27 +146,49 @@ async function huntText():Promise<string> {
 /** Whether an active mission's own words name this species (its id, space for underscore). */
 const namesSpecies=(text:string,species:string)=>text.includes(species.replace(/_/g,' '));
 
-/** Break off, and see it through. `spacemolt_battle/retreat` is an attempt, not an exit: the
- * live server answers "Retreating from the enemy." and the battle carries on for ticks
- * afterwards. On 2026-09-24 one retreat at the walk-away line left the ship in the battle for
- * two and a half minutes, hull 61 to 29, while every move it tried was refused `in_battle` —
- * and it lost the ship. So the retreat is re-issued once a tick until the battle itself says
- * it is over. The stop flag is deliberately not checked: a pilot asking to stop does not mean
- * abandoning the ship in a fight.
+/** Break off, and see it through. `spacemolt_battle/retreat` is a RANGE maneuver, not an exit:
+ * it sits beside `advance` in `BattleResponse.action`, the live server answers "Retreating from
+ * the enemy." and the battle carries on. Re-issuing it waits for an end it cannot bring — on
+ * 2026-09-25 that was one "breaking off" and fourteen "the battle has not ended yet" in ninety
+ * seconds, and on 2026-09-24 the same shape lost the ship from hull 61 to 29.
+ *
+ * The exit is `stance flee`: 0% dealt, 100% taken, and it auto-retreats to escape. Two facts
+ * bound it. Flee takes four times `brace`'s damage, and the escape can fail outright — an
+ * equal or faster opponent kites the flee movement — so an unbounded flee against a faster
+ * enemy is the worst cell in the stance table. And battles end on their own, every observed
+ * one at 5–22 ticks. So the flee gets `FLEE_TICKS` ticks to work, and when it has not, the
+ * fight is waited out under `brace` (0% dealt, 25% taken, shields regen 2×) instead, which is
+ * a quarter of the damage for the same wait. A stance holds until it is changed, so each is
+ * sent once rather than re-issued.
+ *
+ * The stop flag is deliberately not checked: a pilot asking to stop does not mean abandoning
+ * the ship in a fight.
  *
  * True when the battle ended. False when the bound ran out with the battle still on, which is
  * the one state a pilot must be told about, because nothing will move the ship until it ends. */
+export const FLEE_TICKS=3;
 export async function disengage(bound=FIGHT_CEILING_MS):Promise<boolean> {
   const deadline=Date.now()+bound;
+  let held:CombatStance|undefined,ticks=0;
   for(;;) {
-    try {await command('spacemolt_battle/retreat',{});} catch {/* the battle may have ended already */}
+    const want:CombatStance=ticks<FLEE_TICKS?'flee':'brace';
+    if(want!==held) {
+      try {
+        await command('spacemolt_battle/stance',{id:want});
+        held=want;
+        step(want==='flee'
+          ?'breaking off: stance flee, which auto-retreats to escape'
+          :`flee has not got away in ${FLEE_TICKS} ticks: stance brace (25% taken, shields regen 2×) until the battle ends`);
+      } catch {/* the battle may have ended already; the status read below decides */}
+    }
     // The battle answering `not_in_battle` IS its end; that refusal is the evidence.
     try {
       const status=details(await command('spacemolt_battle/status',{})) as GetBattleStatusResponse;
       if(!status?.battle_id){battleEnded();return true;}
     } catch {battleEnded();return true;}
     if(Date.now()>=deadline)return false;
-    step('retreating: the battle has not ended yet');
+    ticks++;
+    step(`${held??'breaking off'}: the battle has not ended yet`);
     await sleep(pace.tickMs);
   }
 }
@@ -307,8 +330,9 @@ async function engage(target:CreatureInfo|PirateInfo,floor:()=>number,
     await sleep(pace.tickMs);
   }
   await acct().refresh();
-  // ponytail: the chase is `advance`. `stance board` would cancel its retreat outright, but it
-  // costs marines and suppresses our weapons; take it the day a hunt needs a boarding party.
+  // ponytail: the chase is `advance`, and the exit is `stance flee` (see `disengage`). `stance
+  // board` would cancel a quarry's retreat outright, but it costs marines and suppresses our
+  // weapons; take it the day a hunt needs a boarding party.
   const why=stuck
     ?'broke off at the hull line, but the battle had not ended when the retreat bound ran out: the ship is still in it and cannot travel or jump'
     :outcome==='escaped'&&fled&&seen&&first

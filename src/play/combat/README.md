@@ -9,7 +9,7 @@ what to engage is your judgement, and most of the judgement is about what not to
 | Function | Promise |
 |---|---|
 | `hunt({poi?, fights?, species?, target?, onTick?})` | up to N fights where you stand (or at `poi`, flown to first), each wreck looted; nothing there is `done` with zero fights. `onTick` is your own hand on the stance — see **Fighting with your own hand on the stance** |
-| `disengage()` | break off whatever battle holds the ship and wait until it has actually ended; true when it has. The one call to make when a move is refused `in_battle` |
+| `disengage()` | break off whatever battle holds the ship (`stance flee`, then `brace` if it cannot get away) and wait until the battle has actually ended; true when it has. The one call to make when a move is refused `in_battle` |
 | `salvage({tow?})` | loot every wreck here into the hold, your own first; `tow: '<wreck id>'` tows that one instead |
 
 `hunt` fights and loots, and nothing else. A fight runs on the battle's own tick — ten seconds
@@ -97,7 +97,7 @@ Applied in this order, one a tick; the rest is asked again next tick if you ask 
 
 | Field | Type | What it does |
 |---|---|---|
-| `disengage` | `true` | break off and stay on the retreat until the battle itself ends. **The only exit.** |
+| `disengage` | `true` | break off: `stance flee` until the battle ends, bracing if the flee cannot get away. **The only exit.** |
 | `stance` | `'fire' \| 'evade' \| 'brace' \| 'flee'` | the stance to hold from this tick on |
 | `move` | `'closeIn' \| 'backOff'` | a **range maneuver, not an exit**. `closeIn` shortens the range, `backOff` opens it. Neither leaves the battle |
 | `focus` | `string` | focus fire on that participant id |
@@ -221,15 +221,18 @@ before and after, and `gained.items` is the cargo delta — a `loot` reply over-
 ## The flee rule
 
 Every mood has a walk-away fraction of max hull (Cautious 0.95, Focused and Relaxed 0.90,
-Aggressive 0.80). `hunt` reads the hull each round and `battle/retreat`s the moment it crosses
-that line. A ship that escapes at 30% hull keeps everything.
+Aggressive 0.80). `hunt` reads the hull each round and breaks off the moment it crosses that
+line. A ship that escapes at 30% hull keeps everything.
 
-`battle/retreat` is an attempt, not an exit: the server accepts it and the battle carries on
-for ticks afterwards, and while it does, every `travel`, `jump` and `undock` is refused
-`in_battle`. So `hunt` re-issues the retreat once a tick until the battle itself says it is
-over, and `disengage()` is that same wait on its own for a pilot that finds a move refused. A
-refused move is never worth re-issuing until the battle has ended — that loop is how ships are
-lost.
+`battle/retreat` is not the way out: it is a range maneuver (`backOff`), and the server takes
+it while the battle carries on for ticks afterwards — during which every `travel`, `jump` and
+`undock` is refused `in_battle`. The exit is `stance flee`, which auto-retreats to escape. It
+takes 100% of the incoming damage and the escape can fail outright, because an equal or faster
+opponent kites the flee movement, so breaking off is bounded: three ticks under `flee`, and if
+that has not got the ship away, the fight is waited out under `brace` (25% taken, shields regen
+2×) until it ends — every battle observed ended on its own inside 22 ticks. `disengage()` is
+that whole sequence, and it is what a pilot calls when a move comes back `in_battle`. A refused
+move is never worth re-issuing until the battle has ended — that loop is how ships are lost.
 
 The quarry flees too, and that is the other half of the rule. A creature whose hull stops
 falling while its `zone_distance` grows is running, not being missed: `hunt` chases it with
