@@ -13,6 +13,7 @@ import {combatLine,readCombat,statsFor} from '../combat-memory.ts';
 import {readJournal} from '../run-record.ts';
 import {PACKAGE_CARGO} from './hauling/freight.ts';
 import {bench,moduleSpec,whyNotFit} from './hangar.ts';
+import {readSightings,recall} from '../sighting-memory.ts';
 import {knownBooks,ticksOld} from './market.ts';
 import {stuck} from './missions.ts';
 import {acct,command,pilot,present,runCalls,type Pilot} from './runtime.ts';
@@ -188,6 +189,22 @@ export async function factsNow(account:ReadinessAccount,send:ReadinessCommand,wh
   };
 }
 
+/** What a verdict's own call serves, keyed by the barrel function it names. The verdict decides
+ * whether the move is admissible and says why; this only labels it for the pilot. A call with no
+ * row here is not offered — a move the menu cannot tag is one nobody decided what it was for. */
+const SERVES:Record<string,Advances>={goTo:'knowledge',service:'ship',rest:'objective',
+  prices:'credits',storage:'knowledge',recipes:'knowledge',shipsForSale:'ship',missions:'credits',
+  freightBoard:'credits',haul:'credits',carryPassengers:'credits',spreads:'credits',
+  hunt:'objective',gatherUntil:'credits'};
+/** Calls that only read. They spend nothing and start nothing, which makes them the floor of the
+ * menu: worth offering when there is room, never worth offering over work. */
+const READ_CALLS=new Set(['prices','storage','recipes','shipsForSale','missions','freightBoard','spreads']);
+/** Verdict calls the menu builds for itself, with facts the rules table does not have: POI
+ * positions for the nearest habitat, and this runtime's sighting memory. The verdict's own call
+ * would name a different site off `Facts.place.sites`, so two rows would disagree about where to
+ * go — and the one built here knows more. */
+const MENU_OWNS=new Set(['gatherUntil','hunt']);
+
 const lit=(value:unknown)=>JSON.stringify(value).replace(/"/g,"'").replace(/'(\w+)':/g,'$1:');
 /** The loop that trains a skill, by the lib's `SkillProgress.category` or the skill id. */
 const TRAINS:[RegExp,string][]=[[/mining/,'gatherUntil'],[/trad|commerce/,'sell'],[/navigation|piloting|explor/,'goTo'],
@@ -237,7 +254,6 @@ export async function menu(runtime?:string):Promise<Menu> {
   const verdicts=evaluateMenu(facts);
   const system=(await attempt(async()=>(details(await command('spacemolt/get_system',{})) as {system:SystemInfo}).system));
   const pois:SystemPoi[]=system?.pois??[];
-  const serviced=verdicts.find(v=>v.job==='J12 Home, serviced');
 
   if(who.mood==='Tired') {
     const why=`Tired (${now.tired_by||'margin crossed'})`;
@@ -333,8 +349,8 @@ export async function menu(runtime?:string):Promise<Menu> {
   const here=pois.find(p=>p.id===location?.poi_id);
   const dist=(p:SystemPoi)=>Math.hypot((p.position?.x??0)-(here?.position?.x??0),(p.position?.y??0)-(here?.position?.y??0));
   const belt=pois.filter(p=>/belt|field|cloud/.test(p.type)).sort((a,b)=>dist(a)-dist(b))[0];
-  /** Whether the nearest belt is out of fuel range, read once and reused by the hunt row below,
-   * which flies to the same POI. Left null when a full hold short-circuits the quote. */
+  /** Whether the nearest belt is out of fuel range. The hunt row quotes its own list now, since
+   * it may look at several habitats and the belt is only the first of them. */
   let beltFuel:string|null=null;
   if(belt) {
     // `gatherUntil` settles the take at a base and refuses outright without one: `base` falls
@@ -349,10 +365,10 @@ export async function menu(runtime?:string):Promise<Menu> {
     else work({call:`gatherUntil({poi:'${belt.id}',base:'${home}'})`,why:`${belt.type} ${belt.name}, ${ship?.cargo_capacity!-ship?.cargo_used!} free in the hold, settling at ${home}`,advances:'credits'});
   }
 
-  // Hunt when the orders say hunt. `hunt({poi})` flies there itself (play/combat/README.md), so
-  // a dock is no blocker: the call undocks and travels, and the destination is the job's business.
-  // Fauna is where the resources are, so the habitat is the same nearest belt/field/cloud the
-  // belt row picked — the regex the career README's own example uses.
+  // Hunt when the orders say hunt. Fauna is not knowable before arrival — POI rows carry no fauna
+  // field and `get_nearby` answers only for where the ship stands — so the offer is a prey and a
+  // RANGE of places to look, never one place asserted to hold prey. `hunt` flies each in turn and
+  // stops at the first with the quarry in it, so a dock is no blocker.
   const lead=leadCall(who);
   if(lead==='hunt') {
     // J8 reads `observed.targets`; so does the claim here, so the menu cannot assert a creature
@@ -361,12 +377,39 @@ export async function menu(runtime?:string):Promise<Menu> {
     const poi=location?.poi_id??'this poi';
     if(!docked&&seen.length)
       work({call:'hunt()',why:`the objective names hunting; ${seen.join(', ')} at ${poi} is legal to engage`,advances:'objective'});
-    else if(belt&&belt.id!==location?.poi_id&&!beltFuel)
-      work({call:`hunt({poi:'${belt.id}'})`,advances:'objective',
-        why:`the objective names hunting; ${belt.type} ${belt.name} is where fauna gathers, and hunt flies there itself${docked?` from ${docked}`:''}`});
-    else if(!docked)
-      work({call:'hunt()',why:`the objective names hunting; nothing scanned at ${poi} yet — hunt() reads what is there and spends nothing on an empty habitat`,advances:'objective'});
-    else not_now.push({move:'hunt',why:beltFuel??`docked at ${docked}, and no belt, field or cloud in ${location?.system_id??'this system'} to hunt at; goTo a system with one`});
+    else {
+      // What this runtime remembers of each habitat, and how old it is. A habitat remembered
+      // EMPTY and recently enough to still be believed is dropped from the list: sending the
+      // pilot back to a rock it looked at an hour ago is the guess-dressed-as-knowledge that
+      // makes an empty shift our fault rather than the world's. A remembered absence that has
+      // aged past its bound reads `stale` and goes back on the list — `recall` governs absences
+      // more strictly than presences for exactly this reason (sighting-memory.ts).
+      const sightings=runtime?readSightings(runtime):[];
+      const reach:{name:string;id:string;note:string}[]=[],emptied:string[]=[];
+      for(const habitat of pois.filter(p=>/belt|field|cloud/.test(p.type)).sort((a,b)=>dist(a)-dist(b))) {
+        if(habitat.id===location?.poi_id)continue;
+        const known=recall(sightings,habitat.id);
+        if(known.state==='seen'&&known.count===0) {
+          emptied.push(`${habitat.name} was empty ${known.ticks_old}t ago`);
+          continue;
+        }
+        if(await flies(habitat.id))continue;
+        reach.push({name:habitat.name,id:habitat.id,
+          note:known.state==='seen'?`${known.count} seen ${known.ticks_old}t ago`
+            :known.state==='stale'?`last looked at ${known.ticks_old}t ago, too old to trust`
+            :'never looked at'});
+        if(reach.length>=3)break;
+      }
+      if(reach.length)
+        work({call:`hunt({look:[${reach.map(row=>`'${row.id}'`).join(',')}]})`,advances:'objective',
+          why:`the objective names hunting; ${reach.map(row=>`${row.name} (${row.note})`).join(', ')} — hunt looks at each in turn and fights where the prey is${docked?`, flying from ${docked}`:''}`});
+      else if(!docked)
+        work({call:'hunt()',advances:'objective',
+          why:`the objective names hunting; ${emptied.length?`nothing else in ${location?.system_id??'this system'} is worth the fuel (${emptied.join('; ')})`:`nothing scanned at ${poi} yet`} — hunt() reads what is there and spends nothing on an empty habitat`});
+      else not_now.push({move:'hunt',why:emptied.length
+        ?`every habitat in ${location?.system_id??'this system'} is remembered empty (${emptied.join('; ')}); goTo a system with unlooked ones`
+        :shortFuel||`docked at ${docked}, and no belt, field or cloud in ${location?.system_id??'this system'} to hunt at; goTo a system with one`});
+    }
   }
 
   // Explore an unvisited neighbour.
@@ -415,10 +458,35 @@ export async function menu(runtime?:string):Promise<Menu> {
     else if(loop==='hunt'&&!docked)work({call:`hunt()`,why:`trains ${row.name??id} (level ${row.level}, the lowest)`,advances:'skill'});
   }
 
-  // Service where the counter admits it.
-  if(docked&&serviced) {
-    if(serviced.admissible)moves.push({call:'service()',why:serviced.reason,advances:'ship'});
-    else if(!/already at the serviced-dock targets/.test(serviced.reason))not_now.push({move:'service',why:serviced.reason});
+  // Everything else the rules already worked out. `evaluateMenu` produces roughly fifteen
+  // verdicts and the menu used to consume one of them; the rest were computed and thrown away
+  // while this function re-derived a narrower picture inline. A verdict is offerable when it is
+  // admissible AND carries a `play` — the barrel line the pilot pastes. The rows with no `play`
+  // stay unsaid on purpose: the three `safety` rows have no primitive behind them at all (there
+  // is no `watch`, `dock`, `retreat` or `undock`, and `disengage()` answers a different
+  // question), and inventing one would hand the pilot code that does not compile.
+  /** Calls that are this stance's own J-numbered job. A Carrier's freight and passengers, a
+   * Trader's spread: the work the stance exists to do, which must not be crowded off the menu by
+   * the generic rows every stance gets. A Hunter offered a mining trip and no hunt at all was the
+   * same bug read from the other end (2026-09-24). */
+  const stanceWork=new Set<string>();
+  for(const verdict of verdicts) {
+    const fn=verdict.play?.split('(')[0]??'';
+    if(!verdict.admissible) {
+      // A refused verdict is a sentence, never a call. `already serviced` is not a refusal worth
+      // a line — it is the ship being fine.
+      if(fn&&!/already at the serviced-dock targets/.test(verdict.reason))
+        not_now.push({move:fn,why:verdict.reason});
+      continue;
+    }
+    if(!verdict.play||MENU_OWNS.has(fn))continue;
+    const advances=SERVES[fn];
+    if(!advances)continue;
+    // A read is admissible anywhere; work is not. `work` routes it through the same `jobStop`
+    // the runner applies, so a threat or a mood that may not start a job refuses it here too.
+    const move:Move={call:verdict.play,why:verdict.reason,advances};
+    if(verdict.tag==='stance')stanceWork.add(verdict.play);
+    if(READ_CALLS.has(fn))moves.push(move);else work(move);
   }
 
   // A fuel refusal out in the open is the wedge: `service()` refuses undocked, and the rows above
@@ -437,11 +505,17 @@ export async function menu(runtime?:string):Promise<Menu> {
   const wants:Record<Advances,RegExp>={credits:/credit|money|cr\b/,skill:/skill|level|train/,ship:/ship|hull|cargo|upgrade/,
     knowledge:/know|explor|world|visit|scout/,influence:/influence|reputation|faction/,objective:/objective|goal|rest/};
   const gain=(fn:string)=>{const past=runs.filter(r=>r.fn===fn);return past.length?past.reduce((n,r)=>n+r.credits,0)/past.length:0;};
+  // Reads rank under work, always. Surfacing more verdicts must not mean a longer menu — the
+  // budget is still five rows — so the counters fill the space work leaves rather than competing
+  // for it. A read that unblocks something still leads, which is why that term stays first.
   const key=(m:Move)=>{const fn=m.call.split('(')[0]!;
-    return [unblocks.has(m.call)?1:0,repeated&&fn!==repeated?1:0,wants[m.advances].test(goal)?1:0,LEADS[who.stance??'']===fn?1:0,gain(fn)];};
+    return [unblocks.has(m.call)?1:0,READ_CALLS.has(fn)?0:1,repeated&&fn!==repeated?1:0,
+      stanceWork.has(m.call)?1:0,wants[m.advances].test(goal)?1:0,LEADS[who.stance??'']===fn?1:0,gain(fn)];};
   const seen=new Set<string>();
   const ranked=moves.filter(m=>!seen.has(m.call)&&seen.add(m.call)).map(m=>({m,k:key(m)}))
-    .sort((a,b)=>b.k[0]!-a.k[0]!||b.k[1]!-a.k[1]!||b.k[2]!-a.k[2]!||b.k[3]!-a.k[3]!||b.k[4]!-a.k[4]!).map(({m})=>m).slice(0,5);
+    .sort((a,b)=>b.k[0]!-a.k[0]!||b.k[1]!-a.k[1]!||b.k[2]!-a.k[2]!||b.k[3]!-a.k[3]!||b.k[4]!-a.k[4]!
+      ||b.k[5]!-a.k[5]!||b.k[6]!-a.k[6]!)
+    .map(({m})=>m).slice(0,5);
   // The tag says what a move serves, and what the objective names serves the objective: the
   // ranking is already settled, so this only corrects the label the pilot reads.
   const tagged=ranked.map(m=>lead&&m.call.split('(')[0]===lead?{...m,advances:'objective' as const}:m);

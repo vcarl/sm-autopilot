@@ -5,6 +5,7 @@ import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import type {ReadinessAccount} from '../readiness.ts';
 import {check} from '../run.ts';
+import {ABSENCE_STALE,TICK_MS,writeLook} from '../sighting-memory.ts';
 import {journalRun} from '../run-record.ts';
 import {evaluateMenu,jobStop,type Facts} from '../rules-table.ts';
 import {bridgeWorld,TICK,type WorldOptions} from '../test-support/bridge-world.ts';
@@ -258,19 +259,24 @@ test('a base in this system that posts a repair price is named with the price, n
   } finally {f.close();}
 });
 
-test("a docked Hunter is offered hunt({poi}) at the habitat, and the call compiles through the gate",async()=>{
+test("a docked Hunter is offered a range of places to look, and the call compiles through the gate",async()=>{
   // Live 2026-09-24: the menu offered a Hunter `hunt()` with no destination, and under a dock only
   // `not_now: docked at sirius_observatory_station; undock or goTo a poi with fauna` — two remedies
   // the barrel has no call for (`grep -c undock src/play/index.ts` → 0, and the menu's goTo rows only
-  // ever name unvisited neighbouring systems). `hunt({poi})` flies there itself, so the dock is the
-  // job's business, not the pilot's.
+  // ever name unvisited neighbouring systems). The dock is the job's business, not the pilot's.
+  //
+  // It is a `look` list rather than one `poi` because fauna is not knowable before arrival: POI rows
+  // carry no fauna field and `get_nearby` answers only for where the ship stands. Naming one belt
+  // asserts prey is there, which we cannot know — so if the pilot finds nothing, that was our fault.
   const f=world({mood:'Focused',stance:'Hunter',objective:'cull the fauna'});
   try {
     f.account.server.location.docked_at='sol_base';f.account.server.location.poi_id='station';
     const built=await menu(f.runtime);
-    const hunt=built.moves.find(m=>m.call==="hunt({poi:'belt'})");
-    assert.ok(hunt,`no hunt with a destination: ${JSON.stringify(built.moves)} / ${JSON.stringify(built.not_now)}`);
-    assert.match(hunt!.why,/Inner Belt is where fauna gathers, and hunt flies there itself from sol_base/);
+    const hunt=built.moves.find(m=>m.call==="hunt({look:['belt']})");
+    assert.ok(hunt,`no hunt with places to look: ${JSON.stringify(built.moves)} / ${JSON.stringify(built.not_now)}`);
+    // Never looked at is said as never looked at, not dressed up as a habitat known to hold prey.
+    assert.match(hunt!.why,/Inner Belt \(never looked at\)/,hunt!.why);
+    assert.match(hunt!.why,/flying from sol_base/,hunt!.why);
     assert.ok(!built.not_now.some(row=>row.move==='hunt'),JSON.stringify(built.not_now));
     // The shape the pilot would paste, through the real gate: a wrong one costs a whole juncture.
     const runtime=mkdtempSync(join(tmpdir(),'menu-hunt-'));
@@ -282,6 +288,39 @@ test("a docked Hunter is offered hunt({poi}) at the habitat, and the call compil
   } finally {f.close();}
 });
 
+test('a habitat this runtime remembers as empty is not offered again, and when they all are the menu says so',async()=>{
+  // "If we're telling the player where to hunt, then it's our fault if they find nothing huntable
+  // there." A look written last shift is the only thing that can stop the menu repeating a guess,
+  // so the offer reads sighting memory and drops what it knows to be empty.
+  const f=world({mood:'Focused',stance:'Hunter',objective:'cull the fauna'});
+  try {
+    f.account.server.location.docked_at='sol_base';f.account.server.location.poi_id='station';
+    writeLook(f.runtime,{poi_id:'belt',seen:[]});
+    const built=await menu(f.runtime);
+    assert.ok(!built.moves.some(m=>m.call.startsWith('hunt(')),
+      `the belt was looked at and was empty, and is offered anyway: ${JSON.stringify(built.moves)}`);
+    const why=built.not_now.find(row=>row.move==='hunt')?.why??'';
+    assert.match(why,/remembered empty/,why);
+    assert.match(why,/Inner Belt was empty/,why);
+  } finally {f.close();}
+});
+
+test('an aged-out absence goes back on the list, because a stale absence is not knowledge',async()=>{
+  // The failure mode that matters in the other direction: an absence believed forever means a POI
+  // with prey in it is skipped for good. `recall` expires absences sooner than presences, and the
+  // menu has to honour that rather than caching the answer itself.
+  const f=world({mood:'Focused',stance:'Hunter',objective:'cull the fauna'});
+  try {
+    f.account.server.location.docked_at='sol_base';f.account.server.location.poi_id='station';
+    // Stamped by hand, older than the absence bound: the same row that suppressed the offer above.
+    writeLook(f.runtime,{poi_id:'belt',seen:[]},
+      ()=>new Date(Date.now()-(ABSENCE_STALE+5)*TICK_MS));
+    const built=await menu(f.runtime);
+    const hunt=built.moves.find(m=>m.call==="hunt({look:['belt']})");
+    assert.ok(hunt,`a stale absence suppressed the offer: ${JSON.stringify(built.not_now)}`);
+    assert.match(hunt!.why,/too old to trust/,hunt!.why);
+  } finally {f.close();}
+});
 test('the undocked hunt row claims a legal creature only when one was observed',async()=>{
   // The same build's J8 verdict reads `observed.targets`; the menu asserted "fauna at X is legal to
   // engage" without reading it at all, so the two halves of one menu could contradict each other.
@@ -385,5 +424,47 @@ test('the mining row names the base the trip settles at, docked or not',async()=
     const row=out.moves.find(move=>move.call.startsWith('gatherUntil('));
     assert.ok(row,JSON.stringify(out.moves.map(move=>move.call)));
     assert.match(row!.call,/^gatherUntil\(\{poi:'belt',base:'sol_base'\}\)$/);
+  } finally {f.close();}
+});
+
+test('the verdicts the menu never used are now moves: the stance work and the counter reads, in that order',async()=>{
+  // `evaluateMenu` computes roughly fifteen verdicts. The menu consumed ONE of them (J12) and threw
+  // the rest away while re-deriving a narrower picture inline, which is the largest gap in the tree
+  // between what we know and what the pilot is told. J4, J5 and the base's counters were all
+  // computed on every build and never offered.
+  const f=world({mood:'Focused',stance:'Carrier',goal:'land passengers',permissions:{max_liability:5_000}},
+    {cargoUsed:0,cargoCapacity:120,
+      shipping:{listings:[{id:'s1',destination_base_id:'range_base',base_reward:1_000}]},
+      passengers:{berths:{economy:2},waiting:[{citizen_id:'c1',destination:'range_base'}]}});
+  try {
+    const built=await menu(f.runtime);
+    const calls=built.moves.map(m=>m.call);
+    // J4 and J5 carry their own calls off facts the menu never read for itself.
+    assert.ok(calls.some(call=>call.startsWith('haul(')||call==='carryPassengers()'),
+      `no Carrier work from the verdicts: ${JSON.stringify(built.moves)}`);
+    // A read spends nothing and starts nothing, so it is the floor of the menu and never its head:
+    // surfacing more verdicts must not cost the pilot the row it would have acted on.
+    const reads=['prices()','storage()','shipsForSale()','missions()','freightBoard()'];
+    const firstRead=calls.findIndex(call=>reads.includes(call));
+    const lastWork=calls.reduce((at,call,index)=>reads.includes(call)?at:index,-1);
+    if(firstRead>=0)assert.ok(firstRead>lastWork,`a counter read outranked work: ${JSON.stringify(calls)}`);
+    // And the budget is unchanged: more coverage, not a longer menu.
+    assert.ok(built.moves.length<=5,JSON.stringify(calls));
+  } finally {f.close();}
+});
+
+test('a verdict with no barrel primitive behind it is left unsaid, not invented',async()=>{
+  // The three safety rows. Under a threat `evaluateMenu` returns only those, and none of them has a
+  // call: there is no `watch`, `dock`, `retreat` or `undock` in the barrel, and `disengage()` breaks
+  // off a battle that already holds THIS ship, which is not what a threat here is. Emitting any of
+  // them would hand the pilot code that does not compile, which costs a whole juncture — so the
+  // menu says nothing rather than guessing, and that silence is the reported gap.
+  const f=world({mood:'Focused',stance:'Hunter',objective:'cull the fauna'});
+  try {
+    f.account.server.location.docked_at=null;f.account.server.location.poi_id='belt';
+    f.account.server.location.nearby_players=[{player_id:'p9',username:'Raider',in_combat:true}];
+    const built=await menu(f.runtime);
+    for(const bad of ['watch','dock(','retreat','undock','disengage'])
+      assert.ok(!built.moves.some(m=>m.call.includes(bad)),`invented a safety primitive: ${JSON.stringify(built.moves)}`);
   } finally {f.close();}
 });
