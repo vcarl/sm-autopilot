@@ -58,9 +58,18 @@ async function storeCount(base:string,item:string):Promise<number> {
  *
  * Mining while docked is refused by the game, so a station POI as `poi` is `refused`.
  * Trains mining (+ deep_core_mining with a power-3+ laser), piloting, navigation. */
+/** How a trip is named in the journal and the run record. `maxTrips` is named only when it is in
+ * force, which is only with an `until` target: without one this is a single trip by design (see
+ * the note above), so advertising "≤3 trips" on a run that makes exactly one tells a pilot reading
+ * its own record that it asked for something it did not get. The live pilot's own index.ts passes
+ * `maxTrips` with no `until`, so this was being printed on every gather it ran. */
+export const tripLabel=(opts:{poi:string;base?:string;until?:{item:string;quantity:number};
+  maxTrips?:number;then?:'stow'|'sell'}):string=>
+  `${opts.poi}${opts.base?` → ${opts.base}`:''}${opts.until?` until ${opts.until.item} ≥ ${opts.until.quantity}`:''}${opts.until&&opts.maxTrips?` ≤${opts.maxTrips} trips`:''}${opts.then==='sell'?' then sell':''}`;
+
 export function gatherUntil(opts:{poi:string;base?:string;until?:{item:string;quantity:number};
   maxTrips?:number;then?:'stow'|'sell'}):Promise<Outcome<Gathered>> {
-  const label=`${opts.poi}${opts.base?` → ${opts.base}`:''}${opts.until?` until ${opts.until.item} ≥ ${opts.until.quantity}`:''}${opts.maxTrips?` ≤${opts.maxTrips} trips`:''}${opts.then==='sell'?' then sell':''}`;
+  const label=tripLabel(opts);
   return job<Gathered>('gatherUntil',label,async()=>{
     const who=pilot();
     const result:Gathered={poi_id:opts.poi,base_id:opts.base??'',trips:0,yield:[],settled:[],ended:'blocked',cargo:[]};
