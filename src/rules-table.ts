@@ -63,10 +63,16 @@ export const REST_JOB='Rest and reflect';
  * already docked at). A call
  * that names several poi ids offers a choice; it never picks the destination. */
 export interface Call {tool:string;params:Record<string,unknown>}
-export interface Verdict {job:string;reason:string;admissible:boolean;tag:Tag;call?:Call|null}
+/** `call` is the MCP tool an option would be taken with; `play` is the same option as a line
+ * from the `play` barrel, which is what a pilot actually pastes into its script. A verdict the
+ * rules refuse carries neither — handing back a call the same build just refused is how a menu
+ * contradicts itself. A verdict with no `play` has no barrel primitive behind it at all, and
+ * the menu leaves it unoffered rather than inventing one. */
+export interface Verdict {job:string;reason:string;admissible:boolean;tag:Tag;call?:Call|null;play?:string}
 interface Rule {id:string;stance?:StanceName;apply(facts:Facts):Verdict|Verdict[]|null}
 
-const yes=(tag:Tag,job:string,reason:string,call:Call|null=null):Verdict=>({job,reason,admissible:true,tag,call});
+const yes=(tag:Tag,job:string,reason:string,call:Call|null=null,play?:string):Verdict=>
+  ({job,reason,admissible:true,tag,call,...play?{play}:{}});
 const no=(tag:Tag,job:string,reason:string):Verdict=>({job,reason,admissible:false,tag});
 const threats=(facts:Facts)=>facts.observed.threats??[];
 const sites=(facts:Facts)=>facts.place.sites??[];
@@ -80,9 +86,13 @@ function trip(facts:Facts,site:Site,tag:Tag):Verdict {
   const quote=`route quotes ${site.quoted_fuel} fuel; with the ${facts.mood} reserve ${reserve} you need ${required}`;
   if(required>max_fuel)return no(tag,job,`${quote}, beyond the ${max_fuel} unit tank; a nearer site or a bigger tank admits it`);
   if(fuel<required)return no(tag,job,`${quote}, have ${fuel}; shortfall ${required-fuel} fuel units — refuel here or pick a nearer site`);
-  // Flying is a script's move, not a tool call: a script reaches it as travel(ctx,poi_id),
-  // so the option carries the helper it would be written with and no call of its own.
-  return yes(tag,job,`${quote} and have ${fuel}${site.resource?`; ${site.poi_id} lists ${site.resource}`:''}; a script flies it with travel(ctx,'${site.poi_id}')`);
+  // `goTo` is the barrel's one flight primitive and it takes any nameable id — a POI, a base or
+  // a system — so the option carries the line the pilot pastes. It used to name
+  // `travel(ctx,'<poi>')`, a script helper the barrel does not export: a pilot wedged below its
+  // fuel reserve out in the open sat Tired for six hours with that sentence as its only exit
+  // (live 2026-09-24). The rules already knew the base and the quote; only the call was wrong.
+  return yes(tag,job,`${quote} and have ${fuel}${site.resource?`; ${site.poi_id} lists ${site.resource}`:''}; goTo('${site.poi_id}') flies it`,
+    null,`goTo('${site.poi_id}')`);
 }
 
 /** The same estimate and margin serviceShip enforces at the counter. A posted price is
