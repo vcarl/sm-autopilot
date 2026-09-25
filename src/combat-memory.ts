@@ -197,34 +197,45 @@ export function combatLine(stats:CombatStats):string {
  * battles at once would have them merged. Hunting is serial, which is what makes that safe. */
 interface Live {
   battle_id:string;our_side?:number;opponent?:string;opponent_class?:string;ship_class?:string;
-  /** Our range band at each tick, from `battle_update.your_zone`: the only place the band is
-   * published. Bounded by the fight's tick count. */
-  zones:Map<number,string>;
-  /** Shots per tick, resolved to a band at close. Bounded by ticks, not by shots. */
-  ticks:Map<number,{at_us:Shots;at_them:Shots}>;
+  /** The band the ship is in right now, from the latest `battle_update.your_zone` — the only place
+   * the band is published at all. `unknown` until one arrives. */
+  zone:string;
+  /** Shots per band, accumulated as they arrive rather than bucketed by tick and resolved at close.
+   *
+   * The tick number cannot carry this. `battle_update.tick` is not a usable round counter — live it
+   * stalls for minutes and has been observed going backwards — so several real rounds share one
+   * number, and bucketing by it collapsed their shots onto whichever band that number last
+   * reported. A fight that closed from outer to inner recorded every shot at inner and lost outer
+   * entirely, which is the accuracy-by-range measurement averaging two ranges into one and
+   * presenting it as measured.
+   *
+   * ponytail: attribution is by the band in force when the frame ARRIVED, which is an
+   * approximation — `battle_damage` carries no band of its own, and a frame that arrives out of
+   * order lands in the band that was current rather than the one it was fired in. It is the honest
+   * approximation rather than a silent merge, and the `unknown` band stays visible so how much of
+   * the record is unplaced can be read off it. Upgrade the day a damage frame names its own zone,
+   * or the day `get_battle_log` is read per fight (it carries a real per-tick `entries[].tick`). */
+  by_range:Record<string,{at_us:Shots;at_them:Shots}>;
   stances:string[];flee_ticks:number;
   hull_from?:number;hull_to?:number;
   dealt:number;taken:number;last_tick:number;
 }
 let live:Live|null=null;
 
-const bucket=(fold:Live,tick:number)=>{
-  let row=fold.ticks.get(tick);
-  if(!row){row={at_us:{shots:0,hits:0},at_them:{shots:0,hits:0}};fold.ticks.set(tick,row);}
-  return row;
-};
+/** The tally for the band in force, made on first use. */
+const bucket=(fold:Live)=>fold.by_range[fold.zone]??=({at_us:{shots:0,hits:0},at_them:{shots:0,hits:0}});
 
 /** `battle_update`: the tick, the band, the stance in force, and who is on the other side. */
 export function foldBattleUpdate(payload:Record<string,unknown>):void {
   const battle_id=String(payload.battle_id??'');
   if(!battle_id)return;
   if(live?.battle_id!==battle_id)
-    live={battle_id,zones:new Map(),ticks:new Map(),stances:[],flee_ticks:0,dealt:0,taken:0,last_tick:0};
+    live={battle_id,zone:'unknown',by_range:{},stances:[],flee_ticks:0,dealt:0,taken:0,last_tick:0};
   const fold=live;
   const tick=Number(payload.tick??0);
   fold.last_tick=Math.max(fold.last_tick,tick);
   fold.our_side=typeof payload.your_side_id==='number'?payload.your_side_id:fold.our_side;
-  if(typeof payload.your_zone==='string')fold.zones.set(tick,payload.your_zone);
+  if(typeof payload.your_zone==='string')fold.zone=bandOf(payload.your_zone);
   const stance=typeof payload.your_stance==='string'?payload.your_stance:'';
   if(stance) {
     if(fold.stances.at(-1)!==stance)fold.stances.push(stance);
@@ -239,14 +250,14 @@ export function foldBattleUpdate(payload:Record<string,unknown>):void {
   if(typeof them?.ship_class==='string')fold.opponent_class=them.ship_class;
 }
 
-/** `battle_damage`: one shot. `hit_success` is the accuracy measurement; the band it was fired
- * at is bound by tick at close, so the frames may arrive in any order. */
+/** `battle_damage`: one shot. `hit_success` is the accuracy measurement, and the shot is credited to
+ * the band in force when this frame arrived — the frame carries no band of its own and the tick
+ * number cannot stand in for one (see `Live.by_range`). */
 export function foldBattleDamage(payload:Record<string,unknown>,me:string|undefined):void {
   if(!live)return;
-  const tick=Number(payload.tick??live.last_tick);
   const hit=payload.hit_success===true;
   const damage=Number(payload.total_damage??0)||Number(payload.hull_hit??0)+Number(payload.shield_hit??0);
-  const row=bucket(live,tick);
+  const row=bucket(live);
   // Attribution needs to know which hull is ours; without it a shot is still a shot, so it is
   // counted in neither direction rather than guessed into one.
   if(me&&payload.target_id===me){row.at_us.shots+=1;if(hit){row.at_us.hits+=1;live.taken+=damage;}}
@@ -266,18 +277,11 @@ export function foldBattleEnded(dir:string,payload:Record<string,unknown>,me:str
   const reason=String(payload.reason??'unresolved');
   const ending=ours?.survived===false?'defeat'
     :typeof payload.winning_side==='number'&&payload.winning_side===fold.our_side?'victory':reason;
-  const by_range:FightRecord['by_range']={};
-  for(const [at,row] of fold.ticks) {
-    const band=bandOf(fold.zones.get(at));
-    const kept=by_range[band]??={at_us:{shots:0,hits:0},at_them:{shots:0,hits:0}};
-    kept.at_us.shots+=row.at_us.shots;kept.at_us.hits+=row.at_us.hits;
-    kept.at_them.shots+=row.at_them.shots;kept.at_them.hits+=row.at_them.hits;
-  }
   const fight:FightRecord={opponent:fold.opponent,
     ...fold.opponent_class?{opponent_class:fold.opponent_class}:{},
     ...fold.ship_class?{ship_class:fold.ship_class}:{},
     ticks:Number(payload.duration??fold.last_tick)||fold.last_tick,
-    by_range,dealt,taken,stances:fold.stances,flee_ticks:fold.flee_ticks,ending,
+    by_range:fold.by_range,dealt,taken,stances:fold.stances,flee_ticks:fold.flee_ticks,ending,
     ...fold.hull_from!==undefined?{hull_pct_from:fold.hull_from}:{},
     ...fold.hull_to!==undefined?{hull_pct_to:fold.hull_to}:{},
     ...tick?{tick}:{},at:now().toISOString()};

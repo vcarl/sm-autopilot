@@ -7,7 +7,7 @@ import {join} from 'node:path';
 import test from 'node:test';
 import {pendingAlerts} from './alerts.ts';
 import {pushJournal} from './bridge.ts';
-import {CAP,THIN,TICK_MS,combatLine,readCombat,resetCombatFold,statsFor,writeFight,
+import {CAP,THIN,TICK_MS,combatLine,foldBattleDamage,foldBattleEnded,foldBattleUpdate,readCombat,resetCombatFold,statsFor,writeFight,
   type FightRecord} from './combat-memory.ts';
 import {readJournal} from './run-record.ts';
 
@@ -187,4 +187,33 @@ test('the live range bands are five, and engaged folds into inner while unknown 
     assert.ok(stats.accuracy.unknown,'unknown was folded away; an unmeasured band must stay visible');
     assert.equal(stats.accuracy.unknown?.at_us_shots,2);
   } finally {rmSync(dir,{recursive:true,force:true});}
+});
+
+test('shots are attributed to the zone in force when they arrived, not to a tick number that repeats',()=>{
+  // The fold bucketed shots by `battle_update.tick` and resolved each bucket to whatever zone that
+  // number reported. The number is not a usable round counter — live it stalls and was observed
+  // going backwards — so several real rounds share one number and their shots collapse onto one
+  // zone. That is the accuracy-by-range measurement quietly averaging two different ranges together.
+  //
+  // Observed: one live fight recorded 6 shots at us across 9 ticks when there were visibly more
+  // rounds than that.
+  const dir=mkdtempSync(join(tmpdir(),'spacemolt-fold-'));
+  try {
+    resetCombatFold();
+    // Two rounds that both report tick 1, at different ranges: we closed from outer to inner
+    // between them, and a shot landed at each.
+    foldBattleUpdate({battle_id:'b1',tick:1,your_side_id:2,your_zone:'outer',
+      participants:[{side_id:2,player_id:'me'},{side_id:1,username:'Quantum-Moth'}]});
+    foldBattleDamage({battle_id:'b1',tick:1,target_id:'me',hit_success:true,total_damage:2},'me');
+    foldBattleUpdate({battle_id:'b1',tick:1,your_side_id:2,your_zone:'inner',
+      participants:[{side_id:2,player_id:'me'},{side_id:1,username:'Quantum-Moth'}]});
+    foldBattleDamage({battle_id:'b1',tick:1,target_id:'me',hit_success:true,total_damage:2},'me');
+    const fight=foldBattleEnded(dir,{battle_id:'b1',duration:2,winning_side:2,
+      participants:[{player_id:'me',side_id:2,survived:true,damage_dealt:0,damage_taken:4}]},'me');
+    assert.ok(fight,'the fold produced no fight');
+    // One shot at each range. Bucketing by tick number put both on whichever zone tick 1 last said.
+    assert.equal(fight!.by_range.outer?.at_us.shots,1,
+      `outer lost its shot to the repeated tick: ${JSON.stringify(fight!.by_range)}`);
+    assert.equal(fight!.by_range.inner?.at_us.shots,1,JSON.stringify(fight!.by_range));
+  } finally {resetCombatFold();rmSync(dir,{recursive:true,force:true});}
 });

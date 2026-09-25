@@ -52,8 +52,14 @@ export type CombatStance='fire'|'evade'|'brace'|'flee';
  * `battle/status`, never a handle on the fight. Every field is measured this tick except
  * `stats`, which is what memory remembers of earlier fights with this opponent. */
 export interface TickView {
-  /** The battle's own tick, 1 up — not the global engine tick. On the live server it can sit
-   * still for minutes, and a repeated number means nothing new happened. */
+  /** The battle's own round counter as the server reports it (`GetBattleStatusResponse
+   * .tick_duration`, "Ticks the battle has been running") — not the ten-second game tick.
+   *
+   * **Do not use it to tell rounds apart.** Live it stalls for minutes and has been observed going
+   * backwards: 0,1,2,1,1,1,1,1,2 across nine successive polls of one continuous fight, while the
+   * quarry's hull fell 100→20. This callback is invoked once per poll, and the poll is the round;
+   * the number is passed through for reporting, not for control flow. If you need to count rounds,
+   * count your own invocations. */
   tick:number;
   /** Our hull now, and the hull this ship has when whole. */
   hull:number;max_hull:number;
@@ -315,12 +321,20 @@ async function engage(target:CreatureInfo|PirateInfo,floor:()=>number,
     const tired=pilot().mood==='Tired';
     // The decision is taken before the floor is checked so a reckless one can be named in the
     // override line; it is ACTED on after, and only if the floor let the fight carry on.
-    const fresh=now!==tick;
-    const decision=fresh?ask({tick:now,hull,max_hull:Number(ship?.max_hull??0),
+    // Every poll is a round. `tick_duration` is the API's own round counter — "Ticks the battle has
+    // been running" — but it is not usable as one: live it stalls for minutes and was observed going
+    // BACKWARDS (0,1,2,1,1,1,1,1,2 over nine polls of one continuous fight, while the quarry's hull
+    // fell 100→20 and our shield fell monotonically). Gating the decision on it changing meant the
+    // callback fired about once for every several rounds that actually resolved.
+    //
+    // So the poll is the round, and the poll is paced on `pace.tickMs`, which is the documented tick
+    // length. The counter is still reported to the callback for what it is worth, and its own doc
+    // comment says what it is worth.
+    const decision=ask({tick:now,hull,max_hull:Number(ship?.max_hull??0),
       shield_pct:Number(mine?.shield_pct??0),opponent:nameOf(target),opponent_hull:theirHull/100,
       range:String(theirs.zone??''),distance:far,reach,damage_taken:Math.max(0,lastHull-hull),
-      ...stanceNow?{stance:stanceNow}:{},floor:floor(),...stats?{stats}:{}}):undefined;
-    if(fresh)lastHull=hull;
+      ...stanceNow?{stance:stanceNow}:{},floor:floor(),...stats?{stats}:{}});
+    lastHull=hull;
     if(hull<floor()||tired) {
       // The mood's margin is the operator's bound, like `credit_reserve`, not the pilot's
       // tactical whim: a decision that would keep fighting under it is refused and said so.
@@ -334,9 +348,6 @@ async function engage(target:CreatureInfo|PirateInfo,floor:()=>number,
       break;
     }
     if(Date.now()>=deadline){outcome='unresolved';break;}
-    // The same tick number is the same tick and nothing new to act on. Without one, every
-    // read stands as its own tick. Checked after the observation above, never before it.
-    if(now===tick){await sleep(pace.tickMs);continue;}
     tick=now;
     // A hull that is not falling while the range opens is the quarry running, not a miss.
     if(seen)fled=theirHull>=seen.hull&&far>seen.far?fled+1:0;else first={hull:theirHull,far};

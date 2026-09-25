@@ -543,3 +543,21 @@ test('being outside our own weapon reach is said in the fight line, not left to 
     assert.doesNotMatch(said,/out of reach/,said);
   } finally {unbind();}
 });
+
+test('the callback sees every round, even while the battle tick number stands still',async()=>{
+  // The API documents `GetBattleStatusResponse.tick_duration` as "Ticks the battle has been
+  // running", but live it stalls and was observed going BACKWARDS — 0,1,2,1,1,1,1,1,2 across nine
+  // successive polls of one continuous fight, while the quarry's hull fell 100 → 80 → 60 → 40 → 20
+  // and our shield fell monotonically. Real rounds were resolving under a number that did not move.
+  //
+  // The loop skipped its whole action phase on a repeated number, so `onTick` fired about once for
+  // every several rounds. The pace is the tick — `pace.tickMs` is the documented tick length — so
+  // the poll is the round, and the unreliable counter no longer gates whether the pilot gets a say.
+  const f=worldWithStuckTick({mood:'Focused'},{wildlife:{creatures:[grazer],polls:5,damage:1}});
+  try {
+    const seen:number[]=[];
+    await hunt({onTick:view=>{seen.push(view.tick);return undefined;}});
+    assert.ok(seen.length>=4,
+      `the callback saw ${seen.length} of about 5 rounds; a stalled counter still silences it`);
+  } finally {unbind();}
+});
