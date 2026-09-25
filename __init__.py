@@ -357,8 +357,10 @@ TOOL_DEFINITIONS = (
      "schema": _schema("spacemolt_reflect",
                        "Open the next shift. Callable only at rest, and the only place a stance "
                        "is chosen. While a stance is set the pilot is on shift and this is "
-                       "refused before it reads your arguments — spacemolt_rest at a base is "
-                       "what makes it callable, so do not compose a goal for it mid-shift. The shift begins in a fresh conversation with its own skills, "
+                       "refused before it reads your arguments — ending the shift is what makes "
+                       "it callable, and a shift ends by calling rest() at a base inside "
+                       "pilot/index.ts (a run that comes back Tired and docked is rested for you), "
+                       "so do not compose a goal for it mid-shift. The shift begins in a fresh conversation with its own skills, "
                        "so call this once and end the turn. The mood moves inside the shift "
                        "afterwards; this never sets it again. A reflection always opens a shift: "
                        "goal, stance and mood are all required, and a finished objective "

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import re
 import os
 import signal
 import sys
@@ -193,6 +194,31 @@ def test_register_publishes_every_tool_in_the_spacemolt_toolset():
     assert flight({"platform": "cron"}) == spacemolt._FLIGHT_PROMPT
     assert flight({"platform": "discord"}) != spacemolt._FLIGHT_PROMPT
     assert all(len(flight({"platform": p})) <= flight_kwargs["max_chars"] for p in ("cron", "discord"))
+
+
+def test_no_tool_tells_the_pilot_to_call_a_tool_that_is_not_registered():
+    """A description naming a tool that does not exist is a dead end the pilot cannot see around.
+
+    `spacemolt_reflect` told the pilot that "spacemolt_rest at a base is what makes it callable"
+    for a while after `spacemolt_rest` was removed — so a pilot that wanted to open a new shift
+    was sent looking for a tool it did not hold. That is the same unattended deadlock the rest
+    move was careful to avoid, reintroduced as prose: reflection is the only way to change stance,
+    and nothing recovers a pilot that cannot reach it. Every mention has to name something real.
+    """
+    from spacemolt import TOOL_DEFINITIONS
+
+    registered = {row["name"] for row in TOOL_DEFINITIONS}
+    assert registered, "no tools registered"
+    named = re.compile(r"spacemolt_[a-z_]+")
+    for row in TOOL_DEFINITIONS:
+        name = row["name"]
+        text = json.dumps({"description": row.get("description", ""), "schema": row.get("schema")})
+        for mention in sorted(set(named.findall(text))):
+            # A tool may name itself, and a toolset is not a tool.
+            if mention in {name, "spacemolt_observer"}:
+                continue
+            assert mention in registered, (
+                f"{name} names {mention}, which is not a registered tool")
 
 
 def test_the_observers_sentence_is_bounded_and_lands_on_the_pilot():
