@@ -168,6 +168,24 @@ test('an empty hold: routes buys here, sells there, and sizes each load where th
   } finally {unbind();rmSync(runtime,{recursive:true,force:true});}
 });
 
+test('spreads lists every buyer an item has, ranked as routes ranks them: a stale fat bid does not hide a fresh thin one (live: sirius wiring)',async()=>{
+  // Live: 100 copper_wiring, no bid here; grand_exchange bid 15 on a 4806-tick-old book was the only
+  // row, and confederacy_central_command, bid 8 a jump away at confidence 0.94, was never listed.
+  const runtime=remembered([{base_id:'range_base',age:4806,items:[{item_id:'copper_wiring',best_buy:15,best_buy_qty:100}]},
+    {base_id:'twin_base',age:20,system_id:'sol',items:[{item_id:'copper_wiring',best_buy:8,best_buy_qty:100}]}]);
+  world({mood:'Focused'},{cargo:[{item_id:'copper_wiring',quantity:100}],cargoUsed:100,store:[],markets:{sol_base:[]},
+    pois:[{id:'twin',base_id:'twin_base'}]},runtime);
+  try {
+    const out=await spreads();
+    assert.equal(out.status,'done',out.why);
+    const [fresh,stale]=out.detail.spreads;
+    assert.deepEqual([fresh!.base_id,fresh!.net,fresh!.jumps],['twin_base',800,0]);
+    assert.deepEqual([stale!.base_id,stale!.net,stale!.jumps],['range_base',1500-7,1]);
+    assert.ok(fresh!.score>stale!.score&&stale!.confidence<0.001,JSON.stringify(out.detail.spreads));
+    assert.match(out.next[0]!,/twin_base/);
+  } finally {unbind();rmSync(runtime,{recursive:true,force:true});}
+});
+
 test('routes ranks a stale fat bid below a fresh thin one',async()=>{
   // twin_base is in Sol, so its trip is 0 jumps and its bid is higher: only its age sinks it.
   const runtime=remembered([RANGE,{base_id:'twin_base',age:2000,items:[{item_id:'gem',best_buy:130,best_buy_qty:50}]}]);

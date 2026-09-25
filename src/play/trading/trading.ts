@@ -21,7 +21,7 @@ import {withdraw} from '../storage.ts';
 import {goTo,route} from '../travel.ts';
 import type {Outcome,Row} from '../types.ts';
 
-/** One item and the best buyer known for it, with the trip to that buyer priced. */
+/** One item and one buyer known for it, with the trip to that buyer priced and ranked. */
 export interface Spread {
   item_id:string;
   /** Hold plus this base's store: what a sale there would actually be worth. */
@@ -39,13 +39,20 @@ export interface Spread {
   fuel:number;jumps:number;
   /** `best_buy × min(best_buy_qty, held)` less the fuel bill at this base's all-in price. */
   net:number;
+  /** `0.5 ^ (age / HALF_LIFE)`: 1 for a live book. */
+  confidence:number;
+  /** What rows rank by, as `routes()` rows do: `max(confidence, 1/64) × net / max(1, jumps)`. */
+  score:number;
 }
+/** Buyers listed per item, best score first. */
+export const BUYERS=3;
 
-/** What each item in the hold is worth at the best buyer this pilot knows of, anywhere, and
- * what the trip there costs. Default items: everything in the hold and in this base's store.
- * Reads only.
+/** What each item in the hold is worth at the best buyers this pilot knows of, anywhere, and
+ * what the trip there costs: up to `BUYERS` rows an item, ranked as `routes()` ranks a one-stop
+ * route, by trust-weighted net per jump. Default items: everything in the hold and in this base's
+ * store. Reads only.
  *
- * Three sources, best price per item wins: this base's live book; the faction trade ledger
+ * Three sources, every buyer in them weighed: this base's live book; the faction trade ledger
  * (`query_trade_intel`) when the pilot has a faction that runs one; and the books this pilot
  * has read at other bases, remembered by `book()` in the runtime dir. Only the last is
  * guaranteed, so `did` always says which sources answered. A price that is not live is a
@@ -73,49 +80,43 @@ export function spreads(items?:string[]):Promise<Outcome<{spreads:Spread[];sourc
       next:[`gatherUntil({poi:'<belt poi id>',base:'${here}'}) or buy('<item_id>', <quantity>) something first`]};
 
     const sources=['here'];
-    // Best known buyer per item, seeded from the live local book.
-    const best=new Map<string,Spread>();
-    const offer=(row:Omit<Spread,'held'|'fuel'|'jumps'|'net'>)=>{
-      if(!(row.best_buy>0))return;
-      const held=stock[row.item_id]??0;
-      const standing=best.get(row.item_id);
-      // Per unit, because the trip is priced later: the deepest book still has to be flown to.
-      if(standing&&standing.best_buy>=row.best_buy)return;
-      best.set(row.item_id,{...row,held,fuel:0,jumps:0,net:0});
-    };
+    // Every buyer known for a wanted item: the live book here, then each far book. A higher bid
+    // does not hide a lower one — a stale bid 15 jumps out must not hide a fresh one a jump away.
+    type Offer=Omit<Spread,'held'|'fuel'|'jumps'|'net'|'confidence'|'score'>&{age:number};
+    const offers:Offer[]=[];
     for(const id of wanted) {
       const row=listed.get(id);
-      if(row)offer({item_id:id,base_id:here,best_buy:row.best_buy,best_buy_qty:row.best_buy_qty,source:'here',seen:'live'});
+      if(row&&row.best_buy>0)offers.push({item_id:id,base_id:here,best_buy:row.best_buy,best_buy_qty:row.best_buy_qty,source:'here',seen:'live',age:0});
     }
     const far=await farBooks(here,now);
     sources.push(...(['faction ledger','remembered'] as const).filter(source=>far.some(known=>known.source===source)));
     for(const known of far)
       for(const row of known.items)
-        if(wanted.includes(row.item_id))
-          offer({item_id:row.item_id,base_id:known.base_id,best_buy:row.best_buy,best_buy_qty:row.best_buy_qty,
-            source:known.source,seen:`${known.age} ticks old`});
+        if(wanted.includes(row.item_id)&&row.best_buy>0)
+          offers.push({item_id:row.item_id,base_id:known.base_id,best_buy:row.best_buy,best_buy_qty:row.best_buy_qty,
+            source:known.source,seen:`${known.age} ticks old`,age:known.age});
 
-    // One find_route per far base, not per item: the trip is the same for everything sold there.
+    // Trips priced as routes() prices them: jumps over the map, fuel per jump from one quote.
+    const {hop,perJump,lost}=await chart(here,[...new Set(offers.map(row=>row.base_id))],far);
     const fuelPrice=Number(details(await command('spacemolt/get_base',{})).fuel_price_all_in??1);
-    const trip=new Map<string,{fuel:number;jumps:number}>([[here,{fuel:0,jumps:0}]]);
-    for(const base of new Set([...best.values()].map(row=>row.base_id))) {
-      checkStop();
-      if(trip.has(base))continue;
-      try {const quote=await route(base);trip.set(base,{fuel:Number(quote.estimated_fuel??0),jumps:Number(quote.total_jumps??0)});}
-      catch {trip.set(base,{fuel:Infinity,jumps:Infinity});}
-    }
-    const rows=[...best.values()].map(row=>{
-      const {fuel,jumps}=trip.get(row.base_id)!;
-      const gross=row.best_buy*Math.min(row.best_buy_qty,row.held);
-      return {...row,fuel,jumps,net:Math.round(gross-(Number.isFinite(fuel)?fuel*fuelPrice:0))};
-    }).filter(row=>Number.isFinite(row.fuel)).sort((a,b)=>b.net-a.net);
+    const priced=offers.flatMap(({age,...row})=>{
+      const jumps=hop(here,row.base_id);
+      if(jumps===null)return [];
+      const held=stock[row.item_id]??0,fuel=jumps*perJump,confidence=trust(age);
+      const net=Math.round(row.best_buy*Math.min(row.best_buy_qty,held)-fuel*fuelPrice);
+      return [{...row,held,fuel,jumps,net,confidence,score:rank(confidence,net,jumps)}];
+    }).sort((a,b)=>b.score-a.score);
+    const listedFor=new Map<string,number>();
+    const rows=priced.filter(row=>{const n=listedFor.get(row.item_id)??0;listedFor.set(row.item_id,n+1);return n<BUYERS;});
 
-    const away=rows.filter(row=>row.base_id!==here);
-    const unsellable=wanted.filter(id=>!best.has(id));
+    const best=wanted.flatMap(id=>rows.find(row=>row.item_id===id)??[]),away=best.filter(row=>row.base_id!==here);
+    const unsellable=wanted.filter(id=>!offers.some(row=>row.item_id===id));
+    const unplaced=[...new Set(offers.map(row=>row.base_id))].filter(base=>lost.has(base));
     return {status:'done',
-      did:`priced ${rows.length} of ${wanted.length} held item${wanted.length===1?'':'s'} against ${sources.join(' + ')}`
+      did:`priced ${best.length} of ${wanted.length} held item${wanted.length===1?'':'s'} at ${rows.length} buyer${rows.length===1?'':'s'} against ${sources.join(' + ')}`
         +(away.length?`; the best buyer for ${away.length} of them is not ${here}`:'')
-        +(unsellable.length?`; no buyer known anywhere for ${unsellable.slice(0,5).join(', ')}`:''),
+        +(unsellable.length?`; no buyer known anywhere for ${unsellable.slice(0,5).join(', ')}`:'')
+        +(unplaced.length?`; ${unplaced.length} buyer base(s) not placed, so not priced: ${unplaced.slice(0,5).join(', ')}`:''),
       detail:{spreads:rows,sources},
       next:[...rows.slice(0,2).map(row=>row.base_id===here
         ?`sell([{item_id:'${row.item_id}'}]) here — ${row.best_buy} × ${Math.min(row.best_buy_qty,row.held)} ≈ ${row.net} cr net`
@@ -529,6 +530,47 @@ export function hops(links:ReadonlyMap<string,readonly string[]>,from:string,to:
   return frontier.length?n:null;
 }
 
+/** Where `bases` are and how many jumps apart: each one's system from its far book, else from one
+ * `find_route` (at most `UNPLACED` a call, each kept in `places.json`), jumps over the `get_map`
+ * links, and the fuel a jump burns from one quote. `hop` is null where a base is unplaced or the map
+ * does not join the two; `lost` says why. What `routes()` and `spreads()` both price a trip by. */
+async function chart(here:string,bases:readonly string[],far:readonly FarBook[]) {
+  // Where each base is: the memory's system, else one find_route (which also prices a jump).
+  const systems=new Map<string,string>([[here,acct().state.location?.system_id??'']]);
+  for(const row of far)if(row.system_id)systems.set(row.base_id,row.system_id);
+  const lost=new Map<string,string>();
+  let perJump:number|undefined;
+  const place=async(base:string)=>{
+    checkStop();
+    try {
+      const quote=await route(base),dir=runtimeDir();
+      systems.set(base,quote.target_system);perJump??=Number(quote.fuel_per_jump??0);
+      if(dir)markPlace(dir,base,quote.target_system);
+    }
+    catch(error) {lost.set(base,error instanceof Error?error.message:String(error));}
+  };
+  const unplaced=bases.filter(base=>!systems.has(base));
+  for(const base of unplaced.slice(0,UNPLACED))await place(base);
+  const later=unplaced.slice(UNPLACED);
+  for(const base of later)lost.set(base,`not placed yet: past the ${UNPLACED} find_route lookups one call makes`);
+  const away=bases.filter(base=>systems.has(base)&&base!==here);
+  if(perJump===undefined&&away.length)await place(away[0]!);
+  const links=new Map<string,string[]>();
+  if(away.length)try {
+    for(const row of (details(await command('spacemolt/get_map',{})) as {systems?:MapSystemInfo[]}).systems??[])
+      links.set(row.system_id,row.connections??[]);
+  } catch {/* no map: every far stop is unpriced, and says so */}
+  const counted=new Map<string,number|null>();
+  const jumps=(from:string,to:string):number|null=>{
+    const key=`${from}>${to}`;
+    if(!counted.has(key))counted.set(key,hops(links,from,to));
+    return counted.get(key)!;
+  };
+  /** Jumps between two bases; null when either is unplaced or the map does not join them. */
+  const hop=(a:string,b:string)=>{const from=systems.get(a),to=systems.get(b);return from===undefined||to===undefined?null:jumps(from,to);};
+  return {hop,perJump:perJump??0,lost,later,systems};
+}
+
 /** A route as `routes()` ranks it: the plan from the hold you have, with the trip priced. */
 export interface Route extends Plan {
   /** Jumps from here through every stop, from the map; null when a stop could not be placed. */
@@ -601,7 +643,7 @@ export function routes(opts:{items?:string[];circuit?:{hold:number}}&Scope={}):P
     if(!(Number.isInteger(most)&&most>=(circuit?2:1)&&most<=MAX_STOPS)||!(legCap>=0)||!(cap>=0))return {status:'refused',did:'ranked no routes',
       why:`maxStops ${most}, maxLegJumps ${legCap}, maxJumps ${cap}: maxStops is a whole number from ${circuit?2:1} to ${MAX_STOPS}, and jumps are 0 or more`,detail:none};
     const scope:Scope={maxStops:most,maxLegJumps:legCap,...Number.isFinite(cap)?{maxJumps:cap}:{}};
-    const origin=acct().state.location?.system_id??'',free=cargo(),aboard=miningInventory(acct().state);
+    const free=cargo(),aboard=miningInventory(acct().state);
     const listed=await book();
     const far=await farBooks(here,marketTick());
     const known=byBase({base_id:here,source:'here',age:0,items:listed},far);
@@ -609,39 +651,7 @@ export function routes(opts:{items?:string[];circuit?:{hold:number}}&Scope={}):P
     const probe=[...listed.values()].find(row=>row.best_sell>0);
     const rate=probe?await taxRate(probe.item_id):null;
 
-    // Where each base is: the memory's system, else one find_route (which also prices a jump).
-    const systems=new Map<string,string>([[here,origin]]);
-    for(const row of far)if(row.system_id)systems.set(row.base_id,row.system_id);
-    const lost=new Map<string,string>();
-    let perJump:number|undefined;
-    const place=async(base:string)=>{
-      checkStop();
-      try {
-        const quote=await route(base),dir=runtimeDir();
-        systems.set(base,quote.target_system);perJump??=Number(quote.fuel_per_jump??0);
-        if(dir)markPlace(dir,base,quote.target_system);
-      }
-      catch(error) {lost.set(base,error instanceof Error?error.message:String(error));}
-    };
-    const unplaced=[...known.keys()].filter(base=>!systems.has(base));
-    for(const base of unplaced.slice(0,UNPLACED))await place(base);
-    const later=unplaced.slice(UNPLACED);
-    for(const base of later)lost.set(base,`not placed yet: past the ${UNPLACED} find_route lookups one call makes`);
-    const away=[...known.keys()].filter(base=>systems.has(base)&&base!==here);
-    if(perJump===undefined&&away.length)await place(away[0]!);
-    const links=new Map<string,string[]>();
-    if(away.length)try {
-      for(const row of (details(await command('spacemolt/get_map',{})) as {systems?:MapSystemInfo[]}).systems??[])
-        links.set(row.system_id,row.connections??[]);
-    } catch {/* no map: every far stop is unpriced, and says so */}
-    const counted=new Map<string,number|null>();
-    const jumps=(from:string,to:string):number|null=>{
-      const key=`${from}>${to}`;
-      if(!counted.has(key))counted.set(key,hops(links,from,to));
-      return counted.get(key)!;
-    };
-    /** Jumps between two bases; null when either is unplaced or the map does not join them. */
-    const hop=(a:string,b:string)=>{const from=systems.get(a),to=systems.get(b);return from===undefined||to===undefined?null:jumps(from,to);};
+    const {hop,perJump,lost,later,systems}=await chart(here,[...known.keys()],far);
     const fuelPrice=Number(details(await command('spacemolt/get_base',{})).fuel_price_all_in??1);
 
     // What each base may sell you: an asked item, `items` allowing, that some known book bids more for than its ask plus tax.
@@ -669,7 +679,7 @@ export function routes(opts:{items?:string[];circuit?:{hold:number}}&Scope={}):P
         total+=n;from=at;
       }
       why.push(...taxWhy(planned));
-      const fuel=total===null?null:total*(perJump??0);
+      const fuel=total===null?null:total*perJump;
       const net=Math.round(planned.net-(fuel??0)*fuelPrice);
       const trusted=confidence(ats);
       return {...planned,total_jumps:total,fuel,net,confidence:trusted,score:rank(trusted,net,total),
@@ -715,7 +725,7 @@ export function routes(opts:{items?:string[];circuit?:{hold:number}}&Scope={}):P
       }
       const sum=(part:(leg:Leg)=>number)=>legs.reduce((total,leg)=>total+part(leg),0);
       const revenue=sum(leg=>leg.sold.reduce((total,sale)=>total+sale.revenue,0)),cost=sum(leg=>leg.cost),tax=sum(leg=>leg.sales_tax??0);
-      const sales_tax=legs.some(leg=>leg.sales_tax===null)?null:tax,fuel=lap===null?null:lap*(perJump??0);
+      const sales_tax=legs.some(leg=>leg.sales_tax===null)?null:tax,fuel=lap===null?null:lap*perJump;
       const lap_net=Math.round(revenue-cost-tax-(fuel??0)*fuelPrice),trusted=confidence(ats),why=taxWhy({legs,sales_tax});
       const closed:Circuit={closed:true,hold,lap_jumps:lap??0,lap_net,stops:ats.map((at,i)=>{
         const leg=legs[i]!;

@@ -9,7 +9,7 @@ assembled from everything this pilot is allowed to know.
 
 | Function | Promise |
 |---|---|
-| `spreads(items?)` | the best buyer known for each thing you hold, anywhere, with the trip priced and netted |
+| `spreads(items?)` | the best buyers known for each thing you hold (up to `BUYERS`, 3, an item), anywhere, with the trip priced and netted, ranked as `routes()` ranks a one-stop route |
 | `routes({items?, circuit?, maxStops?, maxLegJumps?, maxJumps?})` | every route known within the scope (by default up to 4 stops, 3 jumps a leg), planned from the hold you have, fuelled, and ranked by trust-weighted net per jump; each row carries the call to paste. With `circuit: {hold}`, every row is a closed lap for a freighter instead, past the rings a freighter drained within `REST_TICKS` |
 | `tradeRun({stops})` | fly the stops in order; at each, sell what pays best there and fill the hold from the stop's `buy` items, re-planned against the live book. The realised net from the wallet |
 
@@ -21,8 +21,8 @@ for one side only.
 There is no cross-station market read in the lib. `view_market` and `analyze_market` both
 answer "the station you are docked at"; `analyze_market`'s `insights` are prose lines
 (`{category, item, item_id, message, priority}`), not prices. `view_orders({station_id})`
-answers with **your own** orders, not the book. So `spreads()` uses three sources and takes
-the best `best_buy` per item:
+answers with **your own** orders, not the book. So `spreads()` uses three sources and weighs
+every buyer in them, not only the highest `best_buy`:
 
 | `source` | What it is | How stale |
 |---|---|---|
@@ -64,13 +64,17 @@ measurement, so treat a flat 20 as "unknown, probably stale".
 
 ## What a row says
 
-`spreads()` answers `detail: {spreads, sources}`. Each row of `spreads` is `{item_id, held,
-base_id, best_buy, best_buy_qty, source, seen, fuel, jumps, net}`: `fuel` and `jumps` are the
-route quote to `base_id` (both 0 here). `net` is `best_buy × min(best_buy_qty, held)` less the fuel bill to get there, at **this**
-base's `fuel_price_all_in`, from one `find_route` per far base. `held` is the hold plus this
-base's store, because that is what you could put on the counter. Rows are sorted by `net`, so
-a fat price four jumps out can rank below a thin one here — which is the comparison a loaded
-pilot actually needs.
+`spreads()` answers `detail: {spreads, sources}`. Each row of `spreads` is one buyer for one item,
+`{item_id, held, base_id, best_buy, best_buy_qty, source, seen, fuel, jumps, net, confidence, score}`.
+`jumps` and `fuel` are priced as `routes()` prices a trip: jumps over the `get_map` links from each
+base's system (the memory's, `places.json`, else one `find_route`, at most 5 a call), fuel per jump
+from one quote (both 0 here). `net` is `best_buy × min(best_buy_qty, held)` less that fuel at
+**this** base's `fuel_price_all_in`. `confidence` is `0.5 ^ (age / HALF_LIFE)`, 1 for a live book,
+and rows rank by `score`, `max(confidence, 1/64) × net / max(1, jumps)` — the same rule as a
+`routes()` row — keeping the best `BUYERS` (3) per item. So a bid of 15 on a book hours old, 15 jumps
+out, ranks under a bid of 8 read a jump away, and both are listed. `held` is the hold plus this
+base's store, because that is what you could put on the counter. A buyer whose base could not be
+placed is not priced, and `did` names it.
 
 ## The model: a route is a list of stops
 
