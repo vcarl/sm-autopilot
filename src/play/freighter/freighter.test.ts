@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import {existsSync,mkdirSync,mkdtempSync,readFileSync,rmSync,writeFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
-import test from 'node:test';
+import test,{mock} from 'node:test';
 import {SpacemoltError} from '@spacemolt/lib';
 import type {ReadinessAccount,ReadinessCommand} from '../../readiness.ts';
 import {check} from '../../run.ts';
@@ -239,4 +239,26 @@ test('the approach to stop 1 is reported on its own and kept out of the lap net 
   assert.equal(world.account.server.player.credits+home-start,done.net-approach.credits-stocked,'the approach is outside the net');
   await lap(f,reversed);
   assert.equal(reports.filter(r=>r.approach).length,1,'lap 2 has no approach: sol → range is on the ring');
+});
+
+test('a why said for a retried stop clears once the retry gets through (live: "You are not in a system" lingered for laps)',async()=>{
+  const {world,f,reports}=freighter(130);
+  const send=f.command;
+  let jam=true;
+  f.command=async(action,params)=>{
+    if(action==='spacemolt_market/view_market'&&jam){jam=false;throw new Error('You are not in a system');}
+    return send(action,params);
+  };
+  await world.account.refresh();
+  mock.timers.enable({apis:['setTimeout']});
+  try {
+    const running=lap(f,GEMS);
+    while(!reports.some(r=>/again in a minute/.test(r.why??'')))await new Promise(resolve=>setImmediate(resolve));
+    mock.timers.tick(60_000);
+    const done=await running;
+    assert.equal(done.park,undefined);
+  } finally {mock.timers.reset();}
+  // The host keeps the last why a report set; the retry's arrival sets it to nothing.
+  const said=reports.findIndex(r=>/not in a system/.test(r.why??''));
+  assert.ok(reports.slice(said+1).some(r=>'why' in r&&r.why===undefined),JSON.stringify(reports.slice(said)));
 });

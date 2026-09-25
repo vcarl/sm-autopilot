@@ -5,7 +5,8 @@
  *
  * Every failure is handled here, once, so the script stays a loop:
  * - a disconnect or any other throw: wait a minute and redo the stop from a fresh read. A stop is
- *   idempotent: sales are sized by what is held, the buy by the free hold and what is already aboard;
+ *   idempotent: sales are sized by what is held, the buy by the free hold and what is already aboard.
+ *   The why it said clears once the stop is reached;
  * - the session taken by another connection: park, and never log in again;
  * - a sale or buy the game refuses: say so and go on; three stops in a row with no trade parks it,
  *   the ring recorded as drained;
@@ -134,7 +135,8 @@ async function visit(f:Freighter,stop:Stop,sent:(credits:number)=>void,bought:(i
   const {account,command}=f;
   await fly(f,stop);
   await service(f,stop);
-  f.report({stop:stop.at});
+  // Arrived: what fell short at the last stop, or on the way here, is no longer so.
+  f.report({stop:stop.at,why:undefined});
   const market=details(await command('spacemolt_market/view_market',{})) as ViewMarketResponse;
   const book=new Map<string,MarketListingItem>((market.items??[]).map(row=>[row.item_id,row]));
   await fileIntel(account,command,stop.at,market.items??[],Number(market.current_tick??0),why=>f.report({why}));

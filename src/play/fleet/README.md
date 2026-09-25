@@ -73,7 +73,7 @@ At each stop, in order: fly there and dock; refuel and repair; sell each `sell` 
 only at bids of at least its `min_price`, and nothing that is not listed; buy up to the `buy`
 item's `qty`, counting what is already aboard, at asks of at most `max_price`, within the free
 hold and the credits over the fuel money; then send home everything above the float. A stop the
-connection drops on is done again a minute later. A sale or buy the game refuses is skipped;
+connection drops on is done again a minute later; the why it says then clears once the stop is reached. A sale or buy the game refuses is skipped;
 three stops in a row with no trade park it. A route short of fuel, a blocked flight, or no credits
 for fuel park it docked where it is. Three laps in a row that net 0 or less park it at the lap's
 last stop, the why naming the last lap against the prediction (`3 laps lost money: last -32 vs
