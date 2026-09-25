@@ -516,6 +516,13 @@ export async function menu(runtime?:string):Promise<Menu> {
     .sort((a,b)=>b.k[0]!-a.k[0]!||b.k[1]!-a.k[1]!||b.k[2]!-a.k[2]!||b.k[3]!-a.k[3]!||b.k[4]!-a.k[4]!
       ||b.k[5]!-a.k[5]!||b.k[6]!-a.k[6]!)
     .map(({m})=>m).slice(0,5);
+  // Rest is appended rather than ranked, and so can never be crowded off by work. It is the one
+  // move that is not work at all — it ends the shift — and since it left the pilot's AI tools for
+  // the barrel, the menu is the only always-open way to reach it. A pilot that cannot rest cannot
+  // reflect, and so cannot change stance; nothing unattended recovers from that, so this row does
+  // not compete for the five.
+  const rest=moves.find(m=>m.call==='rest()');
+  if(rest&&!ranked.includes(rest))ranked.push(rest);
   // The tag says what a move serves, and what the objective names serves the objective: the
   // ranking is already settled, so this only corrects the label the pilot reads.
   const tagged=ranked.map(m=>lead&&m.call.split('(')[0]===lead?{...m,advances:'objective' as const}:m);

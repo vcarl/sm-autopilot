@@ -468,3 +468,25 @@ test('a verdict with no barrel primitive behind it is left unsaid, not invented'
       assert.ok(!built.moves.some(m=>m.call.includes(bad)),`invented a safety primitive: ${JSON.stringify(built.moves)}`);
   } finally {f.close();}
 });
+
+test('a docked, serviced pilot is offered rest, because the menu is now the only always-open way to end a shift',async()=>{
+  // Rest left the pilot's AI tools for the barrel, which removes a model round-trip per shift but
+  // also removes the path that was always available. The menu is the replacement: the juncture
+  // delivers it after EVERY run however that run ended, so a script that threw before its own
+  // `rest()` line still leaves the pilot a pasteable way to end the shift and reflect. Without
+  // that, a pilot that cannot rest cannot change stance, and nothing unattended recovers it.
+  const f=world({mood:'Focused',stance:'Prospector',goal:'obtain credits'});
+  try {
+    f.account.server.ship.fuel=f.account.server.ship.max_fuel;
+    f.account.server.ship.hull=f.account.server.ship.max_hull;
+    const built=await menu(f.runtime);
+    const rest=built.moves.find(m=>m.call==='rest()');
+    assert.ok(rest,`no way to end the shift: ${JSON.stringify(built.moves)} / ${JSON.stringify(built.not_now)}`);
+    // The shape the pilot would paste, through the real gate.
+    const runtime=mkdtempSync(join(tmpdir(),'menu-rest-'));
+    mkdirSync(join(runtime,'pilot'),{recursive:true});
+    writeFileSync(join(runtime,'pilot','index.ts'),
+      `import {rest} from 'play';\nexport default async function main() {\n  return rest();\n}\n`);
+    assert.deepEqual((await check(runtime)).errors,[]);
+  } finally {f.close();}
+});

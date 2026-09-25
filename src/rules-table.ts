@@ -181,12 +181,15 @@ const RULES:Rule[]=[
     const counter=service(facts);
     if(!serviced(facts)&&counter.admissible)
       return no('rest',REST_JOB,`refuel and repair first — ${counter.reason}`);
-    // No `play`: resting is the runner's own action at the juncture, where the pilot already
-    // holds it as a tool. It is deliberately not a barrel call — a script that could rest
-    // mid-run would blur the shift boundary the whole juncture design rests on.
+    // `rest()` is a barrel call now, so the shift's end is a line a script can write and a move
+    // the menu can offer. That matters beyond the saved round-trip: it used to be reachable only
+    // as an AI tool, which was the pilot's always-available path to ending a shift, and rest is
+    // what makes reflection — and so a change of stance — happen at all. The menu carrying it is
+    // what replaces that, and the menu is delivered after every run however the run ended.
     return yes('rest',REST_JOB,serviced(facts)
       ?'docked, safe and serviced: the evening can be put down and a new goal chosen'
-      :`docked, and this base cannot bring the ship up (${counter.reason}); the evening can still be put down`);
+      :`docked, and this base cannot bring the ship up (${counter.reason}); the evening can still be put down`,
+      'rest()');
   }},
   // Stance rows (D7 section 2). A stance sees only its own; jobs carry the proposal's
   // numbers and end-state names.

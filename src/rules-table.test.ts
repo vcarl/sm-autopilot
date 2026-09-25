@@ -154,11 +154,9 @@ test('each admissible verdict carries the barrel call it would be taken with, or
 });
 
 test('the verdicts with no barrel primitive behind them carry no call, and the menu leaves them unsaid',()=>{
-  // The three safety rows and rest. There is no `watch`, `dock`, `retreat` or `undock` in the
-  // barrel: `disengage()` exists but breaks off a battle that already holds THIS ship, whereas a
-  // threat here is another ship's `in_combat` flag, so it is the wrong call and not offered.
-  // Resting is the runner's action at the juncture, deliberately not a barrel call — a script
-  // that rests mid-run blurs the shift boundary the whole juncture design rests on.
+  // The three safety rows. There is no `watch`, `dock`, `retreat` or `undock` in the barrel:
+  // `disengage()` exists but breaks off a battle that already holds THIS ship, whereas a threat
+  // here is another ship's `in_combat` flag, so it is the wrong call and not offered.
   const dangerous:Facts={mood:'Focused',stance:'Hunter',place:{kind:'poi',counters:[],sites:[]},
     holdings:{fuel:60,max_fuel:120,hull:80,max_hull:100,cargo_free:50,credits:100},
     obligations:{},permissions:{},observed:{threats:['raider']}};
@@ -169,7 +167,11 @@ test('the verdicts with no barrel primitive behind them carry no call, and the m
   const ready:Facts={mood:'Relaxed',place:{kind:'base',base_id:'sol_base',counters:[],sites:[]},
     holdings:{fuel:120,max_fuel:120,hull:100,max_hull:100,cargo_free:50,credits:100},
     obligations:{},permissions:{},observed:{}};
+  // Rest is the counter-example, and it changed: it used to carry no call because resting was an
+  // AI tool. It is a barrel call now, which is what lets the menu offer the end of a shift — and
+  // the menu has to, because that tool was the pilot's always-available path to reflecting, and
+  // without reflection it can never change stance.
   const rest=evaluateMenu(ready).find(v=>v.job==='Rest and reflect');
   assert.ok(rest?.admissible,rest?.reason);
-  assert.equal(rest!.play,undefined);
+  assert.equal(rest!.play,'rest()');
 });
