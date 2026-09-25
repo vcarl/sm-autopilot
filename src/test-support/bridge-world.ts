@@ -101,7 +101,9 @@ export interface WorldOptions {
 /** The freight board and the carrier behind it. A listing's `reserved_exposure` is the
  * liability it puts against the tier's allowance, which is the number a board filters on. */
 export interface MarketRow {item_id:string;item_name?:string;best_buy:number;best_buy_qty:number;
-  best_sell:number;best_sell_qty:number}
+  best_sell:number;best_sell_qty:number;
+  /** The book level by level, as `view_market` gives it; absent, the top of book is the only level. */
+  buy_orders?:{price_each:number;quantity:number}[];sell_orders?:{price_each:number;quantity:number}[]}
 
 export interface ShippingOptions {
   listings?:{id:string;destination_base_id:string;base_reward:number;reserved_exposure?:number;

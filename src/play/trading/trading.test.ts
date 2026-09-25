@@ -434,3 +434,22 @@ test('a circuit is read off the middle of three laps: the steady state sells wha
   rmSync(pilot,{recursive:true,force:true});
   assert.deepEqual(gate.errors,[]);
 });
+
+test('a circuit counts only what a lap both buys and sells: the carry lap one bought is not the middle lap\'s revenue (live: 521 predicted, -10 to -32 flown)',async()=>{
+  // markets.json as the trial planned from: nexus (here) bids steel 19 and asks neon 1; beta asks steel 18 and bids neon 2.
+  // At 50 deep the middle lap sold 50 steel and bought none (908); at 71 it sold 50 and bought 21 (521). Balanced, 21 steel
+  // and 14 neon: 21×19 + 14×2 − 21×18 − 14×1 − 9 tax − 2 jumps × 7 fuel × 4 cr = −30, so neither is a circuit.
+  for(const depth of [50,71]) {
+    const runtime=remembered([{base_id:'range_base',age:1257,system_id:'deep_range',items:[
+      {item_id:'neon_gas',best_buy:2,best_buy_qty:64,buy_orders:[{price_each:2,quantity:64},{price_each:1,quantity:320}],best_sell:5,best_sell_qty:11},
+      {item_id:'steel_plate',best_sell:18,best_sell_qty:142928,sell_orders:[{price_each:18,quantity:142928},{price_each:100,quantity:13}]}]}]);
+    world({mood:'Focused'},{cargo:[],cargoUsed:0,cargoCapacity:1200,store:[],taxBps:250,fuelPrice:4,
+      markets:{sol_base:[{item_id:'neon_gas',best_sell:1,best_sell_qty:155972,sell_orders:[{price_each:1,quantity:155972},{price_each:15,quantity:52906}],best_buy:0,best_buy_qty:0},
+        {item_id:'steel_plate',best_sell:180,best_sell_qty:9118,best_buy:19,best_buy_qty:depth,
+          buy_orders:[{price_each:19,quantity:depth},{price_each:18,quantity:202},{price_each:12,quantity:332}]}]}},runtime);
+    try {
+      const out=await routes({circuit:{hold:50}});
+      assert.deepEqual(out.detail.routes.map(row=>[row.net,row.circuit!.stops]),[],`${depth} deep: the steel and neon lap loses money`);
+    } finally {unbind();rmSync(runtime,{recursive:true,force:true});}
+  }
+});

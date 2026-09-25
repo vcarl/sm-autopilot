@@ -132,8 +132,10 @@ stop outbids, so the way back pays too.
 
 A lap is planned three times over and the **middle** lap is the one read: the first starts empty,
 and the last has nothing after it to carry for. The middle one sells at the first stop what the lap
-before carried back. It is still one plan over one set of books, so what lap one bought is gone
-for lap two; a thin book's repeat laps read a little low.
+before carried back. It is one plan over one set of books, so what lap one bought is gone for lap
+two, and the middle lap can sell more than it buys. A lap repeats only what it both buys and sells,
+so each item counts `min(sold, bought)` units, at their average price; an item sold with none bought
+on the lap is carry from lap one and is not counted.
 
 A circuit row is a `Route` whose numbers are that middle lap's: `legs`, `revenue`, `cost`,
 `sales_tax`; `net` is `lap_net`, `total_jumps` is `lap_jumps`, `score` is
