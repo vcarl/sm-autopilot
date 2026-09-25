@@ -104,9 +104,10 @@ function service(facts:Facts):Verdict {
   if(serviced(facts))return no('resupply',job,'fuel and hull are already at the serviced-dock targets');
   const owedFuel=holdings.max_fuel-holdings.fuel,owedHull=holdings.max_hull-holdings.hull;
   const {fuel,hull}=place.service_prices??{};
-  const quoted=owedFuel*(fuel??0)+owedHull*(hull??0),reserve=facts.permissions.credit_reserve??0;
-  if(quoted>margin)return no('resupply',job,
-    `quoted ${quoted} credits exceeds the ${facts.mood} service spend margin ${margin}; a calmer bill or a bolder mood admits it`);
+  // The margin meters the repair only: fuel is resupply, bounded by the reserve alone.
+  const repair=owedHull*(hull??0),quoted=owedFuel*(fuel??0)+repair,reserve=facts.permissions.credit_reserve??0;
+  if(repair>margin)return no('resupply',job,
+    `quoted ${repair} credits of repair exceeds the ${facts.mood} service spend margin ${margin}; a calmer bill or a bolder mood admits it`);
   if(holdings.credits-quoted<reserve||(!quoted&&holdings.credits<=reserve))return no('resupply',job,
     `credits ${holdings.credits} less reserve ${reserve} cannot cover the ${quoted?`quoted ${quoted} credits`:'unpriced counter'}`);
   return yes('resupply',job,quoted
