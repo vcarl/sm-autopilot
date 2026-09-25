@@ -6,27 +6,42 @@ import type {ReadinessCommand} from './readiness.ts';
 
 /** Per account: the tick each base was last filed at. A book is filed once per tick. */
 const filed=new WeakMap<object,Map<string,number>>();
-/** ponytail: an account whose first filing failed (no faction, no Trade Ledger) is not asked again
- * this process, so a pilot who joins a faction mid-process files from the next process on. A
- * dropped connection on that first filing counts as "no ledger" too. */
-const off=new WeakSet<object>();
+/** Accounts already told once why a filing failed. */
+const told=new WeakSet<object>();
 
-/** File `items` as `base_id`'s book at `tick`, once. Never throws; `say` hears once per account
- * per process why filing is off. ponytail: the whole priced book goes in one station report (the
- * live proof filed 23 rows); cut it to held and traded items if the ledger ever refuses the size. */
+/** ponytail: the rows of one station report, as JSON, are kept under this many bytes. Live, a
+ * 542-row book (~55 KB) filed and a 716-row one (~73 KB) dropped the connection every time, and a
+ * second filing for a base replaces the first, so the book cannot be split. The ceiling is the
+ * server's, not measured closer than that; raise it if a bigger book ever files whole. */
+export const FILE_BYTES=50_000;
+
+/** The rows worth filing, most tradeable first (a bid and an ask, then by the value on the book),
+ * cut to fit `FILE_BYTES`. */
+export function fileRows(items:readonly MarketListingItem[]) {
+  const rows=items.filter(row=>row.best_buy>0||row.best_sell>0).map(row=>({item_id:row.item_id,
+    best_buy:row.best_buy,best_sell:row.best_sell,buy_volume:row.best_buy_qty,sell_volume:row.best_sell_qty}))
+    .sort((a,b)=>Number(b.best_buy>0&&b.best_sell>0)-Number(a.best_buy>0&&a.best_sell>0)
+      ||b.best_buy*b.buy_volume+b.best_sell*b.sell_volume-(a.best_buy*a.buy_volume+a.best_sell*a.sell_volume));
+  let bytes=0;
+  return rows.filter(row=>(bytes+=JSON.stringify(row).length+1)<=FILE_BYTES);
+}
+
+/** File `items` as `base_id`'s book at `tick`, once. Never throws. A failure costs that base this
+ * tick only — the next base, or the next tick, files again — and `say` hears once per account per
+ * process why one failed. */
 export async function fileIntel(account:object,command:ReadinessCommand,base_id:string,items:readonly MarketListingItem[],
   tick:number,say:(text:string)=>void=()=>{}):Promise<void> {
-  if(!base_id||off.has(account))return;
+  if(!base_id)return;
   const seen=filed.get(account)??new Map<string,number>();
   filed.set(account,seen);
   if(seen.get(base_id)===tick)return;
   seen.set(base_id,tick);
-  const rows=items.filter(row=>row.best_buy>0||row.best_sell>0).map(row=>({item_id:row.item_id,
-    best_buy:row.best_buy,best_sell:row.best_sell,buy_volume:row.best_buy_qty,sell_volume:row.best_sell_qty}));
+  const rows=fileRows(items);
   if(!rows.length)return;
   try {await command('spacemolt_intel/submit_trade_intel',{stations:[{base_id,items:rows}]});}
   catch(error) {
-    off.add(account);
-    say(`trade intel not filed, and not tried again this process: ${error instanceof Error?error.message:String(error)}`);
+    if(told.has(account))return;
+    told.add(account);
+    say(`trade intel not filed at ${base_id}: ${error instanceof Error?error.message:String(error)}`);
   }
 }

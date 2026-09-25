@@ -43,8 +43,10 @@ that the way to *learn* a price is to go and stand in front of it: `goTo(base)` 
 `prices()`, once, and that base is in the memory for good.
 
 Filing to the ledger is automatic too: every `book()` read, and every freighter stop, submits that
-base's priced book (`submit_trade_intel`) once per tick, so you never call it. Without a faction
-ledger it is a no-op, said once per process. What you and your faction filed comes back in `spreads()`
+base's priced book (`submit_trade_intel`) once per tick, so you never call it. A book over about
+50 KB drops the connection, and a second filing for a base replaces the first, so a big book is
+cut to its most tradeable rows (a bid and an ask first, then by value). A failed filing costs that
+base that tick only, and is said once per process; without a faction ledger nothing files. What you and your faction filed comes back in `spreads()`
 rows as `source: 'faction ledger'` with `seen` the age of its `submitted_at_tick`, and in `routes()`
 legs as `source`/`age` the same way; a base read both ways ranks on the fresher of the two.
 

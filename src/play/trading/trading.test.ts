@@ -73,9 +73,10 @@ test('with no faction, a book read files nothing and says so once',async()=>{
   const f=world({mood:'Focused'},{cargo:[],cargoUsed:0,store:[]});
   try {
     assert.equal((await prices(['ore'])).status,'done');
+    assert.equal((await prices(['ore'])).status,'done');
     assert.equal((await goTo('range_base')).status,'done');
     assert.equal((await prices(['ore'])).status,'done');
-    assert.equal(f.count('spacemolt_intel/submit_trade_intel'),1,'tried once, then off for this account');
+    assert.equal(f.count('spacemolt_intel/submit_trade_intel'),2,'a failure costs that base this tick only; the next base tries again');
     assert.equal(f.lines.filter(line=>line.includes('trade intel not filed')).length,1);
   } finally {unbind();}
 });
