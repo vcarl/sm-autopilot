@@ -46,7 +46,12 @@ export interface Sighting {poi_id:string;species?:string;count:number;legal:numb
 
 /** A whole look at one POI, which is the unit that gets written: a look supersedes everything
  * remembered about that POI, because a fresher answer about the same rock is the only answer.
- * An empty `seen` is the empty look. */
+ * An empty `seen` is the empty look.
+ *
+ * **`seen` must be complete.** It is every creature `get_nearby` listed at that POI, not a
+ * filtered subset — there is no per-species query to make a partial look out of. `recall` leans
+ * on this: a species missing from a look is a species that was not there, which is half of what
+ * a look is worth. A caller that writes a filtered `seen` would turn that into a lie. */
 export interface Look {poi_id:string;tick?:number;seen:{species:string;count:number;legal:number}[]}
 
 /** Whatever is on disk, newest row first, or nothing: a torn or absent file is no memory. */
@@ -100,15 +105,23 @@ export type Recall={poi_id:string;species?:string}&(
  * no species named, the whole newest look at that POI is summed. */
 export function recall(rows:Sighting[],poi_id:string,species?:string,now=Date.now()):Recall {
   const asked={poi_id,...species?{species}:{}};
-  const mine=rows.filter(row=>row.poi_id===poi_id
-    &&(species===undefined||row.species===species||row.species===undefined));
-  if(!mine.length)return {...asked,state:'unlooked'};
-  const ticks_old=Math.min(...mine.map(row=>sightingTicksOld(row.at,now)));
+  // Having looked is a property of the POI, not of the species asked about. A look is complete
+  // (see `Look`), so a species missing from it was absent, and that is an answer — `unlooked` is
+  // reserved for a rock nobody has been to. Collapsing the two would make "we flew out there and
+  // it was empty" indistinguishable from "nobody has ever checked", which is the one distinction
+  // this memory exists to draw.
+  const looked=rows.filter(row=>row.poi_id===poi_id);
+  if(!looked.length)return {...asked,state:'unlooked'};
+  const ticks_old=Math.min(...looked.map(row=>sightingTicksOld(row.at,now)));
   // Every row from the same look shares a stamp; only the newest look is believed, and the
   // rows of older looks at the same POI are ignored rather than added into its counts.
-  const newest=mine.filter(row=>sightingTicksOld(row.at,now)===ticks_old);
-  const count=newest.reduce((sum,row)=>sum+Math.max(0,row.count),0);
-  const legal=newest.reduce((sum,row)=>sum+Math.max(0,row.legal),0);
+  const newest=looked.filter(row=>sightingTicksOld(row.at,now)===ticks_old);
+  // A species-less row is the empty look, which answers for every species at once.
+  const mine=species===undefined?newest:newest.filter(row=>row.species===species||row.species===undefined);
+  const count=mine.reduce((sum,row)=>sum+Math.max(0,row.count),0);
+  const legal=mine.reduce((sum,row)=>sum+Math.max(0,row.legal),0);
+  // Which bound applies is decided by the answer, not by the row: the same look is a presence
+  // for what it saw and an absence for what it did not, and an absence expires sooner.
   return ticks_old<=(count>0?PRESENCE_STALE:ABSENCE_STALE)
     ?{...asked,state:'seen',count,legal,ticks_old}
     :{...asked,state:'stale',ticks_old};

@@ -85,8 +85,25 @@ test('a fresh sighting and a stale sighting are different answers',()=>{
   assert.equal(here.state==='seen'&&here.count,4);
   assert.equal(there.state,'stale','a presence old enough is knowledge, not a recommendation');
   assert.ok(here.ticks_old<there.ticks_old,'age grows with the clock');
-  assert.equal(recall(rows,'poi-a','slag_tortoise',now).state,'unlooked',
-    'a look that named one species says nothing about another');
+});
+
+test('a look that saw one species is a known absence of every other',()=>{
+  // `get_nearby` lists everything present at a POI — there is no per-species query — so a look
+  // that came back with four belt_grazers and nothing else established that there were no slag
+  // tortoises there. Reading that as `unlooked` throws away the more useful half of the look and
+  // makes "we looked and it wasn't there" indistinguishable from "nobody has ever been".
+  const now=Date.parse('2026-09-25T12:00:00Z');
+  const fresh=recall([row('poi-a','belt_grazer',4,ago(2,now))],'poi-a','slag_tortoise',now);
+  assert.equal(fresh.state,'seen','the POI was looked at, so there is an answer about the tortoise');
+  assert.equal(fresh.state==='seen'&&fresh.count,0,'and the answer is none');
+
+  // And it ages as strictly as any other absence: the bound that governs it is the absence bound,
+  // not the presence bound, even though the look that recorded it did see something.
+  const aged=recall([row('poi-a','belt_grazer',4,ago(ABSENCE_STALE+1,now))],'poi-a','slag_tortoise',now);
+  assert.equal(aged.state,'stale','an absence this old is no longer an answer, whatever else the look saw');
+  // The same row, asked about what it DID see, is still a presence: the two bounds are per
+  // question, not per row.
+  assert.equal(recall([row('poi-a','belt_grazer',4,ago(ABSENCE_STALE+1,now))],'poi-a','belt_grazer',now).state,'seen');
 });
 
 test('a fresh look at a POI replaces what was remembered there',()=>{
