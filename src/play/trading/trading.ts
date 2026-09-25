@@ -14,7 +14,8 @@ import {miningInventory} from '../../mining-inventory.ts';
 import {walkBook} from '../../order-book.ts';
 import {details} from '../../response-details.ts';
 import {book,buy,knownBooks,marketTick,sell,ticksOld} from '../market.ts';
-import {acct,admit,checkStop,command,job,step} from '../runtime.ts';
+import {readDrained,ring} from '../freighter/drained.ts';
+import {acct,admit,checkStop,command,job,runtimeDir,step} from '../runtime.ts';
 import {withdraw} from '../storage.ts';
 import {goTo,route} from '../travel.ts';
 import type {Outcome,Row} from '../types.ts';
@@ -157,8 +158,9 @@ type Listing=Pick<MarketListingItem,'item_id'|'best_buy'|'best_buy_qty'|'best_se
 interface FarBook {base_id:string;source:'faction ledger'|'remembered';age:number;system_id?:string;items:Listing[]}
 
 /** Every far book this pilot may know: the faction ledger's whole books, then the books
- * remembered at other bases. What `spreads()`, `routes()` and `tradeRun` all read. A ledger entry
- * comes back with an empty `system_id`; the memory's system for that base stands in, else none. */
+ * remembered at other bases, one per base — the fresher copy when both have it. What `spreads()`,
+ * `routes()`, `tradeRun` and `assign` all read. A ledger entry comes back with an empty
+ * `system_id`; the memory's system for that base stands in, else none. */
 export async function farBooks(here:string,now:number):Promise<FarBook[]> {
   const memory=knownBooks();
   const systemOf=new Map(memory.filter(known=>known.system_id).map(known=>[known.base_id,known.system_id!]));
@@ -171,7 +173,10 @@ export async function farBooks(here:string,now:number):Promise<FarBook[]> {
   });
   const remembered=memory.filter(known=>known.base_id!==here).map(known=>({base_id:known.base_id,
     source:'remembered' as const,age:ticksOld(known.tick,now),...known.system_id?{system_id:known.system_id}:{},items:known.items}));
-  return [...filed,...remembered];
+  // One book per base: the fresher of the ledger's copy and the memory's, a tie to the ledger.
+  const fresher=new Map<string,FarBook>();
+  for(const book of [...filed,...remembered])if(!((fresher.get(book.base_id)?.age??Infinity)<=book.age))fresher.set(book.base_id,book);
+  return [...fresher.values()];
 }
 
 /** Ticks for a far end's trust to halve: an hour at ten seconds a tick. NPC books move rarely,
@@ -502,6 +507,10 @@ export interface Circuit {closed:true;
   lap_net:number;
   stops:readonly {at:string;system_id:string;buy?:{item:string;qty:number;max_price:number};
     sell:readonly {item:string;min_price:number}[]}[]}
+/** ponytail: ticks a ring rests after a freighter parked on it drained (no trade, or losing laps),
+ * before `routes({circuit})` plans it again: an hour at ten seconds a tick. Unmeasured: tune it
+ * once a drained ring's books are watched refilling live. */
+export const REST_TICKS=360;
 /** ponytail: a lap's prices carry 10% of slack against the planned average — a buy up to 10%
  * over it, a sale down to 10% under it — so a book that moves a little does not stop the lap. Tunable. */
 const SLACK=0.1;
@@ -639,13 +648,17 @@ export function routes(opts:{items?:string[];circuit?:{hold:number}}={}):Promise
     // or any item whose ask there the new stop outbids.
     const wanted=(item:string)=>!opts.items?.length||opts.items.includes(item);
     const found=new Map<string,Route>();
+    // A ring a freighter drained within REST_TICKS is not planned: its books are still refilling.
+    const dir=runtimeDir(),drained=circuit&&dir?readDrained(dir):{},now=marketTick(),skipped=new Set<string>();
+    const resting=(key:string)=>drained[key]!==undefined&&ticksOld(drained[key],now)<REST_TICKS;
     // A route pays, and every stop on it does something: a stop that neither sells nor buys is only fuel.
     // A circuit pays once round a whole lap, fuel and all. One ring of bases is one circuit: its
     // rotations, and the other buys that ring could make, rank as the best of them alone.
     const keep=(stops:RunStop[])=>{
+      if(circuit&&resting(ring(stops))){skipped.add(ring(stops));return false;}
       const row=circuit?lapOf(stops):evaluate(stops),trades=row.legs.every(leg=>leg.sold.length||leg.bought);
       const pays=trades&&(circuit?row.total_jumps!==null&&row.net>0:row.revenue>row.cost);
-      const key=circuit?stops.map(stop=>stop.at).map((_,i,keys)=>[...keys.slice(i),...keys.slice(0,i)].join(' ')).sort()[0]!:row.next;
+      const key=circuit?ring(stops):row.next;
       if(pays&&!((found.get(key)?.score??-Infinity)>=row.score))found.set(key,row);
       return pays&&row;
     };
@@ -675,8 +688,9 @@ export function routes(opts:{items?:string[];circuit?:{hold:number}}={}):Promise
       beam=grown.sort((a,b)=>b.score-a.score).slice(0,BEAM).map(row=>row.stops);
     }
 
+    const rested=skipped.size?`; skipped ${skipped.size} ring(s) a freighter drained within ${REST_TICKS} ticks: ${[...skipped].join('; ')}`:'';
     const rows=[...found.values()].sort((a,b)=>Number(a.total_jumps===null)-Number(b.total_jumps===null)||b.score-a.score).slice(0,ROWS);
-    if(!rows.length)return {status:'done',did:`no route pays across ${known.size} book(s) (${sources.join(' + ')}) from this hold`,
+    if(!rows.length)return {status:'done',did:`no route pays across ${known.size} book(s) (${sources.join(' + ')}) from this hold${rested}`,
       detail:{routes:[],sources},next:['goTo another base and prices() there to learn its book']};
     const failed=rows.filter(row=>row.total_jumps===null);
     // Short: a hold of ten kinds is `sell 499 of 10 kinds`; the legs in `detail` carry the rest.
@@ -685,7 +699,7 @@ export function routes(opts:{items?:string[];circuit?:{hold:number}}={}):Promise
         :leg.sold.map(sale=>`sell ${sale.quantity} ${sale.item_id}`),
       ...leg.bought?[`buy ${leg.bought} ${leg.buy}`]:[]].join(' ')).join(' → ');
     return {status:failed.length?'partial':'done',
-      did:`ranked ${rows.length} route(s) over ${known.size} book(s) (${sources.join(' + ')}); best: ${says(rows[0]!)}, net ${rows[0]!.net} cr`,
+      did:`ranked ${rows.length} route(s) over ${known.size} book(s) (${sources.join(' + ')}); best: ${says(rows[0]!)}, net ${rows[0]!.net} cr${rested}`,
       ...failed.length?{why:failed.map(row=>`${says(row)}: ${row.why}`).join('; ')}:{},
       detail:{routes:rows,sources},next:rows.slice(0,3).map(row=>row.next)};
   });

@@ -219,6 +219,22 @@ test('routes reads the ledger whole, page past page, and places a filed base by 
   } finally {unbind();rmSync(runtime,{recursive:true,force:true});}
 });
 
+test('a base both remembered and on the ledger is read from the fresher copy, whichever pays more: routes and spreads alike',async()=>{
+  // range_base bids 110 in one copy and 200 in the other; only one copy is the book as it now stands.
+  for(const [memoryAge,ledgerAge,bid,source] of [[0,500,110,'remembered'],[500,0,200,'faction ledger']] as const) {
+    const runtime=remembered([{base_id:'range_base',age:memoryAge,system_id:'deep_range',items:[{item_id:'gem',best_buy:110,best_buy_qty:50}]}]);
+    world({mood:'Focused'},{cargo:[{item_id:'gem',quantity:20}],cargoUsed:20,cargoCapacity:20,store:[],markets:HERE,
+      tradeIntel:[{base_id:'range_base',submitted_at_tick:TICK-ledgerAge,items:[{item_id:'gem',best_buy:200,buy_volume:50}]}]},runtime);
+    try {
+      const top=(await routes()).detail.routes[0]!;
+      assert.equal(top.next,"tradeRun({stops:[{at:'range_base'}]})");
+      assert.deepEqual([top.legs[0]!.source,top.legs[0]!.age,top.revenue],[source,0,20*bid]);
+      const far=(await spreads(['gem'])).detail.spreads.find(row=>row.base_id==='range_base')!;
+      assert.deepEqual([far.best_buy,far.source],[bid,source]);
+    } finally {unbind();rmSync(runtime,{recursive:true,force:true});}
+  }
+});
+
 // Scrap sells here and nowhere else; gems fetch more a jump away; ore is cheap here and dear there.
 const MIXED_HERE=[{item_id:'scrap',best_buy:50,best_buy_qty:50,best_sell:0,best_sell_qty:0},
   {item_id:'gem',best_buy:90,best_buy_qty:50,best_sell:100,best_sell_qty:50},

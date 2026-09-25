@@ -9,7 +9,7 @@ import {details} from '../../response-details.ts';
 import {closure} from '../freighter/index.ts';
 import {flying,gate,held,readFleet,recallLoop,row,script,scriptPath,start,writeFleet,type FreighterRow} from '../freighter/host.ts';
 import {acct,command,job,runtimeDir} from '../runtime.ts';
-import {farBooks,hops,type Circuit} from '../trading/trading.ts';
+import {farBooks,hops,routes,type Circuit} from '../trading/trading.ts';
 import type {Outcome} from '../types.ts';
 
 /** Every ship you own and where it is parked (`ship/list_ships`), with the active one
@@ -81,6 +81,27 @@ export function assign(name:string,circuit:Circuit,caps:{float:number}):Promise<
     if(why)return refuse(why);
     return {status:'done',did:`assigned ${name}: ${clean.stops.map(stop=>stop.at).join(' → ')} → back, ${clean.lap_net} cr a lap predicted; it flies on its own account now`,
       detail:{freighter:row(name,readFleet(runtime)[name]!)},next:['freighters()',`recall('${name}')`]};
+  });
+}
+
+/** Put the parked freighter `name` on a new circuit: `routes({circuit: {hold}})` for its hold,
+ * which passes over the rings a freighter drained within `REST_TICKS`, then `assign` of the top
+ * row at its float. Refused when no circuit pays, or wherever `routes` or `assign` refuse (not
+ * docked; still flying). The cargo aboard rides into the new circuit at its cost; the `why` says
+ * so when the new circuit does not sell it. */
+export function reassign(name:string):Promise<Outcome<{freighter:FreighterRow|null}>> {
+  return job<{freighter:FreighterRow|null}>('reassign',name,async()=>{
+    const refuse=(why:string)=>({status:'refused' as const,did:`reassigned no freighter ${name}`,why,detail:{freighter:null}});
+    const runtime=runtimeDir(),entry=runtime?readFleet(runtime)[name]:undefined;
+    if(!entry)return refuse(`no freighter named ${name} is assigned`);
+    const found=await routes({circuit:{hold:entry.circuit.hold}});
+    const top=found.detail.routes?.[0]?.circuit;
+    if(!top)return refuse(`no circuit for a ${entry.circuit.hold} hold: ${found.why??found.did}`);
+    const out=await assign(name,top,{float:entry.float});
+    if(out.status!=='done')return {status:out.status,did:out.did,why:out.why??'',detail:out.detail};
+    const unsold=Object.fromEntries(Object.entries(entry.holding??{}).filter(([item])=>!top.stops.some(stop=>stop.sell.some(sale=>sale.item===item))));
+    return {status:'done',did:out.did,detail:out.detail,next:out.next??[],
+      ...held(unsold)?{why:`${held(unsold)} aboard is not sold on this circuit: that capital stays tied up in the hold`}:{}};
   });
 }
 

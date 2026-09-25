@@ -19,6 +19,7 @@ import {pilotHome} from '../../run.ts';
 import {checkBoundary,specifiers} from '../boundary.ts';
 import {checkPolicy} from '../policy.ts';
 import type {Circuit} from '../trading/trading.ts';
+import {markDrained,ring} from './drained.ts';
 import type {Freighter,Holding} from './index.ts';
 
 /** One freighter as `freighters.json` keeps it. */
@@ -148,7 +149,10 @@ export function start(runtime:string,name:string):string|null {
   const f:Freighter={name,account:live,command,owner:entry.owner,float:entry.float,...entry.holding?{holding:entry.holding}:{},
     recalled:()=>loop.recall||loop.stopping,
     // A bridge shutting down stops every loop; the entry stays `running` so the next one resumes it.
-    park:why=>{if(!loop.stopping)update(runtime,name,{state:'parked',why});journalRun(runtime,{freighter:name,parked:why},'freighter');
+    park:(why,drained)=>{
+      if(!loop.stopping)update(runtime,name,{state:'parked',why});
+      if(drained!==undefined)markDrained(runtime,ring(entry.circuit.stops),drained);
+      journalRun(runtime,{freighter:name,parked:why,...drained===undefined?{}:{drained}},'freighter');
       return {park:why,net:0};},
     report:fields=>{
       const now=readFleet(runtime)[name];

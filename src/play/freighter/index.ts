@@ -7,9 +7,10 @@
  * - a disconnect or any other throw: wait a minute and redo the stop from a fresh read. A stop is
  *   idempotent: sales are sized by what is held, the buy by the free hold and what is already aboard;
  * - the session taken by another connection: park, and never log in again;
- * - a sale or buy the game refuses: say so and go on; three stops in a row with no trade parks it;
+ * - a sale or buy the game refuses: say so and go on; three stops in a row with no trade parks it,
+ *   the ring recorded as drained;
  * - a route short of fuel, a blocked flight, no credits for fuel: park, docked where it is;
- * - LOSING_LAPS laps in a row that net 0 or less: park, docked at the lap's last stop.
+ * - LOSING_LAPS laps in a row that net 0 or less: park, docked at the lap's last stop, the ring drained.
  * A parked ship keeps its cargo aboard, and `holding` says what it cost. */
 import {SpacemoltError,type MarketListingItem,type OrderLevel,type ViewMarketResponse} from '@spacemolt/lib';
 import {miningInventory} from '../../mining-inventory.ts';
@@ -42,8 +43,9 @@ export interface Freighter {
   holding?:Holding;
   /** True once `recall` asked it home: it finishes the stop it is on and parks. */
   recalled():boolean;
-  /** Stop for good with `why`; the Lap to return. */
-  park(why:string):Lap;
+  /** Stop for good with `why`; the Lap to return. `drained`, the game tick, when the circuit's books
+   * ran dry (no trade, or laps that lost money): the host records the ring as resting. */
+  park(why:string,drained?:number):Lap;
   report(fields:Report):void;
 }
 type Stop=Circuit['stops'][number];
@@ -110,8 +112,8 @@ async function attempt(f:Freighter,at:string,what:string,send:()=>Promise<unknow
 }
 
 /** One stop: fly there and dock, service, sell the listed items at their floors, buy within the
- * cap, send the credits above the float home. Returns how many trades took. */
-async function visit(f:Freighter,stop:Stop,sent:(credits:number)=>void,bought:(item:string,n:number,spent:number)=>void):Promise<number> {
+ * cap, send the credits above the float home. Returns how many trades took, and the book's tick. */
+async function visit(f:Freighter,stop:Stop,sent:(credits:number)=>void,bought:(item:string,n:number,spent:number)=>void):Promise<{traded:number;tick:number}> {
   const {account,command}=f;
   // Tired's service margin is the wallet itself; the reserve is 0, and the fill is checked after. A
   // counter that refuses a service is passed by: the next quote says whether the tank still reaches.
@@ -161,7 +163,7 @@ async function visit(f:Freighter,stop:Stop,sent:(credits:number)=>void,bought:(i
     await account.refresh();
   }
   f.report({credits:account.state.player?.credits??0});
-  return traded;
+  return {traded,tick:Number(market.current_tick??0)};
 }
 
 /** Stops in a row with no trade, laps in a row that lost money, and the cargo at cost, across laps. */
@@ -184,13 +186,13 @@ export async function lap(f:Freighter,circuit:Circuit):Promise<Lap> {
   const opening=f.account.state.player?.credits??0;
   const holding=holdings.get(f)??structuredClone(f.holding??{}),stocked=worth(holding);
   holdings.set(f,holding);
-  let home=0;
+  let home=0,tick=0;
   for(const stop of circuit.stops) {
     let traded:number;
     for(;;) {
       try {
-        traded=await visit(f,stop,credits=>{home+=credits;},(item,n,spent)=>{
-          const row=holding[item]??={quantity:0,cost:0};row.quantity+=n;row.cost+=spent;});
+        ({traded,tick}=await visit(f,stop,credits=>{home+=credits;},(item,n,spent)=>{
+          const row=holding[item]??={quantity:0,cost:0};row.quantity+=n;row.cost+=spent;}));
         break;
       }
       catch(error) {
@@ -205,7 +207,7 @@ export async function lap(f:Freighter,circuit:Circuit):Promise<Lap> {
     f.report({holding:structuredClone(holding)});
     const dead=traded?0:(idle.get(f)??0)+1;
     idle.set(f,dead);
-    if(dead>=DEAD_STOPS)return f.park(`circuit dead: ${dead} stops in a row with no trade`);
+    if(dead>=DEAD_STOPS)return f.park(`circuit dead: ${dead} stops in a row with no trade`,tick);
     if(f.recalled())return f.park('recalled');
   }
   // The wallet's change, plus the change in cargo aboard at cost: a load kept aboard is not a loss.
@@ -213,6 +215,6 @@ export async function lap(f:Freighter,circuit:Circuit):Promise<Lap> {
   f.report({lapped:net});
   const lost=net>0?0:(losing.get(f)??0)+1;
   losing.set(f,lost);
-  if(lost>=LOSING_LAPS)return {...f.park(`${lost} laps lost money: last ${net} vs predicted ${circuit.lap_net}`),net};
+  if(lost>=LOSING_LAPS)return {...f.park(`${lost} laps lost money: last ${net} vs predicted ${circuit.lap_net}`,tick),net};
   return {net};
 }

@@ -1,16 +1,18 @@
 import assert from 'node:assert/strict';
-import {existsSync,mkdirSync,mkdtempSync,rmSync,writeFileSync} from 'node:fs';
+import {existsSync,mkdirSync,mkdtempSync,readFileSync,rmSync,writeFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import test from 'node:test';
 import {SpacemoltError} from '@spacemolt/lib';
 import type {ReadinessAccount,ReadinessCommand} from '../../readiness.ts';
 import {check} from '../../run.ts';
-import {bridgeWorld} from '../../test-support/bridge-world.ts';
-import {assign} from '../fleet/fleet.ts';
+import {bridgeWorld,TICK} from '../../test-support/bridge-world.ts';
+import {assign,reassign} from '../fleet/fleet.ts';
+import {menu,renderMenu} from '../menu.ts';
 import {bind,unbind} from '../runtime.ts';
-import type {Circuit} from '../trading/trading.ts';
-import {gate,script,scriptPath} from './host.ts';
+import {REST_TICKS,routes,type Circuit} from '../trading/trading.ts';
+import {markDrained,ring} from './drained.ts';
+import {gate,script,scriptPath,writeFleet} from './host.ts';
 import {lap,type Freighter,type Lap,type Report} from './index.ts';
 
 // Gems bought at sol for at most 110, sold at range for at least 120.
@@ -35,10 +37,10 @@ function freighter(rangeBid:number,refuse:string[]=[]) {
     }
     return world.command(action,params);
   };
-  let parked:string|undefined;
+  let parked:string|undefined,drained:number|undefined;
   const f:Freighter={name:'hauler',account:world.account as unknown as ReadinessAccount,command,owner:'B',float:5_000,
-    recalled:()=>false,park:why=>{parked=why;return {park:why,net:0};},report:fields=>{reports.push(fields);}};
-  return {world,f,deposits,reports,parked:()=>parked};
+    recalled:()=>false,park:(why,tick)=>{parked=why;drained=tick;return {park:why,net:0};},report:fields=>{reports.push(fields);}};
+  return {world,f,deposits,reports,parked:()=>parked,drained:()=>drained};
 }
 
 test('a lap sells only the listed items at their floors, buys within the cap, and sends home exactly what is above the float',async()=>{
@@ -68,13 +70,14 @@ test('a lap sells at a bid over the floor',async()=>{
 });
 
 test('a refused buy is skipped, not thrown, and three stops in a row with no trade park the circuit',async()=>{
-  const {world,f,reports,parked}=freighter(130,['spacemolt/buy']);
+  const {world,f,reports,parked,drained}=freighter(130,['spacemolt/buy']);
   await world.account.refresh();
   let laps=0,last:Lap;
   do {last=await lap(f,GEMS);laps++;} while(!last.park&&laps<5);
   assert.match(last.park!,/^circuit dead/);
   assert.equal(parked(),last.park);
   assert.equal(laps,2,'sol, range, then sol again');
+  assert.equal(drained(),TICK,'parked as drained, on the tick of the book it last read');
   assert.ok(reports.some(r=>/buy 10 gem refused/.test(r.why??'')));
 });
 
@@ -132,7 +135,7 @@ test('a generated freighter script passes the gate: tsc, and play/freighter as i
 
 test('three laps in a row that lose money park the freighter, the why naming the last lap against the prediction',async()=>{
   // Gems cost 100 at sol and sell for 100 at range: every lap pays out its fuel and repairs and makes nothing.
-  const {world,f,parked}=freighter(100);
+  const {world,f,parked,drained}=freighter(100);
   await world.account.refresh();
   const flat:Circuit={...GEMS,stops:[GEMS.stops[0]!,{...GEMS.stops[1]!,sell:[{item:'gem',min_price:90}]}]};
   const laps:Lap[]=[];
@@ -140,6 +143,7 @@ test('three laps in a row that lose money park the freighter, the why naming the
   assert.equal(laps.length,3);
   assert.ok(laps.every(one=>one.net<=0),laps.map(one=>one.net).join());
   assert.equal(parked(),`3 laps lost money: last ${laps[2]!.net} vs predicted 500`);
+  assert.equal(drained(),TICK);
   assert.equal(world.account.server.location.docked_at,'range_base','parked docked at the last stop');
 });
 
@@ -164,4 +168,50 @@ test('a lap that keeps its load values it at cost: the live lap 3 reads its fuel
   assert.equal(world.account.server.player.credits+home-23_000,done.net-1148,'the wallet fell by the load and the fuel');
   assert.ok(done.net<0&&done.net>-100,`${done.net}: the refuels, not the load`);
   assert.equal(reports.find(r=>r.lapped!==undefined)!.lapped,done.net);
+});
+
+test('a drained ring rests: routes passes over it and says so, the menu offers reassign, and reassign assigns the next ring',async()=>{
+  // Gems are asked 100 at sol (here); range bids 150 and twin, in Sol itself, bids 130. Freighter a
+  // parked on sol ↔ range, which it drained 10 ticks ago, with 5 ore aboard that no gem ring sells.
+  const runtime=mkdtempSync(join(tmpdir(),'freighter-rest-'));
+  const book=(base_id:string,system_id:string,bid:number)=>({base_id,at:'',tick:TICK,system_id,
+    items:[{item_id:'gem',best_buy:bid,best_buy_qty:50,best_sell:0,best_sell_qty:0,buy_orders:[],sell_orders:[]}]});
+  writeFileSync(join(runtime,'markets.json'),JSON.stringify([book('range_base','deep_range',150),book('twin_base','sol',130)]));
+  writeFleet(runtime,{a:{state:'parked',circuit:GEMS,float:20_000,owner:'B',lap:3,returned:0,
+    holding:{ore:{quantity:5,cost:50}},why:'circuit dead: 3 stops in a row with no trade',at:''}});
+  markDrained(runtime,ring([...GEMS.stops].reverse()),TICK-10);
+  const world=bridgeWorld({services:['refuel','repair','storage'],cargo:[],cargoUsed:0,cargoCapacity:50,
+    pois:[{id:'twin',base_id:'twin_base'}],markets:{sol_base:[{item_id:'gem',best_buy:0,best_buy_qty:0,best_sell:100,best_sell_qty:50}]}});
+  (world.account.server.player as {username?:string}).username='B';
+  bind({account:world.account as unknown as ReadinessAccount,command:world.command,pilot:()=>({mood:'Focused',stance:'Trader'}),
+    setPilot:()=>{},emit:()=>{},runtime});
+  try {
+    await world.account.refresh();
+    const look=await routes({circuit:{hold:10}});
+    assert.deepEqual(look.detail.routes.map(row=>row.circuit!.stops.map(stop=>stop.at)),[['sol_base','twin_base']]);
+    assert.match(look.did,new RegExp(`skipped 1 ring\\(s\\) a freighter drained within ${REST_TICKS} ticks: range_base sol_base$`));
+
+    const built=await menu(runtime);
+    const move=built.moves.find(m=>m.call==="reassign('a')");
+    assert.ok(move,renderMenu(built));
+    assert.match(move.why,/parked \(circuit dead.*routes\(\{circuit:\{hold:10\}\}\).*5 ore \(50 cr\) aboard rides along/);
+    const pilot=mkdtempSync(join(tmpdir(),'reassign-next-'));
+    mkdirSync(join(pilot,'pilot'));
+    writeFileSync(join(pilot,'pilot','index.ts'),`import {reassign} from 'play';\nexport default async function main() {\n  return ${move.call};\n}\n`);
+    const typed=await check(pilot);
+    rmSync(pilot,{recursive:true,force:true});
+    assert.deepEqual(typed.errors,[]);
+
+    // Past routes and assign's every check on the circuit: only the operator's login is missing.
+    const out=await reassign('a');
+    assert.match(out.why!,/^no login at /);
+    const written=readFileSync(scriptPath(runtime,'a'),'utf8');
+    assert.ok(written.includes('twin_base')&&!written.includes('range_base'),written);
+
+    // Rested: the ring is planned again.
+    markDrained(runtime,ring(GEMS.stops),TICK-REST_TICKS);
+    const again=await routes({circuit:{hold:10}});
+    assert.ok(again.detail.routes.some(row=>row.circuit!.stops.some(stop=>stop.at==='range_base')),again.did);
+    assert.doesNotMatch(again.did,/skipped/);
+  } finally {unbind();rmSync(runtime,{recursive:true,force:true});}
 });

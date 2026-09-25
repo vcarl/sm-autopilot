@@ -10,7 +10,7 @@ assembled from everything this pilot is allowed to know.
 | Function | Promise |
 |---|---|
 | `spreads(items?)` | the best buyer known for each thing you hold, anywhere, with the trip priced and netted |
-| `routes({items?, circuit?})` | every route of up to 3 stops known, planned from the hold you have, fuelled, and ranked by trust-weighted net per jump; each row carries the call to paste. With `circuit: {hold}`, every row is a closed lap for a freighter instead |
+| `routes({items?, circuit?})` | every route of up to 3 stops known, planned from the hold you have, fuelled, and ranked by trust-weighted net per jump; each row carries the call to paste. With `circuit: {hold}`, every row is a closed lap for a freighter instead, past the rings a freighter drained within `REST_TICKS` |
 | `tradeRun({stops})` | fly the stops in order; at each, sell what pays best there and take on the stop's `buy`, re-planned against the live book. The realised net from the wallet |
 
 Root functions do the rest: `prices()` for the counter you are standing at, `sell()`/`buy()`
@@ -35,7 +35,9 @@ The ledger needs a faction with a trade-intel facility; without one the command 
 ledger is read whole, by station, 20 stations a page and at most 4 pages a read; it is never
 asked by item, because live an `item_id` filter answers nothing even for a filed item. A ledger
 entry carries no system (`system_id` comes back empty), so the memory's system for that base
-stands in. The
+stands in. A base both remembered and on the ledger is read from the **fresher** copy only (a tie
+goes to the ledger), whichever copy pays more: `spreads()`, `routes()`, `tradeRun` and `assign`
+all see that one book. The
 memory is free and always there: every `book()` read — by `prices()`, `sell()`, `recipes()`,
 `quote()` — writes that base's whole book to `markets.json` in the runtime dir, kept for a day of ticks.
 So the second visit knows what the first one saw, across runs and across restarts. It follows
@@ -149,6 +151,15 @@ lap one took is gone for lap two, and the middle lap can sell more than it buys.
 what it both buys and sells, so each item counts `min(sold, bought)` units, sold at its best bids
 and bought at its cheapest asks; an item sold with none bought on the lap is carry from lap one and
 is not counted. One ring of bases is one row: its rotations and other buys rank as the best of them.
+
+**A drained ring rests.** When a freighter parks because its circuit ran dry — three stops in a
+row with no trade, or three laps that lost money — its ring of bases (the stops in order, any
+rotation) and the game tick are written to `drained.json` in your runtime dir. For `REST_TICKS`
+(360 ticks, about an hour; unmeasured, to be tuned once a drained book is watched refilling)
+`routes({circuit})` does not plan that ring, and its `did` ends `skipped N ring(s) a freighter
+drained within 360 ticks: <ring>; …`. NPC books refill slowly; two laps can empty one. The
+rotation is yours, not the freighter's: `reassign(name)` (see [fleet](../fleet/README.md#freighters))
+runs this search for the parked freighter's hold and assigns it the top row.
 
 A circuit row is a `Route` whose numbers are that middle lap's: `legs`, `revenue`, `cost`,
 `sales_tax`; `net` is `lap_net`, `total_jumps` is `lap_jumps`, `score` is

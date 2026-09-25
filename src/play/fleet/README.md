@@ -22,6 +22,7 @@ Five different things get called "fleet". Keep them apart:
 | `ships()` | **not built yet — it throws `unimplemented`.** `account().commands.spacemolt_ship.list_ships()` |
 | `switchShip(id)` | **not built yet — it throws `unimplemented`.** `account().commands.spacemolt_ship.switch_ship({id})`, and stow and service by hand first |
 | `assign(name, circuit, {float})` | hand a closed circuit to the freighter `name`, which flies it lap after lap on its own account and sends its profit home to you |
+| `reassign(name)` | put a parked freighter on the best circuit now: `routes({circuit: {hold}})` for its hold, past the rings resting, then `assign` of the top row at its float |
 | `recall(name)` | bring it home: it finishes the stop it is on, sends its profit, and parks docked with its cargo aboard |
 | `freighters()` | every freighter: state, lap, stop, wallet, what it has sent home, the last lap against the prediction, the cargo aboard at cost, and why it parked |
 
@@ -77,10 +78,22 @@ three stops in a row with no trade park it. A route short of fuel, a blocked fli
 for fuel park it docked where it is. Three laps in a row that net 0 or less park it at the lap's
 last stop, the why naming the last lap against the prediction (`3 laps lost money: last -32 vs
 predicted 521`); a lap that pays, however far under `lap_net`, flies on. A parked freighter keeps
-its cargo aboard, and `freighters()` and the menu show the why: pick a new row and `assign` it.
+its cargo aboard, and `freighters()` and the menu show the why.
+
+**Rotation.** Parking on no trade or on losing laps means the ring's books ran dry, and it is
+recorded as drained: `routes({circuit})` passes over it for `REST_TICKS` while the books refill
+(see [trading](../trading/README.md)). The freighter never picks its own next circuit; you do. The
+menu offers `reassign('<name>')` for each freighter parked on a drained ring, and ranks it first.
+`reassign(name)` runs `routes({circuit: {hold}})` for that freighter's hold and `assign`s it the
+top row at the float it had. It is refused when no circuit pays (the `why` carries what `routes`
+said, rings skipped included), when you are not docked (`routes` reads the book here), and
+wherever `assign` refuses. Its cargo rides into the new circuit at its cost and is sold there if
+the new circuit sells it; when it does not, the `why` says which of the `holding` stays tied up
+in the hold.
 
 `assign` answers at once, with the freighter flying. It is refused while that name is flying:
-`recall` it first. Re-assigning a parked one starts it again on the new circuit.
+`recall` it first. Re-assigning a parked one starts it again on the new circuit, its `returned`
+and `holding` kept.
 
 `freighters()` answers `detail.freighters`, one row each, and the menu carries the same rows as
 `freighters`:
@@ -108,6 +121,17 @@ export default async function main() {
   if (!best?.circuit) return look;                           // no lap pays over the books known
   note(`${best.circuit.stops.map(stop => stop.at).join(' → ')} → back: ${best.circuit.lap_net} cr a lap`);
   return assign('hauler', best.circuit, {float: 20000});     // freighters/hauler.txt must be there
+}
+```
+
+```ts
+import {freighters, reassign} from 'play';
+
+export default async function main() {
+  const fleet = await freighters();
+  const idle = fleet.detail.freighters.find(row => row.state === 'parked');
+  if (!idle) return fleet;
+  return reassign(idle.name);                                // routes for its hold, then assign the top row
 }
 ```
 
