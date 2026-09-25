@@ -14,7 +14,9 @@ import {checkTree,specifiers} from './play/boundary.ts';
 import {checkPolicy} from './play/policy.ts';
 import {prose} from './play/prose.ts';
 import {runSummary} from './play/menu.ts';
-import {bind,line,outcome as build,progress,runCalls,unbind,type Binding} from './play/runtime.ts';
+import {disengage} from './play/combat/hunting.ts';
+import {battleNow} from './travel.ts';
+import {bind,command,line,outcome as build,progress,runCalls,unbind,type Binding} from './play/runtime.ts';
 import type {Outcome} from './play/types.ts';
 import {journalRun,writeRun,type RunRecord} from './run-record.ts';
 
@@ -140,6 +142,23 @@ export interface RunResult {
   commands?:number;
 }
 
+/** A battle still running when the script returns is unattended combat. The pilot is blind
+ * between runs — the 2026-09-25 22:20 death happened in four minutes of dead air *after* the
+ * script came back — so a run may not hand control over with a fight on. It breaks the fight
+ * off while it still has the runtime bound, and when even that cannot end it, the run says so
+ * where nothing reading its report can miss it: the ship will not travel, jump or undock until
+ * the battle ends, whatever the next juncture decides to do.
+ *
+ * Null when no battle held the ship, which is the ordinary case and costs one read. */
+async function closeBattle():Promise<{opponent:string;ended:boolean}|null> {
+  const fight=await battleNow(command);
+  if(!fight)return null;
+  line(`the run returned with a battle still live against ${fight.opponent}: breaking off before handing back`);
+  let ended=false;
+  try {ended=await disengage();} catch(error){line(`breaking off threw: ${message(error)}`);}
+  return {opponent:fight.opponent,ended};
+}
+
 const isOutcome=(value:unknown):value is Outcome<unknown>=>
   Boolean(value)&&typeof value==='object'&&typeof (value as Outcome).status==='string'&&typeof (value as Outcome).did==='string';
 const message=(error:unknown)=>error instanceof Error?error.message:String(error);
@@ -167,6 +186,16 @@ export async function runPilot(deps:RunDeps):Promise<RunResult> {
   } catch(error) {
     result=build('the run broke','failed',{},message(error));
   }
+  // Before the report is rendered, so the fact is in the report rather than after it.
+  const held=await closeBattle();
+  if(held) {
+    const why=held.ended
+      ?`the run ended mid-battle against ${held.opponent}; it was broken off before the run closed`
+      :`BATTLE STILL LIVE against ${held.opponent}: the run ended mid-fight and could not break off. `
+        +'Nothing will move the ship until it ends; disengage() is the first call of the next run';
+    line(why);
+    result={...result,...held.ended?{}:{status:'partial'},why:result.why?`${why}; ${result.why}`:why};
+  }
   const text=prose(result,runCalls());
   for(const said of text.split('\n'))line(said);
   const {commands}=progress();
@@ -182,7 +211,9 @@ export async function runPilot(deps:RunDeps):Promise<RunResult> {
   save();
   // A run that failed inside a minute did no work; its juncture would only try the same thing
   // again at once. The schedule carries that one. Real work, however it ended, gets its juncture.
-  const brief=result.status!=='done'&&Date.now()-Date.parse(started)<QUICK_FAIL_MS;
+  // A run left with a live battle is the one thing that must not wait for the schedule, so it
+  // is never "brief": the juncture it raises is how a pilot learns the ship is still in a fight.
+  const brief=!held&&result.status!=='done'&&Date.now()-Date.parse(started)<QUICK_FAIL_MS;
   const argv=brief?[]:wakeArgv();
   if(brief)journalRun(runtime,{job:'index.ts',message:'juncture left to the schedule: failed inside a minute'},'log');
   if(argv.length) {

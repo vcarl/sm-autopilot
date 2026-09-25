@@ -6,13 +6,14 @@ import {join} from 'node:path';
 import type {ReadinessAccount} from './readiness.ts';
 import {check,runPilot} from './run.ts';
 import {readJournal,readRun} from './run-record.ts';
-import {bridgeWorld} from './test-support/bridge-world.ts';
+import {bridgeWorld,type WorldOptions} from './test-support/bridge-world.ts';
+import {pace} from './play/combat/hunting.ts';
 
 const PILOT={name:'kvothe',mood:'Focused' as const,stance:'Prospector' as const};
 
-function harness() {
+function harness(options:WorldOptions={}) {
   const runtime=mkdtempSync(join(tmpdir(),'spacemolt-run-'));
-  const game=bridgeWorld({services:['refuel','repair','storage'],cargoUsed:0});
+  const game=bridgeWorld({services:['refuel','repair','storage'],cargoUsed:0,...options});
   const lines:string[]=[];
   const wakes:string[][]=[];
   const deps={account:game.account as unknown as ReadinessAccount,command:game.command,runtime,
@@ -96,4 +97,25 @@ test('a run streams a line per move (journalled first), ends with the prose, wri
     assert.deepEqual(f.wakes.length,0,'no SPACEMOLT_WAKE argv in the test environment');
     assert.match(readFileSync(join(f.runtime,'gameplay.jsonl'),'utf8'),/"phase":"ended"/);
   } finally {f.close();}
+});
+
+// Live 2026-09-25: the 22:20 death happened in four minutes of dead air *after* the script
+// returned. The pilot is blind between runs, so a fight left running when a run ends is
+// unattended combat, and a silent return is the bug.
+test('a run that would hand back with a battle live breaks it off and says so',async()=>{
+  pace.tickMs=1;
+  const grazer={creature_id:'c1',species:'molt_grazer',name:'Molt Grazer'};
+  const f=harness({wildlife:{creatures:[grazer],polls:30,damage:0,fleeTicks:1}});
+  try {
+    f.write("import {orient} from 'play';\nexport default async function main(){ return orient(); }\n");
+    // The battle the previous shift left running, which the script itself never touches.
+    await f.command('spacemolt/hunt',{id:'c1'});
+    const out=await runPilot(f.deps);
+    assert.equal(out.accepted,true,out.errors?.join('\n'));
+    assert.match(f.lines.join('\n'),/the run returned with a battle still live against Molt Grazer/);
+    assert.match(out.why!,/broken off before the run closed/);
+    // And the proof: the ship moves again, which a live battle refuses `in_battle`.
+    await f.command('spacemolt/travel',{id:'belt'});
+    assert.equal(f.account.server.location.poi_id,'belt');
+  } finally {f.close();pace.tickMs=10_000;}
 });
