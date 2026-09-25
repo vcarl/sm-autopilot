@@ -542,7 +542,7 @@ export function hunt(opts:{poi?:string;look?:string[];fights?:number;species?:st
           // NOT `scout()`: with no argument it reports the system the ship is already in — the one
           // just looked at — and it counts creatures only where the ship stands, so it can say
           // nothing about a neighbour's fauna and spends the next juncture saying it.
-          ?[`hunt({look:['<another belt or field poi id>']}) — scout() already listed this system's habitats`]
+          ?[`hunt({look:['<another poi id>','<and another>']}) — scout() already listed this system's POIs, and fauna is not confined to belts`]
           // `{species, look}` was shorthand for two undefined identifiers and did not compile. And
           // only a creature look is written to sighting memory — a pirate sweep writes none — so
           // "remembered" is a claim that only holds for wildlife.

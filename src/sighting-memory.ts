@@ -30,9 +30,13 @@ export const CAP=200;
  * `account.currentTick` is only reachable inside the bridge. `Sighting.tick` stores the real
  * tick for the day a caller has one. */
 export const TICK_MS=10_000;
-/** How long a sighting of live prey is still worth flying to. A guess, not a measurement: the
- * game publishes no wander or respawn rate, so nothing observable pins this. Believing a
- * presence too long only costs a wasted look, which is the cheap direction to be wrong in. */
+/** How long a sighting of live prey is still worth flying to. Thirty minutes at ten seconds a tick.
+ * The game publishes no wander or respawn rate, so this started as a guess — but it now has one
+ * real data point behind it, and the point is consistent with it: on 2026-09-25 a belt that had held
+ * every one of the day's ten fights was empty on two visits four hours later, and the region's only
+ * fauna had moved to a nebula. Presence decays over hours, so believing one for half an hour is
+ * inside the evidence. Believing it too long only costs a wasted look, which is the cheap direction
+ * to be wrong in. */
 export const PRESENCE_STALE=180;
 /** How long an absence is trusted, deliberately shorter than `PRESENCE_STALE`: believing an
  * absence too long costs a POI that has prey being skipped forever, which is the expensive

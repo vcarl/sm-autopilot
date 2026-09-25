@@ -17,7 +17,15 @@ what to engage is your judgement, and most of the judgement is about what not to
 This is the fact the whole shape of `hunt` follows from. A POI row carries `id, name, type,
 class, position, has_base, online, fuel_reserve` — **no fauna field**. `get_nearby` tells you what
 is here, and only here; there is no per-species query and no way to enumerate another system's
-POIs. So nothing you can read before you fly tells you which belt holds your quarry.
+POIs. So nothing you can read before you fly tells you which POI holds your quarry.
+
+**And do not filter by POI type.** Habitat *suggests* a species — grazers at belts, cloud fauna in
+gas clouds, exotics in nebulae — but it does not tell you where the animals are today. Live
+2026-09-25: the only fauna in a whole region was in a **nebula**, found after a belt and five
+planets came back empty; four hours earlier that same belt had been the only place with fauna in it.
+Fauna is transient and it is not confined to the types we happen to have named, so prefer the
+likely types and **look everywhere**. (Mining is the opposite: a gather needs ore, so belts and
+fields really are the only places worth flying to.)
 
 That is why `hunt` takes a prey and a list of places rather than a destination:
 
@@ -28,9 +36,13 @@ export default async function main() {
   const start = await orient();
   const dock = start.detail.present.location.docked_at;
   const here = await scout();
-  // Every habitat in this system, nearest first. Creatures are where the resources are.
-  const habitats = here.detail.pois.filter(p => /belt|field|cloud/.test(p.type)).map(p => p.id);
-  if (!habitats.length) { note('no habitat in this system'); return here; }
+  // Every POI in this system, the types fauna is known for first, then the rest — a preference,
+  // not a filter, because fauna turns up in places no list of ours predicted.
+  const likely = /nebula|cloud|belt|field|asteroid/;
+  const habitats = [...here.detail.pois]
+    .sort((a, b) => (likely.test(a.type) ? 0 : 1) - (likely.test(b.type) ? 0 : 1))
+    .map(p => p.id);
+  if (!habitats.length) { note('no POIs in this system at all'); return here; }
 
   // One call looks at each in turn and fights at the first that holds the prey.
   const out = await hunt({species: 'molt_grazer', look: habitats, fights: 2});
@@ -83,7 +95,8 @@ export default async function main() {
   const dock = start.detail.present.location.docked_at;    // the station to bring the take back to
   if (!dock) return start;                                 // `docked_at` is null when undocked
   const here = await scout();
-  const habitat = here.detail.pois.find(p => /belt|field|cloud/.test(p.type));  // creatures live at belts and fields
+  // A belt is a good first guess, but only a guess: `hunt({look})` above is the better shape.
+  const habitat = here.detail.pois.find(p => /belt|field|cloud|nebula/.test(p.type)) ?? here.detail.pois[0];
   // (scout only counts creatures at the POI you are standing at, in detail.here.nearby)
   if (!habitat) { note('no habitat in this system'); return here; }
 
@@ -235,8 +248,9 @@ A ship lost is now buffered as an alert, so the next juncture reads it. It did n
   fauna and pilot-whale pods in **gas clouds**, cold-adapted species in **ice fields**, exotics
   in **nebulae**. Busy, heavily-mined hubs are largely barren; quiet resource-rich systems carry
   the healthiest herds.
-- A belt with nothing on it is a `done` hunt with zero fights, not a broken game. Scout the
-  system's nebula, cloud and field POIs and `goTo` one of those before concluding anything.
+- A belt with nothing on it is a `done` hunt with zero fights, not a broken game — and it may have
+  been full this morning. Hand `hunt` a `look` list of the whole system rather than concluding
+  anything from one POI.
 
 ## What a good fight looks like
 

@@ -47,11 +47,15 @@ test('a Hunter told to cull fauna is offered the hunt, and the move that serves 
   try {
     f.account.server.location.docked_at=null;f.account.server.location.poi_id='belt';
     const built=await menu(f.runtime);
-    const hunt=built.moves.find(m=>m.call==='hunt()');
+    // Out at a POI with nothing seen, the offer is a list that STARTS where the ship stands: looking
+    // here costs no fuel, and `hunt` moves on by itself when it finds nothing. That is strictly
+    // better than the bare `hunt()` this used to be, which looked once and stopped.
+    const hunt=built.moves.find(m=>m.call.startsWith('hunt({look:'));
     assert.ok(hunt,`no hunt on the menu: ${JSON.stringify(built.moves)}`);
+    assert.match(hunt!.call,/^hunt\(\{look:\['belt'/,`the search does not start where the ship is: ${hunt!.call}`);
     assert.equal(hunt!.advances,'objective','the hunt is not tagged [credits]');
     assert.ok(!built.moves.every(m=>m.advances==='credits'),'every move tagged [credits]');
-    // Docked is the next test: `hunt({poi})` flies there itself, so a dock is not a blocker.
+    // Docked is the next test: `hunt` flies to each place itself, so a dock is not a blocker.
   } finally {f.close();}
 });
 
@@ -328,11 +332,12 @@ test('the undocked hunt row claims a legal creature only when one was observed',
   try {
     bare.account.server.location.docked_at=null;bare.account.server.location.poi_id='belt';
     const built=await menu(bare.runtime);
-    const hunt=built.moves.find(m=>m.call==='hunt()');
+    const hunt=built.moves.find(m=>m.call.startsWith('hunt({look:'));
     assert.ok(hunt,JSON.stringify(built.moves));
     assert.equal(verdict(await facts(bare,{mood:'Focused',stance:'Hunter'}),'J8').admissible,false);
+    // The claim is the point of this test: nothing was observed, so nothing is asserted as legal.
     assert.doesNotMatch(hunt!.why,/is legal to engage/);
-    assert.match(hunt!.why,/nothing scanned at belt yet/);
+    assert.match(hunt!.why,/never looked at/,hunt!.why);
   } finally {bare.close();}
   // One that was seen is named, and the claim is the creature's own name.
   const live=world({mood:'Focused',stance:'Hunter',objective:'cull the fauna'},
@@ -526,5 +531,47 @@ test('the refusals the rules produce are capped and ranked, because not_now is p
     const travel=built.not_now.filter(row=>/^Travel to /.test(row.move));
     assert.ok(travel.length<=1,`one shortfall became ${travel.length} near-identical rows: ${JSON.stringify(travel)}`);
     assert.ok(built.not_now.length<=6,`not_now ran to ${built.not_now.length} rows`);
+  } finally {f.close();}
+});
+
+test('hunting looks at a nebula, and at a planet, because fauna is not confined to the types we happened to name',async()=>{
+  // Live 2026-09-25, driven on the real game: the only fauna in the whole region was in
+  // `probability_cloud_distant_light`, `type: "nebula"` — found after an asteroid belt and five
+  // planets came back empty. The habitat filter was /belt|field|cloud/, which does not match
+  // `nebula`, so the menu would never have sent a Hunter there. The career README had said
+  // "exotics in nebulae" all along; the code disagreed with the documentation.
+  //
+  // A type whitelist is the wrong shape for this. Mining needs ore and must stay typed; hunting
+  // needs somewhere to look, and every type we have not yet seen fauna in is a habitat a
+  // whitelist wrongly excludes. So the types are a PREFERENCE and nothing is filtered out.
+  const f=world({mood:'Focused',stance:'Hunter',objective:'cull the fauna'},
+    {pois:[{id:'neb',name:'Distant Light',type:'nebula'},{id:'rock',name:'Grey Rock',type:'planet'}]});
+  try {
+    f.account.server.location.docked_at='sol_base';f.account.server.location.poi_id='station';
+    const built=await menu(f.runtime);
+    const hunt=built.moves.find(m=>m.call.startsWith('hunt({look:'));
+    assert.ok(hunt,`no hunt at all: ${JSON.stringify(built.moves)} / ${JSON.stringify(built.not_now)}`);
+    assert.match(hunt!.call,/'neb'/,`the nebula is not on the list: ${hunt!.call}`);
+    // And a planet is a place to look too — it is ranked after the known habitats, not excluded.
+    assert.match(hunt!.call,/'rock'/,`a planet was filtered out rather than ranked: ${hunt!.call}`);
+    // The documented habitats still come first, because that is where fauna has been seen.
+    assert.ok(hunt!.call.indexOf("'neb'")<hunt!.call.indexOf("'rock'"),
+      `a planet outranked a nebula: ${hunt!.call}`);
+  } finally {f.close();}
+});
+
+test('nothing in the system is filtered out of a hunt, only ordered',async()=>{
+  // The whitelist refused with "no belt, field or cloud in sol to hunt at" and sent the pilot away
+  // from a system it had never looked in. Every POI is somewhere fauna might be.
+  const f=world({mood:'Focused',stance:'Hunter',objective:'cull the fauna'},
+    {pois:[{id:'p1',name:'First',type:'planet'},{id:'p2',name:'Second',type:'planet'}]});
+  try {
+    f.account.server.location.docked_at='sol_base';f.account.server.location.poi_id='station';
+    const built=await menu(f.runtime);
+    const hunt=built.moves.find(m=>m.call.startsWith('hunt({look:'));
+    assert.ok(hunt,`told to leave a system it never looked in: ${JSON.stringify(built.not_now)}`);
+    // The belt leads because it is a known habitat; the planets are on the list behind it.
+    assert.match(hunt!.call,/^hunt\(\{look:\['belt'/,hunt!.call);
+    assert.match(hunt!.call,/'p1'|'p2'/,`the planets were excluded rather than ranked: ${hunt!.call}`);
   } finally {f.close();}
 });

@@ -205,6 +205,15 @@ const READ_CALLS=new Set(['prices','storage','recipes','shipsForSale','missions'
  * go — and the one built here knows more. */
 const MENU_OWNS=new Set(['gatherUntil','hunt']);
 
+/** Where fauna has been seen, as a PREFERENCE and never a filter. Hunting needs somewhere to look,
+ * not a particular kind of rock, and every type we have not yet seen fauna in is a habitat a
+ * whitelist wrongly excludes. Live 2026-09-25: the only fauna in the region was in a `nebula`,
+ * which the old `/belt|field|cloud/` filter did not match, so a Hunter could never be sent there —
+ * while `combat/README.md` had documented "exotics in nebulae" all along.
+ *
+ * Mining keeps its typing: a gather needs ore, so a planet is genuinely wrong for it. This ordering
+ * is only about which places to try first when looking for something alive. */
+const HABITAT_FIRST=/nebula|cloud|belt|field|asteroid/;
 const lit=(value:unknown)=>JSON.stringify(value).replace(/"/g,"'").replace(/'(\w+)':/g,'$1:');
 /** The loop that trains a skill, by the lib's `SkillProgress.category` or the skill id. */
 const TRAINS:[RegExp,string][]=[[/mining/,'gatherUntil'],[/trad|commerce/,'sell'],[/navigation|piloting|explor/,'goTo'],
@@ -386,8 +395,19 @@ export async function menu(runtime?:string):Promise<Menu> {
       // more strictly than presences for exactly this reason (sighting-memory.ts).
       const sightings=runtime?readSightings(runtime):[];
       const reach:{name:string;id:string;note:string}[]=[],emptied:string[]=[];
-      for(const habitat of pois.filter(p=>/belt|field|cloud/.test(p.type)).sort((a,b)=>dist(a)-dist(b))) {
-        if(habitat.id===location?.poi_id)continue;
+      // Every POI in the system, the types fauna is known for first, then by distance — which is
+      // fuel. Nothing is excluded: a planet is a worse bet than a nebula, not an impossible one.
+      //
+      // Where the ship already stands leads the list when it is out at a POI, because looking there
+      // costs no fuel at all and `hunt` will move on by itself if it is empty. That is strictly
+      // better than the old `hunt()` with no list, which looked once and stopped.
+      const at=docked?null:location?.poi_id??null;
+      const byPromise=(a:SystemPoi,b:SystemPoi)=>
+        (a.id===at?0:1)-(b.id===at?0:1)
+        ||(HABITAT_FIRST.test(a.type)?0:1)-(HABITAT_FIRST.test(b.type)?0:1)||dist(a)-dist(b);
+      for(const habitat of [...pois].sort(byPromise)) {
+        // Docked, the station POI under the ship is not a place to fly to.
+        if(docked&&habitat.id===location?.poi_id)continue;
         const known=recall(sightings,habitat.id);
         if(known.state==='seen'&&known.count===0) {
           emptied.push(`${habitat.name} was empty ${known.ticks_old}t ago`);
@@ -407,8 +427,8 @@ export async function menu(runtime?:string):Promise<Menu> {
         work({call:'hunt()',advances:'objective',
           why:`the objective names hunting; ${emptied.length?`nothing else in ${location?.system_id??'this system'} is worth the fuel (${emptied.join('; ')})`:`nothing scanned at ${poi} yet`} — hunt() reads what is there and spends nothing on an empty habitat`});
       else not_now.push({move:'hunt',why:emptied.length
-        ?`every habitat in ${location?.system_id??'this system'} is remembered empty (${emptied.join('; ')}); goTo a system with unlooked ones`
-        :shortFuel||`docked at ${docked}, and no belt, field or cloud in ${location?.system_id??'this system'} to hunt at; goTo a system with one`});
+        ?`every place in ${location?.system_id??'this system'} is remembered empty (${emptied.join('; ')}); goTo a system with unlooked ones`
+        :shortFuel||`nothing in ${location?.system_id??'this system'} is reachable to look at from ${docked}; goTo another system`});
     }
   }
 
