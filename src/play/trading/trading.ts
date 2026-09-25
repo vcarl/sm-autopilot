@@ -9,17 +9,28 @@
  * reads the ledger when there is one and otherwise remembers: every `book()` read is written
  * to this runtime's market memory, and the second visit knows what the first one saw.
  */
-import type {EstimatePurchaseResponse,FactionQueryTradeIntelResponse,MapSystemInfo,MarketListingItem,OrderLevel,SellResponse} from '@spacemolt/lib';
+import type {EstimatePurchaseResponse,FactionQueryTradeIntelResponse,FindRouteResponse,MapSystemInfo,MarketListingItem,OrderLevel,SellResponse} from '@spacemolt/lib';
 import {miningInventory} from '../../mining-inventory.ts';
+import type {ReadinessAccount,ReadinessCommand} from '../../readiness.ts';
 import {walkBook} from '../../order-book.ts';
 import {details} from '../../response-details.ts';
 import {book,buy,knownBooks,marketTick,sell,ticksOld} from '../market.ts';
 import {readDrained,ring} from '../freighter/drained.ts';
 import {markPlace,readPlaces} from '../places.ts';
-import {acct,admit,checkStop,command,job,runtimeDir,step} from '../runtime.ts';
+import {acct,admit,checkStop,command,job,runtimeDir,step,type Said} from '../runtime.ts';
 import {withdraw} from '../storage.ts';
-import {goTo,route} from '../travel.ts';
+import {goTo} from '../travel.ts';
 import type {Outcome,Row} from '../types.ts';
+
+/** Whose connection and files a search reads through: the pilot's for `routes()`, or a freighter's
+ * own when its host re-plans it, so a host loop never touches the play runtime. */
+export interface Seat {account:ReadinessAccount;command:ReadinessCommand;runtime:string|undefined;
+  /** The live book where the ship is docked, and the tick it was read on. */
+  book():Promise<{items:Map<string,MarketListingItem>;tick:number}>;
+  /** Throws to end a search early. */
+  stop():void}
+/** The pilot's seat: the play runtime, and `book()` remembering and filing what it reads. */
+const pilotSeat=():Seat=>({account:acct(),command,runtime:runtimeDir(),book:async()=>({items:await book(),tick:marketTick()}),stop:checkStop});
 
 /** One item and one buyer known for it, with the trip to that buyer priced and ranked. */
 export interface Spread {
@@ -88,7 +99,7 @@ export function spreads(items?:string[]):Promise<Outcome<{spreads:Spread[];sourc
       const row=listed.get(id);
       if(row&&row.best_buy>0)offers.push({item_id:id,base_id:here,best_buy:row.best_buy,best_buy_qty:row.best_buy_qty,source:'here',seen:'live',age:0});
     }
-    const far=await farBooks(here,now);
+    const seat=pilotSeat(),far=await farBooks(here,now,seat);
     sources.push(...(['faction ledger','remembered'] as const).filter(source=>far.some(known=>known.source===source)));
     for(const known of far)
       for(const row of known.items)
@@ -97,7 +108,7 @@ export function spreads(items?:string[]):Promise<Outcome<{spreads:Spread[];sourc
             source:known.source,seen:`${known.age} ticks old`,age:known.age});
 
     // Trips priced as routes() prices them: jumps over the map, fuel per jump from one quote.
-    const {hop,perJump,lost}=await chart(here,[...new Set(offers.map(row=>row.base_id))],far);
+    const {hop,perJump,lost}=await chart(here,[...new Set(offers.map(row=>row.base_id))],far,seat);
     const fuelPrice=Number(details(await command('spacemolt/get_base',{})).fuel_price_all_in??1);
     const priced=offers.flatMap(({age,...row})=>{
       const jumps=hop(here,row.base_id);
@@ -140,12 +151,12 @@ const LEDGER_PAGE=20,LEDGER_PAGES=4;
 /** The faction trade ledger, whole books by station, when the pilot has one. Never filtered by
  * `item_id`: live, that filter answers nothing even for a filed item. Every failure — no faction,
  * no trade-intel facility, no such command — is the same answer: no more of the cross-station feed. */
-async function ledger():Promise<FactionQueryTradeIntelResponse['entries']> {
+async function ledger(seat:Seat):Promise<FactionQueryTradeIntelResponse['entries']> {
   const entries:FactionQueryTradeIntelResponse['entries']=[];
   for(let page=0;page<LEDGER_PAGES;page++) {
-    checkStop();
+    seat.stop();
     try {
-      const reply=details(await command('spacemolt_intel/query_trade_intel',{limit:LEDGER_PAGE,offset:page*LEDGER_PAGE})) as FactionQueryTradeIntelResponse;
+      const reply=details(await seat.command('spacemolt_intel/query_trade_intel',{limit:LEDGER_PAGE,offset:page*LEDGER_PAGE})) as FactionQueryTradeIntelResponse;
       entries.push(...reply.entries??[]);
       if(!reply.entries?.length||entries.length>=Number(reply.total??0))break;
     } catch {break;}
@@ -164,11 +175,11 @@ interface FarBook {base_id:string;source:'faction ledger'|'remembered';age:numbe
  * `routes()`, `tradeRun` and `assign` all read. A ledger entry comes back with an empty
  * `system_id`, as does a memory written before books kept one; the memory's system for that base
  * stands in, else the kept place (`places.json`), else none. */
-export async function farBooks(here:string,now:number):Promise<FarBook[]> {
-  const memory=knownBooks(),dir=runtimeDir();
+export async function farBooks(here:string,now:number,seat:Seat=pilotSeat()):Promise<FarBook[]> {
+  const dir=seat.runtime,memory=knownBooks(dir??'');
   const systemOf=new Map([...Object.entries(dir?readPlaces(dir):{}),
     ...memory.filter(known=>known.system_id).map(known=>[known.base_id,known.system_id!] as [string,string])]);
-  const filed=(await ledger()).filter(entry=>entry.base_id!==here).map(entry=>{
+  const filed=(await ledger(seat)).filter(entry=>entry.base_id!==here).map(entry=>{
     const system_id=entry.system_id||systemOf.get(entry.base_id);
     return {base_id:entry.base_id,source:'faction ledger' as const,age:ticksOld(entry.submitted_at_tick,now),
       ...system_id?{system_id}:{},
@@ -369,9 +380,9 @@ const literal=(value:unknown)=>JSON.stringify(value).replace(/"/g,"'").replace(/
 export const runCall=(stops:RunStop[])=>`tradeRun(${literal({stops})})`;
 
 /** The docked base's sales tax on `item_id`: `estimate_purchase` is the only read of it. */
-async function taxRate(item_id:string):Promise<number|null> {
+async function taxRate(item_id:string,send:ReadinessCommand=command):Promise<number|null> {
   try {
-    const bps=Number((details(await command('spacemolt_market/estimate_purchase',{item_id,quantity:1})) as EstimatePurchaseResponse).sales_tax_rate_bps);
+    const bps=Number((details(await send('spacemolt_market/estimate_purchase',{item_id,quantity:1})) as EstimatePurchaseResponse).sales_tax_rate_bps);
     return Number.isFinite(bps)?bps/10_000:null;
   } catch {return null;}
 }
@@ -382,7 +393,7 @@ function byBase(here:Book,far:FarBook[]):Map<string,Book&{system_id?:string}> {
     known.set(row.base_id,{...row,items:new Map(row.items.map(item=>[item.item_id,item]))});
   return known;
 }
-const cargo=()=>{const ship=acct().state.ship;return Math.max(0,(ship?.cargo_capacity??0)-(ship?.cargo_used??0));};
+const cargo=(account=acct())=>{const ship=account.state.ship;return Math.max(0,(ship?.cargo_capacity??0)-(ship?.cargo_used??0));};
 
 /** What one stop of a run did. */
 export interface Visit {at:string;
@@ -534,16 +545,17 @@ export function hops(links:ReadonlyMap<string,readonly string[]>,from:string,to:
  * `find_route` (at most `UNPLACED` a call, each kept in `places.json`), jumps over the `get_map`
  * links, and the fuel a jump burns from one quote. `hop` is null where a base is unplaced or the map
  * does not join the two; `lost` says why. What `routes()` and `spreads()` both price a trip by. */
-async function chart(here:string,bases:readonly string[],far:readonly FarBook[]) {
+async function chart(here:string,bases:readonly string[],far:readonly FarBook[],seat:Seat) {
   // Where each base is: the memory's system, else one find_route (which also prices a jump).
-  const systems=new Map<string,string>([[here,acct().state.location?.system_id??'']]);
+  const systems=new Map<string,string>([[here,seat.account.state.location?.system_id??'']]);
   for(const row of far)if(row.system_id)systems.set(row.base_id,row.system_id);
   const lost=new Map<string,string>();
   let perJump:number|undefined;
   const place=async(base:string)=>{
-    checkStop();
+    seat.stop();
     try {
-      const quote=await route(base),dir=runtimeDir();
+      const quote=details(await seat.command('spacemolt/find_route',{id:base})) as FindRouteResponse,dir=seat.runtime;
+      if(!quote.found||!quote.target_system)throw new Error(`no system, POI or base is named ${base}`);
       systems.set(base,quote.target_system);perJump??=Number(quote.fuel_per_jump??0);
       if(dir)markPlace(dir,base,quote.target_system);
     }
@@ -557,7 +569,7 @@ async function chart(here:string,bases:readonly string[],far:readonly FarBook[])
   if(perJump===undefined&&away.length)await place(away[0]!);
   const links=new Map<string,string[]>();
   if(away.length)try {
-    for(const row of (details(await command('spacemolt/get_map',{})) as {systems?:MapSystemInfo[]}).systems??[])
+    for(const row of (details(await seat.command('spacemolt/get_map',{})) as {systems?:MapSystemInfo[]}).systems??[])
       links.set(row.system_id,row.connections??[]);
   } catch {/* no map: every far stop is unpriced, and says so */}
   const counted=new Map<string,number|null>();
@@ -631,180 +643,184 @@ const SLACK=0.1;
  * the Outcome `partial`, never a throw. Refused when not docked.
  *
  * ponytail: goods in this base's store are not weighed; `tradeRun` takes them with `from:'store'`. */
-export function routes(opts:{items?:string[];circuit?:{hold:number}}&Scope={}):Promise<Outcome<{routes:Route[];sources:string[]}>> {
-  return job<{routes:Route[];sources:string[]}>('routes',(opts.items??[]).join(' '),async()=>{
-    const none={routes:[] as Route[],sources:[] as string[]};
-    const here=acct().state.location?.docked_at,circuit=opts.circuit;
-    if(!here)return {status:'refused',did:'ranked no routes',why:'not docked; a market is a station counter',
-      detail:none,next:['goTo a base, then routes()']};
-    if(circuit&&!(circuit.hold>0&&Number.isFinite(circuit.hold)))return {status:'refused',did:'ranked no routes',
-      why:`circuit.hold ${circuit.hold} is not a positive number of units`,detail:none};
-    const most=opts.maxStops??STOPS,legCap=opts.maxLegJumps??LEG_JUMPS,cap=opts.maxJumps??Infinity;
-    if(!(Number.isInteger(most)&&most>=(circuit?2:1)&&most<=MAX_STOPS)||!(legCap>=0)||!(cap>=0))return {status:'refused',did:'ranked no routes',
-      why:`maxStops ${most}, maxLegJumps ${legCap}, maxJumps ${cap}: maxStops is a whole number from ${circuit?2:1} to ${MAX_STOPS}, and jumps are 0 or more`,detail:none};
-    const scope:Scope={maxStops:most,maxLegJumps:legCap,...Number.isFinite(cap)?{maxJumps:cap}:{}};
-    const free=cargo(),aboard=miningInventory(acct().state);
-    const listed=await book();
-    const far=await farBooks(here,marketTick());
-    const known=byBase({base_id:here,source:'here',age:0,items:listed},far);
-    const sources=[...new Set([...known.values()].map(row=>row.source))];
-    const probe=[...listed.values()].find(row=>row.best_sell>0);
-    const rate=probe?await taxRate(probe.item_id):null;
+export function routes(opts:RouteOpts={}):Promise<Outcome<{routes:Route[];sources:string[]}>> {
+  return job<{routes:Route[];sources:string[]}>('routes',(opts.items??[]).join(' '),()=>search(pilotSeat(),opts));
+}
+export type RouteOpts={items?:string[];circuit?:{hold:number}}&Scope;
 
-    const {hop,perJump,lost,later,systems}=await chart(here,[...known.keys()],far);
-    const fuelPrice=Number(details(await command('spacemolt/get_base',{})).fuel_price_all_in??1);
+/** `routes()` itself, read through `seat`: the one planner, whether the pilot or a freighter's host asks. */
+export async function search(seat:Seat,opts:RouteOpts={}):Promise<Said<{routes:Route[];sources:string[]}>> {
+  const none={routes:[] as Route[],sources:[] as string[]};
+  const here=seat.account.state.location?.docked_at,circuit=opts.circuit;
+  if(!here)return {status:'refused',did:'ranked no routes',why:'not docked; a market is a station counter',
+    detail:none,next:['goTo a base, then routes()']};
+  if(circuit&&!(circuit.hold>0&&Number.isFinite(circuit.hold)))return {status:'refused',did:'ranked no routes',
+    why:`circuit.hold ${circuit.hold} is not a positive number of units`,detail:none};
+  const most=opts.maxStops??STOPS,legCap=opts.maxLegJumps??LEG_JUMPS,cap=opts.maxJumps??Infinity;
+  if(!(Number.isInteger(most)&&most>=(circuit?2:1)&&most<=MAX_STOPS)||!(legCap>=0)||!(cap>=0))return {status:'refused',did:'ranked no routes',
+    why:`maxStops ${most}, maxLegJumps ${legCap}, maxJumps ${cap}: maxStops is a whole number from ${circuit?2:1} to ${MAX_STOPS}, and jumps are 0 or more`,detail:none};
+  const scope:Scope={maxStops:most,maxLegJumps:legCap,...Number.isFinite(cap)?{maxJumps:cap}:{}};
+  const free=cargo(seat.account),aboard=miningInventory(seat.account.state);
+  const {items:listed,tick:now}=await seat.book();
+  const far=await farBooks(here,now,seat);
+  const known=byBase({base_id:here,source:'here',age:0,items:listed},far);
+  const sources=[...new Set([...known.values()].map(row=>row.source))];
+  const probe=[...listed.values()].find(row=>row.best_sell>0);
+  const rate=probe?await taxRate(probe.item_id,seat.command):null;
 
-    // What each base may sell you: an asked item, `items` allowing, that some known book bids more for than its ask plus tax.
-    const wanted=(item:string)=>!opts.items?.length||opts.items.includes(item);
-    const bid=new Map<string,number>();
-    for(const book of known.values())for(const row of book.items!.values())bid.set(row.item_id,Math.max(bid.get(row.item_id)??0,row.best_buy));
-    const offers=new Map([...known].map(([at,book])=>[at,[...book.items!.values()].filter(row=>wanted(row.item_id)
-      &&levels(row,'asks').length&&(bid.get(row.item_id)??0)>unit(levels(row,'asks'),1)*(1+(rate??0))).map(row=>row.item_id)]));
-    const stopAt=(at:string):PlanStop=>({book:known.get(at)!,buy:offers.get(at)!,rate});
-    const offRoute=(ats:readonly string[])=>[...known.values()].filter(book=>!ats.includes(book.base_id));
+  const {hop,perJump,lost,later,systems}=await chart(here,[...known.keys()],far,seat);
+  const fuelPrice=Number(details(await seat.command('spacemolt/get_base',{})).fuel_price_all_in??1);
 
-    const taxWhy=(planned:Pick<Plan,'legs'|'sales_tax'>)=>planned.sales_tax===null?['sales tax not known; net is untaxed']
-      :planned.legs.filter(leg=>leg.bought&&leg.at!==here).map(leg=>`tax at ${leg.at} estimated at ${here}'s ${Math.round(rate!*10_000)} bps`);
-    const confidence=(ats:readonly string[])=>trust([...new Set(ats)].reduce((sum,base)=>sum+known.get(base)!.age,0));
-    /** A leg's buys as a stop of the call to paste. */
-    const runStop=(leg:Leg):RunStop=>({at:leg.at,...leg.buys.length===1?{buy:leg.buys[0]!.item_id}:leg.buys.length?{buy:leg.buys.map(row=>row.item_id)}:{}});
-    const evaluate=(ats:string[]):Route=>{
-      // Only the docked base's rate is readable; it stands in for every far stop's.
-      const planned=plan(aboard,free,ats.map(stopAt),offRoute(ats));
-      const why:string[]=[];
-      let total:number|null=0,from=here;
-      for(const at of ats) {
-        const n=hop(from,at);
-        if(n===null){why.push(`no route to ${at}${lost.has(at)?`: ${lost.get(at)}`:' on the map'}; fuel not priced`);total=null;break;}
-        total+=n;from=at;
-      }
-      why.push(...taxWhy(planned));
-      const fuel=total===null?null:total*perJump;
-      const net=Math.round(planned.net-(fuel??0)*fuelPrice);
-      const trusted=confidence(ats);
-      return {...planned,total_jumps:total,fuel,net,confidence:trusted,score:rank(trusted,net,total),
-        next:runCall(planned.legs.map(runStop)),...why.length?{why:why.join('; ')}:{}};
-    };
-    // A closed lap for an empty `circuit.hold`, whatever is aboard now: three laps planned, the middle
-    // one read — the first starts empty, the last has no next lap to carry for. One plan() shares each
-    // base's book between the laps, so the middle lap trades on books one lap has already eaten into.
-    // The lap starts at its first buy: started at a sale, lap one sells nothing, and the middle lap
-    // would sell into the untouched book (live: 965 for 50 steel where the repeat pays 950) — so a
-    // ring read from each end would rank by whichever end flattered it.
-    // ponytail: a ring whose hold is never empty (x bought at A sold at C, y bought at B sold at A)
-    // still reads one item off a book lap one did not touch; plan a fourth lap if that ring ever ranks.
-    // A lap repeats only what it buys and sells, so each item counts only min(sold, bought) units:
-    // sales kept at the dearest legs first, buys at the cheapest (live: sold 50 steel, bought 21, net
-    // 521 where the lap flown nets -30; and 2 targeting computers sold that no stop bought, 16,681).
-    // ponytail: a kept unit is priced at its leg's average; walk the levels if a balanced lap's
-    // prediction drifts from the realised net.
-    const middleOf=(ats:string[])=>plan({},circuit!.hold,[...ats,...ats,...ats].map(stopAt),offRoute(ats)).legs.slice(ats.length,2*ats.length);
-    const lapOf=(given:string[]):Route=>{
-      // Where the lap first buys is only known once planned: a stop the plan gives no buy may be first.
-      const tried=middleOf(given),first=Math.max(0,tried.findIndex(leg=>leg.bought)),ats=[...given.slice(first),...given.slice(0,first)];
-      const n=ats.length,hold=circuit!.hold,middle=first?middleOf(ats):tried,sales=middle.flatMap(leg=>leg.sold),buys=middle.flatMap(leg=>leg.buys);
-      const count=(rows:readonly {item_id:string;quantity:number}[],item:string)=>rows.filter(row=>row.item_id===item).reduce((sum,row)=>sum+row.quantity,0);
-      const both=new Map([...sales,...buys].map(row=>[row.item_id,Math.min(count(sales,row.item_id),count(buys,row.item_id))]));
-      const allot=<T extends {item_id:string;quantity:number},>(rows:T[],each:(row:T)=>number)=>{
-        const left=new Map(both);
-        return new Map(rows.toSorted((a,b)=>each(a)-each(b)).map(row=>{
-          const take=Math.min(row.quantity,left.get(row.item_id)!);left.set(row.item_id,left.get(row.item_id)!-take);return [row,take];}));
-      };
-      const keptSales=allot(sales,sale=>-sale.revenue/sale.quantity),keptBuys=allot(buys,buy=>buy.cost/buy.quantity);
-      const legs=middle.map((leg):Leg=>{
-        const took=leg.buys.map(buy=>{const quantity=keptBuys.get(buy)!;return {...buy,quantity,cost:buy.cost*quantity/buy.quantity};}).filter(buy=>buy.quantity>0);
-        return {...leg,sold:leg.sold.map(sale=>{const quantity=keptSales.get(sale)!;return {...sale,quantity,revenue:sale.revenue*quantity/sale.quantity};})
-          .filter(sale=>sale.quantity>0),buys:took,bought:took.reduce((sum,buy)=>sum+buy.quantity,0),
-          cost:took.reduce((sum,buy)=>sum+buy.cost,0),sales_tax:leg.sales_tax===null?null:taxOn(took,rate??0)};
-      });
-      let lap:number|null=0;
-      for(const [i,at] of ats.entries()) {
-        const next=hop(at,ats[(i+1)%n]!);
-        if(next===null){lap=null;break;}
-        lap+=next;
-      }
-      const sum=(part:(leg:Leg)=>number)=>legs.reduce((total,leg)=>total+part(leg),0);
-      const revenue=sum(leg=>leg.sold.reduce((total,sale)=>total+sale.revenue,0)),cost=sum(leg=>leg.cost),tax=sum(leg=>leg.sales_tax??0);
-      const sales_tax=legs.some(leg=>leg.sales_tax===null)?null:tax,fuel=lap===null?null:lap*perJump;
-      const lap_net=Math.round(revenue-cost-tax-(fuel??0)*fuelPrice),trusted=confidence(ats),why=taxWhy({legs,sales_tax});
-      const closed:Circuit={closed:true,hold,lap_jumps:lap??0,lap_net,stops:ats.map((at,i)=>{
-        const leg=legs[i]!;
-        return {at,system_id:systems.get(at)??'',
-          buys:leg.buys.map(buy=>({item:buy.item_id,qty:buy.quantity,max_price:Math.ceil((1+SLACK)*buy.cost/buy.quantity-1e-9)})),
-          sell:leg.sold.map(sale=>({item:sale.item_id,min_price:Math.floor((1-SLACK)*sale.revenue/sale.quantity+1e-9)}))};
-      }),scope};
-      return {legs,unsold:[],revenue,cost,sales_tax,net:lap_net,total_jumps:lap,fuel,confidence:trusted,
-        score:rank(trusted,lap_net,lap),next:`assign('freighter', ${literal(closed)}, {float:20000})`,
-        ...why.length?{why:why.join('; ')}:{},circuit:closed};
-    };
+  // What each base may sell you: an asked item, `items` allowing, that some known book bids more for than its ask plus tax.
+  const wanted=(item:string)=>!opts.items?.length||opts.items.includes(item);
+  const bid=new Map<string,number>();
+  for(const book of known.values())for(const row of book.items!.values())bid.set(row.item_id,Math.max(bid.get(row.item_id)??0,row.best_buy));
+  const offers=new Map([...known].map(([at,book])=>[at,[...book.items!.values()].filter(row=>wanted(row.item_id)
+    &&levels(row,'asks').length&&(bid.get(row.item_id)??0)>unit(levels(row,'asks'),1)*(1+(rate??0))).map(row=>row.item_id)]));
+  const stopAt=(at:string):PlanStop=>({book:known.get(at)!,buy:offers.get(at)!,rate});
+  const offRoute=(ats:readonly string[])=>[...known.values()].filter(book=>!ats.includes(book.base_id));
 
-    const found=new Map<string,Route>();
-    // A ring a freighter drained within REST_TICKS is not planned: its books are still refilling.
-    const dir=runtimeDir(),drained=circuit&&dir?readDrained(dir):{},now=marketTick(),skipped=new Set<string>();
-    const resting=(key:string)=>drained[key]!==undefined&&ticksOld(drained[key],now)<REST_TICKS;
-    const stopsOf=(ats:readonly string[])=>ats.map(at=>({at}));
-    // A route pays, and every stop on it does something: a stop that neither sells nor buys is only fuel.
-    // A circuit pays once round a whole lap, fuel and all, the hop home and the lap within scope. One
-    // ring of bases is one circuit: its rotations rank as the best of them alone.
-    const keep=(ats:string[]):Route|undefined=>{
-      if(circuit&&resting(ring(stopsOf(ats)))){skipped.add(ring(stopsOf(ats)));return undefined;}
-      const row=circuit?lapOf(ats):evaluate(ats),trades=row.legs.every(leg=>leg.sold.length||leg.bought);
-      const home=circuit?hop(ats.at(-1)!,ats[0]!):0;
-      const pays=trades&&(circuit?row.total_jumps!==null&&row.net>0&&row.total_jumps<=cap&&home!==null&&home<=legCap:row.revenue>row.cost);
-      const key=circuit?ring(stopsOf(ats)):row.next;
-      if(pays&&!((found.get(key)?.score??-Infinity)>=row.score))found.set(key,row);
-      return row;
-    };
-    // Breadth-first over base lists: each grows by one base within a leg's and the whole trip's jumps.
-    // An open route counts its jumps from here; a lap only between its stops. An unplaced hop cannot
-    // be counted, so it is not capped: its row says so, and a lap through it is never kept.
-    type Grown={ats:string[];jumps:number|null};
-    const within=(from:Grown|undefined,at:string):Grown|undefined=>{
-      const n=from?hop(from.ats.at(-1)!,at):circuit?0:hop(here,at);
-      if(n!==null&&n>legCap)return undefined;
-      const total=from?.jumps===null||n===null?null:(from?.jumps??0)+n;
-      return total!==null&&total>cap?undefined:{ats:[...from?.ats??[],at],jumps:total};
-    };
-    // Every plan is CPU: past a slice, let the bridge's other work run, then go on (or stop, if told).
-    let sliced=performance.now();
-    const breathe=async()=>{
-      if(performance.now()-sliced<SLICE_MS)return;
-      await new Promise(done=>setImmediate(done));
-      checkStop();sliced=performance.now();
-    };
-    let beam=[...known.keys()].flatMap(at=>within(undefined,at)??[]);
-    // A circuit is 2 or more distinct bases, so one stop alone is only a seed.
-    if(!circuit)for(const seed of beam){await breathe();keep(seed.ats);}
-    for(let length=2;length<=most;length++) {
-      checkStop();
-      const grown:{route:Grown;score:number}[]=[];
-      for(const from of beam)for(const at of known.keys()) {
-        if(at===from.ats.at(-1)||circuit&&from.ats.includes(at))continue;
-        const route=within(from,at);
-        if(!route)continue;
-        await breathe();
-        const row=keep(route.ats);
-        // A lap that does not pay yet may round into one that does; an open route grows only from one that pays.
-        if(circuit||row&&row.revenue>row.cost)grown.push({route,score:row?.score??-Infinity});
-      }
-      beam=grown.sort((a,b)=>b.score-a.score).slice(0,BEAM).map(row=>row.route);
+  const taxWhy=(planned:Pick<Plan,'legs'|'sales_tax'>)=>planned.sales_tax===null?['sales tax not known; net is untaxed']
+    :planned.legs.filter(leg=>leg.bought&&leg.at!==here).map(leg=>`tax at ${leg.at} estimated at ${here}'s ${Math.round(rate!*10_000)} bps`);
+  const confidence=(ats:readonly string[])=>trust([...new Set(ats)].reduce((sum,base)=>sum+known.get(base)!.age,0));
+  /** A leg's buys as a stop of the call to paste. */
+  const runStop=(leg:Leg):RunStop=>({at:leg.at,...leg.buys.length===1?{buy:leg.buys[0]!.item_id}:leg.buys.length?{buy:leg.buys.map(row=>row.item_id)}:{}});
+  const evaluate=(ats:string[]):Route=>{
+    // Only the docked base's rate is readable; it stands in for every far stop's.
+    const planned=plan(aboard,free,ats.map(stopAt),offRoute(ats));
+    const why:string[]=[];
+    let total:number|null=0,from=here;
+    for(const at of ats) {
+      const n=hop(from,at);
+      if(n===null){why.push(`no route to ${at}${lost.has(at)?`: ${lost.get(at)}`:' on the map'}; fuel not priced`);total=null;break;}
+      total+=n;from=at;
     }
+    why.push(...taxWhy(planned));
+    const fuel=total===null?null:total*perJump;
+    const net=Math.round(planned.net-(fuel??0)*fuelPrice);
+    const trusted=confidence(ats);
+    return {...planned,total_jumps:total,fuel,net,confidence:trusted,score:rank(trusted,net,total),
+      next:runCall(planned.legs.map(runStop)),...why.length?{why:why.join('; ')}:{}};
+  };
+  // A closed lap for an empty `circuit.hold`, whatever is aboard now: three laps planned, the middle
+  // one read — the first starts empty, the last has no next lap to carry for. One plan() shares each
+  // base's book between the laps, so the middle lap trades on books one lap has already eaten into.
+  // The lap starts at its first buy: started at a sale, lap one sells nothing, and the middle lap
+  // would sell into the untouched book (live: 965 for 50 steel where the repeat pays 950) — so a
+  // ring read from each end would rank by whichever end flattered it.
+  // ponytail: a ring whose hold is never empty (x bought at A sold at C, y bought at B sold at A)
+  // still reads one item off a book lap one did not touch; plan a fourth lap if that ring ever ranks.
+  // A lap repeats only what it buys and sells, so each item counts only min(sold, bought) units:
+  // sales kept at the dearest legs first, buys at the cheapest (live: sold 50 steel, bought 21, net
+  // 521 where the lap flown nets -30; and 2 targeting computers sold that no stop bought, 16,681).
+  // ponytail: a kept unit is priced at its leg's average; walk the levels if a balanced lap's
+  // prediction drifts from the realised net.
+  const middleOf=(ats:string[])=>plan({},circuit!.hold,[...ats,...ats,...ats].map(stopAt),offRoute(ats)).legs.slice(ats.length,2*ats.length);
+  const lapOf=(given:string[]):Route=>{
+    // Where the lap first buys is only known once planned: a stop the plan gives no buy may be first.
+    const tried=middleOf(given),first=Math.max(0,tried.findIndex(leg=>leg.bought)),ats=[...given.slice(first),...given.slice(0,first)];
+    const n=ats.length,hold=circuit!.hold,middle=first?middleOf(ats):tried,sales=middle.flatMap(leg=>leg.sold),buys=middle.flatMap(leg=>leg.buys);
+    const count=(rows:readonly {item_id:string;quantity:number}[],item:string)=>rows.filter(row=>row.item_id===item).reduce((sum,row)=>sum+row.quantity,0);
+    const both=new Map([...sales,...buys].map(row=>[row.item_id,Math.min(count(sales,row.item_id),count(buys,row.item_id))]));
+    const allot=<T extends {item_id:string;quantity:number},>(rows:T[],each:(row:T)=>number)=>{
+      const left=new Map(both);
+      return new Map(rows.toSorted((a,b)=>each(a)-each(b)).map(row=>{
+        const take=Math.min(row.quantity,left.get(row.item_id)!);left.set(row.item_id,left.get(row.item_id)!-take);return [row,take];}));
+    };
+    const keptSales=allot(sales,sale=>-sale.revenue/sale.quantity),keptBuys=allot(buys,buy=>buy.cost/buy.quantity);
+    const legs=middle.map((leg):Leg=>{
+      const took=leg.buys.map(buy=>{const quantity=keptBuys.get(buy)!;return {...buy,quantity,cost:buy.cost*quantity/buy.quantity};}).filter(buy=>buy.quantity>0);
+      return {...leg,sold:leg.sold.map(sale=>{const quantity=keptSales.get(sale)!;return {...sale,quantity,revenue:sale.revenue*quantity/sale.quantity};})
+        .filter(sale=>sale.quantity>0),buys:took,bought:took.reduce((sum,buy)=>sum+buy.quantity,0),
+        cost:took.reduce((sum,buy)=>sum+buy.cost,0),sales_tax:leg.sales_tax===null?null:taxOn(took,rate??0)};
+    });
+    let lap:number|null=0;
+    for(const [i,at] of ats.entries()) {
+      const next=hop(at,ats[(i+1)%n]!);
+      if(next===null){lap=null;break;}
+      lap+=next;
+    }
+    const sum=(part:(leg:Leg)=>number)=>legs.reduce((total,leg)=>total+part(leg),0);
+    const revenue=sum(leg=>leg.sold.reduce((total,sale)=>total+sale.revenue,0)),cost=sum(leg=>leg.cost),tax=sum(leg=>leg.sales_tax??0);
+    const sales_tax=legs.some(leg=>leg.sales_tax===null)?null:tax,fuel=lap===null?null:lap*perJump;
+    const lap_net=Math.round(revenue-cost-tax-(fuel??0)*fuelPrice),trusted=confidence(ats),why=taxWhy({legs,sales_tax});
+    const closed:Circuit={closed:true,hold,lap_jumps:lap??0,lap_net,stops:ats.map((at,i)=>{
+      const leg=legs[i]!;
+      return {at,system_id:systems.get(at)??'',
+        buys:leg.buys.map(buy=>({item:buy.item_id,qty:buy.quantity,max_price:Math.ceil((1+SLACK)*buy.cost/buy.quantity-1e-9)})),
+        sell:leg.sold.map(sale=>({item:sale.item_id,min_price:Math.floor((1-SLACK)*sale.revenue/sale.quantity+1e-9)}))};
+    }),scope};
+    return {legs,unsold:[],revenue,cost,sales_tax,net:lap_net,total_jumps:lap,fuel,confidence:trusted,
+      score:rank(trusted,lap_net,lap),next:`assign('freighter', ${literal(closed)}, {float:20000})`,
+      ...why.length?{why:why.join('; ')}:{},circuit:closed};
+  };
 
-    const rested=skipped.size?`; skipped ${skipped.size} ring(s) a freighter drained within ${REST_TICKS} ticks: ${[...skipped].join('; ')}`:'';
-    const missed=[...lost.keys()];
-    const unknown=missed.length?`; ${missed.length} base(s) could not be placed, so no priced route goes there: ${missed.slice(0,5).join(', ')}${missed.length>5?', …':''}`
-      +(later.length?` (${later.length} past this call's ${UNPLACED} lookups; each place found is kept, so routes() again places the next ${UNPLACED})`:''):'';
-    const rows=[...found.values()].sort((a,b)=>Number(a.total_jumps===null)-Number(b.total_jumps===null)||b.score-a.score).slice(0,ROWS);
-    if(!rows.length)return {status:'done',did:`no route pays across ${known.size} book(s) (${sources.join(' + ')}) from this hold within ${most} stops, ${legCap} jumps a leg${Number.isFinite(cap)?` and ${cap} in all`:''}${rested}${unknown}`,
-      detail:{routes:[],sources},next:['goTo another base and prices() there to learn its book']};
-    const failed=rows.filter(row=>row.total_jumps===null);
-    // Short: a hold of ten kinds is `sell 499 of 10 kinds`; the legs in `detail` carry the rest.
-    const kinds=(verb:string,rows:readonly {item_id:string;quantity:number}[])=>rows.length>2
-      ?[`${verb} ${rows.reduce((sum,row)=>sum+row.quantity,0)} of ${rows.length} kinds`]:rows.map(row=>`${verb} ${row.quantity} ${row.item_id}`);
-    const says=(row:Route)=>row.legs.map(leg=>[leg.at,...kinds('sell',leg.sold),...kinds('buy',leg.buys)].join(' ')).join(' → ');
-    return {status:failed.length?'partial':'done',
-      did:`ranked ${rows.length} route(s) over ${known.size} book(s) (${sources.join(' + ')}); best: ${says(rows[0]!)}, net ${rows[0]!.net} cr${rested}${unknown}`,
-      ...failed.length?{why:failed.map(row=>`${says(row)}: ${row.why}`).join('; ')}:{},
-      detail:{routes:rows,sources},next:rows.slice(0,3).map(row=>row.next)};
-  });
+  const found=new Map<string,Route>();
+  // A ring a freighter drained within REST_TICKS is not planned: its books are still refilling.
+  const dir=seat.runtime,drained=circuit&&dir?readDrained(dir):{},skipped=new Set<string>();
+  const resting=(key:string)=>drained[key]!==undefined&&ticksOld(drained[key],now)<REST_TICKS;
+  const stopsOf=(ats:readonly string[])=>ats.map(at=>({at}));
+  // A route pays, and every stop on it does something: a stop that neither sells nor buys is only fuel.
+  // A circuit pays once round a whole lap, fuel and all, the hop home and the lap within scope. One
+  // ring of bases is one circuit: its rotations rank as the best of them alone.
+  const keep=(ats:string[]):Route|undefined=>{
+    if(circuit&&resting(ring(stopsOf(ats)))){skipped.add(ring(stopsOf(ats)));return undefined;}
+    const row=circuit?lapOf(ats):evaluate(ats),trades=row.legs.every(leg=>leg.sold.length||leg.bought);
+    const home=circuit?hop(ats.at(-1)!,ats[0]!):0;
+    const pays=trades&&(circuit?row.total_jumps!==null&&row.net>0&&row.total_jumps<=cap&&home!==null&&home<=legCap:row.revenue>row.cost);
+    const key=circuit?ring(stopsOf(ats)):row.next;
+    if(pays&&!((found.get(key)?.score??-Infinity)>=row.score))found.set(key,row);
+    return row;
+  };
+  // Breadth-first over base lists: each grows by one base within a leg's and the whole trip's jumps.
+  // An open route counts its jumps from here; a lap only between its stops. An unplaced hop cannot
+  // be counted, so it is not capped: its row says so, and a lap through it is never kept.
+  type Grown={ats:string[];jumps:number|null};
+  const within=(from:Grown|undefined,at:string):Grown|undefined=>{
+    const n=from?hop(from.ats.at(-1)!,at):circuit?0:hop(here,at);
+    if(n!==null&&n>legCap)return undefined;
+    const total=from?.jumps===null||n===null?null:(from?.jumps??0)+n;
+    return total!==null&&total>cap?undefined:{ats:[...from?.ats??[],at],jumps:total};
+  };
+  // Every plan is CPU: past a slice, let the bridge's other work run, then go on (or stop, if told).
+  let sliced=performance.now();
+  const breathe=async()=>{
+    if(performance.now()-sliced<SLICE_MS)return;
+    await new Promise(done=>setImmediate(done));
+    seat.stop();sliced=performance.now();
+  };
+  let beam=[...known.keys()].flatMap(at=>within(undefined,at)??[]);
+  // A circuit is 2 or more distinct bases, so one stop alone is only a seed.
+  if(!circuit)for(const seed of beam){await breathe();keep(seed.ats);}
+  for(let length=2;length<=most;length++) {
+    seat.stop();
+    const grown:{route:Grown;score:number}[]=[];
+    for(const from of beam)for(const at of known.keys()) {
+      if(at===from.ats.at(-1)||circuit&&from.ats.includes(at))continue;
+      const route=within(from,at);
+      if(!route)continue;
+      await breathe();
+      const row=keep(route.ats);
+      // A lap that does not pay yet may round into one that does; an open route grows only from one that pays.
+      if(circuit||row&&row.revenue>row.cost)grown.push({route,score:row?.score??-Infinity});
+    }
+    beam=grown.sort((a,b)=>b.score-a.score).slice(0,BEAM).map(row=>row.route);
+  }
+
+  const rested=skipped.size?`; skipped ${skipped.size} ring(s) a freighter drained within ${REST_TICKS} ticks: ${[...skipped].join('; ')}`:'';
+  const missed=[...lost.keys()];
+  const unknown=missed.length?`; ${missed.length} base(s) could not be placed, so no priced route goes there: ${missed.slice(0,5).join(', ')}${missed.length>5?', …':''}`
+    +(later.length?` (${later.length} past this call's ${UNPLACED} lookups; each place found is kept, so routes() again places the next ${UNPLACED})`:''):'';
+  const rows=[...found.values()].sort((a,b)=>Number(a.total_jumps===null)-Number(b.total_jumps===null)||b.score-a.score).slice(0,ROWS);
+  if(!rows.length)return {status:'done',did:`no route pays across ${known.size} book(s) (${sources.join(' + ')}) from this hold within ${most} stops, ${legCap} jumps a leg${Number.isFinite(cap)?` and ${cap} in all`:''}${rested}${unknown}`,
+    detail:{routes:[],sources},next:['goTo another base and prices() there to learn its book']};
+  const failed=rows.filter(row=>row.total_jumps===null);
+  // Short: a hold of ten kinds is `sell 499 of 10 kinds`; the legs in `detail` carry the rest.
+  const kinds=(verb:string,rows:readonly {item_id:string;quantity:number}[])=>rows.length>2
+    ?[`${verb} ${rows.reduce((sum,row)=>sum+row.quantity,0)} of ${rows.length} kinds`]:rows.map(row=>`${verb} ${row.quantity} ${row.item_id}`);
+  const says=(row:Route)=>row.legs.map(leg=>[leg.at,...kinds('sell',leg.sold),...kinds('buy',leg.buys)].join(' ')).join(' → ');
+  return {status:failed.length?'partial':'done',
+    did:`ranked ${rows.length} route(s) over ${known.size} book(s) (${sources.join(' + ')}); best: ${says(rows[0]!)}, net ${rows[0]!.net} cr${rested}${unknown}`,
+    ...failed.length?{why:failed.map(row=>`${says(row)}: ${row.why}`).join('; ')}:{},
+    detail:{routes:rows,sources},next:rows.slice(0,3).map(row=>row.next)};
 }
