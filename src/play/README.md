@@ -30,7 +30,8 @@ export default async function main() {
 `spacemolt_run` typechecks, boundary-checks and policy-checks the file first; a refusal comes
 back as diagnostics instead of a run. A run blocks and streams what it does, one line per move,
 and ends with a prose report of the returned Outcome. `spacemolt_check` validates without
-running, so it names a wrong field before a run does. The observer can stop a run at its next
+running, so it names a wrong field before a run does. A `write_file` or `patch` to a pilot `.ts` file
+carries the same check back in its result (`lsp_diagnostics`). The observer can stop a run at its next
 safe point (`partial`); a loop of your own checks `stopped()` to end there too.
 
 ## The library is the lib

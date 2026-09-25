@@ -86,6 +86,25 @@ def test_every_tool_answers_from_the_one_bridge(bridged, tmp_path, monkeypatch):
     assert service._bridge is not None and service._bridge.counter == 5
 
 
+def test_an_edit_to_the_pilot_carries_the_check_and_any_other_edit_passes_through(bridged, tmp_path,
+                                                                                  monkeypatch):
+    """The pilot is outside any git repo, so core's LSP never reports on it: the plugin does."""
+    monkeypatch.setenv("SPACEMOLT_RUNTIME_DIR", str(tmp_path / "runtime"))
+    pilot = str(service.pilot_file())
+    wrote = json.dumps({"bytes_written": 3, "files_modified": [pilot]})
+    for tool in ("write_file", "patch"):
+        seen = json.loads(spacemolt._check_after_edit(tool_name=tool, args={}, result=wrote))
+        assert seen["files_modified"] == [pilot] and seen["lsp_diagnostics"].endswith(": ok")
+    # Elsewhere, or a write that failed, the result stands and no bridge is asked.
+    service.close_bridge()
+    elsewhere = json.dumps({"bytes_written": 3, "files_modified": [str(tmp_path / "notes.ts")]})
+    failed = json.dumps({"error": "denied", "files_modified": [pilot]})
+    assert spacemolt._check_after_edit(tool_name="write_file", args={}, result=elsewhere) is None
+    assert spacemolt._check_after_edit(tool_name="patch", args={}, result=failed) is None
+    assert spacemolt._check_after_edit(tool_name="terminal", args={}, result=wrote) is None
+    assert service._bridge is None
+
+
 def test_a_run_sent_while_one_is_in_flight_is_refused_without_touching_the_script(tmp_path, monkeypatch):
     """The pilot's own work is not overwritten by the recovery script it sends after a timeout.
 
@@ -131,6 +150,9 @@ def test_register_publishes_every_tool_in_the_spacemolt_toolset():
 
         def on_unload(self, callback):
             unloads.append(callback)
+
+        def register_hook(self, name, callback):
+            pass
 
     spacemolt.register(RecordingContext())
     # One prefix, no strays, and each tool in exactly one of the three toolsets: the job tools

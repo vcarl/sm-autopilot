@@ -128,6 +128,34 @@ def _check(arguments: dict[str, Any] | None = None, **_: Any) -> str:
     return json.dumps(verdict, separators=(",", ":"))
 
 
+def _check_after_edit(tool_name: str = "", result: Any = None, **_: Any) -> str | None:
+    """A write_file/patch that lands on the pilot's .ts carries the check's verdict back.
+
+    The pilot lives outside any git repo, so core's post-write LSP never fires there; this is
+    that feedback, keyed the same (`lsp_diagnostics`). Both tools report the absolute paths
+    they wrote in `files_modified` (V4A multi-file included), and a failed edit has `error`.
+    Fail open: no bridge, no verdict, the edit's own result stands.
+    """
+    if tool_name not in ("write_file", "patch") or not isinstance(result, str):
+        return None
+    try:
+        edited = json.loads(result)
+        pilot = (runtime_dir() / "pilot").resolve()
+        if edited.get("error") or not any(
+                p.endswith(".ts") and Path(p).resolve().is_relative_to(pilot)
+                for p in edited.get("files_modified") or ()):
+            return None
+        verdict = call("check", {})
+    except Exception:  # noqa: BLE001 - never break a write over its diagnostics
+        return None
+    edited["lsp_diagnostics"] = (
+        "spacemolt check (tsc, import boundary, game policy): ok" if verdict.get("ok") else
+        "spacemolt check (tsc, import boundary, game policy) failed; spacemolt_run will refuse "
+        f"this pilot:\n<diagnostics file=\"{verdict.get('entry')}\">\n"
+        + "\n".join(verdict.get("errors") or []) + "\n</diagnostics>")
+    return json.dumps(edited, ensure_ascii=False)
+
+
 def _stop(arguments: dict[str, Any] | None = None, **_: Any) -> str:
     """Ask the run in flight to stop at its next safe point; it returns `partial`."""
     return json.dumps(call("stop", {}), separators=(",", ":"))
@@ -466,4 +494,5 @@ def register(ctx) -> None:
     ctx.register_system_prompt_section("spacemolt.juncture", juncture_context,
                                        position="after_memory", max_chars=SECTION_LIMIT)
     register_skills(ctx, Path(__file__).resolve().parent)
+    ctx.register_hook("transform_tool_result", _check_after_edit)
     ctx.on_unload(close_bridge)
