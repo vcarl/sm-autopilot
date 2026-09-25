@@ -162,7 +162,9 @@ def test_register_publishes_every_tool_in_the_spacemolt_toolset():
     for name, (toolset, *_rest) in tools.items():
         by_toolset.setdefault(toolset, set()).add(name)
     assert by_toolset == {
-        "spacemolt": {"spacemolt_run", "spacemolt_check", "spacemolt_rest", "spacemolt_reflect"},
+        # No spacemolt_rest: a shift ends with `rest()` inside pilot/index.ts, which saves the
+        # round-trip a tool call would spend saying what the script already knows.
+        "spacemolt": {"spacemolt_run", "spacemolt_check", "spacemolt_reflect"},
         "spacemolt_observer": {"spacemolt_direct", "spacemolt_status", "spacemolt_stop"},
     }
     # The pilot plays by running its file; the observer sends a sentence or stops a run.

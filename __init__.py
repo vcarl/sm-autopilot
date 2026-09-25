@@ -1,7 +1,9 @@
 """Hermes plugin: play SpaceMolt by editing pilot/index.ts and running it.
 
 Three toolsets, because a tool name is global and belongs to exactly one of them:
-``spacemolt`` is what a juncture acts with — run, check, rest, reflect — ``spacemolt_observe``
+``spacemolt`` is what a juncture acts with — run, check, reflect; rest is not among them, because
+ending a shift is a line in the pilot's own file (``rest()`` from the play barrel) and a tool call
+would cost a whole round-trip to say it — ``spacemolt_observe``
 the reads every client of the runner may make (empty since the journal folded into status),
 and ``spacemolt_observer`` the observer's own three window tools: spacemolt_status (the
 record, the run and the journal in one read), spacemolt_direct (objective, permissions,
@@ -177,15 +179,6 @@ def _status(arguments: dict[str, Any] | None = None, **_: Any) -> str:
                       separators=(",", ":"))
 
 
-def _rest(arguments: dict[str, Any] | None = None, **_: Any) -> str:
-    """End the shift. The runner decides whether it may, clears the record and journals it;
-    this rewrites the pilot's one cron job so the next fire carries no stance skill (N18)."""
-    result = call("rest")
-    if result.get("rested"):
-        ensure_juncture_job()
-    return json.dumps(result, separators=(",", ":"))
-
-
 def _reflect(arguments: dict[str, Any] | None = None, **_: Any) -> str:
     """Open the next shift: a goal, the stance that pursues it, and the mood it starts in.
 
@@ -358,15 +351,6 @@ TOOL_DEFINITIONS = (
                                    "description": "Optional: the TypeScript of pilot/index.ts, "
                                                   "written before the check."}},
                        [])},
-    {"name": "spacemolt_rest", "toolset": "spacemolt", "handler": _rest,
-     "description": "End the shift: rest at a base, which clears the stance and the mood.",
-     "schema": _schema("spacemolt_rest",
-                       "Put the evening down. Call this docked at any base with no run in flight, on a "
-                       "ship this base has brought as far up as it can; the refusal says what is "
-                       "still missing. It is the one act that ends a shift: it clears the stance, "
-                       "the mood and the goal, a Tired the world imposed included, and the next "
-                       "juncture reflects.",
-                       {}, [])},
     {"name": "spacemolt_reflect", "toolset": "spacemolt", "handler": _reflect,
      "description": "At rest only, open the next shift with a goal, a stance and an initial "
                     "mood. On shift it is refused without writing: rest first.",
