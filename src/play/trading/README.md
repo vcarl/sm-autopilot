@@ -10,7 +10,7 @@ assembled from everything this pilot is allowed to know.
 | Function | Promise |
 |---|---|
 | `spreads(items?)` | the best buyer known for each thing you hold, anywhere, with the trip priced and netted |
-| `routes({items?, circuit?})` | every route of up to 3 stops known, planned from the hold you have, fuelled, and ranked by trust-weighted net per jump; each row carries the call to paste. With `circuit: {hold}`, every row is a closed lap for a freighter instead, past the rings a freighter drained within `REST_TICKS` |
+| `routes({items?, circuit?, maxStops?, maxLegJumps?, maxJumps?})` | every route known within the scope (by default up to 4 stops, 3 jumps a leg), planned from the hold you have, fuelled, and ranked by trust-weighted net per jump; each row carries the call to paste. With `circuit: {hold}`, every row is a closed lap for a freighter instead, past the rings a freighter drained within `REST_TICKS` |
 | `tradeRun({stops})` | fly the stops in order; at each, sell what pays best there and fill the hold from the stop's `buy` items, re-planned against the live book. The realised net from the wallet |
 
 Root functions do the rest: `prices()` for the counter you are standing at, `sell()`/`buy()`
@@ -74,7 +74,7 @@ pilot actually needs.
 
 ## The model: a route is a list of stops
 
-A route is an ordered list of 1 to 3 stops, `[{at, buy?}, …]`, flown from where you are with the
+A route is an ordered list of stops, `[{at, buy?}, …]`, flown from where you are with the
 hold you have. At every stop one rule decides two things. First, sell each held unit whose bid
 here is at least the best bid for it at any later stop on the route, each weighed by how much its
 book can be trusted. A unit is also never sold for under half the best trusted bid any base **off**
@@ -103,7 +103,18 @@ computes, you choose. It is refused when not docked. Goods in the store here are
 them with `from: 'store'` (below).
 
 The search picks only the bases, in order; the rule above picks what each stop sells and takes on.
-It grows routes one stop at a time, keeping the best 20 at each length, up to 3 stops. A
+It grows routes one stop at a time, keeping the best 20 at each length, within the scope:
+
+| Option | What it is |
+|---|---|
+| `maxStops` | stops in a route or a lap, 4 unless given, at most `MAX_STOPS` (10). A local cycle by default; a galaxy tour is a larger number |
+| `maxLegJumps` | jumps in any one leg — from here to the first stop, stop to stop, and a lap's last stop home — 3 unless given |
+| `maxJumps` | jumps all told: from here through every stop, or once round a lap. No cap unless given |
+
+A bigger scope costs time, not game calls: the search plans about `maxStops × 20 × bases` routes on
+the one map read, up to seconds for a 10-stop tour over a full memory. A base with no system known
+can not be counted against a jump cap; its row says so, and the Outcome's `did` names every base
+that could not be placed. A
 route is kept only when it pays and every stop on it sells or buys something. Jumps are counted
 on the galaxy map (`get_map`, one call) between the systems of consecutive stops. The market
 memory keeps each base's system, and lends it to a ledger entry for the same base. A base it has
@@ -145,9 +156,10 @@ the list with a `why`, a `score` of 0 and the Outcome `partial`.
 
 A route need not come back to where it started; one handed to a freighter must, because the
 freighter flies it again and again. `routes({circuit: {hold: 50}})` ranks those instead: every row
-is a closed lap of 2 or 3 different bases, planned for an **empty** hold of `hold` units
+is a closed lap of 2 to `maxStops` different bases, planned for an **empty** hold of `hold` units
 (what is aboard you now is ignored), with at least one buy. The lap is planned into the next one,
-so the last stop takes on what the first stop outbids, and the way back pays too.
+so the last stop takes on what the first stop outbids, and the way back pays too. `maxLegJumps`
+counts the hop home, and `maxJumps` the whole lap.
 
 A lap is planned three times over and the **middle** lap is the one read: the first starts empty,
 and the last has nothing after it to carry for. The lap starts at its first buy, so lap one has
@@ -183,6 +195,7 @@ on it trades, `lap_net` is positive and every hop, the last one home included, i
 | `stops[i].at`, `.system_id` | the base and its system |
 | `stops[i].buys` | `[{item, qty, max_price}]`: take on up to `qty` units of each `item`, one buy each, at asks of at most `max_price`, the planned average ask plus 10%. A circuit written before `buys` has one `buy: {item, qty, max_price}` instead; it still flies, read as `buys: [buy]` |
 | `stops[i].sell` | `[{item, min_price}]`: sell each held `item` at bids of at least `min_price`, the planned average bid less 10%. Nothing else is sold |
+| `scope` | `{maxStops, maxLegJumps, maxJumps?}` the lap was planned within: `reassign` plans the next circuit alike |
 
 ## What a run says
 
@@ -246,7 +259,7 @@ import {orient, routes, tradeRun, note} from 'play';
 
 export default async function main() {
   await orient();
-  const look = await routes();                       // every known route from this hold, ranked
+  const look = await routes();                       // every known route from this hold, ranked; a tour: routes({maxStops: 8, maxLegJumps: 5})
   const best = look.detail.routes.find(row => row.total_jumps !== null && row.net > 0);
   if (!best) return look;
   note(`${best.legs.map(leg => leg.at).join(' → ')}: net ${best.net}, confidence ${best.confidence.toFixed(2)}`);

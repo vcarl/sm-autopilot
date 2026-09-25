@@ -410,7 +410,7 @@ export async function menu(runtime?:string):Promise<Menu> {
       if(entry.state!=='parked'||drained[ring(entry.circuit.stops)]===undefined)continue;
       const call=`reassign('${name}')`,aboard=held(entry.holding??{});
       if(!docked){not_now.push({move:call,why:`${name} is parked on a drained ring; routes() reads the book here, so dock first`});continue;}
-      moves.push({call,advances:'credits',why:`freighter ${name} parked (${entry.why??'drained'}); this plans routes({circuit:{hold:${entry.circuit.hold}}}) `
+      moves.push({call,advances:'credits',why:`freighter ${name} parked (${entry.why??'drained'}); this plans routes({circuit:{hold:${entry.circuit.hold}}${entry.circuit.scope?`,${lit(entry.circuit.scope).slice(1,-1)}`:''}}) `
         +`past the rings resting and assigns it the top one${aboard?`; ${aboard} aboard rides along`:''}`});
       unblocks.add(call);
     }

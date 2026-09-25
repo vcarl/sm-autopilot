@@ -144,7 +144,7 @@ test('an empty hold: routes buys here, sells there, and sizes each load where th
   const runtime=remembered([RANGE]);
   const f=world({mood:'Focused'},{cargo:[],cargoUsed:0,cargoCapacity:20,store:[],markets:HERE},runtime);
   try {
-    const out=await routes();
+    const out=await routes({maxStops:2});
     assert.equal(out.status,'done',out.why);
     const [gem]=out.detail.routes;
     // 20 gems (the hold) bought at 100 here, sold at 110 there, less 7 fuel for the one jump.
@@ -156,7 +156,7 @@ test('an empty hold: routes buys here, sells there, and sizes each load where th
     assert.deepEqual(gem!.unsold,[]);
     // Ore, when only ore may be taken on: 4 at 15 and 4 at 12 beat the ask of 10; the ninth unit
     // fetches 9 and is not moved, though the hold has room for twelve more.
-    const [ore]=(await routes({items:['ore']})).detail.routes;
+    const [ore]=(await routes({items:['ore'],maxStops:2})).detail.routes;
     assert.equal(said(ore!),'sol_base+ore range_base');
     assert.equal(ore!.legs[0]!.bought,8);
     assert.equal(ore!.revenue,4*15+4*12);
@@ -173,7 +173,7 @@ test('routes ranks a stale fat bid below a fresh thin one',async()=>{
   world({mood:'Focused'},{cargo:[],cargoUsed:0,cargoCapacity:20,store:[],markets:HERE,
     pois:[{id:'twin',base_id:'twin_base'}]},runtime);
   try {
-    const out=await routes({items:['gem']});
+    const out=await routes({items:['gem'],maxStops:2});
     assert.equal(out.status,'done',out.why);
     const [fresh,stale]=out.detail.routes;
     assert.equal(said(fresh!),'sol_base+gem range_base');
@@ -569,7 +569,7 @@ test('a stop buys two items when that beats one, and tradeRun buys exactly what 
     markets:{sol_base:[{item_id:'gem',best_buy:0,best_buy_qty:0,best_sell:100,best_sell_qty:10},
       {item_id:'ore',best_buy:0,best_buy_qty:0,best_sell:10,best_sell_qty:50}],range_base:RANGE2}},runtime);
   try {
-    const top=(await routes()).detail.routes[0]!;
+    const top=(await routes({maxStops:2})).detail.routes[0]!;
     assert.equal(top.next,"tradeRun({stops:[{at:'sol_base',buy:['gem','ore']},{at:'range_base'}]})");
     assert.deepEqual(top.legs[0]!.buys,[{item_id:'gem',quantity:10,cost:1000},{item_id:'ore',quantity:20,cost:200}]);
     assert.equal(top.net,1500+500-1000-200-7,'10 gems alone would net 493');
@@ -582,3 +582,37 @@ test('a stop buys two items when that beats one, and tradeRun buys exactly what 
   } finally {unbind();rmSync(runtime,{recursive:true,force:true});}
 });
 
+// Gems at 100 here and 120 at twin, in Sol; twin asks ore at 10 and range, a jump away, bids 60 for it.
+const SCOPE_TWIN=[{item_id:'gem',best_buy:120,best_buy_qty:10},{item_id:'ore',best_sell:10,best_sell_qty:10}];
+const SCOPE_RANGE=[{item_id:'ore',best_buy:60,best_buy_qty:10}];
+function scoped() {
+  const runtime=remembered([{base_id:'twin_base',age:0,system_id:'sol',items:SCOPE_TWIN},{base_id:'range_base',age:0,system_id:'deep_range',items:SCOPE_RANGE}]);
+  world({mood:'Focused'},{cargo:[],cargoUsed:0,cargoCapacity:10,store:[],pois:[{id:'twin',base_id:'twin_base'}],
+    markets:{sol_base:[{item_id:'gem',best_buy:0,best_buy_qty:0,best_sell:100,best_sell_qty:50}]}},runtime);
+  return runtime;
+}
+
+test('maxLegJumps leaves out a leg longer than it: at 0, nothing crosses to Deep Range',async()=>{
+  const runtime=scoped();
+  try {
+    const wide=await routes({maxStops:2});
+    assert.ok(wide.detail.routes.some(row=>row.legs.some(leg=>leg.at==='range_base')),wide.did);
+    const near=await routes({maxStops:2,maxLegJumps:0});
+    assert.equal(near.status,'done',near.why);
+    assert.ok(near.detail.routes.length,near.did);
+    assert.ok(near.detail.routes.every(row=>row.legs.every(leg=>leg.at!=='range_base')&&row.total_jumps===0),near.detail.routes.map(row=>row.next).join('\n'));
+    assert.equal((await routes({maxStops:11})).status,'refused');
+  } finally {unbind();rmSync(runtime,{recursive:true,force:true});}
+});
+
+test('a larger maxStops finds the longer tour that pays better: gems to twin, then twin ore to range',async()=>{
+  const runtime=scoped();
+  try {
+    const short=(await routes({maxStops:2})).detail.routes[0]!;
+    assert.equal(short.next,"tradeRun({stops:[{at:'twin_base',buy:'ore'},{at:'range_base'}]})");
+    const long=(await routes({maxStops:3})).detail.routes[0]!;
+    assert.equal(long.next,"tradeRun({stops:[{at:'sol_base',buy:'gem'},{at:'twin_base',buy:'ore'},{at:'range_base'}]})");
+    assert.equal(long.net,10*120-10*100+10*60-10*10-7,'the ore run alone nets 493');
+    assert.ok(long.score>short.score,`${long.score} over ${short.score}`);
+  } finally {unbind();rmSync(runtime,{recursive:true,force:true});}
+});

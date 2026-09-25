@@ -264,6 +264,7 @@ test('a lap buys and sells every item of a multi-buy stop exactly as routes rank
   assert.deepEqual(top.circuit!.stops.map(stop=>[stop.at,stop.buys,stop.sell]),[
     ['sol_base',[{item:'gem',qty:10,max_price:110},{item:'ore',qty:20,max_price:11}],[]],
     ['range_base',[],[{item:'gem',min_price:126},{item:'ore',min_price:22}]]]);
+  assert.equal(top.circuit!.scope?.maxStops,4,'the scope it was planned in rides on the circuit');
 
   const {world,f,reports}=freighter(150,[],{cargo:[],cargoUsed:0,cargoCapacity:30,markets});
   await world.account.refresh();

@@ -63,9 +63,11 @@ export function assign(name:string,circuit:Circuit,caps:{float:number}):Promise<
     const owner=acct().state.player?.username;
     if(!owner)return refuse('no username read for this pilot, so the profit has nowhere to go');
     // Only the fields a circuit has, so the script carries nothing else; a one-`buy` stop is written as `buys`.
+    const {scope}=circuit;
     const clean:Circuit={closed:true,hold:circuit.hold,lap_jumps:circuit.lap_jumps,lap_net:circuit.lap_net,
       stops:circuit.stops.map(stop=>({at:stop.at,system_id:stop.system_id,buys:buysOf(stop).map(({item,qty,max_price})=>({item,qty,max_price})),
-        sell:stop.sell.map(({item,min_price})=>({item,min_price}))}))};
+        sell:stop.sell.map(({item,min_price})=>({item,min_price}))})),
+      ...scope?{scope:{maxStops:scope.maxStops,maxLegJumps:scope.maxLegJumps,maxJumps:scope.maxJumps}}:{}};
     const path=scriptPath(runtime,name);
     mkdirSync(dirname(path),{recursive:true});
     writeFileSync(path,script(clean));
@@ -85,6 +87,7 @@ export function assign(name:string,circuit:Circuit,caps:{float:number}):Promise<
 }
 
 /** Put the parked freighter `name` on a new circuit: `routes({circuit: {hold}})` for its hold,
+ * within the scope its circuit was planned in (`circuit.scope`: maxStops, maxLegJumps, maxJumps),
  * which passes over the rings a freighter drained within `REST_TICKS`, then `assign` of the top
  * row at its float. Refused when no circuit pays, or wherever `routes` or `assign` refuse (not
  * docked; still flying). The cargo aboard rides into the new circuit at its cost; the `why` says
@@ -94,7 +97,7 @@ export function reassign(name:string):Promise<Outcome<{freighter:FreighterRow|nu
     const refuse=(why:string)=>({status:'refused' as const,did:`reassigned no freighter ${name}`,why,detail:{freighter:null}});
     const runtime=runtimeDir(),entry=runtime?readFleet(runtime)[name]:undefined;
     if(!entry)return refuse(`no freighter named ${name} is assigned`);
-    const found=await routes({circuit:{hold:entry.circuit.hold}});
+    const found=await routes({circuit:{hold:entry.circuit.hold},...entry.circuit.scope});
     const top=found.detail.routes?.[0]?.circuit;
     if(!top)return refuse(`no circuit for a ${entry.circuit.hold} hold: ${found.why??found.did}`);
     const out=await assign(name,top,{float:entry.float});

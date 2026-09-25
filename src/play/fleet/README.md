@@ -22,7 +22,7 @@ Five different things get called "fleet". Keep them apart:
 | `ships()` | **not built yet — it throws `unimplemented`.** `account().commands.spacemolt_ship.list_ships()` |
 | `switchShip(id)` | **not built yet — it throws `unimplemented`.** `account().commands.spacemolt_ship.switch_ship({id})`, and stow and service by hand first |
 | `assign(name, circuit, {float})` | hand a closed circuit to the freighter `name`, which flies it lap after lap on its own account and sends its profit home to you |
-| `reassign(name)` | put a parked freighter on the best circuit now: `routes({circuit: {hold}})` for its hold, past the rings resting, then `assign` of the top row at its float |
+| `reassign(name)` | put a parked freighter on the best circuit now: `routes({circuit: {hold}, ...circuit.scope})` for its hold and the scope its circuit was planned in, past the rings resting, then `assign` of the top row at its float |
 | `recall(name)` | bring it home: it finishes the stop it is on, sends its profit, and parks docked with its cargo aboard |
 | `freighters()` | every freighter: state, lap, stop, wallet, what it has sent home, the last lap against the prediction, the cargo aboard at cost, and why it parked |
 
@@ -86,7 +86,9 @@ its cargo aboard, and `freighters()` and the menu show the why.
 recorded as drained: `routes({circuit})` passes over it for `REST_TICKS` while the books refill
 (see [trading](../trading/README.md)). The freighter never picks its own next circuit; you do. The
 menu offers `reassign('<name>')` for each freighter parked on a drained ring, and ranks it first.
-`reassign(name)` runs `routes({circuit: {hold}})` for that freighter's hold and `assign`s it the
+`reassign(name)` runs `routes({circuit: {hold}, ...circuit.scope})` for that freighter's hold, in the
+scope its circuit was planned in (`maxStops`, `maxLegJumps`, `maxJumps`; the defaults for a circuit
+assigned before `scope`), and `assign`s it the
 top row at the float it had. It is refused when no circuit pays (the `why` carries what `routes`
 said, rings skipped included), when you are not docked (`routes` reads the book here), and
 wherever `assign` refuses. Its cargo rides into the new circuit at its cost and is sold there if
