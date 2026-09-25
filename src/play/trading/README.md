@@ -182,8 +182,17 @@ rotation) and the game tick are written to `drained.json` in your runtime dir. F
 (360 ticks, about an hour; unmeasured, to be tuned once a drained book is watched refilling)
 `routes({circuit})` does not plan that ring, and its `did` ends `skipped N ring(s) a freighter
 drained within 360 ticks: <ring>; …`. NPC books refill slowly; two laps can empty one. The
-rotation is yours, not the freighter's: `reassign(name)` (see [fleet](../fleet/README.md#freighters))
-runs this search for the parked freighter's hold and assigns it the top row.
+freighter rotates itself: its host runs this same search for its hold and scope and flies the top
+row, and with none it waits, re-planning every `REPLAN_TICKS` (see
+[fleet](../fleet/README.md#freighters)). `reassign(name)` runs it for a parked freighter by hand.
+
+**One planner, two seats.** `routes()` is `search(seat, opts)` read through your runtime: your
+connection, your live book (remembered and filed), your runtime dir. A freighter's host runs the
+same `search` on the freighter's own seat: its connection for the live book where it is docked, the
+tax, fuel price and map reads, `find_route` from where it is, and the faction ledger (it is a faction
+member); your runtime dir's `markets.json`, `places.json` and `drained.json` by path. It never touches
+your play runtime, so a freighter re-plans while you fly, and yields to the event loop as yours does.
+`search` is the host's, not a pilot call: it is not in `play`.
 
 A circuit row is a `Route` whose numbers are that middle lap's: `legs`, `revenue`, `cost`,
 `sales_tax`; `net` is `lap_net`, `total_jumps` is `lap_jumps`, `score` is
@@ -202,7 +211,7 @@ on it trades, `lap_net` is positive and every hop, the last one home included, i
 | `stops[i].at`, `.system_id` | the base and its system |
 | `stops[i].buys` | `[{item, qty, max_price}]`: take on up to `qty` units of each `item`, one buy each, at asks of at most `max_price`, the planned average ask plus 10%. A circuit written before `buys` has one `buy: {item, qty, max_price}` instead; it still flies, read as `buys: [buy]` |
 | `stops[i].sell` | `[{item, min_price}]`: sell each held `item` at bids of at least `min_price`, the planned average bid less 10%. Nothing else is sold |
-| `scope` | `{maxStops, maxLegJumps, maxJumps?}` the lap was planned within: `reassign` plans the next circuit alike |
+| `scope` | `{maxStops, maxLegJumps, maxJumps?}` the lap was planned within: a freighter's own re-plan, and `reassign`, plan the next circuit alike |
 
 ## What a run says
 

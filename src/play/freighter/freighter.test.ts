@@ -9,10 +9,10 @@ import {check} from '../../run.ts';
 import {bridgeWorld,TICK,type WorldOptions} from '../../test-support/bridge-world.ts';
 import {assign,reassign,tiedUp} from '../fleet/fleet.ts';
 import {menu,renderMenu} from '../menu.ts';
-import {bind,unbind} from '../runtime.ts';
+import {acct,bind,unbind} from '../runtime.ts';
 import {REST_TICKS,routes,type Circuit} from '../trading/trading.ts';
 import {markDrained,ring} from './drained.ts';
-import {gate,readFleet,script,scriptPath,writeFleet} from './host.ts';
+import {gate,launch,readFleet,recallLoop,REPLAN_TICKS,script,scriptPath,writeFleet,type Entry} from './host.ts';
 import {lap,type Freighter,type Lap,type Report} from './index.ts';
 
 // Gems bought at sol for at most 110, sold at range for at least 120.
@@ -220,7 +220,7 @@ test('a lap that keeps its load values it at cost: the live lap 3 reads its fuel
   assert.equal(reports.find(r=>r.lapped!==undefined)!.lapped,done.net);
 });
 
-test('a drained ring rests: routes passes over it and says so, the menu offers reassign, and reassign assigns the next ring',async()=>{
+test('a drained ring rests: routes passes over it and says so, and reassign assigns the next ring',async()=>{
   // Gems are asked 100 at sol (here); range bids 150 and twin, in Sol itself, bids 130. Freighter a
   // parked on sol ↔ range, which it drained 10 ticks ago, with 5 ore aboard that no gem ring sells.
   const runtime=mkdtempSync(join(tmpdir(),'freighter-rest-'));
@@ -228,7 +228,8 @@ test('a drained ring rests: routes passes over it and says so, the menu offers r
     items:[{item_id:'gem',best_buy:bid,best_buy_qty:50,best_sell:0,best_sell_qty:0,buy_orders:[],sell_orders:[]}]});
   writeFileSync(join(runtime,'markets.json'),JSON.stringify([book('range_base','deep_range',150),book('twin_base','sol',130)]));
   writeFleet(runtime,{a:{state:'parked',circuit:GEMS,float:20_000,owner:'B',lap:3,returned:0,
-    holding:{ore:{quantity:5,cost:50}},why:'circuit dead: 3 stops in a row with no trade',at:''}});
+    holding:{ore:{quantity:5,cost:50}},why:'circuit dead: 3 stops in a row with no trade',at:''},
+    b:{state:'running',circuit:GEMS,float:20_000,owner:'B',lap:1,returned:0,at:''}});
   markDrained(runtime,ring([...GEMS.stops].reverse()),TICK-10);
   const world=bridgeWorld({services:['refuel','repair','storage'],cargo:[],cargoUsed:0,cargoCapacity:50,
     pois:[{id:'twin',base_id:'twin_base'}],markets:{sol_base:[{item_id:'gem',best_buy:0,best_buy_qty:0,best_sell:100,best_sell_qty:50}]}});
@@ -242,15 +243,9 @@ test('a drained ring rests: routes passes over it and says so, the menu offers r
     assert.match(look.did,new RegExp(`skipped 1 ring\\(s\\) a freighter drained within ${REST_TICKS} ticks: range_base sol_base$`));
 
     const built=await menu(runtime);
-    const move=built.moves.find(m=>m.call==="reassign('a')");
-    assert.ok(move,renderMenu(built));
-    assert.match(move.why,/parked \(circuit dead.*routes\(\{circuit:\{hold:10\}\}\).*5 ore \(50 cr\) aboard rides along/);
-    const pilot=mkdtempSync(join(tmpdir(),'reassign-next-'));
-    mkdirSync(join(pilot,'pilot'));
-    writeFileSync(join(pilot,'pilot','index.ts'),`import {reassign} from 'play';\nexport default async function main() {\n  return ${move.call};\n}\n`);
-    const typed=await check(pilot);
-    rmSync(pilot,{recursive:true,force:true});
-    assert.deepEqual(typed.errors,[]);
+    assert.ok(!built.moves.some(m=>m.call.startsWith('reassign')),'a freighter re-plans itself; the menu offers no reassign');
+    assert.deepEqual(built.not_now.filter(row=>row.move.startsWith('recall')),[{move:"recall('b', {after:'lap'})",
+      why:'b flies and re-plans on a drained ring by itself; this stops one after the lap it is on'}],renderMenu(built));
 
     // Past routes and assign's every check on the circuit: only the operator's login is missing.
     const out=await reassign('a');
@@ -390,4 +385,109 @@ test('a why said for a retried stop clears once the retry gets through (live: "Y
   // The host keeps the last why a report set; the retry's arrival sets it to nothing.
   const said=reports.findIndex(r=>/not in a system/.test(r.why??''));
   assert.ok(reports.slice(said+1).some(r=>'why' in r&&r.why===undefined),JSON.stringify(reports.slice(said)));
+});
+
+// The host's loop, as it flies live but on the fake world's account, and never bound: any call to
+// the play runtime singleton throws, and the loop would park with "the loop broke".
+const memory=(base_id:string,system_id:string,row:Record<string,number>)=>({base_id,at:'',tick:TICK,system_id,
+  items:[{item_id:'gem',best_buy:0,best_buy_qty:0,best_sell:0,best_sell_qty:0,buy_orders:[],sell_orders:[],...row}]});
+const SOL=memory('sol_base','sol',{best_sell:100,best_sell_qty:50}),TWIN=memory('twin_base','sol',{best_buy:130,best_buy_qty:50});
+const RANGE=memory('range_base','deep_range',{best_buy:150,best_buy_qty:50});
+/** `hauler` assigned GEMS over a world where range bids `rangeBid`, sol asks 100 and twin (in Sol) bids 130.
+ * `known` is the owner's market memory; `hook` sees every command the freighter sends. */
+function hosted(rangeBid:number,known:object[],entry:Partial<Entry>={},options:WorldOptions={},hook:(action:string)=>void=()=>{}) {
+  const runtime=mkdtempSync(join(tmpdir(),'freighter-host-'));
+  writeFileSync(join(runtime,'markets.json'),JSON.stringify(known));
+  const world=bridgeWorld({services:['refuel','repair','storage'],cargo:[],cargoUsed:0,cargoCapacity:50,pois:[{id:'twin',base_id:'twin_base'}],
+    markets:{sol_base:[{item_id:'gem',best_buy:0,best_buy_qty:0,best_sell:100,best_sell_qty:50}],
+      range_base:[{item_id:'gem',best_buy:rangeBid,best_buy_qty:50,best_sell:0,best_sell_qty:0}],
+      twin_base:[{item_id:'gem',best_buy:130,best_buy_qty:50,best_sell:0,best_sell_qty:0}]},...options});
+  world.account.server.player.credits=50_000;
+  const command:ReadinessCommand=async(action,params)=>{
+    hook(action);
+    if(action!=='spacemolt_storage/deposit')return world.command(action,params);
+    world.account.server.player.credits-=Number(params.credits);
+    return {delta:{details:{action:'send_gift'}}};
+  };
+  writeFleet(runtime,{hauler:{state:'running',circuit:GEMS,float:5_000,owner:'B',lap:0,returned:0,at:'',...entry}});
+  mkdirSync(join(runtime,'freighters'));
+  writeFileSync(scriptPath(runtime,'hauler'),script(GEMS));
+  return {runtime,world,now:()=>readFleet(runtime).hauler!,
+    fly:async()=>{await world.account.refresh();return launch(runtime,'hauler',world.account as unknown as ReadinessAccount,command);},
+    done:()=>rmSync(runtime,{recursive:true,force:true})};
+}
+/** Once it is on a new ring, stop it after that lap: how a test ends a loop that would fly on. */
+const stopOnceReassigned=(h:()=>ReturnType<typeof hosted>)=>()=>{
+  if(h().now().reassigned&&!h().now().stop_after_lap)recallLoop(h().runtime,'hauler','lap');
+};
+
+test('a drained park re-plans on the freighter\'s own connection, unbound, and it flies the next ring',async()=>{
+  // Range bids 115, under the 120 floor: sol ↔ range drains. Sol ↔ twin pays.
+  const h:ReturnType<typeof hosted>=hosted(115,[SOL,TWIN,RANGE],{},{},stopOnceReassigned(()=>h));
+  assert.throws(()=>acct(),/not bound/,'the play runtime is not bound for this');
+  try {
+    await h.fly();
+    const entry=h.now();
+    assert.deepEqual(entry.reassigned,{count:1,ring:'sol_base twin_base',lap_net:entry.circuit.lap_net},entry.why);
+    assert.equal(entry.state,'parked');
+    assert.equal(entry.why,'stopped after its lap, as scheduled');
+    assert.equal(entry.lap,1,'a whole lap flown on the new ring');
+    assert.ok(readFileSync(scriptPath(h.runtime,'hauler'),'utf8').includes('twin_base'));
+    assert.deepEqual(Object.keys(JSON.parse(readFileSync(join(h.runtime,'drained.json'),'utf8'))),['range_base sol_base']);
+  } finally {h.done();}
+});
+
+test('with no ring that qualifies it waits docked, re-planning every REPLAN_TICKS, and flies once one appears',async()=>{
+  const h:ReturnType<typeof hosted>=hosted(115,[SOL,RANGE],{},{},stopOnceReassigned(()=>h));
+  mock.timers.enable({apis:['setTimeout']});
+  try {
+    const flying=h.fly();
+    const settle=async()=>{for(let i=0;i<50;i++)await new Promise(resolve=>setImmediate(resolve));};
+    for(let i=0;i<1000&&h.now().state!=='waiting';i++)await settle();
+    assert.equal(h.now().state,'waiting');
+    assert.match(h.now().why!,/^waiting for a circuit: no route pays .*skipped 1 ring\(s\) a freighter drained/);
+    // Twin's book turns up; nothing moves until the next re-plan.
+    writeFileSync(join(h.runtime,'markets.json'),JSON.stringify([SOL,TWIN,RANGE]));
+    mock.timers.tick(60_000);await settle();
+    assert.equal(h.now().state,'waiting');
+    for(let waited=60_000;waited<REPLAN_TICKS*10_000;waited+=60_000){mock.timers.tick(60_000);await settle();}
+    await flying;
+    assert.equal(h.now().reassigned?.ring,'sol_base twin_base');
+    assert.equal(h.now().why,'stopped after its lap, as scheduled');
+  } finally {mock.timers.reset();h.done();}
+});
+
+test('a freighter scheduled to stop after its lap finishes the lap, selling, and parks without re-planning',async()=>{
+  const h=hosted(130,[SOL,TWIN],{stop_after_lap:true});
+  try {
+    await h.fly();
+    assert.equal(h.now().state,'parked');
+    assert.equal(h.now().why,'stopped after its lap, as scheduled');
+    assert.equal(h.now().lap,1);
+    assert.equal(h.world.count('spacemolt/sell'),1,'the lap sold at range');
+    assert.equal(h.now().reassigned,undefined);
+  } finally {h.done();}
+});
+
+test('a plain recall parks after the stop and never re-plans, on a ring that would drain',async()=>{
+  const h:ReturnType<typeof hosted>=hosted(115,[SOL,TWIN],{},{},action=>{if(action==='spacemolt_market/view_market')recallLoop(h.runtime,'hauler');});
+  try {
+    await h.fly();
+    assert.equal(h.now().state,'parked');
+    assert.equal(h.now().why,'recalled');
+    assert.equal(h.now().reassigned,undefined);
+    assert.ok(readFileSync(scriptPath(h.runtime,'hauler'),'utf8').includes('range_base'),'the script is the one assigned');
+  } finally {h.done();}
+});
+
+test('a hold full of cargo no circuit sells tries one re-plan, then stays parked with the blocking why, without looping',async()=>{
+  const h=hosted(130,[SOL,TWIN],{},{cargo:[{item_id:'copper_wiring',quantity:50}],cargoUsed:50,cargoCapacity:50});
+  try {
+    await h.fly();
+    assert.equal(h.now().state,'parked');
+    assert.match(h.now().why!,/^hold full of 50 copper_wiring this circuit never sells/);
+    assert.equal(h.now().reassigned,undefined);
+    assert.equal(h.world.count('spacemolt/get_map'),1,'planned once');
+    assert.equal(existsSync(join(h.runtime,'drained.json')),false,'the ring is not drained');
+  } finally {h.done();}
 });

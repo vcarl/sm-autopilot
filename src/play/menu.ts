@@ -11,8 +11,7 @@ import {details} from '../response-details.ts';
 import {evaluateMenu,jobStop,type CounterName,type Facts} from '../rules-table.ts';
 import {combatLine,readCombat,statsFor} from '../combat-memory.ts';
 import {readJournal} from '../run-record.ts';
-import {readDrained,ring} from './freighter/drained.ts';
-import {held,readFleet} from './freighter/host.ts';
+import {readFleet} from './freighter/host.ts';
 import {PACKAGE_CARGO} from './hauling/freight.ts';
 import {bench,moduleSpec,whyNotFit} from './hangar.ts';
 import {readSightings,recall} from '../sighting-memory.ts';
@@ -402,18 +401,12 @@ export async function menu(runtime?:string):Promise<Menu> {
       why:'ranks every known route of up to 3 stops, from the hold you have, by net per jump after book depth, fuel and tax; each row carries a pasteable next call. The trading README\'s "the best trade known" acts on the top row in one run'});
   }
 
-  // A freighter parked because its ring ran dry: the pilot rotates it, the freighter never does.
-  // `reassign` plans past every resting ring and assigns the top one; it clears the stated why, so it ranks first.
+  // Freighters re-plan themselves when a ring drains; the one thing left to the pilot is stopping one.
+  // Said, not offered: it earns nothing, and the rows ride on the juncture as `freighters`.
   if(runtime) {
-    const drained=readDrained(runtime);
-    for(const [name,entry] of Object.entries(readFleet(runtime))) {
-      if(entry.state!=='parked'||drained[ring(entry.circuit.stops)]===undefined)continue;
-      const call=`reassign('${name}')`,aboard=held(entry.holding??{});
-      if(!docked){not_now.push({move:call,why:`${name} is parked on a drained ring; routes() reads the book here, so dock first`});continue;}
-      moves.push({call,advances:'credits',why:`freighter ${name} parked (${entry.why??'drained'}); this plans routes({circuit:{hold:${entry.circuit.hold}}${entry.circuit.scope?`,${lit(entry.circuit.scope).slice(1,-1)}`:''}}) `
-        +`past the rings resting and assigns it the top one${aboard?`; ${aboard} aboard rides along`:''}`});
-      unblocks.add(call);
-    }
+    const flying=Object.entries(readFleet(runtime)).filter(([,entry])=>(entry.state==='running'||entry.state==='waiting')&&!entry.stop_after_lap);
+    if(flying.length)not_now.push({move:`recall('${flying[0]![0]}', {after:'lap'})`,
+      why:`${flying.map(([name])=>name).join(', ')} fl${flying.length===1?'ies':'y'} and re-plan${flying.length===1?'s':''} on a drained ring by itself; this stops one after the lap it is on`});
   }
 
   // Mine the nearest belt.

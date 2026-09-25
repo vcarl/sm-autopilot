@@ -21,10 +21,11 @@ Five different things get called "fleet". Keep them apart:
 |---|---|
 | `ships()` | **not built yet — it throws `unimplemented`.** `account().commands.spacemolt_ship.list_ships()` |
 | `switchShip(id)` | **not built yet — it throws `unimplemented`.** `account().commands.spacemolt_ship.switch_ship({id})`, and stow and service by hand first |
-| `assign(name, circuit, {float})` | hand a closed circuit to the freighter `name`, which flies it lap after lap on its own account and sends its profit home to you |
-| `reassign(name)` | put a parked freighter on the best circuit now: `routes({circuit: {hold}, ...circuit.scope})` for its hold and the scope its circuit was planned in, past the rings resting, then `assign` of the top row at its float |
+| `assign(name, circuit, {float})` | hand a closed circuit to the freighter `name`, which flies it lap after lap on its own account, sends its profit home to you, and re-plans itself when the circuit drains |
+| `reassign(name)` | by hand, put a parked freighter on the best circuit now: `routes({circuit: {hold}, ...circuit.scope})` for its hold and the scope its circuit was planned in, past the rings resting, then `assign` of the top row at its float |
 | `recall(name)` | bring it home: it finishes the stop it is on (selling, but buying nothing), sends its profit, and parks docked with its cargo aboard |
-| `freighters()` | every freighter: state, lap, stop, wallet, what it has sent home, the last lap against the prediction, the cargo aboard at cost, and why it parked |
+| `recall(name, {after: 'lap'})` | stop it after the lap it is on: it finishes the lap, selling and buying as usual, and parks at the lap's last stop |
+| `freighters()` | every freighter: state, lap, stop, wallet, what it has sent home, the last lap against the prediction, the cargo aboard at cost, a stop after the lap scheduled, its auto-reassigns, and why it parked or waits |
 
 ## Worked example
 
@@ -79,7 +80,9 @@ connection drops on is done again a minute later; the why it says then clears on
 three stops in a row with no trade park it. When those stops traded nothing because the hold is
 full of cargo the circuit never sells, the why names that cargo (`hold full of 100 copper_wiring
 this circuit never sells, so it cannot buy; …`) and the ring is not recorded as drained: its books
-were never tried. Assign it a circuit that sells that cargo, or clear the hold. A route short of fuel, a blocked flight, or no credits
+were never tried. Its host tries one re-plan (below) for a circuit that sells some of that cargo;
+with none, it stays parked with that why, and you assign it a circuit that sells the cargo, or clear
+the hold. A route short of fuel, a blocked flight, or no credits
 for fuel park it docked where it is. Three laps in a row that net 0 or less park it at the lap's
 last stop, the why naming the last lap against the prediction (`3 laps lost money: last -32 vs
 predicted 521`); a lap that pays, however far under `lap_net`, flies on. A parked freighter keeps
@@ -87,9 +90,25 @@ its cargo aboard, and `freighters()` and the menu show the why.
 
 **Rotation.** Parking on no trade or on losing laps means the ring's books ran dry, and it is
 recorded as drained: `routes({circuit})` passes over it for `REST_TICKS` while the books refill
-(see [trading](../trading/README.md)). The freighter never picks its own next circuit; you do. The
-menu offers `reassign('<name>')` for each freighter parked on a drained ring, and ranks it first.
-`reassign(name)` runs `routes({circuit: {hold}, ...circuit.scope})` for that freighter's hold, in the
+(see [trading](../trading/README.md)). The freighter then rotates itself: its host, in your process,
+runs the planner `routes({circuit: {hold}, ...circuit.scope})` is, for its hold and the scope its
+circuit was planned in, on the freighter's own connection from where it is docked, and installs the
+top row at its float, exactly as `assign` would, and it flies on. `state` reads `waiting` while it
+plans. Each auto-reassign is journalled, and counted in `reassigned` with the ring it went onto and
+that ring's predicted `lap_net`.
+
+When no circuit qualifies, it does not spin: it waits docked, `state: 'waiting'`, the `why` reading
+`waiting for a circuit: <what routes said>`, and plans again every `REPLAN_TICKS` (90 ticks, a
+quarter of `REST_TICKS`, about 15 minutes). Rings rest out and books refill, so it resumes on its own
+once one pays. A waiting freighter waits on through a restart. It is never re-planned after a
+`recall` or a stop after the lap: those are yours.
+
+A hold full of cargo the circuit never sells gets one re-plan too, taking the first row that sells
+some of it. Circuits are planned for an empty hold, so there seldom is one; with none, it stays
+parked with the blocking why and is not tried again. Planning the first lap from the cargo aboard
+would clear it; that is not built.
+
+`reassign(name)` is the same rotation by hand, for a freighter that is parked. It runs `routes({circuit: {hold}, ...circuit.scope})` for that freighter's hold, in the
 scope its circuit was planned in (`maxStops`, `maxLegJumps`, `maxJumps`; the defaults for a circuit
 assigned before `scope`), and `assign`s it the
 top row at the float it had. It is refused when no circuit pays (the `why` carries what `routes`
@@ -110,22 +129,32 @@ there as usual but buys nothing more, so a recall never strands a fresh load bou
 it is leaving. Cargo bought before the recall stays aboard; a later `assign` says whether the new
 circuit sells it.
 
+**Stop after the lap.** `recall(name, {after: 'lap'})` schedules it to stop at the end of the lap
+it is on: it flies the rest of the lap as usual, selling and buying, and parks at the lap's last
+stop, `why` `stopped after its lap, as scheduled`. Until then its row carries `stop_after_lap: true`.
+A freighter waiting for a circuit stops at once. A plain recall still stops it sooner, after the
+stop it is on. Neither is followed by a re-plan, and `assign` or `reassign` clears the schedule. The
+menu keeps it as a `Not now` line while freighters fly: they earn by themselves, so stopping one is
+only for when you want it stopped.
+
 `freighters()` answers `detail.freighters`, one row each, and the menu carries the same rows as
 `freighters`:
 
 | Field | What it is |
 |---|---|
 | `name` | the name it was assigned under |
-| `state` | `running`; `recalling` (finishing its stop); `parked` (stopped for good, `why` says why) |
+| `state` | `running`; `waiting` (docked, planning its next circuit or waiting for one to qualify, `why` says which); `recalling` (finishing its stop); `parked` (stopped for good, `why` says why) |
 | `lap` | laps completed since it was assigned |
 | `stop` | the base it is at, or was last at |
 | `credits` | its wallet there, after the deposit |
 | `returned` | credits it has sent home to you, all told |
 | `last_lap_net` | what the last whole lap made: the wallet's change, deposits included, fuel and repairs out, plus the change in `holding`. A load bought and still aboard counts at what it cost, so a lap whose sale did not happen reads its fuel, not the load. `holding` is checked against the hold when a lap starts: cargo sold by hand while it was parked drops out, never counted as a loss |
-| `lap_net` | what `routes()` predicted a lap makes. A `last_lap_net` well under it, lap after lap, means the books have moved: recall it and assign the new top row. Three losing laps park it on their own |
+| `lap_net` | what `routes()` predicted a lap makes. A `last_lap_net` well under it, lap after lap, means the books have moved: recall it and assign the new top row. Three losing laps park it on their own, and it re-plans itself |
 | `holding` | the cargo aboard that it bought, `{item: {quantity, cost}}`, `cost` what those units left the wallet for, tax included; a sale takes units off at their average cost. A parked freighter's `holding` is your capital tied up in its hold. It stays aboard, at its cost, when the freighter is assigned a new circuit, and is sold there only if that circuit sells the item. `assign` writes it as last reported, since the freighter's hold is read only by its own loop; the loop checks it against the hold as it starts, before stop 1, and reports it again, so cargo sold by hand while it was parked drops out at once |
 | `approach` | `{jumps, credits}`: its last flight onto the circuit's first stop from wherever its loop started (after an assign, a reassign or a restart), fuel and repairs on arrival included. Never part of `last_lap_net`, and never a losing lap. Absent when it started docked at the first stop |
-| `why` | why it parked, or what fell short at the last stop |
+| `stop_after_lap` | `true` while it is scheduled to stop at the end of the lap it is on; absent otherwise |
+| `reassigned` | `{count, ring, lap_net}`: how many times it has re-planned itself, and the ring it last went onto (its bases, as `drained.json` keys them) with the `lap_net` predicted for it. Absent until the first; kept across an `assign` |
+| `why` | why it parked, why it waits (`waiting for a circuit: …`), or what fell short at the last stop |
 
 ```ts
 import {orient, routes, assign, note} from 'play';
@@ -141,13 +170,13 @@ export default async function main() {
 ```
 
 ```ts
-import {freighters, reassign} from 'play';
+import {freighters, recall} from 'play';
 
 export default async function main() {
   const fleet = await freighters();
-  const idle = fleet.detail.freighters.find(row => row.state === 'parked');
-  if (!idle) return fleet;
-  return reassign(idle.name);                                // routes for its hold, then assign the top row
+  const busy = fleet.detail.freighters.find(row => row.state === 'running' && !row.stop_after_lap);
+  if (!busy) return fleet;
+  return recall(busy.name, {after: 'lap'});                  // finishes the lap it is on, then parks
 }
 ```
 

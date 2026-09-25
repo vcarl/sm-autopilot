@@ -4,29 +4,34 @@
  * `assign`), and its login is `freighters/<name>.txt`, which the operator puts there.
  *
  * A loop never touches the play runtime singleton: it commands through its own account, and
- * journals into the pilot's journal under a `<name>:` prefix. Not reachable from a pilot file
+ * journals into the pilot's journal under a `<name>:` prefix. When its ring drains it re-plans
+ * with `search`, the planner `routes()` is, on its own connection and this runtime's files. Not reachable from a pilot file
  * (`play/freighter` resolves to `index.ts`, never here). */
-import {Account,type GameState} from '@spacemolt/lib';
+import {Account,type GameState,type MarketListingItem,type ViewMarketResponse} from '@spacemolt/lib';
 import {createHash} from 'node:crypto';
-import {existsSync,readFileSync,renameSync,writeFileSync} from 'node:fs';
-import {join} from 'node:path';
+import {existsSync,mkdirSync,readFileSync,renameSync,writeFileSync} from 'node:fs';
+import {dirname,join} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {controllerLock} from '../../controller-lock.ts';
 import {GAME_WS_URL,readCredentials} from '../../credentials.ts';
+import {miningInventory} from '../../mining-inventory.ts';
 import type {ReadinessAccount,ReadinessCommand} from '../../readiness.ts';
+import {details} from '../../response-details.ts';
 import {journalCommand,journalRun} from '../../run-record.ts';
 import {pilotHome} from '../../run.ts';
 import {checkBoundary,specifiers} from '../boundary.ts';
 import {checkPolicy} from '../policy.ts';
-import type {Circuit} from '../trading/trading.ts';
+import {buysOf,REST_TICKS,search,type Circuit,type Seat} from '../trading/trading.ts';
 import {markPlace} from '../places.ts';
 import {markDrained,ring} from './drained.ts';
 import type {Approach,Freighter,Holding} from './index.ts';
 
 /** One freighter as `freighters.json` keeps it. */
 export interface Entry {
-  /** `running` flies (and is resumed after a restart); `recalling` finishes its stop; `parked` is stopped for good. */
-  state:'running'|'recalling'|'parked';
+  /** `running` flies (and is resumed after a restart); `waiting` is docked until a circuit qualifies,
+   * re-planning every `REPLAN_TICKS` (and resumed so after a restart); `recalling` finishes its stop;
+   * `parked` is stopped for good. */
+  state:'running'|'waiting'|'recalling'|'parked';
   circuit:Circuit;float:number;owner:string;
   /** Laps completed since it was assigned, the base it is at or was last at, its wallet there. */
   lap:number;stop?:string;credits?:number;
@@ -41,13 +46,22 @@ export interface Entry {
   approach?:Approach;
   /** Why it parked, or what fell short at the last stop. */
   why?:string;
+  /** Scheduled to stop at the end of the lap it is on (`recall(name, {after:'lap'})`): it parks
+   * then and is not re-planned. `assign` clears it. */
+  stop_after_lap?:true;
+  /** Its auto-reassigns, all told, and the last one's ring and predicted lap_net. */
+  reassigned?:{count:number;ring:string;lap_net:number};
   at:string;
 }
 /** A freighter as `freighters()` and the menu report it. */
 export interface FreighterRow {name:string;state:Entry['state'];lap:number;stop:string|null;credits:number|null;
-  returned:number;last_lap_net:number|null;lap_net:number;holding:Holding;approach?:Approach;why?:string}
+  returned:number;last_lap_net:number|null;lap_net:number;holding:Holding;approach?:Approach;why?:string;
+  stop_after_lap?:true;reassigned?:Entry['reassigned']}
 
-const FILE='freighters.json',RETRY_MS=60_000;
+const FILE='freighters.json',RETRY_MS=60_000,TICK_MS=10_000;
+/** A freighter with no circuit that qualifies re-plans this often: a quarter of the rest a drained ring takes. */
+export const REPLAN_TICKS=REST_TICKS/4;
+const STOPPED='stopped after its lap, as scheduled';
 const message=(error:unknown)=>error instanceof Error?error.message:String(error);
 const sha=(text:string|Buffer)=>createHash('sha256').update(text).digest('hex');
 
@@ -73,7 +87,8 @@ function update(runtime:string,name:string,fields:Partial<Entry>):void {
 
 export const row=(name:string,entry:Entry):FreighterRow=>({name,state:entry.state,lap:entry.lap,stop:entry.stop??null,
   credits:entry.credits??null,returned:entry.returned,last_lap_net:entry.last_lap_net??null,lap_net:entry.circuit.lap_net,
-  holding:entry.holding??{},...entry.approach?{approach:entry.approach}:{},...entry.why?{why:entry.why}:{}});
+  holding:entry.holding??{},...entry.approach?{approach:entry.approach}:{},...entry.why?{why:entry.why}:{},
+  ...entry.stop_after_lap?{stop_after_lap:true as const}:{},...entry.reassigned?{reassigned:entry.reassigned}:{}});
 /** `holding` in words: `40 copper_piping (1148 cr)`. */
 export const held=(holding:Holding)=>Object.entries(holding).map(([item,row])=>`${row.quantity} ${item} (${Math.round(row.cost)} cr)`).join(', ');
 /** The menu's `freighters` rows; nothing when none was ever assigned. */
@@ -107,11 +122,37 @@ export function gate(path:string):string[] {
       .map(spec=>`${path}: imports ${JSON.stringify(spec)}; a freighter script imports only 'play/freighter'`)];
 }
 
-interface Loop {account:Account;recall:boolean;stopping:boolean}
+/** Write `circuit` as `name`'s script and entry, running: only the fields a circuit has (a one-`buy`
+ * stop written as `buys`), the gate run on the script, `returned`, `holding` and `reassigned` kept,
+ * a stop-after-lap cleared. What `assign` and an auto-reassign both install through. Why it was
+ * refused, or null. */
+export function install(runtime:string,name:string,circuit:Circuit,fields:{float:number;owner:string;reassigned?:Entry['reassigned']}):string|null {
+  const {scope}=circuit;
+  const clean:Circuit={closed:true,hold:circuit.hold,lap_jumps:circuit.lap_jumps,lap_net:circuit.lap_net,
+    stops:circuit.stops.map(stop=>({at:stop.at,system_id:stop.system_id,buys:buysOf(stop).map(({item,qty,max_price})=>({item,qty,max_price})),
+      sell:stop.sell.map(({item,min_price})=>({item,min_price}))})),
+    ...scope?{scope:{maxStops:scope.maxStops,maxLegJumps:scope.maxLegJumps,maxJumps:scope.maxJumps}}:{}};
+  const path=scriptPath(runtime,name);
+  mkdirSync(dirname(path),{recursive:true});
+  writeFileSync(path,script(clean));
+  const errors=gate(path);
+  if(errors.length)return errors.join('; ');
+  const fleet=readFleet(runtime),was=fleet[name],reassigned=fields.reassigned??was?.reassigned;
+  // The cargo aboard stays aboard, and keeps what it cost.
+  fleet[name]={state:'running',circuit:clean,float:fields.float,owner:fields.owner,lap:0,returned:was?.returned??0,
+    ...was?.holding?{holding:was.holding}:{},...reassigned?{reassigned}:{},at:new Date().toISOString()};
+  writeFleet(runtime,fleet);
+  return null;
+}
+
+/** A flying freighter's switches: `recall` parks it after its stop, `afterLap` after its lap
+ * (`lapDone` once that lap has ended), `stopping` is the bridge going. */
+interface Loop {recall:boolean;afterLap:boolean;lapDone:boolean;stopping:boolean;close():void}
 const loops=new Map<string,Loop>();
 export const flying=(name:string)=>loops.has(name);
+const sleep=(ms:number)=>new Promise(resolve=>setTimeout(resolve,ms));
 
-/** Log `name` in on its own account and run its script, detached. Null when it is off; else why
+/** Log `name` in on its own account and run its loop, detached. Null when it is off; else why
  * not, and the entry is parked with that why. */
 export function start(runtime:string,name:string):string|null {
   if(loops.has(name))return `${name} is already flying`;
@@ -127,11 +168,8 @@ export function start(runtime:string,name:string):string|null {
   let unlock:()=>void;
   try {unlock=controllerLock(join(runtime,`controller-${sha(who.username).slice(0,16)}.lock`));}
   catch(error) {return refused(`${who.username} is held by another live controller (${message(error)})`);}
-  pilotHome(runtime);
   const credentials=()=>({kind:'login' as const,...who});
   const account=new Account({url:GAME_WS_URL,reconnect:true,credentials,fastMutationTimeoutMs:60_000});
-  const loop:Loop={account,recall:entry.state==='recalling',stopping:false};
-  loops.set(name,loop);
   // Gone for good: the session was taken, or the lib gave up. Every later read and command says so.
   let gone:Error|undefined;
   account.onDisconnected(error=>{gone=new Error(`session_replaced or disconnected: ${error.message}`);});
@@ -149,11 +187,59 @@ export function start(runtime:string,name:string):string|null {
       throw error;
     }
   };
-  const f:Freighter={name,account:live,command,owner:entry.owner,float:entry.float,...entry.holding?{holding:entry.holding}:{},
-    recalled:()=>loop.recall||loop.stopping,
-    // A bridge shutting down stops every loop; the entry stays `running` so the next one resumes it.
-    park:(why,drained)=>{
-      if(!loop.stopping)update(runtime,name,{state:'parked',why});
+  void launch(runtime,name,live,command,{unlock,close:()=>account.close(),
+    // A login that fails (the server down, the network out) is tried again each minute.
+    login:async loop=>{
+      for(;;) {
+        try {await account.connect();await account.authenticate(credentials());return;}
+        catch(error) {
+          if(loop.stopping||loop.recall||gone)throw error;
+          update(runtime,name,{why:`login failed (${message(error)}); again in a minute`});
+          await sleep(RETRY_MS);
+        }
+      }
+    }});
+  return null;
+}
+
+/** Run `name`'s loop on `account`, logged in by `login`: its script lap after lap, re-planned when
+ * its ring drains. Resolves once it has stopped; the entry says how. What `start` runs detached. */
+export function launch(runtime:string,name:string,account:ReadinessAccount,command:ReadinessCommand,
+  opts:{login?:(loop:Loop)=>Promise<void>;close?:()=>void;unlock?:()=>void}={}):Promise<void> {
+  const entry=readFleet(runtime)[name];
+  const loop:Loop={recall:entry?.state==='recalling',afterLap:entry?.stop_after_lap===true,lapDone:false,stopping:false,close:opts.close??(()=>{})};
+  loops.set(name,loop);
+  pilotHome(runtime);
+  return (async()=>{
+    await opts.login?.(loop);
+    let waiting=entry?.state==='waiting';
+    for(;;) {
+      if(!waiting&&!await run(runtime,name,account,command,loop))return;
+      waiting=false;
+      if(!await replan(runtime,name,account,command,loop))return;
+    }
+  })().catch(error=>{if(!loop.stopping)update(runtime,name,{state:'parked',why:`the loop broke: ${message(error)}`});})
+    .finally(()=>{
+      loops.delete(name);opts.unlock?.();
+      try {loop.close();} catch {/* never connected */}
+    });
+}
+
+/** Run the script `name` has now, once, on a fresh `Freighter`. True when it parked for a re-plan:
+ * its ring drained, or its hold is full of cargo the circuit never sells, and neither a recall nor
+ * a stop after the lap was asked for. */
+async function run(runtime:string,name:string,account:ReadinessAccount,command:ReadinessCommand,loop:Loop):Promise<boolean> {
+  const entry=readFleet(runtime)[name];
+  if(!entry)return false;
+  let again=false;
+  const f:Freighter={name,account,command,owner:entry.owner,float:entry.float,...entry.holding?{holding:entry.holding}:{},
+    recalled:()=>loop.recall||loop.stopping||loop.lapDone,
+    // A bridge shutting down stops every loop; the entry stays as it is so the next one resumes it.
+    park:(why,drained,blocked)=>{
+      if(why==='recalled'&&loop.lapDone&&!loop.recall)why=STOPPED;
+      again=(drained!==undefined||blocked===true)&&!loop.recall&&!loop.afterLap&&!loop.stopping;
+      // Waiting, not parked, until the re-plan says: a restart in between resumes the re-plan.
+      if(!loop.stopping)update(runtime,name,{state:again?'waiting':'parked',why});
       if(drained!==undefined)markDrained(runtime,ring(entry.circuit.stops),drained);
       journalRun(runtime,{freighter:name,parked:why,...drained===undefined?{}:{drained}},'freighter');
       return {park:why,net:0};},
@@ -161,50 +247,91 @@ export function start(runtime:string,name:string):string|null {
       const now=readFleet(runtime)[name];
       if(!now)return;
       const {deposited,lapped,...rest}=fields;
+      // A lap ended with a stop after it scheduled: the script's next recalled() is true.
+      if(lapped!==undefined&&loop.afterLap)loop.lapDone=true;
       // Arrived at a stop: where it is is a place the owner's routes() need not look up again.
-      const at=(account.state as GameState).location;
+      const at=account.state.location;
       if(fields.stop&&at?.docked_at===fields.stop)markPlace(runtime,fields.stop,at.system_id??'');
       update(runtime,name,{...rest,...deposited?{returned:now.returned+deposited}:{},
         ...lapped===undefined?{}:{lap:now.lap+1,last_lap_net:lapped}});
       journalRun(runtime,{freighter:name,...fields},'freighter');
     }};
-  void (async()=>{
-    // A login that fails (the server down, the network out) is tried again each minute.
-    for(;;) {
-      try {await account.connect();await account.authenticate(credentials());break;}
-      catch(error) {
-        if(loop.stopping||loop.recall||gone)throw error;
-        f.report({why:`login failed (${message(error)}); again in a minute`});
-        await new Promise(resolve=>setTimeout(resolve,RETRY_MS));
-      }
-    }
-    const url=`${pathToFileURL(path).href}?v=${sha(readFileSync(path)).slice(0,12)}`;
-    const loaded=await import(url) as {default?:(f:Freighter)=>Promise<unknown>};
-    if(typeof loaded.default!=='function')throw new Error(`${path} exports no default function`);
-    await loaded.default(f);
-  })().catch(error=>{if(!loop.stopping)update(runtime,name,{state:'parked',why:`the loop broke: ${message(error)}`});})
-    .finally(()=>{
-      loops.delete(name);unlock();
-      try {account.close();} catch {/* never connected */}
-    });
-  return null;
+  const path=scriptPath(runtime,name);
+  const url=`${pathToFileURL(path).href}?v=${sha(readFileSync(path)).slice(0,12)}`;
+  const loaded=await import(url) as {default?:(f:Freighter)=>Promise<unknown>};
+  if(typeof loaded.default!=='function')throw new Error(`${path} exports no default function`);
+  await loaded.default(f);
+  return again;
 }
 
-/** Ask `name` home. It finishes the stop it is on, deposits, and parks docked with its cargo. */
-export function recallLoop(runtime:string,name:string):string|null {
+/** After a park for a re-plan: `routes({circuit:{hold}, ...circuit.scope})`, the one planner, read on
+ * the freighter's own connection and the owner's runtime files (never the play runtime), then the
+ * top circuit installed at its float. True when it has a new circuit to fly. With none, a hold full
+ * of cargo the circuit never sells stays parked, its why as it was; any other park waits docked,
+ * re-planning every `REPLAN_TICKS`.
+ * ponytail: circuits are planned from an empty hold, so a blocked hold takes the first row that sells
+ * any of its cargo, and there seldom is one; planning lap 1 from the cargo aboard is the upgrade. */
+async function replan(runtime:string,name:string,account:ReadinessAccount,command:ReadinessCommand,loop:Loop):Promise<boolean> {
+  const seat:Seat={account,command,runtime,stop:()=>{if(loop.stopping)throw new Error('the bridge is stopping');},
+    book:async()=>{
+      const reply=details(await command('spacemolt_market/view_market',{})) as ViewMarketResponse;
+      return {items:new Map<string,MarketListingItem>((reply.items??[]).map(row=>[row.item_id,row])),tick:Number(reply.current_tick??0)};
+    }};
+  for(;;) {
+    const entry=readFleet(runtime)[name];
+    if(!entry||loop.stopping)return false;
+    if(loop.recall||loop.afterLap){update(runtime,name,{state:'parked',why:loop.recall?'recalled':STOPPED});return false;}
+    await account.refresh();
+    const cargo=miningInventory(account.state),ship=account.state.ship;
+    const blocked=(ship?.cargo_capacity??0)-(ship?.cargo_used??0)<=0&&Object.keys(cargo).length>0
+      &&Object.keys(cargo).every(item=>!entry.circuit.stops.some(stop=>stop.sell.some(sale=>sale.item===item)));
+    let why:string;
+    try {
+      const found=await search(seat,{circuit:{hold:entry.circuit.hold},...entry.circuit.scope});
+      const rows=found.detail.routes.flatMap(row=>row.circuit??[]);
+      const next=blocked?rows.find(circuit=>circuit.stops.some(stop=>stop.sell.some(sale=>cargo[sale.item]))):rows[0];
+      why=found.why??found.did;
+      if(next) {
+        const reassigned={count:(entry.reassigned?.count??0)+1,ring:ring(next.stops),lap_net:next.lap_net};
+        const refused=install(runtime,name,next,{float:entry.float,owner:entry.owner,reassigned});
+        if(!refused) {
+          journalRun(runtime,{freighter:name,reassigned,from:ring(entry.circuit.stops),after:entry.why},'freighter');
+          return true;
+        }
+        why=refused;
+      }
+    } catch(error) {
+      if(/^session_replaced or disconnected/.test(message(error)))throw error;
+      why=message(error);
+    }
+    if(blocked) {
+      update(runtime,name,{state:'parked'});
+      journalRun(runtime,{freighter:name,not_reassigned:`no circuit sells the cargo aboard: ${why}`},'freighter');
+      return false;
+    }
+    update(runtime,name,{state:'waiting',why:`waiting for a circuit: ${why}`});
+    journalRun(runtime,{freighter:name,waiting:why},'freighter');
+    for(let waited=0;waited<REPLAN_TICKS*TICK_MS&&!loop.recall&&!loop.afterLap&&!loop.stopping;waited+=RETRY_MS)await sleep(RETRY_MS);
+  }
+}
+
+/** Ask `name` home. It finishes the stop it is on, deposits, and parks docked with its cargo. With
+ * `after:'lap'`, it finishes the lap it is on instead, selling as usual. Either way it is not re-planned. */
+export function recallLoop(runtime:string,name:string,after?:'lap'):string|null {
   const entry=readFleet(runtime)[name];
   if(!entry)return `no freighter named ${name} is assigned`;
   const loop=loops.get(name);
-  if(loop){loop.recall=true;update(runtime,name,{state:'recalling'});}
-  else if(entry.state!=='parked')update(runtime,name,{state:'parked',why:'recalled'});
+  if(loop&&after==='lap'){loop.afterLap=true;update(runtime,name,{stop_after_lap:true});}
+  else if(loop){loop.recall=true;update(runtime,name,{state:'recalling'});}
+  else if(entry.state!=='parked')update(runtime,name,{state:'parked',why:after?STOPPED:'recalled'});
   return null;
 }
 
-/** After a bridge restart: every `running` freighter flies again, every `recalling` one is parked. */
+/** After a bridge restart: every `running` or `waiting` freighter flies again, every `recalling` one is parked. */
 export function resumeFreighters(runtime:string):void {
   for(const [name,entry] of Object.entries(readFleet(runtime))) {
     if(entry.state==='recalling')update(runtime,name,{state:'parked',why:'recalled'});
-    if(entry.state!=='running')continue;
+    if(entry.state!=='running'&&entry.state!=='waiting')continue;
     const why=start(runtime,name);
     if(why)console.error(`freighter ${name} not resumed: ${why}`);
   }
@@ -213,6 +340,6 @@ export function resumeFreighters(runtime:string):void {
 export function stopFreighters():void {
   for(const loop of loops.values()) {
     loop.stopping=true;
-    try {loop.account.close();} catch {/* never connected */}
+    try {loop.close();} catch {/* never connected */}
   }
 }

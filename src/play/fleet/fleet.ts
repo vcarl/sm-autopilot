@@ -3,13 +3,11 @@
  * flying at once is several characters: a freighter is one, flying a circuit on its own account
  * from this pilot's process (`assign`). */
 import type {ListShipsResponse,MapSystemInfo,StoredShip,SwitchShipResponse,V2Ship} from '@spacemolt/lib';
-import {mkdirSync,writeFileSync} from 'node:fs';
-import {dirname} from 'node:path';
 import {details} from '../../response-details.ts';
 import {closure,type Holding} from '../freighter/index.ts';
-import {flying,gate,held,readFleet,recallLoop,row,script,scriptPath,start,writeFleet,type FreighterRow} from '../freighter/host.ts';
+import {flying,held,install,readFleet,recallLoop,row,start,type FreighterRow} from '../freighter/host.ts';
 import {acct,command,job,runtimeDir} from '../runtime.ts';
-import {buysOf,farBooks,hops,routes,type Circuit} from '../trading/trading.ts';
+import {farBooks,hops,routes,type Circuit} from '../trading/trading.ts';
 import type {Outcome} from '../types.ts';
 
 /** Every ship you own and where it is parked (`ship/list_ships`), with the active one
@@ -73,27 +71,13 @@ export function assign(name:string,circuit:Circuit,caps:{float:number}):Promise<
     if(flying(name))return refuse(`${name} is flying; recall('${name}') first, and assign it when it has parked`);
     const owner=acct().state.player?.username;
     if(!owner)return refuse('no username read for this pilot, so the profit has nowhere to go');
-    // Only the fields a circuit has, so the script carries nothing else; a one-`buy` stop is written as `buys`.
-    const {scope}=circuit;
-    const clean:Circuit={closed:true,hold:circuit.hold,lap_jumps:circuit.lap_jumps,lap_net:circuit.lap_net,
-      stops:circuit.stops.map(stop=>({at:stop.at,system_id:stop.system_id,buys:buysOf(stop).map(({item,qty,max_price})=>({item,qty,max_price})),
-        sell:stop.sell.map(({item,min_price})=>({item,min_price}))})),
-      ...scope?{scope:{maxStops:scope.maxStops,maxLegJumps:scope.maxLegJumps,maxJumps:scope.maxJumps}}:{}};
-    const path=scriptPath(runtime,name);
-    mkdirSync(dirname(path),{recursive:true});
-    writeFileSync(path,script(clean));
-    const errors=gate(path);
-    if(errors.length)return refuse(errors.join('; '));
-    const fleet=readFleet(runtime);
-    // The cargo aboard stays aboard, and keeps what it cost.
-    const holding=fleet[name]?.holding;
-    fleet[name]={state:'running',circuit:clean,float:caps.float,owner,lap:0,returned:fleet[name]?.returned??0,
-      ...holding?{holding}:{},at:new Date().toISOString()};
-    writeFleet(runtime,fleet);
-    const why=start(runtime,name),tied=holding&&tiedUp(holding,clean);
+    const bad=install(runtime,name,circuit,{float:caps.float,owner});
+    if(bad)return refuse(bad);
+    const entry=readFleet(runtime)[name]!,clean=entry.circuit;
+    const why=start(runtime,name),tied=entry.holding&&tiedUp(entry.holding,clean);
     if(why)return refuse(why);
     return {status:'done',did:`assigned ${name}: ${clean.stops.map(stop=>stop.at).join(' → ')} → back, ${clean.lap_net} cr a lap predicted; it flies on its own account now`,
-      detail:{freighter:row(name,readFleet(runtime)[name]!)},next:['freighters()',`recall('${name}')`],...tied?{why:tied}:{}};
+      detail:{freighter:row(name,readFleet(runtime)[name]!)},next:['freighters()',`recall('${name}', {after:'lap'})`],...tied?{why:tied}:{}};
   });
 }
 
@@ -118,26 +102,31 @@ export function reassign(name:string):Promise<Outcome<{freighter:FreighterRow|nu
 }
 
 /** Ask the freighter `name` home: it finishes the stop it is on, buying nothing more, deposits its profit, and parks
- * docked there with its cargo aboard. */
-export function recall(name:string):Promise<Outcome<{freighter:FreighterRow|null}>> {
+ * docked there with its cargo aboard. With `{after:'lap'}` it finishes the lap it is on instead, selling and buying
+ * as usual, then parks. Either way it is not re-planned; `assign` or `reassign` sets it flying again. */
+export function recall(name:string,opts:{after?:'lap'}={}):Promise<Outcome<{freighter:FreighterRow|null}>> {
   return job<{freighter:FreighterRow|null}>('recall',name,async()=>{
     const runtime=runtimeDir();
-    const why=runtime?recallLoop(runtime,name):'this run has no runtime directory';
+    const why=runtime?recallLoop(runtime,name,opts.after):'this run has no runtime directory';
     if(why)return {status:'refused',did:`recalled no freighter ${name}`,why,detail:{freighter:null}};
-    return {status:'done',did:`recalled ${name}: it parks after the stop it is on`,
+    return {status:'done',did:`recalled ${name}: it parks after the ${opts.after==='lap'?'lap':'stop'} it is on`,
       detail:{freighter:row(name,readFleet(runtime!)[name]!)},next:['freighters()']};
   });
 }
 
 /** Every freighter assigned from here: state, laps, the stop, its wallet, what it has sent home,
- * the last lap's net against the lap_net predicted, the cargo aboard at cost, and why it parked. Reads only. */
+ * the last lap's net against the lap_net predicted, the cargo aboard at cost, a stop after the lap
+ * scheduled, its auto-reassigns, and why it parked or waits. Reads only. */
 export function freighters():Promise<Outcome<{freighters:FreighterRow[]}>> {
   return job<{freighters:FreighterRow[]}>('freighters','',async()=>{
     const runtime=runtimeDir();
     const rows=runtime?Object.entries(readFleet(runtime)).map(([name,entry])=>row(name,entry)):[];
     return {status:'done',did:rows.length?rows.map(r=>`${r.name} ${r.state} lap ${r.lap}${r.stop?` at ${r.stop}`:''}, returned ${r.returned} cr`
       +(r.last_lap_net===null?'':`, last lap ${r.last_lap_net} of ${r.lap_net} predicted`)+(held(r.holding)?`, holding ${held(r.holding)}`:'')
+      +(r.stop_after_lap?', stops after this lap':'')
+      +(r.reassigned?`, re-planned itself ${r.reassigned.count}× (last onto ${r.reassigned.ring}, ${r.reassigned.lap_net} cr a lap predicted)`:'')
       +(r.why?` (${r.why})`:'')).join('; '):'no freighters assigned',
-      detail:{freighters:rows},next:rows.length?[]:['routes({circuit: {hold: 50}}), then assign the top row']};
+      detail:{freighters:rows},next:rows.length?rows.filter(r=>(r.state==='running'||r.state==='waiting')&&!r.stop_after_lap)
+        .map(r=>`recall('${r.name}', {after:'lap'})`):['routes({circuit: {hold: 50}}), then assign the top row']};
   });
 }

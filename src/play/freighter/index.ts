@@ -14,7 +14,8 @@
  * - recalled: it buys nothing more, and parks after the stop it is on;
  * - a route short of fuel, a blocked flight, no credits for fuel: park, docked where it is;
  * - LOSING_LAPS laps in a row that net 0 or less: park, docked at the lap's last stop, the ring drained.
- * A parked ship keeps its cargo aboard, and `holding` says what it cost. */
+ * A parked ship keeps its cargo aboard, and `holding` says what it cost. A drained or blocked park is
+ * the host's to re-plan (`host.ts`); the script only parks. */
 import {SpacemoltError,type MarketListingItem,type OrderLevel,type ViewMarketResponse} from '@spacemolt/lib';
 import {miningInventory} from '../../mining-inventory.ts';
 import type {ReadinessAccount,ReadinessCommand} from '../../readiness.ts';
@@ -49,9 +50,10 @@ export interface Freighter {
   holding?:Holding;
   /** True once `recall` asked it home: it finishes the stop it is on and parks. */
   recalled():boolean;
-  /** Stop for good with `why`; the Lap to return. `drained`, the game tick, when the circuit's books
-   * ran dry (no trade, or laps that lost money): the host records the ring as resting. */
-  park(why:string,drained?:number):Lap;
+  /** Stop with `why`; the Lap to return. `drained`, the game tick, when the circuit's books ran dry
+   * (no trade, or laps that lost money): the host records the ring as resting and re-plans. `blocked`
+   * when the hold is full of cargo the circuit never sells: the host re-plans, the ring not drained. */
+  park(why:string,drained?:number,blocked?:boolean):Lap;
   report(fields:Report):void;
 }
 type Stop=Circuit['stops'][number];
@@ -244,7 +246,7 @@ export async function lap(f:Freighter,circuit:Circuit):Promise<Lap> {
       const sells=new Set(circuit.stops.flatMap(stop=>stop.sell.map(sale=>sale.item)));
       if((ship?.cargo_capacity??0)-(ship?.cargo_used??0)<=0&&Object.keys(cargo).every(item=>!sells.has(item)))
         return f.park(`hold full of ${Object.entries(cargo).map(([item,n])=>`${n} ${item}`).join(', ')} this circuit never sells, so it cannot buy; `
-          +'assign it a circuit that sells that cargo');
+          +'assign it a circuit that sells that cargo',undefined,true);
       return f.park(`circuit dead: ${dead} stops in a row with no trade`,tick);
     }
     if(f.recalled())return f.park('recalled');
