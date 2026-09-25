@@ -186,6 +186,13 @@ export async function farBooks(here:string,now:number):Promise<FarBook[]> {
  * so an hour-old price still counts half. */
 export const HALF_LIFE=360;
 const trust=(age:number)=>0.5**(age/HALF_LIFE);
+/** ponytail: the least confidence a row is ranked at, six half-lives (six hours of summed book
+ * age). Past it, age discounts no further and rows rank by net per jump alone — live, every
+ * Sol-cluster book was ~12 hours old, confidence ~0, and a 162-net row ranked over a 920-net row
+ * of the same 4 jumps. Tune it if stale rows crowd out fresh ones. */
+const TRUST_FLOOR=1/64;
+/** What a row ranks by: `max(confidence, TRUST_FLOOR) × net / max(1, jumps)`; 0 for an unpriced trip. */
+const rank=(confidence:number,net:number,jumps:number|null)=>jumps===null?0:Math.max(confidence,TRUST_FLOOR)*net/Math.max(1,jumps);
 
 /** A stop's book as the planner reads it. No `items`: nothing is known of that base's book. */
 export interface Book {base_id:string;source:Spread['source'];age:number;items?:Map<string,Listing>}
@@ -526,7 +533,7 @@ export interface Route extends Plan {
   fuel:number|null;
   /** `0.5 ^ (sum of the stops' book ages / HALF_LIFE)`: 1 when every book is live. */
   confidence:number;
-  /** What rows are ranked by: `confidence × net / max(1, total_jumps)`. 0 for an unpriced trip. */
+  /** What rows are ranked by: `max(confidence, 1/64) × net / max(1, total_jumps)`. 0 for an unpriced trip. */
   score:number;
   /** The call to paste. */
   next:string;
@@ -661,7 +668,7 @@ export function routes(opts:{items?:string[];circuit?:{hold:number}}&Scope={}):P
       const fuel=total===null?null:total*(perJump??0);
       const net=Math.round(planned.net-(fuel??0)*fuelPrice);
       const trusted=confidence(ats);
-      return {...planned,total_jumps:total,fuel,net,confidence:trusted,score:total===null?0:trusted*net/Math.max(1,total),
+      return {...planned,total_jumps:total,fuel,net,confidence:trusted,score:rank(trusted,net,total),
         next:runCall(planned.legs.map(runStop)),...why.length?{why:why.join('; ')}:{}};
     };
     // A closed lap for an empty `circuit.hold`, whatever is aboard now: three laps planned, the middle
@@ -713,7 +720,7 @@ export function routes(opts:{items?:string[];circuit?:{hold:number}}&Scope={}):P
           sell:leg.sold.map(sale=>({item:sale.item_id,min_price:Math.floor((1-SLACK)*sale.revenue/sale.quantity+1e-9)}))};
       }),scope};
       return {legs,unsold:[],revenue,cost,sales_tax,net:lap_net,total_jumps:lap,fuel,confidence:trusted,
-        score:lap===null?0:trusted*lap_net/Math.max(1,lap),next:`assign('freighter', ${literal(closed)}, {float:20000})`,
+        score:rank(trusted,lap_net,lap),next:`assign('freighter', ${literal(closed)}, {float:20000})`,
         ...why.length?{why:why.join('; ')}:{},circuit:closed};
     };
 

@@ -136,7 +136,7 @@ Each row of `routes` is a `Route`:
 | `fuel` | fuel units, `total_jumps × fuel_per_jump`; `null` when the trip is unpriced |
 | `net` | `revenue − cost − sales_tax − fuel × fuel_price_all_in` at the base you call from. Fuel is left out when it could not be priced. `Traded.net` counts fuel the same way, so the two compare directly |
 | `confidence` | `0.5 ^ (sum of the stops' book ages / 360)`: 1 when every book is live, half for an hour of age |
-| `score` | the rank: `confidence × net / max(1, total_jumps)`. 0 when the trip could not be priced |
+| `score` | the rank: `max(confidence, 1/64) × net / max(1, total_jumps)`. 0 when the trip could not be priced. Past six hours of summed book age the floor holds, so stale rows still rank by net per jump |
 | `next` | the call to paste: `tradeRun({stops: [...]})` for this route |
 | `why` | what the row could not know: a stop with no route, an unknown tax, a far stop's tax estimated at this base's rate. Absent when nothing is missing |
 
@@ -183,7 +183,7 @@ runs this search for the parked freighter's hold and assigns it the top row.
 
 A circuit row is a `Route` whose numbers are that middle lap's: `legs`, `revenue`, `cost`,
 `sales_tax`; `net` is `lap_net`, `total_jumps` is `lap_jumps`, `score` is
-`confidence × lap_net / max(1, lap_jumps)`, `unsold` is empty. A lap is kept only when every stop
+`max(confidence, 1/64) × lap_net / max(1, lap_jumps)`, `unsold` is empty. A lap is kept only when every stop
 on it trades, `lap_net` is positive and every hop, the last one home included, is on the map. Its
 `next` is the call to paste, `assign('freighter', {…}, {float: 20000})` (see
 [fleet](../fleet/README.md#freighters)), and the lap itself is `circuit`:

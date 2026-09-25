@@ -185,6 +185,21 @@ test('routes ranks a stale fat bid below a fresh thin one',async()=>{
   } finally {unbind();rmSync(runtime,{recursive:true,force:true});}
 });
 
+test('when every book is hours old, rows still rank by net per jump, not by which near-zero confidence is least near zero',async()=>{
+  // Both in Sol, 0 jumps. old_base pays ten times the net, but its book is 2000 ticks older:
+  // unfloored, 0.5^(6000/360) × 2000 ≈ 0.02 sank it under 0.5^(4000/360) × 200 ≈ 0.09.
+  const runtime=remembered([{base_id:'old_base',age:6000,system_id:'sol',items:[{item_id:'gem',best_buy:200,best_buy_qty:50}]},
+    {base_id:'less_old_base',age:4000,system_id:'sol',items:[{item_id:'gem',best_buy:110,best_buy_qty:50}]}]);
+  world({mood:'Focused'},{cargo:[],cargoUsed:0,cargoCapacity:20,store:[],markets:HERE,
+    pois:[{id:'old',base_id:'old_base'},{id:'less_old',base_id:'less_old_base'}]},runtime);
+  try {
+    const [top,next]=(await routes({items:['gem'],maxStops:2})).detail.routes;
+    assert.equal(said(top!),'sol_base+gem old_base');
+    assert.equal(said(next!),'sol_base+gem less_old_base');
+    assert.ok(top!.confidence<next!.confidence&&next!.confidence<0.001,'age still reads as distrust on the row');
+  } finally {unbind();rmSync(runtime,{recursive:true,force:true});}
+});
+
 test('placements are kept: each routes() places up to 5 new bases, and a base placed once is never looked up again',async()=>{
   const bases=['b1','b2','b3','b4','b5','b6','b7'];
   const runtime=remembered(bases.map(base_id=>({base_id,age:0,items:[{item_id:'gem',best_buy:110,best_buy_qty:50}]})));
