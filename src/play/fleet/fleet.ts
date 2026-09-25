@@ -27,14 +27,14 @@ export function switchShip(shipId:string):Promise<Outcome<{switched:SwitchShipRe
 export const FLOAT_MAX=30_000;
 const BUILD='use routes({circuit:{hold}})';
 
-/** What of `holding` `circuit` never sells, and the hold it leaves the circuit to buy into; undefined
- * when the circuit sells all of it. Said, never refused: the freighter sells it wherever a bid covers its cost. */
+/** What of `holding` `circuit` never sells; undefined when the circuit sells all of it. Said, never
+ * refused: the freighter sells it at the first stop if the bid covers its cost, else stows it there. */
 export function tiedUp(holding:Holding,circuit:Circuit):string|undefined {
   const unsold=Object.entries(holding).filter(([item])=>!circuit.stops.some(stop=>stop.sell.some(sale=>sale.item===item)));
   if(!unsold.length)return undefined;
-  const k=unsold.reduce((sum,[,lot])=>sum+lot.quantity,0),free=circuit.hold-k;
-  return `carrying ${unsold.map(([item,lot])=>`${lot.quantity} ${item}`).join(', ')} the circuit never sells; it fills ${k} of ${circuit.hold} hold, so `
-    +`it's sold at cost or better wherever the circuit meets a bid for it; until then the circuit buys into ${Math.max(0,free)}`;
+  const k=unsold.reduce((sum,[,lot])=>sum+lot.quantity,0);
+  return `carrying ${unsold.map(([item,lot])=>`${lot.quantity} ${item}`).join(', ')} the circuit never sells (${k} of ${circuit.hold} hold); `
+    +`it's sold at the first stop if the bid there covers its cost, else stowed there for you, so lap 1 buys into the whole ${circuit.hold}`;
 }
 
 /** Hand `circuit` to the freighter `name`: another account, whose login the operator has put at
@@ -85,8 +85,8 @@ export function assign(name:string,circuit:Circuit,caps:{float:number}):Promise<
  * within the scope its circuit was planned in (`circuit.scope`: maxStops, maxLegJumps, maxJumps),
  * which passes over the rings a freighter drained within `REST_TICKS`, then `assign` of the top
  * row at its float. Refused when no circuit pays, or wherever `routes` or `assign` refuse (not
- * docked; still flying). The cargo aboard rides into the new circuit at its cost; the `why` says
- * so when the new circuit does not sell it. */
+ * docked; still flying). Cargo aboard the new circuit sells rides into it at its cost; the rest is
+ * stowed at its first stop, and the `why` says so. */
 export function reassign(name:string):Promise<Outcome<{freighter:FreighterRow|null}>> {
   return job<{freighter:FreighterRow|null}>('reassign',name,async()=>{
     const refuse=(why:string)=>({status:'refused' as const,did:`reassigned no freighter ${name}`,why,detail:{freighter:null}});
@@ -116,7 +116,7 @@ export function recall(name:string,opts:{after?:'lap'}={}):Promise<Outcome<{frei
 
 /** Every freighter assigned from here: state, laps, the stop, its wallet, what it has sent home,
  * the last lap's net against the lap_net predicted, the cargo aboard at cost, a stop after the lap
- * scheduled, its auto-reassigns, and why it parked or waits. Reads only. */
+ * scheduled, its auto-reassigns, the cargo it stowed and where, and why it parked or waits. Reads only. */
 export function freighters():Promise<Outcome<{freighters:FreighterRow[]}>> {
   return job<{freighters:FreighterRow[]}>('freighters','',async()=>{
     const runtime=runtimeDir();
@@ -125,6 +125,7 @@ export function freighters():Promise<Outcome<{freighters:FreighterRow[]}>> {
       +(r.last_lap_net===null?'':`, last lap ${r.last_lap_net} of ${r.lap_net} predicted`)+(held(r.holding)?`, holding ${held(r.holding)}`:'')
       +(r.stop_after_lap?', stops after this lap':'')
       +(r.reassigned?`, re-planned itself ${r.reassigned.count}× (last onto ${r.reassigned.ring}, ${r.reassigned.lap_net} cr a lap predicted)`:'')
+      +(r.stowed?`, stowed ${r.stowed.join('; ')}`:'')
       +(r.why?` (${r.why})`:'')).join('; '):'no freighters assigned',
       detail:{freighters:rows},next:rows.length?rows.filter(r=>(r.state==='running'||r.state==='waiting')&&!r.stop_after_lap)
         .map(r=>`recall('${r.name}', {after:'lap'})`):['routes({circuit: {hold: 50}}), then assign the top row']};

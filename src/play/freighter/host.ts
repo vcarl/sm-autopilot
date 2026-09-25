@@ -51,12 +51,14 @@ export interface Entry {
   stop_after_lap?:true;
   /** Its auto-reassigns, all told, and the last one's ring and predicted lap_net. */
   reassigned?:{count:number;ring:string;lap_net:number};
+  /** Every stow of cargo no circuit stop sold, oldest first: what, at what cost, where, whose storage. */
+  stowed?:string[];
   at:string;
 }
 /** A freighter as `freighters()` and the menu report it. */
 export interface FreighterRow {name:string;state:Entry['state'];lap:number;stop:string|null;credits:number|null;
   returned:number;last_lap_net:number|null;lap_net:number;holding:Holding;approach?:Approach;why?:string;
-  stop_after_lap?:true;reassigned?:Entry['reassigned']}
+  stop_after_lap?:true;reassigned?:Entry['reassigned'];stowed?:string[]}
 
 const FILE='freighters.json',RETRY_MS=60_000,TICK_MS=10_000;
 /** A freighter with no circuit that qualifies re-plans this often: a quarter of the rest a drained ring takes. */
@@ -88,7 +90,7 @@ function update(runtime:string,name:string,fields:Partial<Entry>):void {
 export const row=(name:string,entry:Entry):FreighterRow=>({name,state:entry.state,lap:entry.lap,stop:entry.stop??null,
   credits:entry.credits??null,returned:entry.returned,last_lap_net:entry.last_lap_net??null,lap_net:entry.circuit.lap_net,
   holding:entry.holding??{},...entry.approach?{approach:entry.approach}:{},...entry.why?{why:entry.why}:{},
-  ...entry.stop_after_lap?{stop_after_lap:true as const}:{},...entry.reassigned?{reassigned:entry.reassigned}:{}});
+  ...entry.stop_after_lap?{stop_after_lap:true as const}:{},...entry.reassigned?{reassigned:entry.reassigned}:{},...entry.stowed?.length?{stowed:entry.stowed}:{}});
 /** `holding` in words: `40 copper_piping (1148 cr)`. */
 export const held=(holding:Holding)=>Object.entries(holding).map(([item,row])=>`${row.quantity} ${item} (${Math.round(row.cost)} cr)`).join(', ');
 /** The menu's `freighters` rows; nothing when none was ever assigned. */
@@ -140,7 +142,7 @@ export function install(runtime:string,name:string,circuit:Circuit,fields:{float
   const fleet=readFleet(runtime),was=fleet[name],reassigned=fields.reassigned??was?.reassigned;
   // The cargo aboard stays aboard, and keeps what it cost.
   fleet[name]={state:'running',circuit:clean,float:fields.float,owner:fields.owner,lap:0,returned:was?.returned??0,
-    ...was?.holding?{holding:was.holding}:{},...reassigned?{reassigned}:{},at:new Date().toISOString()};
+    ...was?.holding?{holding:was.holding}:{},...reassigned?{reassigned}:{},...was?.stowed?{stowed:was.stowed}:{},at:new Date().toISOString()};
   writeFleet(runtime,fleet);
   return null;
 }
@@ -226,7 +228,7 @@ export function launch(runtime:string,name:string,account:ReadinessAccount,comma
 }
 
 /** Run the script `name` has now, once, on a fresh `Freighter`. True when it parked for a re-plan:
- * its ring drained, or its hold is full of cargo the circuit never sells, and neither a recall nor
+ * its ring drained, or its hold is full of cargo the circuit never sells that storage refused, and neither a recall nor
  * a stop after the lap was asked for. */
 async function run(runtime:string,name:string,account:ReadinessAccount,command:ReadinessCommand,loop:Loop):Promise<boolean> {
   const entry=readFleet(runtime)[name];
@@ -246,15 +248,16 @@ async function run(runtime:string,name:string,account:ReadinessAccount,command:R
     report:fields=>{
       const now=readFleet(runtime)[name];
       if(!now)return;
-      // `cleared` is journalled, not kept: the holding after the stop says what is left.
-      const {deposited,lapped,cleared:_,...rest}=fields;
+      // `cleared` is journalled, not kept: the holding after the stop says what is left. `stowed`
+      // is kept, all of them, so the owner can find the cargo in storage.
+      const {deposited,lapped,cleared:_,stowed,...rest}=fields;
       // A lap ended with a stop after it scheduled: the script's next recalled() is true.
       if(lapped!==undefined&&loop.afterLap)loop.lapDone=true;
       // Arrived at a stop: where it is is a place the owner's routes() need not look up again.
       const at=account.state.location;
       if(fields.stop&&at?.docked_at===fields.stop)markPlace(runtime,fields.stop,at.system_id??'');
       update(runtime,name,{...rest,...deposited?{returned:now.returned+deposited}:{},
-        ...lapped===undefined?{}:{lap:now.lap+1,last_lap_net:lapped}});
+        ...lapped===undefined?{}:{lap:now.lap+1,last_lap_net:lapped},...stowed?{stowed:[...now.stowed??[],stowed]}:{}});
       journalRun(runtime,{freighter:name,...fields},'freighter');
     }};
   const path=scriptPath(runtime,name);
@@ -270,8 +273,8 @@ async function run(runtime:string,name:string,account:ReadinessAccount,command:R
  * top circuit installed at its float. True when it has a new circuit to fly. With none, a hold full
  * of cargo the circuit never sells stays parked, its why as it was; any other park waits docked,
  * re-planning every `REPLAN_TICKS`.
- * A blocked park is a hold the lap could not clear at cost at any stop (`lap` sells leftover cargo
- * wherever a bid covers its cost).
+ * A blocked park is a hold the lap could neither sell at cost nor stow (`lap` stows what no stop
+ * sells), so only when both deposits were refused.
  * ponytail: circuits are planned from an empty hold, so a blocked hold takes the first row that sells
  * any of its cargo, and there seldom is one; preferring a ring through a base whose remembered bid
  * covers the leftover's cost (or planning lap 1 from the cargo aboard) is the upgrade. */

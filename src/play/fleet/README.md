@@ -74,23 +74,28 @@ At each stop, in order: fly there and dock; refuel and repair; sell each `sell` 
 only at bids of at least its `min_price`; sell cargo it bought that the circuit never sells (left
 from an old circuit, in `holding`), but only the units bid at or above what they cost a unit, so
 never at a loss, the sale journalled and reported (`cleared 98 copper_piping at 36 (cost 29.6)`);
-cargo it never bought, whose cost is unknown, is never sold; buy each of the `buys`
+cargo it never bought, whose cost is unknown, is never sold; at a new circuit's first stop and at
+every lap's last, stow whatever is still aboard that no stop on the circuit sells, bought or not, in
+your storage at that station (`storage.deposit` with `target` your username), or in its own when
+yours is refused, so every lap buys into the whole hold, journalled and reported
+(`98 copper_piping (cost 2898) at nova_terra_central for <you>`) and kept in `stowed`; the circuit's
+own cargo, left unsold under a floor, stays aboard; buy each of the `buys`
 in turn, one command each, up to its `qty`, counting what is already aboard, at asks of at most its
 `max_price`, within the free hold and the credits over the fuel money; then send home everything
 above the float. A circuit assigned before `buys` has one `buy` a stop; it flies as it did, and a
 freighter restarted on one picks it up where it was. A stop the
 connection drops on is done again a minute later; the why it says then clears once the stop is reached. A sale or buy the game refuses is skipped;
 three stops in a row with no trade park it. When those stops traded nothing because the hold is
-full of cargo the circuit never sells and no stop bid its cost, the why names that cargo (`hold full
-of 100 copper_wiring this circuit never sells and no stop on it bids at or above its cost, so it
-cannot buy; …`) and the ring is not recorded as drained: its books
+full of cargo the circuit never sells that no stop bid its cost for and both stores refused, the why
+names that cargo (`hold full of 100 copper_wiring this circuit never sells, no stop on it bids at or
+above its cost and storage refused it, so it cannot buy; …`) and the ring is not recorded as drained: its books
 were never tried. Its host tries one re-plan (below) for a circuit that sells some of that cargo;
 with none, it stays parked with that why, and you assign it a circuit that sells the cargo, or clear
 the hold. A route short of fuel, a blocked flight, or no credits
 for fuel park it docked where it is. Three laps in a row that net 0 or less park it at the lap's
 last stop, the why naming the last lap against the prediction (`3 laps lost money: last -32 vs
-predicted 521`); a lap that pays, however far under `lap_net`, flies on. A parked freighter keeps
-its cargo aboard, and `freighters()` and the menu show the why.
+predicted 521`); a lap that pays, however far under `lap_net`, flies on. What it stows counts at its
+cost as sent home, never as a lap's loss. A parked freighter keeps its cargo aboard, and `freighters()` and the menu show the why.
 
 **Rotation.** Parking on no trade or on losing laps means the ring's books ran dry, and it is
 recorded as drained: `routes({circuit})` passes over it for `REST_TICKS` while the books refill
@@ -107,7 +112,7 @@ quarter of `REST_TICKS`, about 15 minutes). Rings rest out and books refill, so 
 once one pays. A waiting freighter waits on through a restart. It is never re-planned after a
 `recall` or a stop after the lap: those are yours.
 
-A hold full of cargo the circuit never sells gets one re-plan too, taking the first row that sells
+A hold full of cargo the circuit never sells, that storage refused, gets one re-plan too, taking the first row that sells
 some of it. Circuits are planned for an empty hold, so there seldom is one; with none, it stays
 parked with the blocking why and is not tried again. Preferring a ring through a base whose
 remembered bid covers the cargo's cost, or planning the first lap from the cargo aboard, would clear
@@ -119,15 +124,16 @@ assigned before `scope`), and `assign`s it the
 top row at the float it had. It is refused when no circuit pays (the `why` carries what `routes`
 said, rings skipped included), when you are not docked (`routes` reads the book here), and
 wherever `assign` refuses. Its cargo rides into the new circuit at its cost and is sold there if
-the new circuit sells it; when it does not, the `why` says so (from `assign`, below).
+the new circuit sells it; the rest is sold at the first stop if the bid covers its cost, else
+stowed there for you, and the `why` says so (from `assign`, below).
 
 `assign` answers at once, with the freighter flying. It is refused while that name is flying:
 `recall` it first. Re-assigning a parked one starts it again on the new circuit, its `returned`
 and `holding` kept. Cargo aboard that the new circuit never sells is never a refusal; the `why`
-says what it ties up, against the circuit's `hold`: `carrying 100 copper_wiring the circuit never
-sells; it fills 100 of 100 hold, so it's sold at cost or better wherever the circuit meets a bid for
-it; until then the circuit buys into 0`. A full hold of it that no stop bids its cost for parks the
-freighter within three stops, as above.
+says what it is and what becomes of it: `carrying 100 copper_wiring the circuit never sells (100 of
+100 hold); it's sold at the first stop if the bid there covers its cost, else stowed there for you,
+so lap 1 buys into the whole 100`. Only a full hold of it that both stores refuse parks the
+freighter, within three stops, as above.
 
 **Recall.** `recall` parks it after the stop it is on, wherever on the circuit that is: it sells
 there as usual but buys nothing more, so a recall never strands a fresh load bought for a circuit
@@ -155,10 +161,11 @@ only for when you want it stopped.
 | `returned` | credits it has sent home to you, all told |
 | `last_lap_net` | what the last whole lap made: the wallet's change, deposits included, fuel and repairs out, plus the change in `holding`. A load bought and still aboard counts at what it cost, so a lap whose sale did not happen reads its fuel, not the load. `holding` is checked against the hold when a lap starts: cargo sold by hand while it was parked drops out, never counted as a loss |
 | `lap_net` | what `routes()` predicted a lap makes. A `last_lap_net` well under it, lap after lap, means the books have moved: recall it and assign the new top row. Three losing laps park it on their own, and it re-plans itself |
-| `holding` | the cargo aboard that it bought, `{item: {quantity, cost}}`, `cost` what those units left the wallet for, tax included; a sale takes units off at their average cost. A parked freighter's `holding` is your capital tied up in its hold. It stays aboard, at its cost, when the freighter is assigned a new circuit, and is sold there only if that circuit sells the item. `assign` writes it as last reported, since the freighter's hold is read only by its own loop; the loop checks it against the hold as it starts, before stop 1, and reports it again, so cargo sold by hand while it was parked drops out at once |
+| `holding` | the cargo aboard that it bought, `{item: {quantity, cost}}`, `cost` what those units left the wallet for, tax included; a sale or a stow takes units off at their average cost. A parked freighter's `holding` is your capital tied up in its hold. It stays aboard, at its cost, when the freighter is assigned a new circuit, and is sold there if that circuit sells the item; if not, it is sold at the first stop at cost or better, or stowed there for you. `assign` writes it as last reported, since the freighter's hold is read only by its own loop; the loop checks it against the hold as it starts, before stop 1, and reports it again, so cargo sold by hand while it was parked drops out at once |
 | `approach` | `{jumps, credits}`: its last flight onto the circuit's first stop from wherever its loop started (after an assign, a reassign or a restart), fuel and repairs on arrival included. Never part of `last_lap_net`, and never a losing lap. Absent when it started docked at the first stop |
 | `stop_after_lap` | `true` while it is scheduled to stop at the end of the lap it is on; absent otherwise |
 | `reassigned` | `{count, ring, lap_net}`: how many times it has re-planned itself, and the ring it last went onto (its bases, as `drained.json` keys them) with the `lap_net` predicted for it. Absent until the first; kept across an `assign` |
+| `stowed` | every stow, oldest first: `98 copper_piping (cost 2898) at nova_terra_central for <you>`, or `… in its own storage` when yours was refused. What it holds for you, and where; absent until the first; kept across an `assign`. `storage(base)` reads the store there; the menu offers it only while you are docked at that base |
 | `why` | why it parked, why it waits (`waiting for a circuit: …`), or what fell short at the last stop |
 
 ```ts

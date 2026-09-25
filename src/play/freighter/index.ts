@@ -10,14 +10,17 @@
  * - the session taken by another connection: park, and never log in again;
  * - cargo it bought that the circuit never sells (left from an old circuit): sold at any stop whose
  *   bid covers its cost a unit, after the stop's own sales and before its buys; never at a loss, and
- *   cargo it never bought (cost unknown) is never touched;
+ *   cargo it never bought (cost unknown) is never sold;
+ * - any cargo aboard the circuit never sells, bought or not, still aboard at a new circuit's first
+ *   stop or at a lap's last stop: stowed there, after the sales and before the buys, into the owner's
+ *   storage (`deposit` with `target`), else its own, so every lap buys into the whole hold;
  * - a sale or buy the game refuses: say so and go on; three stops in a row with no trade parks it,
- *   the ring recorded as drained, unless the hold is full of cargo the circuit never sells and no stop
- *   bid its cost: then the why names that cargo and the ring is not drained;
+ *   the ring recorded as drained, unless the hold is full of cargo the circuit never sells that
+ *   neither a bid nor a store took: then the why names that cargo and the ring is not drained;
  * - recalled: it buys nothing more, and parks after the stop it is on;
  * - a route short of fuel, a blocked flight, no credits for fuel: park, docked where it is;
  * - LOSING_LAPS laps in a row that net 0 or less: park, docked at the lap's last stop, the ring drained.
- * A parked ship keeps its cargo aboard, and `holding` says what it cost. A drained or blocked park is
+ * A parked ship keeps the circuit's cargo aboard, and `holding` says what it cost. A drained or blocked park is
  * the host's to re-plan (`host.ts`); the script only parks. */
 import {SpacemoltError,type MarketListingItem,type OrderLevel,type ViewMarketResponse} from '@spacemolt/lib';
 import {miningInventory} from '../../mining-inventory.ts';
@@ -39,8 +42,10 @@ export type Holding=Record<string,{quantity:number;cost:number}>;
 export interface Approach {jumps:number;credits:number}
 /** What a freighter says as it goes. `deposited` is one deposit home; `lapped` a whole lap's net;
  * `holding` the cargo aboard at cost, after each stop; `approach` the flight onto the circuit;
- * `cleared` leftover cargo sold at cost or better, e.g. "cleared 98 copper_piping at 36 (cost 29.6)". */
-export interface Report {stop?:string;credits?:number;deposited?:number;lapped?:number;holding?:Holding;approach?:Approach;cleared?:string;why?:string}
+ * `cleared` leftover cargo sold at cost or better, e.g. "cleared 98 copper_piping at 36 (cost 29.6)";
+ * `stowed` cargo the circuit never sells put in storage, e.g. "98 copper_piping (cost 2898) at
+ * nova_terra_central for Chrisjen Avasarala", or "… in its own storage" when the owner's was refused. */
+export interface Report {stop?:string;credits?:number;deposited?:number;lapped?:number;holding?:Holding;approach?:Approach;cleared?:string;stowed?:string;why?:string}
 /** What the host hands a freighter's script. */
 export interface Freighter {
   name:string;
@@ -138,9 +143,11 @@ async function fly(f:Freighter,stop:Stop):Promise<number> {
 const service=async(f:Freighter,stop:Stop)=>{await attempt(f,stop.at,'service',()=>serviceShip(f.account,f.command,{mood:'Tired'}));};
 
 /** One stop: fly there and dock, service, sell the listed items at their floors, sell the `leftover`
- * (cargo bought that the circuit never sells) where the bid covers its cost a unit, buy each listed
- * item within its cap, one command each, send the credits above the float home. Returns how many trades took, and the book's tick. */
-async function visit(f:Freighter,stop:Stop,leftover:Holding,sent:(credits:number)=>void,bought:(item:string,n:number,spent:number)=>void):Promise<{traded:number;tick:number}> {
+ * (cargo bought that the circuit never sells) where the bid covers its cost a unit, stow every item
+ * aboard `stow` names that is still there, buy each listed item within its cap, one command each,
+ * send the credits above the float home. Returns how many trades took, and the book's tick. */
+async function visit(f:Freighter,stop:Stop,leftover:Holding,stow:(item:string)=>boolean,sent:(credits:number)=>void,
+  bought:(item:string,n:number,spent:number)=>void,stowed:(item:string,n:number)=>void):Promise<{traded:number;tick:number}> {
   const {account,command}=f;
   await fly(f,stop);
   await service(f,stop);
@@ -172,6 +179,19 @@ async function visit(f:Freighter,stop:Stop,leftover:Holding,sent:(credits:number
     f.report({cleared:`cleared ${n} ${item} at ${+(gross/n).toFixed(1)} (cost ${+unit.toFixed(1)})`});
   }
   await account.refresh();
+  // No stop sells it: into the owner's store here, else the freighter's own, so the buys get the hold.
+  for(const [item,aboard] of Object.entries(miningInventory(account.state)).filter(([item,n])=>n>0&&stow(item))) {
+    const where=await attempt(f,stop.at,`stow ${aboard} ${item} for ${f.owner}`,()=>command('spacemolt_storage/deposit',{target:f.owner,item_id:item,quantity:aboard}))
+      ?`for ${f.owner}`:await attempt(f,stop.at,`stow ${aboard} ${item}`,()=>command('spacemolt_storage/deposit',{item_id:item,quantity:aboard}))?'in its own storage':null;
+    if(!where)continue;
+    // The hold is the evidence, not the reply: what left it is what was stowed.
+    await account.refresh();
+    const n=aboard-(miningInventory(account.state)[item]??0),lot=leftover[item];
+    if(n<=0)continue;
+    const cost=lot&&` (cost ${Math.round(lot.cost*Math.min(n,lot.quantity)/lot.quantity)})`;
+    stowed(item,n);
+    f.report({stowed:`${n} ${item}${cost??''} at ${stop.at} ${where}`});
+  }
   // Recalled: it parks after this stop, so it buys no load it would only strand in the hold.
   for(const {item,qty,max_price} of f.recalled()?[]:buysOf(stop)) {
     const row=book.get(item),ship=account.state.ship;
@@ -221,9 +241,12 @@ export async function lap(f:Freighter,circuit:Circuit):Promise<Lap> {
   const fresh=!holdings.has(f),holding=holdings.get(f)??structuredClone(f.holding??{});
   holdings.set(f,holding);
   const wallet=()=>f.account.state.player?.credits??0;
-  let home=0,tick=0,opening:number|undefined,stocked=0,left:number|undefined,jumps=0;
+  // `kept`: what was stowed, at cost; handed over like a deposit home, never a loss of this lap's.
+  let home=0,kept=0,tick=0,opening:number|undefined,stocked=0,left:number|undefined,jumps=0;
   const sells=new Set(circuit.stops.flatMap(stop=>stop.sell.map(sale=>sale.item)));
-  for(const stop of circuit.stops) {
+  for(const [i,stop] of circuit.stops.entries()) {
+    // Stowed at a new circuit's first stop, so lap 1 has the hold, and at every lap's last.
+    const stowing=(fresh&&i===0)||i===circuit.stops.length-1;
     let traded:number;
     for(;;) {
       try {
@@ -244,8 +267,10 @@ export async function lap(f:Freighter,circuit:Circuit):Promise<Lap> {
           opening=wallet();
         }
         const leftover=Object.fromEntries(Object.entries(holding).filter(([item])=>!sells.has(item)));
-        ({traded,tick}=await visit(f,stop,leftover,credits=>{home+=credits;},(item,n,spent)=>{
-          const row=holding[item]??={quantity:0,cost:0};row.quantity+=n;row.cost+=spent;}));
+        ({traded,tick}=await visit(f,stop,leftover,item=>stowing&&!sells.has(item),credits=>{home+=credits;},(item,n,spent)=>{
+          const row=holding[item]??={quantity:0,cost:0};row.quantity+=n;row.cost+=spent;},(item,n)=>{
+          // Its units leave `holding` with the check after the stop; their cost goes into `kept` now.
+          const row=holding[item];if(row)kept+=row.cost*Math.min(n,row.quantity)/row.quantity;}));
         break;
       }
       catch(error) {
@@ -264,14 +289,14 @@ export async function lap(f:Freighter,circuit:Circuit):Promise<Lap> {
       // A hold full of cargo this circuit never sells blocks every buy: the ring is not drained.
       const cargo=miningInventory(f.account.state),ship=f.account.state.ship;
       if((ship?.cargo_capacity??0)-(ship?.cargo_used??0)<=0&&Object.keys(cargo).every(item=>!sells.has(item)))
-        return f.park(`hold full of ${Object.entries(cargo).map(([item,n])=>`${n} ${item}`).join(', ')} this circuit never sells and no stop on it bids at or above its cost, so it cannot buy; `
+        return f.park(`hold full of ${Object.entries(cargo).map(([item,n])=>`${n} ${item}`).join(', ')} this circuit never sells, no stop on it bids at or above its cost and storage refused it, so it cannot buy; `
           +'assign it a circuit that sells that cargo',undefined,true);
       return f.park(`circuit dead: ${dead} stops in a row with no trade`,tick);
     }
     if(f.recalled())return f.park('recalled');
   }
   // The wallet's change, plus the change in cargo aboard at cost: a load kept aboard is not a loss.
-  const net=Math.round(wallet()+home-opening!+worth(holding)-stocked);
+  const net=Math.round(wallet()+home+kept-opening!+worth(holding)-stocked);
   f.report({lapped:net});
   const lost=net>0?0:(losing.get(f)??0)+1;
   losing.set(f,lost);

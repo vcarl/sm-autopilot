@@ -12,7 +12,7 @@ import {menu,renderMenu} from '../menu.ts';
 import {acct,bind,unbind} from '../runtime.ts';
 import {REST_TICKS,routes,type Circuit} from '../trading/trading.ts';
 import {markDrained,ring} from './drained.ts';
-import {gate,launch,readFleet,recallLoop,REPLAN_TICKS,script,scriptPath,writeFleet,type Entry} from './host.ts';
+import {gate,launch,readFleet,recallLoop,REPLAN_TICKS,row,script,scriptPath,writeFleet,type Entry} from './host.ts';
 import {lap,type Freighter,type Lap,type Report} from './index.ts';
 
 // Gems bought at sol for at most 110, sold at range for at least 120.
@@ -90,12 +90,12 @@ test('a genuine no-price circuit (every ask over the cap) still parks as drained
   assert.equal(drained(),TICK);
 });
 
-test('a hold full of cargo the circuit never sells parks naming that cargo, and the ring is not drained (live: 100 copper_wiring after a recall)',async()=>{
-  const {world,f,parked,drained}=freighter(130,[],{cargo:[{item_id:'copper_wiring',quantity:50}],cargoUsed:50,cargoCapacity:50});
+test('a hold full of cargo the circuit never sells that no store takes parks naming that cargo, and the ring is not drained (live: 100 copper_wiring after a recall)',async()=>{
+  const {world,f,parked,drained}=freighter(130,['spacemolt_storage/deposit'],{cargo:[{item_id:'copper_wiring',quantity:50}],cargoUsed:50,cargoCapacity:50});
   await world.account.refresh();
   let laps=0,last:Lap;
   do {last=await lap(f,GEMS);laps++;} while(!last.park&&laps<5);
-  assert.equal(parked(),'hold full of 50 copper_wiring this circuit never sells and no stop on it bids at or above its cost, so it cannot buy; assign it a circuit that sells that cargo');
+  assert.equal(parked(),'hold full of 50 copper_wiring this circuit never sells, no stop on it bids at or above its cost and storage refused it, so it cannot buy; assign it a circuit that sells that cargo');
   assert.equal(drained(),undefined,'not recorded as drained');
 });
 
@@ -120,15 +120,50 @@ test('leftover cargo the circuit never sells is sold where the bid covers its co
   assert.equal(reports.at(-1)!.holding?.copper_piping,undefined,'gone from the holding');
 });
 
-test('leftover cargo is kept where the bid is under its cost, and cargo it never bought is never sold',async()=>{
-  for(const [bid,holding] of [[29,undefined],[999,{}]] as const) {
-    const {world,f,parked}=leftover(bid,holding);
+test('a new circuit stows leftover it cannot sell at cost at its first stop, for the owner, and lap 1 buys a full load and pays (live: 98% of the hold copper, laps of -15 and -44)',async()=>{
+  const nets:number[]=[];
+  for(const [bid,holding,said] of [[29,undefined,'50 copper_piping (cost 1500) at sol_base for B'],[999,{},'50 copper_piping at sol_base for B']] as const) {
+    const {world,f,reports}=leftover(bid,holding);
     await world.account.refresh();
-    let laps=0,last:Lap;
-    do {last=await lap(f,GEMS);laps++;} while(!last.park&&laps<5);
-    assert.equal(world.count('spacemolt/sell'),0,`bid ${bid}`);
-    assert.match(parked()!,/^hold full of 50 copper_piping this circuit never sells and no stop on it bids at or above its cost/);
+    const done=await lap(f,GEMS);
+    assert.equal(done.park,undefined);
+    assert.equal(world.count('spacemolt/sell'),1,`bid ${bid}: only the gems at range; under its cost, or never bought, copper is not sold`);
+    const trades=world.sent.filter(c=>c.action==='spacemolt/buy'||(c.action==='spacemolt_storage/deposit'&&c.params.item_id)).map(c=>[c.action,c.params]);
+    assert.deepEqual(trades,[['spacemolt_storage/deposit',{target:'B',item_id:'copper_piping',quantity:50}],['spacemolt/buy',{id:'gem',quantity:10}]]);
+    assert.deepEqual(reports.flatMap(r=>r.stowed??[]),[said]);
+    assert.equal(reports.at(-1)!.holding?.copper_piping,undefined,'gone from the holding');
+    nets.push(done.net);
   }
+  assert.equal(nets[0],nets[1],'the 1500 of copper stowed went to the owner, not a loss of the lap\'s: it nets what a lap stowing untracked cargo nets');
+});
+
+test('the owner\'s store refused, the leftover goes to the freighter\'s own',async()=>{
+  const {world,f,reports}=leftover(29);
+  const send=f.command;
+  f.command=async(action,params)=>{
+    if(action==='spacemolt_storage/deposit'&&params.item_id&&params.target)throw new SpacemoltError('refused','no gifts here');
+    return send(action,params);
+  };
+  await world.account.refresh();
+  await lap(f,GEMS);
+  assert.deepEqual(reports.flatMap(r=>r.stowed??[]),['50 copper_piping (cost 1500) at sol_base in its own storage']);
+  assert.ok(reports.some(r=>/stow 50 copper_piping for B refused/.test(r.why??'')));
+  assert.equal(world.count('spacemolt/buy'),1);
+});
+
+test('at a lap\'s end, cargo no stop sells is stowed and leaves holding; the circuit\'s own cargo, unsold under its floor, stays',async()=>{
+  // Sol sells gems and copper; the circuit buys both but sells only gems, at range, whose 115 bid is under the 120 floor.
+  const {world,f,reports}=freighter(115,[],{cargo:[],cargoUsed:0,
+    markets:{sol_base:[{item_id:'gem',best_buy:0,best_buy_qty:0,best_sell:100,best_sell_qty:50},{item_id:'copper_piping',best_buy:0,best_buy_qty:0,best_sell:20,best_sell_qty:50}],
+      range_base:[{item_id:'gem',best_buy:115,best_buy_qty:50,best_sell:0,best_sell_qty:0}]}});
+  const both:Circuit={...GEMS,stops:[{at:'sol_base',system_id:'sol',buys:[{item:'gem',qty:10,max_price:110},{item:'copper_piping',qty:5,max_price:30}],sell:[]},GEMS.stops[1]!]};
+  await world.account.refresh();
+  await lap(f,both);
+  const stows=world.sent.filter(c=>c.action==='spacemolt_storage/deposit'&&c.params.item_id);
+  assert.deepEqual(stows.map(c=>c.params),[{target:'B',item_id:'copper_piping',quantity:5}]);
+  assert.equal(world.account.server.location.docked_at,'range_base','at the last stop');
+  assert.match(reports.flatMap(r=>r.stowed??[])[0]!,/^5 copper_piping \(cost \d+\) at range_base for B$/);
+  assert.deepEqual(Object.keys(reports.findLast(r=>r.holding)!.holding!),['gem'],'the gems stay aboard, the copper is gone');
 });
 
 test('a recalled freighter buys nothing more at the stop it parks after',async()=>{
@@ -155,9 +190,7 @@ test('assign proceeds with cargo the new circuit never sells, and says what it t
     assert.match((await assign('hauler',GEMS,{float:5_000})).why!,/^no login at /);
   } finally {unbind();rmSync(runtime,{recursive:true,force:true});}
   assert.equal(tiedUp({copper_wiring:{quantity:4,cost:40}},GEMS),
-"carrying 4 copper_wiring the circuit never sells; it fills 4 of 10 hold, so it's sold at cost or better wherever the circuit meets a bid for it; until then the circuit buys into 6");
-  assert.equal(tiedUp({copper_wiring:{quantity:10,cost:40}},GEMS),
-"carrying 10 copper_wiring the circuit never sells; it fills 10 of 10 hold, so it's sold at cost or better wherever the circuit meets a bid for it; until then the circuit buys into 0");
+"carrying 4 copper_wiring the circuit never sells (4 of 10 hold); it's sold at the first stop if the bid there covers its cost, else stowed there for you, so lap 1 buys into the whole 10");
   assert.equal(tiedUp({gem:{quantity:10,cost:900}},GEMS),undefined,'a circuit that sells it all says nothing');
 });
 
@@ -427,7 +460,7 @@ const SOL=memory('sol_base','sol',{best_sell:100,best_sell_qty:50}),TWIN=memory(
 const RANGE=memory('range_base','deep_range',{best_buy:150,best_buy_qty:50});
 /** `hauler` assigned GEMS over a world where range bids `rangeBid`, sol asks 100 and twin (in Sol) bids 130.
  * `known` is the owner's market memory; `hook` sees every command the freighter sends. */
-function hosted(rangeBid:number,known:object[],entry:Partial<Entry>={},options:WorldOptions={},hook:(action:string)=>void=()=>{}) {
+function hosted(rangeBid:number,known:object[],entry:Partial<Entry>={},options:WorldOptions={},hook:(action:string,params:Record<string,unknown>)=>void=()=>{}) {
   const runtime=mkdtempSync(join(tmpdir(),'freighter-host-'));
   writeFileSync(join(runtime,'markets.json'),JSON.stringify(known));
   const world=bridgeWorld({services:['refuel','repair','storage'],cargo:[],cargoUsed:0,cargoCapacity:50,pois:[{id:'twin',base_id:'twin_base'}],
@@ -436,8 +469,8 @@ function hosted(rangeBid:number,known:object[],entry:Partial<Entry>={},options:W
       twin_base:[{item_id:'gem',best_buy:130,best_buy_qty:50,best_sell:0,best_sell_qty:0}]},...options});
   world.account.server.player.credits=50_000;
   const command:ReadinessCommand=async(action,params)=>{
-    hook(action);
-    if(action!=='spacemolt_storage/deposit')return world.command(action,params);
+    hook(action,params);
+    if(action!=='spacemolt_storage/deposit'||params.item_id)return world.command(action,params);
     world.account.server.player.credits-=Number(params.credits);
     return {delta:{details:{action:'send_gift'}}};
   };
@@ -501,6 +534,16 @@ test('a freighter scheduled to stop after its lap finishes the lap, selling, and
   } finally {h.done();}
 });
 
+test('what a freighter stows is kept on its entry and said by freighters(), for the owner to find',async()=>{
+  const h=hosted(130,[SOL,TWIN],{stop_after_lap:true,holding:{copper_wiring:{quantity:4,cost:40}}},{cargo:[{item_id:'copper_wiring',quantity:4}],cargoUsed:4});
+  try {
+    await h.fly();
+    assert.deepEqual(h.now().stowed,['4 copper_wiring (cost 40) at sol_base for B']);
+    assert.equal(h.now().holding?.copper_wiring,undefined);
+    assert.deepEqual(row('hauler',h.now()).stowed,['4 copper_wiring (cost 40) at sol_base for B']);
+  } finally {h.done();}
+});
+
 test('a plain recall parks after the stop and never re-plans, on a ring that would drain',async()=>{
   const h:ReturnType<typeof hosted>=hosted(115,[SOL,TWIN],{},{},action=>{if(action==='spacemolt_market/view_market')recallLoop(h.runtime,'hauler');});
   try {
@@ -512,8 +555,9 @@ test('a plain recall parks after the stop and never re-plans, on a ring that wou
   } finally {h.done();}
 });
 
-test('a hold full of cargo no circuit sells tries one re-plan, then stays parked with the blocking why, without looping',async()=>{
-  const h=hosted(130,[SOL,TWIN],{},{cargo:[{item_id:'copper_wiring',quantity:50}],cargoUsed:50,cargoCapacity:50});
+test('a hold full of cargo no circuit sells and no store takes tries one re-plan, then stays parked with the blocking why, without looping',async()=>{
+  const h=hosted(130,[SOL,TWIN],{},{cargo:[{item_id:'copper_wiring',quantity:50}],cargoUsed:50,cargoCapacity:50},
+    (action,params)=>{if(action==='spacemolt_storage/deposit'&&params.item_id)throw new SpacemoltError('refused','storage full');});
   try {
     await h.fly();
     assert.equal(h.now().state,'parked');
