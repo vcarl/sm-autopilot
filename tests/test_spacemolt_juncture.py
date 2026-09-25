@@ -154,6 +154,45 @@ def test_the_situation_is_labelled_lines_with_the_last_runs_age(monkeypatch):
     assert "The hold was full (0 free)" in full
 
 
+def test_a_full_hold_out_in_the_open_is_offered_the_move_that_works(monkeypatch):
+    """`sell` and `stow` are station counters, and a belt is not a station.
+
+    The full-hold note offered both whatever the ship was standing on. Out at a belt — the
+    commonest way to fill a hold — `sell` is refused ("not docked; a market is a station counter")
+    and `stow` needs a storage service, so every offer on that line was dead and the one real move,
+    flying to a base, was not on it.
+    """
+    empty = dict(LAST, prose="Done: gathered nothing.")
+    undocked = _menu(0, last=empty)
+    undocked["present"]["docked_at"] = None
+    out = _rendered(monkeypatch, undocked)
+    assert "hold full" in out
+    assert "goTo a base" in out, f"no runnable move on a full hold in the open: {out}"
+    assert "sell(rows) or stow(rows) here first" not in out, (
+        "a counter offered where there is no counter")
+
+    # Docked, both really are available, so the original note stands.
+    docked = _rendered(monkeypatch, _menu(0, last=empty))
+    assert "sell(rows) or stow(rows) here first" in docked
+
+
+def test_the_in_battle_line_names_a_call_that_can_actually_be_made(monkeypatch):
+    """`hunt` cannot fight the battle already holding the ship.
+
+    It declines any creature whose `in_combat` is true, which the current opponent is by
+    definition, so "fight it with hunt's onTick" sent the pilot to look, decline and spend the
+    juncture. `onTick` only exists on fights `hunt` itself opens.
+    """
+    menu = _menu(12, last=LAST)
+    menu["battle"] = {"opponent": "Hollow Pilgrim", "tick": 4}
+    context = _rendered(monkeypatch, menu)
+    assert "IN BATTLE NOW with Hollow Pilgrim" in context
+    assert "disengage()" in context
+    assert "hunt" not in context.split("IN BATTLE NOW")[1].split(".")[0] + \
+        context.split("IN BATTLE NOW")[1].split("\n")[0], (
+        f"the battle line still sends the pilot to hunt: {context}")
+
+
 def test_the_situation_renders_only_the_permissions_the_code_knows(monkeypatch):
     """A key the code dropped is still in the record, and rendering it raw read as "wildlife
     False": the pilot spent its first turn weighing whether it could hunt (playtest 2026-09-22).

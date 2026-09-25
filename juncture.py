@@ -132,8 +132,14 @@ _PERMISSION = {"credit_reserve": "keep {:,} credits", "max_liability": "owe at m
 #: The rest of the story a free hold of 0 leaves untold. A full hold is not a dead end and it
 #: is not a mystery either: it is ore with two places to go and a gather that will return
 #: nothing until it does (playtest 2026-09-15: three gathers dispatched on a full hold).
-_HOLD_FULL = ("hold full: a gather needs free hold. sell(rows) or stow(rows) here first "
-              "(name the rows from the hold above), then gatherUntil")
+#: Docked, the hold has two places to go. Undocked it has neither: ``sell`` is refused away from
+#: a counter ("not docked; a market is a station counter") and ``stow`` needs a storage service, so
+#: out at a belt — the commonest way to fill a hold — both offers were dead and the one real move
+#: was missing. The suggested moves below carry the base ids.
+_HOLD_FULL_DOCKED = ("hold full: a gather needs free hold. sell(rows) or stow(rows) here first "
+                     "(name the rows from the hold above), then gatherUntil")
+_HOLD_FULL_OUT = ("hold full: a gather needs free hold, and neither sell nor stow works out here — "
+                  "goTo a base with a market or storage first, then sell(rows) or stow(rows)")
 
 
 #: What each buffered alert is, in the pilot's words. A type without an entry renders its own
@@ -191,7 +197,11 @@ def _battle(menu: dict[str, Any]) -> str | None:
     at = f", hull {hull}/{(menu.get('present') or {}).get('max_hull')}" if hull is not None else ""
     return (f"IN BATTLE NOW with {fight.get('opponent') or 'an unnamed opponent'} "
             f"(battle tick {fight.get('tick') or '?'}{at}). Nothing moves the ship until it ends: "
-            "disengage() breaks off, or fight it with hunt's onTick.")
+            # NOT "fight it with hunt's onTick": `hunt` declines any creature whose `in_combat` is
+            # true (hunting.ts:136), which the current opponent is by definition, so it would look,
+            # decline it and spend the juncture. `onTick` only exists on fights `hunt` itself opens.
+            "disengage() breaks off; to keep fighting, hold the stance by hand with "
+            "account().commands.spacemolt_battle.stance({id:'brace'}).")
 
 
 def _situation(menu: dict[str, Any], said: dict[str, Any] | None) -> str:
@@ -256,7 +266,8 @@ def _situation(menu: dict[str, Any], said: dict[str, Any] | None) -> str:
     def render(moves: str | None, kept: int, report: str) -> str:
         shown = hold[:kept] + ([f"+{len(hold) - kept} more"] if kept < len(hold) else [])
         hold_line = (f" Hold: {', '.join(shown) or 'empty'} ({free} free)."
-                     + (f" {_HOLD_FULL}." if free == 0 else ""))
+                     + (f" {_HOLD_FULL_DOCKED if p.get('docked_at') else _HOLD_FULL_OUT}."
+                        if free == 0 else ""))
         lines = facts + [ship + hold_line] + facts_after
         lines.append(f"{last_head}\n  " + report.replace("\n", "\n  ") if last
                      else "Last run: none yet.")
