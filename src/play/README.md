@@ -110,6 +110,9 @@ sees the real types, so these are not style notes.
   `QueryResult<T>` (read `.structuredContent`) or `MutationResult<T>` (read `.delta.details`) —
   never `status`, `did`, `why`, `detail`. A refusal *throws* rather than returning `refused`, so an
   unguarded raw command breaks the run: wrap it in `try`/`catch`.
+- **A docked refuel fills the tank.** Raw `spacemolt.refuel({quantity: 40})` at a station ignores
+  `quantity` (it counts fuel cells burned in space, or units transferred to another ship) and
+  bills for a full tank. There is no partial refuel at a counter; `service()` is the same fill.
 - **A location has no `id` and no `name`.** `V2Location` is `poi_id`, `poi_name`, `system_id`,
   `system_name`, `docked_at` (null when undocked), plus `connections` and the `nearby_*` counts.
 - **`Cannot find name 'x'` means you did not import it.** There are no globals. Every function you
