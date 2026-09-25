@@ -154,16 +154,20 @@ test('a run that ends on a mood the pilot chose leaves the shift where the pilot
   } finally {f.close();}
 });
 
-test('a script ends its own shift with rest(), and the run reports it',async()=>{
+test('a script ends its own shift and opens the next one, and the run reports it',async()=>{
   const f=harness();
   try {
     let record:any={name:'kvothe',mood:'Focused',stance:'Prospector',goal:'three loads of ore'};
     f.account.server.ship.fuel=f.account.server.ship.max_fuel;
     f.account.server.ship.hull=f.account.server.ship.max_hull;
-    f.write("import {rest} from 'play';\nexport default async function main(){ return rest(); }\n");
+    f.write("import {rest} from 'play';\nexport default async function main(){ "
+      +"return rest({goal:'three more loads',stance:'Prospector',mood:'Focused'}); }\n");
     const result=await runPilot({...f.deps,pilot:()=>record,setPilot:(next:any)=>{record=next;}});
     assert.equal(result.status,'done',result.reason);
-    assert.deepEqual(record,{name:'kvothe'},'the shift a script put down is put down');
+    // The record never passes through the empty state: the shift it put down is replaced by the one
+    // it named, in a single write. Anything reading between the two cannot see a pilot that cannot work.
+    assert.deepEqual(record,{name:'kvothe',goal:'three more loads',stance:'Prospector',mood:'Focused'},
+      'the next shift was not opened by the rest that ended this one');
     assert.ok(f.lines.some(line=>/^✓ rest  done/.test(line)),f.lines.join('\n'));
   } finally {f.close();}
 });

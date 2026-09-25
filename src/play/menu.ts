@@ -561,7 +561,7 @@ export async function menu(runtime?:string):Promise<Menu> {
   // the barrel, the menu is the only always-open way to reach it. A pilot that cannot rest cannot
   // reflect, and so cannot change stance; nothing unattended recovers from that, so this row does
   // not compete for the five.
-  const rest=moves.find(m=>m.call==='rest()');
+  const rest=moves.find(m=>m.call.startsWith('rest('));
   if(rest&&!ranked.includes(rest))ranked.push(rest);
   // The tag says what a move serves, and what the objective names serves the objective: the
   // ranking is already settled, so this only corrects the label the pilot reads.

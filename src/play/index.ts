@@ -6,7 +6,7 @@ export {account,note,outcome,pilot,stopped,type Mood,type Pilot,type Stance} fro
 export {orient,scout,type Orientation,type ScoutReport} from './orient.ts';
 export {goTo,type Trip} from './travel.ts';
 export {service,type Serviced} from './service.ts';
-export {rest,type Rested} from './rest.ts';
+export {reflection,rest,JOB_MOODS,type NextShift,type Rested} from './rest.ts';
 export {storage,stow,withdraw,type Moved} from './storage.ts';
 export {buy,prices,sell,type Bought,type Quote,type Sold} from './market.ts';
 export {abandonMission,acceptMission,completeMissions,missions,type Active,type Offer} from './missions.ts';

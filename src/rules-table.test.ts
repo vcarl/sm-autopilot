@@ -173,5 +173,7 @@ test('the verdicts with no barrel primitive behind them carry no call, and the m
   // without reflection it can never change stance.
   const rest=evaluateMenu(ready).find(v=>v.job==='Rest and reflect');
   assert.ok(rest?.admissible,rest?.reason);
-  assert.equal(rest!.play,'rest()');
+  // It names the next shift, because rest opens one now: the stance and mood in force are
+  // pre-filled and the goal is the blank only the pilot can fill.
+  assert.match(rest!.play??'',/^rest\(\{goal:'<[^']+>',stance:'[A-Za-z]+',mood:'[A-Za-z]+'\}\)$/,rest!.play);
 });

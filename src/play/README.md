@@ -108,7 +108,8 @@ sees the real types, so these are not style notes.
 | `prices(items?)` / `sell(rows, opts?)` / `buy(item, qty)` | the market here, live at the moment of the act, and remembered for `spreads()`. `sell`'s options are exactly two: `{from: 'hold' \| 'store'}` (default `'hold'`; `'store'` empties the store a hold-load at a time) and `{floor: {[item_id]: number}}` (skip a row whose `best_buy` is under it). There is no option naming a market — `sell` is always the counter you are docked at |
 | `refit({install,remove})` / `shipsForSale(opts?)` / `buyShip(id, opts?)` | the hangar: modules on and off within the grid, the hulls for sale here, the next one |
 | `missions()` / `acceptMission(id)` / `completeMissions()` / `abandonMission(id, opts?)` | the board here; the cheapest credits and xp early |
-| `rest()` | end the shift: docked at a base, on a ship this base has brought as far up as it can. It clears the stance, the mood and the goal — a Tired the world imposed included — and the next juncture reflects instead of flying. Refused, it says what is still missing and the shift stays open |
+| `rest({goal, stance, mood, objective_done?})` | end this shift **and open the next one**, in one call: docked at a base, on a ship this base has brought as far up as it can. All three are required — a shift that ends naming nothing leaves a pilot every job refuses. `objective_done` retires a finished objective alongside the goal replacing it. Refused, it says what is missing and the shift stays open |
+| `reflection()` | the material the choice deserves: stagnation signals, the skills that would move, holdings, what is owed, how your scripts have been running. Read it before you name the next shift |
 | `note(text)` | write a line into the journal and the run's stream |
 | `account()` | the raw `@spacemolt/lib` Account |
 | `outcome(did, status?, detail?)` | build an Outcome for a helper of your own; the runtime fills cost, gains and the present |
@@ -194,32 +195,54 @@ or at any base — clears Tired and restores the mood it replaced. You never set
 yourself. Rest clears everything. `permissions.credit_reserve` is a standing bound and Tired does
 not widen it; a fill it refuses says so by name.
 
-## Ending the shift
+## Ending the shift, and opening the next one
 
-`rest()` is the last line of a run that has nothing left to do this shift. It is a library call
-like any other, so it costs no juncture of its own: end the file with it and the next juncture
-reflects — a new goal, a new stance, the mood that fits it. It needs you docked at a base
-(any base) and the ship as far up as that base can bring it, so `service()` comes first; where
-the wallet cannot cover the counter, rest happens anyway and reflection is told the ship is short.
+`rest({goal, stance, mood})` is the last line of a run that has nothing left to do this shift. It
+ends the shift **and names the next one in the same call**, so it costs no juncture of its own and no
+model turn: the next wake simply starts working in the stance you named.
+
+The three arguments are required, and that is deliberate. Ending a shift without naming the next one
+leaves a record with no stance and no mood — a pilot every job refuses, which once spent a whole
+juncture on 38 identical refusals. If you end a shift, you choose what follows it.
+
+It needs you docked at a base (any base) and the ship as far up as that base can bring it, so
+`service()` comes first; where the wallet cannot cover the counter, rest happens anyway and the next
+shift is told the ship is short.
+
+`reflection()` is the read that makes the choice answerable to how the shift actually went — the same
+material a reflection shows: what is repeating, which skills would move, what you hold and owe. Take
+it before you choose. Be honest with yourself about the limit: your script was written before the
+shift ran, so it can **branch** on that report but it cannot reason about it. Where the choice really
+needs thinking about, write a short file whose only job is to read and rest, and make the choice when
+you write it.
 
 ```ts
-import {gatherUntil, rest, service} from 'play';
+import {gatherUntil, reflection, rest, service} from 'play';
 
 export default async function main() {
-  const trip = await gatherUntil({poi: 'belt'});
+  const trip = await gatherUntil({poi: 'belt', base: 'sol_base'});
   if (trip.status !== 'done') return trip;
   await service();
-  // Three loads in the store is the goal met: put the evening down here rather than
-  // spending a juncture to say so.
-  const put = await rest();
+
+  // What the shift looked like, before deciding what the next one does about it.
+  const review = await reflection();
+  const stuck = (review.detail?.stagnation ?? []).length > 0;
+
+  // Three loads in the store is the goal met: put the evening down and open the next shift here,
+  // rather than spending a juncture to say so.
+  const put = await rest(stuck
+    ? {goal: 'walk a price circuit and learn where the ore sells', stance: 'Scout', mood: 'Cautious'}
+    : {goal: 'three more loads from the same belt', stance: 'Prospector', mood: 'Focused'});
   return put.status === 'done' ? put : trip;
 }
 ```
 
 Nothing forces it: a run that ends any other way leaves the shift open and the next juncture
 picks up where this one left off. The one exception is not yours — a run that ends with the
-pilot Tired and docked is rested by the runner itself, because a broken script must not be able
-to leave a pilot that can never reflect.
+pilot Tired and docked is rested by the runner itself. That one cannot name a next shift — a script
+that broke does not know what comes next — so it leaves the record empty on purpose, the next run is
+refused before it starts, and `spacemolt_reflect` opens the shift instead. That is the recovery path,
+not the normal one.
 
 ## Rules that will refuse you
 

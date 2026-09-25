@@ -194,7 +194,12 @@ const RULES:Rule[]=[
     return yes('rest',REST_JOB,serviced(facts)
       ?'docked, safe and serviced: the evening can be put down and a new goal chosen'
       :`docked, and this base cannot bring the ship up (${counter.reason}); the evening can still be put down`,
-      'rest()');
+      // `rest` ends this shift AND opens the next, so the call has to name one. The menu cannot
+      // choose a goal — that is the pilot's whole job here — so it pre-fills the stance and mood the
+      // ship is already in, which is a real choice (carry on as you are) and one that typechecks,
+      // and leaves the goal as the blank the pilot fills. Every field is editable and the reason
+      // says so; what the menu must not do is hand over a line that does not compile.
+      `rest({goal:'<what the next shift will do>',stance:'${facts.stance??'Prospector'}',mood:'${facts.mood==='Tired'||facts.mood==='Relaxed'?'Cautious':facts.mood}'})`);
   }},
   // Stance rows (D7 section 2). A stance sees only its own; jobs carry the proposal's
   // numbers and end-state names.

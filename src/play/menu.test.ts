@@ -485,13 +485,17 @@ test('a docked, serviced pilot is offered rest, because the menu is now the only
     f.account.server.ship.fuel=f.account.server.ship.max_fuel;
     f.account.server.ship.hull=f.account.server.ship.max_hull;
     const built=await menu(f.runtime);
-    const rest=built.moves.find(m=>m.call==='rest()');
+    const rest=built.moves.find(m=>m.call.startsWith('rest({'));
     assert.ok(rest,`no way to end the shift: ${JSON.stringify(built.moves)} / ${JSON.stringify(built.not_now)}`);
+    // The offer names a shift, because rest opens one now. The stance and mood are pre-filled with
+    // the ones in force — carrying on is a real choice — and the goal is the blank the pilot fills.
+    assert.match(rest!.call,/goal:'<[^']+>'/,rest!.call);
+    assert.match(rest!.call,/stance:'Prospector'/,rest!.call);
     // The shape the pilot would paste, through the real gate.
     const runtime=mkdtempSync(join(tmpdir(),'menu-rest-'));
     mkdirSync(join(runtime,'pilot'),{recursive:true});
     writeFileSync(join(runtime,'pilot','index.ts'),
-      `import {rest} from 'play';\nexport default async function main() {\n  return rest();\n}\n`);
+      `import {rest} from 'play';\nexport default async function main() {\n  return ${rest!.call};\n}\n`);
     assert.deepEqual((await check(runtime)).errors,[]);
   } finally {f.close();}
 });
