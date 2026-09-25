@@ -58,21 +58,21 @@ type Tag='safety'|'resupply'|'rest'|'shared'|'stance';
 /** The one rest option, named once: the runner's own rest action asks this same rule, so
  * what the menu offers and what the runner accepts cannot drift (R5). */
 export const REST_JOB='Rest and reflect';
-/** The exact call an option would be taken with, so the pilot is never left to invent
- * parameters (playtest 2026-09-15: a gather dispatched twice at the station the ship was
- * already docked at). A call
- * that names several poi ids offers a choice; it never picks the destination. */
-export interface Call {tool:string;params:Record<string,unknown>}
-/** `call` is the MCP tool an option would be taken with; `play` is the same option as a line
- * from the `play` barrel, which is what a pilot actually pastes into its script. A verdict the
- * rules refuse carries neither — handing back a call the same build just refused is how a menu
- * contradicts itself. A verdict with no `play` has no barrel primitive behind it at all, and
- * the menu leaves it unoffered rather than inventing one. */
-export interface Verdict {job:string;reason:string;admissible:boolean;tag:Tag;call?:Call|null;play?:string}
+/** `play` is the exact line from the `play` barrel an option would be taken with, so the pilot
+ * is never left to invent parameters (playtest 2026-09-15: a gather dispatched twice at the
+ * station the ship was already docked at). It is what the pilot pastes, which is why it is a
+ * barrel call and not an MCP tool name — this field used to hold `{tool,params}`, a shape no
+ * consumer ever read and no pilot could use.
+ *
+ * A verdict the rules refuse carries none: handing back a call the same build just refused is
+ * how a menu contradicts itself. A verdict with **no** `play` has no barrel primitive behind it
+ * at all, and the menu leaves it unoffered rather than inventing one — the three `safety` rows
+ * and `rest` are the standing cases. */
+export interface Verdict {job:string;reason:string;admissible:boolean;tag:Tag;play?:string}
 interface Rule {id:string;stance?:StanceName;apply(facts:Facts):Verdict|Verdict[]|null}
 
-const yes=(tag:Tag,job:string,reason:string,call:Call|null=null,play?:string):Verdict=>
-  ({job,reason,admissible:true,tag,call,...play?{play}:{}});
+const yes=(tag:Tag,job:string,reason:string,play?:string):Verdict=>
+  ({job,reason,admissible:true,tag,...play?{play}:{}});
 const no=(tag:Tag,job:string,reason:string):Verdict=>({job,reason,admissible:false,tag});
 const threats=(facts:Facts)=>facts.observed.threats??[];
 const sites=(facts:Facts)=>facts.place.sites??[];
@@ -92,7 +92,7 @@ function trip(facts:Facts,site:Site,tag:Tag):Verdict {
   // fuel reserve out in the open sat Tired for six hours with that sentence as its only exit
   // (live 2026-09-24). The rules already knew the base and the quote; only the call was wrong.
   return yes(tag,job,`${quote} and have ${fuel}${site.resource?`; ${site.poi_id} lists ${site.resource}`:''}; goTo('${site.poi_id}') flies it`,
-    null,`goTo('${site.poi_id}')`);
+    `goTo('${site.poi_id}')`);
 }
 
 /** The same estimate and margin serviceShip enforces at the counter. A posted price is
@@ -111,21 +111,27 @@ function service(facts:Facts):Verdict {
     `credits ${holdings.credits} less reserve ${reserve} cannot cover the ${quoted?`quoted ${quoted} credits`:'unpriced counter'}`);
   return yes('resupply',job,quoted
     ?`full tank and hull quoted at ${quoted} credits, inside the ${facts.mood} margin ${margin}`
-    :`full tank and hull; this counter posts no price, so service() bills it and holds the reserve ${reserve}`);
+    :`full tank and hull; this counter posts no price, so service() bills it and holds the reserve ${reserve}`,
+    'service()');
 }
 
 const TIRED_OPEN:CounterName[]=['Services','Distress'];
-/** The counters a tool reaches today. The rest are read at the station by hand, so they
- * carry no call rather than a name that would fail. */
-const COUNTER_CALLS:Partial<Record<CounterName,Call>>={Storage:{tool:'spacemolt_storage',params:{}},
-  'Workshop / recipes':{tool:'spacemolt_recipes',params:{}}};
-/** A full hold at a base that takes deposits wants the act, not the read: the store is still
- * readable through its own tool, and what the pilot needs here is the free hold a gather
- * cannot start without (playtest 2026-09-15: a day of gathers on cargo_free 0). */
-const counterCall=(name:CounterName,facts:Facts):Call|null=>
-  name==='Storage'&&facts.holdings.cargo_free===0
-    ?{tool:'spacemolt_run',params:{script:'stow',params:{}}}
-    :COUNTER_CALLS[name]??null;
+/** The barrel read that stands at each counter. The desks with no row here are read at the
+ * station by hand — there is no export that reaches them — so they carry no call rather than a
+ * name the gate would refuse.
+ *
+ * `Services` is deliberately absent: the act at that counter is `service()`, which J12 owns and
+ * states the bill for. Two rows offering the same call with different reasoning is how a menu
+ * stops meaning anything.
+ *
+ * A full hold at a base that takes deposits wants the act rather than the read (playtest
+ * 2026-09-15: a day of gathers on cargo_free 0), but the act is `stow(rows)` and the rows that
+ * belong in it are the ones this base has no bid for — which the rules table cannot know,
+ * because `Facts` carries no book. That remedy is the menu's own stow row, built where the book
+ * is in hand, and this stays the read. */
+const COUNTER_READS:Partial<Record<CounterName,string>>={
+  Market:'prices()','Workshop / recipes':'recipes()',Storage:'storage()','Hangar / refit':'shipsForSale()',
+  'Boards — missions':'missions()','Boards — shipping':'freightBoard()'};
 /** Counters are the base's, shared by every stance (VISION: station tools are neither jobs
  * nor flight primitives); stance guidance points at jobs and skills, never at admissibility
  * here. Danger and Tired still gate which tag survives, in evaluateMenu. Counters need no
@@ -137,7 +143,7 @@ function counters(facts:Facts):Verdict[] {
     const job=`Counter: ${name}`,tag:Tag=TIRED_OPEN.includes(name)?'resupply':'shared';
     return yes(tag,job,
       `offered here; reading a counter spends nothing, within the ${facts.mood} bounds (spend ${bounds.spend}, fuel reserve ${bounds.fuelReserve}, walk-away ${bounds.walkAway})`,
-      counterCall(name,facts));
+      COUNTER_READS[name]);
   });
 }
 
@@ -175,10 +181,12 @@ const RULES:Rule[]=[
     const counter=service(facts);
     if(!serviced(facts)&&counter.admissible)
       return no('rest',REST_JOB,`refuel and repair first — ${counter.reason}`);
+    // No `play`: resting is the runner's own action at the juncture, where the pilot already
+    // holds it as a tool. It is deliberately not a barrel call — a script that could rest
+    // mid-run would blur the shift boundary the whole juncture design rests on.
     return yes('rest',REST_JOB,serviced(facts)
       ?'docked, safe and serviced: the evening can be put down and a new goal chosen'
-      :`docked, and this base cannot bring the ship up (${counter.reason}); the evening can still be put down`,
-      {tool:'spacemolt_rest',params:{}});
+      :`docked, and this base cannot bring the ship up (${counter.reason}); the evening can still be put down`);
   }},
   // Stance rows (D7 section 2). A stance sees only its own; jobs carry the proposal's
   // numbers and end-state names.
@@ -190,23 +198,34 @@ const RULES:Rule[]=[
     const open=found.findIndex(verdict=>verdict.admissible);
     if(open<0)return no('stance',job,`${found[0]!.reason}`);
     if(facts.holdings.cargo_free<=0)return no('stance',job,'the hold is full; settle cargo at a market or storage first');
-    // Every mining site the fuel admits, so the pilot picks one; a station is never among
-    // them, and one site still comes as a list rather than as a destination chosen for it.
+    // Every mining site the fuel admits, named in the reason so the pilot picks one; a station
+    // is never among them. The call takes the nearest of them, because a call must name one
+    // destination and the reason still carries the rest.
     const poi_id=mining.filter((_,index)=>found[index]!.admissible).map(site=>site.poi_id);
-    return yes('stance',job,`${found[open]!.reason}; ${facts.holdings.cargo_free} free cargo to fill`,
-      {tool:'spacemolt_run',params:{script:'gather',
-        params:{poi_id,...facts.place.base_id?{base_id:facts.place.base_id}:{}}}});
+    // `gatherUntil` refuses outright with no base to settle at — it falls back to `docked_at`
+    // and there is none out at a POI (mining.ts). So undocked the option is real and the call
+    // is not: the reason says to dock or name a base, rather than handing over a line that
+    // costs a juncture to discover is wrong.
+    const home=facts.place.base_id;
+    return yes('stance',job,
+      `${found[open]!.reason}; ${facts.holdings.cargo_free} free cargo to fill${poi_id.length>1?`; the fuel also admits ${poi_id.slice(1).join(', ')}`:''}${home?'':'; dock first or name the base the trip settles at, which gatherUntil needs'}`,
+      home?`gatherUntil({poi:'${poi_id[0]}',base:'${home}'})`:undefined);
   }},
   {id:'stance.industrialist.J7',stance:'Industrialist',apply:facts=>{
     const job='J7 Inputs at the bench',inputs=facts.holdings.inputs??[];
     if(!facts.place.workshop)return no('stance',job,'no workshop or facility at this base; a base with one admits it');
     if(!inputs.length)return no('stance',job,'no recipe inputs in hand; buy or mine the inputs a quoted recipe needs');
-    return yes('stance',job,`a workshop here and ${inputs.join(', ')} in hand; quote the craft dry-run before committing escrow`);
+    // `recipes()` is the honest first move: `craft` and `quote` both need a recipe id, and no
+    // fact here names one — what the bench can make from these inputs is a read away.
+    return yes('stance',job,`a workshop here and ${inputs.join(', ')} in hand; quote the craft dry-run before committing escrow`,'recipes()');
   }},
   {id:'stance.trader.J6',stance:'Trader',apply:facts=>{
     const job='J6 Trade run closed',spread=facts.observed.spread;
     if(!spread||spread.margin<=0)return no('stance',job,'no quoted spread with depth on both ends; walk a price circuit first');
-    return yes('stance',job,`a ${spread.margin} credit spread on ${spread.item_id} off a remembered bid ${spread.age} ticks old, inside the ${facts.mood} spend margin ${resolveServiceSpend(facts.mood)}`);
+    // A remembered bid is a lead, not a price: `tradeRun` needs the base to sell at and the
+    // spread fact carries no base id, so the call is the read that turns memory into a live
+    // destination. `spreads()` walks this runtime's market memory and names both ends.
+    return yes('stance',job,`a ${spread.margin} credit spread on ${spread.item_id} off a remembered bid ${spread.age} ticks old, inside the ${facts.mood} spend margin ${resolveServiceSpend(facts.mood)}`,'spreads()');
   }},
   {id:'stance.carrier.J4',stance:'Carrier',apply:facts=>{
     const job='J4 Freight delivered',allowed=facts.permissions.max_liability??0;
@@ -215,23 +234,32 @@ const RULES:Rule[]=[
     const fits=board.filter(row=>row.cargo<=facts.holdings.cargo_free&&row.liability<=allowed);
     if(!fits.length)return no('stance',job,
       `no package fits ${facts.holdings.cargo_free} free cargo inside the standing ${allowed} credit liability permission`);
-    return yes('stance',job,`${fits.length} package(s) fit the hold and the ${allowed} credit liability permission`);
+    return yes('stance',job,`${fits.length} package(s) fit the hold and the ${allowed} credit liability permission`,
+      `haul('${fits[0]!.id}')`);
   }},
   {id:'stance.carrier.J5',stance:'Carrier',apply:facts=>{
     const job='J5 Passengers landed',waiting=facts.place.board?.passengers??0,aboard=facts.obligations.passengers??0;
     if(!waiting&&!aboard)return no('stance',job,'nobody is waiting here and no berth is occupied; a station with citizens admits it');
-    return yes('stance',job,aboard?`${aboard} aboard owed a landing`:`${waiting} waiting for transport`);
+    // No destination: `carryPassengers()` takes whoever is aboard where they are going, and
+    // the berths decide that, not the pilot.
+    return yes('stance',job,aboard?`${aboard} aboard owed a landing`:`${waiting} waiting for transport`,'carryPassengers()');
   }},
   {id:'stance.hunter.J8',stance:'Hunter',apply:facts=>{
     const job='J8 Creature down',targets=facts.observed.targets??[];
     if(!targets.length)return no('stance',job,'no unowned creature is known here; scan or travel to a habitat');
-    return yes('stance',job,`${targets.join(', ')} known; break off below the ${facts.mood} walk-away hull fraction`);
+    // The targets are what a look answered where the ship stands, so the hunt needs no
+    // destination: `hunt()` engages here.
+    return yes('stance',job,`${targets.join(', ')} known; break off below the ${facts.mood} walk-away hull fraction`,'hunt()');
   }},
   {id:'stance.scout.J9',stance:'Scout',apply:facts=>{
     const job='J9 Price circuit walked';
     const loop=sites(facts).filter(site=>site.serviced_base).map(site=>trip(facts,site,'stance')).filter(verdict=>verdict.admissible);
     if(loop.length<2)return no('stance',job,'fewer than two stations are quoted inside the fuel reserve; a nearer pair admits it');
-    return yes('stance',job,`${loop.length} stations inside the ${facts.mood} fuel reserve; observations only, no capital committed`);
+    // The circuit's first act is reading the book where the ship already is: every `prices()`
+    // writes the whole book to this runtime's market memory, which is the only place a far bid
+    // can come from later (market.ts). The hops themselves are the travel rows.
+    return yes('stance',job,`${loop.length} stations inside the ${facts.mood} fuel reserve (${loop.map(v=>v.job.replace('Travel to ','')).join(', ')}); observations only, no capital committed`,
+      facts.place.kind==='base'?'prices()':undefined);
   }},
 ];
 
