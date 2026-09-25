@@ -73,7 +73,10 @@ item's `qty`, counting what is already aboard, at asks of at most `max_price`, w
 hold and the credits over the fuel money; then send home everything above the float. A stop the
 connection drops on is done again a minute later. A sale or buy the game refuses is skipped;
 three stops in a row with no trade park it. A route short of fuel, a blocked flight, or no credits
-for fuel park it docked where it is. A parked freighter keeps its cargo aboard.
+for fuel park it docked where it is. Three laps in a row that net 0 or less park it at the lap's
+last stop, the why naming the last lap against the prediction (`3 laps lost money: last -32 vs
+predicted 521`); a lap that pays, however far under `lap_net`, flies on. A parked freighter keeps
+its cargo aboard, and `freighters()` and the menu show the why: pick a new row and `assign` it.
 
 `assign` answers at once, with the freighter flying. It is refused while that name is flying:
 `recall` it first. Re-assigning a parked one starts it again on the new circuit.
@@ -90,7 +93,7 @@ for fuel park it docked where it is. A parked freighter keeps its cargo aboard.
 | `credits` | its wallet there, after the deposit |
 | `returned` | credits it has sent home to you, all told |
 | `last_lap_net` | what the last whole lap made, deposits included, fuel and repairs out |
-| `lap_net` | what `routes()` predicted a lap makes. A `last_lap_net` well under it, lap after lap, means the books have moved: recall it and assign the new top row |
+| `lap_net` | what `routes()` predicted a lap makes. A `last_lap_net` well under it, lap after lap, means the books have moved: recall it and assign the new top row. Three losing laps park it on their own |
 | `why` | why it parked, or what fell short at the last stop |
 
 ```ts

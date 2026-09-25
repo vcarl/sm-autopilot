@@ -8,7 +8,8 @@
  *   idempotent: sales are sized by what is held, the buy by the free hold and what is already aboard;
  * - the session taken by another connection: park, and never log in again;
  * - a sale or buy the game refuses: say so and go on; three stops in a row with no trade parks it;
- * - a route short of fuel, a blocked flight, no credits for fuel: park, docked where it is.
+ * - a route short of fuel, a blocked flight, no credits for fuel: park, docked where it is;
+ * - LOSING_LAPS laps in a row that net 0 or less: park, docked at the lap's last stop.
  * A parked ship keeps its cargo aboard. */
 import {SpacemoltError,type MarketListingItem,type OrderLevel,type ViewMarketResponse} from '@spacemolt/lib';
 import {miningInventory} from '../../mining-inventory.ts';
@@ -48,6 +49,10 @@ const FUEL_RESERVE=10,FUEL_MONEY=2_000;
 const TAX=0.05;
 /** Stops in a row with no trade before the circuit is called dead. */
 const DEAD_STOPS=3;
+/** ponytail: laps in a row netting 0 or less before the circuit parks as a loser. The first lap
+ * starts empty and only buys, so one losing lap is expected; three is the books. A lap that pays
+ * but far under `lap_net` flies on: it still makes money. Tunable. */
+const LOSING_LAPS=3;
 const RETRY_MS=60_000;
 const OPEN='an open path would strand a freighter that repeats it; use routes({circuit:{hold}})';
 
@@ -148,8 +153,8 @@ async function visit(f:Freighter,stop:Stop,sent:(credits:number)=>void):Promise<
   return traded;
 }
 
-/** Stops in a row with no trade, across laps. */
-const idle=new WeakMap<Freighter,number>();
+/** Stops in a row with no trade, and laps in a row that lost money, across laps. */
+const idle=new WeakMap<Freighter,number>(),losing=new WeakMap<Freighter,number>();
 
 /** Fly `circuit` once round, stop by stop, from wherever the freighter is. Never throws: every
  * failure is redone or parks it (see the module note). Ends with the lap's net reported. */
@@ -177,5 +182,8 @@ export async function lap(f:Freighter,circuit:Circuit):Promise<Lap> {
   }
   const net=(f.account.state.player?.credits??0)+home-opening;
   f.report({lapped:net});
+  const lost=net>0?0:(losing.get(f)??0)+1;
+  losing.set(f,lost);
+  if(lost>=LOSING_LAPS)return {...f.park(`${lost} laps lost money: last ${net} vs predicted ${circuit.lap_net}`),net};
   return {net};
 }

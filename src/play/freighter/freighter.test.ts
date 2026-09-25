@@ -105,3 +105,16 @@ test('a generated freighter script passes the gate: tsc, and play/freighter as i
     assert.match(gate(scriptPath(runtime,'hauler')).join(),/imports "play"; a freighter script imports only 'play\/freighter'/);
   } finally {rmSync(runtime,{recursive:true,force:true});}
 });
+
+test('three laps in a row that lose money park the freighter, the why naming the last lap against the prediction',async()=>{
+  // Gems cost 100 at sol and sell for 100 at range: every lap pays out its fuel and repairs and makes nothing.
+  const {world,f,parked}=freighter(100);
+  await world.account.refresh();
+  const flat:Circuit={...GEMS,stops:[GEMS.stops[0]!,{...GEMS.stops[1]!,sell:[{item:'gem',min_price:90}]}]};
+  const laps:Lap[]=[];
+  do laps.push(await lap(f,flat)); while(!laps.at(-1)!.park&&laps.length<5);
+  assert.equal(laps.length,3);
+  assert.ok(laps.every(one=>one.net<=0),laps.map(one=>one.net).join());
+  assert.equal(parked(),`3 laps lost money: last ${laps[2]!.net} vs predicted 500`);
+  assert.equal(world.account.server.location.docked_at,'range_base','parked docked at the last stop');
+});
