@@ -128,7 +128,18 @@ export function scout(target?:string):Promise<Outcome<ScoutReport>> {
     }
     const pois=info?.pois??[];
     const belts=pois.filter(p=>/belt|field|cloud/.test(p.type)),stations=pois.filter(p=>p.base_id);
-    const next=[...belts.slice(0,2).map(p=>`gatherUntil({poi:'${p.id}'}) — ${p.type}${resources[p.id]?`: ${resources[p.id]!.map(r=>r.resource_id).join(', ')}`:''}`),
+    // `gatherUntil` settles the take at a base and refuses outright without one — it falls back to
+    // `docked_at`, and out at a POI there is none (mining.ts). A hint the library refuses is worse
+    // than no hint: it reads as knowledge and the refusal arrives a whole juncture too late. So the
+    // base is named, from where the ship is docked or from a station in the system being scouted,
+    // and where there is neither the belt is still listed but not as a call to paste.
+    const settleAt=location?.docked_at??stations.find(p=>p.base_id)?.base_id;
+    const next=[...belts.slice(0,2).map(p=>{
+      const what=`${p.type}${resources[p.id]?`: ${resources[p.id]!.map(r=>r.resource_id).join(', ')}`:''}`;
+      return settleAt
+        ?`gatherUntil({poi:'${p.id}',base:'${settleAt}'}) — ${what}`
+        :`${p.id} — ${what} (no station in ${info.id} to settle a take at; gatherUntil needs one)`;
+    }),
       ...stations.slice(0,2).map(p=>`goTo('${p.base_id}') — ${p.base_name??p.name}`)];
     return {status:'done',
       did:`${info.name} (${info.id}): ${pois.length} POIs, ${belts.length} belt/field, ${stations.length} station(s), police ${info.police_level}, ${connections.length} connections${nearbyHere?`; here: ${nearbyHere.nearby.creature_count} creatures, ${nearbyHere.nearby.pirate_count} pirates, ${nearbyHere.wrecks.count??0} wrecks`:''}`,

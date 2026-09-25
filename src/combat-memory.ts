@@ -30,6 +30,17 @@ export const TICK_MS=10_000;
  * the only place accuracy is published at all. */
 export interface Shots {shots:number;hits:number}
 
+/** The live server publishes FIVE values in `battle_update.your_zone`, not the three this file
+ * was written for: `outer`, `mid`, `inner`, `engaged`, and nothing at all. Measured on the kvothe
+ * profile's `combat.json`: inner 168 shots, engaged 11, unknown 10, outer 12, mid 8.
+ *
+ * `engaged` folds into `inner` — it is the closest band, and keeping them apart starves both
+ * samples of the shots that would make either one a rate. `unknown` does NOT fold: a tick whose
+ * zone was never pushed is a shot we cannot place, and attributing it to the last known zone
+ * would invent a band to make a sample look thicker, which is a lie about a measurement. It stays
+ * visible as itself so the pilot can see how much of the record is unplaced. */
+export const bandOf=(zone:string|undefined):string=>zone==='engaged'?'inner':zone||'unknown';
+
 /** One fight as memory keeps it: aggregates, never a transcript. */
 export interface FightRecord {
   /** The opponent as the frames name it — `battle_update.participants[].username`, which for
@@ -96,8 +107,15 @@ export interface CombatStats {
   newest_ticks_old:number;oldest_ticks_old:number;
   /** Our hull classes across those fights. Two classes is two different questions answered as one. */
   ship_classes:string[];
-  /** Average damage per battle tick, ours out and theirs in. */
+  /** Average damage per battle tick, ours out and theirs in. **Shield and hull together** —
+   * `battle_damage` publishes `shield_hit` and `hull_hit` and this is their sum, which on the live
+   * server is overwhelmingly shield. Read as hull it is wildly alarming: a 25-tick fight taking 39
+   * damage moved the hull 2 percentage points. Never compare it against the walk-away line. */
   dealt_per_tick:number;taken_per_tick:number;
+  /** Hull percentage points lost in an average fight with this opponent — the number the
+   * walk-away decision actually turns on, since the mood's line is a fraction of max hull.
+   * `undefined` when no fight recorded a hull reading at both ends. */
+  hull_pct_lost?:number;
   /** Measured accuracy by range band, 0..1, each with the shots it rests on. A band with no
    * shots is absent rather than 0 — nothing was measured there. */
   accuracy:Record<string,{at_us?:number;at_us_shots:number;at_them?:number;at_them_shots:number}>;
@@ -125,7 +143,10 @@ export function statsFor(fights:FightRecord[],opponent:string,now=Date.now()):Co
   const ticks=mine.reduce((sum,row)=>sum+Math.max(0,row.ticks),0);
   const ages=mine.map(row=>fightTicksOld(row.at,now));
   const accuracy:CombatStats['accuracy']={};
-  for(const row of mine)for(const [band,tally] of Object.entries(row.by_range??{})) {
+  // Folded at READ, not at write, so the fights already on disk — ten of them on the live profile,
+  // written before anyone knew there were five bands — are read the same way as the next one.
+  for(const row of mine)for(const [zone,tally] of Object.entries(row.by_range??{})) {
+    const band=bandOf(zone);
     const kept=accuracy[band]??={at_us_shots:0,at_them_shots:0};
     kept.at_us_shots+=tally.at_us.shots;kept.at_them_shots+=tally.at_them.shots;
     kept.at_us=(kept.at_us??0)+tally.at_us.hits;kept.at_them=(kept.at_them??0)+tally.at_them.hits;
@@ -137,7 +158,13 @@ export function statsFor(fights:FightRecord[],opponent:string,now=Date.now()):Co
     band.at_them=ratio(band.at_them??0,band.at_them_shots);
   }
   const won=mine.filter(row=>row.ending==='victory').length;
+  // Hull cost per fight, from the fights that read the hull at both ends. Kept apart from the
+  // damage totals because it is a different quantity in a different unit, and it is the one the
+  // pilot's walk-away line is expressed in.
+  const hulls=mine.filter(row=>row.hull_pct_from!==undefined&&row.hull_pct_to!==undefined)
+    .map(row=>Math.max(0,row.hull_pct_from!-row.hull_pct_to!));
   return {opponent,fights:mine.length,won,
+    ...hulls.length?{hull_pct_lost:Math.round(10*hulls.reduce((sum,one)=>sum+one,0)/hulls.length)/10}:{},
     newest_ticks_old:Math.min(...ages),oldest_ticks_old:Math.max(...ages),
     ship_classes:[...new Set(mine.map(row=>row.ship_class).filter((one):one is string=>Boolean(one)))],
     dealt_per_tick:ticks?Math.round(10*mine.reduce((sum,row)=>sum+row.dealt,0)/ticks)/10:0,
@@ -146,14 +173,20 @@ export function statsFor(fights:FightRecord[],opponent:string,now=Date.now()):Co
 }
 
 /** One terse line for a juncture, where the choice to engage is actually made. It is prompt
- * budget, so: the record, the damage race, their accuracy by band, and the age. A thin sample
- * says "1 fight" rather than "0%", because that is what it is. */
+ * budget, so: the record, what a fight costs the hull, the damage race, their accuracy by band,
+ * and the age. A thin sample says "1 fight" rather than "0%", because that is what it is.
+ *
+ * Every number here names its unit. The damage figures say `shield+hull` because that is what
+ * they sum, and the hull figure is given separately in percentage points — a pilot that read the
+ * damage total as hull would break off many times too early, and the walk-away line it is
+ * deciding against is measured in hull. */
 export function combatLine(stats:CombatStats):string {
   const bands=Object.entries(stats.accuracy)
     .filter(([,band])=>band.at_us!==undefined)
     .map(([band,row])=>`${Math.round(100*row.at_us!)}% ${band}`).join('/');
   return [`${stats.won}/${stats.fights} won${stats.thin?` (${stats.fights} fight${stats.fights>1?'s':''}, not a rate)`:''}`,
-    `${stats.taken_per_tick} dmg/tick in`,
+    ...stats.hull_pct_lost!==undefined?[`costs ${stats.hull_pct_lost}% hull a fight`]:[],
+    `${stats.taken_per_tick} shield+hull dmg/tick in`,
     ...stats.dealt_per_tick?[`${stats.dealt_per_tick} out`]:[],
     ...bands?[`they hit ${bands}`]:[],
     `${stats.newest_ticks_old}t old`].join(', ');
@@ -235,7 +268,7 @@ export function foldBattleEnded(dir:string,payload:Record<string,unknown>,me:str
     :typeof payload.winning_side==='number'&&payload.winning_side===fold.our_side?'victory':reason;
   const by_range:FightRecord['by_range']={};
   for(const [at,row] of fold.ticks) {
-    const band=fold.zones.get(at)??'unknown';
+    const band=bandOf(fold.zones.get(at));
     const kept=by_range[band]??={at_us:{shots:0,hits:0},at_them:{shots:0,hits:0}};
     kept.at_us.shots+=row.at_us.shots;kept.at_us.hits+=row.at_us.hits;
     kept.at_them.shots+=row.at_them.shots;kept.at_them.hits+=row.at_them.hits;
