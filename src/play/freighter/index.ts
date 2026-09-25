@@ -16,6 +16,7 @@ import {miningInventory} from '../../mining-inventory.ts';
 import type {ReadinessAccount,ReadinessCommand} from '../../readiness.ts';
 import {details} from '../../response-details.ts';
 import {ServiceBlocked,serviceShip} from '../../servicing.ts';
+import {fileIntel} from '../../trade-intel.ts';
 import {FuelRouteShortfall,TravelBlocked,travelTo} from '../../travel.ts';
 import type {Circuit} from '../trading/trading.ts';
 
@@ -117,8 +118,9 @@ async function visit(f:Freighter,stop:Stop,sent:(credits:number)=>void):Promise<
   }
   await service();
   f.report({stop:stop.at});
-  const book=new Map<string,MarketListingItem>((
-    (details(await command('spacemolt_market/view_market',{})) as ViewMarketResponse).items??[]).map(row=>[row.item_id,row]));
+  const market=details(await command('spacemolt_market/view_market',{})) as ViewMarketResponse;
+  const book=new Map<string,MarketListingItem>((market.items??[]).map(row=>[row.item_id,row]));
+  await fileIntel(account,command,stop.at,market.items??[],Number(market.current_tick??0),why=>f.report({why}));
   let traded=0;
   for(const {item,min_price} of stop.sell) {
     const row=book.get(item),held=miningInventory(account.state)[item]??0;

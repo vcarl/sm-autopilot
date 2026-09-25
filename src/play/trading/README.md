@@ -38,6 +38,12 @@ So the second visit knows what the first one saw, across runs and across restart
 that the way to *learn* a price is to go and stand in front of it: `goTo(base)` then
 `prices()`, once, and that base is in the memory for good.
 
+Filing to the ledger is automatic too: every `book()` read, and every freighter stop, submits that
+base's priced book (`submit_trade_intel`) once per tick, so you never call it. Without a faction
+ledger it is a no-op, said once per process. What you and your faction filed comes back in `spreads()`
+rows as `source: 'faction ledger'` with `seen` the age of its `submitted_at_tick`, and in `routes()`
+legs as `source`/`age` the same way; a base read both ways ranks on the fresher of the two.
+
 A remembered or filed price is a memory. The book may have moved. `tradeRun` re-reads the book
 at every stop and `sell` re-reads at the sell, so nothing is sent against a stale number.
 

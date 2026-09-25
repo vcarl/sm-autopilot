@@ -5,6 +5,7 @@ import {mkdirSync,readFileSync,renameSync,writeFileSync} from 'node:fs';
 import {join} from 'node:path';
 import {miningInventory} from '../mining-inventory.ts';
 import {details} from '../response-details.ts';
+import {fileIntel} from '../trade-intel.ts';
 import {bench,moduleSpec,room,whyNotFit} from './hangar.ts';
 import {acct,admit,checkStop,command,job,pilot,runtimeDir,step,wanted} from './runtime.ts';
 import {withdraw} from './storage.ts';
@@ -75,12 +76,15 @@ function remember(base_id:string,items:MarketListingItem[],tick:number):void {
 
 /** The book here, whole, read once and filtered in memory: one 190 KB reply beats twenty
  * filtered ones against the rate limit, and the pilot never sees it. Every read is also
- * written to this runtime's market memory, which is what `spreads()` reads. */
+ * written to this runtime's market memory, which is what `spreads()` reads, and filed to the
+ * faction's trade ledger once per tick when there is one. */
 export async function book():Promise<Map<string,MarketListingItem>> {
   const reply=details(await command('spacemolt_market/view_market',{})) as ViewMarketResponse;
   const items=reply.items??[];
   lastTick=Number(reply.current_tick??lastTick);
-  remember(acct().state.location?.docked_at??'',items,lastTick);
+  const base=acct().state.location?.docked_at??'';
+  remember(base,items,lastTick);
+  await fileIntel(acct(),command,base,items,lastTick,step);
   return new Map(items.map(item=>[item.item_id,item]));
 }
 

@@ -51,6 +51,35 @@ test('spreads ranks by net, netting the fuel to the far buyer against the near o
   } finally {unbind();}
 });
 
+test('every book read files the faction ledger once per tick, and the next base reads it back as a far book',async()=>{
+  const f=world({mood:'Focused'},{cargo:[{item_id:'ore',quantity:12}],cargoUsed:12,store:[],tradeIntel:[],
+    markets:{sol_base:[{item_id:'ore',best_buy:50,best_buy_qty:99,best_sell:60,best_sell_qty:9},{item_id:'unpriced',best_buy:0,best_buy_qty:0,best_sell:0,best_sell_qty:0}],
+      range_base:[{item_id:'ore',best_buy:10,best_buy_qty:99,best_sell:12,best_sell_qty:9}]}});
+  try {
+    await prices();await prices();
+    assert.deepEqual(f.sent.filter(call=>call.action==='spacemolt_intel/submit_trade_intel').map(call=>call.params),
+      [{stations:[{base_id:'sol_base',items:[{item_id:'ore',best_buy:50,best_sell:60,buy_volume:99,sell_volume:9}]}]}],
+      'two reads at one tick file once, and a row with no price is not filed');
+    assert.equal((await goTo('range_base')).status,'done');
+    const out=await spreads(['ore']);
+    const [best]=out.detail.spreads;
+    assert.deepEqual([best!.base_id,best!.source,best!.seen,best!.best_buy],['sol_base','faction ledger','0 ticks old',50],
+      'filed at this world\'s tick, read back at the same one');
+    assert.equal(f.count('spacemolt_intel/submit_trade_intel'),2,'range_base filed on its own first read');
+  } finally {unbind();}
+});
+
+test('with no faction, a book read files nothing and says so once',async()=>{
+  const f=world({mood:'Focused'},{cargo:[],cargoUsed:0,store:[]});
+  try {
+    assert.equal((await prices(['ore'])).status,'done');
+    assert.equal((await goTo('range_base')).status,'done');
+    assert.equal((await prices(['ore'])).status,'done');
+    assert.equal(f.count('spacemolt_intel/submit_trade_intel'),1,'tried once, then off for this account');
+    assert.equal(f.lines.filter(line=>line.includes('trade intel not filed')).length,1);
+  } finally {unbind();}
+});
+
 test('with no faction ledger, a book read on an earlier visit survives a new runtime binding',async()=>{
   const runtime=mkdtempSync(join(tmpdir(),'spacemolt-markets-'));
   // Trip one: fly to the far base and read its counter. Nothing else learns the price.

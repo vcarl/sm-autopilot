@@ -244,6 +244,8 @@ export function bridgeWorld(options:WorldOptions={}) {
   /** Base id → what `inspect` quotes for it. A base with no entry answers no base body at all. */
   const quotes=Object.fromEntries(extra.filter(row=>row.base_id&&(row.fuel_price!==undefined||row.repair_price!==undefined))
     .map(row=>[row.base_id!,{fuel:row.fuel_price,hull:row.repair_price}]));
+  /** The faction ledger as filed so far: `options.tradeIntel`, copied, plus what this world's pilots submit. */
+  const ledger=options.tradeIntel&&[...options.tradeIntel];
   const homes:Record<string,string>={...homeOf,
     ...Object.fromEntries(extra.flatMap(row=>[[row.id,'sol'],...row.base_id?[[row.base_id,'sol']]:[]]))};
   const poiIds:Record<string,string>={...poiOf,
@@ -616,9 +618,9 @@ export function bridgeWorld(options:WorldOptions={}) {
       return {delta:{details:{current_tick:TICK,items:rows.map(row=>({item_name:row.item_id,buy_price:row.best_sell,...row}))}}};
     },
     'spacemolt_intel/query_trade_intel':params=>{
-      if(!options.tradeIntel)throw new Error('You are not in a faction');
+      if(!ledger)throw new Error('You are not in a faction');
       const item=params.item_id===undefined?undefined:String(params.item_id);
-      const entries=options.tradeIntel
+      const entries=ledger
         .map(row=>({base_id:row.base_id,system_id:row.system_id??'deep_range',
           station_name:row.station_name??row.base_id,submitted_at_tick:row.submitted_at_tick??100,
           submitted_by:'someone',submitter_name:'Someone',
@@ -626,6 +628,16 @@ export function bridgeWorld(options:WorldOptions={}) {
             .map(cell=>({item_name:cell.item_id,best_sell:0,buy_volume:0,sell_volume:0,...cell}))}))
         .filter(row=>row.items.length);
       return {structuredContent:{entries,intel_level:2,showing:entries.length,total:entries.length}};
+    },
+    // One entry per base, the latest filing replacing the last, stamped with the tick it came in on.
+    'spacemolt_intel/submit_trade_intel':params=>{
+      if(!ledger)throw new Error('You are not in a faction');
+      const stations=params.stations as {base_id:string;items:{item_id:string;best_buy:number;best_sell:number;buy_volume:number;sell_volume:number}[]}[];
+      for(const station of stations) {
+        ledger.splice(0,ledger.length,...ledger.filter(row=>row.base_id!==station.base_id));
+        ledger.push({base_id:station.base_id,system_id:account.server.location.system_id,submitted_at_tick:TICK,items:station.items});
+      }
+      return {delta:{details:{status:'submitted',stations_updated:stations.length,message:`Trade intel submitted for ${stations.length} station(s).`}}};
     },
     'spacemolt/sell':params=>{
       const quantity=take(String(params.id),Number(params.quantity));

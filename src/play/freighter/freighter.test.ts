@@ -53,6 +53,9 @@ test('a lap sells only the listed items at their floors, buys within the cap, an
   assert.equal(deposits[0]!.credits,deposits[0]!.wallet-f.float);
   assert.ok(world.account.server.player.credits<=f.float);
   assert.equal(reports.filter(r=>r.lapped!==undefined).length,1);
+  assert.equal(world.count('spacemolt_intel/submit_trade_intel'),1,'no faction: filing is tried at the first stop and not again');
+  assert.deepEqual(reports.filter(r=>r.why?.startsWith('trade intel')).map(r=>r.why),
+    ['trade intel not filed, and not tried again this process: You are not in a faction']);
 });
 
 test('a lap sells at a bid over the floor',async()=>{
