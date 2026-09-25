@@ -15,12 +15,13 @@ import type {ReadinessAccount,ReadinessCommand} from './readiness.ts';
 import {details} from './response-details.ts';
 import {resolveWalkAway,type Mood} from './mood-policy.ts';
 import {reflectReport} from './reflect.ts';
-import {REST_JOB,evaluateMenu,type Facts,type StanceName} from './rules-table.ts';
+import {type Facts,type StanceName} from './rules-table.ts';
 import {journalCommand,journalRun,readRun,type RunRecord} from './run-record.ts';
 import {startHeartbeat} from './heartbeat.ts';
 import {flushJournalDrain,startJournalDrain} from './journal-webhook.ts';
 import {check as checkPilot,runPilot as defaultRunPilot,type RunResult} from './run.ts';
-import {factsNow,menu as buildMenu,renderMenu} from './play/menu.ts';
+import {menu as buildMenu,renderMenu} from './play/menu.ts';
+import {restNow} from './play/rest.ts';
 import {bind,isBound,present,progress,stop as stopRun,unbind} from './play/runtime.ts';
 
 /** The one endpoint this runner talks to. */
@@ -305,20 +306,13 @@ export function serve(account:ReadinessAccount,command:ReadinessCommand,options:
   };
 
   /** Rest: the one act that ends a shift (N6), and the only thing that touches the stance.
-   * The admissibility is the menu's own rest rule (R5). Tired does not survive it. */
+   * The act itself is `play/rest.ts`, which a script reaches as `rest()`; this is the runner's
+   * own way in, for the juncture. Admissibility is the menu's own rest rule (R5) either way. */
   const rest=async()=>{
     if(running)return {rested:false,reason:'a run is in flight; rest when it ends',...busy()};
-    const who=pilot();
-    const facts=await factsNow(account,command,who,runtime);
-    const verdict=evaluateMenu(facts).find(row=>row.job===REST_JOB);
-    if(!verdict?.admissible)return {rested:false,reason:verdict?.reason??'rest is not admissible here'};
-    if(!options.setPilot)return {rested:false,reason:'this runner cannot write the pilot record'};
-    const {stance,mood,goal,mood_before_tired:_m,tired_forced:_t,...kept}=who;
-    options.setPilot(kept);
-    const cleared={...stance?{stance}:{},...mood?{mood}:{},...goal?{goal}:{}};
-    if(runtime)journalRun(runtime,cleared,'rest');
-    return {rested:true,shift_ended:true,at_rest:true,cleared,
-      serviced:facts.holdings.fuel>=facts.holdings.max_fuel&&facts.holdings.hull>=facts.holdings.max_hull};
+    const write=options.setPilot;
+    if(!write)return {rested:false,reason:'this runner cannot write the pilot record'};
+    return restNow(account,command,pilot(),write,runtime);
   };
   const reflect=async()=>reflectReport(account,command,pilot(),runtime);
 

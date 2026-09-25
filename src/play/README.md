@@ -108,6 +108,7 @@ sees the real types, so these are not style notes.
 | `prices(items?)` / `sell(rows, opts?)` / `buy(item, qty)` | the market here, live at the moment of the act, and remembered for `spreads()`. `sell`'s options are exactly two: `{from: 'hold' \| 'store'}` (default `'hold'`; `'store'` empties the store a hold-load at a time) and `{floor: {[item_id]: number}}` (skip a row whose `best_buy` is under it). There is no option naming a market — `sell` is always the counter you are docked at |
 | `refit({install,remove})` / `shipsForSale(opts?)` / `buyShip(id, opts?)` | the hangar: modules on and off within the grid, the hulls for sale here, the next one |
 | `missions()` / `acceptMission(id)` / `completeMissions()` / `abandonMission(id, opts?)` | the board here; the cheapest credits and xp early |
+| `rest()` | end the shift: docked at a base, on a ship this base has brought as far up as it can. It clears the stance, the mood and the goal — a Tired the world imposed included — and the next juncture reflects instead of flying. Refused, it says what is still missing and the shift stays open |
 | `note(text)` | write a line into the journal and the run's stream |
 | `account()` | the raw `@spacemolt/lib` Account |
 | `outcome(did, status?, detail?)` | build an Outcome for a helper of your own; the runtime fills cost, gains and the present |
@@ -192,6 +193,33 @@ which is no reason to stay put. Resupplying back inside the margins — `service
 or at any base — clears Tired and restores the mood it replaced. You never set or clear Tired
 yourself. Rest clears everything. `permissions.credit_reserve` is a standing bound and Tired does
 not widen it; a fill it refuses says so by name.
+
+## Ending the shift
+
+`rest()` is the last line of a run that has nothing left to do this shift. It is a library call
+like any other, so it costs no juncture of its own: end the file with it and the next juncture
+reflects — a new goal, a new stance, the mood that fits it. It needs you docked at a base
+(any base) and the ship as far up as that base can bring it, so `service()` comes first; where
+the wallet cannot cover the counter, rest happens anyway and reflection is told the ship is short.
+
+```ts
+import {gatherUntil, rest, service} from 'play';
+
+export default async function main() {
+  const trip = await gatherUntil({poi: 'belt'});
+  if (trip.status !== 'done') return trip;
+  await service();
+  // Three loads in the store is the goal met: put the evening down here rather than
+  // spending a juncture to say so.
+  const put = await rest();
+  return put.status === 'done' ? put : trip;
+}
+```
+
+Nothing forces it: a run that ends any other way leaves the shift open and the next juncture
+picks up where this one left off. The one exception is not yours — a run that ends with the
+pilot Tired and docked is rested by the runner itself, because a broken script must not be able
+to leave a pilot that can never reflect.
 
 ## Rules that will refuse you
 

@@ -209,6 +209,9 @@ async function sent(action:string,params:Record<string,unknown>):Promise<unknown
 }
 export const acct=():ReadinessAccount=>need().account;
 export const runtimeDir=()=>need().runtime;
+/** Write the pilot record. Not a pilot-facing call and not in the barrel: the runtime imposes
+ * and clears Tired with it, and `rest` puts the shift down with it. Nothing else writes it. */
+export const setPilot=(next:Pilot):void=>need().setPilot(next);
 
 /** One streamed line: journalled first, then sent. */
 export function line(text:string,extra:Record<string,unknown>={}):void {
