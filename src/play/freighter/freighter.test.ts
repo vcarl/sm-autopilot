@@ -142,3 +142,26 @@ test('three laps in a row that lose money park the freighter, the why naming the
   assert.equal(parked(),`3 laps lost money: last ${laps[2]!.net} vs predicted 500`);
   assert.equal(world.account.server.location.docked_at,'range_base','parked docked at the last stop');
 });
+
+test('a lap that keeps its load values it at cost: the live lap 3 reads its fuel, not -1190, and holding says what is aboard',async()=>{
+  // Live: 40 copper_piping bought at procyon for 1120 + 28 tax; nova's bid fell under the 36 floor
+  // and the load stayed aboard. Here gems stand in for copper, and range's 115 bid is under the 120 floor.
+  const {world,f,deposits,reports}=freighter(115);
+  const send=f.command;
+  f.command=async(action,params)=>{
+    const reply=await send(action,params);
+    // The fake charges 12 a unit: make it the live 28 a unit and 2.5% tax, 1148 for 40.
+    if(action==='spacemolt/buy')world.account.server.player.credits-=Number(params.quantity)*16+Math.floor(Number(params.quantity)*28*0.025);
+    return reply;
+  };
+  world.account.server.player.credits=23_000;
+  f.float=23_000;
+  const copper:Circuit={...GEMS,stops:[{...GEMS.stops[0]!,buy:{item:'gem',qty:40,max_price:110}},GEMS.stops[1]!]};
+  await world.account.refresh();
+  const done=await lap(f,copper);
+  assert.deepEqual(reports.findLast(r=>r.holding)!.holding,{gem:{quantity:40,cost:1148}});
+  const home=deposits.reduce((sum,row)=>sum+row.credits,0);
+  assert.equal(world.account.server.player.credits+home-23_000,done.net-1148,'the wallet fell by the load and the fuel');
+  assert.ok(done.net<0&&done.net>-100,`${done.net}: the refuels, not the load`);
+  assert.equal(reports.find(r=>r.lapped!==undefined)!.lapped,done.net);
+});

@@ -19,7 +19,7 @@ import {pilotHome} from '../../run.ts';
 import {checkBoundary,specifiers} from '../boundary.ts';
 import {checkPolicy} from '../policy.ts';
 import type {Circuit} from '../trading/trading.ts';
-import type {Freighter} from './index.ts';
+import type {Freighter,Holding} from './index.ts';
 
 /** One freighter as `freighters.json` keeps it. */
 export interface Entry {
@@ -30,15 +30,18 @@ export interface Entry {
   lap:number;stop?:string;credits?:number;
   /** Credits deposited home to `owner`, all told. */
   returned:number;
-  /** The last whole lap's net, against `circuit.lap_net` predicted. */
+  /** The last whole lap's net, against `circuit.lap_net` predicted: the wallet's change plus the
+   * change in `holding`. */
   last_lap_net?:number;
+  /** The cargo aboard it bought, at cost, after its last stop. */
+  holding?:Holding;
   /** Why it parked, or what fell short at the last stop. */
   why?:string;
   at:string;
 }
 /** A freighter as `freighters()` and the menu report it. */
 export interface FreighterRow {name:string;state:Entry['state'];lap:number;stop:string|null;credits:number|null;
-  returned:number;last_lap_net:number|null;lap_net:number;why?:string}
+  returned:number;last_lap_net:number|null;lap_net:number;holding:Holding;why?:string}
 
 const FILE='freighters.json',RETRY_MS=60_000;
 const message=(error:unknown)=>error instanceof Error?error.message:String(error);
@@ -66,7 +69,9 @@ function update(runtime:string,name:string,fields:Partial<Entry>):void {
 
 export const row=(name:string,entry:Entry):FreighterRow=>({name,state:entry.state,lap:entry.lap,stop:entry.stop??null,
   credits:entry.credits??null,returned:entry.returned,last_lap_net:entry.last_lap_net??null,lap_net:entry.circuit.lap_net,
-  ...entry.why?{why:entry.why}:{}});
+  holding:entry.holding??{},...entry.why?{why:entry.why}:{}});
+/** `holding` in words: `40 copper_piping (1148 cr)`. */
+export const held=(holding:Holding)=>Object.entries(holding).map(([item,row])=>`${row.quantity} ${item} (${Math.round(row.cost)} cr)`).join(', ');
 /** The menu's `freighters` rows; nothing when none was ever assigned. */
 export function fleetBrief(runtime:string):{freighters?:FreighterRow[]} {
   const rows=Object.entries(readFleet(runtime)).map(([name,entry])=>row(name,entry));
@@ -140,7 +145,7 @@ export function start(runtime:string,name:string):string|null {
       throw error;
     }
   };
-  const f:Freighter={name,account:live,command,owner:entry.owner,float:entry.float,
+  const f:Freighter={name,account:live,command,owner:entry.owner,float:entry.float,...entry.holding?{holding:entry.holding}:{},
     recalled:()=>loop.recall||loop.stopping,
     // A bridge shutting down stops every loop; the entry stays `running` so the next one resumes it.
     park:why=>{if(!loop.stopping)update(runtime,name,{state:'parked',why});journalRun(runtime,{freighter:name,parked:why},'freighter');

@@ -23,7 +23,7 @@ Five different things get called "fleet". Keep them apart:
 | `switchShip(id)` | **not built yet — it throws `unimplemented`.** `account().commands.spacemolt_ship.switch_ship({id})`, and stow and service by hand first |
 | `assign(name, circuit, {float})` | hand a closed circuit to the freighter `name`, which flies it lap after lap on its own account and sends its profit home to you |
 | `recall(name)` | bring it home: it finishes the stop it is on, sends its profit, and parks docked with its cargo aboard |
-| `freighters()` | every freighter: state, lap, stop, wallet, what it has sent home, the last lap against the prediction, and why it parked |
+| `freighters()` | every freighter: state, lap, stop, wallet, what it has sent home, the last lap against the prediction, the cargo aboard at cost, and why it parked |
 
 ## Worked example
 
@@ -93,8 +93,9 @@ its cargo aboard, and `freighters()` and the menu show the why: pick a new row a
 | `stop` | the base it is at, or was last at |
 | `credits` | its wallet there, after the deposit |
 | `returned` | credits it has sent home to you, all told |
-| `last_lap_net` | what the last whole lap made, deposits included, fuel and repairs out |
+| `last_lap_net` | what the last whole lap made: the wallet's change, deposits included, fuel and repairs out, plus the change in `holding`. A load bought and still aboard counts at what it cost, so a lap whose sale did not happen reads its fuel, not the load |
 | `lap_net` | what `routes()` predicted a lap makes. A `last_lap_net` well under it, lap after lap, means the books have moved: recall it and assign the new top row. Three losing laps park it on their own |
+| `holding` | the cargo aboard that it bought, `{item: {quantity, cost}}`, `cost` what those units left the wallet for, tax included; a sale takes units off at their average cost. A parked freighter's `holding` is your capital tied up in its hold. It stays aboard, at its cost, when the freighter is assigned a new circuit, and is sold there only if that circuit sells the item |
 | `why` | why it parked, or what fell short at the last stop |
 
 ```ts

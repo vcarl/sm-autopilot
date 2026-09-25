@@ -7,7 +7,7 @@ import {mkdirSync,writeFileSync} from 'node:fs';
 import {dirname} from 'node:path';
 import {details} from '../../response-details.ts';
 import {closure} from '../freighter/index.ts';
-import {flying,gate,readFleet,recallLoop,row,script,scriptPath,start,writeFleet,type FreighterRow} from '../freighter/host.ts';
+import {flying,gate,held,readFleet,recallLoop,row,script,scriptPath,start,writeFleet,type FreighterRow} from '../freighter/host.ts';
 import {acct,command,job,runtimeDir} from '../runtime.ts';
 import {farBooks,hops,type Circuit} from '../trading/trading.ts';
 import type {Outcome} from '../types.ts';
@@ -72,7 +72,10 @@ export function assign(name:string,circuit:Circuit,caps:{float:number}):Promise<
     const errors=gate(path);
     if(errors.length)return refuse(errors.join('; '));
     const fleet=readFleet(runtime);
-    fleet[name]={state:'running',circuit:clean,float:caps.float,owner,lap:0,returned:fleet[name]?.returned??0,at:new Date().toISOString()};
+    // The cargo aboard stays aboard, and keeps what it cost.
+    const holding=fleet[name]?.holding;
+    fleet[name]={state:'running',circuit:clean,float:caps.float,owner,lap:0,returned:fleet[name]?.returned??0,
+      ...holding?{holding}:{},at:new Date().toISOString()};
     writeFleet(runtime,fleet);
     const why=start(runtime,name);
     if(why)return refuse(why);
@@ -94,13 +97,14 @@ export function recall(name:string):Promise<Outcome<{freighter:FreighterRow|null
 }
 
 /** Every freighter assigned from here: state, laps, the stop, its wallet, what it has sent home,
- * the last lap's net against the lap_net predicted, and why it parked. Reads only. */
+ * the last lap's net against the lap_net predicted, the cargo aboard at cost, and why it parked. Reads only. */
 export function freighters():Promise<Outcome<{freighters:FreighterRow[]}>> {
   return job<{freighters:FreighterRow[]}>('freighters','',async()=>{
     const runtime=runtimeDir();
     const rows=runtime?Object.entries(readFleet(runtime)).map(([name,entry])=>row(name,entry)):[];
     return {status:'done',did:rows.length?rows.map(r=>`${r.name} ${r.state} lap ${r.lap}${r.stop?` at ${r.stop}`:''}, returned ${r.returned} cr`
-      +(r.last_lap_net===null?'':`, last lap ${r.last_lap_net} of ${r.lap_net} predicted`)+(r.why?` (${r.why})`:'')).join('; '):'no freighters assigned',
+      +(r.last_lap_net===null?'':`, last lap ${r.last_lap_net} of ${r.lap_net} predicted`)+(held(r.holding)?`, holding ${held(r.holding)}`:'')
+      +(r.why?` (${r.why})`:'')).join('; '):'no freighters assigned',
       detail:{freighters:rows},next:rows.length?[]:['routes({circuit: {hold: 50}}), then assign the top row']};
   });
 }
