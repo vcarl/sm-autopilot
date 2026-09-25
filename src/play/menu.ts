@@ -564,7 +564,8 @@ export async function menu(runtime?:string):Promise<Menu> {
       // the label from `play` meant this branch never fired at all and every rules-table reason
       // was computed and dropped, while `play/README.md` promised the pilot the opposite.
       // `already serviced` is not a refusal worth a line: it is the ship being fine.
-      if(!/already at the serviced-dock targets/.test(verdict.reason))
+      // A refused J6 is said once, by the Trader row above, as the tradeRun it refuses.
+      if(!/already at the serviced-dock targets/.test(verdict.reason)&&!(verdict.job.startsWith('J6')&&docked))
         refused.push({move:fn||verdict.job,why:verdict.reason,rank:REFUSAL_RANK[verdict.tag]??9});
       continue;
     }

@@ -127,7 +127,7 @@ test('each admissible verdict carries the barrel call it would be taken with, or
   assert.ok(j7?.admissible,j7?.reason);
   assert.equal(j7!.play,'recipes()');
 
-  const j6=play(rich({stance:'Trader',observed:{spread:{item_id:'ore',margin:40,age:12}}}),'J6');
+  const j6=play(rich({stance:'Trader',observed:{spread:{item_id:'ore',base_id:'range_base',margin:40,age:12}}}),'J6');
   assert.ok(j6?.admissible,j6?.reason);
   assert.equal(j6!.play,'spreads()','the remembered bid is a lead; spreads() is what confirms it live');
 
