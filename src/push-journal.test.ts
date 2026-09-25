@@ -56,7 +56,13 @@ test('the plumbing and the noise are never registered, so nothing double-counts'
     assert.equal(account.registered().includes(plumbing),false,`${plumbing} must stay with the correlator`);
   // A frame nobody allowlisted has no handler at all: it arrives and is dropped by the lib.
   assert.equal(account.registered().includes('chat_message'),false);
-  assert.equal(account.registered().includes('battle_damage'),false);
+  // The two folded frames ARE registered now — they are the combat memory's whole input — but
+  // they never reach the journal: `combat-memory.test.ts` holds that contract.
+  for(const folded of ['battle_update','battle_damage'])
+    assert.equal(account.registered().includes(folded),true,`${folded} feeds combat.json`);
+  // `battle_started`, `battle_joined` and `battle_left` carry no number any metric needs.
+  for(const skipped of ['battle_started','battle_joined','battle_left'])
+    assert.equal(account.registered().includes(skipped),false,`${skipped} has nothing to fold`);
 });
 
 test('a movement nobody asked for is attributed, and the pilot\'s own is left to the command seam', () => {

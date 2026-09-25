@@ -8,6 +8,7 @@ import {resolve} from 'node:path';
 import {createInterface} from 'node:readline';
 import {fileURLToPath} from 'node:url';
 import {markAlertsDelivered,pendingAlerts,recordAlert} from './alerts.ts';
+import {foldBattleDamage,foldBattleEnded,foldBattleUpdate} from './combat-memory.ts';
 import {battleEnded} from './travel.ts';
 import {controllerLock} from './controller-lock.ts';
 import type {ReadinessAccount,ReadinessCommand} from './readiness.ts';
@@ -81,13 +82,30 @@ export function journalResult(action:string,result:unknown):unknown {
  *
  * `action_result`, `action_error` and `reconnected` are deliberately absent — the lib's own
  * correlator consumes them and the command seam already journals the reply. */
-export const PUSH_TYPES=['battle_alert','battle_ended','player_died','facility_rent_warning',
+export const PUSH_TYPES=['battle_alert','battle_ended','battle_update','battle_damage',
+  'player_died','facility_rent_warning',
   'facility_reclaimed','base_destroyed','base_raid_update','mining_yield','crafting_update',
   'skill_level_up','ok','fleet'] as const;
 
-/** The one group buffered into `alerts.json` as well as journalled: the pilot losing real
- * property while it sleeps. All three carry `base_id`, which is the collapse key. */
-const ALERT_TYPES=new Set(['facility_rent_warning','facility_reclaimed','base_destroyed']);
+/** The two combat frames that are folded into `combat.json` and never journalled: a battle
+ * pushes one `battle_update` a tick and a `battle_damage` per shot, and `gameplay.jsonl` is
+ * already 36 MB. `battle_update` is the only frame carrying the range band, the stance in
+ * force and our hull class; `battle_damage` is the only one carrying `hit_success`, which is
+ * the whole of measured accuracy. `battle_started`, `battle_joined` and `battle_left` are
+ * deliberately absent: `started` carries no tick and nothing the per-tick `update` does not
+ * carry anyway, and `joined`/`left` carry only a name and a reason — no number any metric
+ * needs, and `battle_ended.participants[].survived` already says who lived. */
+const FOLD_ONLY=new Set(['battle_update','battle_damage']);
+
+/** The collapse key per buffered alert type — the group the pilot loses real property in
+ * while it sleeps. The facility frames collapse on the base; a death collapses on the wreck it
+ * left, so three ships lost in a shift are three items rather than one. `player_died` carries
+ * no `base_id` at all, which is why this is a key per type rather than one field. */
+const ALERT_KEY:Record<string,(body:Record<string,unknown>)=>string|undefined>={
+  facility_rent_warning:body=>typeof body.base_id==='string'?`base:${body.base_id}`:undefined,
+  facility_reclaimed:body=>typeof body.base_id==='string'?`base:${body.base_id}`:undefined,
+  base_destroyed:body=>typeof body.base_id==='string'?`base:${body.base_id}`:undefined,
+  player_died:body=>`wreck:${body.wreck_id??body.ship_lost??'ship'}`};
 
 /** `ok` pushes that echo a command this pilot itself sent: the command seam journalled it
  * already, so a second line would double-count the same act. */
@@ -122,7 +140,8 @@ export function pushScalars(payload:unknown):Record<string,unknown> {
 /** Register the allowlist on an account that outlives every run. Called once from `main()`,
  * never from `bind()`: a handler bound to a run is deaf between junctures, which is the
  * whole reason these frames were being lost. */
-export function pushJournal(account:{on:(type:string,handler:(payload:Record<string,unknown>)=>void)=>unknown},
+export function pushJournal(account:{on:(type:string,handler:(payload:Record<string,unknown>)=>void)=>unknown;
+  player?:{id?:string};currentTick?:number},
   runtime:string,now:()=>number=Date.now):void {
   const seen=new Map<string,{minute:number;n:number}>();
   const spare=(channel:string):boolean=>{
@@ -139,14 +158,20 @@ export function pushJournal(account:{on:(type:string,handler:(payload:Record<str
     // refusal stands until one of them arrives (or a confirmed `disengage` clears it), so a
     // battle that ends between junctures does not leave the ship refusing to move.
     if(type==='battle_ended'||type==='player_died')battleEnded();
+    // The combat fold, before the rate cap and before the journal: losing shots to a 20-a-minute
+    // ceiling would bias measured accuracy silently, which is worse than not measuring it.
+    if(type==='battle_update')foldBattleUpdate(body);
+    if(type==='battle_damage')foldBattleDamage(body,account.player?.id);
+    if(type==='battle_ended')foldBattleEnded(runtime,body,account.player?.id,account.currentTick);
+    if(FOLD_ONLY.has(type))return;
     const cause=type==='ok'?String(body.action??body.type??''):'';
     if(type==='ok'&&(!cause||OWN_PUSH.has(cause)||PUSH_NOISE.has(cause)))return;
     const scalars=pushScalars(body);
     // Buffered before the rate cap, never after: the cap protects the journal and the Discord
     // drain from a chatty group, and losing a repossession notice to it would be the one
     // failure this whole path exists to prevent. Collapse by key is its bound instead.
-    if(ALERT_TYPES.has(type)&&typeof body.base_id==='string')
-      recordAlert(runtime,type,`base:${body.base_id}`,scalars);
+    const key=ALERT_KEY[type]?.(body);
+    if(key)recordAlert(runtime,type,key,scalars);
     if(!spare(type))return;
     if(MOVED_BY_OTHERS.has(cause))
       journalRun(runtime,{cause,

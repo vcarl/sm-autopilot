@@ -9,6 +9,7 @@ import {resolveFuelReserve} from '../mood-policy.ts';
 import type {ReadinessAccount,ReadinessCommand} from '../readiness.ts';
 import {details} from '../response-details.ts';
 import {evaluateMenu,jobStop,type CounterName,type Facts} from '../rules-table.ts';
+import {combatLine,readCombat,statsFor} from '../combat-memory.ts';
 import {readJournal} from '../run-record.ts';
 import {PACKAGE_CARGO} from './hauling/freight.ts';
 import {bench,moduleSpec,whyNotFit} from './hangar.ts';
@@ -146,7 +147,14 @@ export async function factsNow(account:ReadinessAccount,send:ReadinessCommand,wh
     // `hunt` declines a creature, so a target on the menu is one the loop will take.
     const near=await attempt(async()=>details(await send('spacemolt/get_nearby',{})) as GetNearbyResponse);
     const legal=(near?.creatures??[]).filter(row=>!row.in_combat&&!row.branded);
-    if(legal.length)observed.targets=legal.map(row=>row.name);
+    // The juncture is where the choice to engage is made, so what memory knows about fighting
+    // this thing rides along with its name — the same string the `hunt` row's `why` repeats.
+    // A creature never fought before stays a bare name: there is nothing measured to say.
+    const fought=runtime?readCombat(runtime):[];
+    if(legal.length)observed.targets=legal.map(row=>{
+      const stats=statsFor(fought,row.name);
+      return stats?`${row.name} — ${combatLine(stats)}`:row.name;
+    });
   }
   if(who.stance==='Carrier'&&docked) {
     const listed=await attempt(async()=>details(await send('spacemolt_shipping/list',{sort:'reward'})) as ShippingListResponse);
