@@ -167,3 +167,34 @@ test('a script ends its own shift with rest(), and the run reports it',async()=>
     assert.ok(f.lines.some(line=>/^✓ rest  done/.test(line)),f.lines.join('\n'));
   } finally {f.close();}
 });
+
+test('a run does not start at all when the record names no stance or mood',async()=>{
+  // Live 2026-09-25, 23:07Z: one run started with the header reading `mood - stance -`, then spent
+  // the whole juncture on 38 identical refusals — `hunt not started: the pilot record names no mood;
+  // reflect at rest first` — across deep_range, last_light, altais and the_telescope, cycling. Zero
+  // reflections. Every mood-gated call refuses in that state, so the run cannot accomplish anything,
+  // and `run.ts` prints the empty record in its own header at entry: it knew before the first call.
+  //
+  // One guard at the start kills the whole class. A retry limit on each mood-gated call would not:
+  // there are a dozen of them and the next one would burn the juncture just as well.
+  const f=harness();
+  try {
+    // `orient()` is not mood-gated, so it proves whether the script body ran at all.
+    f.write("import {orient, hunt} from 'play';\nexport default async function main(){ await orient(); return hunt({look:['belt','station']}); }\n");
+    const atRest={name:'kvothe'};   // exactly what rest() leaves behind
+    const result=await runPilot({...f.deps,pilot:()=>atRest as any});
+    // Nothing the SCRIPT would have sent reached the game: the body never ran. The one command that
+    // does go out is the runner's own battle check, which happens on every exit path because a
+    // battle holding the ship outranks everything and a refused run must still report it.
+    const byScript=f.sent.map(c=>c.action).filter(action=>action!=='spacemolt_battle/status');
+    assert.deepEqual(byScript,[],`a run that cannot work still sent ${byScript.length} commands`);
+    // And the refusal is unmistakable where the pilot actually reads: the report and run.json.
+    const said=f.lines.join('\n');
+    assert.match(said,/spacemolt_reflect/,`the report does not say what to do instead: ${said}`);
+    assert.match(said,/goal/,said);
+    const record=readRun(f.runtime);
+    assert.equal(record?.ended,true,'run.json was left open');
+    assert.match(JSON.stringify(record),/reflect/i,`run.json does not carry the reason: ${JSON.stringify(record)}`);
+    assert.equal((result as {accepted?:boolean}).accepted??true,true,'the run was accepted and then refused, not rejected unread');
+  } finally {f.close();}
+});

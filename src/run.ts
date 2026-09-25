@@ -177,8 +177,30 @@ export async function runPilot(deps:RunDeps):Promise<RunResult> {
   journalRun(runtime,{phase:'started',script:'index.ts',sha:gate.sha,started,...resume?{resumed:true}:{}});
   bind({...deps});
   line(`run started ${started}  index.ts sha ${gate.sha}  mood ${deps.pilot().mood??'-'}  stance ${deps.pilot().stance??'-'}`);
+  /** A record with no stance or mood is a pilot at rest, and every mood-gated call refuses in that
+   * state (`admit`), so the script cannot accomplish anything whatever it contains.
+   *
+   * Live 2026-09-25, 23:07Z: one run started with this exact header — `mood - stance -` — and spent
+   * the whole juncture on 38 identical `hunt not started: the pilot record names no mood` refusals
+   * across four systems, cycling, with zero reflections. The gating chain was right at every step
+   * and `rest()` had cleared the record as designed; what was missing was anyone asking the question
+   * at the top, where the answer was already printed.
+   *
+   * One guard here kills the class. A retry limit on each mood-gated call would not: there are a
+   * dozen of them, and the next one burns the juncture just as well. */
+  const shiftless=!deps.pilot().stance||!deps.pilot().mood
+    ?'no shift is open: the pilot record names '
+      +`${!deps.pilot().stance&&!deps.pilot().mood?'no stance and no mood'
+        :!deps.pilot().stance?'no stance':'no mood'}`
+      +', so every job would refuse and nothing this script does can work. '
+      +'Do not run a script: call spacemolt_reflect with a goal, a stance and a mood, and end the turn.'
+    :null;
   let result:Outcome<unknown>;
-  try {
+  if(shiftless) {
+    line(shiftless);
+    result=build('no run was started','refused',{shiftless:true},shiftless);
+  }
+  else try {
     const url=pathToFileURL(gate.entry);
     const loaded=await import(`${url.href}?v=${statSync(gate.entry).mtimeMs}-${gate.sha}`) as {default?:()=>Promise<unknown>};
     if(typeof loaded.default!=='function')throw new Error('pilot/index.ts exports no default function');
