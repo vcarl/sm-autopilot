@@ -8,9 +8,12 @@ the evening to have when the menu keeps offering the same belt.
 
 | Function | Promise |
 |---|---|
-| `exploreNearby({systems?, jumps?, survey?})` | visit unvisited systems within reach, dock and read each, come home |
+| `exploreNearby({systems?, jumps?, survey?})` | **not built yet — it throws `unimplemented`.** Walk the circuit by hand with `goTo` and `scout`, as the worked example below does |
 
-With `scout(id)` (root) for the map before you go and `survey()` (mining) for hidden deposits.
+Until `exploreNearby` is built, this career is `goTo` and `scout` in a loop — both real, both in
+the root barrel. `scout(id)` reads a system's POIs, stations and resources; `goTo(id)` flies there
+and docks if it is a base. (`survey()` in mining is also not built yet, so hidden deposits are out
+of reach for now.)
 
 **This is not `hunt({look})`, and the two are deliberately apart.** `exploreNearby` visits
 **systems** you have never been to, docks at each and reads it, and trains exploration by the
@@ -22,16 +25,30 @@ when you know the neighbourhood and want the prey in it.
 ## Worked example
 
 ```ts
-import {orient, missions, acceptMission, exploreNearby, note} from 'play';
+import {orient, scout, goTo, missions, acceptMission, prices, note} from 'play';
 
 export default async function main() {
-  await orient();
+  const start = await orient();
+  const home = start.detail.present.location.docked_at;   // where the circuit returns to
+
   const board = await missions();
   for (const m of board.detail.board.filter(m => m.fits === 'goTo').slice(0, board.detail.slots_free))
-    await acceptMission(m.mission_id);                  // "visit N stations" pays for the trip
-  const trip = await exploreNearby({systems: 3, jumps: 2, survey: true});
-  note(`saw ${trip.detail.visited.map(v => v.name).join(', ')}`);
-  return trip;
+    await acceptMission(m.mission_id);                    // "visit N stations" pays for the trip
+
+  // The neighbours, from the map the orient already read. `goTo` refuses a hop the mood's fuel
+  // reserve will not cover, so the circuit stops rather than stranding.
+  const here = await scout();
+  for (const link of here.detail.connections.slice(0, 2)) {
+    const hop = await goTo(link.system_id);
+    if (hop.status !== 'done') { note(`stopped at ${link.system_id}: ${hop.why ?? ''}`); break; }
+    const seen = await scout();                           // first visit is what trains exploration
+    note(`${seen.detail.system.name}: ${seen.detail.pois.length} POIs`);
+    const station = seen.detail.pois.find(p => p.base_id);
+    if (station) { await goTo(station.base_id!); await prices(); }  // dock and remember the book
+  }
+
+  if (home) return goTo(home);
+  return here;
 }
 ```
 
@@ -50,5 +67,6 @@ export default async function main() {
 
 - A jump that reports failure has often succeeded. `goTo` reads before it trusts; do not
   re-send jumps by hand.
-- Fuel out in a system with no station means a distress signal and an hour's wait.
-  `exploreNearby` turns back at the reserve.
+- Fuel out in a system with no station means a distress signal and an hour's wait. `goTo` refuses a
+  hop the mood's fuel reserve will not cover, so check every `hop.status` and stop on the first that
+  is not `done` — that refusal is the circuit turning back, and ignoring it is how a ship strands.

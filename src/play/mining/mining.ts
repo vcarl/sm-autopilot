@@ -152,7 +152,9 @@ export function gatherUntil(opts:{poi:string;base?:string;until?:{item:string;qu
       (opts.until?`; store holds ${result.held??'?'} of ${opts.until.quantity} ${opts.until.item}`:'');
     if(result.ended==='tired')return {status:'partial',did,why:'Tired: home and serviced, no new trip',detail:result};
     if(short)return {status:'partial',did,why:depleted?'the site is depleted':`${maxTrips} trips made`,detail:result,
-      next:depleted?['survey() or another belt: this site gave nothing']:[]};
+      // `survey()` is not built yet, so it is not offered: scout() already lists this system's
+      // belts, and naming an unbuilt call here spends the juncture that follows a dry site.
+      next:depleted?["another belt: this site gave nothing; scout() lists them"]:[]};
     return {status:'done',did,detail:result,
       next:[...(opts.then==='sell'?[]:sellStowed(result.settled)),
         ...(result.ended==='depleted'?['the site is depleting; scout another belt']:[])]};

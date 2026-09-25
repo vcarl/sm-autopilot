@@ -18,8 +18,8 @@ Five different things get called "fleet". Keep them apart:
 
 | Function | Promise |
 |---|---|
-| `ships()` | every hull you own, where it is parked, whether a shipyard is there |
-| `switchShip(id)` | swap to a parked hull at this shipyard: stow the hold, service, insure |
+| `ships()` | **not built yet — it throws `unimplemented`.** `account().commands.spacemolt_ship.list_ships()` |
+| `switchShip(id)` | **not built yet — it throws `unimplemented`.** `account().commands.spacemolt_ship.switch_ship({id})`, and stow and service by hand first |
 
 ## Worked example
 

@@ -7,7 +7,7 @@ whether a sweep is worth flying is your call.
 
 | Function | Promise |
 |---|---|
-| `patrol({systems?, maxTier?, fights?})` | sweep low-police neighbours for pirates, fight, come home |
+| `patrol({systems?, maxTier?, fights?})` | **not built yet — it throws `unimplemented`.** `hunt({target:'pirate', look:[…]})` is the real sweep |
 
 ```ts
 import {orient, missions, acceptMission, patrol, service} from 'play';

@@ -267,7 +267,9 @@ export function buyShip(id:string,opts:{commission?:boolean;switchTo?:boolean}={
         return {status:'partial',did:`commissioned ${id} for ${built.credits_paid??price} cr`,
           why:`build is ${built.status}${missing?`; still sourcing ${missing}`:''}`,
           detail:{...nothing(),price:built.credits_paid??price},
-          next:['ships() says when the hull is delivered']};
+          // `ships()` is not built yet (fleet/fleet.ts throws), so the raw command is what can
+          // actually be run. A hint naming an unbuilt function costs a juncture to discover.
+          next:['account().commands.spacemolt_ship.list_ships() says when the hull is delivered']};
       }
       bought='';
     } else {
@@ -291,7 +293,7 @@ export function buyShip(id:string,opts:{commission?:boolean;switchTo?:boolean}={
         return {status:'partial',did:`bought ${mine.class_id} for ${price} cr`,
           why:`${previous.base_id} has no shipyard: the switch needs one`,
           detail:{ship:flying(),price,switched,previous},
-          next:[`goTo a base with a shipyard, then switchShip('${mine.ship_id}')`]};
+          next:[`goTo a base with a shipyard, then `+`account().commands.spacemolt_ship.switch_ship({id:'${mine.ship_id}'}) — switchShip is not built yet`]};
       const swap=details(await command('spacemolt_ship/switch_ship',{id:mine.ship_id})) as SwitchShipResponse;
       switched=swap.active_ship_id===mine.ship_id;
       step(`switch to ${swap.active_ship_class}${swap.cargo_note?`; ${swap.cargo_note}`:''}`);
@@ -300,7 +302,10 @@ export function buyShip(id:string,opts:{commission?:boolean;switchTo?:boolean}={
     return {status:'done',
       did:`bought ${mine.class_name??mine.class_id} for ${price} cr${switched?' and switched to it':''}`,
       detail:{ship:flying(),price,switched,previous,...quote?{}:{}},
-      next:[switched?room(flying()):`switchShip('${mine.ship_id}') to fly it`,
-        'refit() moves the modules that fit across']};
+      next:[switched?room(flying())
+        :`account().commands.spacemolt_ship.switch_ship({id:'${mine.ship_id}'}) to fly it — switchShip is not built yet`,
+        // `refit()` does not compile: the change argument is required, and it moves nothing by
+        // itself — each module is named, one id at a time.
+        `refit({install:['<module type_id from the hold>']}) moves a module across, one id at a time`]};
   });
 }

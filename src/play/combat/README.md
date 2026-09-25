@@ -216,7 +216,8 @@ the juncture's observed targets, beside the creature's name, and `view.stats` in
 
 | Number | How it is measured |
 |---|---|
-| `taken_per_tick`, `dealt_per_tick` | the server's own fight damage totals over its own `duration` |
+| `taken_per_tick`, `dealt_per_tick` | the server's own fight damage totals over its own `duration` — **shield and hull together**, and on the live server it is mostly shield. Never compare it against the walk-away line, and never against `view.damage_taken` below, which is hull alone |
+| `hull_pct_lost` | percentage points of max hull an average fight with this opponent cost. **This** is the number the walk-away decision turns on, because the mood's line is a fraction of max hull |
 | `accuracy[band].at_us`, `.at_them` | `hit_success` on every shot, bound to the range band the battle published for that same tick. `at_us_shots` / `at_them_shots` is the sample each rests on |
 | `win_chance` | wins over fights — **absent below three fights.** Below that there is `won` and `fights` and no rate, because one fight is a count, not a rate |
 

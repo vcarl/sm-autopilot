@@ -539,8 +539,16 @@ export function hunt(opts:{poi?:string;look?:string[];fights?:number;species?:st
           :`looked at ${trailSaid} and found no ${prey}`,
         detail:result,
         next:result.ended==='nothing here'
-          ?['scout() a neighbouring belt or field; creatures are where the resources are']
-          : [`every one of those is remembered as empty; hunt({species, look}) a different list, or scout() first`]};
+          // NOT `scout()`: with no argument it reports the system the ship is already in — the one
+          // just looked at — and it counts creatures only where the ship stands, so it can say
+          // nothing about a neighbour's fauna and spends the next juncture saying it.
+          ?[`hunt({look:['<another belt or field poi id>']}) — scout() already listed this system's habitats`]
+          // `{species, look}` was shorthand for two undefined identifiers and did not compile. And
+          // only a creature look is written to sighting memory — a pirate sweep writes none — so
+          // "remembered" is a claim that only holds for wildlife.
+          : [wantPirates
+            ?`hunt({target:'pirate',look:['<poi id>','<poi id>']}) on a different list`
+            :`every one of those is remembered as empty; hunt({look:['<poi id>','<poi id>']}) on a different list, or scout('<neighbour system id>') first`]};
     }
     if(result.ended==='fuel')
       return {status:result.fights.length?'partial':'refused',

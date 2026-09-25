@@ -63,7 +63,10 @@ export function spreads(items?:string[]):Promise<Outcome<{spreads:Spread[];sourc
     const now=marketTick();
     const wanted=items?.length?items:[...new Set([...Object.keys(stock),...listed.keys()].filter(id=>stock[id]))];
     if(!wanted.length)return {status:'done',did:`nothing aboard or stored at ${here} to price`,detail:{spreads:[],sources:['here']},
-      next:['gatherUntil({poi}) or buy() something first']};
+      // `{poi}` was shorthand for an undefined identifier — it does not compile — and named no
+      // POI and no base; `buy()` was missing both of its required arguments. `spreads` only
+      // reaches this line docked, so the base the take settles at is in hand.
+      next:[`gatherUntil({poi:'<belt poi id>',base:'${here}'}) or buy('<item_id>', <quantity>) something first`]};
 
     const sources=['here'];
     // Best known buyer per item, seeded from the live local book.

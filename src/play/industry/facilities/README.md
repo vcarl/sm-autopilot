@@ -7,9 +7,9 @@ to others, and it bills rent every 100 ticks (~17 min) from your wallet. 260 unp
 
 | Function | Promise |
 |---|---|
-| `facilities()` | what you own, the rent bill, the runway, and what is buildable here |
-| `buildFacility(type)` | build one here, quarters first; refuses without three days of rent in hand |
-| `queueJob(facility, recipe, qty)` | a production job from this base's store |
+| `facilities()` | **not built yet — it throws `unimplemented`.** Reach the commands through `account()` |
+| `buildFacility(type)` | **not built yet — it throws `unimplemented`** |
+| `queueJob(facility, recipe, qty)` | **not built yet — it throws `unimplemented`** |
 
 ```ts
 import {facilities, buildFacility, queueJob, note} from 'play';

@@ -142,7 +142,12 @@ function counters(facts:Facts):Verdict[] {
   return (facts.place.counters??[]).map(name=>{
     const job=`Counter: ${name}`,tag:Tag=TIRED_OPEN.includes(name)?'resupply':'shared';
     return yes(tag,job,
-      `offered here; reading a counter spends nothing, within the ${facts.mood} bounds (spend ${bounds.spend}, fuel reserve ${bounds.fuelReserve}, walk-away ${bounds.walkAway})`,
+      // The walk-away bound is a FRACTION of max hull; the other two are absolute (credits, fuel
+      // units). Printed bare as "0.9" beside them it reads as an absolute, and everywhere else the
+      // pilot meets it — `present.walk_away`, the juncture's "break off below hull 90" — it is
+      // already resolved against max_hull. The facts here carry no max_hull, so a percentage is the
+      // honest rendering rather than a number in the wrong company.
+      `offered here; reading a counter spends nothing, within the ${facts.mood} bounds (spend ${bounds.spend}, fuel reserve ${bounds.fuelReserve}, walk-away ${Math.round(bounds.walkAway*100)}% of max hull)`,
       COUNTER_READS[name]);
   });
 }

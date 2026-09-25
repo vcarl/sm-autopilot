@@ -418,7 +418,11 @@ test('buyShip refuses a hull that would take the wallet under the reserve, with 
     assert.equal(bought.status,'done',bought.why);
     assert.deepEqual([bought.detail.price,bought.detail.switched],[800,false]);
     assert.deepEqual(f.fleet.map(row=>row.ship_id),['ship','s2']);
-    assert.match(bought.next.join(' '),/switchShip\('s2'\)/);
+    // NOT `switchShip('s2')`: `fleet/fleet.ts` throws `unimplemented`, so the hint that named it
+    // handed the pilot the one call it most wanted to make and could not. The runnable command is
+    // what a hint owes, and this test used to pin the dead one.
+    assert.match(bought.next.join(' '),/spacemolt_ship\.switch_ship\(\{id:'s2'\}\)/);
+    assert.doesNotMatch(bought.next.join(' '),/(?<!\.)\bswitchShip\('/);
     const board=await shipsForSale();
     assert.equal(board.status,'done',board.why);
     assert.equal(board.detail.for_sale.length,0,'the only listing was bought');
