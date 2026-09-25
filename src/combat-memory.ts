@@ -65,7 +65,7 @@ export interface FightRecord {
 interface Store {fights:FightRecord[]}
 
 /** Whatever is on disk, newest fight first, or nothing: a torn or absent file is no memory. */
-export function readCombat(dir:string):FightRecord[] {
+export function readCombat(dir:string|undefined):FightRecord[] {
   if(!dir)return [];
   try {
     const stored=JSON.parse(readFileSync(join(dir,MEMORY),'utf8')) as Store;

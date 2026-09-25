@@ -8,7 +8,7 @@ what to engage is your judgement, and most of the judgement is about what not to
 
 | Function | Promise |
 |---|---|
-| `hunt({poi?, fights?, species?, target?})` | up to N fights where you stand (or at `poi`, flown to first), each wreck looted; nothing there is `done` with zero fights |
+| `hunt({poi?, fights?, species?, target?, onTick?})` | up to N fights where you stand (or at `poi`, flown to first), each wreck looted; nothing there is `done` with zero fights. `onTick` is your own hand on the stance — see **Fighting with your own hand on the stance** |
 | `disengage()` | break off whatever battle holds the ship and wait until it has actually ended; true when it has. The one call to make when a move is refused `in_battle` |
 | `salvage({tow?})` | loot every wreck here into the hold, your own first; `tow: '<wreck id>'` tows that one instead |
 
@@ -49,6 +49,130 @@ export default async function main() {
   return service();
 }
 ```
+
+## Fighting with your own hand on the stance
+
+`hunt({onTick})` hands you the fight, one tick at a time. It is **synchronous** on purpose: a
+tick is ten seconds and one model call is one to three minutes, so the tactics have to be
+written down in advance and run inside the fight, not decided while it happens.
+
+The callback never sends a command. It is handed a `TickView` and returns a `TickDecision`, or
+`undefined` for "no change" — which is how "decide every third tick" is written without the
+library baking in a cadence. `hunt` applies one field a tick (the server takes one mutation a
+tick), validates it, and journals what was asked against what was sent.
+
+### The stances
+
+| `stance` | damage dealt | damage taken | also |
+|---|---|---|---|
+| `fire` | 100% | 100% | the default the loop opens with |
+| `evade` | 0% | 50% | costs fuel every tick |
+| `brace` | 0% | 25% | shields regenerate at 2× |
+| `flee` | 0% | 100% | auto-retreats until it escapes |
+
+`board` is not in the union: it needs marines and suppresses your own weapons, so it is a
+boarding party's business, not a tactical one, and asking for it will not compile.
+
+### `TickView` — what you are told
+
+| Field | Type | What it is |
+|---|---|---|
+| `tick` | `number` | the battle's own tick, 1 up. NOT the global engine tick, and on the live server it can sit on one number for minutes |
+| `hull` | `number` | our hull now |
+| `max_hull` | `number` | our hull when whole |
+| `shield_pct` | `number` | our shield, percent of max; 0 when the status published none |
+| `opponent` | `string` | the quarry's display name |
+| `opponent_hull` | `number` | its hull as a **fraction** of max, 0..1 |
+| `range` | `string` | the range band: `inner`, `mid` or `outer` on the live server |
+| `distance` | `number` | distance to the quarry, the game's own units |
+| `reach` | `number` | the reach of our longest weapon; `distance > reach` is out of range |
+| `damage_taken` | `number` | hull lost since the previous tick — and on the first tick, since the fight opened |
+| `stance` | `CombatStance \| undefined` | the stance in force, or undefined before one is set |
+| `floor` | `number` | the mood's walk-away hull. Nothing you return can cross it |
+| `stats` | `CombatStats \| undefined` | what memory remembers of this opponent, or undefined the first time it is met |
+
+### `TickDecision` — what you may ask for
+
+Applied in this order, one a tick; the rest is asked again next tick if you ask again.
+
+| Field | Type | What it does |
+|---|---|---|
+| `disengage` | `true` | break off and stay on the retreat until the battle itself ends. **The only exit.** |
+| `stance` | `'fire' \| 'evade' \| 'brace' \| 'flee'` | the stance to hold from this tick on |
+| `move` | `'closeIn' \| 'backOff'` | a **range maneuver, not an exit**. `closeIn` shortens the range, `backOff` opens it. Neither leaves the battle |
+| `focus` | `string` | focus fire on that participant id |
+
+`backOff` is `battle/retreat` under the covers, and the server answers "Retreating from the
+enemy." while the battle carries on — that is why it is named for what it does. A move read as an
+exit is how a ship was lost on 2026-09-24. Leaving is `disengage`, and nothing else.
+
+### The bounds you cannot argue with
+
+- **The walk-away floor wins.** Ask to keep firing below `view.floor` and the floor breaks the
+  fight off anyway, and the journal says `override: onTick asked {…}, and the <mood> walk-away
+  line <n> wins`. The mood's margin is the operator's bound, like `credit_reserve`, not yours.
+- **A throw is caught.** The line is journalled (`onTick threw (…); the default loop continues`)
+  and the default loop carries on. A bug in your tactics never strands the ship mid-fight.
+- **One mutation a tick.** Return two fields and only the first in the order above is sent.
+
+### With no callback
+
+The default is what it always was: `stance fire` and the focus at the open, then `advance` while
+the quarry is out of reach or running — plus **one** `brace`, once a fight, and only when the
+shield is flat, the quarry's hull is above ours, and the walk-away line is within 5% of max hull.
+That one tick of 25% damage taken with shields regenerating at 2× buys the hull to keep firing to
+the line instead of reaching it now; the tick after, the stance goes back to `fire`.
+
+### Worked example: a fight loop with a callback
+
+```ts
+import {orient, goTo, hunt, note, type TickView, type TickDecision} from 'play';
+
+/** The tactics, written down before the fight: no awaits, no commands, just a decision. */
+function tactics(view: TickView): TickDecision | undefined {
+  // Their measured accuracy against us at this range, when memory has met one before.
+  const band = view.stats?.accuracy[view.range];
+  const theyHitUs = band && band.at_us_shots >= 8 ? band.at_us : undefined;
+
+  if (view.opponent_hull > 0.8 && view.hull < view.floor + 10) return {disengage: true};
+  if (view.distance > view.reach) return {move: 'closeIn'};    // out of reach: nothing else matters
+  // Shields gone and still being hit hard: brace a tick and let them come back at 2x.
+  if (view.shield_pct === 0 && view.damage_taken > 3) return {stance: 'brace'};
+  // They shoot straighter than us up close: open the range and keep firing from there.
+  if (theyHitUs !== undefined && theyHitUs > 0.6 && view.range === 'inner') return {move: 'backOff'};
+  if (view.stance !== 'fire') return {stance: 'fire'};
+  return undefined;                                        // no change; the default loop decides
+}
+
+export default async function main() {
+  const start = await orient();
+  const here = start.detail.present.location.poi_id;
+  if (!here) return start;
+
+  const out = await hunt({fights: 2, onTick: tactics});
+  for (const fight of out.detail.fights)
+    note(`${fight.target.name}: ${fight.outcome}, hull ${fight.hull_before} to ${fight.hull_after}`);
+  return goTo(here);
+}
+```
+
+## What memory knows about a species
+
+Every fight is folded into `combat.json` beside `markets.json` — one record per fight, about a
+dozen numbers, never a transcript. Three things come off it, and they reach you in two places:
+the juncture's observed targets, beside the creature's name, and `view.stats` inside the fight.
+
+| Number | How it is measured |
+|---|---|
+| `taken_per_tick`, `dealt_per_tick` | the server's own fight damage totals over its own `duration` |
+| `accuracy[band].at_us`, `.at_them` | `hit_success` on every shot, bound to the range band the battle published for that same tick. `at_us_shots` / `at_them_shots` is the sample each rests on |
+| `win_chance` | wins over fights — **absent below three fights.** Below that there is `won` and `fights` and no rate, because one fight is a count, not a rate |
+
+`stats.thin` is true while the sample is under three fights, and then every number above is an
+anecdote. `newest_ticks_old` says how old the freshest of them is. `ship_classes` is the hulls
+those fights were flown in: a win rate across two hulls is two questions answered as one.
+
+A ship lost is now buffered as an alert, so the next juncture reads it. It did not use to be.
 
 ## Where the fauna are
 

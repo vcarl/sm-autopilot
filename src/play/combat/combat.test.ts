@@ -1,9 +1,13 @@
 import assert from 'node:assert/strict';
+import {mkdtempSync} from 'node:fs';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
 import test from 'node:test';
+import {writeFight} from '../../combat-memory.ts';
 import type {ReadinessAccount} from '../../readiness.ts';
 import {bridgeWorld,type WorldOptions} from '../../test-support/bridge-world.ts';
 import {bind,unbind,type Pilot} from '../runtime.ts';
-import {disengage,hunt,pace} from './hunting.ts';
+import {disengage,hunt,pace,type TickDecision,type TickView} from './hunting.ts';
 import {salvage} from './salvage.ts';
 
 // A tick is ten seconds of real time; the tests take the same loop at a millisecond.
@@ -246,5 +250,121 @@ test('salvage empties the wrecks here into the hold, and no wreck is done',async
     assert.deepEqual(out.detail.left,[{wreck_id:'w1',cargo:[{item_id:'creature_carapace',quantity:3}]}]);
     assert.deepEqual(out.gained.items,[{item_id:'creature_carapace',quantity:2}]);
     assert.match(out.next.join(' '),/hold filled/);
+  } finally {unbind();}
+});
+
+/** `world`, but bound with a runtime dir, so `hunt` can read the combat memory and hand it to
+ * the callback: the link between what the last fight measured and what this one does about it. */
+function worldWithMemory(record:Pilot,options:WorldOptions={}) {
+  const game=bridgeWorld({services:['refuel','repair','storage'],cargoUsed:0,...options});
+  const lines:string[]=[],runtime=mkdtempSync(join(tmpdir(),'spacemolt-ontick-'));
+  let who:Pilot=record;
+  bind({account:game.account as unknown as ReadinessAccount,command:game.command,runtime,
+    pilot:()=>who,setPilot:next=>{who=next;},emit:text=>lines.push(text)});
+  return {...game,lines,runtime,record:()=>who};
+}
+
+test('a per-tick callback decides the stance, the range and the exit, and hunt says what it sent',async()=>{
+  // RED before this commit: `hunt` took no `onTick` at all — `hunt({onTick})` did not typecheck,
+  // and `hunting.ts:175` set `stance:'fire'` once at the open and never revisited it, so
+  // `f.count('spacemolt_battle/stance')` was 1 however the fight went.
+  const f=worldWithMemory({mood:'Aggressive'},{wildlife:{creatures:[grazer],polls:6,damage:1,retreatTicks:0}});
+  // A fight already in memory: the callback is handed the measured record, not a blank.
+  writeFight(f.runtime,{opponent:'Molt Grazer',ship_class:'shuttle',ticks:4,dealt:20,taken:40,
+    by_range:{inner:{at_us:{shots:4,hits:3},at_them:{shots:4,hits:2}}},
+    stances:['fire'],flee_ticks:0,ending:'stalemate',at:new Date().toISOString()});
+  const seen:TickView[]=[];
+  const plan:(TickDecision|undefined)[]=[{stance:'brace'},undefined,{move:'closeIn'},
+    {focus:'c1'},{disengage:true}];
+  try {
+    const out=await hunt({onTick:view=>{seen.push(view);return plan[view.tick-1];}});
+    assert.equal(out.detail.fights[0]!.outcome,'broke off','the callback asked to leave and hunt left');
+    // Every field the view promises, measured on the tick it was read.
+    assert.deepEqual(seen.map(view=>view.tick),[1,2,3,4,5]);
+    assert.equal(seen[0]!.hull,95,'the world launches at 96 hull and the first tick costs one');
+    assert.equal(seen[0]!.max_hull,100);
+    assert.equal(seen[0]!.opponent,'Molt Grazer');
+    assert.equal(seen[0]!.opponent_hull,1);
+    assert.equal(seen[0]!.range,'inner');
+    assert.deepEqual([seen[0]!.distance,seen[0]!.reach],[2,2]);
+    assert.equal(seen[0]!.damage_taken,1,'the first tick measures against the hull the fight opened on');
+    assert.equal(seen[1]!.damage_taken,1,'one hull a tick, measured against the tick before');
+    assert.equal(seen[0]!.floor,80,'Aggressive walks away at 0.80 of 100');
+    assert.equal(seen[0]!.stance,undefined,'no stance in force until one is set');
+    assert.equal(seen[1]!.stance,'brace','the stance the callback set is the stance it is told about');
+    // The remembered record rides along, and says out loud that one fight is not a rate.
+    assert.equal(seen[0]!.stats?.taken_per_tick,10);
+    assert.deepEqual(seen[0]!.stats?.accuracy.inner,{at_us:0.75,at_us_shots:4,at_them:0.5,at_them_shots:4});
+    assert.equal(seen[0]!.stats?.thin,true);
+    assert.equal(seen[0]!.stats?.win_chance,undefined);
+    // Each decision applied, one mutation a tick, and never a command the callback sent itself.
+    assert.deepEqual(f.sent.filter(call=>call.action==='spacemolt_battle/stance').map(call=>call.params),
+      [{id:'brace'}]);
+    assert.equal(f.count('spacemolt_battle/advance'),1,'closeIn is advance, and it is not an exit');
+    // Twice: the `undefined` tick fell back to the default ladder, which still owed the focus,
+    // and the callback asked for it again on its own tick. `undefined` is "no change", which is
+    // how a pilot deciding every third tick is written — and it costs the open nothing.
+    assert.deepEqual(f.sent.filter(call=>call.action==='spacemolt_battle/target').map(call=>call.params),
+      [{id:'c1'},{id:'c1'}]);
+    assert.match(f.lines.join('\n'),/onTick asked \{"stance":"brace"\}; sent stance brace/);
+    assert.match(f.lines.join('\n'),/onTick asked \{"move":"closeIn"\}; sent closeIn/);
+    assert.match(f.lines.join('\n'),/onTick asked \{"disengage":true\}; sent disengage/);
+  } finally {unbind();}
+});
+
+test('a callback that throws is logged and the fight carries on under the default loop',async()=>{
+  // RED before this commit: there was no callback to throw, so nothing caught one — a throw
+  // inside the tick loop would have propagated out of `engage` and left the ship in the battle.
+  const f=worldWithMemory({mood:'Focused'},{wildlife:{creatures:[grazer],polls:2,damage:1,
+    drops:[{item_id:'creature_carapace',quantity:2}]}});
+  try {
+    const out=await hunt({onTick:()=>{throw new Error('the pilot wrote a bug');}});
+    assert.equal(out.status,'done',out.why);
+    assert.equal(out.detail.fights[0]!.outcome,'down','the fight was still won');
+    assert.match(f.lines.join('\n'),/onTick threw \(the pilot wrote a bug\); the default loop continues/);
+    // The default ladder ran exactly as it does with no callback at all.
+    assert.deepEqual(f.sent.filter(call=>call.action==='spacemolt_battle/stance').map(call=>call.params),[{id:'fire'}]);
+    assert.deepEqual(f.sent.find(call=>call.action==='spacemolt_battle/target')?.params,{id:'c1'});
+  } finally {unbind();}
+});
+
+test('the walk-away floor overrides a reckless callback and names what it refused',async()=>{
+  // RED before this commit: no callback could ask to keep firing, so there was no override to
+  // log — and the operator's bound had never been tested against a decision that fights it.
+  // Cautious walks away at 0.95 of 100: 96 less one a poll sits on 95, then crosses it.
+  const f=worldWithMemory({mood:'Cautious'},{wildlife:{creatures:[grazer],polls:8,damage:1,retreatTicks:0}});
+  try {
+    const out=await hunt({onTick:()=>({stance:'fire'})});
+    const fight=out.detail.fights[0]!;
+    assert.equal(fight.outcome,'broke off','the floor won');
+    assert.equal(fight.hull_after,94,'stopped one poll past the line, not run down by the callback');
+    assert.match(f.lines.join('\n'),
+      /override: onTick asked \{"stance":"fire"\}, and the Cautious walk-away line 95 wins/);
+    assert.match(f.lines.join('\n'),/breaking off: hull 94 under the line 95/);
+    assert.equal(f.count('spacemolt_battle/retreat'),1);
+  } finally {unbind();}
+});
+
+test('no callback fights exactly as it did before, and braces only once the line is in sight',async()=>{
+  // The default must not regress: one `stance fire`, one focus, no chase in reach — and the
+  // brace is reachable only when shields are flat, their hull is above ours and the walk-away
+  // line is within 5% of max, which a healthy fight never is.
+  const healthy=worldWithMemory({mood:'Aggressive'},{wildlife:{creatures:[grazer],polls:3,damage:1}});
+  try {
+    const out=await hunt();
+    assert.equal(out.detail.fights[0]!.outcome,'down',out.why);
+    assert.deepEqual(healthy.sent.filter(call=>call.action==='spacemolt_battle/stance').map(call=>call.params),
+      [{id:'fire'}],'one stance, as before');
+    assert.equal(healthy.count('spacemolt_battle/advance'),0,'in reach, nothing to close');
+    assert.equal(healthy.lines.join('\n').includes('stance brace'),false);
+  } finally {unbind();}
+  // Aggressive walks away at 80 of 100, so the brace window is hull 80..85: three hull a poll
+  // reaches 85 on the fifth, with the grazer still at 100% against our 85%.
+  const losing=worldWithMemory({mood:'Aggressive'},{wildlife:{creatures:[grazer],polls:9,damage:3,flees:true}});
+  try {
+    await hunt();
+    assert.match(losing.lines.join('\n'),/stance brace: shields flat, theirs 100% against ours, and the line 80 is close/);
+    assert.deepEqual(losing.sent.filter(call=>call.action==='spacemolt_battle/stance').map(call=>call.params),
+      [{id:'fire'},{id:'brace'},{id:'fire'}],'one brace a fight, then back to firing');
   } finally {unbind();}
 });

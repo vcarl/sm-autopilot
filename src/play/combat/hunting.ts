@@ -5,9 +5,12 @@ import {resolveWalkAway} from '../../mood-policy.ts';
 import {details} from '../../response-details.ts';
 import {battleEnded} from '../../travel.ts';
 import {active as activeMissions} from '../missions.ts';
-import {acct,admit,checkStop,command,job,pilot,step,stopped} from '../runtime.ts';
+import {acct,admit,checkStop,command,job,pilot,runtimeDir,step,stopped} from '../runtime.ts';
 import {goTo} from '../travel.ts';
 import type {Outcome,Row} from '../types.ts';
+import {readCombat,statsFor,type CombatStats} from '../../combat-memory.ts';
+/** Re-exported so a pilot naming the type in its own helper can reach it through `play`. */
+export type {CombatStats} from '../../combat-memory.ts';
 import {lootWreck,wrecksHere} from './salvage.ts';
 
 export interface Fight {
@@ -27,6 +30,58 @@ export interface Hunted {
   fights:Fight[];
   /** Why the loop ended: `asked` fights done, nothing there, hull line, hold full, tired. */
   ended:'asked'|'nothing here'|'hull'|'hold full'|'stopped'|'tired';
+}
+
+/** The stances a decision may ask for. `board` is deliberately absent: it needs marines and
+ * suppresses our own weapons, so it is a boarding party's call, not a tactical one, and a
+ * callback that asks for it should not compile. Percentages are in `README.md`. */
+export type CombatStance='fire'|'evade'|'brace'|'flee';
+
+/** What the callback sees on one battle tick: a snapshot read from that tick's own
+ * `battle/status`, never a handle on the fight. Every field is measured this tick except
+ * `stats`, which is what memory remembers of earlier fights with this opponent. */
+export interface TickView {
+  /** The battle's own tick, 1 up — not the global engine tick. On the live server it can sit
+   * still for minutes, and a repeated number means nothing new happened. */
+  tick:number;
+  /** Our hull now, and the hull this ship has when whole. */
+  hull:number;max_hull:number;
+  /** Our shield, percent of max. 0 when the status did not publish one. */
+  shield_pct:number;
+  /** The quarry's display name, and its hull as a fraction of max (0..1). */
+  opponent:string;opponent_hull:number;
+  /** The range band between the two ships: `inner`, `mid` or `outer` on the live server.
+   * Range is what accuracy is measured against, which is why `closeIn`/`backOff` matter. */
+  range:string;
+  /** Distance to the quarry and the reach of our longest weapon, in the game's own units. */
+  distance:number;reach:number;
+  /** Hull lost since the previous tick — and, on the first tick, since the fight opened. */
+  damage_taken:number;
+  /** The stance the loop last set, or undefined before it has set one. */
+  stance?:CombatStance;
+  /** The mood's walk-away hull. No decision can cross it: see `README.md`. */
+  floor:number;
+  /** What memory knows about fighting this opponent, or undefined the first time it is met.
+   * `thin` is true while the sample is under three fights, and then every number is an
+   * anecdote rather than a measurement. */
+  stats?:CombatStats;
+}
+
+/** What the callback asks for. Everything is optional and returning `undefined` means "no
+ * change" — which is how a pilot deciding every third tick is written without the library
+ * baking in a cadence. The server takes one mutation a tick, so at most one field is acted on,
+ * in the order below, and the journal says what was asked against what happened. */
+export interface TickDecision {
+  /** The stance to hold from this tick on. */
+  stance?:CombatStance;
+  /** A range maneuver, not an exit. `closeIn` is `battle/advance` and shortens the range;
+   * `backOff` is `battle/retreat`, which the server answers "Retreating from the enemy." and
+   * which opens the range while the battle carries on. Leaving is `disengage`, below. */
+  move?:'closeIn'|'backOff';
+  /** Focus fire on this participant id. */
+  focus?:string;
+  /** Break off and stay on the retreat until the battle itself ends. The only exit there is. */
+  disengage?:true;
 }
 
 /** ponytail: one tick and one ceiling, not a config system. A battle tick is ten seconds of
@@ -115,22 +170,64 @@ export async function disengage(bound=FIGHT_CEILING_MS):Promise<boolean> {
   }
 }
 
+const STANCES=new Set<string>(['fire','evade','brace','flee']);
+const MOVES:Record<string,string>={closeIn:'spacemolt_battle/advance',backOff:'spacemolt_battle/retreat'};
+
 /** One fight, from the first shot to the end of the battle, paced on the battle's own tick.
  * Ships fire by themselves every tick under their stance — there is no fire command — and the
  * server takes one mutation a tick, so this reads the status once a tick, makes one decision
- * and sends at most one command: the `fire` stance and the focus at the open, then `advance`
- * while the quarry is out of reach or running. It breaks off when our hull crosses the mood's
- * line or Tired lands mid-fight. */
-async function engage(target:CreatureInfo|PirateInfo,floor:()=>number):Promise<Fight> {
+ * and sends at most one command: the pilot's `onTick` decision when it made one, otherwise the
+ * `fire` stance and the focus at the open, then `advance` while the quarry is out of reach or
+ * running. It breaks off when our hull crosses the mood's line or Tired lands mid-fight, and
+ * that line outranks any decision the callback returns. */
+async function engage(target:CreatureInfo|PirateInfo,floor:()=>number,
+  onTick?:(view:TickView)=>TickDecision|undefined,stats?:CombatStats):Promise<Fight> {
   await acct().refresh();
   const hull_before=Number(acct().state.ship?.hull??0);
   const id=idOf(target);
   await command(isCreature(target)?'spacemolt/hunt':'spacemolt/attack',{id});
   const deadline=Date.now()+FIGHT_CEILING_MS;
   let outcome:Fight['outcome']='escaped',last:GetBattleStatusResponse|undefined;
-  let tick=-1,opened=0,fled=0;
+  let tick=-1,fled=0;
   let seen:{hull:number;far:number}|undefined,first:{hull:number;far:number}|undefined;
   let stuck=false;
+  // What the open still owes, tracked separately from the decision so a callback taking the
+  // tick does not silently cost the fight its stance or its focus.
+  let stanceNow:CombatStance|undefined,focused=false,braced=false,lastHull=hull_before;
+  /** The callback, never trusted with the ship: a throw is logged and the default continues.
+   * Stranding a ship mid-fight is exactly how the three ships went. */
+  const ask=(view:TickView):TickDecision|undefined=>{
+    if(!onTick)return undefined;
+    try {return onTick(view)??undefined;}
+    catch(error) {
+      step(`onTick threw (${error instanceof Error?error.message:String(error)}); the default loop continues`);
+      return undefined;
+    }
+  };
+  /** Apply one field of a decision — the server takes one mutation a tick — in the order that
+   * decides the fight, and say what was asked against what was sent. Null means the decision
+   * had nothing this loop could act on, so the default ladder takes the tick instead. */
+  const apply=async(asked:TickDecision):Promise<string|null>=>{
+    if(asked.disengage)return 'disengage';
+    if(asked.stance!==undefined) {
+      if(!STANCES.has(asked.stance))return null;
+      await command('spacemolt_battle/stance',{id:asked.stance});
+      stanceNow=asked.stance;
+      return `stance ${asked.stance}`;
+    }
+    if(asked.move!==undefined) {
+      const action=MOVES[asked.move];
+      if(!action)return null;
+      await command(action,{});
+      return asked.move;
+    }
+    if(asked.focus!==undefined) {
+      await command('spacemolt_battle/target',{id:asked.focus});
+      if(asked.focus===id)focused=true;
+      return `focus ${asked.focus}`;
+    }
+    return null;
+  };
   for(;;) {
     let status:GetBattleStatusResponse;
     // The battle answering `not_in_battle` IS its end; that refusal is the evidence.
@@ -155,7 +252,19 @@ async function engage(target:CreatureInfo|PirateInfo,floor:()=>number):Promise<F
     step(`tick ${now} vs ${nameOf(target)}: hull ${hull}/${ship?.max_hull??'?'}, shield ${mine?.shield_pct??0}%, theirs ${theirHull}% at ${theirs.zone??'?'} ${far}/${reach}`);
     if(ship?.incapacitated){outcome='unresolved';break;}
     const tired=pilot().mood==='Tired';
+    // The decision is taken before the floor is checked so a reckless one can be named in the
+    // override line; it is ACTED on after, and only if the floor let the fight carry on.
+    const fresh=now!==tick;
+    const decision=fresh?ask({tick:now,hull,max_hull:Number(ship?.max_hull??0),
+      shield_pct:Number(mine?.shield_pct??0),opponent:nameOf(target),opponent_hull:theirHull/100,
+      range:String(theirs.zone??''),distance:far,reach,damage_taken:Math.max(0,lastHull-hull),
+      ...stanceNow?{stance:stanceNow}:{},floor:floor(),...stats?{stats}:{}}):undefined;
+    if(fresh)lastHull=hull;
     if(hull<floor()||tired) {
+      // The mood's margin is the operator's bound, like `credit_reserve`, not the pilot's
+      // tactical whim: a decision that would keep fighting under it is refused and said so.
+      if(decision&&!decision.disengage)
+        step(`override: onTick asked ${JSON.stringify(decision)}, and the ${pilot().mood??'Cautious'} walk-away line ${Math.floor(floor())} wins`);
       step(`breaking off: hull ${hull} under the line ${Math.floor(floor())}${tired?', and Tired':''}`);
       // Out of the battle is `broke off`; still in one when the bound ran out is unresolved,
       // and the caller must say so — no move will work until it ends.
@@ -171,10 +280,30 @@ async function engage(target:CreatureInfo|PirateInfo,floor:()=>number):Promise<F
     // A hull that is not falling while the range opens is the quarry running, not a miss.
     if(seen)fled=theirHull>=seen.hull&&far>seen.far?fled+1:0;else first={hull:theirHull,far};
     seen={hull:theirHull,far};
-    // One mutation a tick, in the order that decides the fight: stance, focus, then the chase.
-    if(opened===0){await command('spacemolt_battle/stance',{id:'fire'});step('stance fire');opened=1;}
-    else if(opened===1){await command('spacemolt_battle/target',{id});step(`focus fire on ${nameOf(target)}`);opened=2;}
-    else if(far>reach||(fled>0&&far>0))await command('spacemolt_battle/advance',{});
+    // One mutation a tick. The pilot's own decision takes it when it made one; whatever the
+    // open still owes is sent on a later tick rather than skipped.
+    const sent=decision?await apply(decision):null;
+    if(decision)step(`onTick asked ${JSON.stringify(decision)}; sent ${sent??'nothing it could act on'}`);
+    if(sent==='disengage') {
+      outcome=await disengage()?'broke off':'unresolved';
+      if(outcome==='unresolved')stuck=true;
+      break;
+    }
+    if(sent===null) {
+      // The default ladder, unchanged but for the brace: stance, focus, then the chase.
+      if(!stanceNow){await command('spacemolt_battle/stance',{id:'fire'});stanceNow='fire';step('stance fire');}
+      else if(!focused){await command('spacemolt_battle/target',{id});focused=true;step(`focus fire on ${nameOf(target)}`);}
+      // Shields flat, their hull above ours and the walk-away line one bad tick away: one tick
+      // of `brace` (0% dealt, 25% taken, shields regen 2×) buys the hull to keep firing to the
+      // line instead of reaching it now. Once a fight, so it can never become the fight.
+      else if(!braced&&Number(mine?.shield_pct??0)===0&&theirHull>100*hull/Number(ship?.max_hull??1)
+        &&hull<floor()+0.05*Number(ship?.max_hull??0)) {
+        await command('spacemolt_battle/stance',{id:'brace'});stanceNow='brace';braced=true;
+        step(`stance brace: shields flat, theirs ${theirHull}% against ours, and the line ${Math.floor(floor())} is close`);
+      }
+      else if(stanceNow!=='fire'&&braced){await command('spacemolt_battle/stance',{id:'fire'});stanceNow='fire';step('stance fire again');}
+      else if(far>reach||(fled>0&&far>0))await command('spacemolt_battle/advance',{});
+    }
     await sleep(pace.tickMs);
   }
   await acct().refresh();
@@ -205,8 +334,17 @@ const say=(rows:Row[])=>rows.map(row=>`${row.quantity} ${row.item_id}`).join(', 
  * ammunition and hull. Trains weapons, gunnery, tactics, and — by being hit — shields and
  * armor, plus xenobiology (creatures) or bounty_hunting (pirates). The mood's walk-away
  * fraction (Cautious 0.95 … Aggressive 0.80) breaks the fight off; a Tired imposed mid-fight
- * finishes the round, retreats, and returns `partial`. */
-export function hunt(opts:{poi?:string;fights?:number;species?:string;target?:'creature'|'pirate'}={}):Promise<Outcome<Hunted>> {
+ * finishes the round, retreats, and returns `partial`.
+ *
+ * `onTick` is the pilot's own hand on the stance. It is called once a battle tick with a
+ * `TickView` and returns a `TickDecision` or `undefined` for "no change" — synchronously,
+ * because a tick is ten seconds and one model call is minutes, so the tactics have to be
+ * authored in advance and run inside the fight. It issues no commands itself: `hunt` applies
+ * one field a tick, validates it, and journals what was asked against what was sent. A callback
+ * that throws is logged and the default loop carries on. The mood's walk-away line outranks it
+ * always — a decision that would keep fighting under the line is refused and said so. */
+export function hunt(opts:{poi?:string;fights?:number;species?:string;target?:'creature'|'pirate';
+  onTick?:(view:TickView)=>TickDecision|undefined}={}):Promise<Outcome<Hunted>> {
   const asked=Math.max(1,Math.trunc(opts.fights??1));
   return job<Hunted>('hunt',[opts.poi,opts.species,opts.target,asked>1?`×${asked}`:''].filter(Boolean).join(' '),async()=>{
     const who=pilot();
@@ -252,7 +390,10 @@ export function hunt(opts:{poi?:string;fights?:number;species?:string;target?:'c
         if(refusals.length)step(`declined: ${[...new Set(refusals)].join('; ')}`);
         break;
       }
-      const fight=await engage(target,floor);
+      // What memory remembers of this opponent, read once per fight and handed to the callback:
+      // the same numbers the juncture showed when the pilot chose to come here.
+      const remembered=statsFor(readCombat(runtimeDir()),nameOf(target));
+      const fight=await engage(target,floor,opts.onTick,remembered);
       result.fights.push(fight);
       // A wreck with this one's name on it is the only evidence the fight was won.
       const wreck=(await wrecksHere()).find(row=>row.victim_id===idOf(target!));

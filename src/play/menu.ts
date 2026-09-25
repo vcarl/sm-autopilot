@@ -150,7 +150,7 @@ export async function factsNow(account:ReadinessAccount,send:ReadinessCommand,wh
     // The juncture is where the choice to engage is made, so what memory knows about fighting
     // this thing rides along with its name — the same string the `hunt` row's `why` repeats.
     // A creature never fought before stays a bare name: there is nothing measured to say.
-    const fought=runtime?readCombat(runtime):[];
+    const fought=readCombat(runtime);
     if(legal.length)observed.targets=legal.map(row=>{
       const stats=statsFor(fought,row.name);
       return stats?`${row.name} — ${combatLine(stats)}`:row.name;
