@@ -167,8 +167,11 @@ const page=(items:Record<string,unknown>[],type:string)=>
  * polls, and what the kill leaves in a wreck. The ship's own weapon is here too, because a
  * hunt's first gate is the fit, not the target. */
 export interface WildlifeOptions {
+  /** `poi` pins a creature to one POI, so a look answers differently depending on where the
+   * ship is standing — which is what a search across several POIs has to be tested against. A
+   * row with no `poi` is everywhere, which is how every habitat behaved before this existed. */
   creatures?:{creature_id:string;species:string;name?:string;role?:string;hull?:number;
-    max_hull?:number;speed?:number;in_combat?:boolean;branded?:boolean}[];
+    max_hull?:number;speed?:number;in_combat?:boolean;branded?:boolean;poi?:string}[];
   /** Status polls that still show the fight before the creature is down. */
   polls?:number;
   /** Hull the ship loses on each of those polls. */
@@ -308,6 +311,8 @@ export function bridgeWorld(options:WorldOptions={}) {
       cpu_usage:3,power_usage:4,size:10,...weapon,type_id:String(weapon.type_id??'autocannon_i'),
       name:String(weapon.name??'Autocannon I')});
   }
+  /** The creatures a look from where the ship stands would answer with. */
+  const hereCreatures=()=>fauna.creatures.filter(row=>!row.poi||row.poi===account.server.location.poi_id);
   const wrecks:Record<string,any>[]=[];
   let battle:{target:string;left:number;ticks:number;retreats:number;stance:string;fled:number}|null=null;
   // A battle owns the ship: the live server refuses every move while one is on, by this code.
@@ -479,10 +484,16 @@ export function bridgeWorld(options:WorldOptions={}) {
       taken.splice(taken.indexOf(row),1);
       return {delta:{details:{mission_id:row.mission_id,title:row.title,message:'Abandoned.'}}};
     },
-    'spacemolt/get_nearby':()=>({structuredContent:{poi_id:account.server.location.poi_id,
-      count:fauna.creatures.length,creature_count:fauna.creatures.length,
-      creatures:structuredClone(fauna.creatures),nearby:[],pirates:[],empire_npcs:[],prizes:[],
-      arena_npcs:[],pirate_count:0,empire_npc_count:0,prize_count:0,arena_npc_count:0}}),
+    // A look answers for where the ship is standing, which is the whole reason fauna is not
+    // knowable before arrival. A creature pinned to another POI is not here; one with no POI at
+    // all is everywhere, so a world that never names one behaves exactly as it always did.
+    'spacemolt/get_nearby':()=>{
+      const here=hereCreatures();
+      return {structuredContent:{poi_id:account.server.location.poi_id,
+        count:here.length,creature_count:here.length,
+        creatures:structuredClone(here),nearby:[],pirates:[],empire_npcs:[],prizes:[],
+        arena_npcs:[],pirate_count:0,empire_npc_count:0,prize_count:0,arena_npc_count:0}};
+    },
     'spacemolt/hunt':params=>{
       const target=fauna.creatures.find(row=>row.creature_id===String(params.id));
       if(!target)throw new Error(`No creature ${params.id} here`);

@@ -4,6 +4,7 @@ import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import test from 'node:test';
 import {writeFight} from '../../combat-memory.ts';
+import {readSightings,recall} from '../../sighting-memory.ts';
 import type {ReadinessAccount} from '../../readiness.ts';
 import {bridgeWorld,type WorldOptions} from '../../test-support/bridge-world.ts';
 import {bind,unbind,type Pilot} from '../runtime.ts';
@@ -401,5 +402,103 @@ test('breaking off sets the flee stance, and braces when the flee cannot escape'
       [{id:'flee'}],'the flee escaped; nothing else was needed');
     await g.command('spacemolt/travel',{id:'belt'});
     assert.equal(g.account.server.location.poi_id,'belt');
+  } finally {unbind();}
+});
+
+// ---- A prey and a range of places to look ----------------------------------------------
+// "If we're telling the player where to hunt, then it's our fault if they find nothing
+// huntable there." Fauna is not knowable before arrival — POI rows carry no fauna field and
+// there is no per-species query — so the honest shape is a prey and an ordered list of places
+// to try, with the looking bounded by fuel and every look remembered.
+
+const tortoise={creature_id:'c2',species:'slag_tortoise',name:'Slag Tortoise'};
+
+test('a hunt given several places to look flies past the empty ones and fights where the prey is',async()=>{
+  // RED before this commit: `hunt` took a single `poi` and fought whatever was standing there.
+  // Told to go to a belt with nothing in it, it reported `nothing here` and stopped — the pilot
+  // was sent somewhere on our guess and had no support in finding its quarry.
+  const f=worldWithMemory({mood:'Focused'},{wildlife:{creatures:[{...grazer,poi:'far_belt'}],polls:1,damage:1}});
+  try {
+    f.account.server.location.docked_at=null;f.account.server.location.poi_id='belt';
+    const out=await hunt({species:'molt_grazer',look:['belt','far_belt']});
+    assert.equal(out.status,'done',out.why);
+    assert.equal(out.detail.fights.length,1,`fought at the wrong place or not at all: ${JSON.stringify(out.detail.looked)}`);
+    assert.equal(out.detail.poi_id,'far_belt','the fight happened where the prey was');
+    // The trail is reported, in order, so the pilot can read what the search actually cost.
+    assert.deepEqual(out.detail.looked.map(row=>row.poi_id),['belt','far_belt']);
+    assert.equal(out.detail.looked[0]!.saw,0,'the first belt held none of the prey');
+    assert.equal(out.detail.looked[1]!.saw,1);
+  } finally {unbind();}
+});
+
+test('a search that finds nothing anywhere is done, and names every place it looked',async()=>{
+  // The failure the operator called ours: sending the pilot somewhere on a guess dressed as
+  // knowledge. A search that comes back empty has to say so as a fact learned, not a refusal,
+  // and it must name the places so the next juncture is not told the same guess again.
+  const f=worldWithMemory({mood:'Focused'},{wildlife:{creatures:[]}});
+  try {
+    f.account.server.location.docked_at=null;f.account.server.location.poi_id='belt';
+    const out=await hunt({species:'molt_grazer',look:['belt','far_belt']});
+    assert.equal(out.status,'done',out.why);
+    assert.equal(out.detail.ended,'nothing found');
+    assert.deepEqual(out.detail.fights,[]);
+    assert.equal(f.count('spacemolt/hunt'),0,'nothing was engaged');
+    assert.deepEqual(out.detail.looked.map(row=>row.poi_id),['belt','far_belt']);
+    assert.match(out.did,/belt/,`the places looked are not in the sentence: ${out.did}`);
+    assert.match(out.did,/far_belt/,out.did);
+  } finally {unbind();}
+});
+
+test('a search stops at the first place the fuel cannot reach, and never departs on the hop',async()=>{
+  // The stranding case, which is the one that kills a pilot: fuel spent looking, with nothing
+  // left to reach a counter. The mood's reserve is the bound, and the search ends rather than
+  // skipping on — a pilot that cannot afford the second POI cannot afford the third either.
+  const f=worldWithMemory({mood:'Focused'},{wildlife:{creatures:[{...grazer,poi:'far_belt'}],polls:1}});
+  try {
+    f.account.server.location.docked_at=null;f.account.server.location.poi_id='belt';
+    // Focused keeps 24 back and the route quotes 7, so 30 is one unit short of the 31 it needs.
+    f.account.server.ship.fuel=30;
+    const out=await hunt({species:'molt_grazer',look:['belt','far_belt']});
+    assert.equal(out.detail.ended,'fuel',JSON.stringify(out.detail));
+    assert.equal(f.count('spacemolt/jump'),0,'the hop it could not afford was flown anyway');
+    assert.match(out.why??'',/fuel/,out.why);
+    assert.match(out.why??'',/far_belt/,`the POI that stopped the search is not named: ${out.why}`);
+    assert.equal(out.now.ship.fuel,30,'the search spent fuel it had refused to spend');
+  } finally {unbind();}
+});
+
+test('every look is remembered, the empty ones included, and a remembered absence carries its age',async()=>{
+  // `markets.json` and `combat.json` keep what the server will not answer twice. A look is the
+  // same: `get_nearby` answers only "here, now", so an empty belt is knowledge that has to be
+  // written down or it is paid for again next shift.
+  const f=worldWithMemory({mood:'Focused'},{wildlife:{creatures:[{...grazer,poi:'far_belt'}],polls:1}});
+  try {
+    f.account.server.location.docked_at=null;f.account.server.location.poi_id='belt';
+    await hunt({species:'molt_grazer',look:['belt','far_belt']});
+    const rows=readSightings(f.runtime);
+    assert.ok(rows.some(row=>row.poi_id==='belt'),`the empty look was not remembered: ${JSON.stringify(rows)}`);
+    assert.ok(rows.some(row=>row.poi_id==='far_belt'&&row.species==='molt_grazer'),JSON.stringify(rows));
+    // The empty belt reads as an absence, not as "never looked": that is the whole value of it.
+    const empty=recall(rows,'belt','molt_grazer');
+    assert.equal(empty.state,'seen');
+    assert.equal(empty.state==='seen'&&empty.count,0);
+    assert.equal(recall(rows,'far_belt','molt_grazer').state,'seen');
+    assert.equal(recall(rows,'a_belt_never_visited','molt_grazer').state,'unlooked');
+  } finally {unbind();}
+});
+
+test('a prey named is the prey hunted: the wrong species at the first POI is left alone',async()=>{
+  // `species` narrows the search as well as the fight. A search that engaged whatever stood at
+  // the first stop would make the prey argument a lie and spend the hull on the wrong animal.
+  const f=worldWithMemory({mood:'Focused'},
+    {wildlife:{creatures:[{...tortoise,poi:'belt'},{...grazer,poi:'far_belt'}],polls:1,damage:1}});
+  try {
+    f.account.server.location.docked_at=null;f.account.server.location.poi_id='belt';
+    const out=await hunt({species:'molt_grazer',look:['belt','far_belt']});
+    assert.equal(out.detail.fights.length,1,JSON.stringify(out.detail.looked));
+    assert.equal(out.detail.fights[0]!.target.name,'Molt Grazer','the tortoise was fought instead');
+    // And the tortoise it declined is still remembered as having been there.
+    assert.ok(readSightings(f.runtime).some(row=>row.poi_id==='belt'&&row.species==='slag_tortoise'),
+      'a look records what was there, not only what was wanted');
   } finally {unbind();}
 });

@@ -1,14 +1,15 @@
 /** Hunting: wildlife anywhere (legal everywhere), pirates in low-police space. The only loops
  * that train weapons, gunnery, tactics, and — by being hit — shields and armor. */
 import type {CreatureInfo,EnrichedWreck,GetBattleStatusResponse,GetNearbyResponse,PirateInfo,V2Module,V2Ship} from '@spacemolt/lib';
-import {resolveWalkAway} from '../../mood-policy.ts';
+import {resolveFuelReserve,resolveWalkAway} from '../../mood-policy.ts';
 import {details} from '../../response-details.ts';
 import {battleEnded} from '../../travel.ts';
 import {active as activeMissions} from '../missions.ts';
 import {acct,admit,checkStop,command,job,pilot,runtimeDir,step,stopped} from '../runtime.ts';
-import {goTo} from '../travel.ts';
+import {goTo,route} from '../travel.ts';
 import type {Outcome,Row} from '../types.ts';
 import {readCombat,statsFor,type CombatStats} from '../../combat-memory.ts';
+import {writeLook} from '../../sighting-memory.ts';
 /** Re-exported so a pilot naming the type in its own helper can reach it through `play`. */
 export type {CombatStats} from '../../combat-memory.ts';
 import {lootWreck,wrecksHere} from './salvage.ts';
@@ -25,11 +26,21 @@ export interface Fight {
   wreck?:EnrichedWreck;loot:Row[];
 }
 
+/** One place the search looked at, in the order it was tried. `saw` counts the prey asked for
+ * (every creature, when no species was named) and `legal` how many of those were engageable;
+ * `flew` says whether reaching it cost a trip. A stop with `saw: 0` is the useful half of a
+ * search — it is the fact that stops the same rock being paid for twice. */
+export interface Looked {poi_id:string;saw:number;legal:number;flew:boolean}
+
 export interface Hunted {
+  /** Where the hunt ended up: the POI it fought at, or the last one it looked at. */
   poi_id:string;
   fights:Fight[];
-  /** Why the loop ended: `asked` fights done, nothing there, hull line, hold full, tired. */
-  ended:'asked'|'nothing here'|'hull'|'hold full'|'stopped'|'tired';
+  /** Every place looked at, in order. One entry for a hunt that stood still. */
+  looked:Looked[];
+  /** Why the loop ended: `asked` fights done, nothing at the one place looked, nothing at any
+   * of several, the fuel reserve refusing the next hop, hull line, hold full, tired. */
+  ended:'asked'|'nothing here'|'nothing found'|'fuel'|'hull'|'hold full'|'stopped'|'tired';
 }
 
 /** The stances a decision may ask for. `board` is deliberately absent: it needs marines and
@@ -344,14 +355,32 @@ async function engage(target:CreatureInfo|PirateInfo,floor:()=>number,
 
 const say=(rows:Row[])=>rows.map(row=>`${row.quantity} ${row.item_id}`).join(', ');
 
-/** One engagement where you stand (or at `poi`, flown to first): read what is here, take up
- * to `fights` fights (default 1) against creatures (default) or pirates (`target:'pirate'`),
- * and loot the wreck each kill leaves. Coming home, stowing and servicing are `goTo`, `stow`
- * and `service` — this function fights and loots, and nothing else.
+/** Hunt a prey across a range of places to look. `look` is POI ids in the order to try them: at
+ * each one the habitat is read, and the fight happens where the prey actually is. `poi` is the
+ * one-place shorthand, and naming neither hunts where you stand. Up to `fights` fights (default
+ * 1) in total across the whole search, against creatures (default) or pirates
+ * (`target:'pirate'`), looting the wreck each kill leaves. Coming home, stowing and servicing
+ * are `goTo`, `stow` and `service` — this function searches, fights and loots, nothing else.
  *
- * Nothing to hunt here is `done` with `fights: []` and `ended:'nothing here'`: the fact was
- * learned and nothing was spent. `species` narrows to a kind you have fought before; left
- * unset, a species an active mission's own words name is preferred over the first legal one.
+ * **Fauna is not knowable before arrival.** POI rows carry no fauna field and there is no
+ * per-species query, so nothing can tell you which belt holds your prey before you are standing
+ * in it. That is why this takes a list rather than a destination: being sent to one belt on a
+ * guess is how a pilot spends a shift finding nothing. Every look is written to this runtime's
+ * sighting memory, the empty ones included, so the next search starts from what was seen rather
+ * than from the same guess — and a remembered look reports its own age, because stale fauna is
+ * a lie (`sighting-memory.ts`).
+ *
+ * **The looking is bounded by fuel.** Before each hop the route is re-quoted and checked
+ * against the mood's fuel reserve, and the search ENDS rather than skipping on: a pilot that
+ * cannot afford the next POI cannot afford the one after it either, and `ended:'fuel'` names the
+ * place that stopped it. `goTo` enforces the same reserve itself — this check is what lets the
+ * search stop cleanly and say where, instead of accumulating refusals.
+ *
+ * Nothing to hunt is `done`, never `refused`: the fact was learned and nothing was spent
+ * fighting. One place looked at is `ended:'nothing here'`, several is `ended:'nothing found'`,
+ * and `detail.looked` names each one and what was in it. `species` narrows both the search and
+ * the fight; left unset, a species an active mission's own words name is preferred over the
+ * first legal one.
  *
  * Refused before firing without a fitted weapon (`V2Module.type === 'weapon'`) holding
  * ammunition; an empty magazine whose rounds are in the hold is reloaded instead. Costs
@@ -367,22 +396,22 @@ const say=(rows:Row[])=>rows.map(row=>`${row.quantity} ${row.item_id}`).join(', 
  * one field a tick, validates it, and journals what was asked against what was sent. A callback
  * that throws is logged and the default loop carries on. The mood's walk-away line outranks it
  * always — a decision that would keep fighting under the line is refused and said so. */
-export function hunt(opts:{poi?:string;fights?:number;species?:string;target?:'creature'|'pirate';
+export function hunt(opts:{poi?:string;look?:string[];fights?:number;species?:string;target?:'creature'|'pirate';
   onTick?:(view:TickView)=>TickDecision|undefined}={}):Promise<Outcome<Hunted>> {
   const asked=Math.max(1,Math.trunc(opts.fights??1));
-  return job<Hunted>('hunt',[opts.poi,opts.species,opts.target,asked>1?`×${asked}`:''].filter(Boolean).join(' '),async()=>{
+  // Where to look, in order. `poi` is the single-place case of `look`; naming neither looks
+  // exactly once, where the ship already stands.
+  const trail=opts.look?.length?opts.look:opts.poi?[opts.poi]:[];
+  return job<Hunted>('hunt',[trail.join('/'),opts.species,opts.target,asked>1?`×${asked}`:''].filter(Boolean).join(' '),async()=>{
     const who=pilot();
-    const result:Hunted={poi_id:opts.poi??acct().state.location?.poi_id??'',fights:[],ended:'asked'};
+    const result:Hunted={poi_id:trail[0]??acct().state.location?.poi_id??'',fights:[],looked:[],ended:'asked'};
     const refuse=(why:string)=>({status:'refused' as const,did:'hunted nothing',why,detail:result});
     const blocked=admit('hunt');
     if(blocked)return refuse(blocked);
-    if(opts.poi&&acct().state.location?.poi_id!==opts.poi) {
-      const out=await goTo(opts.poi);
-      if(out.status!=='done')return {status:out.status,did:`did not reach ${opts.poi}`,why:out.why??'',detail:result};
-    }
-    result.poi_id=acct().state.location?.poi_id??result.poi_id;
     const gap=await loadout();
     if(gap)return refuse(gap);
+    /** Why the search stopped travelling, when the fuel reserve is what stopped it. */
+    let shortFuel='';
     // The hull line the mood draws, read at each check rather than once at the top: the pilot
     // record moves under a running loop (the runtime imposes Tired, the observer rewrites the
     // file), and a fight carrying on under a line the pilot has left is the one thing this
@@ -391,28 +420,85 @@ export function hunt(opts:{poi?:string;fights?:number;species?:string;target?:'c
     const wantPirates=opts.target==='pirate';
     // No species named: an active mission's own words are the next best thing to ask.
     const quarry=!opts.species&&!wantPirates?await huntText():'';
-    for(let n=0;n<asked;n++) {
+    // The places to try. An empty trail is one look, where the ship is: `hunt()` unchanged.
+    const stops=trail.length?trail:[acct().state.location?.poi_id??''];
+    search: for(const where of stops) {
       checkStop();
-      const ship=acct().state.ship as V2Ship|undefined;
-      if(Number(ship?.hull??0)<floor()){result.ended='hull';break;}
-      if(Number(ship?.cargo_capacity??0)-Number(ship?.cargo_used??0)<=0){result.ended='hold full';break;}
+      let flew=false;
+      if(where&&acct().state.location?.poi_id!==where) {
+        // Re-quoted per hop, against the reserve as it stands now: the runtime imposes Tired
+        // under a running loop, and Tired keeps nothing back, so a reserve captured at the top
+        // would be the wrong number by the time the search got here.
+        const reserve=resolveFuelReserve(pilot().mood??'Cautious');
+        const fuel=Number(acct().state.ship?.fuel??0);
+        let quoted=NaN;
+        try {quoted=Number((await route(where)).estimated_fuel);} catch {/* unplaceable below */}
+        if(!Number.isFinite(quoted)) {
+          // A POI the server cannot place is skipped, not fatal: the rest of the list may be
+          // real, and a typo in one id should not end a search that had four good ones.
+          step(`${where}: no route there, skipped`);
+          continue;
+        }
+        if(fuel<quoted+reserve) {
+          shortFuel=`fuel ${fuel}, and reaching ${where} needs ${quoted+reserve} with the ${pilot().mood} reserve ${reserve}`;
+          result.ended='fuel';
+          break;
+        }
+        const out=await goTo(where);
+        if(out.status!=='done') {
+          shortFuel=out.why??`did not reach ${where}`;
+          result.ended='fuel';
+          break;
+        }
+        flew=true;
+      }
+      result.poi_id=acct().state.location?.poi_id??where;
+      // The look. One read answers what is at this POI and nothing about any other, which is
+      // the whole reason the search has to be flown rather than planned.
       const nearby=details(await command('spacemolt/get_nearby',{})) as GetNearbyResponse;
       const here:(CreatureInfo|PirateInfo)[]=wantPirates?nearby.pirates??[]:nearby.creatures??[];
+      // Written whole, every species present, because `recall` reads a species missing from a
+      // look as an absence and a filtered look would make that a lie (`sighting-memory.ts`).
+      // Pirates are not wildlife and are not remembered: they move under their own orders, so
+      // a sighting of one says nothing about tomorrow.
+      const remember=runtimeDir();
+      if(!wantPirates&&remember) {
+        const tally=new Map<string,{species:string;count:number;legal:number}>();
+        for(const one of nearby.creatures??[]) {
+          const row=tally.get(one.species)??{species:one.species,count:0,legal:0};
+          row.count+=1;
+          if(decline(one,undefined)===null)row.legal+=1;
+          tally.set(one.species,row);
+        }
+        writeLook(remember,{poi_id:result.poi_id,seen:[...tally.values()]});
+      }
+      const wanted=here.filter(one=>!opts.species||(isCreature(one)&&one.species===opts.species));
+      result.looked.push({poi_id:result.poi_id,saw:wanted.length,
+        legal:wanted.filter(one=>decline(one,opts.species)===null).length,flew});
+      for(;result.fights.length<asked;) {
+      checkStop();
+      const ship=acct().state.ship as V2Ship|undefined;
+      if(Number(ship?.hull??0)<floor()){result.ended='hull';break search;}
+      if(Number(ship?.cargo_capacity??0)-Number(ship?.cargo_used??0)<=0){result.ended='hold full';break search;}
+      // Re-read each fight: the last kill took one out of the habitat, so the second fight is
+      // against what is left rather than against the list the arrival answered with.
+      const round=details(await command('spacemolt/get_nearby',{})) as GetNearbyResponse;
+      const standing:(CreatureInfo|PirateInfo)[]=wantPirates?round.pirates??[]:round.creatures??[];
       const refusals:string[]=[];
       let target:CreatureInfo|PirateInfo|undefined;
       // A mission's quarry, when one is named and legal to take, wins over the first thing here.
-      if(quarry)target=here.find(one=>isCreature(one)&&namesSpecies(quarry,one.species)&&decline(one,undefined)===null);
-      if(!target)for(const one of here) {
+      if(quarry)target=standing.find(one=>isCreature(one)&&namesSpecies(quarry,one.species)&&decline(one,undefined)===null);
+      if(!target)for(const one of standing) {
         const why=decline(one,opts.species);
         if(why===null){target=one;break;}
         refusals.push(why);
       }
       if(!target) {
-        // A habitat with nothing in it is a fact learned, not a refusal: the first fight
-        // finding nothing is `nothing here`, a later one is simply the loop running out.
-        if(!result.fights.length)result.ended='nothing here';
+        // A habitat with nothing in it is a fact learned, not a refusal. With one place looked
+        // at that is `nothing here`; with a list it is the search moving on to the next place,
+        // and only the end of the list is `nothing found`.
         if(refusals.length)step(`declined: ${[...new Set(refusals)].join('; ')}`);
-        break;
+        continue search;
       }
       // What memory remembers of this opponent, read once per fight and handed to the callback:
       // the same numbers the juncture showed when the pilot chose to come here.
@@ -428,15 +514,39 @@ export function hunt(opts:{poi?:string;fights?:number;species?:string;target?:'c
         if(fight.outcome==='escaped'){fight.outcome='down';delete fight.why;}
       }
       step(`fight ${result.fights.length}: ${nameOf(target)} ${fight.outcome}${fight.why?` (${fight.why})`:''}, hull ${fight.hull_before}→${fight.hull_after}, ${say(fight.loot)||'no loot'}`);
-      if(stopped()){result.ended='stopped';break;}
-      if(pilot().mood==='Tired'){result.ended='tired';break;}
-      if(fight.outcome==='broke off'||fight.outcome==='unresolved'){result.ended='hull';break;}
+      if(stopped()){result.ended='stopped';break search;}
+      if(pilot().mood==='Tired'){result.ended='tired';break search;}
+      if(fight.outcome==='broke off'||fight.outcome==='unresolved'){result.ended='hull';break search;}
+      }
+      // The fight budget is spent across the whole search, not per place: once it is gone there
+      // is nothing left to look for.
+      if(result.fights.length>=asked)break;
     }
     const loot=result.fights.flatMap(fight=>fight.loot);
     const hull=Number(acct().state.ship?.hull??0);
-    if(result.ended==='nothing here')
-      return {status:'done',did:`nothing to hunt at ${result.poi_id}`,detail:result,
-        next:['scout() a neighbouring belt or field; creatures are where the resources are']};
+    /** Every place looked at and what was in it, which is what the search is worth when it
+     * found nothing: the pilot can read it and not be sent back to the same rock. */
+    const trailSaid=result.looked.map(row=>`${row.poi_id} (${row.saw?`${row.saw} seen, ${row.legal} legal`:'none'})`).join(', ');
+    const prey=opts.species??(wantPirates?'pirates':'anything huntable');
+    // Nothing anywhere, having fought nothing: a fact learned, and `done`, because the looking
+    // is the job when the prey's whereabouts are not knowable in advance. One place looked at
+    // keeps the older, shorter sentence; a real search says where it went.
+    if(!result.fights.length&&(result.ended==='asked'||result.ended==='nothing here')) {
+      result.ended=result.looked.length>1?'nothing found':'nothing here';
+      return {status:'done',
+        did:result.ended==='nothing here'
+          ?`nothing to hunt at ${result.poi_id}`
+          :`looked at ${trailSaid} and found no ${prey}`,
+        detail:result,
+        next:result.ended==='nothing here'
+          ?['scout() a neighbouring belt or field; creatures are where the resources are']
+          : [`every one of those is remembered as empty; hunt({species, look}) a different list, or scout() first`]};
+    }
+    if(result.ended==='fuel')
+      return {status:result.fights.length?'partial':'refused',
+        did:result.fights.length?`${result.fights.length} fight(s), then the search stopped`:'hunted nothing',
+        why:`${shortFuel}; looked at ${trailSaid}`,detail:result,
+        next:['goTo a base and service(), then hunt a nearer list']};
     const did=`${result.fights.length} fight(s) at ${result.poi_id}: ${say(loot)||'no loot'}, hull ${hull}/${acct().state.ship?.max_hull??'?'}`;
     if(result.ended==='tired')return {status:'partial',did,why:'Tired: broke off after the round in flight',detail:result,
       next:['goTo a base and service(); that clears Tired']};
