@@ -11,7 +11,7 @@ assembled from everything this pilot is allowed to know.
 |---|---|
 | `spreads(items?)` | the best buyer known for each thing you hold, anywhere, with the trip priced and netted |
 | `routes({items?, circuit?})` | every route of up to 3 stops known, planned from the hold you have, fuelled, and ranked by trust-weighted net per jump; each row carries the call to paste. With `circuit: {hold}`, every row is a closed lap for a freighter instead, past the rings a freighter drained within `REST_TICKS` |
-| `tradeRun({stops})` | fly the stops in order; at each, sell what pays best there and take on the stop's `buy`, re-planned against the live book. The realised net from the wallet |
+| `tradeRun({stops})` | fly the stops in order; at each, sell what pays best there and fill the hold from the stop's `buy` items, re-planned against the live book. The realised net from the wallet |
 
 Root functions do the rest: `prices()` for the counter you are standing at, `sell()`/`buy()`
 for one side only.
@@ -79,8 +79,11 @@ hold you have. At every stop one rule decides two things. First, sell each held 
 here is at least the best bid for it at any later stop on the route, each weighed by how much its
 book can be trusted. A unit is also never sold for under half the best trusted bid any base **off**
 the route posts: 27 null_matter are not dumped at 1 cr while a remembered book elsewhere bids 445.
-Then take the stop's `buy` item into the room that frees, one unit at a time,
-while the unit's best bid later on the route beats its ask here plus tax. Both walk the books
+Then fill the room that frees, one unit at a time, with whichever of the stop's `buy` items earns
+most on that unit — its best bid later on the route less its ask here plus tax — while that is above
+0. So a stop takes several items when the best one runs thin: 10 gems while they are 10 deep at 100,
+then ore for the rest of the hold. `routes()` offers every item a stop asks for that some known book
+outbids; `tradeRun` offers the stop's `buy`, one item or a list. Both walk the books
 level by level. The last stop has nothing after it, so it sells everything it bids for above that
 floor; whatever is still aboard after it is `unsold` and is not counted. An `unsold` row kept for a
 better bid off the route says where in its `why` (`node_alpha_processing_station bids 445, off this
@@ -99,7 +102,8 @@ stop; goods aboard are always weighed. `sources` is as for `spreads()`. It reads
 computes, you choose. It is refused when not docked. Goods in the store here are not weighed; take
 them with `from: 'store'` (below).
 
-The search grows routes one stop at a time, keeping the best 20 at each length, up to 3 stops. A
+The search picks only the bases, in order; the rule above picks what each stop sells and takes on.
+It grows routes one stop at a time, keeping the best 20 at each length, up to 3 stops. A
 route is kept only when it pays and every stop on it sells or buys something. Jumps are counted
 on the galaxy map (`get_map`, one call) between the systems of consecutive stops. The market
 memory keeps each base's system, and lends it to a ledger entry for the same base. A base it has
@@ -109,7 +113,7 @@ Each row of `routes` is a `Route`:
 
 | Field | What it is |
 |---|---|
-| `legs` | one per stop, in order: `{at, source, age, sold, buy?, bought, cost, sales_tax}` (below) |
+| `legs` | one per stop, in order: `{at, source, age, sold, buys, bought, cost, sales_tax}` (below) |
 | `unsold` | `{item_id, quantity, why?}` rows still aboard after the last stop: nothing on the route bids for them, or a base off the route bids at least twice as much (named in `why`). Not in the net |
 | `revenue` | every sale on the route, level by level |
 | `cost` | every buy on the route, level by level (0 from the store) |
@@ -129,8 +133,9 @@ Each leg is:
 | `at` | the base |
 | `source`, `age` | where its book came from (`here`, `faction ledger`, `remembered`) and its age in ticks; `here`/0 when live |
 | `sold` | `{item_id, quantity, revenue}` per held item sold here |
-| `buy`, `bought`, `cost` | the item taken on here, the units, and what they cost at the asks |
-| `sales_tax` | tax on that buy, at this base's rate when the stop is far; `null` when no rate is known |
+| `buys` | `{item_id, quantity, cost}` per item taken on here, `cost` at the asks |
+| `bought`, `cost` | the units taken on here, all told, and what they cost |
+| `sales_tax` | tax on those buys, each floored as the game does, at this base's rate when the stop is far; `null` when no rate is known |
 
 At most 5 rows come back, priced ones first. The Outcome's `did` names the best row in short —
 a stop selling more than two kinds says `sell 499 of 10 kinds` — and its legs carry each sale. A stop that could not be placed leaves its row in
@@ -140,9 +145,9 @@ the list with a `why`, a `score` of 0 and the Outcome `partial`.
 
 A route need not come back to where it started; one handed to a freighter must, because the
 freighter flies it again and again. `routes({circuit: {hold: 50}})` ranks those instead: every row
-is a closed lap of 2 or 3 different bases, planned for an **empty** hold of `hold` units (what is
-aboard you now is ignored), with at least one buy. The last stop may take on something the first
-stop outbids, so the way back pays too.
+is a closed lap of 2 or 3 different bases, planned for an **empty** hold of `hold` units
+(what is aboard you now is ignored), with at least one buy. The lap is planned into the next one,
+so the last stop takes on what the first stop outbids, and the way back pays too.
 
 A lap is planned three times over and the **middle** lap is the one read: the first starts empty,
 and the last has nothing after it to carry for. The lap starts at its first buy, so lap one has
@@ -150,7 +155,7 @@ already traded on every book the middle lap reads. It is one plan over one set o
 lap one took is gone for lap two, and the middle lap can sell more than it buys. A lap repeats only
 what it both buys and sells, so each item counts `min(sold, bought)` units, sold at its best bids
 and bought at its cheapest asks; an item sold with none bought on the lap is carry from lap one and
-is not counted. One ring of bases is one row: its rotations and other buys rank as the best of them.
+is not counted. One ring of bases is one row: its rotations rank as the best of them.
 
 **A drained ring rests.** When a freighter parks because its circuit ran dry — three stops in a
 row with no trade, or three laps that lost money — its ring of bases (the stops in order, any
@@ -174,9 +179,9 @@ on it trades, `lap_net` is positive and every hop, the last one home included, i
 | `hold` | the hold the lap was planned for |
 | `lap_jumps` | jumps round the whole lap, the hop from the last stop back to the first included |
 | `lap_net` | the middle lap's revenue, less cost, tax and `lap_jumps` of fuel at this base's `fuel_price_all_in` |
-| `stops` | in order: `{at, system_id, buy?, sell}` |
+| `stops` | in order: `{at, system_id, buys, sell}` |
 | `stops[i].at`, `.system_id` | the base and its system |
-| `stops[i].buy` | `{item, qty, max_price}`: take on up to `qty` units of `item` at asks of at most `max_price`, which is the planned average ask plus 10% |
+| `stops[i].buys` | `[{item, qty, max_price}]`: take on up to `qty` units of each `item`, one buy each, at asks of at most `max_price`, the planned average ask plus 10%. A circuit written before `buys` has one `buy: {item, qty, max_price}` instead; it still flies, read as `buys: [buy]` |
 | `stops[i].sell` | `[{item, min_price}]`: sell each held `item` at bids of at least `min_price`, the planned average bid less 10%. Nothing else is sold |
 
 ## What a run says
@@ -186,19 +191,19 @@ on it trades, `lap_net` is positive and every hop, the last one home included, i
 | Option | What it is |
 |---|---|
 | `at` | the base to stop at. `tradeRun` flies there itself; a stop you are docked at is not flown to |
-| `buy` | the item to take on here, sized by the plan |
-| `quantity` | a cap on `buy` |
+| `buy` | the item to take on here, or a list of them: the plan fills the hold from the list, unit by unit, whichever earns most, one `buy` each. A `routes()` row's `next` lists what its plan took |
+| `quantity` | a cap on all of `buy` together |
 | `from` | `'store'`: take `buy` out of this base's store, at no cost, instead of off the market |
 
 At each stop it reads the live book, re-plans the rest of the route against it (later stops at
-their best known books), and does the first leg of that plan: `sell`, then `buy` or `withdraw`.
+their best known books), and does the first leg of that plan: `sell`, then a `buy` or `withdraw` per item.
 A later stop with no known book may bid for anything, so goods are kept for it.
 
 It answers `detail: Traded` = `{stops, unsold, fuel, net}`:
 
 | Field | What it is |
 |---|---|
-| `stops` | one per stop reached: `{at, sold, bought, spent, why?}`. `sold` is the lib's `SellResponse[]` for this counter, `bought` the units taken on, `spent` what left the wallet for them, sales tax included, and `why` what fell short here or why nothing was taken |
+| `stops` | one per stop reached: `{at, sold, bought, spent, why?}`. `sold` is the lib's `SellResponse[]` for this counter, `bought` the units taken on, every item together, `spent` what left the wallet for them, sales tax included, and `why` what fell short here or why nothing was taken |
 | `unsold` | `{item_id, quantity, why?}` rows aboard when the run ended. After the last stop, what no stop bought, or what a base off the route bids twice as much for (named in `why`) |
 | `fuel` | fuel units the flights burned, measured from the tank |
 | `net` | sales, less `spent` (tax included), less `fuel × fuel_price_all_in` at the first base the run was docked at. Fuel comes from the tank, not the wallet, so it is priced exactly as `Route.net` prices it: realised `net` against the `routes()` row's `net` is like against like |
@@ -245,7 +250,7 @@ export default async function main() {
   const best = look.detail.routes.find(row => row.total_jumps !== null && row.net > 0);
   if (!best) return look;
   note(`${best.legs.map(leg => leg.at).join(' → ')}: net ${best.net}, confidence ${best.confidence.toFixed(2)}`);
-  return tradeRun({stops: best.legs.map(leg => leg.buy ? {at: leg.at, buy: leg.buy} : {at: leg.at})});
+  return tradeRun({stops: best.legs.map(leg => ({at: leg.at, buy: leg.buys.map(row => row.item_id)}))});
 }
 ```
 

@@ -9,7 +9,7 @@ import {details} from '../../response-details.ts';
 import {closure} from '../freighter/index.ts';
 import {flying,gate,held,readFleet,recallLoop,row,script,scriptPath,start,writeFleet,type FreighterRow} from '../freighter/host.ts';
 import {acct,command,job,runtimeDir} from '../runtime.ts';
-import {farBooks,hops,routes,type Circuit} from '../trading/trading.ts';
+import {buysOf,farBooks,hops,routes,type Circuit} from '../trading/trading.ts';
 import type {Outcome} from '../types.ts';
 
 /** Every ship you own and where it is parked (`ship/list_ships`), with the active one
@@ -62,10 +62,10 @@ export function assign(name:string,circuit:Circuit,caps:{float:number}):Promise<
     if(flying(name))return refuse(`${name} is flying; recall('${name}') first, and assign it when it has parked`);
     const owner=acct().state.player?.username;
     if(!owner)return refuse('no username read for this pilot, so the profit has nowhere to go');
-    // Only the fields a circuit has, so the script carries nothing else.
+    // Only the fields a circuit has, so the script carries nothing else; a one-`buy` stop is written as `buys`.
     const clean:Circuit={closed:true,hold:circuit.hold,lap_jumps:circuit.lap_jumps,lap_net:circuit.lap_net,
-      stops:circuit.stops.map(({at,system_id,buy,sell})=>({at,system_id,...buy?{buy:{item:buy.item,qty:buy.qty,max_price:buy.max_price}}:{},
-        sell:sell.map(({item,min_price})=>({item,min_price}))}))};
+      stops:circuit.stops.map(stop=>({at:stop.at,system_id:stop.system_id,buys:buysOf(stop).map(({item,qty,max_price})=>({item,qty,max_price})),
+        sell:stop.sell.map(({item,min_price})=>({item,min_price}))}))};
     const path=scriptPath(runtime,name);
     mkdirSync(dirname(path),{recursive:true});
     writeFileSync(path,script(clean));

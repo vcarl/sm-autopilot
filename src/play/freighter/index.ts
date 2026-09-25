@@ -5,7 +5,7 @@
  *
  * Every failure is handled here, once, so the script stays a loop:
  * - a disconnect or any other throw: wait a minute and redo the stop from a fresh read. A stop is
- *   idempotent: sales are sized by what is held, the buy by the free hold and what is already aboard.
+ *   idempotent: sales are sized by what is held, each buy by the free hold and what is already aboard.
  *   The why it said clears once the stop is reached;
  * - the session taken by another connection: park, and never log in again;
  * - a sale or buy the game refuses: say so and go on; three stops in a row with no trade parks it,
@@ -20,7 +20,7 @@ import {details} from '../../response-details.ts';
 import {ServiceBlocked,serviceShip} from '../../servicing.ts';
 import {fileIntel} from '../../trade-intel.ts';
 import {FuelRouteShortfall,TravelBlocked,travelTo} from '../../travel.ts';
-import type {Circuit} from '../trading/trading.ts';
+import {buysOf,type Circuit} from '../trading/trading.ts';
 
 /** What one lap did: `park` when the freighter stopped for good, and why; `net` the credits it
  * made, deposits home included, with the cargo aboard at its cost (see `Holding`). */
@@ -81,11 +81,11 @@ export function closure(circuit:Circuit):string|null {
     :stops.some(stop=>typeof stop?.at!=='string'||!stop.at||typeof stop.system_id!=='string'||!stop.system_id||!Array.isArray(stop.sell))
       ?'every stop needs at, system_id and a sell list'
     :new Set(stops.map(stop=>stop.at)).size<2?'fewer than 2 distinct stops'
-    :!stops.some(stop=>stop.buy)?'no stop buys anything'
-    :stops.find(stop=>stop.buy&&!(finite(stop.buy.qty,1)&&finite(stop.buy.max_price,1)))?'a buy needs a qty and a max_price of at least 1'
+    :!stops.some(stop=>buysOf(stop).length)?'no stop buys anything'
+    :stops.flatMap(buysOf).find(buy=>!(typeof buy?.item==='string'&&finite(buy.qty,1)&&finite(buy.max_price,1)))?'a buy needs an item, a qty and a max_price of at least 1'
     :stops.flatMap(stop=>stop.sell).find(sale=>!finite(sale.min_price,0))?'a sale needs a min_price'
-    :stops.flatMap(stop=>stop.sell).find(sale=>!stops.some(stop=>stop.buy?.item===sale.item))
-      ?`${stops.flatMap(stop=>stop.sell).find(sale=>!stops.some(stop=>stop.buy?.item===sale.item))!.item} is sold but bought nowhere on the circuit`
+    :stops.flatMap(stop=>stop.sell).find(sale=>!stops.flatMap(buysOf).some(buy=>buy.item===sale.item))
+      ?`${stops.flatMap(stop=>stop.sell).find(sale=>!stops.flatMap(buysOf).some(buy=>buy.item===sale.item))!.item} is sold but bought nowhere on the circuit`
     :null;
   return problem&&`${problem}; ${BUILD}`;
 }
@@ -129,8 +129,8 @@ async function fly(f:Freighter,stop:Stop):Promise<number> {
  * counter that refuses a service is passed by: the next quote says whether the tank still reaches. */
 const service=async(f:Freighter,stop:Stop)=>{await attempt(f,stop.at,'service',()=>serviceShip(f.account,f.command,{mood:'Tired'}));};
 
-/** One stop: fly there and dock, service, sell the listed items at their floors, buy within the
- * cap, send the credits above the float home. Returns how many trades took, and the book's tick. */
+/** One stop: fly there and dock, service, sell the listed items at their floors, buy each listed
+ * item within its cap, one command each, send the credits above the float home. Returns how many trades took, and the book's tick. */
 async function visit(f:Freighter,stop:Stop,sent:(credits:number)=>void,bought:(item:string,n:number,spent:number)=>void):Promise<{traded:number;tick:number}> {
   const {account,command}=f;
   await fly(f,stop);
@@ -150,8 +150,8 @@ async function visit(f:Freighter,stop:Stop,sent:(credits:number)=>void,bought:(i
     if(n&&await attempt(f,stop.at,`sell ${n} ${item}`,()=>command('spacemolt/sell',{id:item,quantity:n})))traded++;
   }
   await account.refresh();
-  if(stop.buy) {
-    const {item,qty,max_price}=stop.buy,row=book.get(item),ship=account.state.ship;
+  for(const {item,qty,max_price} of buysOf(stop)) {
+    const row=book.get(item),ship=account.state.ship;
     // ponytail: a unit is one unit of hold. A bulkier item's buy is refused by the game and skipped.
     const want=Math.min(qty-(miningInventory(account.state)[item]??0),(ship?.cargo_capacity??0)-(ship?.cargo_used??0));
     let n=0,budget=(account.state.player?.credits??0)-FUEL_MONEY;
@@ -162,10 +162,10 @@ async function visit(f:Freighter,stop:Stop,sent:(credits:number)=>void,bought:(i
       if(take<level.quantity)break;
     }
     const before=account.state.player?.credits??0;
-    const took=n>0&&await attempt(f,stop.at,`buy ${n} ${item}`,()=>command('spacemolt/buy',{id:item,quantity:n}));
+    if(!(n>0&&await attempt(f,stop.at,`buy ${n} ${item}`,()=>command('spacemolt/buy',{id:item,quantity:n}))))continue;
     await account.refresh();
     // What left the wallet for it, tax included: the buy reply's total leaves the tax out.
-    if(took){traded++;bought(item,n,before-(account.state.player?.credits??0));}
+    traded++;bought(item,n,before-(account.state.player?.credits??0));
   }
   const spare=(account.state.player?.credits??0)-f.float;
   if(spare>0&&await attempt(f,stop.at,`deposit ${spare} cr to ${f.owner}`,

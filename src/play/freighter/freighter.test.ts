@@ -6,13 +6,13 @@ import test,{mock} from 'node:test';
 import {SpacemoltError} from '@spacemolt/lib';
 import type {ReadinessAccount,ReadinessCommand} from '../../readiness.ts';
 import {check} from '../../run.ts';
-import {bridgeWorld,TICK} from '../../test-support/bridge-world.ts';
+import {bridgeWorld,TICK,type WorldOptions} from '../../test-support/bridge-world.ts';
 import {assign,reassign} from '../fleet/fleet.ts';
 import {menu,renderMenu} from '../menu.ts';
 import {bind,unbind} from '../runtime.ts';
 import {REST_TICKS,routes,type Circuit} from '../trading/trading.ts';
 import {markDrained,ring} from './drained.ts';
-import {gate,script,scriptPath,writeFleet} from './host.ts';
+import {gate,readFleet,script,scriptPath,writeFleet} from './host.ts';
 import {lap,type Freighter,type Lap,type Report} from './index.ts';
 
 // Gems bought at sol for at most 110, sold at range for at least 120.
@@ -21,11 +21,11 @@ const GEMS:Circuit={closed:true,hold:10,lap_jumps:2,lap_net:500,stops:[
   {at:'range_base',system_id:'deep_range',sell:[{item:'gem',min_price:120}]}]};
 
 /** A freighter over the fake world, its deposits and reports recorded. `refuse` names commands the game refuses. */
-function freighter(rangeBid:number,refuse:string[]=[]) {
+function freighter(rangeBid:number,refuse:string[]=[],options:WorldOptions={}) {
   const world=bridgeWorld({services:['refuel','repair','storage'],cargo:[{item_id:'ore',quantity:5}],cargoUsed:5,cargoCapacity:50,
     markets:{sol_base:[{item_id:'gem',best_buy:0,best_buy_qty:0,best_sell:100,best_sell_qty:50}],
       range_base:[{item_id:'gem',best_buy:rangeBid,best_buy_qty:50,best_sell:0,best_sell_qty:0},
-        {item_id:'ore',best_buy:999,best_buy_qty:99,best_sell:0,best_sell_qty:0}]}});
+        {item_id:'ore',best_buy:999,best_buy_qty:99,best_sell:0,best_sell_qty:0}]},...options});
   world.account.server.player.credits=50_000;
   const deposits:{credits:number;wallet:number}[]=[],reports:Report[]=[];
   const command:ReadinessCommand=async(action,params)=>{
@@ -110,6 +110,8 @@ test('assign takes a circuit whose bases are known only from the faction ledger,
     // Past every check on the circuit: only the operator's login is missing.
     assert.match(out.why!,/^no login at /);
     assert.deepEqual(gate(scriptPath(runtime,'hauler')),[]);
+    const written=readFileSync(scriptPath(runtime,'hauler'),'utf8');
+    assert.ok(written.includes('"buys": [')&&!written.includes('"buy":'),'a one-buy circuit is written as buys');
     const stray={...GEMS,stops:[GEMS.stops[0]!,{...GEMS.stops[1]!,at:'nowhere_base'}]};
     const lost=await assign('hauler',stray,{float:20_000});
     assert.equal(lost.status,'refused');
@@ -239,6 +241,58 @@ test('the approach to stop 1 is reported on its own and kept out of the lap net 
   assert.equal(world.account.server.player.credits+home-start,done.net-approach.credits-stocked,'the approach is outside the net');
   await lap(f,reversed);
   assert.equal(reports.filter(r=>r.approach).length,1,'lap 2 has no approach: sol → range is on the ring');
+});
+
+test('a lap buys and sells every item of a multi-buy stop exactly as routes ranked it',async()=>{
+  // Sol asks gems at 100 and ore at 10, deep. Range bids gems 150 × 30, then 140 × 10, then 105; ore 25.
+  // Lap one takes the thirty at 150; the middle lap, the one read, takes 10 gems for 140 and fills with 20 ore.
+  const runtime=mkdtempSync(join(tmpdir(),'freighter-multi-'));
+  writeFileSync(join(runtime,'markets.json'),JSON.stringify([{base_id:'range_base',at:'',tick:TICK,system_id:'deep_range',items:[
+    {item_id:'gem',best_buy:150,best_buy_qty:30,best_sell:0,best_sell_qty:0,sell_orders:[],
+      buy_orders:[{price_each:150,quantity:30},{price_each:140,quantity:10},{price_each:105,quantity:1000}]},
+    {item_id:'ore',best_buy:25,best_buy_qty:1000,best_sell:0,best_sell_qty:0,buy_orders:[],sell_orders:[]}]}]));
+  const markets={sol_base:[{item_id:'gem',best_buy:0,best_buy_qty:0,best_sell:100,best_sell_qty:1000},
+    {item_id:'ore',best_buy:0,best_buy_qty:0,best_sell:10,best_sell_qty:1000}],
+    range_base:[{item_id:'gem',best_buy:150,best_buy_qty:50,best_sell:0,best_sell_qty:0},{item_id:'ore',best_buy:25,best_buy_qty:50,best_sell:0,best_sell_qty:0}]};
+  const pilot=bridgeWorld({services:['refuel','repair','storage'],cargo:[],cargoUsed:0,cargoCapacity:30,markets});
+  bind({account:pilot.account as unknown as ReadinessAccount,command:pilot.command,pilot:()=>({mood:'Focused'}),setPilot:()=>{},emit:()=>{},runtime});
+  let top;
+  try {
+    await pilot.account.refresh();
+    top=(await routes({circuit:{hold:30}})).detail.routes[0]!;
+  } finally {unbind();rmSync(runtime,{recursive:true,force:true});}
+  assert.deepEqual(top.circuit!.stops.map(stop=>[stop.at,stop.buys,stop.sell]),[
+    ['sol_base',[{item:'gem',qty:10,max_price:110},{item:'ore',qty:20,max_price:11}],[]],
+    ['range_base',[],[{item:'gem',min_price:126},{item:'ore',min_price:22}]]]);
+
+  const {world,f,reports}=freighter(150,[],{cargo:[],cargoUsed:0,cargoCapacity:30,markets});
+  await world.account.refresh();
+  const done=await lap(f,top.circuit!);
+  assert.equal(done.park,undefined,reports.map(r=>r.why).filter(Boolean).join('; '));
+  const sent=(action:string)=>world.sent.filter(c=>c.action===action).map(c=>[c.params.id,c.params.quantity]);
+  assert.deepEqual(sent('spacemolt/buy'),top.legs[0]!.buys.map(buy=>[buy.item_id,buy.quantity]),'one command per item, as planned');
+  assert.deepEqual(sent('spacemolt/sell'),top.legs[1]!.sold.map(sale=>[sale.item_id,sale.quantity]));
+});
+
+test('an entry written before buys (one buy per stop) still loads and flies, and its script passes the gate',async()=>{
+  const runtime=mkdtempSync(join(tmpdir(),'freighter-old-'));
+  try {
+    // As the live freighters.json has it: `buy`, no `buys`, no `scope`.
+    writeFileSync(join(runtime,'freighters.json'),JSON.stringify({old:{state:'running',float:5000,owner:'B',lap:2,returned:0,at:'',
+      circuit:{closed:true,hold:10,lap_jumps:2,lap_net:500,stops:[
+        {at:'sol_base',system_id:'sol',buy:{item:'gem',qty:10,max_price:110},sell:[]},
+        {at:'range_base',system_id:'deep_range',sell:[{item:'gem',min_price:120}]}]}}}));
+    const entry=readFleet(runtime).old!;
+    const {world,f}=freighter(130);
+    await world.account.refresh();
+    const done=await lap(f,entry.circuit);
+    assert.equal(done.park,undefined);
+    assert.deepEqual(world.sent.filter(c=>c.action==='spacemolt/buy').map(c=>c.params),[{id:'gem',quantity:10}]);
+    assert.deepEqual(world.sent.filter(c=>c.action==='spacemolt/sell').map(c=>c.params),[{id:'gem',quantity:10}]);
+    mkdirSync(join(runtime,'freighters'));
+    writeFileSync(scriptPath(runtime,'old'),script(entry.circuit));
+    assert.deepEqual(gate(scriptPath(runtime,'old')),[],'the old script passes the gate the host runs at restart');
+  } finally {rmSync(runtime,{recursive:true,force:true});}
 });
 
 test('a why said for a retried stop clears once the retry gets through (live: "You are not in a system" lingered for laps)',async()=>{

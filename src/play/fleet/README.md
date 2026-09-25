@@ -45,7 +45,7 @@ export default async function main() {
 
 ## Freighters
 
-A freighter is another account that does one thing: fly a closed circuit of 2 or 3 bases over
+A freighter is another account that does one thing: fly a closed circuit of 2 or more bases over
 and over, selling and buying at each stop, and sending what it makes home to you. It is a script,
 not a player. It has no mood, no juncture, no menu of its own, and it never asks you anything.
 It runs inside your own process, so it flies while you do and while you rest.
@@ -70,9 +70,11 @@ cannot read or write it; `assign` is refused until it is there. The account must
 anything else: a second login takes the session, and the freighter then parks for good.
 
 At each stop, in order: fly there and dock; refuel and repair; sell each `sell` item held, but
-only at bids of at least its `min_price`, and nothing that is not listed; buy up to the `buy`
-item's `qty`, counting what is already aboard, at asks of at most `max_price`, within the free
-hold and the credits over the fuel money; then send home everything above the float. A stop the
+only at bids of at least its `min_price`, and nothing that is not listed; buy each of the `buys`
+in turn, one command each, up to its `qty`, counting what is already aboard, at asks of at most its
+`max_price`, within the free hold and the credits over the fuel money; then send home everything
+above the float. A circuit assigned before `buys` has one `buy` a stop; it flies as it did, and a
+freighter restarted on one picks it up where it was. A stop the
 connection drops on is done again a minute later; the why it says then clears once the stop is reached. A sale or buy the game refuses is skipped;
 three stops in a row with no trade park it. A route short of fuel, a blocked flight, or no credits
 for fuel park it docked where it is. Three laps in a row that net 0 or less park it at the lap's
