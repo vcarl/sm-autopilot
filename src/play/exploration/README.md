@@ -12,6 +12,13 @@ the evening to have when the menu keeps offering the same belt.
 
 With `scout(id)` (root) for the map before you go and `survey()` (mining) for hidden deposits.
 
+**This is not `hunt({look})`, and the two are deliberately apart.** `exploreNearby` visits
+**systems** you have never been to, docks at each and reads it, and trains exploration by the
+first visit. `hunt({look})` walks **POIs inside the system you are already in** and fights what it
+finds. They share only a fuel-bounded loop over destinations, which is `goTo` plus a re-quote and
+is already in both. Reach for `exploreNearby` to learn the neighbourhood; reach for `hunt({look})`
+when you know the neighbourhood and want the prey in it.
+
 ## Worked example
 
 ```ts

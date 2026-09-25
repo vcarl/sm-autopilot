@@ -8,11 +8,63 @@ what to engage is your judgement, and most of the judgement is about what not to
 
 | Function | Promise |
 |---|---|
-| `hunt({poi?, fights?, species?, target?, onTick?})` | up to N fights where you stand (or at `poi`, flown to first), each wreck looted; nothing there is `done` with zero fights. `onTick` is your own hand on the stance — see **Fighting with your own hand on the stance** |
+| `hunt({species?, look?, poi?, fights?, target?, onTick?})` | hunt a prey across a range of places: `look` is POI ids tried in order, and the fight happens where the prey actually is. `poi` is the one-place shorthand; naming neither hunts where you stand. Up to N fights in total, each wreck looted; finding nothing is `done` with zero fights. `onTick` is your own hand on the stance — see **Fighting with your own hand on the stance** |
 | `disengage()` | break off whatever battle holds the ship (`stance flee`, then `brace` if it cannot get away) and wait until the battle has actually ended; true when it has. The one call to make when a move is refused `in_battle` |
 | `salvage({tow?})` | loot every wreck here into the hold, your own first; `tow: '<wreck id>'` tows that one instead |
 
-`hunt` fights and loots, and nothing else. A fight runs on the battle's own tick — ten seconds
+## You cannot know where the prey is before you get there
+
+This is the fact the whole shape of `hunt` follows from. A POI row carries `id, name, type,
+class, position, has_base, online, fuel_reserve` — **no fauna field**. `get_nearby` tells you what
+is here, and only here; there is no per-species query and no way to enumerate another system's
+POIs. So nothing you can read before you fly tells you which belt holds your quarry.
+
+That is why `hunt` takes a prey and a list of places rather than a destination:
+
+```ts
+import {orient, scout, goTo, hunt, stow, service, note} from 'play';
+
+export default async function main() {
+  const start = await orient();
+  const dock = start.detail.present.location.docked_at;
+  const here = await scout();
+  // Every habitat in this system, nearest first. Creatures are where the resources are.
+  const habitats = here.detail.pois.filter(p => /belt|field|cloud/.test(p.type)).map(p => p.id);
+  if (!habitats.length) { note('no habitat in this system'); return here; }
+
+  // One call looks at each in turn and fights at the first that holds the prey.
+  const out = await hunt({species: 'molt_grazer', look: habitats, fights: 2});
+
+  // What it looked at and what was in each, whether or not it fought.
+  for (const stop of out.detail.looked)
+    note(`${stop.poi_id}: ${stop.saw} seen, ${stop.legal} legal${stop.flew ? ' (flew there)' : ''}`);
+
+  if (out.detail.ended === 'nothing found') {      // every place looked at, none held it
+    note('that list is empty; pick another system next run');
+    return out;
+  }
+  if (out.detail.ended === 'fuel') return out;     // the reserve refused the next hop; go refuel
+
+  if (dock) { await goTo(dock); await stow(out.gained.items); return service(); }
+  return out;
+}
+```
+
+Three things to know about it:
+
+- **The looking is bounded by fuel.** Every hop is re-quoted and checked against your mood's fuel
+  reserve, and a hop the reserve refuses **ends** the search with `ended: 'fuel'` naming the place
+  — if you cannot afford the next POI you cannot afford the one after it. The search never spends
+  into the reserve to go looking.
+- **Every look is remembered, the empty ones included.** An empty belt is the more useful of the
+  two facts: it is what stops you paying for the same dead rock next shift. A remembered look
+  reports its own age, and an absence expires sooner than a sighting, because believing "nothing
+  there" too long means skipping a belt that has since filled up.
+- **Finding nothing is `done`, not `refused`.** The looking was the job. One place looked at is
+  `ended: 'nothing here'`; a real search is `ended: 'nothing found'`, with `detail.looked` naming
+  each place and what was in it.
+
+`hunt` searches, fights and loots, and nothing else. A fight runs on the battle's own tick — ten seconds
 of real time, one status read, one decision and at most one command each, because the server
 takes one mutation a tick: it sets the `fire` stance and focuses the quarry at the open (ships
 fire by themselves under their stance; there is no fire command), then closes the range while
@@ -39,7 +91,7 @@ export default async function main() {
   if (out.status !== 'done') return out;
 
   const first = await hunt();                              // one fight where you now stand
-  if (first.detail.ended === 'nothing here') { note('quiet belt; scout a neighbour next run'); return first; }
+  if (first.detail.ended === 'nothing here') { note('quiet belt; hunt({look}) a list next run'); return first; }
   const second = await hunt();                             // and another
   if (second.status === 'refused') return second;          // no rounds left, or the rules said no
 
