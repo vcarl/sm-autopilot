@@ -55,17 +55,17 @@ const DEAD_STOPS=3;
  * but far under `lap_net` flies on: it still makes money. Tunable. */
 const LOSING_LAPS=3;
 const RETRY_MS=60_000;
-const OPEN='an open path would strand a freighter that repeats it; use routes({circuit:{hold}})';
+const BUILD='use routes({circuit:{hold}})';
 
 const message=(error:unknown)=>error instanceof Error?error.message:String(error);
 const sleep=(ms:number)=>new Promise(resolve=>setTimeout(resolve,ms));
 const finite=(value:unknown,min:number)=>typeof value==='number'&&Number.isFinite(value)&&value>=min;
 
 /** Why `circuit` cannot be flown as a repeating lap, or null. The shape alone: `assign` checks the
- * bases against what is known as well. */
+ * bases against what is known as well; a lap needs only each stop's `system_id`, as it reads books live. */
 export function closure(circuit:Circuit):string|null {
   const stops=Array.isArray(circuit?.stops)?circuit.stops:[];
-  const problem=circuit?.closed!==true?'not a closed circuit'
+  const problem=circuit?.closed!==true?'not a closed circuit: an open path would strand a freighter that repeats it'
     :stops.some(stop=>typeof stop?.at!=='string'||!stop.at||typeof stop.system_id!=='string'||!stop.system_id||!Array.isArray(stop.sell))
       ?'every stop needs at, system_id and a sell list'
     :new Set(stops.map(stop=>stop.at)).size<2?'fewer than 2 distinct stops'
@@ -75,7 +75,7 @@ export function closure(circuit:Circuit):string|null {
     :stops.flatMap(stop=>stop.sell).find(sale=>!stops.some(stop=>stop.buy?.item===sale.item))
       ?`${stops.flatMap(stop=>stop.sell).find(sale=>!stops.some(stop=>stop.buy?.item===sale.item))!.item} is sold but bought nowhere on the circuit`
     :null;
-  return problem&&`${problem}; ${OPEN}`;
+  return problem&&`${problem}; ${BUILD}`;
 }
 
 /** One side of a book row, best first; a row without levels is its top of book. */

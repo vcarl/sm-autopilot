@@ -8,9 +8,8 @@ import {dirname} from 'node:path';
 import {details} from '../../response-details.ts';
 import {closure} from '../freighter/index.ts';
 import {flying,gate,readFleet,recallLoop,row,script,scriptPath,start,writeFleet,type FreighterRow} from '../freighter/host.ts';
-import {knownBooks} from '../market.ts';
 import {acct,command,job,runtimeDir} from '../runtime.ts';
-import {hops,type Circuit} from '../trading/trading.ts';
+import {farBooks,hops,type Circuit} from '../trading/trading.ts';
 import type {Outcome} from '../types.ts';
 
 /** Every ship you own and where it is parked (`ship/list_ships`), with the active one
@@ -28,7 +27,7 @@ export function switchShip(shipId:string):Promise<Outcome<{switched:SwitchShipRe
 /** ponytail: the most credits a freighter may keep aboard to trade with; everything above its float
  * goes home at every stop. A cap on what one lost freighter can cost, not a measured number. Tunable. */
 export const FLOAT_MAX=30_000;
-const OPEN='an open path would strand a freighter that repeats it; use routes({circuit:{hold}})';
+const BUILD='use routes({circuit:{hold}})';
 
 /** Hand `circuit` to the freighter `name`: another account, whose login the operator has put at
  * `freighters/<name>.txt` in this runtime, flies it lap after lap from this process, keeping
@@ -44,14 +43,20 @@ export function assign(name:string,circuit:Circuit,caps:{float:number}):Promise<
     if(!/^[a-z0-9_-]+$/.test(name))return refuse(`${JSON.stringify(name)}: a freighter's name is lower-case letters, digits, _ and -; it names its files`);
     const open=closure(circuit);
     if(open)return refuse(open);
-    const books=new Map(knownBooks(runtime).map(book=>[book.base_id,book.system_id]));
-    const unknown=circuit.stops.find(stop=>books.get(stop.at)!==stop.system_id);
-    if(unknown)return refuse(`${unknown.at}: no book read there in ${unknown.system_id}; ${OPEN}`);
+    // Every base `routes()` may put on a circuit, and its system where a source kept one: a ledger
+    // entry carries none, and `routes()` placed it with find_route, so the stop's own stands.
+    const known=new Map<string,string|undefined>();
+    for(const book of await farBooks('',0))if(!known.get(book.base_id))known.set(book.base_id,book.system_id);
+    for(const stop of circuit.stops) {
+      if(!known.has(stop.at))return refuse(`${stop.at}: no book for it remembered or on the faction ledger, so its system is unknown; ${BUILD}`);
+      const system=known.get(stop.at);
+      if(system&&system!==stop.system_id)return refuse(`${stop.at}: in ${system} by its book, not ${stop.system_id}; ${BUILD}`);
+    }
     const links=new Map<string,string[]>();
     for(const system of (details(await command('spacemolt/get_map',{})) as {systems?:MapSystemInfo[]}).systems??[])
       links.set(system.system_id,system.connections??[]);
     const stranded=circuit.stops.find((stop,i)=>hops(links,stop.system_id,circuit.stops[(i+1)%circuit.stops.length]!.system_id)===null);
-    if(stranded)return refuse(`no route on the map on from ${stranded.at}; ${OPEN}`);
+    if(stranded)return refuse(`no route on the map on from ${stranded.at} in ${stranded.system_id}: a freighter could not fly that hop; ${BUILD}`);
     if(!(Number.isFinite(caps?.float)&&caps.float>=0&&caps.float<=FLOAT_MAX))
       return refuse(`float ${caps?.float}: between 0 and ${FLOAT_MAX} credits`);
     if(flying(name))return refuse(`${name} is flying; recall('${name}') first, and assign it when it has parked`);

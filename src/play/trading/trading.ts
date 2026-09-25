@@ -159,7 +159,7 @@ interface FarBook {base_id:string;source:'faction ledger'|'remembered';age:numbe
 /** Every far book this pilot may know: the faction ledger's whole books, then the books
  * remembered at other bases. What `spreads()`, `routes()` and `tradeRun` all read. A ledger entry
  * comes back with an empty `system_id`; the memory's system for that base stands in, else none. */
-async function farBooks(here:string,now:number):Promise<FarBook[]> {
+export async function farBooks(here:string,now:number):Promise<FarBook[]> {
   const memory=knownBooks();
   const systemOf=new Map(memory.filter(known=>known.system_id).map(known=>[known.base_id,known.system_id!]));
   const filed=(await ledger()).filter(entry=>entry.base_id!==here).map(entry=>{

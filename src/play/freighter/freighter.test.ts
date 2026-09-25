@@ -94,6 +94,27 @@ test('assign refuses an open path, and writes nothing',async()=>{
   } finally {unbind();rmSync(runtime,{recursive:true,force:true});}
 });
 
+test('assign takes a circuit whose bases are known only from the faction ledger, and refuses a base known nowhere as of no known system',async()=>{
+  const runtime=mkdtempSync(join(tmpdir(),'freighter-ledger-'));
+  const world=bridgeWorld({tradeIntel:[{base_id:'sol_base',items:[{item_id:'gem',best_buy:0,best_sell:100,sell_volume:50}]},
+    {base_id:'range_base',items:[{item_id:'gem',best_buy:130,buy_volume:50}]}]});
+  (world.account.server.player as {username?:string}).username='B';
+  bind({account:world.account as unknown as ReadinessAccount,command:world.command,pilot:()=>({mood:'Focused'}),
+    setPilot:()=>{},emit:()=>{},runtime});
+  try {
+    await world.account.refresh();
+    const out=await assign('hauler',GEMS,{float:20_000});
+    // Past every check on the circuit: only the operator's login is missing.
+    assert.match(out.why!,/^no login at /);
+    assert.deepEqual(gate(scriptPath(runtime,'hauler')),[]);
+    const stray={...GEMS,stops:[GEMS.stops[0]!,{...GEMS.stops[1]!,at:'nowhere_base'}]};
+    const lost=await assign('hauler',stray,{float:20_000});
+    assert.equal(lost.status,'refused');
+    assert.match(lost.why!,/^nowhere_base: no book for it remembered or on the faction ledger, so its system is unknown/);
+    assert.doesNotMatch(lost.why!,/open path/);
+  } finally {unbind();rmSync(runtime,{recursive:true,force:true});}
+});
+
 test('a generated freighter script passes the gate: tsc, and play/freighter as its only import',async()=>{
   const runtime=mkdtempSync(join(tmpdir(),'freighter-script-'));
   try {

@@ -51,8 +51,9 @@ It runs inside your own process, so it flies while you do and while you rest.
 
 **The hard rule: only a closed circuit.** A freighter repeats what it is given, so a path that does
 not come back to where it started would strand it after one lap. `assign` refuses unless:
-`circuit.closed` is `true`; there are 2+ different stops, each a base you have read `prices()` at,
-with that base's `system_id`; at least one stop buys; everything the circuit sells is bought
+`circuit.closed` is `true`; there are 2+ different stops, each a base whose book you know — read
+there yourself or filed on the faction ledger, as `routes()` reads them — with that base's
+`system_id`; at least one stop buys; everything the circuit sells is bought
 somewhere on it; and every hop, the last stop back to the first included, is on the map. Build one
 with `routes({circuit: {hold}})` (see [trading](../trading/README.md)) rather than by hand: every
 row it returns passes, and its `next` is the `assign(...)` call to paste.
