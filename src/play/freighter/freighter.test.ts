@@ -95,8 +95,40 @@ test('a hold full of cargo the circuit never sells parks naming that cargo, and 
   await world.account.refresh();
   let laps=0,last:Lap;
   do {last=await lap(f,GEMS);laps++;} while(!last.park&&laps<5);
-  assert.equal(parked(),'hold full of 50 copper_wiring this circuit never sells, so it cannot buy; assign it a circuit that sells that cargo');
+  assert.equal(parked(),'hold full of 50 copper_wiring this circuit never sells and no stop on it bids at or above its cost, so it cannot buy; assign it a circuit that sells that cargo');
   assert.equal(drained(),undefined,'not recorded as drained');
+});
+
+/** A freighter whose 50-unit hold is full of 50 copper_piping it bought at 30 a unit, sol bidding `bid` for it. */
+function leftover(bid:number,holding:Freighter['holding']={copper_piping:{quantity:50,cost:1500}}) {
+  const h=freighter(130,[],{cargo:[{item_id:'copper_piping',quantity:50}],cargoUsed:50,cargoCapacity:50,
+    markets:{sol_base:[{item_id:'gem',best_buy:0,best_buy_qty:0,best_sell:100,best_sell_qty:50},
+      {item_id:'copper_piping',best_buy:bid,best_buy_qty:99,best_sell:0,best_sell_qty:0}],
+      range_base:[{item_id:'gem',best_buy:130,best_buy_qty:50,best_sell:0,best_sell_qty:0}]}});
+  h.f.holding=holding;
+  return h;
+}
+
+test('leftover cargo the circuit never sells is sold where the bid covers its cost, before the buys, which then fit (live: 98 copper_piping on a ring without it)',async()=>{
+  const {world,f,reports}=leftover(36);
+  await world.account.refresh();
+  const done=await lap(f,GEMS);
+  assert.equal(done.park,undefined);
+  const trades=world.sent.filter(c=>c.action==='spacemolt/sell'||c.action==='spacemolt/buy').map(c=>[c.action,c.params]);
+  assert.deepEqual(trades.slice(0,2),[['spacemolt/sell',{id:'copper_piping',quantity:50}],['spacemolt/buy',{id:'gem',quantity:10}]]);
+  assert.deepEqual(reports.flatMap(r=>r.cleared??[]),['cleared 50 copper_piping at 36 (cost 30)']);
+  assert.equal(reports.at(-1)!.holding?.copper_piping,undefined,'gone from the holding');
+});
+
+test('leftover cargo is kept where the bid is under its cost, and cargo it never bought is never sold',async()=>{
+  for(const [bid,holding] of [[29,undefined],[999,{}]] as const) {
+    const {world,f,parked}=leftover(bid,holding);
+    await world.account.refresh();
+    let laps=0,last:Lap;
+    do {last=await lap(f,GEMS);laps++;} while(!last.park&&laps<5);
+    assert.equal(world.count('spacemolt/sell'),0,`bid ${bid}`);
+    assert.match(parked()!,/^hold full of 50 copper_piping this circuit never sells and no stop on it bids at or above its cost/);
+  }
 });
 
 test('a recalled freighter buys nothing more at the stop it parks after',async()=>{
@@ -123,9 +155,9 @@ test('assign proceeds with cargo the new circuit never sells, and says what it t
     assert.match((await assign('hauler',GEMS,{float:5_000})).why!,/^no login at /);
   } finally {unbind();rmSync(runtime,{recursive:true,force:true});}
   assert.equal(tiedUp({copper_wiring:{quantity:4,cost:40}},GEMS),
-    "carrying 4 copper_wiring the circuit never sells; it fills 4 of 10 hold, so the circuit buys into 6 until it's sold");
+"carrying 4 copper_wiring the circuit never sells; it fills 4 of 10 hold, so it's sold at cost or better wherever the circuit meets a bid for it; until then the circuit buys into 6");
   assert.equal(tiedUp({copper_wiring:{quantity:10,cost:40}},GEMS),
-    "carrying 10 copper_wiring the circuit never sells; it fills 10 of 10 hold, so the circuit can't buy anything until the hold is cleared");
+"carrying 10 copper_wiring the circuit never sells; it fills 10 of 10 hold, so it's sold at cost or better wherever the circuit meets a bid for it; until then the circuit buys into 0");
   assert.equal(tiedUp({gem:{quantity:10,cost:900}},GEMS),undefined,'a circuit that sells it all says nothing');
 });
 

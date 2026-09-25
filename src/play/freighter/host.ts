@@ -246,7 +246,8 @@ async function run(runtime:string,name:string,account:ReadinessAccount,command:R
     report:fields=>{
       const now=readFleet(runtime)[name];
       if(!now)return;
-      const {deposited,lapped,...rest}=fields;
+      // `cleared` is journalled, not kept: the holding after the stop says what is left.
+      const {deposited,lapped,cleared:_,...rest}=fields;
       // A lap ended with a stop after it scheduled: the script's next recalled() is true.
       if(lapped!==undefined&&loop.afterLap)loop.lapDone=true;
       // Arrived at a stop: where it is is a place the owner's routes() need not look up again.
@@ -269,8 +270,11 @@ async function run(runtime:string,name:string,account:ReadinessAccount,command:R
  * top circuit installed at its float. True when it has a new circuit to fly. With none, a hold full
  * of cargo the circuit never sells stays parked, its why as it was; any other park waits docked,
  * re-planning every `REPLAN_TICKS`.
+ * A blocked park is a hold the lap could not clear at cost at any stop (`lap` sells leftover cargo
+ * wherever a bid covers its cost).
  * ponytail: circuits are planned from an empty hold, so a blocked hold takes the first row that sells
- * any of its cargo, and there seldom is one; planning lap 1 from the cargo aboard is the upgrade. */
+ * any of its cargo, and there seldom is one; preferring a ring through a base whose remembered bid
+ * covers the leftover's cost (or planning lap 1 from the cargo aboard) is the upgrade. */
 async function replan(runtime:string,name:string,account:ReadinessAccount,command:ReadinessCommand,loop:Loop):Promise<boolean> {
   const seat:Seat={account,command,runtime,stop:()=>{if(loop.stopping)throw new Error('the bridge is stopping');},
     book:async()=>{

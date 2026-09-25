@@ -8,9 +8,12 @@
  *   idempotent: sales are sized by what is held, each buy by the free hold and what is already aboard.
  *   The why it said clears once the stop is reached;
  * - the session taken by another connection: park, and never log in again;
+ * - cargo it bought that the circuit never sells (left from an old circuit): sold at any stop whose
+ *   bid covers its cost a unit, after the stop's own sales and before its buys; never at a loss, and
+ *   cargo it never bought (cost unknown) is never touched;
  * - a sale or buy the game refuses: say so and go on; three stops in a row with no trade parks it,
- *   the ring recorded as drained, unless the hold is full of cargo the circuit never sells: then the
- *   why names that cargo and the ring is not drained;
+ *   the ring recorded as drained, unless the hold is full of cargo the circuit never sells and no stop
+ *   bid its cost: then the why names that cargo and the ring is not drained;
  * - recalled: it buys nothing more, and parks after the stop it is on;
  * - a route short of fuel, a blocked flight, no credits for fuel: park, docked where it is;
  * - LOSING_LAPS laps in a row that net 0 or less: park, docked at the lap's last stop, the ring drained.
@@ -35,8 +38,9 @@ export type Holding=Record<string,{quantity:number;cost:number}>;
  * and what it cost, fuel and repairs on arrival included. Never part of a lap's net. */
 export interface Approach {jumps:number;credits:number}
 /** What a freighter says as it goes. `deposited` is one deposit home; `lapped` a whole lap's net;
- * `holding` the cargo aboard at cost, after each stop; `approach` the flight onto the circuit. */
-export interface Report {stop?:string;credits?:number;deposited?:number;lapped?:number;holding?:Holding;approach?:Approach;why?:string}
+ * `holding` the cargo aboard at cost, after each stop; `approach` the flight onto the circuit;
+ * `cleared` leftover cargo sold at cost or better, e.g. "cleared 98 copper_piping at 36 (cost 29.6)". */
+export interface Report {stop?:string;credits?:number;deposited?:number;lapped?:number;holding?:Holding;approach?:Approach;cleared?:string;why?:string}
 /** What the host hands a freighter's script. */
 export interface Freighter {
   name:string;
@@ -133,9 +137,10 @@ async function fly(f:Freighter,stop:Stop):Promise<number> {
  * counter that refuses a service is passed by: the next quote says whether the tank still reaches. */
 const service=async(f:Freighter,stop:Stop)=>{await attempt(f,stop.at,'service',()=>serviceShip(f.account,f.command,{mood:'Tired'}));};
 
-/** One stop: fly there and dock, service, sell the listed items at their floors, buy each listed
+/** One stop: fly there and dock, service, sell the listed items at their floors, sell the `leftover`
+ * (cargo bought that the circuit never sells) where the bid covers its cost a unit, buy each listed
  * item within its cap, one command each, send the credits above the float home. Returns how many trades took, and the book's tick. */
-async function visit(f:Freighter,stop:Stop,sent:(credits:number)=>void,bought:(item:string,n:number,spent:number)=>void):Promise<{traded:number;tick:number}> {
+async function visit(f:Freighter,stop:Stop,leftover:Holding,sent:(credits:number)=>void,bought:(item:string,n:number,spent:number)=>void):Promise<{traded:number;tick:number}> {
   const {account,command}=f;
   await fly(f,stop);
   await service(f,stop);
@@ -152,6 +157,19 @@ async function visit(f:Freighter,stop:Stop,sent:(credits:number)=>void,bought:(i
     const n=Math.min(held,(row?levels(row.buy_orders,row.best_buy,row.best_buy_qty):[])
       .filter(level=>level.price_each>=min_price).reduce((sum,level)=>sum+level.quantity,0));
     if(n&&await attempt(f,stop.at,`sell ${n} ${item}`,()=>command('spacemolt/sell',{id:item,quantity:n})))traded++;
+  }
+  // Leftover from an old circuit: sold here only at a bid that covers what it cost, freeing the hold.
+  for(const [item,lot] of Object.entries(leftover)) {
+    const row=book.get(item),unit=lot.cost/lot.quantity;
+    let n=0,gross=0;
+    for(const level of row?levels(row.buy_orders,row.best_buy,row.best_buy_qty):[]) {
+      const take=Math.min(level.quantity,Math.min(lot.quantity,miningInventory(account.state)[item]??0)-n);
+      if(level.price_each<unit||take<=0)break;
+      n+=take;gross+=take*level.price_each;
+    }
+    if(!(n&&await attempt(f,stop.at,`sell ${n} ${item}`,()=>command('spacemolt/sell',{id:item,quantity:n}))))continue;
+    traded++;
+    f.report({cleared:`cleared ${n} ${item} at ${+(gross/n).toFixed(1)} (cost ${+unit.toFixed(1)})`});
   }
   await account.refresh();
   // Recalled: it parks after this stop, so it buys no load it would only strand in the hold.
@@ -204,6 +222,7 @@ export async function lap(f:Freighter,circuit:Circuit):Promise<Lap> {
   holdings.set(f,holding);
   const wallet=()=>f.account.state.player?.credits??0;
   let home=0,tick=0,opening:number|undefined,stocked=0,left:number|undefined,jumps=0;
+  const sells=new Set(circuit.stops.flatMap(stop=>stop.sell.map(sale=>sale.item)));
   for(const stop of circuit.stops) {
     let traded:number;
     for(;;) {
@@ -224,7 +243,8 @@ export async function lap(f:Freighter,circuit:Circuit):Promise<Lap> {
           }
           opening=wallet();
         }
-        ({traded,tick}=await visit(f,stop,credits=>{home+=credits;},(item,n,spent)=>{
+        const leftover=Object.fromEntries(Object.entries(holding).filter(([item])=>!sells.has(item)));
+        ({traded,tick}=await visit(f,stop,leftover,credits=>{home+=credits;},(item,n,spent)=>{
           const row=holding[item]??={quantity:0,cost:0};row.quantity+=n;row.cost+=spent;}));
         break;
       }
@@ -243,9 +263,8 @@ export async function lap(f:Freighter,circuit:Circuit):Promise<Lap> {
     if(dead>=DEAD_STOPS) {
       // A hold full of cargo this circuit never sells blocks every buy: the ring is not drained.
       const cargo=miningInventory(f.account.state),ship=f.account.state.ship;
-      const sells=new Set(circuit.stops.flatMap(stop=>stop.sell.map(sale=>sale.item)));
       if((ship?.cargo_capacity??0)-(ship?.cargo_used??0)<=0&&Object.keys(cargo).every(item=>!sells.has(item)))
-        return f.park(`hold full of ${Object.entries(cargo).map(([item,n])=>`${n} ${item}`).join(', ')} this circuit never sells, so it cannot buy; `
+        return f.park(`hold full of ${Object.entries(cargo).map(([item,n])=>`${n} ${item}`).join(', ')} this circuit never sells and no stop on it bids at or above its cost, so it cannot buy; `
           +'assign it a circuit that sells that cargo',undefined,true);
       return f.park(`circuit dead: ${dead} stops in a row with no trade`,tick);
     }

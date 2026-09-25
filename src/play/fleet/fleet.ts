@@ -28,13 +28,13 @@ export const FLOAT_MAX=30_000;
 const BUILD='use routes({circuit:{hold}})';
 
 /** What of `holding` `circuit` never sells, and the hold it leaves the circuit to buy into; undefined
- * when the circuit sells all of it. Said, never refused: the cargo is the pilot's to clear. */
+ * when the circuit sells all of it. Said, never refused: the freighter sells it wherever a bid covers its cost. */
 export function tiedUp(holding:Holding,circuit:Circuit):string|undefined {
   const unsold=Object.entries(holding).filter(([item])=>!circuit.stops.some(stop=>stop.sell.some(sale=>sale.item===item)));
   if(!unsold.length)return undefined;
   const k=unsold.reduce((sum,[,lot])=>sum+lot.quantity,0),free=circuit.hold-k;
   return `carrying ${unsold.map(([item,lot])=>`${lot.quantity} ${item}`).join(', ')} the circuit never sells; it fills ${k} of ${circuit.hold} hold, so `
-    +(free>0?`the circuit buys into ${free} until it's sold`:"the circuit can't buy anything until the hold is cleared");
+    +`it's sold at cost or better wherever the circuit meets a bid for it; until then the circuit buys into ${Math.max(0,free)}`;
 }
 
 /** Hand `circuit` to the freighter `name`: another account, whose login the operator has put at

@@ -71,15 +71,19 @@ cannot read or write it; `assign` is refused until it is there. The account must
 anything else: a second login takes the session, and the freighter then parks for good.
 
 At each stop, in order: fly there and dock; refuel and repair; sell each `sell` item held, but
-only at bids of at least its `min_price`, and nothing that is not listed; buy each of the `buys`
+only at bids of at least its `min_price`; sell cargo it bought that the circuit never sells (left
+from an old circuit, in `holding`), but only the units bid at or above what they cost a unit, so
+never at a loss, the sale journalled and reported (`cleared 98 copper_piping at 36 (cost 29.6)`);
+cargo it never bought, whose cost is unknown, is never sold; buy each of the `buys`
 in turn, one command each, up to its `qty`, counting what is already aboard, at asks of at most its
 `max_price`, within the free hold and the credits over the fuel money; then send home everything
 above the float. A circuit assigned before `buys` has one `buy` a stop; it flies as it did, and a
 freighter restarted on one picks it up where it was. A stop the
 connection drops on is done again a minute later; the why it says then clears once the stop is reached. A sale or buy the game refuses is skipped;
 three stops in a row with no trade park it. When those stops traded nothing because the hold is
-full of cargo the circuit never sells, the why names that cargo (`hold full of 100 copper_wiring
-this circuit never sells, so it cannot buy; …`) and the ring is not recorded as drained: its books
+full of cargo the circuit never sells and no stop bid its cost, the why names that cargo (`hold full
+of 100 copper_wiring this circuit never sells and no stop on it bids at or above its cost, so it
+cannot buy; …`) and the ring is not recorded as drained: its books
 were never tried. Its host tries one re-plan (below) for a circuit that sells some of that cargo;
 with none, it stays parked with that why, and you assign it a circuit that sells the cargo, or clear
 the hold. A route short of fuel, a blocked flight, or no credits
@@ -105,8 +109,9 @@ once one pays. A waiting freighter waits on through a restart. It is never re-pl
 
 A hold full of cargo the circuit never sells gets one re-plan too, taking the first row that sells
 some of it. Circuits are planned for an empty hold, so there seldom is one; with none, it stays
-parked with the blocking why and is not tried again. Planning the first lap from the cargo aboard
-would clear it; that is not built.
+parked with the blocking why and is not tried again. Preferring a ring through a base whose
+remembered bid covers the cargo's cost, or planning the first lap from the cargo aboard, would clear
+it; that is not built.
 
 `reassign(name)` is the same rotation by hand, for a freighter that is parked. It runs `routes({circuit: {hold}, ...circuit.scope})` for that freighter's hold, in the
 scope its circuit was planned in (`maxStops`, `maxLegJumps`, `maxJumps`; the defaults for a circuit
@@ -120,8 +125,8 @@ the new circuit sells it; when it does not, the `why` says so (from `assign`, be
 `recall` it first. Re-assigning a parked one starts it again on the new circuit, its `returned`
 and `holding` kept. Cargo aboard that the new circuit never sells is never a refusal; the `why`
 says what it ties up, against the circuit's `hold`: `carrying 100 copper_wiring the circuit never
-sells; it fills 100 of 100 hold, so the circuit can't buy anything until the hold is cleared` (or,
-with room left, `so the circuit buys into 50 until it's sold`). A full hold of it parks the
+sells; it fills 100 of 100 hold, so it's sold at cost or better wherever the circuit meets a bid for
+it; until then the circuit buys into 0`. A full hold of it that no stop bids its cost for parks the
 freighter within three stops, as above.
 
 **Recall.** `recall` parks it after the stop it is on, wherever on the circuit that is: it sells
