@@ -502,3 +502,44 @@ test('a prey named is the prey hunted: the wrong species at the first POI is lef
       'a look records what was there, not only what was wanted');
   } finally {unbind();}
 });
+
+test('a decision component already in force is not a mutation, so the tick goes to the next one',async()=>{
+  // Observed twice in one live fight: `onTick asked {"stance":"fire","move":"closeIn"}; sent stance
+  // fire`. The stance was ALREADY fire — `BattleParticipant.stance` says so on our own row — and
+  // because the server takes one mutation a tick and the applier runs
+  // disengage → stance → move → focus, the `closeIn` was dropped and the tick achieved nothing.
+  //
+  // It cost the fight, not just a tick: the opening was spent at `outer` with zone_distance 6
+  // against max_weapon_reach 3, firing from outside our own reach and dealing zero, and the
+  // quarry's hull only began to fall once the range closed. Closing it was the whole decision.
+  const f=worldWithMemory({mood:'Focused'},{wildlife:{creatures:[grazer],polls:4,damage:1}});
+  try {
+    const out=await hunt({onTick:()=>({stance:'fire',move:'closeIn'})});
+    assert.equal(out.status,'done',out.why);
+    // The world reports our stance as `fire` from the first status read, so every one of these
+    // asks is a no-op on the stance and the move is what the tick is for.
+    assert.ok(f.count('spacemolt_battle/advance')>0,
+      `the move was never sent: ${JSON.stringify(f.sent.map(c=>c.action))}`);
+    // And the redundant stance is not re-sent. The default open sends `fire` once before any
+    // callback runs, so one is expected; more than that is the bug.
+    assert.ok(f.count('spacemolt_battle/stance')<=1,
+      `a stance already in force was re-sent ${f.count('spacemolt_battle/stance')} times`);
+    // The journal says what it skipped, so a pilot can see why its decision was reshaped.
+    assert.match(f.lines.join('\n'),/already/,`nothing said about the skipped component: ${f.lines.join(' | ')}`);
+  } finally {unbind();}
+});
+
+test('being outside our own weapon reach is said in the fight line, not left to be inferred',async()=>{
+  // `zone_distance` against `combat_state.max_weapon_reach` is the API's own comparison — "compare
+  // against your combat_state.max_weapon_reach to see if you can fire". Live, we spent the opening
+  // at 6 against a reach of 3, dealing nothing, and the prose said only "outer 6/3": the one fact
+  // that explained the zero damage was there but never spelled out.
+  const f=worldWithMemory({mood:'Focused'},{wildlife:{creatures:[grazer],polls:2,damage:1}});
+  try {
+    await hunt({onTick:()=>undefined});
+    const said=f.lines.join('\n');
+    // The world puts us at zone_distance 2 with reach 2, which is within reach, so the warning must
+    // NOT appear — the line only fires when the range actually explains a miss.
+    assert.doesNotMatch(said,/out of reach/,said);
+  } finally {unbind();}
+});

@@ -240,25 +240,48 @@ async function engage(target:CreatureInfo|PirateInfo,floor:()=>number,
   };
   /** Apply one field of a decision — the server takes one mutation a tick — in the order that
    * decides the fight, and say what was asked against what was sent. Null means the decision
-   * had nothing this loop could act on, so the default ladder takes the tick instead. */
-  const apply=async(asked:TickDecision):Promise<string|null>=>{
+   * had nothing this loop could act on, so the default ladder takes the tick instead.
+   *
+   * **A component already in force is not a mutation.** Asking for the stance the ship is already
+   * holding spends the tick's one mutation on nothing and drops whatever came after it. Live
+   * 2026-09-25, twice in one fight: `onTick asked {"stance":"fire","move":"closeIn"}; sent stance
+   * fire` — while the ship sat at `outer`, zone_distance 6 against a max_weapon_reach of 3, firing
+   * from outside its own reach and dealing zero. Closing the range was the whole point of the
+   * decision and it was discarded in favour of re-sending a stance that was already set.
+   *
+   * What is in force is read from the server's own row (`BattleParticipant.stance` and
+   * `target_id`, both self-only), never from what this loop believes it sent: the belief can be
+   * wrong, and the server's answer is the thing the next tick will act on. `skipped` collects what
+   * was passed over so the journal can say why the decision was reshaped. */
+  const apply=async(asked:TickDecision,inForce:{stance?:string;target?:string},
+    skipped:string[]):Promise<string|null>=>{
     if(asked.disengage)return 'disengage';
     if(asked.stance!==undefined) {
       if(!STANCES.has(asked.stance))return null;
-      await command('spacemolt_battle/stance',{id:asked.stance});
-      stanceNow=asked.stance;
-      return `stance ${asked.stance}`;
+      if(inForce.stance===asked.stance)skipped.push(`stance ${asked.stance} already in force`);
+      else {
+        await command('spacemolt_battle/stance',{id:asked.stance});
+        stanceNow=asked.stance;
+        return `stance ${asked.stance}`;
+      }
     }
     if(asked.move!==undefined) {
       const action=MOVES[asked.move];
-      if(!action)return null;
-      await command(action,{});
-      return asked.move;
+      // A move has no state to compare against — there is no "already advancing" — so it is
+      // always a real mutation when the loop reaches it.
+      if(action) {
+        await command(action,{});
+        return asked.move;
+      }
+      skipped.push(`move ${asked.move} is not one this loop can send`);
     }
     if(asked.focus!==undefined) {
-      await command('spacemolt_battle/target',{id:asked.focus});
-      if(asked.focus===id)focused=true;
-      return `focus ${asked.focus}`;
+      if(inForce.target===asked.focus)skipped.push(`focus ${asked.focus} already in force`);
+      else {
+        await command('spacemolt_battle/target',{id:asked.focus});
+        if(asked.focus===id)focused=true;
+        return `focus ${asked.focus}`;
+      }
     }
     return null;
   };
@@ -283,7 +306,11 @@ async function engage(target:CreatureInfo|PirateInfo,floor:()=>number,
     const reach=Number(status.combat_state?.max_weapon_reach??0);
     const theirHull=Number(theirs.hull_pct??0),far=Number(theirs.zone_distance??0);
     const now=Number(status.tick_duration??tick+1);
-    step(`tick ${now} vs ${nameOf(target)}: hull ${hull}/${ship?.max_hull??'?'}, shield ${mine?.shield_pct??0}%, theirs ${theirHull}% at ${theirs.zone??'?'} ${far}/${reach}`);
+    // `zone_distance` against `max_weapon_reach` is the API's own comparison for "can I fire at
+    // all". Live, the opening ticks sat at 6 against a reach of 3 and dealt nothing, and the prose
+    // said only "outer 6/3" — the fact that explained the zero was there and never spelled out.
+    const outOfReach=reach>0&&far>reach;
+    step(`tick ${now} vs ${nameOf(target)}: hull ${hull}/${ship?.max_hull??'?'}, shield ${mine?.shield_pct??0}%, theirs ${theirHull}% at ${theirs.zone??'?'} ${far}/${reach}${outOfReach?' — OUT OF REACH, closing costs nothing to try and firing from here deals nothing':''}`);
     if(ship?.incapacitated){outcome='unresolved';break;}
     const tired=pilot().mood==='Tired';
     // The decision is taken before the floor is checked so a reckless one can be named in the
@@ -316,8 +343,11 @@ async function engage(target:CreatureInfo|PirateInfo,floor:()=>number,
     seen={hull:theirHull,far};
     // One mutation a tick. The pilot's own decision takes it when it made one; whatever the
     // open still owes is sent on a later tick rather than skipped.
-    const sent=decision?await apply(decision):null;
-    if(decision)step(`onTick asked ${JSON.stringify(decision)}; sent ${sent??'nothing it could act on'}`);
+    const skipped:string[]=[];
+    const sent=decision
+      ?await apply(decision,{...mine?.stance?{stance:mine.stance}:{},...mine?.target_id?{target:mine.target_id}:{}},skipped)
+      :null;
+    if(decision)step(`onTick asked ${JSON.stringify(decision)}; sent ${sent??'nothing it could act on'}${skipped.length?` (skipped: ${skipped.join('; ')})`:''}`);
     if(sent==='disengage') {
       outcome=await disengage()?'broke off':'unresolved';
       if(outcome==='unresolved')stuck=true;
