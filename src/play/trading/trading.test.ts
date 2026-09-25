@@ -649,3 +649,23 @@ test('a larger maxStops finds the longer tour that pays better: gems to twin, th
     assert.ok(long.score>short.score,`${long.score} over ${short.score}`);
   } finally {unbind();rmSync(runtime,{recursive:true,force:true});}
 });
+
+test('a route search lets the event loop run: the bridge\'s freighters and commands wait a slice, not the whole search',async()=>{
+  // 25 bases in Sol, each asking and bidding 50 goods at staggered prices: a 5-stop circuit search plans a few thousand laps.
+  const goods=(base:number)=>Array.from({length:50},(_,i)=>({item_id:`good_${i}`,best_sell:100+(base*7+i*3)%40,best_sell_qty:50,
+    best_buy:120+(base*11+i*5)%40,best_buy_qty:50}));
+  const runtime=remembered(Array.from({length:24},(_,b)=>({base_id:`base_${b}`,age:0,system_id:'sol',items:goods(b+1)})));
+  world({mood:'Focused'},{cargo:[],cargoUsed:0,cargoCapacity:50,store:[],markets:{sol_base:goods(0)}},runtime);
+  let running=true,last=performance.now(),gap=0;
+  const tick=()=>{const now=performance.now();gap=Math.max(gap,now-last);last=now;if(running)setImmediate(tick);};
+  setImmediate(tick);
+  try {
+    const began=performance.now();
+    const out=await routes({circuit:{hold:50},maxStops:5});
+    const took=performance.now()-began;
+    running=false;tick();
+    assert.equal(out.status,'done',out.why);
+    assert.ok(took>150,`the fixture has to outlast many slices: ${Math.round(took)} ms`);
+    assert.ok(gap<60,`the longest stall was ${Math.round(gap)} ms of a ${Math.round(took)} ms search`);
+  } finally {running=false;unbind();rmSync(runtime,{recursive:true,force:true});}
+});

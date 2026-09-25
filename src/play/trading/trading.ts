@@ -504,8 +504,12 @@ export const STOPS=4,LEG_JUMPS=3,MAX_STOPS=10;
  * routes, a circuit's three laps each. All CPU: distances are the one `get_map` read. Measured on 40
  * books of 50 items, every one tradeable: a 3-lap plan is ~0.7 ms at 4 stops and ~1.4 ms at 10, so
  * ~4 s for a default circuit search and ~20 s for a 10-stop tour, at worst. A route that pays only
- * through a prefix ranked past BEAM is never seen; raise it if a tour search stays fast. */
+ * through a prefix ranked past BEAM is never seen; raise it if a tour search stays fast. The search
+ * yields to the event loop every SLICE_MS, so the bridge's freighters and commands stall at most a
+ * slice, not the whole search; move it to a worker thread if the total time ever matters. */
 const BEAM=20;
+/** Longest synchronous stretch of the route search, in ms, before it lets the event loop run. */
+const SLICE_MS=15;
 /** Rows returned. */
 const ROWS=5;
 /** ponytail: a base whose system neither the memory nor `places.json` kept (a ledger entry, a
@@ -751,9 +755,16 @@ export function routes(opts:{items?:string[];circuit?:{hold:number}}&Scope={}):P
       const total=from?.jumps===null||n===null?null:(from?.jumps??0)+n;
       return total!==null&&total>cap?undefined:{ats:[...from?.ats??[],at],jumps:total};
     };
+    // Every plan is CPU: past a slice, let the bridge's other work run, then go on (or stop, if told).
+    let sliced=performance.now();
+    const breathe=async()=>{
+      if(performance.now()-sliced<SLICE_MS)return;
+      await new Promise(done=>setImmediate(done));
+      checkStop();sliced=performance.now();
+    };
     let beam=[...known.keys()].flatMap(at=>within(undefined,at)??[]);
     // A circuit is 2 or more distinct bases, so one stop alone is only a seed.
-    if(!circuit)for(const seed of beam)keep(seed.ats);
+    if(!circuit)for(const seed of beam){await breathe();keep(seed.ats);}
     for(let length=2;length<=most;length++) {
       checkStop();
       const grown:{route:Grown;score:number}[]=[];
@@ -761,6 +772,7 @@ export function routes(opts:{items?:string[];circuit?:{hold:number}}&Scope={}):P
         if(at===from.ats.at(-1)||circuit&&from.ats.includes(at))continue;
         const route=within(from,at);
         if(!route)continue;
+        await breathe();
         const row=keep(route.ats);
         // A lap that does not pay yet may round into one that does; an open route grows only from one that pays.
         if(circuit||row&&row.revenue>row.cost)grown.push({route,score:row?.score??-Infinity});
