@@ -106,9 +106,10 @@ and `holding` kept.
 | `stop` | the base it is at, or was last at |
 | `credits` | its wallet there, after the deposit |
 | `returned` | credits it has sent home to you, all told |
-| `last_lap_net` | what the last whole lap made: the wallet's change, deposits included, fuel and repairs out, plus the change in `holding`. A load bought and still aboard counts at what it cost, so a lap whose sale did not happen reads its fuel, not the load |
+| `last_lap_net` | what the last whole lap made: the wallet's change, deposits included, fuel and repairs out, plus the change in `holding`. A load bought and still aboard counts at what it cost, so a lap whose sale did not happen reads its fuel, not the load. `holding` is checked against the hold when a lap starts: cargo sold by hand while it was parked drops out, never counted as a loss |
 | `lap_net` | what `routes()` predicted a lap makes. A `last_lap_net` well under it, lap after lap, means the books have moved: recall it and assign the new top row. Three losing laps park it on their own |
 | `holding` | the cargo aboard that it bought, `{item: {quantity, cost}}`, `cost` what those units left the wallet for, tax included; a sale takes units off at their average cost. A parked freighter's `holding` is your capital tied up in its hold. It stays aboard, at its cost, when the freighter is assigned a new circuit, and is sold there only if that circuit sells the item |
+| `approach` | `{jumps, credits}`: its last flight onto the circuit's first stop from wherever its loop started (after an assign, a reassign or a restart), fuel and repairs on arrival included. Never part of `last_lap_net`, and never a losing lap. Absent when it started docked at the first stop |
 | `why` | why it parked, or what fell short at the last stop |
 
 ```ts

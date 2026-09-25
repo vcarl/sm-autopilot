@@ -20,7 +20,7 @@ import {checkBoundary,specifiers} from '../boundary.ts';
 import {checkPolicy} from '../policy.ts';
 import type {Circuit} from '../trading/trading.ts';
 import {markDrained,ring} from './drained.ts';
-import type {Freighter,Holding} from './index.ts';
+import type {Approach,Freighter,Holding} from './index.ts';
 
 /** One freighter as `freighters.json` keeps it. */
 export interface Entry {
@@ -36,13 +36,15 @@ export interface Entry {
   last_lap_net?:number;
   /** The cargo aboard it bought, at cost, after its last stop. */
   holding?:Holding;
+  /** Its last flight onto the circuit from where its loop started, kept out of every lap's net. */
+  approach?:Approach;
   /** Why it parked, or what fell short at the last stop. */
   why?:string;
   at:string;
 }
 /** A freighter as `freighters()` and the menu report it. */
 export interface FreighterRow {name:string;state:Entry['state'];lap:number;stop:string|null;credits:number|null;
-  returned:number;last_lap_net:number|null;lap_net:number;holding:Holding;why?:string}
+  returned:number;last_lap_net:number|null;lap_net:number;holding:Holding;approach?:Approach;why?:string}
 
 const FILE='freighters.json',RETRY_MS=60_000;
 const message=(error:unknown)=>error instanceof Error?error.message:String(error);
@@ -70,7 +72,7 @@ function update(runtime:string,name:string,fields:Partial<Entry>):void {
 
 export const row=(name:string,entry:Entry):FreighterRow=>({name,state:entry.state,lap:entry.lap,stop:entry.stop??null,
   credits:entry.credits??null,returned:entry.returned,last_lap_net:entry.last_lap_net??null,lap_net:entry.circuit.lap_net,
-  holding:entry.holding??{},...entry.why?{why:entry.why}:{}});
+  holding:entry.holding??{},...entry.approach?{approach:entry.approach}:{},...entry.why?{why:entry.why}:{}});
 /** `holding` in words: `40 copper_piping (1148 cr)`. */
 export const held=(holding:Holding)=>Object.entries(holding).map(([item,row])=>`${row.quantity} ${item} (${Math.round(row.cost)} cr)`).join(', ');
 /** The menu's `freighters` rows; nothing when none was ever assigned. */

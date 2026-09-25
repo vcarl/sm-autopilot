@@ -215,3 +215,28 @@ test('a drained ring rests: routes passes over it and says so, the menu offers r
     assert.doesNotMatch(again.did,/skipped/);
   } finally {unbind();rmSync(runtime,{recursive:true,force:true});}
 });
+
+test('a holding sold off by hand while parked is not stock: lap 1 nets what a clean start nets, not 413 less',async()=>{
+  // Live: the stored holding said 58 copper_wiring (413 cr), sold by hand while the freighter was parked.
+  const clean=freighter(130),stale=freighter(130);
+  stale.f.holding={copper_wiring:{quantity:58,cost:413}};
+  await clean.world.account.refresh();await stale.world.account.refresh();
+  const want=await lap(clean.f,GEMS),got=await lap(stale.f,GEMS);
+  assert.equal(got.net,want.net);
+  assert.deepEqual(Object.keys(stale.reports.findLast(r=>r.holding)!.holding!),[]);
+});
+
+test('the approach to stop 1 is reported on its own and kept out of the lap net and the losing-laps count',async()=>{
+  // Docked at sol, assigned a ring that starts at range: the flight to range is the approach, not lap 1.
+  const {world,f,deposits,reports}=freighter(130);
+  await world.account.refresh();
+  const start=world.account.server.player.credits;
+  const reversed:Circuit={...GEMS,stops:[GEMS.stops[1]!,GEMS.stops[0]!]};
+  const done=await lap(f,reversed);
+  const approach=reports.find(r=>r.approach)!.approach!;
+  assert.ok(approach.jumps>0&&approach.credits>0,JSON.stringify(approach));
+  const home=deposits.reduce((sum,row)=>sum+row.credits,0),stocked=reports.findLast(r=>r.holding)!.holding!.gem!.cost;
+  assert.equal(world.account.server.player.credits+home-start,done.net-approach.credits-stocked,'the approach is outside the net');
+  await lap(f,reversed);
+  assert.equal(reports.filter(r=>r.approach).length,1,'lap 2 has no approach: sol → range is on the ring');
+});
