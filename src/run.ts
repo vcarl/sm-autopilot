@@ -18,6 +18,7 @@ import {disengage} from './play/combat/hunting.ts';
 import {battleNow} from './travel.ts';
 import {bind,command,line,outcome as build,progress,runCalls,unbind,type Binding} from './play/runtime.ts';
 import type {Outcome} from './play/types.ts';
+import {restNow} from './play/rest.ts';
 import {journalRun,writeRun,type RunRecord} from './run-record.ts';
 
 const PLUGIN=fileURLToPath(new URL('..',import.meta.url));
@@ -195,6 +196,19 @@ export async function runPilot(deps:RunDeps):Promise<RunResult> {
         +'Nothing will move the ship until it ends; disengage() is the first call of the next run';
     line(why);
     result={...result,...held.ended?{}:{status:'partial'},why:result.why?`${why}; ${result.why}`:why};
+  }
+  // Rest is a barrel call now, and a script that broke never reached its own `rest()` line. Tired
+  // is imposed by the runtime and rest is the only thing that clears it, so a pilot left Tired and
+  // docked is one that can no longer start work and — reflection happening only at rest — can no
+  // longer change stance either. That is a deadlock with no human in it to break, so the runner
+  // ends the shift here, and only here: after any other run the boundary stays the pilot's.
+  if(deps.pilot().mood==='Tired'&&deps.account.state.location?.docked_at) {
+    try {
+      const ended=await restNow(deps.account,command,deps.pilot(),deps.setPilot,runtime);
+      line(ended.rested
+        ?'tired and docked when the run ended: the shift was put down for the pilot, and the next juncture reflects'
+        :`tired and docked when the run ended, but rest is not admissible: ${ended.reason}`);
+    } catch(error){line(`tired and docked when the run ended, but rest broke: ${message(error)}`);}
   }
   const text=prose(result,runCalls());
   for(const said of text.split('\n'))line(said);

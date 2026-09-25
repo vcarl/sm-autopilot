@@ -119,3 +119,51 @@ test('a run that would hand back with a battle live breaks it off and says so',a
     assert.equal(f.account.server.location.poi_id,'belt');
   } finally {f.close();pace.tickMs=10_000;}
 });
+
+test('a script that throws while the pilot is Tired and docked still ends the shift rested',async()=>{
+  // Rest lives in the barrel now, so a script that throws never reaches its own `rest()` line.
+  // Tired is imposed by the runtime and only rest clears it, so a Tired pilot docked at the end
+  // of a run is the one case the runner ends the shift itself: without it a broken script leaves
+  // a pilot that can never reflect, and so can never change stance, with no human in the loop.
+  const f=harness();
+  try {
+    let record:any={name:'kvothe',mood:'Tired',stance:'Prospector',goal:'three loads of ore'};
+    // Nothing for this base to bring up, so the rest rule admits the evening.
+    f.account.server.ship.fuel=f.account.server.ship.max_fuel;
+    f.account.server.ship.hull=f.account.server.ship.max_hull;
+    f.write("export default async function main(){ throw new Error('the script broke'); }\n");
+    const result=await runPilot({...f.deps,pilot:()=>record,setPilot:(next:any)=>{record=next;}});
+    assert.equal(result.status,'failed',result.reason);
+    assert.deepEqual(record,{name:'kvothe'},'the shift is put down whatever the script did');
+    const line=readJournal(f.runtime).find(entry=>entry.event==='rest');
+    assert.ok(line,'rest leaves its own line in the journal');
+    assert.deepEqual({stance:line!.stance,mood:line!.mood,goal:line!.goal},
+      {stance:'Prospector',mood:'Tired',goal:'three loads of ore'});
+  } finally {f.close();}
+});
+
+test('a run that ends on a mood the pilot chose leaves the shift where the pilot put it',async()=>{
+  // Not after every run: ending a shift on a good run takes the boundary out of the pilot's hands.
+  const f=harness();
+  try {
+    let record:any={name:'kvothe',mood:'Focused',stance:'Prospector'};
+    f.write("import {orient} from 'play';\nexport default async function main(){ return orient(); }\n");
+    await runPilot({...f.deps,pilot:()=>record,setPilot:(next:any)=>{record=next;}});
+    assert.equal(record.stance,'Prospector','the shift is still the pilot\'s');
+    assert.equal(readJournal(f.runtime).find(entry=>entry.event==='rest'),undefined);
+  } finally {f.close();}
+});
+
+test('a script ends its own shift with rest(), and the run reports it',async()=>{
+  const f=harness();
+  try {
+    let record:any={name:'kvothe',mood:'Focused',stance:'Prospector',goal:'three loads of ore'};
+    f.account.server.ship.fuel=f.account.server.ship.max_fuel;
+    f.account.server.ship.hull=f.account.server.ship.max_hull;
+    f.write("import {rest} from 'play';\nexport default async function main(){ return rest(); }\n");
+    const result=await runPilot({...f.deps,pilot:()=>record,setPilot:(next:any)=>{record=next;}});
+    assert.equal(result.status,'done',result.reason);
+    assert.deepEqual(record,{name:'kvothe'},'the shift a script put down is put down');
+    assert.ok(f.lines.some(line=>/^✓ rest  done/.test(line)),f.lines.join('\n'));
+  } finally {f.close();}
+});
