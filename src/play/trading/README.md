@@ -32,6 +32,10 @@ the best `best_buy` per item:
 
 The ledger needs a faction with a trade-intel facility; without one the command throws and
 `spreads()` carries on with the other two, saying so in `did` and in `detail.sources`. The
+ledger is read whole, by station, 20 stations a page and at most 4 pages a read; it is never
+asked by item, because live an `item_id` filter answers nothing even for a filed item. A ledger
+entry carries no system (`system_id` comes back empty), so the memory's system for that base
+stands in. The
 memory is free and always there: every `book()` read — by `prices()`, `sell()`, `recipes()`,
 `quote()` — writes that base's whole book to `markets.json` in the runtime dir, kept for a day of ticks.
 So the second visit knows what the first one saw, across runs and across restarts. It follows
@@ -94,8 +98,8 @@ them with `from: 'store'` (below).
 The search grows routes one stop at a time, keeping the best 20 at each length, up to 3 stops. A
 route is kept only when it pays and every stop on it sells or buys something. Jumps are counted
 on the galaxy map (`get_map`, one call) between the systems of consecutive stops. The market
-memory keeps each base's system. A base it has no system for (a ledger entry, an old memory) is
-placed with one `find_route`, at most 5 a call. One `find_route` also prices a jump in fuel.
+memory keeps each base's system, and lends it to a ledger entry for the same base. A base it has
+no system for (a ledger entry for a base never visited, an old memory) is placed with one `find_route`, at most 5 a call. One `find_route` also prices a jump in fuel.
 
 Each row of `routes` is a `Route`:
 

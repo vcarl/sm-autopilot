@@ -85,7 +85,7 @@ export function spreads(items?:string[]):Promise<Outcome<{spreads:Spread[];sourc
       const row=listed.get(id);
       if(row)offer({item_id:id,base_id:here,best_buy:row.best_buy,best_buy_qty:row.best_buy_qty,source:'here',seen:'live'});
     }
-    const far=await farBooks(wanted,here,now);
+    const far=await farBooks(here,now);
     sources.push(...(['faction ledger','remembered'] as const).filter(source=>far.some(known=>known.source===source)));
     for(const known of far)
       for(const row of known.items)
@@ -130,18 +130,24 @@ async function storeRows():Promise<{item_id:string;quantity:number}[]> {
   } catch {return [];}
 }
 
-/** The faction trade ledger, per item, when the pilot has one. Every failure — no faction, no
- * trade-intel facility, no such command — is the same answer: no cross-station feed. */
-async function ledger(items:string[]):Promise<FactionQueryTradeIntelResponse['entries']> {
-  const seen=new Map<string,FactionQueryTradeIntelResponse['entries'][number]>();
-  for(const item_id of items.slice(0,10)) {
+/** ponytail: the ledger is read whole, a page of `LEDGER_PAGE` stations at a time, at most
+ * `LEDGER_PAGES` pages (the galaxy has 79 stations) — a bounded call count per read, re-read at
+ * every `farBooks`. Cache it per tick if the calls ever show against the rate limit. */
+const LEDGER_PAGE=20,LEDGER_PAGES=4;
+/** The faction trade ledger, whole books by station, when the pilot has one. Never filtered by
+ * `item_id`: live, that filter answers nothing even for a filed item. Every failure — no faction,
+ * no trade-intel facility, no such command — is the same answer: no more of the cross-station feed. */
+async function ledger():Promise<FactionQueryTradeIntelResponse['entries']> {
+  const entries:FactionQueryTradeIntelResponse['entries']=[];
+  for(let page=0;page<LEDGER_PAGES;page++) {
     checkStop();
     try {
-      const reply=details(await command('spacemolt_intel/query_trade_intel',{item_id})) as FactionQueryTradeIntelResponse;
-      for(const entry of reply.entries??[])seen.set(`${entry.base_id}:${entry.submitted_at_tick}`,entry);
-    } catch {return [...seen.values()];}
+      const reply=details(await command('spacemolt_intel/query_trade_intel',{limit:LEDGER_PAGE,offset:page*LEDGER_PAGE})) as FactionQueryTradeIntelResponse;
+      entries.push(...reply.entries??[]);
+      if(!reply.entries?.length||entries.length>=Number(reply.total??0))break;
+    } catch {break;}
   }
-  return [...seen.values()];
+  return entries;
 }
 
 /** A book row as far as a source can say: a ledger entry has the top of book and volumes, no levels. */
@@ -150,14 +156,20 @@ type Listing=Pick<MarketListingItem,'item_id'|'best_buy'|'best_buy_qty'|'best_se
 /** A book at another base, with its age in ticks against `now`, and its system when the memory kept it. */
 interface FarBook {base_id:string;source:'faction ledger'|'remembered';age:number;system_id?:string;items:Listing[]}
 
-/** Every far book this pilot may know: the faction ledger's entries for `items`, then the books
- * remembered at other bases. What `spreads()`, `routes()` and `tradeRun` all read. */
-async function farBooks(items:string[],here:string,now:number):Promise<FarBook[]> {
-  const filed=(await ledger(items)).map(entry=>({base_id:entry.base_id,source:'faction ledger' as const,
-    age:ticksOld(entry.submitted_at_tick,now),
-    items:(entry.items??[]).map(item=>({item_id:item.item_id,best_buy:item.best_buy,best_buy_qty:item.buy_volume,
-      best_sell:item.best_sell,best_sell_qty:item.sell_volume}))}));
-  const remembered=knownBooks().filter(known=>known.base_id!==here).map(known=>({base_id:known.base_id,
+/** Every far book this pilot may know: the faction ledger's whole books, then the books
+ * remembered at other bases. What `spreads()`, `routes()` and `tradeRun` all read. A ledger entry
+ * comes back with an empty `system_id`; the memory's system for that base stands in, else none. */
+async function farBooks(here:string,now:number):Promise<FarBook[]> {
+  const memory=knownBooks();
+  const systemOf=new Map(memory.filter(known=>known.system_id).map(known=>[known.base_id,known.system_id!]));
+  const filed=(await ledger()).filter(entry=>entry.base_id!==here).map(entry=>{
+    const system_id=entry.system_id||systemOf.get(entry.base_id);
+    return {base_id:entry.base_id,source:'faction ledger' as const,age:ticksOld(entry.submitted_at_tick,now),
+      ...system_id?{system_id}:{},
+      items:(entry.items??[]).map(item=>({item_id:item.item_id,best_buy:item.best_buy,best_buy_qty:item.buy_volume,
+        best_sell:item.best_sell,best_sell_qty:item.sell_volume}))};
+  });
+  const remembered=memory.filter(known=>known.base_id!==here).map(known=>({base_id:known.base_id,
     source:'remembered' as const,age:ticksOld(known.tick,now),...known.system_id?{system_id:known.system_id}:{},items:known.items}));
   return [...filed,...remembered];
 }
@@ -396,7 +408,7 @@ export function tradeRun(opts:{stops:RunStop[]}):Promise<Outcome<Traded>> {
       const later=route.slice(i+1).map(next=>next.at);
       const hold=miningInventory(acct().state);
       const known=byBase({base_id:here,source:'here',age:0,items:listed},
-        await farBooks([...new Set([...Object.keys(hold),...stop.buy?[stop.buy]:[]])],here,marketTick()));
+        await farBooks(here,marketTick()));
       elsewhere=[...known.values()].filter(book=>book.base_id!==here&&!later.includes(book.base_id));
       const stored=stop.buy&&stop.from==='store'?(await storeRows()).filter(row=>row.item_id===stop.buy).reduce((sum,row)=>sum+row.quantity,0):0;
       const [leg]=plan(hold,cargo(),[
@@ -513,7 +525,7 @@ export function routes(opts:{items?:string[];circuit?:{hold:number}}={}):Promise
       why:`circuit.hold ${circuit.hold} is not a positive number of units`,detail:none};
     const origin=acct().state.location?.system_id??'',free=cargo(),aboard=miningInventory(acct().state);
     const listed=await book();
-    const far=await farBooks(opts.items?.length?opts.items:[...new Set([...listed.keys(),...Object.keys(aboard)])],here,marketTick());
+    const far=await farBooks(here,marketTick());
     const known=byBase({base_id:here,source:'here',age:0,items:listed},far);
     const sources=[...new Set([...known.values()].map(row=>row.source))];
     const probe=[...listed.values()].find(row=>row.best_sell>0);

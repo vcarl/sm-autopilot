@@ -200,6 +200,24 @@ test('a full hold with a far bid: the top route is one stop there that sells it,
   } finally {unbind();rmSync(runtime,{recursive:true,force:true});}
 });
 
+test('routes reads the ledger whole, page past page, and places a filed base by the memory\'s system',async()=>{
+  // 24 other stations fill the first page; the gem bid is filed on the second. Live, the ledger
+  // answers no system for an entry: range_base's comes from a stale, empty memory of it.
+  const filler=Array.from({length:24},(_,i)=>({base_id:`filler_${i}`,submitted_at_tick:TICK,items:[{item_id:'junk',best_buy:1,buy_volume:1}]}));
+  const runtime=remembered([{base_id:'range_base',age:5000,system_id:'deep_range',items:[]}]);
+  const f=world({mood:'Focused'},{cargo:[{item_id:'gem',quantity:20}],cargoUsed:20,cargoCapacity:20,store:[],markets:HERE,
+    tradeIntel:[...filler,{base_id:'range_base',submitted_at_tick:TICK,items:[{item_id:'gem',best_buy:110,buy_volume:50}]}]},runtime);
+  try {
+    const out=await routes();
+    assert.equal(out.status,'done',out.why);
+    const top=out.detail.routes[0]!;
+    assert.equal(top.next,"tradeRun({stops:[{at:'range_base'}]})");
+    assert.deepEqual([top.legs[0]!.source,top.legs[0]!.age,top.total_jumps,top.net],['faction ledger',0,1,2200-7]);
+    assert.equal(f.count('spacemolt_intel/query_trade_intel'),2,'two pages of 20 hold 25 stations');
+    assert.ok(f.sent.every(call=>call.action!=='spacemolt_intel/query_trade_intel'||call.params.item_id===undefined),'never filtered by item');
+  } finally {unbind();rmSync(runtime,{recursive:true,force:true});}
+});
+
 // Scrap sells here and nowhere else; gems fetch more a jump away; ore is cheap here and dear there.
 const MIXED_HERE=[{item_id:'scrap',best_buy:50,best_buy_qty:50,best_sell:0,best_sell_qty:0},
   {item_id:'gem',best_buy:90,best_buy_qty:50,best_sell:100,best_sell_qty:50},

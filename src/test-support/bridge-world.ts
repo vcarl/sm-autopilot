@@ -75,7 +75,7 @@ export interface WorldOptions {
   markets?:Record<string,MarketRow[]>;
   /** The faction trade ledger `query_trade_intel` answers with. Absent means no faction:
    * the command throws, as it does for a pilot with no trade-intel facility. */
-  tradeIntel?:{base_id:string;system_id?:string;station_name?:string;submitted_at_tick?:number;
+  tradeIntel?:{base_id:string;station_name?:string;submitted_at_tick?:number;
     items:{item_id:string;item_name?:string;best_buy:number;best_sell?:number;buy_volume?:number;sell_volume?:number}[]}[];
   /** What the station store holds before anything is deposited. */
   store?:{item_id:string;name?:string;quantity:number}[];
@@ -617,17 +617,18 @@ export function bridgeWorld(options:WorldOptions={}) {
         ...options.market??[]];
       return {delta:{details:{current_tick:TICK,items:rows.map(row=>({item_name:row.item_id,buy_price:row.best_sell,...row}))}}};
     },
+    // As live: an `item_id` filter answers nothing, even for a filed item; `base_id` (or no
+    // filter) answers whole books, paged by `limit`/`offset`; `system_id` is always empty.
     'spacemolt_intel/query_trade_intel':params=>{
       if(!ledger)throw new Error('You are not in a faction');
-      const item=params.item_id===undefined?undefined:String(params.item_id);
-      const entries=ledger
-        .map(row=>({base_id:row.base_id,system_id:row.system_id??'deep_range',
+      const limit=Number(params.limit??10),offset=Number(params.offset??0);
+      const matched=params.item_id!==undefined?[]:ledger.filter(row=>params.base_id===undefined||row.base_id===params.base_id);
+      const entries=matched.slice(offset,offset+limit)
+        .map(row=>({base_id:row.base_id,system_id:'',
           station_name:row.station_name??row.base_id,submitted_at_tick:row.submitted_at_tick??100,
           submitted_by:'someone',submitter_name:'Someone',
-          items:row.items.filter(cell=>!item||cell.item_id===item)
-            .map(cell=>({item_name:cell.item_id,best_sell:0,buy_volume:0,sell_volume:0,...cell}))}))
-        .filter(row=>row.items.length);
-      return {structuredContent:{entries,intel_level:2,showing:entries.length,total:entries.length}};
+          items:row.items.map(cell=>({item_name:cell.item_id,best_sell:0,buy_volume:0,sell_volume:0,...cell}))}));
+      return {structuredContent:{entries,intel_level:2,limit,offset,showing:entries.length,total:matched.length}};
     },
     // One entry per base, the latest filing replacing the last, stamped with the tick it came in on.
     'spacemolt_intel/submit_trade_intel':params=>{
@@ -635,7 +636,7 @@ export function bridgeWorld(options:WorldOptions={}) {
       const stations=params.stations as {base_id:string;items:{item_id:string;best_buy:number;best_sell:number;buy_volume:number;sell_volume:number}[]}[];
       for(const station of stations) {
         ledger.splice(0,ledger.length,...ledger.filter(row=>row.base_id!==station.base_id));
-        ledger.push({base_id:station.base_id,system_id:account.server.location.system_id,submitted_at_tick:TICK,items:station.items});
+        ledger.push({base_id:station.base_id,submitted_at_tick:TICK,items:station.items});
       }
       return {delta:{details:{status:'submitted',stations_updated:stations.length,message:`Trade intel submitted for ${stations.length} station(s).`}}};
     },
