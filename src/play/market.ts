@@ -4,6 +4,7 @@ import type {BuyResponse,EstimatePurchaseResponse,MarketListingItem,SellResponse
 import {mkdirSync,readFileSync,renameSync,writeFileSync} from 'node:fs';
 import {join} from 'node:path';
 import {miningInventory} from '../mining-inventory.ts';
+import {markPlace} from './places.ts';
 import {details} from '../response-details.ts';
 import {fileIntel} from '../trade-intel.ts';
 import {bench,moduleSpec,room,whyNotFit} from './hangar.ts';
@@ -64,6 +65,7 @@ export function knownBooks(dir=runtimeDir()):RememberedBook[] {
 function remember(base_id:string,items:MarketListingItem[],tick:number):void {
   const dir=runtimeDir();
   if(!dir||!base_id)return;
+  markPlace(dir,base_id,acct().state.location?.system_id??'');
   const kept=[{base_id,at:new Date().toISOString(),tick,system_id:acct().state.location?.system_id,items},
     ...knownBooks().filter(row=>row.base_id!==base_id&&ticksOld(row.tick,tick)<=MEMORY_TICKS)].slice(0,BASES);
   try {

@@ -119,6 +119,9 @@ route is kept only when it pays and every stop on it sells or buys something. Ju
 on the galaxy map (`get_map`, one call) between the systems of consecutive stops. The market
 memory keeps each base's system, and lends it to a ledger entry for the same base. A base it has
 no system for (a ledger entry for a base never visited, an old memory) is placed with one `find_route`, at most 5 a call. One `find_route` also prices a jump in fuel.
+Every place learned — a docked book read, a `find_route` here, a freighter arriving at a stop — is
+kept in `places.json` in the runtime dir and read first, so a base is placed once, ever: each call
+places up to 5 new bases, and the `did` says how many wait for a later call.
 
 Each row of `routes` is a `Route`:
 

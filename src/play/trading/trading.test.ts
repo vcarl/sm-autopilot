@@ -9,6 +9,7 @@ import {buy,knownBooks,prices,sell} from '../market.ts';
 import {bind,unbind,type Pilot} from '../runtime.ts';
 import {goTo} from '../travel.ts';
 import {check} from '../../run.ts';
+import {readPlaces} from '../places.ts';
 import {routes,runCall,spreads,tradeRun} from './trading.ts';
 
 function world(record:Pilot,options:WorldOptions={},runtime?:string) {
@@ -163,7 +164,7 @@ test('an empty hold: routes buys here, sells there, and sizes each load where th
     assert.equal(ore!.net,108-80-7);
     assert.equal(ore!.sales_tax,null,'the fake publishes no tax rate');
     assert.match(ore!.why!,/sales tax not known/);
-    assert.equal(f.count('spacemolt/find_route'),2,'range_base is placed by one route a call, which also prices the jump');
+    assert.equal(f.count('spacemolt/find_route'),2,'range_base is placed once and kept; the second call routes only to price the jump');
   } finally {unbind();rmSync(runtime,{recursive:true,force:true});}
 });
 
@@ -181,6 +182,23 @@ test('routes ranks a stale fat bid below a fresh thin one',async()=>{
     assert.ok(stale!.net>fresh!.net,'the stale route nets more on paper');
     assert.equal(stale!.legs[1]!.age,2000);
     assert.ok(stale!.confidence<0.05);
+  } finally {unbind();rmSync(runtime,{recursive:true,force:true});}
+});
+
+test('placements are kept: each routes() places up to 5 new bases, and a base placed once is never looked up again',async()=>{
+  const bases=['b1','b2','b3','b4','b5','b6','b7'];
+  const runtime=remembered(bases.map(base_id=>({base_id,age:0,items:[{item_id:'gem',best_buy:110,best_buy_qty:50}]})));
+  const f=world({mood:'Focused'},{cargo:[],cargoUsed:0,cargoCapacity:20,store:[],markets:HERE,
+    pois:bases.map(base_id=>({id:`poi_${base_id}`,base_id}))},runtime);
+  const looked=()=>f.sent.filter(call=>call.action==='spacemolt/find_route').map(call=>String(call.params.id));
+  try {
+    const first=await routes({items:['gem'],maxStops:2});
+    assert.deepEqual(looked(),bases.slice(0,5));
+    assert.match(first.did,/2 base\(s\) could not be placed.*\(2 past this call's 5 lookups/);
+    const second=await routes({items:['gem'],maxStops:2});
+    assert.deepEqual(looked().slice(5),['b6','b7'],'only the two left over are looked up');
+    assert.doesNotMatch(second.did,/could not be placed/);
+    assert.deepEqual(readPlaces(runtime),{sol_base:'sol',...Object.fromEntries(bases.map(base=>[base,'sol']))});
   } finally {unbind();rmSync(runtime,{recursive:true,force:true});}
 });
 

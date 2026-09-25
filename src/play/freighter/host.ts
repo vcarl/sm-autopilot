@@ -19,6 +19,7 @@ import {pilotHome} from '../../run.ts';
 import {checkBoundary,specifiers} from '../boundary.ts';
 import {checkPolicy} from '../policy.ts';
 import type {Circuit} from '../trading/trading.ts';
+import {markPlace} from '../places.ts';
 import {markDrained,ring} from './drained.ts';
 import type {Approach,Freighter,Holding} from './index.ts';
 
@@ -160,6 +161,9 @@ export function start(runtime:string,name:string):string|null {
       const now=readFleet(runtime)[name];
       if(!now)return;
       const {deposited,lapped,...rest}=fields;
+      // Arrived at a stop: where it is is a place the owner's routes() need not look up again.
+      const at=(account.state as GameState).location;
+      if(fields.stop&&at?.docked_at===fields.stop)markPlace(runtime,fields.stop,at.system_id??'');
       update(runtime,name,{...rest,...deposited?{returned:now.returned+deposited}:{},
         ...lapped===undefined?{}:{lap:now.lap+1,last_lap_net:lapped}});
       journalRun(runtime,{freighter:name,...fields},'freighter');

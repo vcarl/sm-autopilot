@@ -15,6 +15,7 @@ import {walkBook} from '../../order-book.ts';
 import {details} from '../../response-details.ts';
 import {book,buy,knownBooks,marketTick,sell,ticksOld} from '../market.ts';
 import {readDrained,ring} from '../freighter/drained.ts';
+import {markPlace,readPlaces} from '../places.ts';
 import {acct,admit,checkStop,command,job,runtimeDir,step} from '../runtime.ts';
 import {withdraw} from '../storage.ts';
 import {goTo,route} from '../travel.ts';
@@ -160,10 +161,12 @@ interface FarBook {base_id:string;source:'faction ledger'|'remembered';age:numbe
 /** Every far book this pilot may know: the faction ledger's whole books, then the books
  * remembered at other bases, one per base — the fresher copy when both have it. What `spreads()`,
  * `routes()`, `tradeRun` and `assign` all read. A ledger entry comes back with an empty
- * `system_id`; the memory's system for that base stands in, else none. */
+ * `system_id`, as does a memory written before books kept one; the memory's system for that base
+ * stands in, else the kept place (`places.json`), else none. */
 export async function farBooks(here:string,now:number):Promise<FarBook[]> {
-  const memory=knownBooks();
-  const systemOf=new Map(memory.filter(known=>known.system_id).map(known=>[known.base_id,known.system_id!]));
+  const memory=knownBooks(),dir=runtimeDir();
+  const systemOf=new Map([...Object.entries(dir?readPlaces(dir):{}),
+    ...memory.filter(known=>known.system_id).map(known=>[known.base_id,known.system_id!] as [string,string])]);
   const filed=(await ledger()).filter(entry=>entry.base_id!==here).map(entry=>{
     const system_id=entry.system_id||systemOf.get(entry.base_id);
     return {base_id:entry.base_id,source:'faction ledger' as const,age:ticksOld(entry.submitted_at_tick,now),
@@ -172,7 +175,7 @@ export async function farBooks(here:string,now:number):Promise<FarBook[]> {
         best_sell:item.best_sell,best_sell_qty:item.sell_volume}))};
   });
   const remembered=memory.filter(known=>known.base_id!==here).map(known=>({base_id:known.base_id,
-    source:'remembered' as const,age:ticksOld(known.tick,now),...known.system_id?{system_id:known.system_id}:{},items:known.items}));
+    source:'remembered' as const,age:ticksOld(known.tick,now),...systemOf.has(known.base_id)?{system_id:systemOf.get(known.base_id)!}:{},items:known.items}));
   // One book per base: the fresher of the ledger's copy and the memory's, a tie to the ledger.
   const fresher=new Map<string,FarBook>();
   for(const book of [...filed,...remembered])if(!((fresher.get(book.base_id)?.age??Infinity)<=book.age))fresher.set(book.base_id,book);
@@ -498,8 +501,9 @@ export const STOPS=4,LEG_JUMPS=3,MAX_STOPS=10;
 const BEAM=20;
 /** Rows returned. */
 const ROWS=5;
-/** ponytail: a base whose system the memory did not keep (a ledger entry, a pre-system memory) is
- * placed with one `find_route` each, at most 5 per call; past that its routes are unpriced rows. */
+/** ponytail: a base whose system neither the memory nor `places.json` kept (a ledger entry, a
+ * pre-system memory) is placed with one `find_route` each, at most 5 per call, and the place is
+ * kept; past that its routes are unpriced rows until a later call places it. */
 const UNPLACED=5;
 
 /** Jumps from one system to another over the map's links (`get_map` connections), breadth first;
@@ -601,12 +605,17 @@ export function routes(opts:{items?:string[];circuit?:{hold:number}}&Scope={}):P
     let perJump:number|undefined;
     const place=async(base:string)=>{
       checkStop();
-      try {const quote=await route(base);systems.set(base,quote.target_system);perJump??=Number(quote.fuel_per_jump??0);}
+      try {
+        const quote=await route(base),dir=runtimeDir();
+        systems.set(base,quote.target_system);perJump??=Number(quote.fuel_per_jump??0);
+        if(dir)markPlace(dir,base,quote.target_system);
+      }
       catch(error) {lost.set(base,error instanceof Error?error.message:String(error));}
     };
     const unplaced=[...known.keys()].filter(base=>!systems.has(base));
     for(const base of unplaced.slice(0,UNPLACED))await place(base);
-    for(const base of unplaced.slice(UNPLACED))lost.set(base,`not placed: past the ${UNPLACED} find_route lookups one call makes`);
+    const later=unplaced.slice(UNPLACED);
+    for(const base of later)lost.set(base,`not placed yet: past the ${UNPLACED} find_route lookups one call makes`);
     const away=[...known.keys()].filter(base=>systems.has(base)&&base!==here);
     if(perJump===undefined&&away.length)await place(away[0]!);
     const links=new Map<string,string[]>();
@@ -754,7 +763,8 @@ export function routes(opts:{items?:string[];circuit?:{hold:number}}&Scope={}):P
 
     const rested=skipped.size?`; skipped ${skipped.size} ring(s) a freighter drained within ${REST_TICKS} ticks: ${[...skipped].join('; ')}`:'';
     const missed=[...lost.keys()];
-    const unknown=missed.length?`; ${missed.length} base(s) could not be placed, so no priced route goes there: ${missed.slice(0,5).join(', ')}${missed.length>5?', …':''}`:'';
+    const unknown=missed.length?`; ${missed.length} base(s) could not be placed, so no priced route goes there: ${missed.slice(0,5).join(', ')}${missed.length>5?', …':''}`
+      +(later.length?` (${later.length} past this call's ${UNPLACED} lookups; each place found is kept, so routes() again places the next ${UNPLACED})`:''):'';
     const rows=[...found.values()].sort((a,b)=>Number(a.total_jumps===null)-Number(b.total_jumps===null)||b.score-a.score).slice(0,ROWS);
     if(!rows.length)return {status:'done',did:`no route pays across ${known.size} book(s) (${sources.join(' + ')}) from this hold within ${most} stops, ${legCap} jumps a leg${Number.isFinite(cap)?` and ${cap} in all`:''}${rested}${unknown}`,
       detail:{routes:[],sources},next:['goTo another base and prices() there to learn its book']};
