@@ -369,3 +369,21 @@ test('orient leads with the battle holding the ship',async()=>{
     assert.equal(out.detail.battle?.opponent,'Molt Grazer');
   } finally {f.close();}
 });
+
+// Live 2026-09-25: the mining row emitted `gatherUntil({poi})` with no base, and the library
+// refused it — "no base to return to: pass base, or dock first" (mining.ts:71). A whole juncture
+// was spent on a call that could not run. The offered call names the base it settles at.
+test('the mining row names the base the trip settles at, docked or not',async()=>{
+  const f=world({mood:'Focused',stance:'Prospector'},{cargoUsed:0});
+  try {
+    const docked=await menu(f.runtime);
+    assert.ok(docked.moves.some(move=>move.call==="gatherUntil({poi:'belt',base:'sol_base'})"),
+      JSON.stringify(docked.moves.map(move=>move.call)));
+    // Undocked at a POI is the case that mattered: there is no `docked_at` to fall back to.
+    await f.command('spacemolt/travel',{id:'station'});
+    const out=await menu(f.runtime);
+    const row=out.moves.find(move=>move.call.startsWith('gatherUntil('));
+    assert.ok(row,JSON.stringify(out.moves.map(move=>move.call)));
+    assert.match(row!.call,/^gatherUntil\(\{poi:'belt',base:'sol_base'\}\)$/);
+  } finally {f.close();}
+});

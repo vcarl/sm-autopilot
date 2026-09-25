@@ -337,9 +337,16 @@ export async function menu(runtime?:string):Promise<Menu> {
    * which flies to the same POI. Left null when a full hold short-circuits the quote. */
   let beltFuel:string|null=null;
   if(belt) {
-    const blocked=full?'the hold is full; sell(rows) or stow(rows) first':(beltFuel=await flies(belt.id));
+    // `gatherUntil` settles the take at a base and refuses outright without one: `base` falls
+    // back to `docked_at`, and out at a POI there is none (mining.ts). So the base is named in
+    // the call the menu offers — a row emitted without it cost a whole live juncture to the
+    // refusal "no base to return to" (2026-09-25). Docked, that is where the ship stands;
+    // undocked, the nearest station in this system, which is where the trip would settle anyway.
+    const home=docked??pois.filter(poi=>poi.base_id).sort((a,b)=>dist(a)-dist(b))[0]?.base_id;
+    const blocked=full?'the hold is full; sell(rows) or stow(rows) first'
+      :(beltFuel=await flies(belt.id))??(home?null:'no base to settle the take at: dock, or name the base the trip returns to');
     if(blocked)not_now.push({move:'gatherUntil',why:blocked});
-    else work({call:`gatherUntil({poi:'${belt.id}'})`,why:`${belt.type} ${belt.name}, ${ship?.cargo_capacity!-ship?.cargo_used!} free in the hold`,advances:'credits'});
+    else work({call:`gatherUntil({poi:'${belt.id}',base:'${home}'})`,why:`${belt.type} ${belt.name}, ${ship?.cargo_capacity!-ship?.cargo_used!} free in the hold, settling at ${home}`,advances:'credits'});
   }
 
   // Hunt when the orders say hunt. `hunt({poi})` flies there itself (play/combat/README.md), so
