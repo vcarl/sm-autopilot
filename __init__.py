@@ -182,10 +182,14 @@ def _status(arguments: dict[str, Any] | None = None, **_: Any) -> str:
 def _reflect(arguments: dict[str, Any] | None = None, **_: Any) -> str:
     """Open the next shift: a goal, the stance that pursues it, and the mood it starts in.
 
-    The only place a stance is chosen (N8), and only at rest. A stance change is a handoff
+    The only place a stance is chosen (N8). On shift it rests the pilot first, in one bridge
+    request, so the record never passes through the stanceless state. A stance change is a handoff
     (N12): this writes the record, rewrites the cron job for the new stance's skills and asks
     for the next fire, which opens a fresh conversation with those skills and the same
     toolset. Mood moves inside the shift after this; nothing here touches it again.
+
+    A run that ended away from a base cannot rest: the stance carries, nothing is written, and the
+    next juncture continues the same shift. That is a normal outcome and is reported as one.
 
     A reflection always commits. Nothing here writes a record that leaves ``goal`` and ``stance``
     unset, because a pilot at rest with neither has no next move and no way to get one but a
@@ -194,10 +198,6 @@ def _reflect(arguments: dict[str, Any] | None = None, **_: Any) -> str:
     """
     args = arguments or {}
     record = read_pilot()
-    if record.get("stance"):
-        return (f"Nothing written: the pilot is on shift in the {record['stance']} stance. "
-                "Reflection happens at rest — rest at a base, which clears the stance, and the "
-                "next juncture reflects.")
     goal = str(args.get("goal") or "").strip()
     stance = {name.lower(): name for name in STANCES}.get(str(args.get("stance") or "").strip().lower())
     mood = {name.lower(): name for name in JOB_MOODS}.get(str(args.get("mood") or "").strip().lower())
@@ -217,11 +217,45 @@ def _reflect(arguments: dict[str, Any] | None = None, **_: Any) -> str:
     # a stale one on the record and be handed its own completion back next wakeup.
     stale = bool(record.pop("objective_done", None))
     finished = bool(args.get("objective_done")) or stale
-    retired = record.pop("objective", None) if finished else None
-    record.update(goal=goal, stance=stance, mood=mood)
-    if retired:
-        record["objective_completed"] = retired
-    write_pilot(record)
+
+    # On shift, this call does the resting itself. It used to refuse — "Reflection happens at rest" —
+    # because rest was a separate act the pilot had to perform first, and the turn ended before it
+    # ever did. `spacemolt_run` blocks, so when it returns the model is in a turn holding the report,
+    # which is the one moment both well-informed and able to reason about what comes next.
+    #
+    # The resting and the naming go in ONE bridge request, so the record never passes through the
+    # state with no stance and no mood — that state is a pilot every job refuses, and it cost a whole
+    # juncture on 38 identical refusals.
+    if record.get("stance") or record.get("mood"):
+        rested = call("rest", {"goal": goal, "stance": stance, "mood": mood,
+                               **({"objective_done": True} if finished else {})})
+        if not isinstance(rested, dict) or not rested.get("rested"):
+            reason = (rested or {}).get("reason", "rest is not admissible here") \
+                if isinstance(rested, dict) else "the bridge did not answer"
+            # A run that ended away from a base cannot put the evening down. That is a normal
+            # outcome, not a fault: the stance carries and the next juncture continues this shift.
+            # Said as a refusal it reads as something to retry, and the pilot would keep trying
+            # instead of getting on with the work it already has.
+            return (f"The shift carries on, and nothing was written: {reason}. "
+                    f"Still {record.get('stance')}, {record.get('mood')}, "
+                    f"goal {record.get('goal')!r}. This is not a fault — rest needs a base, so the "
+                    "next juncture continues this shift. End the turn.")
+        retired = rested.get("retired")
+        # The bridge wrote goal, stance and mood, and dropped a retired objective. Re-read rather
+        # than assume, and add only what Python owns: the completion the next reflection reports.
+        record = read_pilot()
+        if retired:
+            record["objective_completed"] = retired
+            write_pilot(record)
+    else:
+        # Already at rest, which is where the runner's broken-script fallback leaves the pilot.
+        # There is no shift to end, so the record is written directly: this is the unattended
+        # recovery path and it must work with the ship wherever it happens to be, base or not.
+        retired = record.pop("objective", None) if finished else None
+        record.update(goal=goal, stance=stance, mood=mood)
+        if retired:
+            record["objective_completed"] = retired
+        write_pilot(record)
     journal_event("reflection", goal=goal, stance=stance, mood=mood,
                   **({"objective_done": True, "objective": retired} if finished else {}))
     from cron.jobs import trigger_job

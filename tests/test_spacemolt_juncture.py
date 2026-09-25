@@ -292,13 +292,16 @@ def test_an_oversized_situation_fits_the_section_with_every_fact_line(monkeypatc
 def test_the_cron_prompt_leaves_the_tools_to_their_own_descriptions():
     """The turn contract only: nothing about which tool does what (playtest 2026-09-15).
 
-    The exception is how a juncture plays: writing and running pilot/index.ts is the turn
-    contract itself, so the prompt names the two tools that do it — the check before the run,
-    and the run. Everything else is left to its own description.
+    The exception is how a juncture plays: the turn is write, run, judge, put the shift down, so
+    the prompt names the three tools that are the contract itself — the check before the run, the
+    run, and the reflection that ends the shift and opens the next. Reflecting joined that list when
+    the turn gained its fourth step; before that the prompt said "one run per juncture is the whole
+    job" and the pilot duly stopped after the run, which is why a shift was never put down.
+    Everything else is left to its own description.
     """
     named = sorted(definition["name"] for definition in spacemolt.TOOL_DEFINITIONS
                    if definition["name"] in juncture.JUNCTURE_PROMPT)
-    assert named == ["spacemolt_check", "spacemolt_run"], \
+    assert named == ["spacemolt_check", "spacemolt_reflect", "spacemolt_run"], \
         f"the prompt names tools the descriptions own: {named}"
     # The job a fire runs carries the turn contract as its whole prompt.
     assert juncture.job_fields({"stance": "Hunter"})["prompt"] == juncture.JUNCTURE_PROMPT
@@ -363,3 +366,84 @@ def test_a_live_battle_is_the_first_line_of_the_context(monkeypatch):
     monkeypatch.setattr(service, "call",
                         lambda action, params=None: copy.deepcopy(resting if action == "menu" else {"at_rest": True}))
     assert juncture.juncture_context({"platform": "cron"}).splitlines()[0].startswith("IN BATTLE NOW with Slag-Tortoise")
+
+
+def test_the_turn_is_run_then_rest_and_reflect_then_end():
+    """The prompt owns the turn's shape, and its old shape is why nothing reflected.
+
+    `JUNCTURE_PROMPT` said "One run per juncture is the whole job" and "You choose the pilot's next
+    run, start it, and end the turn". The pilot ended its turn after the run because that is what it
+    was told to do, so a shift never got put down and the next juncture found the same open shift.
+    That was ours, not the model's.
+
+    `spacemolt_run` blocks, so when it returns the model is in a turn holding the report — the one
+    moment that is both well-informed and able to reason about what the next shift should be.
+    """
+    prompt = juncture.JUNCTURE_PROMPT
+    assert "One run per juncture is the whole job" not in prompt, (
+        "the sentence that told the pilot to stop after the run is still there")
+    assert "spacemolt_reflect" in prompt, "the turn never names the call that ends the shift"
+    # And it has to say what the choice is judged against, not merely that a choice is due.
+    assert "before" in prompt.lower() or "report" in prompt.lower(), prompt
+
+
+def test_reflect_rests_the_pilot_itself_and_opens_the_next_shift(tmp_path, monkeypatch):
+    """Post-run the pilot is on shift, which is exactly when it must rest and reflect.
+
+    `_reflect` refused outright while a stance was set — "Reflection happens at rest" — because rest
+    used to be a separate act the pilot had to perform first. Under the new shape it does the resting
+    itself, in one bridge request, so the record never passes through the stanceless state.
+    """
+    monkeypatch.setenv("SPACEMOLT_RUNTIME_DIR", str(tmp_path / "runtime"))
+    juncture.write_pilot({"name": "kvothe", "objective": "fill the hold",
+                          "stance": "Prospector", "mood": "Focused", "goal": "three loads"})
+    asked: list[tuple[str, dict]] = []
+
+    def fake_call(action, params=None, on_line=None):
+        asked.append((action, params or {}))
+        if action == "rest":
+            # What the bridge answers: it has already written the record.
+            record = juncture.read_pilot()
+            record.pop("goal", None)
+            record.update(goal=params["goal"], stance=params["stance"], mood=params["mood"])
+            juncture.write_pilot(record)
+            return {"rested": True, "shift_ended": True,
+                    "opened": {k: params[k] for k in ("goal", "stance", "mood")}}
+        return {}
+
+    monkeypatch.setattr(spacemolt, "call", fake_call)
+    monkeypatch.setattr(spacemolt, "ensure_juncture_job", lambda: {"id": "job-1"})
+    monkeypatch.setattr("cron.jobs.trigger_job", lambda _id: None)
+
+    said = spacemolt._reflect({"goal": "walk a price circuit", "stance": "Scout", "mood": "Cautious"})
+
+    assert any(action == "rest" for action, _ in asked), (
+        f"reflection never rested the pilot: {asked}")
+    assert "Nothing written" not in said, said
+    assert juncture.read_pilot()["stance"] == "Scout"
+    assert juncture.read_pilot()["mood"] == "Cautious"
+    assert juncture.read_pilot()["objective"] == "fill the hold", "the objective was lost with the shift"
+
+
+def test_a_run_that_ends_adrift_cannot_rest_and_the_shift_carries(tmp_path, monkeypatch):
+    """Rest needs a base, and that is a normal outcome rather than a fault.
+
+    A run that ends in open space cannot put the evening down, so the stance carries and the next
+    juncture continues the shift. The pilot has to be told that in those terms — a silent refusal
+    reads as something it did wrong, and it would try again instead of getting on with the shift.
+    """
+    monkeypatch.setenv("SPACEMOLT_RUNTIME_DIR", str(tmp_path / "runtime"))
+    juncture.write_pilot({"name": "kvothe", "objective": "fill the hold",
+                          "stance": "Prospector", "mood": "Focused", "goal": "three loads"})
+    monkeypatch.setattr(spacemolt, "call", lambda action, params=None, on_line=None: {
+        "rested": False, "reason": "rest happens docked at a base; dock to end the shift"})
+    monkeypatch.setattr(spacemolt, "ensure_juncture_job", lambda: {"id": "job-1"})
+
+    said = spacemolt._reflect({"goal": "walk a price circuit", "stance": "Scout", "mood": "Cautious"})
+
+    assert juncture.read_pilot()["stance"] == "Prospector", "the shift was ended without resting"
+    assert juncture.read_pilot()["goal"] == "three loads"
+    assert "dock" in said.lower(), said
+    # Said as a continuation, not as an error the pilot should retry.
+    assert "carries" in said.lower() or "continues" in said.lower(), (
+        f"the refusal does not tell the pilot the shift simply carries on: {said}")
