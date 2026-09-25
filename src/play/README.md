@@ -130,6 +130,39 @@ Careers add more: [`mining/`](mining/README.md) (`gatherUntil`),
 [`trading/`](trading/README.md) (`spreads`, `tradeRun`), [`exploration/`](exploration/README.md), [`fleet/`](fleet/README.md).
 Each folder's README is the skill for that career; the one for your stance is loaded beside this.
 
+## Reading a counter before you spend at it
+
+Every counter at a base is a read, and a read spends nothing — which is why the menu offers one
+when it has nothing better to say. Two of them answer questions you cannot answer from the
+present: what is in the store here (the hold is only what you are carrying) and what hulls this
+yard has. Both are refused politely when the base has no such counter, so a read is never a
+wasted juncture.
+
+```ts
+import {orient, storage, shipsForSale, withdraw, note} from 'play';
+
+export default async function main() {
+  const here = await orient();                   // docked, or these are reads of nowhere
+  const store = await storage();                 // this base's store; pass a base id for another
+  const waiting = (store.detail?.items ?? []).filter(row => row.quantity > 0);
+  note(`${waiting.length} row(s) in the store at ${here.now?.location?.docked_at ?? 'nowhere'}`);
+
+  // Storage is where a full hold goes and where a mission's ore was left. Name the rows you
+  // want back; omitting `quantity` withdraws all of that row.
+  const ore = waiting.find(row => row.item_id.endsWith('_ore'));
+  if (ore) await withdraw([{item_id: ore.item_id}]);
+
+  const yard = await shipsForSale();             // refused where there is no shipyard
+  // `for_sale` is a union: a player listing you can buy now, or a commission this yard would
+  // build. Both carry the class and one line comparing it with what you fly.
+  for (const hull of yard.detail?.for_sale ?? []) {
+    const cost = hull.kind === 'listing' ? hull.listing.price : hull.quote.credits_only_total;
+    note(`${hull.class.name}: ${cost} cr — ${hull.versus}`);
+  }
+  return yard;
+}
+```
+
 ## Getting a better ship
 
 - `shipsForSale()` lists the hulls at or under credits minus your `credit_reserve`, biggest
