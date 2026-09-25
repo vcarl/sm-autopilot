@@ -211,6 +211,8 @@ export async function lap(f:Freighter,circuit:Circuit):Promise<Lap> {
           await f.account.refresh();
           aboard(holding,miningInventory(f.account.state));
           stocked=worth(holding);
+          // Said at once: the entry `assign` wrote carries the holding as last reported, not as aboard.
+          if(fresh)f.report({holding:structuredClone(holding)});
           // Once begun, an approach redone after a throw is still the approach.
           if(fresh&&(left!==undefined||f.account.state.location?.docked_at!==stop.at)) {
             left??=wallet();

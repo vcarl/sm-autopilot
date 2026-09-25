@@ -276,6 +276,32 @@ test('a holding sold off by hand while parked is not stock: lap 1 nets what a cl
   assert.deepEqual(Object.keys(stale.reports.findLast(r=>r.holding)!.holding!),[]);
 });
 
+test('parked, cargo sold by hand, then assigned: lap 1 counts no phantom stock, and the stale holding is corrected before stop 1 (live: 100 copper_wiring, 714 cr)',async()=>{
+  const runtime=mkdtempSync(join(tmpdir(),'freighter-reassigned-'));
+  const intel={tradeIntel:[{base_id:'sol_base',items:[{item_id:'gem',best_buy:0,best_sell:100,sell_volume:50}]},
+    {base_id:'range_base',items:[{item_id:'gem',best_buy:130,buy_volume:50}]}]};
+  const clean=freighter(130,[],intel),sold=freighter(130,[],intel);
+  // Parked holding 100 copper_wiring; sold by hand since, so the hold (5 ore) has none of it.
+  writeFleet(runtime,{hauler:{state:'parked',circuit:GEMS,float:5_000,owner:'B',lap:3,returned:0,
+    holding:{copper_wiring:{quantity:100,cost:714}},why:'recalled',at:''}});
+  (sold.world.account.server.player as {username?:string}).username='B';
+  bind({account:sold.world.account as unknown as ReadinessAccount,command:sold.world.command,pilot:()=>({mood:'Focused'}),
+    setPilot:()=>{},emit:()=>{},runtime});
+  try {
+    await sold.world.account.refresh();
+    // Past every check: only the operator's login is missing (a start would fly live).
+    assert.match((await assign('hauler',GEMS,{float:5_000})).why!,/^no login at /);
+  } finally {unbind();}
+  const entry=readFleet(runtime).hauler!;
+  rmSync(runtime,{recursive:true,force:true});
+  // What the host hands the loop: the entry's holding, as assign wrote it.
+  sold.f.holding=entry.holding;
+  await clean.world.account.refresh();
+  const want=await lap(clean.f,GEMS),got=await lap(sold.f,GEMS);
+  assert.equal(got.net,want.net,'lap 1 nets what a clean start nets, not 714 less');
+  assert.deepEqual(sold.reports[0],{holding:{}},'the stale holding is said away before the first stop');
+});
+
 test('the approach to stop 1 is reported on its own and kept out of the lap net and the losing-laps count',async()=>{
   // Docked at sol, assigned a ring that starts at range: the flight to range is the approach, not lap 1.
   const {world,f,deposits,reports}=freighter(130);
