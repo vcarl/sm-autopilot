@@ -196,6 +196,16 @@ member); your runtime dir's `markets.json`, `places.json` and `drained.json` by 
 your play runtime, so a freighter re-plans while you fly, and yields to the event loop as yours does.
 `search` is the host's, not a pilot call: it is not in `play`.
 
+**A freighter trades by the same planner.** Its circuit's `qty` and `max_price` are caps, not
+orders: at each stop it runs `plan` over the live book there and its host's freshest books of the
+later stops (the ledger's, read by `base_id` and cached `BOOK_TTL_MS`, your memory's, or a
+freighter's own live read), less what the other freighters carry there, a book past `STALE_TICKS`
+at half its depth and one past `IGNORE_TICKS` at none, and buys what that plan says. Each lap is
+planned first on the same books, and one planning at 0 or less parks drained. A ring ranked on a
+17-hour-old book (`TRUST_FLOOR` keeps it in the running) is so flown light until its books are read
+fresh (see [fleet](../fleet/README.md#freighters)). `ledgerItems(entry)` is how a ledger entry
+becomes book rows (`Listing`), for `farBooks` and the host alike.
+
 A circuit row is a `Route` whose numbers are that middle lap's: `legs`, `revenue`, `cost`,
 `sales_tax`; `net` is `lap_net`, `total_jumps` is `lap_jumps`, `score` is
 `max(confidence, 1/64) × lap_net / max(1, lap_jumps)`, `unsold` is empty. A lap is kept only when every stop

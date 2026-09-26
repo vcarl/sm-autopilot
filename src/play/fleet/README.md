@@ -102,6 +102,43 @@ last stop, the why naming the last lap against the prediction (`3 laps lost mone
 predicted 521`); a lap that pays, however far under `lap_net`, flies on. What it stows counts at its
 cost as sent home, never as a lap's loss. A parked freighter keeps its cargo aboard, and `freighters()` and the menu show the why.
 
+**Sized on fresh books.** A buy's `qty` and `max_price` are only its outer caps. At each stop,
+after the sales, the clear and the stow, the freighter re-plans the rest of the ring with `plan`,
+the one planner `routes()` ranks by: the live book here (its asks within each buy's caps), and
+for every later stop, round the ring to this one, the freshest book its host knows (only what that
+stop sells, bids at or above each `min_price`). Each buy then takes what those later stops absorb
+above its cost plus tax, which may be less than `qty`, or nothing. A later stop's book older than
+`STALE_TICKS` (180 ticks, 30 minutes) counts at half its depth; older than `IGNORE_TICKS` (1080
+ticks, 3 hours), or not known at all, it justifies no buy for a sale there. A cut buy says why
+(`sol_base: sized gem to 10 of 83, what the later stops take above cost: range_base's book is 0
+ticks old`; `… range_base's book is 1081 ticks old, past 1080: no buy for a sale there`). A stop
+that bought less for want of a book is a scouting stop, not a dead one: the lap visits the later
+stop, reads and files its book, and the next lap buys on it. A freighter never buys off its circuit.
+
+**Its host's books.** All your freighters fly in your one process, and share what they know. For
+each base the host keeps the faction ledger's book (`query_trade_intel` by `base_id`, the whole
+book in one call) or your market memory's, whichever is fresher, fetched at most once every
+`BOOK_TTL_MS` (60,000 ms) for all of them, and the last live read any freighter made there, which
+is always the freshest. Without a faction the ledger is skipped: the memory and the freighters' own
+reads carry it, so the first lap on unknown books is a light one. A script reaches them through
+`Freighter.market` (a `Market`): `book(base_id)` the freshest `Known` book (`{tick, items}`),
+`saw(base_id, known)` a live read, `tick()` the latest tick read, `claimed(base_id, item_id)` the
+units other freighters carry there, and `claim(rows)` its own `Claim`s (`{base_id, item_id,
+quantity}`). A bare `lap` without `market` sizes by the circuit's caps alone.
+
+**Claims.** Two freighters must not buy for the same bid. The host keeps a claim table by base and
+item: after every stop, each freighter's cargo is claimed at the next stop round the ring that
+sells it, so a buy claims its units and a sale, stow or clear there releases them. Sizing takes
+the other freighters' claims off that stop's bids (`… 10 claimed by other freighters`). Claims live
+in the process: on a restart each freighter's are rebuilt from its entry's `holding` and circuit
+as its loop starts, and a loop that ends drops its own.
+
+**Each lap is planned before it is flown.** At a lap's start, when every stop's book is younger
+than `IGNORE_TICKS`, the host's books plan the lap two laps ahead from the cargo aboard (cargo the
+circuit never sells left out: it is cleared or stowed). A plan at 0 or less parks it drained at
+once, unflown (`lap planned at 0 on fresh books (two laps ahead); circuit drained`), and it
+re-plans itself as below. The fuel is not in that plan; three losing laps remain the backstop.
+
 **Rotation.** Parking on no trade or on losing laps means the ring's books ran dry, and it is
 recorded as drained: `routes({circuit})` passes over it for `REST_TICKS` while the books refill
 (see [trading](../trading/README.md)). The freighter then rotates itself: its host, in your process,
@@ -109,7 +146,8 @@ runs the planner `routes({circuit: {hold}, ...circuit.scope})` is, for its hold 
 circuit was planned in, on the freighter's own connection from where it is docked, and installs the
 top row at its float, exactly as `assign` would, and it flies on. `state` reads `waiting` while it
 plans. Each auto-reassign is journalled, and counted in `reassigned` with the ring it went onto and
-that ring's predicted `lap_net`.
+that ring's predicted `lap_net`. It passes over any ring another of your freighters is flying
+(`state: 'running'`): two on one ring would split its bids.
 
 When no circuit qualifies, it does not spin: it waits docked, `state: 'waiting'`, the `why` reading
 `waiting for a circuit: <what routes said>`, and plans again every `REPLAN_TICKS` (90 ticks, a
@@ -137,7 +175,9 @@ stowed there for you, and the `why` says so (from `assign`, below).
 and `holding` kept. Cargo aboard that the new circuit never sells is never a refusal; the `why`
 says what it is and what becomes of it: `carrying 100 copper_wiring the circuit never sells (100 of
 100 hold); it's sold at the first stop if the bid there covers its cost, else stowed there for you,
-so lap 1 buys into the whole 100`. Only a full hold of it that both stores refuse parks the
+so lap 1 buys into the whole 100`. A circuit whose every stop's book is older than `IGNORE_TICKS`
+is assigned too, and the `why` says `every stop's book is older than 1080 ticks: the first lap buys
+only what fresh books justify, a light scouting lap`. Only a full hold of it that both stores refuse parks the
 freighter, within three stops, as above.
 
 **Recall.** `recall` parks it after the stop it is on, wherever on the circuit that is: it sells
