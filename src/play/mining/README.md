@@ -71,7 +71,8 @@ out is: first 2,500–10,000 credits, skills 1–3 in mining, trading and naviga
 - The ore has a buyer. Iridium at 53 cr beats aluminum at 6 cr for the same hold.
 - Your laser's power matches the deposit's `supported_power`; a deep-core deposit needs power
   3+, and mining one trains deep_core_mining, which is worth +5% yield per level.
-- The hold is empty when you leave. `gatherUntil` refuses a full hold; `sell(rows)` or `stow(rows)` first.
+- The hold is empty when you leave, but for the fuel cells `service()` keeps aboard (about 5% of it;
+  no sell or stow takes them). `gatherUntil` refuses a full hold; `sell(rows)` or `stow(rows)` first.
 
 ## What you see while it runs
 

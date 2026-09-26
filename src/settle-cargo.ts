@@ -1,7 +1,7 @@
 import {SpacemoltError,type GameState} from '@spacemolt/lib';
 import type {ReadinessAccount,ReadinessCommand} from './readiness.ts';
 import {details} from './response-details.ts';
-import {miningInventory} from './mining-inventory.ts';
+import {disposable,miningInventory} from './mining-inventory.ts';
 import {replyLost} from './command-boundary.ts';
 
 /** `quoted` is the station's posted price for the quantity offered, seen before anything
@@ -45,7 +45,8 @@ function read(state:GameState) {
  * income. A lost reply is reconciled from that same post-state — gone and paid is
  * cleared, nothing moved earns exactly one re-issue, anything else is unsettled — so an
  * ambiguous send is never repeated blind. Items on `keep` are the pilot's own: fitted
- * spares, cabins, anything the caller is carrying on purpose. They are never offered.
+ * spares, cabins, anything the caller is carrying on purpose. They are never offered, and
+ * neither are the fuel cells the reserve keeps aboard (`disposable`).
  */
 export async function settleCargo(account:ReadinessAccount,command:ReadinessCommand,
   options:{keep?:string[]}={}):Promise<SettleOutcome> {
@@ -95,7 +96,7 @@ export async function settleCargo(account:ReadinessAccount,command:ReadinessComm
   const gap=(verb:string,result:Move)=>result.rejected||
     `${verb} did not clear: cargo -${result.cargo}, credits ${result.credits>=0?'+':''}${result.credits}${result.lost?` after ${result.lost}`:''}`;
 
-  for(const [item_id,quantity] of Object.entries(start.cargo).sort(([a],[b])=>a<b?-1:1)) {
+  for(const [item_id,quantity] of Object.entries(disposable(account.state)).sort(([a],[b])=>a<b?-1:1)) {
     if(keep.has(item_id)||quantity<=0)continue;
     const price=book.get(item_id);
     if(drift) {

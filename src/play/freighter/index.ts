@@ -242,7 +242,7 @@ async function fly(f:Freighter,stop:Stop):Promise<number> {
 }
 /** Tired's service margin is the wallet itself; the reserve is 0, and the fill is checked after. A
  * counter that refuses a service is passed by: the next quote says whether the tank still reaches. */
-const service=async(f:Freighter,stop:Stop)=>{await attempt(f,stop.at,'service',()=>serviceShip(f.account,f.command,{mood:'Tired'}));};
+const service=async(f:Freighter,stop:Stop)=>{await attempt(f,stop.at,'service',()=>serviceShip(f.account,f.command,{mood:'Tired',cells:false}));};
 
 /** One stop: fly there and dock, service, sell the listed items at their floors, sell the `leftover`
  * (cargo bought that the circuit never sells) where the bid covers its cost a unit, stow what `stow`

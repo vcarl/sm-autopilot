@@ -62,7 +62,9 @@ for(const mood of ['Tired','Cautious'] as const)
       assert.deepEqual(out.detail.issued,['spacemolt/refuel','spacemolt/repair']);
       assert.equal(out.detail.spent,51,'3 fuel at the posted 1 cr plus the 48 the repair charged');
       assert.deepEqual(out.detail.short,[],'a full fill leaves nothing short');
-      assert.deepEqual(out.next??[],[],'a full fill advises no other station');
+      // The fuel-cell read after the fill is a command, and a command is where a restored Tired
+      // clears, so `next` may say so; it never names another station.
+      assert.ok(!(out.next??[]).some(line=>line.includes('goTo')),'a full fill advises no other station');
     } finally {unbind();}
   });
 

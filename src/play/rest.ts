@@ -112,8 +112,8 @@ export async function restNow(account:ReadinessAccount,send:ReadinessCommand,who
     // `serviceShip` directly, the same act at one layer down.
     try {
       const mood=who.mood??'Cautious';
-      const done=await serviceShip(account,send,{mood,creditReserve:who.permissions?.credit_reserve??0});
-      if(runtime)journalRun(runtime,{issued:done.issued,spent:done.spent,fuel:done.fuel,hull:done.hull},'service');
+      const done=await serviceShip(account,send,{mood,creditReserve:who.permissions?.credit_reserve??0,...runtime?{runtime}:{}});
+      if(runtime)journalRun(runtime,{issued:done.issued,spent:done.spent,fuel:done.fuel,hull:done.hull,cells:done.cells},'service');
     } catch(error) {
       if(!(error instanceof ServiceBlocked))throw error;
       return refuseWithOptions(account,send,who,write,runtime,

@@ -23,6 +23,12 @@ All notable changes to this plugin are recorded here. The format follows
 - Dependabot for npm (weekly, toolchain grouped, the game client on its own) and GitHub Actions
   (monthly).
 - This changelog.
+- Fuel cells are part of resupply. Wherever the ship is serviced (`service()`, the automatic
+  service in `rest`, a refuel stop on a `goTo`, a gather trip; not a freighter, whose hold is its circuit's), it tops
+  `fuel_cell`s up to about 5% of the hold once they fall under 1%, bounded by
+  `permissions.credit_reserve` like the fuel. A live ask over 1.5× the median ask in the market
+  memory is skipped and the reason reported. Selling, stowing and settling leave that reserve
+  aboard.
 
 ### Changed
 

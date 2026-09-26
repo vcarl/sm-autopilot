@@ -9,6 +9,7 @@ import type {ReadinessAccount,ReadinessCommand} from '../readiness.ts';
 import {details} from '../response-details.ts';
 import {evaluateMenu,jobStop,type CounterName,type Facts} from '../rules-table.ts';
 import {combatLine,readCombat,statsFor} from '../combat-memory.ts';
+import {cellReserve} from '../mining-inventory.ts';
 import {readJournal} from '../run-record.ts';
 import {readFleet} from './freighter/host.ts';
 import {PACKAGE_CARGO} from './hauling/freight.ts';
@@ -298,6 +299,8 @@ export async function menu(runtime?:string):Promise<Menu> {
   };
 
   const full=!!ship&&ship.cargo_used>=ship.cargo_capacity;
+  const cells=cellReserve(acct().state);
+  if(docked&&cells.due)moves.push({call:'service()',why:`fuel cells ${cells.held}/${cells.target}: service() tops them up to 5% of the hold`,advances:'ship'});
   /** Calls that clear a blocker the menu also states under `not_now`; ranked above everything
    * else, because a move that unblocks three jobs is worth more than the best of the three. */
   const unblocks=new Set<string>();

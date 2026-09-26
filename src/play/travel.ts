@@ -7,7 +7,7 @@ import {serviceShip} from '../servicing.ts';
 import {FuelRouteShortfall,InBattle,TravelBlocked,travelTo} from '../travel.ts';
 import {knownBooks} from './market.ts';
 import {active} from './missions.ts';
-import {acct,checkStop,command,job,pilot,step} from './runtime.ts';
+import {acct,checkStop,command,job,pilot,runtimeDir,step} from './runtime.ts';
 import type {Outcome} from './types.ts';
 
 /** How far off the direct route one distress call may sit, in jumps. ponytail: tunable. */
@@ -279,7 +279,7 @@ export function goTo(id:string):Promise<Outcome<Trip>> {
       maxJumps:null,
       checkpoint:async()=>checkStop(),
       onJump:()=>{jumps++;step(`jump ${jumps} of ${planned}, fuel ${acct().state.ship?.fuel}`);},
-      refuel:async()=>{try {await serviceShip(acct(),command,{mood:flying(),creditReserve:who.permissions?.credit_reserve??0});} catch {/* the fuel check after decides */}},
+      refuel:async()=>{try {await serviceShip(acct(),command,{mood:flying(),creditReserve:who.permissions?.credit_reserve??0,runtime:runtimeDir()});} catch {/* the fuel check after decides */}},
     });
     try {
       for(const stop of stops) {

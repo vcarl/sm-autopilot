@@ -122,12 +122,14 @@ export function service(opts:{fuel?:number;hull?:number;insure?:boolean;dues?:bo
       // picks the spend margin is read here, not at the top of the job. Tired's row is "service
       // only" — the mood it replaced would refuse the very bill that clears it.
       const mood=pilot().mood??'Cautious';
-      const done=await serviceShip(acct(),command,{mood,creditReserve:who.permissions?.credit_reserve??0});
+      const done=await serviceShip(acct(),command,{mood,creditReserve:who.permissions?.credit_reserve??0,runtime:runtimeDir()});
+      const cells=done.cells;
       const cleared=mood==='Tired'&&pilot().mood!=='Tired';
       const did=done.issued.length
         ?`serviced at ${docked}: ${done.issued.map(action=>action.split('/')[1]).join(' and ')} for ${done.spent} cr; fuel ${done.fuel}, hull ${done.hull}`
         :`already serviced at ${docked}: fuel ${done.fuel}, hull ${done.hull}`;
-      return {status:'done',did,detail:{base,issued:done.issued,spent:done.spent,short,cleared_tired:cleared},
+      const kept=cells?.target?`; fuel cells ${cells.held}/${cells.target}${cells.bought?` (bought ${cells.bought} for ${cells.spent} cr)`:''}${cells.skipped?`, none bought: ${cells.skipped.replace(/^fuel cells: /,'')}`:''}`:'';
+      return {status:'done',did:did+kept,detail:{base,issued:done.issued,spent:done.spent+(cells?.spent??0),short,cleared_tired:cleared},
         next:cleared?['Tired cleared: the mood before it is back']:[]};
     } catch(error) {
       if(error instanceof ServiceBlocked)

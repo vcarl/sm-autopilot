@@ -3,7 +3,7 @@
 import type {BuyResponse,EstimatePurchaseResponse,MarketListingItem,SellResponse,ViewMarketResponse,ViewStorageResponse} from '@spacemolt/lib';
 import {mkdirSync,readFileSync,renameSync,writeFileSync} from 'node:fs';
 import {join} from 'node:path';
-import {miningInventory} from '../mining-inventory.ts';
+import {disposable,miningInventory} from '../mining-inventory.ts';
 import {markPlace} from './places.ts';
 import {details} from '../response-details.ts';
 import {fileIntel} from '../trade-intel.ts';
@@ -155,7 +155,7 @@ export function sell(items:Want[],opts:{from?:'hold'|'store';floor?:Record<strin
     /** One row out of the hold, bounded by what is aboard; returns what the book took. */
     const sellRow=async(row:Row):Promise<number>=>{
       checkStop();
-      const held=miningInventory(acct().state)[row.item_id]??0;
+      const held=disposable(acct().state)[row.item_id]??0;
       const quantity=Math.min(row.quantity,held);
       const quote=listed.get(row.item_id);
       const floor=opts.floor?.[row.item_id];
