@@ -75,10 +75,15 @@ has never flown, because nothing else on this path does and a juncture will not 
 |---|---|
 | `npm run typecheck` | must be clean |
 | `npm test` | the TypeScript: game logic, the bridge, the play library |
-| `scripts/run_tests.sh tests/test_spacemolt_*.py` | from the **Hermes** root, in its venv — never bare `pytest` |
+| `pytest` | the Python: junctures, the channel, rest, skills, the wake |
 
-The Python tests live in the Hermes tree because they import `cron` and `hermes_cli` to prove the
-plugin works against the real host. Where one reaches a *private* Hermes name, it goes through
+The Python tests import `cron` and `hermes_cli` to prove the plugin works against the real host,
+so they need the Hermes tree and an interpreter with Hermes' own dependencies. `conftest.py` finds
+that tree at `$HERMES_AGENT_ROOT`, or `~/.hermes/hermes-agent` — where `hermes` installs it — and
+binds this directory to the package name `spacemolt` that Hermes imports the plugin under. Run
+them with a Python that has Hermes installed, e.g.
+`/path/to/hermes-agent/.venv/bin/python -m pytest`. Every test gets a throwaway `HERMES_HOME`;
+none of them may touch a real install. Where one reaches a *private* Hermes name, it goes through
 `_private()` in `tests/test_spacemolt_skills.py`, which skips rather than fails: those names were
 never a plugin surface, and a red suite meaning "the host refactored" teaches nothing.
 

@@ -17,7 +17,7 @@ import pytest
 from spacemolt.juncture import STANCE_FOLDER, job_fields
 from spacemolt.skills_register import qualified, readme_skills, register_skills
 
-PLUGIN_ROOT = Path(__file__).resolve().parents[1] / "spacemolt"
+PLUGIN_ROOT = Path(__file__).resolve().parents[1]
 
 
 def _private(module: str, *names):

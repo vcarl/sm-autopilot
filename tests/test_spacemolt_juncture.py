@@ -16,7 +16,7 @@ import pytest
 
 import spacemolt
 from spacemolt import juncture, service
-from tests.test_spacemolt_skills import _private
+from test_spacemolt_skills import _private
 
 
 def test_a_fire_while_a_script_runs_changes_nothing(monkeypatch, capsys):
