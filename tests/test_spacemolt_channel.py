@@ -11,7 +11,6 @@ import shutil
 import sys
 
 import pytest
-
 import spacemolt
 from spacemolt import juncture, service
 

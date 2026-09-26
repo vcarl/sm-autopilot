@@ -76,6 +76,7 @@ has never flown, because nothing else on this path does and a juncture will not 
 | `npm run typecheck` | must be clean |
 | `npm test` | the TypeScript: game logic, the bridge, the play library |
 | `pytest` | the Python: junctures, the channel, rest, skills, the wake |
+| `uvx ruff@0.16.9 check .` | must be clean; default rules, no config, the version CI pins |
 
 The Python tests import `cron` and `hermes_cli` to prove the plugin works against the real host,
 so they need the Hermes tree and an interpreter with Hermes' own dependencies. `conftest.py` finds

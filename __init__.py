@@ -13,15 +13,28 @@ tool (N19); a cron fire carries spacemolt + observe and never sets its own objec
 from __future__ import annotations
 
 import json
+from collections.abc import Mapping
 from datetime import datetime, timezone
-from typing import Any, Mapping
-
 from pathlib import Path
+from typing import Any
 
-from .juncture import (IDLE_STREAK_LIMIT, JOB_MOODS, JOURNAL_FILE, JUNCTURE_PLATFORM,
-                       SECTION_LIMIT, STANCES, unproductive_streak,
-                       ensure_juncture_job, journal_event, juncture_context, mark_due,
-                       raise_juncture, read_pilot, use_dispatch, write_pilot)
+from .juncture import (
+    IDLE_STREAK_LIMIT,
+    JOB_MOODS,
+    JOURNAL_FILE,
+    JUNCTURE_PLATFORM,
+    SECTION_LIMIT,
+    STANCES,
+    ensure_juncture_job,
+    journal_event,
+    juncture_context,
+    mark_due,
+    raise_juncture,
+    read_pilot,
+    unproductive_streak,
+    use_dispatch,
+    write_pilot,
+)
 from .service import available, call, close_bridge, render_journal, runtime_dir
 from .skills_register import register_skills
 
@@ -104,7 +117,7 @@ def _run(arguments: dict[str, Any] | None = None, **_: Any) -> str:
     lines: list[str] = []
     try:
         result = call("run", {}, on_line=lines.append)
-    except Exception as error:
+    except Exception as error:  # noqa: BLE001 - any bridge failure becomes the tool's refusal, not a crash
         return json.dumps({"accepted": False, "reason": str(error)}, separators=(",", ":"))
     if not result.get("accepted"):
         return json.dumps({"accepted": False, "reason": result.get("reason"),
@@ -306,7 +319,7 @@ def _nudge_juncture() -> str:
     """
     try:
         running = bool((call("status") or {}).get("running"))
-    except Exception:
+    except Exception:  # noqa: BLE001
         running = False  # no bridge means nothing is flying; a juncture is safe to ask for
     if running:
         return " A script is running, so the runner raises the juncture when it ends."
@@ -515,7 +528,7 @@ def wake_on_load() -> None:
         if record.is_file() and not json.loads(record.read_text()).get("ended", True):
             return
         mark_due(job)
-    except Exception:  # noqa: BLE001 - a wake that fails costs nothing; the schedule still comes round
+    except Exception:  # noqa: BLE001, S110 - a wake that fails costs nothing; the schedule still comes round
         pass
 
 

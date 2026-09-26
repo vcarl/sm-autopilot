@@ -12,7 +12,13 @@ SPACEMOLT_PLAYGROUND names the playground for client calls (default: ./playgroun
 
 ponytail: no auth on the socket; it is a local playtest tool.
 """
-import json, os, shutil, socket, subprocess, sys, threading
+import json
+import os
+import shutil
+import socket
+import subprocess
+import sys
+import threading
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -38,7 +44,7 @@ def serve(playground: Path) -> None:
         sock_path.unlink()
     env = {**os.environ, "SPACEMOLT_CREDENTIALS_FILE": CREDS, "SPACEMOLT_RUNTIME_DIR": str(runtime)}
     env.pop("SPACEMOLT_JOURNAL_WEBHOOK", None)  # a playtest never posts to Discord
-    log = open(runtime / "bridge.stderr.log", "a")
+    log = open(runtime / "bridge.stderr.log", "a")  # noqa: SIM115 - held open for the bridge's lifetime
     proc = subprocess.Popen(["node", "src/bridge.ts"], cwd=HERE, env=env, stdin=subprocess.PIPE,
                             stdout=subprocess.PIPE, stderr=log, text=True, bufsize=1)
     ready = proc.stdout.readline()
