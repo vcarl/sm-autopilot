@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import {SpacemoltError} from '@spacemolt/lib';
 import {FakeLibGoalAccount,type FakeCommandHandlers} from './test-support/fake-lib-account.ts';
 import type {ReadinessCommand} from './readiness.ts';
 import {travelTo,TravelBlocked,type TravelOptions} from './travel.ts';
@@ -143,4 +144,28 @@ test('fuel loss after either return jump blocks the next jump or paid local leg 
     assert.equal(f.server.ship.cargo_used,40);
     assert.deepEqual(f.account.state,f.server);
   }
+});
+
+test('a re-sent jump answered "already in" the jump target completes the route; "already in" elsewhere is still an error',async()=>{
+  const options:TravelOptions={mood:'Focused'};
+  // The runtime re-issues a jump once after a dropped socket: the first landed, so the
+  // re-send is refused, and the refusal arrives after the ship has already moved.
+  const f=fixture();await outbound(f,options,24);
+  let landed=false;
+  const resent:ReadinessCommand=async(name,payload)=>{
+    const reply=await f.command(name,payload);
+    if(name==='spacemolt/jump'&&!landed){landed=true;throw new SpacemoltError('invalid_target',`You are already in ${String(payload?.id).toUpperCase()}.`);}
+    return reply;
+  };
+  const result=await travelTo(f.account,resent,f.home,options);
+  assert.equal(result.jumps,2);
+  assert.deepEqual(result.location,{system_id:'a',poi_id:'station',docked_at:'home',in_transit:false});
+
+  const g=fixture();await outbound(g,options,24);
+  const elsewhere:ReadinessCommand=async(name,payload)=>{
+    if(name==='spacemolt/jump')throw new SpacemoltError('invalid_target','You are already in C.');
+    return g.command(name,payload);
+  };
+  await assert.rejects(travelTo(g.account,elsewhere,g.home,options),/already in C/);
+  assert.equal(g.server.location.system_id,'c');
 });

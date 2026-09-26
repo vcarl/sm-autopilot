@@ -173,6 +173,14 @@ export async function travelTo(account:ReadinessAccount,command:ReadinessCommand
   if(!stable(account.state))await waitForArrival(account,stable,waits);
   else await checkpoint(true);
   let jumps=0,retries=1,refueled=false;
+  /** A move re-sent after a lost reply (the runtime re-issues a jump once on reconnect) is
+   * answered "You are already in Grumium" when the first one landed. That refusal is the goal
+   * met, not a failure — but only when a fresh read shows the ship where this leg sent it. */
+  const goalMet=async(error:unknown,goal:(s:GameState)=>boolean)=>{
+    if(!/\balready\b/i.test(String((error as Error)?.message??error)))return false;
+    try {await account.refresh();} catch {return false;}
+    return goal(account.state);
+  };
   const quote=async()=>{
     const location=structuredClone(account.state.location),ship=structuredClone(account.state.ship);
     if(!stable(account.state)||!ship||!Number.isFinite(ship.fuel))throw new TravelBlocked('Canonical location and fuel required for routing');
@@ -235,8 +243,8 @@ export async function travelTo(account:ReadinessAccount,command:ReadinessCommand
     if(account.state.location!.docked_at)
       try {await command('spacemolt/undock',{});}
       catch(error) {
-        if(!refusedInBattle(error))throw error;
-        battleHolds=true;throw new InBattle((error as SpacemoltError).message);
+        if(refusedInBattle(error)) {battleHolds=true;throw new InBattle((error as SpacemoltError).message);}
+        if(!await goalMet(error,s=>!s.location?.docked_at))throw error;
       }
     const next=plan.steps[0];
     if(next) {
@@ -255,9 +263,12 @@ export async function travelTo(account:ReadinessAccount,command:ReadinessCommand
     try {await command(next?'spacemolt/jump':'spacemolt/travel',{id:target});battleHolds=false;}
     catch(error) {
       if(refusedInBattle(error)) {battleHolds=true;throw new InBattle((error as SpacemoltError).message);}
-      if(!retryable(error)||retries--<=0)throw error;
-      await waitForArrival(account,stable,waits);
-      continue;
+      if(!await goalMet(error,s=>next?stable(s)&&s.location!.system_id===next:arrived(s))) {
+        if(!retryable(error)||retries--<=0)throw error;
+        await waitForArrival(account,stable,waits);
+        continue;
+      }
+      battleHolds=false;
     }
     if(next){jumps++;options.onJump?.();}
     await waitForArrival(account,s=>next?stable(s)&&s.location!.system_id===next:arrived(s),waits);
