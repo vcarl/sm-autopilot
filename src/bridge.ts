@@ -11,6 +11,7 @@ import {markAlertsDelivered,pendingAlerts,recordAlert} from './alerts.ts';
 import {foldBattleDamage,foldBattleEnded,foldBattleUpdate} from './combat-memory.ts';
 import {battleEnded,battleNow} from './travel.ts';
 import {controllerLock} from './controller-lock.ts';
+import {GAME_WS_URL,readCredentials} from './credentials.ts';
 import type {ReadinessAccount,ReadinessCommand} from './readiness.ts';
 import {details} from './response-details.ts';
 import {resolveWalkAway,type Mood} from './mood-policy.ts';
@@ -20,20 +21,21 @@ import {journalCommand,journalRun,readRun,type RunRecord} from './run-record.ts'
 import {startHeartbeat} from './heartbeat.ts';
 import {flushJournalDrain,startJournalDrain} from './journal-webhook.ts';
 import {check as checkPilot,runPilot as defaultRunPilot,type RunResult} from './run.ts';
-import {menu as buildMenu,renderMenu} from './play/menu.ts';
+import {factsNow,menu as buildMenu,renderMenu} from './play/menu.ts';
+import {fleetBrief,resumeFreighters,stopFreighters} from './play/freighter/host.ts';
 import {restNow,validateNext,type NextShift} from './play/rest.ts';
-import {bind,isBound,present,progress,stop as stopRun,unbind} from './play/runtime.ts';
+import {answer as answerQuestion,bind,isBound,pendingQuestion,present,progress,stop as stopRun,unbind} from './play/runtime.ts';
 
-/** The one endpoint this runner talks to. */
-export const GAME_WS_URL='wss://game.spacemolt.com/ws/v2';
-
-export type Dispatch=(action:string,params?:Record<string,unknown>)=>Promise<unknown>;
+/** `attach` is how a request takes the run's stream: the loop routes streamed lines to the
+ * request that last called it, which is whichever request is now waiting on the run. */
+export type Dispatch=(action:string,params?:Record<string,unknown>,attach?:()=>void)=>Promise<unknown>;
 
 /** The actions whose answer is an outcome: a journal line keeps its shape, trimmed. */
-const OUTCOME_ACTIONS=new Set(['run','status','rest','reflect','menu','resume','stop','check']);
+const OUTCOME_ACTIONS=new Set(['run','answer','status','rest','reflect','menu','resume','stop','check']);
 const OUTCOME_KEYS=new Set(['accepted','reason','status','record','running','rested','shift_ended','at_rest',
   'cleared','serviced','resumed','busy','objective','objective_done','stance','mood','errors','stopping',
   'ok','fn','did','sha','step','commands','elapsed_s','started','stagnation','rest',
+  'paused','reattached','question','withdrawn',
   // A reflection's skill rows, which are small and are the one thing a later reflection cannot
   // read any other way: they are what "raise this by two levels" is judged against, and without
   // them in the record every reflection sees only the level it happens to be looking at.
@@ -218,8 +220,11 @@ export function serve(account:ReadinessAccount,command:ReadinessCommand,options:
   if(runtime) {startJournalDrain();startHeartbeat(runtime);}
   const stored=()=>runtime?readRun(runtime):null;
   let running:{started:string}|null=null,last:Record<string,unknown>|null=null;
-  const busy=()=>({running:true as const,...running!,...isBound()?progress():{},
-    fuel:account.state.ship?.fuel,hull:account.state.ship?.hull,credits:account.state.player?.credits});
+  /** The run in flight while a request is following it, and how an `ask()` wakes that request. */
+  let flight:Promise<Record<string,unknown>>|null=null,asked:(()=>void)|null=null;
+  const busy=()=>{const question=pendingQuestion();
+    return {running:true as const,...running!,...isBound()?progress():{},...question?{question}:{},
+      fuel:account.state.ship?.fuel,hull:account.state.ship?.hull,credits:account.state.player?.credits};};
   /** The last run as a reader of `status` gets it: what was done, why, and the report. The
    * whole Outcome — ship, location, nearby players, every skill — stays in `run.json` and
    * the journal; a pilot reading this through a tool call is paying for every line of it. */
@@ -228,19 +233,59 @@ export function serve(account:ReadinessAccount,command:ReadinessCommand,options:
     ...result.why?{why:result.why}:{},prose:result.prose,commands:result.commands});
   const lastOutcome=()=>last??(stored()?.ended?{...stored()!.outcome as Record<string,unknown>}:null);
 
-  /** Run `pilot/index.ts`: validate, execute, stream, and answer with the report when it ends. */
-  const run=async(_params:Record<string,unknown>,resume?:RunRecord)=>{
+  /** The pause as a waiting request answers it: the question, and that the run is still on. */
+  const paused=()=>{const question=pendingQuestion();
+    return running&&question?{accepted:true,paused:true,question,started:running.started}:null;};
+  /** Wait on the run in flight until it ends or its program asks a question, whichever is first.
+   * A question already pending is answered at once. */
+  const follow=async():Promise<Record<string,unknown>>=>{
+    const now=paused();
+    if(now||!flight)return now??{accepted:false,reason:'nothing is running'};
+    const question=new Promise<Record<string,unknown>>(wake=>{asked=()=>wake(paused()!);});
+    try {return await Promise.race([flight,question]);} finally {asked=null;}
+  };
+  /** Run `pilot/index.ts`: validate, execute, stream, and answer with the report when it ends,
+   * or early with the question when the program asks one. Called again while the program is
+   * paused, it starts nothing and hands the question back: that is how a later session picks
+   * up a question the one that started the run left unanswered. */
+  const run=async(_params:Record<string,unknown>,attach?:()=>void,resume?:RunRecord)=>{
     if(!runtime)throw new Error('This runner has no runtime directory to run a pilot from');
-    if(running)return {accepted:false,reason:'a run is already in flight; stop it or wait for status.running to clear',...busy()};
+    if(running) {
+      const now=paused();
+      if(now) {attach?.();return {...now,reattached:true};}
+      return {accepted:false,reason:'a run is already in flight; stop it or wait for status.running to clear',...busy()};
+    }
     const started=resume?.started??new Date().toISOString();
     running={started};
-    try {
-      const result=await runner({account,command,pilot,setPilot:options.setPilot??(()=>{}),runtime,
-        emit:options.emit??(()=>{}),...resume?{resume}:{}});
-      if(!result.accepted)return result;
-      last=brief(result);
-      return {accepted:true,...last};
-    } finally {running=null;}
+    attach?.();
+    flight=(async()=>{
+      try {
+        const result=await runner({account,command,pilot,setPilot:options.setPilot??(()=>{}),runtime,
+          emit:options.emit??(()=>{}),onAsk:()=>asked?.(),...resume?{resume}:{}});
+        if(!result.accepted)return result as unknown as Record<string,unknown>;
+        last=brief(result);
+        return {accepted:true,...last};
+      } finally {running=null;flight=null;}
+    })();
+    // Nobody may be following when it ends (it paused, and was then stopped from elsewhere):
+    // a rejection with no reader would take the whole bridge down.
+    flight.catch(()=>{});
+    return follow();
+  };
+  /** Resume the paused program with the answer, then wait on the run exactly as `run` does. */
+  const answer=async(params:Record<string,unknown>,attach?:()=>void)=>{
+    const question=running?pendingQuestion():null;
+    if(!question)return {accepted:false,reason:'no question is pending',
+      ...running?busy():{running:false,last:lastOutcome()}};
+    const given=String(params.answer??'').trim();
+    const picked=question.choices
+      ?question.choices.find(choice=>choice.trim().toLowerCase()===given.toLowerCase())
+      :given||undefined;
+    if(picked===undefined)return {accepted:false,
+      reason:question.choices?`${JSON.stringify(given)} is not one of the choices`:'an answer is required',question};
+    attach?.();
+    answerQuestion(picked);
+    return follow();
   };
   const resume=async()=>{
     if(!runtime)return {resumed:false,last:null};
@@ -249,7 +294,7 @@ export function serve(account:ReadinessAccount,command:ReadinessCommand,options:
     if(running)return {resumed:false,reason:'a run is already in flight',...busy()};
     // Re-run from the top: every helper is named for an end state and re-enters from the
     // live world, so nothing already done happens twice.
-    void run({},kept).catch(()=>{});
+    void run({},undefined,kept).catch(()=>{});
     return {resumed:true,started:kept.started};
   };
 
@@ -299,7 +344,7 @@ export function serve(account:ReadinessAccount,command:ReadinessCommand,options:
           // The hull this mood breaks off a fight at, as `imposeTired` computes it: the juncture
           // cannot reach the D2 table, and a pilot left to guess the line guesses it low.
           ...ship?.max_hull===undefined?{}:{walk_away:Math.floor(resolveWalkAway(who.mood??'Cautious')*ship.max_hull)}},
-        ...built,text:renderMenu(built),last:lastOutcome(),
+        ...built,text:renderMenu(built),...runtime?fleetBrief(runtime):{},last:lastOutcome(),
         ...waiting.length?{alerts:waiting.map(({type,key,at,first_at,n,body})=>({type,key,at,first_at,n,body}))}:{},
       };
     } finally {unbind();}
@@ -325,17 +370,23 @@ export function serve(account:ReadinessAccount,command:ReadinessCommand,options:
   };
   const reflect=async()=>reflectReport(account,command,pilot(),runtime);
 
-  const actions:Record<string,(params:Record<string,unknown>)=>Promise<unknown>>={
-    run,
+  const actions:Record<string,(params:Record<string,unknown>,attach?:()=>void)=>Promise<unknown>>={
+    run:(params,attach)=>run(params,attach),
+    answer,
     check:async()=>{
       if(!runtime)throw new Error('This runner has no runtime directory');
       const gate=await checkPilot(runtime);
       return {ok:gate.ok,entry:gate.entry,sha:gate.sha,errors:gate.errors};
     },
-    stop:async()=>{
+    stop:async(_params,attach)=>{
       if(!running)return {stopping:false,reason:'nothing is running'};
+      const withdrawn=pendingQuestion();
       stopRun();
-      return {stopping:true,...busy()};
+      if(!withdrawn)return {stopping:true,...busy()};
+      // Paused, nobody is waiting on the run: the stop does, and hands back its report, so the
+      // one who stopped it is holding the outcome rather than a promise of one.
+      attach?.();
+      return {...await follow(),stopping:true,withdrawn};
     },
     status:async()=>running?busy():{running:false,last:lastOutcome()},
     rest,
@@ -343,9 +394,9 @@ export function serve(account:ReadinessAccount,command:ReadinessCommand,options:
     resume,
     menu,
   };
-  return async(action,params={})=>{
+  return async(action,params={},attach)=>{
     if(!Object.hasOwn(actions,action))throw new Error(`Unknown action: ${action}`);
-    return actions[action]!(params);
+    return actions[action]!(params,attach);
   };
 }
 
@@ -370,10 +421,7 @@ export function createShutdown(account:{close:()=>unknown},
 async function main() {
   const credentialPath=process.env.SPACEMOLT_CREDENTIALS_FILE;
   if(!credentialPath)throw new Error('SPACEMOLT_CREDENTIALS_FILE must name a credentials file');
-  const text=readFileSync(credentialPath,'utf8');
-  const username=text.match(/^Username: (.+)$/m)?.[1]?.trim();
-  const password=text.match(/^Password: (.+)$/m)?.[1]?.trim();
-  if(!username||!password)throw new Error('Missing Username or Password field in credentials file');
+  const {username,password}=readCredentials(credentialPath);
   const credentials=()=>({kind:'login' as const,username,password});
   const runtime=process.env.SPACEMOLT_RUNTIME_DIR??fileURLToPath(new URL('../runtime/',import.meta.url));
   mkdirSync(runtime,{recursive:true});
@@ -388,6 +436,7 @@ async function main() {
   const account=new Account({url:GAME_WS_URL,reconnect:true,credentials,fastMutationTimeoutMs:60_000});
   let stopped=false;
   const shutdown=createShutdown({close:async()=>{
+    stopFreighters();
     await flushJournalDrain().catch(()=>{});
     return account.close();
   }});
@@ -419,14 +468,16 @@ async function main() {
   const dispatch=serve(account,command,
     {pilot:()=>readPilot(pilotFile),setPilot:next=>writePilot(pilotFile,next),runtime,emit});
   const resumed=await dispatch('resume',{});
+  // The freighters fly from this process, each on its own account; the pilot's run is not theirs.
+  resumeFreighters(runtime);
   console.log(JSON.stringify({event:'ready',resumed}));
   const handle=async(line:string)=>{
     let request:{id?:string;action:string;params?:Record<string,unknown>}|undefined;
     let response:Record<string,unknown>;
     try {
       request=JSON.parse(line);
-      if(request!.action==='run')streamTo=request!.id;
-      response={id:request?.id,ok:true,result:await dispatch(request!.action,request!.params??{})};
+      const id=request!.id;
+      response={id,ok:true,result:await dispatch(request!.action,request!.params??{},()=>{streamTo=id;})};
     } catch(error) {
       response={id:request?.id,ok:false,error:error instanceof Error?error.message:String(error)};
     }

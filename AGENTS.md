@@ -1,7 +1,7 @@
 # SpaceMolt plugin — working on it
 
 Setup and operation live in [README.md](README.md). This file is for changing the code.
-[GAMEPLAY.md](GAMEPLAY.md) is observed game mechanics, not guarantees.
+[docs/GAMEPLAY.md](docs/GAMEPLAY.md) is observed game mechanics, not guarantees.
 
 ## Shape
 
@@ -19,13 +19,16 @@ play.py              drives the same bridge from a shell, outside Hermes
 src/bridge.ts        the request loop; everything below it is game logic
 src/play/            the library the pilot's program imports, one folder per career
 src/play/README.md   the base skill — what the pilot reads to know how to play at all
+src/play/freighter/  freighters: each its own account and connection, hosted in the bridge process
 ```
 
 ### The seam
 
 `service.py` spawns `node src/bridge.ts` and talks JSON lines over its stdio. One request in
 flight; no replay. A `run` request blocks for as long as the program flies, up to
-`REQUEST_TIMEOUT = 1800`. There is **no build step**: Node strips the types itself, so keep the
+`REQUEST_TIMEOUT = 1800` — or until the program calls `ask()`, when the `run` answers early with
+the question (also kept in `run.json`) and `answer` resumes the program and follows the run the
+same way. Streamed lines go to whichever request is waiting on the run. There is **no build step**: Node strips the types itself, so keep the
 TypeScript erasable (no enums, namespaces or parameter properties) and keep `.ts` on relative
 imports.
 
@@ -43,7 +46,8 @@ The **gate** (`install_gate`, `gate_main`) is a shim written into `HERMES_HOME/s
 named on the job as a *relative* path — cron resolves relative scripts there, and the tool layer
 rejects absolute ones. Cron runs it before it builds the prompt, and a fire whose gate prints
 `{"wakeAgent": false}` ends with no model turn. It runs outside the gateway, so it cannot ask the
-bridge anything; it reads `runtime/run.json` instead.
+bridge anything; it reads `runtime/run.json` instead. A run in flight that is paused on a question
+wakes the fire anyway, and the gate prints the question, which cron puts at the head of the prompt.
 
 Cron is reached through the **`cronjob_manage` tool**, via `ctx.dispatch_tool` (the plugin API)
 or the tool registry when there is no plugin context. `check_cronjob_requirements` gates schema
@@ -76,6 +80,7 @@ has never flown, because nothing else on this path does and a juncture will not 
 | `npm run typecheck` | must be clean |
 | `npm test` | the TypeScript: game logic, the bridge, the play library |
 | `pytest` | the Python: junctures, the channel, rest, skills, the wake |
+| `uvx ruff@0.16.9 check .` | must be clean; default rules, no config, the version CI pins |
 
 The Python tests import `cron` and `hermes_cli` to prove the plugin works against the real host,
 so they need the Hermes tree and an interpreter with Hermes' own dependencies. `conftest.py` finds
@@ -88,6 +93,30 @@ none of them may touch a real install. Where one reaches a *private* Hermes name
 never a plugin surface, and a red suite meaning "the host refactored" teaches nothing.
 
 Prefer asserting `job_fields()` output as data over driving cron's internals.
+
+## Flying a change in a real profile
+
+The tests prove the plugin against Hermes; only a real profile proves it against the game. The
+dev profile's plugin is a symlink to a worktree of this repo that is never worked in, only
+pointed:
+
+```
+~/.hermes/profiles/<profile>/plugins/spacemolt -> ~/workspace/sm-autopilot-live   (detached HEAD)
+```
+
+To fly a branch:
+
+```
+git -C ~/workspace/sm-autopilot-live switch --detach <branch>
+npm --prefix ~/workspace/sm-autopilot-live ci            # only if package-lock.json changed
+hermes --profile <profile> gateway restart               # Python is imported once; see below
+```
+
+Then check it landed: the juncture job in `~/.hermes/profiles/<profile>/cron/jobs.json` lists
+`spacemolt:play` and the stance's skill, and `logs/errors.log` has no `skill not found` or
+`Plugin spacemolt:` warning since the restart. The pilot's state lives in the profile
+(`spacemolt/runtime/`, `spacemolt/pilot.json`), not the checkout, so switching branches never
+touches it. Detached, so any branch can be flown while it stays checked out where it is worked on.
 
 ## Commits and releases
 

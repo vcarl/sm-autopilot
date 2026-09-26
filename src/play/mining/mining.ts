@@ -43,7 +43,7 @@ async function storeCount(base:string,item:string):Promise<number> {
 /** One gather trip by default: fly to `poi`, mine until the hold is full (or the site is
  * dry), fly back to `base` (default: the base you left), dock, stow the take,
  * service. Over the raw legs it adds: every leg named for an end state and re-entered from
- * the live world, the take measured from cargo reads, the mood's fuel reserve, a streamed
+ * the live world, the take measured from cargo reads, each leg's fuel checked against its route, a streamed
  * yield line every ≤2 minutes, stop between ticks, and Tired ending the loop after the
  * return leg.
  *

@@ -16,7 +16,7 @@ from spacemolt import juncture, service
 
 def _wake() -> subprocess.CompletedProcess[str]:
     return subprocess.run(service.wake_argv(), env={**os.environ, **service.wake_env()},
-                          capture_output=True, text=True, timeout=120)
+                          capture_output=True, text=True, timeout=120, check=False)
 
 
 def test_the_wake_marks_the_pilots_juncture_due():

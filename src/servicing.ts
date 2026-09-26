@@ -32,7 +32,8 @@ const shortfall=(name:string,have:number,need:number,unit:string)=>
   `${name} have ${have}, need ${need}; shortfall ${need-have} ${unit}`;
 
 /** Servicing is script-owned: the mood resolves the spend margin and D3 resolves the
- * targets. A serviced dock restores the full tank and full hull; the mood's retreat
+ * targets. The margin meters the repair only: fuel is resupply, and a mood never strands a ship,
+ * so a refuel is bounded by the wallet and `creditReserve` alone. A serviced dock restores the full tank and full hull; the mood's retreat
  * fraction is the away-from-dock line, not a service target. A partial fill is never
  * success — the post-state is read authoritatively and decides.
  *
@@ -105,8 +106,9 @@ export async function serviceShip(account:ReadinessAccount,command:ReadinessComm
   ].filter(service=>service.need>0);
   const blockers:string[]=[];
   const estimated=services.reduce((sum,service)=>sum+(service.estimate??0),0);
+  const repair=services.find(service=>service.action==='spacemolt/repair')?.estimate??0;
   const opening=account.state.player!.credits;
-  if(estimated>margin)blockers.push(`quoted ${estimated} credits exceeds the ${options.mood} service spend margin ${margin}`);
+  if(repair>margin)blockers.push(`quoted ${repair} credits of repair exceeds the ${options.mood} service spend margin ${margin}`);
   // An unpriced service needs room above the reserve to spend at all; a priced one may fit exactly.
   const spendable=opening-estimated-reserve;
   if(spendable<0||(!estimated&&!spendable))blockers.push(estimated
@@ -133,8 +135,8 @@ export async function serviceShip(account:ReadinessAccount,command:ReadinessComm
       throw new ServiceBlocked([`${service.action} charged ${cost} against a ${service.estimate} credit quote`,...gaps()]);
     if(account.state.player!.credits<reserve)
       throw new ServiceBlocked([`${service.action} charged ${cost}, leaving credits ${account.state.player!.credits} under the reserve ${reserve}`,...gaps()]);
-    if(spent>margin)
-      throw new ServiceBlocked([`${service.action} charged ${cost}: ${spent} credits spent exceeds the ${options.mood} service spend margin ${margin}`,...gaps()]);
+    if(service.action==='spacemolt/repair'&&cost>margin)
+      throw new ServiceBlocked([`${service.action} charged ${cost}, over the ${options.mood} service spend margin ${margin}`,...gaps()]);
     if(!service.reached())throw new ServiceBlocked([`${service.action} did not reach the serviced-dock target`,...gaps()]);
   }
   await account.refresh();

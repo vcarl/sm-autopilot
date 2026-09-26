@@ -12,7 +12,6 @@ import json
 import sys
 
 import pytest
-
 import spacemolt
 from spacemolt import juncture, service
 

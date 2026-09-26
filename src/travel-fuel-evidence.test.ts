@@ -43,16 +43,17 @@ function fixture() {
 
 test('fuel refusals retain authoritative fractional evidence at every departure boundary',async()=>{
   for(const stage of ['initial','hook','undock','jump'] as const)for(const deficit of [0,0.25]) {
-    const f=fixture(),reserve=30.5,required=20+reserve;
+    const f=fixture(),required=20;
     f.server.ship.fuel=required-(stage==='initial'?deficit:0);
     f.configure({undock:stage==='undock'?deficit:0,jump:stage==='jump'?deficit:0});
     assert.equal(f.account.state.ship!.fuel,100,'cache still suggests ample fuel');
-    const options:travel.TravelOptions={mood:'Focused',standingPolicy:{fuelReserveFloor:reserve},
+    // No reserve rides on the route: the tank covering the quote is the whole admission.
+    const options:travel.TravelOptions={
       beforeMove:async()=>{if(stage==='hook')f.server.ship.fuel-=deficit;}};
     if(!deficit) {
       const result=await travel.travelTo(f.account,f.command,f.destination,options);
       assert.deepEqual(result.location,f.server.location);
-      assert.equal(f.server.ship.fuel,reserve);
+      assert.equal(f.server.ship.fuel,0);
       assert.equal(result.jumps,2);
       continue;
     }
@@ -60,12 +61,12 @@ test('fuel refusals retain authoritative fractional evidence at every departure 
       assert.ok(error instanceof travel.TravelBlocked);
       assert.ok('evidence' in error,'fuel refusal must expose structured evidence');
     assert.ok(error instanceof travel.FuelRouteShortfall);
-      const cost=stage==='jump'?10:20,need=cost+reserve;
+      const cost=stage==='jump'?10:20,need=cost;
       assert.equal(error.message,`fuel_below_route_minimum: have ${need-deficit}, need ${need}; shortfall ${deficit} fuel units`);
       const observed=structuredClone(f.server);
       const origin={...observed.location,docked_at:stage==='undock'?'home':observed.location.docked_at};
       assert.deepEqual(error.evidence,{kind:'available_fuel',actualFuel:need-deficit,quotedCost:cost,
-        effectiveReserve:reserve,requiredFuel:need,shortfall:deficit,destination:f.destination,
+        requiredFuel:need,shortfall:deficit,destination:f.destination,
         observed:{ship:observed.ship,location:observed.location},quoteOrigin:origin});
       assert.deepEqual(f.account.state,f.server);
       const saved=structuredClone(error.evidence);
@@ -102,7 +103,7 @@ test('invalidated departure context never becomes fuel-crossing evidence',async(
       return result;
     };
     await assert.rejects(travel.travelTo(f.account,command,f.destination,{
-      mood:'Focused',beforeMove:async()=>{if(stage==='hook')invalidate();},
+      beforeMove:async()=>{if(stage==='hook')invalidate();},
     }),error=>{
       assert.ok(error instanceof travel.TravelBlocked,`${stage}/${context}/${loss}: contextual refusal`);
       assert.ok(!(error instanceof travel.FuelRouteShortfall),`${stage}/${context}/${loss}: invalid quote cannot establish fuel crossing`);
@@ -117,8 +118,8 @@ test('invalidated departure context never becomes fuel-crossing evidence',async(
 
 test('tank changes during any route quote invalidate context before fuel classification or refueling',async()=>{
   for(const stage of ['initial','post-refuel','subsequent-leg'])for(const capacity of ['smaller','larger'])for(const deficit of [0,0.25]) {
-    const f=fixture(),required=stage==='subsequent-leg'?34:44;
-    f.server.ship.fuel=stage==='post-refuel'?40:stage==='initial'?required-deficit:44;
+    const f=fixture(),required=stage==='subsequent-leg'?10:20;
+    f.server.ship.fuel=stage==='post-refuel'?10:stage==='initial'?required-deficit:44;
     f.configure({jump:stage==='subsequent-leg'?deficit:0});
     let quotes=0,refuels=0;
     const command:ReadinessCommand=async(name,payload)=>{
@@ -130,9 +131,9 @@ test('tank changes during any route quote invalidate context before fuel classif
       return result;
     };
     await assert.rejects(travel.travelTo(f.account,command,f.destination,{
-      mood:'Focused',refuel:async minimum=>{
-        refuels++;assert.equal(minimum,44);
-        f.server.ship.fuel=44-deficit;
+      refuel:async minimum=>{
+        refuels++;assert.equal(minimum,20);
+        f.server.ship.fuel=20-deficit;
         await f.account.refresh();
       },
     }),error=>{
@@ -151,25 +152,25 @@ test('tank changes during any route quote invalidate context before fuel classif
 });
 
 test('capacity refusals are distinct; invalid quotes and uncertain commands are never fuel crossings',async()=>{
-  const f=fixture();f.server.ship.max_fuel=43.5;f.server.ship.fuel=40;
-  await assert.rejects(travel.travelTo(f.account,f.command,f.destination,{mood:'Focused'}),error=>{
+  const f=fixture();f.server.ship.max_fuel=19.5;f.server.ship.fuel=16;
+  await assert.rejects(travel.travelTo(f.account,f.command,f.destination,{}),error=>{
     assert.ok(error instanceof travel.TravelBlocked);
     assert.ok('evidence' in error,'fuel refusal must expose structured evidence');
       assert.ok(error instanceof travel.FuelRouteShortfall);
-    assert.equal(error.message,'fuel_below_route_minimum: route and reserve exceed tank capacity; shortfall 4 fuel units; capacity shortfall 0.5 fuel units');
-    assert.deepEqual(error.evidence,{kind:'capacity',actualFuel:40,quotedCost:20,effectiveReserve:24,
-      requiredFuel:44,shortfall:4,capacityShortfall:0.5,destination:f.destination,
+    assert.equal(error.message,'fuel_below_route_minimum: route exceeds tank capacity; shortfall 4 fuel units; capacity shortfall 0.5 fuel units');
+    assert.deepEqual(error.evidence,{kind:'capacity',actualFuel:16,quotedCost:20,
+      requiredFuel:20,shortfall:4,capacityShortfall:0.5,destination:f.destination,
       observed:{ship:f.server.ship,location:f.server.location},quoteOrigin:f.server.location});
     return true;
   });
   assert.deepEqual(f.account.calls.map(c=>c.action),['find_route']);
-  for(const cost of [26,40,40.25]) {
-    const g=fixture();g.server.ship.max_fuel=50;g.server.ship.fuel=40;
+  for(const cost of [26,54,54.25]) {
+    const g=fixture();g.server.ship.max_fuel=50;g.server.ship.fuel=10;
     let refuels=0;
-    const options:travel.TravelOptions={mood:'Focused',refuel:async minimum=>{
-      refuels++;assert.equal(minimum,44);
+    const options:travel.TravelOptions={refuel:async minimum=>{
+      refuels++;assert.equal(minimum,20);
       g.server.ship.fuel=50;g.configure({cost});
-      assert.equal(g.account.state.ship!.fuel,40,'refill does not update cache');
+      assert.equal(g.account.state.ship!.fuel,10,'refill does not update cache');
       await g.account.refresh();
     }};
     if(cost===26) {
@@ -179,11 +180,11 @@ test('capacity refusals are distinct; invalid quotes and uncertain commands are 
     } else {
       await assert.rejects(travel.travelTo(g.account,g.command,g.destination,options),error=>{
         assert.ok(error instanceof travel.FuelRouteShortfall);
-        const shortfall=cost+24-50;
+        const shortfall=cost-50;
         assert.equal(error.evidence.kind,'capacity','refreshed quote must recheck tank capacity');
-        assert.equal(error.message,`fuel_below_route_minimum: route and reserve exceed tank capacity; shortfall ${shortfall} fuel units; capacity shortfall ${shortfall} fuel units`);
-        assert.deepEqual(error.evidence,{kind:'capacity',actualFuel:50,quotedCost:cost,effectiveReserve:24,
-          requiredFuel:cost+24,shortfall,capacityShortfall:shortfall,destination:g.destination,
+        assert.equal(error.message,`fuel_below_route_minimum: route exceeds tank capacity; shortfall ${shortfall} fuel units; capacity shortfall ${shortfall} fuel units`);
+        assert.deepEqual(error.evidence,{kind:'capacity',actualFuel:50,quotedCost:cost,
+          requiredFuel:cost,shortfall,capacityShortfall:shortfall,destination:g.destination,
           observed:{ship:g.server.ship,location:g.server.location},quoteOrigin:g.server.location});
         return true;
       });
@@ -194,7 +195,7 @@ test('capacity refusals are distinct; invalid quotes and uncertain commands are 
   const pending=new SpacemoltError('in_transit','pending');Object.assign(pending,{pendingCommand:{}});
   for(const error of [undefined,pending,new ConnectionClosedError('lost')]) {
     const g=fixture();g.configure({invalid:!error,error});
-    await assert.rejects(travel.travelTo(g.account,g.command,g.destination,{mood:'Focused'}),caught=>{
+    await assert.rejects(travel.travelTo(g.account,g.command,g.destination,{}),caught=>{
       assert.ok(!(caught instanceof travel.FuelRouteShortfall));
       if(error)assert.equal(caught,error);else assert.ok(caught instanceof travel.TravelBlocked);
       return true;

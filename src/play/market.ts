@@ -4,7 +4,9 @@ import type {BuyResponse,EstimatePurchaseResponse,MarketListingItem,SellResponse
 import {mkdirSync,readFileSync,renameSync,writeFileSync} from 'node:fs';
 import {join} from 'node:path';
 import {miningInventory} from '../mining-inventory.ts';
+import {markPlace} from './places.ts';
 import {details} from '../response-details.ts';
+import {fileIntel} from '../trade-intel.ts';
 import {bench,moduleSpec,room,whyNotFit} from './hangar.ts';
 import {acct,admit,checkStop,command,job,pilot,runtimeDir,step,wanted} from './runtime.ts';
 import {withdraw} from './storage.ts';
@@ -20,8 +22,17 @@ const message=(error:unknown)=>error instanceof Error?error.message:String(error
 /** A book this pilot has stood in front of, kept so the next base knows what the last one
  * paid. The game publishes no cross-station prices — `view_market` and `analyze_market` are
  * both "here" — so memory is the only far price a factionless pilot can have. */
-export interface RememberedBook {base_id:string;at:string;tick?:number;items:MarketListingItem[]}
-const MEMORY='markets.json',BASES=12;
+export interface RememberedBook {base_id:string;at:string;tick?:number;
+  /** The system the base is in, as the ship stood there: what lets `routes()` count jumps between
+   * two far bases from the map alone. Absent on entries written before it was kept. */
+  system_id?:string;items:MarketListingItem[]}
+const MEMORY='markets.json';
+/** A book older than this many ticks (a day at ten seconds a tick) is dropped at the next
+ * write. NPC books move rarely, so a day-old price is still a lead; a week-old one is not. */
+const MEMORY_TICKS=8640;
+/** ponytail: 40 whole books is ~8 MB of JSON read on every `knownBooks()`; the count is only a
+ * size ceiling now that age is the evictor. Store top levels only if the read ever shows up. */
+const BASES=40;
 /** How old an entry written before books carried a tick is taken to be. An assumption for
  * pre-ageing files, not a measurement: old enough for the pilot to distrust, not old enough
  * to be worth dropping a price nothing else can supply. */
@@ -50,12 +61,16 @@ export function knownBooks(dir=runtimeDir()):RememberedBook[] {
 }
 
 /** Temp file then rename, as `writeRun` does: a torn write would price a trip on a lie.
- * ponytail: the last 12 bases, whole books. A pilot that walks a wider circuit than that
- * wants the oldest entry aged out by tick, not by count. */
-function remember(base_id:string,items:MarketListingItem[],tick:number):void {
-  const dir=runtimeDir();
+ * Evicted by age (`MEMORY_TICKS`), newest first, capped at `BASES`. */
+const remember=(base_id:string,items:MarketListingItem[],tick:number)=>
+  rememberBook(runtimeDir(),base_id,acct().state.location?.system_id,items,tick);
+/** Keep `base_id`'s book, read at `tick` in `system_id`, in `dir`'s market memory, and its place.
+ * What `book()` does for the pilot, and a freighter's host for a book it scouted. */
+export function rememberBook(dir:string|undefined,base_id:string,system_id:string|undefined,items:MarketListingItem[],tick:number):void {
   if(!dir||!base_id)return;
-  const kept=[{base_id,at:new Date().toISOString(),tick,items},...knownBooks().filter(row=>row.base_id!==base_id)].slice(0,BASES);
+  markPlace(dir,base_id,system_id??'');
+  const kept=[{base_id,at:new Date().toISOString(),tick,system_id,items},
+    ...knownBooks(dir).filter(row=>row.base_id!==base_id&&ticksOld(row.tick,tick)<=MEMORY_TICKS)].slice(0,BASES);
   try {
     mkdirSync(dir,{recursive:true});
     const path=join(dir,MEMORY),temp=`${path}.${process.pid}.tmp`;
@@ -66,12 +81,15 @@ function remember(base_id:string,items:MarketListingItem[],tick:number):void {
 
 /** The book here, whole, read once and filtered in memory: one 190 KB reply beats twenty
  * filtered ones against the rate limit, and the pilot never sees it. Every read is also
- * written to this runtime's market memory, which is what `spreads()` reads. */
+ * written to this runtime's market memory, which is what `spreads()` reads, and filed to the
+ * faction's trade ledger once per tick when there is one. */
 export async function book():Promise<Map<string,MarketListingItem>> {
   const reply=details(await command('spacemolt_market/view_market',{})) as ViewMarketResponse;
   const items=reply.items??[];
   lastTick=Number(reply.current_tick??lastTick);
-  remember(acct().state.location?.docked_at??'',items,lastTick);
+  const base=acct().state.location?.docked_at??'';
+  remember(base,items,lastTick);
+  await fileIntel(acct(),command,base,items,lastTick,step);
   return new Map(items.map(item=>[item.item_id,item]));
 }
 
@@ -234,8 +252,10 @@ export function buy(itemId:string,quantity:number,opts:{deliverTo?:'cargo'|'stor
     if(opts.maxEach!==undefined&&cost>opts.maxEach*quantity)return {status:'refused',did:`did not buy ${itemId}`,why:`costs ${cost}, over maxEach ${opts.maxEach} × ${quantity}`,detail:{estimate}};
     const bought=details(await command('spacemolt/buy',{id:itemId,quantity:Math.min(quantity,estimate.available),
       ...opts.deliverTo?{deliver_to:opts.deliverTo}:{}})) as BuyResponse;
+    // The reply's `total_cost` is the subtotal; the tax on it is charged on top, floored.
+    const subtotal=Number(bought.total_cost??cost),tax=Math.floor(subtotal*(Number(estimate.sales_tax_rate_bps)||0)/10_000);
     return {status:(bought.unfilled??0)>0?'partial':'done',
-      did:`bought ${bought.quantity??quantity} ${itemId} for ${bought.total_cost??cost} cr`,
+      did:`bought ${bought.quantity??quantity} ${itemId} for ${subtotal+tax} cr${tax?` (${tax} of it tax)`:''}`,
       ...(bought.unfilled??0)>0?{why:`${bought.unfilled} unfilled`}:{},detail:{estimate,bought}};
   });
 }

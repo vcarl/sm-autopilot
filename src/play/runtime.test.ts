@@ -1,4 +1,7 @@
 import assert from 'node:assert/strict';
+import {mkdtempSync,rmSync,writeFileSync} from 'node:fs';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
 import test from 'node:test';
 import type {ReadinessAccount} from '../readiness.ts';
 import {bridgeWorld,type WorldOptions} from '../test-support/bridge-world.ts';
@@ -161,7 +164,7 @@ test('a guess that names a system with one base is that base; with several it is
   } finally {unbind();}
 });
 
-test('goTo a system id is done wherever in that system the jump lands, and never names it as a POI',async()=>{
+test('goTo a system id with one base docks there, and never names the system as a POI',async()=>{
   const f=world({mood:'Focused'});
   try {
     f.account.server.location={system_id:'sol',poi_id:'belt',docked_at:null,in_transit:false};
@@ -170,16 +173,50 @@ test('goTo a system id is done wherever in that system the jump lands, and never
     assert.equal(trip.status,'done',trip.why);
     assert.equal(f.account.server.location.system_id,'deep_range');
     // The jump was flown and paid for; naming the system as a POI afterwards is the server's
-    // "Unknown destination", which is what turned a landed trip into a `failed`.
-    assert.deepEqual(f.sent.filter(c=>c.action==='spacemolt/travel').map(c=>c.params.id),[]);
+    // "Unknown destination", which is what turned a landed trip into a `failed`. The one hop
+    // after it is to the system's one base, by its POI.
+    assert.deepEqual(f.sent.filter(c=>c.action==='spacemolt/travel').map(c=>c.params.id),['outpost']);
     assert.equal(f.sent.filter(c=>c.action==='spacemolt/jump').length,1);
-    assert.match(trip.did,/arrived at deep_range \(gate\) after 1 jump\(s\)/,'the did names the POI landed at');
-    assert.equal(trip.detail.docked,false);
-    // Already in that system: nothing sent, whatever POI the ship is parked at.
+    assert.match(trip.did,/arrived at deep_range and docked at range_base after 1 jump\(s\)/);
+    assert.equal(trip.detail.docked,true);
+    assert.equal(f.account.server.location.docked_at,'range_base','so prices() works next (live: refused, not docked)');
+    // Already there: no move sent.
     const before=f.sent.length;
-    assert.match((await goTo('deep_range')).did,/already at deep_range \(gate\)/);
-    assert.equal(f.sent.slice(before).filter(c=>c.action==='spacemolt/jump').length,0);
+    assert.match((await goTo('deep_range')).did,/already at deep_range/);
+    assert.deepEqual(f.sent.slice(before).filter(c=>/travel|jump|dock/.test(c.action)),[]);
   } finally {unbind();}
+});
+
+test('goTo a system id with several bases ends wherever the jump lands',async()=>{
+  const f=world({mood:'Focused'},['refuel','repair','storage'],{pois:[{id:'refinery',base_id:'refinery_base'}]});
+  try {
+    f.account.server.location={system_id:'deep_range',poi_id:'far_belt',docked_at:null,in_transit:false};
+    await f.account.refresh();
+    const trip=await goTo('sol');
+    assert.equal(trip.status,'done',trip.why);
+    assert.match(trip.did,/arrived at sol \(gate\) after 1 jump\(s\)/,'the did names the POI landed at');
+    assert.equal(trip.detail.docked,false);
+    assert.deepEqual(f.sent.filter(c=>c.action==='spacemolt/travel').map(c=>c.params.id),[]);
+  } finally {unbind();}
+});
+
+test('goTo a far base by its display name, from the market memory (live: Node Alpha Processing Station)',async()=>{
+  const runtime=mkdtempSync(join(tmpdir(),'goto-memory-'));
+  writeFileSync(join(runtime,'markets.json'),JSON.stringify([{base_id:'range_base',at:'',tick:1000,system_id:'deep_range',items:[]}]));
+  const f=bridgeWorld({services:['refuel','repair','storage']});
+  let who:Pilot={mood:'Focused'};
+  bind({account:f.account as unknown as ReadinessAccount,command:f.command,runtime,pilot:()=>who,setPilot:next=>{who=next;},emit:()=>{}});
+  try {
+    f.account.server.location={system_id:'sol',poi_id:'belt',docked_at:null,in_transit:false};
+    await f.account.refresh();
+    // From Sol, only the memory knows range_base: a miss names it by id.
+    const miss=await goTo('Range Refinery');
+    assert.equal(miss.status,'refused');
+    assert.match(miss.why!,/nearest: .*range_base \(base range_base\)/,'a miss names the remembered base by id');
+    const trip=await goTo('Range Base');
+    assert.equal(trip.status,'done',trip.why);
+    assert.equal(f.account.server.location.docked_at,'range_base');
+  } finally {unbind();rmSync(runtime,{recursive:true,force:true});}
 });
 
 test('sell, stow and withdraw take rows by name and never default to the whole hold',async()=>{

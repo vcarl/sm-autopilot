@@ -8,12 +8,12 @@ import {travelTo,TravelBlocked} from './travel.ts';
 test('fuel lost after undocking reports the refreshed shortfall before jump or local travel',async()=>{
   for(const local of [false,true]) {
     const initial={location:{system_id:'a',poi_id:'station',docked_at:'base' as string|null},
-      ship:{id:'ship',fuel:40,max_fuel:120,cargo_used:0}};
+      ship:{id:'ship',fuel:10,max_fuel:120,cargo_used:0}};
     const handlers:FakeCommandHandlers={spacemolt:{
       find_route:()=>({found:true,target_system:local?'a':'b',total_jumps:local?0:1,
         estimated_fuel:10,fuel_per_jump:10,fuel_available:server.ship.fuel,cargo_used:0,
         route:[{system_id:'a',jumps:0},...local?[]:[{system_id:'b',jumps:1}]]}),
-      undock:()=>{server.location.docked_at=null;server.ship.fuel=39;return {};},
+      undock:()=>{server.location.docked_at=null;server.ship.fuel=9;return {};},
       get_system:()=>({system:{connections:['b']}}),
     }};
     const account=new FakeLibGoalAccount(initial,handlers);
@@ -22,8 +22,8 @@ test('fuel lost after undocking reports the refreshed shortfall before jump or l
       const [tool,action]=name.split('/');
       return account.send(tool,action,payload);
     };
-    await assert.rejects(travelTo(account,command,local?{system_id:'a',poi_id:'belt'}:{system_id:'b'},{mood:'Cautious'}),
-    error=>error instanceof TravelBlocked&&/have 39, need 40; shortfall 1 fuel units/.test(error.message));
+    await assert.rejects(travelTo(account,command,local?{system_id:'a',poi_id:'belt'}:{system_id:'b'},{}),
+    error=>error instanceof TravelBlocked&&/have 9, need 10; shortfall 1 fuel units/.test(error.message));
     assert.deepEqual(calls,[
       {tool:'spacemolt',action:'find_route',payload:{id:local?'a':'b'}},
       {tool:'spacemolt',action:'undock',payload:{}},
@@ -31,7 +31,7 @@ test('fuel lost after undocking reports the refreshed shortfall before jump or l
     ]);
     assert.ok(account.refreshes.length>0);
     assert.deepEqual(account.state,server);
-    assert.equal(account.state.ship!.fuel,39);
+    assert.equal(account.state.ship!.fuel,9);
     assert.equal(server.location.system_id,'a');
     assert.equal(server.location.poi_id,'station');
   }
@@ -39,9 +39,9 @@ test('fuel lost after undocking reports the refreshed shortfall before jump or l
 
 // Route costs are deliberately asymmetric and change with the return cargo.
 test('travel re-quotes actual remaining fuel, bounds definitive retries, and never replays uncertain movement',async()=>{
-  for(const mode of ['reserve','capacity','replan','uncertain','pending','return']) {
+  for(const mode of ['refuel','capacity','replan','uncertain','pending','return']) {
     let now=0,jumps=0,refuels=0;
-    const initial={location:{system_id:'a',poi_id:'a_station',docked_at:'a_base' as string|null,in_transit:false},ship:{id:'ship',fuel:mode==='reserve'?18:100,max_fuel:100,cargo_used:0}};
+    const initial={location:{system_id:'a',poi_id:'a_station',docked_at:'a_base' as string|null,in_transit:false},ship:{id:'ship',fuel:mode==='refuel'?9:100,max_fuel:100,cargo_used:0}};
     const handlers:FakeCommandHandlers={spacemolt:{
       find_route:(params={})=>{
         const from=server.location.system_id,to=String(params.id),same=from===to;
@@ -74,7 +74,7 @@ test('travel re-quotes actual remaining fuel, bounds definitive retries, and nev
       const [tool,action]=name.split('/');
       return account.send(tool,action,payload);
     };
-    const options={reserve:17,now:()=>now,sleep:async(ms:number)=>{now+=ms;},
+    const options={now:()=>now,sleep:async(ms:number)=>{now+=ms;},
       refuel:async()=>{refuels++;server.ship.fuel=100;await account.refresh();}};
     const target={system_id:'b',poi_id:'b_station'};
     if(mode==='return') {
@@ -82,7 +82,7 @@ test('travel re-quotes actual remaining fuel, bounds definitive retries, and nev
       const at=calls.length;
       await assert.rejects(travelTo(account,command,{system_id:'a'},options),/fuel_below_route_minimum/);
       assert.deepEqual(calls.slice(at),[{tool:'spacemolt',action:'find_route',payload:{id:'a'}}]);
-    } else if(mode==='reserve') {
+    } else if(mode==='refuel') {
       await travelTo(account,command,target,options);assert.equal(refuels,1);assert.equal(jumps,1);
     } else {
       await assert.rejects(travelTo(account,command,target,options),mode==='capacity'?/tank capacity/:/rejected|unknown|pending/);
@@ -101,7 +101,7 @@ test('objective travel admits a longer finite quoted route while retaining fuel 
     const handlers:FakeCommandHandlers={spacemolt:{
       find_route:()=>{
         const route=mode==='expanded'&&account.calls.some(c=>c.action==='jump')?['b','x','c','d']:systems.slice(systems.indexOf(server.location.system_id));
-        return {found:true,target_system:'d',total_jumps:route.length-1,estimated_fuel:mode==='fuel'?95:(route.length-1)*10,fuel_per_jump:10,
+        return {found:true,target_system:'d',total_jumps:route.length-1,estimated_fuel:mode==='fuel'?105:(route.length-1)*10,fuel_per_jump:10,
           fuel_available:server.ship.fuel,cargo_used:0,route:route.map((system_id,jumps)=>({system_id,jumps}))};
       },
       get_system:()=>({system:{connections:systems}}),
@@ -119,7 +119,7 @@ test('objective travel admits a longer finite quoted route while retaining fuel 
       return account.send(tool,action,payload);
     };
     const moved=()=>account.calls.filter(c=>c.tool==='spacemolt'&&c.action==='jump').map(c=>c.payload!.id);
-    const trip=travelTo(account,command,{system_id:'d'},{maxJumps:null,reserve:17});
+    const trip=travelTo(account,command,{system_id:'d'},{maxJumps:null});
     if(mode==='arrive') {
       const result=await trip;assert.deepEqual(moved(),['b','c','d']);
       assert.deepEqual(result.location,server.location);

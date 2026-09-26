@@ -12,8 +12,6 @@ import copy
 import json
 import os
 
-import pytest
-
 import spacemolt
 from spacemolt import juncture, service
 from test_spacemolt_skills import _private

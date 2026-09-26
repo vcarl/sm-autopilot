@@ -8,7 +8,7 @@ export interface RecordedCall {
 export type FakeCommandHandler=(payload?:Record<string,unknown>)=>unknown|Promise<unknown>;
 export type FakeCommandHandlers=Record<string,Record<string,FakeCommandHandler>>;
 
-/** Adapted from ported/setpoint/tests/dispatcher/lib-fakes.ts.
+/** Adapted from dev/ported/setpoint/tests/dispatcher/lib-fakes.ts.
  * Only the consumed account surface is ported. Scenarios own server changes and
  * cache pushes; sending a command never implies an authoritative refresh.
  */

@@ -1,0 +1,15 @@
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      # Only the toolchain is grouped. @spacemolt/lib is the game client, a runtime
+      # dependency, so each of its bumps arrives as a pull request of its own.
+      dev-dependencies:
+        dependency-type: development
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly

@@ -93,8 +93,8 @@ const asNext=(rows:Elsewhere[],system:string):string[]=>rows.length
 
 /** Bring the ship up at the counter you are docked at: full tank and full hull.
  *
- * Over `refuel` + `repair` it adds: the quote read first, the mood's per-service spend margin
- * and `permissions.credit_reserve` enforced, the charge checked against the quote, and the
+ * Over `refuel` + `repair` it adds: the quote read first, the mood's spend margin on the repair
+ * (never the fuel: a mood must not strand a ship) and `permissions.credit_reserve` enforced, the charge checked against the quote, and the
  * post-state read to confirm the fill. A full ship sends nothing. Not docked: `refused`.
  *
  * A counter bills on credits and reports the charge afterwards, so a station that posts no

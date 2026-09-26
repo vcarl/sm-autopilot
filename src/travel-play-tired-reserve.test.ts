@@ -1,19 +1,21 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import {mkdtempSync,readFileSync,rmSync} from 'node:fs';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
 import type {ReadinessAccount,ReadinessCommand} from './readiness.ts';
 import {FakeLibGoalAccount,type FakeCommandHandlers} from './test-support/fake-lib-account.ts';
 import {goTo} from './play/travel.ts';
 import {bind,unbind,type Pilot} from './play/runtime.ts';
+import type {Mood} from './mood-policy.ts';
 
-// S4: the mood picks the fuel reserve a leg is quoted against, and `goTo` froze it at the top
-// of the trip. The leg to a base is the one leg a Tired pilot is still flown — the whole point
-// of the stop — so it is exactly the leg the stale reserve bites: quoted on the pre-Tired
-// Cautious 30 rather than Tired's 0, `travelTo` raises `FuelRouteShortfall` on the resupply
-// trip the crossing exists to enable, and the pilot is stranded one jump short of the station.
+// The mood's fuel reserve is the trigger for resupply, not a travel margin (operator's decision,
+// 2026-09-26). A leg is admitted when the tank covers its route; a leg that takes fuel under the
+// reserve imposes Tired, and Tired's rules send the pilot to service. Before, travel refused any
+// trip that would dip under the reserve, so fuel never crossed it and Tired never fired: a
+// Focused pilot with 26 fuel was refused a 4-fuel trip ("short 2") and was never Tired either.
 //
-// A knock on the first jump is the shape that shows it: the route cost falls by exactly the
-// jump's fuel, so a flat reserve that admitted the route at departure admits it after every
-// jump too — only fuel lost beyond the jump's own cost can open the gap.
+// S4, still pinned below: a Tired imposed mid-trip must not strand the resupply leg.
 const SYSTEMS=['a','b','c'];
 const SYSTEM_OF:Record<string,string>={a:'a',b:'b',c:'c',c_station:'c'};
 const POI_OF:Record<string,string|undefined>={c_station:'c_dock'};
@@ -22,13 +24,11 @@ const POIS:Record<string,{id:string;name?:string;base_id?:string;base_name?:stri
   b:[{id:'gate',name:'B Gate'}],
   c:[{id:'gate',name:'C Gate'},{id:'c_dock',name:'C Dock',base_id:'c_station',base_name:'C Station'}],
 };
-const JUMP=10,LEAK=5;
+const LEAK=5;
 
-function fixture() {
-  // Fuel 52 against a two-jump route: 20 quoted plus the Cautious reserve 30 departs with 2
-  // to spare, so the trip is admissible under the mood it starts in.
+function fixture({fuel=52,mood='Cautious' as Mood,JUMP=10,knock=true,runtime=undefined as string|undefined}={}) {
   const initial={location:{system_id:'a',poi_id:'gate',docked_at:null as string|null,in_transit:false},
-    ship:{id:'ship',fuel:52,max_fuel:120,hull:100,max_hull:100,cargo_used:0},
+    ship:{id:'ship',fuel,max_fuel:120,hull:100,max_hull:100,cargo_used:0},
     player:{credits:1_000}};
   const handlers:FakeCommandHandlers={spacemolt:{
     find_route:({id}={})=>{
@@ -51,7 +51,7 @@ function fixture() {
       server.location.system_id=String(id);server.location.poi_id='gate';
       // The knock on the way into b: hull under the Cautious walk-away line, which imposes
       // Tired, and fuel bled past the jump's own cost.
-      if(String(id)==='b'){server.ship.hull=90;server.ship.fuel-=LEAK;}
+      if(knock&&String(id)==='b'){server.ship.hull=90;server.ship.fuel-=LEAK;}
       return {};
     },
     travel:({id}={})=>{server.location.poi_id=String(id);return {};},
@@ -63,8 +63,8 @@ function fixture() {
     const [tool,action]=name.split('/');
     return account.send(tool,action,payload);
   };
-  let who:Pilot={mood:'Cautious'};
-  bind({account:account as unknown as ReadinessAccount,command,
+  let who:Pilot={mood};
+  bind({account:account as unknown as ReadinessAccount,command,runtime,
     pilot:()=>who,setPilot:next=>{who=next;},emit:()=>{}});
   return {account,server,command,pilot:()=>who,
     jumps:()=>account.calls.filter(call=>call.action==='jump').length};
@@ -74,12 +74,45 @@ test('the leg to a base is re-quoted on the mood in force, so Tired reaches the 
   const f=fixture();
   try {
     const trip=await goTo('c_station');
-    // The crossing was imposed on the first jump; 37 fuel is short of the 40 the Cautious
-    // reserve wanted for the last jump and well inside the 10 Tired's own reserve wants.
+    // The crossing was imposed on the first jump (the hull knock); 37 fuel covers the last
+    // jump's 10, and the leg to the counter is flown.
     assert.equal(f.pilot().mood,'Tired');
     assert.equal(trip.status,'done',`${trip.did}: ${trip.why}`);
     assert.equal(f.jumps(),2);
     assert.equal(trip.detail.docked,true);
     assert.equal(f.server.location.docked_at,'c_station');
+  } finally {unbind();}
+});
+
+// The stranding of 2026-09-25, in miniature: Focused, 26 fuel, two jumps of 2 to the station.
+test('a trip the tank covers is flown under the reserve, and the leg that crosses it imposes Tired',async()=>{
+  const runtime=mkdtempSync(join(tmpdir(),'tired-reserve-'));
+  const f=fixture({fuel:26,mood:'Focused',JUMP:2,knock:false,runtime});
+  try {
+    const trip=await goTo('c_station');
+    // 26 >= the route's 4 though < 4 + Focused's 24: admitted, where the old rule said "short 2".
+    assert.equal(trip.status,'done',`${trip.did}: ${trip.why}`);
+    assert.equal(f.jumps(),2);
+    assert.equal(f.server.location.docked_at,'c_station');
+    assert.equal(f.server.ship.fuel,22);
+    assert.equal(f.pilot().mood,'Tired');
+    assert.equal(f.pilot().mood_before_tired,'Focused');
+    const journal=readFileSync(join(runtime,'gameplay.jsonl'),'utf8').trim().split('\n').map(line=>JSON.parse(line));
+    const tired=journal.filter(line=>line.event==='tired');
+    assert.equal(tired.length,1);
+    // The first jump leaves 24, on the line; the second takes the tank under it.
+    assert.deepEqual({rule:tired[0].rule,mood_before:tired[0].mood_before},
+      {rule:'fuel 22 under the Focused reserve 24',mood_before:'Focused'});
+  } finally {unbind();rmSync(runtime,{recursive:true,force:true});}
+});
+
+test('a trip the tank does not cover is still refused, with the route shortfall',async()=>{
+  const f=fixture({fuel:3,mood:'Focused',JUMP:2,knock:false});
+  try {
+    const trip=await goTo('c_station');
+    assert.equal(trip.status,'refused');
+    assert.equal(trip.why,'fuel 3, the route needs 4; short 1');
+    assert.equal(f.jumps(),0);
+    assert.equal(f.pilot().mood,'Tired','3 is under the Focused reserve too, from the first read');
   } finally {unbind();}
 });

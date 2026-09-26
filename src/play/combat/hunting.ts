@@ -1,7 +1,7 @@
 /** Hunting: wildlife anywhere (legal everywhere), pirates in low-police space. The only loops
  * that train weapons, gunnery, tactics, and — by being hit — shields and armor. */
 import type {CreatureInfo,EnrichedWreck,GetBattleStatusResponse,GetNearbyResponse,PirateInfo,V2Module,V2Ship} from '@spacemolt/lib';
-import {resolveFuelReserve,resolveWalkAway} from '../../mood-policy.ts';
+import {resolveWalkAway} from '../../mood-policy.ts';
 import {details} from '../../response-details.ts';
 import {battleEnded} from '../../travel.ts';
 import {active as activeMissions} from '../missions.ts';
@@ -27,9 +27,11 @@ export interface Fight {
 }
 
 /** One place the search looked at, in the order it was tried. `saw` counts the prey asked for
- * (every creature, when no species was named) and `legal` how many of those were engageable;
- * `flew` says whether reaching it cost a trip. A stop with `saw: 0` is the useful half of a
- * search — it is the fact that stops the same rock being paid for twice. */
+ * (every creature, when no species was named, or when `strict` is false — a named species is a
+ * preference there, not a filter) and `legal` how many of those were engageable under the rules
+ * actually applied (species-restricted only under `strict`); `flew` says whether reaching it
+ * cost a trip. A stop with `saw: 0` is the useful half of a search — it is the fact that stops
+ * the same rock being paid for twice. */
 export interface Looked {poi_id:string;saw:number;legal:number;flew:boolean}
 
 export interface Hunted {
@@ -39,7 +41,7 @@ export interface Hunted {
   /** Every place looked at, in order. One entry for a hunt that stood still. */
   looked:Looked[];
   /** Why the loop ended: `asked` fights done, nothing at the one place looked, nothing at any
-   * of several, the fuel reserve refusing the next hop, hull line, hold full, tired. */
+   * of several, a tank that cannot cover the next hop, hull line, hold full, tired. */
   ended:'asked'|'nothing here'|'nothing found'|'fuel'|'hull'|'hold full'|'stopped'|'tired';
 }
 
@@ -137,11 +139,11 @@ async function loadout():Promise<string|null> {
  * the only creature rules are the world's own: a beast already in someone else's battle, and
  * a branded one, which is livestock rather than wildlife. Pirates are the pilot's call; only
  * police are declined outright. */
-function decline(target:CreatureInfo|PirateInfo,named:string|undefined):string|null {
+function decline(target:CreatureInfo|PirateInfo,named:string[]):string|null {
   if(isCreature(target)) {
     if(target.in_combat)return `${target.name} is already in someone else's battle`;
     if(target.branded)return `${target.name} is branded: someone's livestock, not wildlife`;
-    if(named&&target.species!==named)return `${target.name} is ${target.species}, not ${named}`;
+    if(named.length&&!named.includes(target.species))return `${target.name} is ${target.species}, not ${named.join(' or ')}`;
     return null;
   }
   if(/\[POLICE]/.test(target.name))return `${target.name} is police; attacking it is the crime, not the hunt`;
@@ -412,16 +414,24 @@ const say=(rows:Row[])=>rows.map(row=>`${row.quantity} ${row.item_id}`).join(', 
  * a lie (`sighting-memory.ts`).
  *
  * **The looking is bounded by fuel.** Before each hop the route is re-quoted and checked
- * against the mood's fuel reserve, and the search ENDS rather than skipping on: a pilot that
+ * against the tank, and the search ENDS rather than skipping on: a pilot that
  * cannot afford the next POI cannot afford the one after it either, and `ended:'fuel'` names the
- * place that stopped it. `goTo` enforces the same reserve itself — this check is what lets the
+ * place that stopped it. `goTo` enforces the same check itself — this check is what lets the
  * search stop cleanly and say where, instead of accumulating refusals.
  *
  * Nothing to hunt is `done`, never `refused`: the fact was learned and nothing was spent
  * fighting. One place looked at is `ended:'nothing here'`, several is `ended:'nothing found'`,
- * and `detail.looked` names each one and what was in it. `species` narrows both the search and
- * the fight; left unset, a species an active mission's own words name is preferred over the
- * first legal one.
+ * and `detail.looked` names each one and what was in it.
+ *
+ * `species` takes one id or a list — any of them counts as named. By default (`strict` unset or
+ * false) a named species is a PREFERENCE: at each place, and again on every fight's fresh read,
+ * a legal creature of a named species is fought if one is present, and the first legal creature
+ * of any species otherwise — the same fallback an unnamed hunt already gives an active mission's
+ * quarry. `strict:true` is today's stricter rule: only named species are fought, and everything
+ * else here is declined with the same refusal text. Use `strict` only when a second species
+ * would not do — a mission that counts kills of one species and nothing else. Left unset, a
+ * species an active mission's own words name is preferred over the first legal one. Which
+ * species was actually fought is on `fight.target.species`, so a fallback fight is never hidden.
  *
  * Refused before firing without a fitted weapon (`V2Module.type === 'weapon'`) holding
  * ammunition; an empty magazine whose rounds are in the hold is reloaded instead. Costs
@@ -437,13 +447,18 @@ const say=(rows:Row[])=>rows.map(row=>`${row.quantity} ${row.item_id}`).join(', 
  * one field a tick, validates it, and journals what was asked against what was sent. A callback
  * that throws is logged and the default loop carries on. The mood's walk-away line outranks it
  * always — a decision that would keep fighting under the line is refused and said so. */
-export function hunt(opts:{poi?:string;look?:string[];fights?:number;species?:string;target?:'creature'|'pirate';
+export function hunt(opts:{poi?:string;look?:string[];fights?:number;species?:string|string[];
+  strict?:boolean;target?:'creature'|'pirate';
   onTick?:(view:TickView)=>TickDecision|undefined}={}):Promise<Outcome<Hunted>> {
   const asked=Math.max(1,Math.trunc(opts.fights??1));
+  // Any of these counts as named. A single id is the common case; the list is for a hunt that
+  // will take more than one kind and should say so, not repeat itself.
+  const species=opts.species===undefined?[]:Array.isArray(opts.species)?opts.species:[opts.species];
+  const strict=opts.strict??false;
   // Where to look, in order. `poi` is the single-place case of `look`; naming neither looks
   // exactly once, where the ship already stands.
   const trail=opts.look?.length?opts.look:opts.poi?[opts.poi]:[];
-  return job<Hunted>('hunt',[trail.join('/'),opts.species,opts.target,asked>1?`×${asked}`:''].filter(Boolean).join(' '),async()=>{
+  return job<Hunted>('hunt',[trail.join('/'),species.join('+'),opts.target,asked>1?`×${asked}`:''].filter(Boolean).join(' '),async()=>{
     const who=pilot();
     const result:Hunted={poi_id:trail[0]??acct().state.location?.poi_id??'',fights:[],looked:[],ended:'asked'};
     const refuse=(why:string)=>({status:'refused' as const,did:'hunted nothing',why,detail:result});
@@ -451,7 +466,7 @@ export function hunt(opts:{poi?:string;look?:string[];fights?:number;species?:st
     if(blocked)return refuse(blocked);
     const gap=await loadout();
     if(gap)return refuse(gap);
-    /** Why the search stopped travelling, when the fuel reserve is what stopped it. */
+    /** Why the search stopped travelling, when the tank is what stopped it. */
     let shortFuel='';
     // The hull line the mood draws, read at each check rather than once at the top: the pilot
     // record moves under a running loop (the runtime imposes Tired, the observer rewrites the
@@ -460,17 +475,20 @@ export function hunt(opts:{poi?:string;look?:string[];fights?:number;species?:st
     const floor=()=>resolveWalkAway(pilot().mood??'Cautious')*Number(acct().state.ship?.max_hull??0);
     const wantPirates=opts.target==='pirate';
     // No species named: an active mission's own words are the next best thing to ask.
-    const quarry=!opts.species&&!wantPirates?await huntText():'';
+    const quarry=!species.length&&!wantPirates?await huntText():'';
+    // Under `strict`, a named species is the only legal prey — the same list `decline` enforces
+    // below. Left loose, nothing here is illegal for being the wrong species: a name is a
+    // preference, applied before the fallback loop, never a filter `legal` has to account for.
+    const restrict=strict?species:[];
     // The places to try. An empty trail is one look, where the ship is: `hunt()` unchanged.
     const stops=trail.length?trail:[acct().state.location?.poi_id??''];
     search: for(const where of stops) {
       checkStop();
       let flew=false;
       if(where&&acct().state.location?.poi_id!==where) {
-        // Re-quoted per hop, against the reserve as it stands now: the runtime imposes Tired
-        // under a running loop, and Tired keeps nothing back, so a reserve captured at the top
-        // would be the wrong number by the time the search got here.
-        const reserve=resolveFuelReserve(pilot().mood??'Cautious');
+        // Re-quoted per hop, against the fuel as it stands now. The tank must cover the route and
+        // nothing more: a hop that takes fuel under the mood's reserve imposes Tired, and the
+        // search ends there, before a look can start a fight a Tired pilot may not.
         const fuel=Number(acct().state.ship?.fuel??0);
         let quoted=NaN;
         try {quoted=Number((await route(where)).estimated_fuel);} catch {/* unplaceable below */}
@@ -480,8 +498,8 @@ export function hunt(opts:{poi?:string;look?:string[];fights?:number;species?:st
           step(`${where}: no route there, skipped`);
           continue;
         }
-        if(fuel<quoted+reserve) {
-          shortFuel=`fuel ${fuel}, and reaching ${where} needs ${quoted+reserve} with the ${pilot().mood} reserve ${reserve}`;
+        if(fuel<quoted) {
+          shortFuel=`fuel ${fuel}, and reaching ${where} needs ${quoted}`;
           result.ended='fuel';
           break;
         }
@@ -492,6 +510,7 @@ export function hunt(opts:{poi?:string;look?:string[];fights?:number;species?:st
           break;
         }
         flew=true;
+        if(pilot().mood==='Tired'){result.ended='tired';break;}
       }
       result.poi_id=acct().state.location?.poi_id??where;
       // The look. One read answers what is at this POI and nothing about any other, which is
@@ -508,14 +527,16 @@ export function hunt(opts:{poi?:string;look?:string[];fights?:number;species?:st
         for(const one of nearby.creatures??[]) {
           const row=tally.get(one.species)??{species:one.species,count:0,legal:0};
           row.count+=1;
-          if(decline(one,undefined)===null)row.legal+=1;
+          if(decline(one,[])===null)row.legal+=1;
           tally.set(one.species,row);
         }
         writeLook(remember,{poi_id:result.poi_id,seen:[...tally.values()]});
       }
-      const wanted=here.filter(one=>!opts.species||(isCreature(one)&&one.species===opts.species));
+      // Not restricted (no species, or named but only a preference): every creature here is the
+      // prey asked for. Restricted (named and strict): only those species are.
+      const wanted=here.filter(one=>!restrict.length||(isCreature(one)&&restrict.includes(one.species)));
       result.looked.push({poi_id:result.poi_id,saw:wanted.length,
-        legal:wanted.filter(one=>decline(one,opts.species)===null).length,flew});
+        legal:wanted.filter(one=>decline(one,restrict)===null).length,flew});
       for(;result.fights.length<asked;) {
       checkStop();
       const ship=acct().state.ship as V2Ship|undefined;
@@ -527,10 +548,14 @@ export function hunt(opts:{poi?:string;look?:string[];fights?:number;species?:st
       const standing:(CreatureInfo|PirateInfo)[]=wantPirates?round.pirates??[]:round.creatures??[];
       const refusals:string[]=[];
       let target:CreatureInfo|PirateInfo|undefined;
-      // A mission's quarry, when one is named and legal to take, wins over the first thing here.
-      if(quarry)target=standing.find(one=>isCreature(one)&&namesSpecies(quarry,one.species)&&decline(one,undefined)===null);
+      // A named species, when legal to take, wins over the first thing here — the preference
+      // applies on every fresh read, not only the look that opened the stop. Under `strict` the
+      // fallback loop below enforces the same list anyway, so this pass only matters when it is
+      // loose. A mission's quarry is the same idea for a hunt naming no species of its own.
+      if(species.length)target=standing.find(one=>isCreature(one)&&species.includes(one.species)&&decline(one,[])===null);
+      if(!target&&quarry)target=standing.find(one=>isCreature(one)&&namesSpecies(quarry,one.species)&&decline(one,[])===null);
       if(!target)for(const one of standing) {
-        const why=decline(one,opts.species);
+        const why=decline(one,restrict);
         if(why===null){target=one;break;}
         refusals.push(why);
       }
@@ -568,7 +593,7 @@ export function hunt(opts:{poi?:string;look?:string[];fights?:number;species?:st
     /** Every place looked at and what was in it, which is what the search is worth when it
      * found nothing: the pilot can read it and not be sent back to the same rock. */
     const trailSaid=result.looked.map(row=>`${row.poi_id} (${row.saw?`${row.saw} seen, ${row.legal} legal`:'none'})`).join(', ');
-    const prey=opts.species??(wantPirates?'pirates':'anything huntable');
+    const prey=species.length?species.join(' or '):(wantPirates?'pirates':'anything huntable');
     // Nothing anywhere, having fought nothing: a fact learned, and `done`, because the looking
     // is the job when the prey's whereabouts are not knowable in advance. One place looked at
     // keeps the older, shorter sentence; a real search says where it went.
@@ -597,7 +622,7 @@ export function hunt(opts:{poi?:string;look?:string[];fights?:number;species?:st
         why:`${shortFuel}; looked at ${trailSaid}`,detail:result,
         next:['goTo a base and service(), then hunt a nearer list']};
     const did=`${result.fights.length} fight(s) at ${result.poi_id}: ${say(loot)||'no loot'}, hull ${hull}/${acct().state.ship?.max_hull??'?'}`;
-    if(result.ended==='tired')return {status:'partial',did,why:'Tired: broke off after the round in flight',detail:result,
+    if(result.ended==='tired')return {status:'partial',did,why:result.fights.length?'Tired: broke off after the round in flight':'Tired on arrival, so no fight was started',detail:result,
       next:['goTo a base and service(); that clears Tired']};
     if(result.ended==='stopped')return {status:'partial',did,why:'stopped by the pilot',detail:result};
     // A fight that could not be broken off is the fact that outranks the hull number: nothing

@@ -30,7 +30,7 @@ function fixture(refusals:number) {
     return account.send(tool,action,payload);
   };
   return {account,destination,command,attempts:()=>attempts,
-    run:()=>travelTo(account,command,destination,{mood:'Cautious',now:()=>0,sleep:async()=>{}})};
+    run:()=>travelTo(account,command,destination,{now:()=>0,sleep:async()=>{}})};
 }
 
 test('a move refused in_battle refuses with the battle named, and is never re-issued until the battle ends',async()=>{

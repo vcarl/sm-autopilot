@@ -8,7 +8,7 @@ what to engage is your judgement, and most of the judgement is about what not to
 
 | Function | Promise |
 |---|---|
-| `hunt({species?, look?, poi?, fights?, target?, onTick?})` | hunt a prey across a range of places: `look` is POI ids tried in order, and the fight happens where the prey actually is. `poi` is the one-place shorthand; naming neither hunts where you stand. Up to N fights in total, each wreck looted; finding nothing is `done` with zero fights. `onTick` is your own hand on the stance — see **Fighting with your own hand on the stance** |
+| `hunt({species?, strict?, look?, poi?, fights?, target?, onTick?})` | hunt a prey across a range of places: `look` is POI ids tried in order, and the fight happens where the prey actually is. `poi` is the one-place shorthand; naming neither hunts where you stand. `species` is one id or a list — any of them counts; by default it is a *preference*, and `strict: true` makes it a requirement (**Who is legal**). Up to N fights in total, each wreck looted; finding nothing is `done` with zero fights. `onTick` is your own hand on the stance — see **Fighting with your own hand on the stance** |
 | `disengage()` | break off whatever battle holds the ship (`stance flee`, then `brace` if it cannot get away) and wait until the battle has actually ended; true when it has. The one call to make when a move is refused `in_battle` |
 | `salvage({tow?})` | loot every wreck here into the hold, your own first; `tow: '<wreck id>'` tows that one instead |
 
@@ -44,7 +44,9 @@ export default async function main() {
     .map(p => p.id);
   if (!habitats.length) { note('no POIs in this system at all'); return here; }
 
-  // One call looks at each in turn and fights at the first that holds the prey.
+  // One call looks at each in turn and fights at the first that holds the prey. `species` is a
+  // preference here (the default): a Molt Grazer is fought if one turns up, and the first legal
+  // creature of any kind otherwise — a habitat with something else in it still earns two fights.
   const out = await hunt({species: 'molt_grazer', look: habitats, fights: 2});
 
   // What it looked at and what was in each, whether or not it fought.
@@ -55,7 +57,7 @@ export default async function main() {
     note('that list is empty; pick another system next run');
     return out;
   }
-  if (out.detail.ended === 'fuel') return out;     // the reserve refused the next hop; go refuel
+  if (out.detail.ended === 'fuel') return out;     // the tank cannot cover the next hop; go refuel
 
   if (dock) { await goTo(dock); await stow(out.gained.items); return service(); }
   return out;
@@ -64,10 +66,10 @@ export default async function main() {
 
 Three things to know about it:
 
-- **The looking is bounded by fuel.** Every hop is re-quoted and checked against your mood's fuel
-  reserve, and a hop the reserve refuses **ends** the search with `ended: 'fuel'` naming the place
-  — if you cannot afford the next POI you cannot afford the one after it. The search never spends
-  into the reserve to go looking.
+- **The looking is bounded by fuel.** Every hop is re-quoted and checked against the tank, and a
+  hop the tank cannot cover **ends** the search with `ended: 'fuel'` naming the place — if you
+  cannot afford the next POI you cannot afford the one after it. A hop that takes fuel under your
+  mood's reserve makes you Tired, and the search ends there with `ended: 'tired'`: go service.
 - **Every look is remembered, the empty ones included.** An empty belt is the more useful of the
   two facts: it is what stops you paying for the same dead rock next shift. A remembered look
   reports its own age, and an absence expires sooner than a sighting, because believing "nothing
@@ -258,8 +260,13 @@ A ship lost is now buffered as an alert, so the next juncture reads it. It did n
   reserved, free cargo for loot, credits for the repair after. `hunt` checks the weapon itself,
   and reloads an empty magazine from the hold when the rounds are aboard; with no rounds
   anywhere it is `refused` before anything is sent.
-- You know the kind: `species: 'molt_grazer'` narrows to one you have fought before. Without it
-  `hunt` takes the first creature the world does not decline.
+- You know the kind: `species: 'molt_grazer'` (or `species: ['molt_grazer', 'belt_grazer']`)
+  prefers one you have fought before. Without it, or when the named one is not here, `hunt`
+  takes the first creature the world does not decline. Only `strict: true` makes a name a
+  requirement rather than a preference — reach for it when a second species would not do, e.g.
+  a mission that counts kills of one species and nothing else. A whole evening was once lost to
+  a species that was never present and a `hunt` that refused everything else standing there —
+  that is the failure `strict`'s default of `false` exists to stop.
 - The system's `police_level` is above 20 unless you mean to meet pirates.
 - There is no insurance to fall back on. `service({insure: true})` accepts the flag and does
   nothing — it reports `insure: not implemented yet` and buys no cover — so a hull lost is lost
@@ -283,6 +290,11 @@ before and after, and `gained.items` is the cargo delta — a `loot` reply over-
 - **Pirates, your call.** `target: 'pirate'` needs no permission — any pirate, any crew, is
   yours to engage or leave, and the judgement is yours. Anything whose name carries `[POLICE]`
   is declined outright: attacking it is the crime, not the hunt.
+- **`species` is a preference by default, `strict: true` makes it a rule.** Left loose (the
+  default), a creature of a species you did not name is never declined for that — it is fought
+  when none of your named ones stand here. Under `strict: true`, a mismatch is declined with the
+  same wording as `in_combat`/`branded`: "X is <species>, not <named species>". Pirates ignore
+  both — `species`/`strict` are wildlife-only.
 - Players outside a declared war are never engaged here at all.
 
 ## The flee rule
