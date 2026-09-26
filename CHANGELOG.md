@@ -10,12 +10,11 @@ All notable changes to this plugin are recorded here. The format follows
 
 ### Added
 
-- `ask({question, choices?, effort?})` in the play library: the program pauses and hands the
+- `ask({question, choices?})` in the play library: the program pauses and hands the
   question back to the model that started it, and resumes with the answer. `spacemolt_run`
   returns early with the question; the new `spacemolt_answer` tool resumes the program and waits
   on the rest of the run; `spacemolt_stop` withdraws the question and returns the report. A
-  question left unanswered wakes the next juncture, which opens with it and runs at the
-  question's `effort`.
+  question left unanswered wakes the next juncture, which opens with it.
 - Continuous integration: every pull request and push to `main` runs the TypeScript typecheck
   and tests on Node 22.18.0 and the current LTS, `ruff check`, and the Python tests against a
   pinned Hermes release. A weekly run tests against Hermes' `main` so host drift shows up early.

@@ -3,7 +3,7 @@
 The bridge's half (pause, answer, reattach, stop) is pinned in ``src/ask.test.ts``. What these pin
 is what the model reads — the question, its choices and the one or two calls that move it on —
 and the fallback: a turn that ends unanswered leaves the question in ``run.json``, where the
-juncture gate lets the next fire through, leads its prompt with it, and pins its effort on the job.
+juncture gate lets the next fire through and leads its prompt with it.
 """
 from __future__ import annotations
 
@@ -16,7 +16,7 @@ import spacemolt
 from spacemolt import juncture, service
 from test_spacemolt_skills import _private
 
-QUESTION = {"question": "Which belt?", "choices": ["north", "south"], "effort": "high",
+QUESTION = {"question": "Which belt?", "choices": ["north", "south"],
             "asked_at": "2026-09-26T12:03:00Z"}
 
 # A bridge whose run is paused on QUESTION, answering as the real one does (src/bridge.ts).
@@ -69,9 +69,7 @@ def paused(tmp_path, monkeypatch):
     monkeypatch.setenv("SPACEMOLT_CREDENTIALS_FILE", str(credentials))
     monkeypatch.setenv("SPACEMOLT_RUNTIME_DIR", str(tmp_path / "runtime"))
     monkeypatch.setattr(service, "BRIDGE_COMMAND", [sys.executable, str(stub)])
-    synced: list[int] = []
-    monkeypatch.setattr(spacemolt, "ensure_juncture_job", lambda: synced.append(1) or {})
-    yield synced
+    yield
     service.close_bridge()
 
 
@@ -97,7 +95,6 @@ def test_a_run_with_no_source_while_paused_hands_the_question_back_and_starts_no
     picked_up = spacemolt._run({})
     _says_the_question_and_the_next_call(picked_up)
     assert "nothing new was started" in picked_up
-    assert paused, "a pause rewrites the job, so a fallback fire carries the question's effort"
 
 
 def test_an_answer_outside_the_choices_is_refused_with_the_question_again(paused):
@@ -108,7 +105,6 @@ def test_an_answer_outside_the_choices_is_refused_with_the_question_again(paused
     # The program is untouched: the right answer still lands, and the run's report comes back.
     report = spacemolt._answer({"answer": "south"})
     assert "answered: south" in report and "Done: went south." in report
-    assert paused, "an answer re-syncs the job, so the effort pin reverts"
 
 
 def test_an_answer_with_nothing_pending_is_refused_with_the_run_state(paused):
@@ -170,30 +166,6 @@ def test_the_gate_wakes_a_juncture_for_a_pending_question_and_leads_its_prompt_w
     _paused_on(None)
     assert juncture.gate_main() == 0
     assert capsys.readouterr().out.strip() == '{"wakeAgent": false}'
-
-
-def test_the_effort_is_pinned_on_the_job_while_a_question_waits_and_gone_after():
-    from cron import jobs as cron_jobs
-    juncture.write_pilot({"name": "kvothe", "stance": "Prospector", "mood": "Focused"})
-
-    assert "reasoning_effort" not in juncture.job_fields({})
-    job = juncture.ensure_juncture_job()
-    assert not cron_jobs.get_job(job["job_id"]).get("reasoning_effort")
-
-    _paused_on(QUESTION)
-    assert juncture.job_fields({})["reasoning_effort"] == "high"
-    juncture.ensure_juncture_job()
-    assert cron_jobs.get_job(job["job_id"])["reasoning_effort"] == "high"
-
-    # A question with no effort pins nothing either.
-    _paused_on({k: v for k, v in QUESTION.items() if k != "effort"})
-    assert "reasoning_effort" not in juncture.job_fields({})
-
-    _paused_on(None)
-    assert "reasoning_effort" not in juncture.job_fields({})
-    juncture.ensure_juncture_job()
-    assert not cron_jobs.get_job(job["job_id"]).get("reasoning_effort")
-    assert len(cron_jobs.load_jobs()) == 1
 
 
 def test_a_fire_on_a_paused_run_is_given_the_question_as_its_context(monkeypatch):

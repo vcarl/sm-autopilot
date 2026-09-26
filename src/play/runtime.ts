@@ -66,11 +66,8 @@ export interface Call {fn:string;arg:string;status:Status;did:string;
 let calls:Call[]=[];
 export const runCalls=()=>calls;
 
-/** How hard the model should think about a question, as Hermes spells reasoning effort. */
-export type Effort='low'|'medium'|'high'|'xhigh'|'max';
-const EFFORTS:readonly string[]=['low','medium','high','xhigh','max'];
 /** A question the program is paused on, as run.json and the tools carry it. */
-export interface Question {question:string;choices?:string[];effort?:Effort;asked_at:string}
+export interface Question {question:string;choices?:string[];asked_at:string}
 let asking:{question:Question;resolve:(answer:string)=>void;reject:(error:unknown)=>void}|null=null;
 /** The question the program is paused on, or null. */
 export const pendingQuestion=():Question|null=>asking?.question??null;
@@ -133,10 +130,8 @@ export const checkStop=()=>{if(stopFlag)throw new Stopped();};
 /** Pause the program and put a question to the model that is running it; resolves to its
  * answer, which is always one of `choices` when they are given. There is no timeout: the
  * program waits until the answer comes, or rejects with `Stopped` when the run is stopped.
- * A model call takes minutes, so ask at a strategic fork, never once per tick. `effort` asks
- * a juncture that picks the question up later to think harder; it cannot change a session
- * already running. */
-export function ask(asked:{question:string;choices?:string[];effort?:Effort}):Promise<string> {
+ * A model call takes minutes, so ask at a strategic fork, never once per tick. */
+export function ask(asked:{question:string;choices?:string[]}):Promise<string> {
   need();
   if(stopFlag)return Promise.reject(new Stopped());
   const text=String(asked?.question??'').trim();
@@ -145,11 +140,10 @@ export function ask(asked:{question:string;choices?:string[];effort?:Effort}):Pr
     :asking?'ask: a question is already pending; await one before asking the next'
     :choices!==undefined&&(!Array.isArray(choices)||!choices.length||choices.some(c=>typeof c!=='string'||!c.trim()))
       ?'ask: choices must be a non-empty list of non-empty strings'
-    :asked.effort!==undefined&&!EFFORTS.includes(asked.effort)?`ask: effort must be one of ${EFFORTS.join(', ')}`
     :null;
   if(refused)return Promise.reject(new Error(refused));
   const question:Question={question:text,...choices?{choices:[...choices]}:{},
-    ...asked.effort?{effort:asked.effort}:{},asked_at:new Date().toISOString()};
+    asked_at:new Date().toISOString()};
   return new Promise<string>((resolve,reject)=>{
     asking={question,resolve,reject};
     recordQuestion(question);

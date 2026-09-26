@@ -130,21 +130,10 @@ def _run(arguments: dict[str, Any] | None = None, **_: Any) -> str:
     return _report(result, lines)
 
 
-def _sync_job() -> None:
-    """Rewrite the juncture job from run.json, so a pending question's effort is pinned on it
-    and a cleared one's is dropped. A cron failure never costs the pilot its question."""
-    try:
-        ensure_juncture_job()
-    except Exception:  # noqa: BLE001, S110 - the gate still wakes a fire for the question
-        pass
-
-
-def _report(result: dict[str, Any], lines: list[str], asked: bool = False) -> str:
+def _report(result: dict[str, Any], lines: list[str]) -> str:
     """What a request that waited on the run hands back: the streamed lines, then either the
     question the program paused on, with the calls that move it on, or the run's end."""
     question = result.get("question") if result.get("paused") else None
-    if question or asked:
-        _sync_job()
     if not question:
         return "\n".join(lines) or json.dumps(result, separators=(",", ":"))
     head = ("You picked up the question your running program is waiting on; nothing new was "
@@ -161,7 +150,7 @@ def _answer(arguments: dict[str, Any] | None = None, **_: Any) -> str:
     except Exception as error:  # noqa: BLE001 - any bridge failure becomes the tool's refusal, not a crash
         return json.dumps({"accepted": False, "reason": str(error)}, separators=(",", ":"))
     if result.get("accepted"):
-        return _report(result, lines, asked=True)
+        return _report(result, lines)
     if isinstance(result.get("question"), dict):
         return (f"Not delivered: {result.get('reason')}. The program is still paused, untouched.\n\n"
                 + question_text(result["question"]))
@@ -228,7 +217,6 @@ def _stop(arguments: dict[str, Any] | None = None, **_: Any) -> str:
     withdrawn = result.get("withdrawn") if isinstance(result, dict) else None
     if not isinstance(withdrawn, dict):
         return json.dumps(result, separators=(",", ":"))
-    _sync_job()
     report = "\n".join(lines) or str(result.get("prose") or "")
     return (f"The question {withdrawn.get('question')!r} was withdrawn and the program stopped. "
             f"Nothing is waiting on an answer now; this is the run's report:\n\n{report}")

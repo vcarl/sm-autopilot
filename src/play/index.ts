@@ -2,7 +2,7 @@
  * pilot needs. The folder barrels (`play/mining` …) exist for reading and for a narrower
  * import; they export the same functions. */
 export type {Outcome,Present,Row,Status,Want} from './types.ts';
-export {account,ask,note,outcome,pilot,stopped,type Effort,type Mood,type Pilot,type Stance} from './runtime.ts';
+export {account,ask,note,outcome,pilot,stopped,type Mood,type Pilot,type Stance} from './runtime.ts';
 export {orient,scout,type Orientation,type ScoutReport} from './orient.ts';
 export {goTo,type Trip} from './travel.ts';
 export {service,type Serviced} from './service.ts';

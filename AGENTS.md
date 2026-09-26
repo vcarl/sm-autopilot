@@ -51,10 +51,9 @@ wakes the fire anyway, and the gate prints the question, which cron puts at the 
 
 Cron is reached through the **`cronjob_manage` tool**, via `ctx.dispatch_tool` (the plugin API)
 or the tool registry when there is no plugin context. `check_cronjob_requirements` gates schema
-*exposure*, not dispatch, so both work. The two exceptions are `mark_due`, which needs
-`cron.jobs.trigger_job`, and `pin_effort`, which needs `cron.jobs.update_job` because the tool
-drops `reasoning_effort` on purpose — their docstrings say why, and they are the plugin's only
-imports from a Hermes module. Do not "finish the job" by routing it through `cronjob_manage`'s `run`: that
+*exposure*, not dispatch, so both work. The one exception is `mark_due`, which needs
+`cron.jobs.trigger_job` — its docstring says why, and that is the plugin's only import from a
+Hermes module. Do not "finish the job" by routing it through `cronjob_manage`'s `run`: that
 executes the fire in the calling process, which is wrong in all three places it happens.
 
 ### Skills

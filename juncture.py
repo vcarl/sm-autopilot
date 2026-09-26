@@ -560,13 +560,8 @@ def job_fields(pilot: dict[str, Any]) -> dict[str, Any]:
 
     No ``workdir``, which is what makes cron open the conversation with
     ``skip_context_files=True`` — a juncture is the pilot's world, not a project's.
-
-    ``reasoning_effort`` is present exactly while the running program is paused on a question
-    that asked for one, so the fire that picks the question up thinks as hard as it asked; the
-    next rewrite after the question clears drops it.
     """
     folder = STANCE_FOLDER.get(str(pilot.get("stance") or "").strip())
-    effort = (pending_question() or {}).get("effort")
     return {
         "prompt": JUNCTURE_PROMPT,
         # Namespaced plugin skills: registered by the plugin, resolved by cron through the
@@ -577,7 +572,6 @@ def job_fields(pilot: dict[str, Any]) -> dict[str, Any]:
         # with no model turn. ``update_job`` merges fields, so a live job gains it on the next
         # ensure without being deleted.
         "script": install_gate(),
-        **({"reasoning_effort": str(effort)} if effort else {}),
     }
 
 
@@ -622,30 +616,13 @@ def ensure_juncture_job(schedule: str = IDLE_SCHEDULE) -> dict[str, Any]:
     pilot = read_pilot()
     name = job_name(pilot)
     fields = job_fields(pilot)
-    effort = fields.pop("reasoning_effort", None)
     existing = next((job for job in cron_manage(action="list")["jobs"]
                      if job.get("name") == name), None)
     if existing is not None:
         job = cron_manage(action="update", job_id=existing["job_id"], **fields)["job"]
     else:
         job = cron_manage(action="create", schedule=schedule, name=name, **fields)["job"]
-    pin_effort(job, effort)
     return job
-
-
-def pin_effort(job: dict[str, Any], effort: str | None) -> None:
-    """Set the job's ``reasoning_effort`` to ``effort``, or clear it.
-
-    The plugin's second reach into a Hermes module, and it has to be: ``cronjob_manage`` drops
-    ``reasoning_effort`` on purpose (``_HANDLER_FORWARDED_ARGS`` — "models don't pick models"),
-    so the tool cannot carry it. ``cron.jobs.update_job`` is the store's own public writer and
-    validates the level; an empty string is its documented way to clear the pin. Written only
-    when it differs, so an ordinary rewrite never touches the field.
-    """
-    from cron.jobs import get_job, update_job
-
-    if ((get_job(job["job_id"]) or {}).get("reasoning_effort") or None) != (effort or None):
-        update_job(job["job_id"], {"reasoning_effort": effort or ""})
 
 
 def mark_due(job: dict[str, Any]) -> dict[str, Any]:

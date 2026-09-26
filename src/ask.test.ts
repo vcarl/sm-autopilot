@@ -16,7 +16,7 @@ const PILOT:Pilot={name:'kvothe',stance:'Prospector',mood:'Focused'};
 
 const ASKS="import {ask, note, outcome} from 'play';\n"+
   "export default async function main(){\n"+
-  "  const pick=await ask({question:'Which belt?',choices:['north','south'],effort:'high'});\n"+
+  "  const pick=await ask({question:'Which belt?',choices:['north','south']});\n"+
   "  note(`picked ${pick}`);\n"+
   "  return outcome(`went ${pick}`);\n"+
   "}\n";
@@ -43,14 +43,13 @@ test('a program that asks pauses: the run answers early with the question, and t
     assert.equal(paused.accepted,true);
     assert.equal(paused.paused,true);
     assert.deepEqual({...paused.question,asked_at:undefined},
-      {question:'Which belt?',choices:['north','south'],effort:'high',asked_at:undefined});
+      {question:'Which belt?',choices:['north','south'],asked_at:undefined});
     assert.ok(Date.parse(paused.question.asked_at));
     assert.ok(f.lines.some(line=>line.includes('Which belt?')),'the question is streamed and journalled too');
     // Durable for the juncture gate, which cannot ask the bridge anything.
     const record=readRun(f.runtime)!;
     assert.equal(record.ended,false);
     assert.equal((record.question as any).question,'Which belt?');
-    assert.equal((record.question as any).effort,'high');
 
     // The status row: a paused run is still running, and says what it is waiting on.
     const status=await f.send('status');

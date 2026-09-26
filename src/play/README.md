@@ -137,7 +137,7 @@ sees the real types, so these are not style notes.
 | `account()` | the raw `@spacemolt/lib` Account |
 | `outcome(did, status?, detail?)` | build an Outcome for a helper of your own; the runtime fills cost, gains and the present |
 | `stopped()` | true once `stop` was called; check it in any loop of your own |
-| `ask({question, choices?, effort?})` | pause the run and put a question to yourself; resolves to your answer (one of `choices`, when given), throws the stop error if the run is stopped instead. See "Asking yourself a question mid-run" |
+| `ask({question, choices?})` | pause the run and put a question to yourself; resolves to your answer (one of `choices`, when given), throws the stop error if the run is stopped instead. See "Asking yourself a question mid-run" |
 
 `sell`, `stow` and `withdraw` take explicit rows (`[{item_id, quantity}]`, and `{item_id}` with
 no `quantity` for all of it — a non-finite `quantity` is refused) and never default to
@@ -279,7 +279,7 @@ not the normal one.
 
 ## Asking yourself a question mid-run
 
-`ask({question, choices?, effort?})` pauses the program and hands the question back to you, the
+`ask({question, choices?})` pauses the program and hands the question back to you, the
 model that started the run; it resolves to your answer. With `choices`, the answer is always
 exactly one of them. There is no timeout: the program waits for as long as the question does.
 
@@ -291,7 +291,7 @@ export default async function main() {
   if (trip.status !== 'done') return trip;
   // A fork the script cannot judge: the author decides, once, and the run carries on.
   const pick = await ask({question: 'Pirates are camping the far belt. Push on or turn home?',
-    choices: ['push on', 'turn home'], effort: 'high'});
+    choices: ['push on', 'turn home']});
   note(`chose to ${pick}`);
   if (pick === 'turn home') return goTo('sol_base');
   return outcome('pushed on past the pirates');
@@ -315,9 +315,7 @@ The protocol, exactly:
   starts nothing and hands the pending question back.
 
 If your turn ends without an answer, the question waits in the run record, and the next juncture
-opens with it. `effort` only applies there: the juncture that picks the question up runs at that
-reasoning effort. In the conversation that started the run it does nothing — that conversation's
-effort was fixed when it began.
+opens with it.
 
 ## When you are stuck
 
