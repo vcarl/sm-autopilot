@@ -467,3 +467,26 @@ test('a distress call one jump off the route is answered, two jumps off or expir
   // The same plan with a tank that only covers the direct route drops the detour.
   assert.deepEqual(distressPlan({...quote,fuel_available:56},[at('onRoute','c'),at('near','x')],legs,24).map(s=>s.id),['onRoute']);
 });
+
+test('a yard listing whose class the catalogue cannot answer for is skipped, not fatal',async()=>{
+  // Live 2026-09-26, three times in one turn: `inspect` answered `Ship class "rubble" not found.` for
+  // a `class_id` the yard's own `browse_ships` had just handed us. The game is inconsistent with
+  // itself there, and `shipClass` did not catch — so `command` rethrew, `shipsForSale()` threw, and
+  // the whole run ended `failed`. Every turn, at the same yard, forever: exactly the shape of fault
+  // that loops at continuous cadence.
+  //
+  // A hull we cannot read is a hull we cannot compare, so it is left off the board. The listings we
+  // CAN read are still worth having, which is what makes skipping right and throwing wrong.
+  // No shipyard here: commissions are a different path and this is about the listings.
+  const f=world({mood:'Focused'},['refuel','repair','storage'],
+    {cargoUsed:0,hangar:{unknownClasses:['rubble'],
+      listings:[{listing_id:'l1',ship_id:'s2',class_id:'rubble',price:100},
+        {listing_id:'l2',ship_id:'s3',class_id:'hauler_ii',price:800}]}});
+  try {
+    const board=await shipsForSale();
+    assert.equal(board.status,'done',`an unreadable listing broke the whole read: ${board.why}`);
+    const ids=(board.detail.for_sale??[]).map(row=>row.kind==='listing'?row.listing.class_id:'commission');
+    assert.ok(!ids.includes('rubble'),`a hull nothing can be read about was offered: ${JSON.stringify(ids)}`);
+    assert.ok(ids.includes('hauler_ii'),`the readable listing was lost with the unreadable one: ${JSON.stringify(ids)}`);
+  } finally {unbind();}
+});

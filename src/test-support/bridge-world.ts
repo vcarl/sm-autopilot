@@ -130,6 +130,11 @@ export interface PassengerOptions {
 export interface HangarOptions {
   fitted?:{module_id:string;type_id:string;slot:string;cpu_usage:number;power_usage:number}[];
   listings?:{listing_id:string;ship_id:string;class_id:string;price:number}[];
+  /** Class ids `inspect` refuses outright, the way the live server does: observed 2026-09-26, a yard
+   * listed a hull whose `class_id` was `rubble` and `inspect` answered `Ship class "rubble" not
+   * found.` A yard that lists a class its own catalogue cannot answer for is the game being
+   * inconsistent with itself, and the library has to survive it. */
+  unknownClasses?:string[];
 }
 
 /** What `inspect` answers for a module id: the slot it takes and its draw on the grid. */
@@ -629,6 +634,8 @@ export function bridgeWorld(options:WorldOptions={}) {
           base:{poi_id:id,...quotes[id]!.hull===undefined?{}:{repair_price_per_hull:quotes[id]!.hull}}}}};
       if(Object.hasOwn(MODULES,id))return {structuredContent:{id,kind:'module',source:'catalog',
         catalog:page([MODULES[id]!],'items')}};
+      if((options.hangar?.unknownClasses??[]).includes(id))
+        throw new Error(`Ship class "${id}" not found.`);
       if(Object.hasOwn(CLASSES,id))return {structuredContent:{id,kind:'ship_class',source:'catalog',
         catalog:page([CLASSES[id]!],'ships')}};
       return {structuredContent:{id,kind:'item',source:'catalog',

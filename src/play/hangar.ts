@@ -145,10 +145,23 @@ export type ForSale=
   |{kind:'listing';listing:ShipListing;class:ShipClass;versus:string}
   |{kind:'commission';quote:CommissionQuoteResponse;class:ShipClass;versus:string};
 
-/** The catalog entry for a ship class (`spacemolt/inspect`). */
+/** The catalog entry for a ship class (`spacemolt/inspect`), or nothing when the catalogue cannot
+ * answer for it.
+ *
+ * A yard lists hulls whose class its own catalogue rejects: live 2026-09-26, `browse_ships` handed us
+ * `class_id: 'rubble'` and `inspect` answered `Ship class "rubble" not found.` three times in one
+ * turn. That is the game being inconsistent with itself, and it used to throw straight out through
+ * `shipsForSale()` and end the run `failed` — at the same yard, every turn. A hull we cannot read is
+ * a hull we cannot compare, so it is left off the board; the listings we CAN read are still worth
+ * having, which is why this skips rather than propagates. */
 async function shipClass(id:string):Promise<ShipClass|undefined> {
-  const entry=(details(await command('spacemolt/inspect',{id})) as InspectResponse).catalog?.items?.[0];
-  return entry&&'class' in entry?entry as ShipClass:undefined;
+  try {
+    const entry=(details(await command('spacemolt/inspect',{id})) as InspectResponse).catalog?.items?.[0];
+    return entry&&'class' in entry?entry as ShipClass:undefined;
+  } catch(error) {
+    step(`${id}: no catalogue entry (${error instanceof Error?error.message:String(error)}); listing skipped`);
+    return undefined;
+  }
 }
 
 /** The difference against the hull you fly, in the fields that decide a trip. */
