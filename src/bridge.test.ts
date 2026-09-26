@@ -164,9 +164,9 @@ test('the journal keeps a menu move by its call and a refusal by its reason', ()
     present:{system:'sys_a',hold:[{item_id:'carbon_ore',quantity:61}]},text:'Menu — …\n  - `hunt()` — …',
     moves:[{call:'service()',why:'Tired: resupply here clears it',advances:'ship'},
       {call:"goTo('base_iron')",why:'the nearest serviced base',advances:'ship'}],
-    not_now:[{move:'gatherUntil',why:'fuel 12, need 30 with the Cautious reserve 18'}]}) as any;
+    not_now:[{move:'gatherUntil',why:'fuel 12, the route to belt needs 30'}]}) as any;
   assert.deepEqual(menu.moves,['service()',"goTo('base_iron')"],'the call is what the journal keeps');
-  assert.deepEqual(menu.not_now,['gatherUntil: fuel 12, need 30 with the Cautious reserve 18']);
+  assert.deepEqual(menu.not_now,['gatherUntil: fuel 12, the route to belt needs 30']);
   assert.equal(menu.mood,'Tired');
   assert.equal(menu.present,undefined,'the world body still never reaches the journal');
   assert.equal(menu.text,undefined,'nor the rendered menu');

@@ -13,7 +13,7 @@ const base:Outcome<{}>={fn:'service',status:'done',did:'serviced at frontier_sta
 test('prose answers the four questions in order and drops empty rows',()=>{
   assert.equal(prose(base),
     'Done: serviced at frontier_station.\nCost this run: 9 cr, 1 min.\n'+
-    'Now: docked at frontier_station (The Telescope), fuel 120/120, hull 105/105, hold 0/120, 221,615 cr, mood Focused.');
+    'Now: docked at frontier_station (The Telescope), fuel 120/120, hull 105/105, hold 0/120 (fuel cells 0/6), 221,615 cr, mood Focused.');
   const rich=prose({...base,status:'partial',why:'Tired',fn:'gatherUntil',did:'2 trips',
     cost:{credits:0,fuel:0,hull:0,minutes:0},gained:{credits:8589,items:[{item_id:'iridium_ore',quantity:26}],xp:{mining:540}},
     now:{...base.now,mood:'Tired',tired_by:'fuel 3 under the Focused reserve 24'},next:['sell the iridium']});

@@ -11,9 +11,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
-#: The namespace ``ctx.register_skill`` puts these under: the plugin's name, which is this
-#: package's name. ``plugin.yaml`` sets no ``skill_namespace``, so the manifest name is it.
-NAMESPACE = __package__ or "spacemolt"
+#: The namespace ``ctx.register_skill`` puts these under: the manifest's ``name``, since
+#: ``plugin.yaml`` sets no ``skill_namespace``. Never ``__package__``: Hermes imports the plugin as
+#: ``hermes_plugins.spacemolt``, and a dotted namespace is refused, so every skill was skipped.
+NAMESPACE = "spacemolt"
 #: The base skill's name. Not ``spacemolt``: under the namespace that reads ``spacemolt:spacemolt``,
 #: and what the README documents is the play library, which is how the pilot plays.
 SHARED_SKILL = "play"

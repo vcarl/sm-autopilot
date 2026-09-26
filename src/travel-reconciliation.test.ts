@@ -39,7 +39,7 @@ function fixture(kind:'jump'|'travel',mode:'arrived'|'elsewhere'|'fuel'|'timeout
       attempts++;
       if(attempts===1) {
         server.location.system_id='';server.location.poi_id='';
-        server.ship.fuel=mode==='fuel'?49:50;server.ship.cargo_used=40;
+        server.ship.fuel=mode==='fuel'?19:50;server.ship.cargo_used=40;
         assert.equal(account.state.location!.system_id,'a');
         assert.equal(account.state.ship!.fuel,100);
         throw firstError;
@@ -60,7 +60,7 @@ function fixture(kind:'jump'|'travel',mode:'arrived'|'elsewhere'|'fuel'|'timeout
     const [tool,action]=name.split('/');
     return account.send(tool,action,payload);
   };
-  const options={mood:'Cautious' as const,now:()=>time,maxWaitMs:65_001,
+  const options={now:()=>time,maxWaitMs:65_001,
     sleep:async(ms:number)=>{
       sleeps.push(ms);time+=ms;
       if(!server.location.system_id&&mode!=='timeout'&&time>=resolveAt) {
@@ -102,7 +102,7 @@ test('rejected local travel or jump reconciles unknown location at destination o
       assert.equal(quote.state.location.poi_id,f.resolved.poi_id);
       assert.equal(quote.state.ship.fuel,50);
       assert.equal(quote.state.ship.cargo_used,40+observedAt/2_000);
-      assert.equal(f.server.ship.fuel,30,'fresh route cost plus Cautious reserve is the exact boundary');
+      assert.equal(f.server.ship.fuel,30,'the fresh route cost is what the leg spends');
     }
     assert.equal(result.location!.system_id,f.destination.system_id);
     if(kind==='travel')assert.equal(result.location!.poi_id,f.destination.poi_id);
@@ -119,7 +119,7 @@ test('post-rejection reconciliation blocks fuel shortfalls, unresolved location,
   for(const kind of ['jump','travel'] as const)for(const mode of ['fuel','timeout','second','pending','transport'] as const) {
     const f=fixture(kind,mode);
     await assert.rejects(f.run(),error=>mode==='fuel'?
-      error instanceof TravelBlocked&&/have 49, need 50; shortfall 1 fuel units/.test(error.message):
+      error instanceof TravelBlocked&&/have 19, need 20; shortfall 1 fuel units/.test(error.message):
       mode==='timeout'?error instanceof ArrivalUnresolved:error===(mode==='second'?f.secondError:f.firstError));
     const actions=['find_route',...f.movementActions];
     if(mode==='fuel'||mode==='second')actions.push('find_route');
@@ -129,7 +129,7 @@ test('post-rejection reconciliation blocks fuel shortfalls, unresolved location,
     if(mode==='fuel'||mode==='second') {
       assert.equal(f.quotes[1].state.location.system_id,f.resolved.system_id);
       assert.equal(f.quotes[1].state.location.poi_id,f.resolved.poi_id);
-      assert.equal(f.quotes[1].state.ship.fuel,mode==='fuel'?49:50);
+      assert.equal(f.quotes[1].state.ship.fuel,mode==='fuel'?19:50);
       assert.equal(f.quotes[1].state.ship.cargo_used,55);
       assert.equal(f.quotes[1].at,30_000);
       assert.equal(f.now(),30_000);

@@ -26,9 +26,9 @@ export interface GatherOptions extends TravelOptions {
   onStep?:(step:GatherStep,moved:{yield:MineYieldRow[];deposited?:MineYieldRow[]})=>void;
   /** The mining loop's own hooks: a stop reason per tick and a running-yield line. */
   mine?:MineOptions;
-  /** The mood to fly the next leg on, read when that leg starts. The runtime imposes Tired
+  /** The mood in force now, read when the service step starts. The runtime imposes Tired
    * between any two commands, so the mood the job was planned under is stale by the time the
-   * leg home is flown — and a leg flown on a stale mood is flown on the wrong fuel reserve.
+   * ship is home — and Tired's service margin is the one a resupply needs.
    * Defaults to `plan.mood`, which is what a caller with no live pilot record has. */
   moodNow?:()=>Mood;
 }
@@ -155,13 +155,11 @@ export async function gatherJob(account:ReadinessAccount,command:ReadinessComman
   const steps:GatherStep[]=[];
   let mined:MineYieldRow[]=[],settled:SettleOutcome|null=null,serviced:ServiceOutcome|null=null;
   const {onStep,mine:mineOptions,moodNow,...travelOptions}=options;
-  /** The mood this leg flies on, read as the leg starts rather than when the job was planned:
-   * Tired arrives mid-job and carries its own fuel reserve, and the leg home is quoted against
-   * the mood the pilot is in now. */
+  /** The mood in force now, read when it is needed rather than when the job was planned. */
   const mood=()=>moodNow?.()??plan.mood;
-  // maxJumps null: each leg may cross systems, bounded by the mood's fuel reserve rather
+  // maxJumps null: each leg may cross systems, bounded by the tank covering the route rather
   // than a jump count, as travel is.
-  const legOptions=():TravelOptions=>({maxJumps:null as number|null,...travelOptions,mood:mood(),moodNow:mood});
+  const legOptions=():TravelOptions=>({maxJumps:null as number|null,...travelOptions});
   // What this site gives, read from the world at the site itself (`V2Location.resources`).
   // That list, not the hold at departure, is what the job may stow.
   const gives=new Set<string>();

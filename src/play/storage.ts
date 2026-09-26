@@ -1,7 +1,7 @@
 /** Station storage: custody that survives death, readable from anywhere, moved only when
  * docked. Never sells, never buys. */
 import type {V2CargoItem,ViewStorageResponse} from '@spacemolt/lib';
-import {miningInventory} from '../mining-inventory.ts';
+import {disposable,miningInventory} from '../mining-inventory.ts';
 import {details} from '../response-details.ts';
 import {acct,checkStop,command,job,step,wanted} from './runtime.ts';
 import type {Outcome,Row,Want} from './types.ts';
@@ -57,7 +57,7 @@ async function move(fn:'stow'|'withdraw',items:Want[]):Promise<Outcome<Moved>> {
     for(const row of asked) {
       checkStop();
       const free=(acct().state.ship?.cargo_capacity??0)-(acct().state.ship?.cargo_used??0);
-      const available=fn==='stow'?carried[row.item_id]??0:held(store.items,row.item_id);
+      const available=fn==='stow'?disposable(acct().state)[row.item_id]??0:held(store.items,row.item_id);
       const quantity=Math.min(row.quantity===Infinity?available:row.quantity,available,fn==='withdraw'?Math.max(0,free):Infinity);
       if(quantity<=0) {
         short.push({item_id:row.item_id,requested:row.quantity,moved:0,

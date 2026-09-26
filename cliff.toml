@@ -1,0 +1,32 @@
+# Release notes from Conventional Commits. Releases are CalVer tags, YYYY.M.patch.
+
+[changelog]
+header = "# Changelog\n"
+body = """
+{% if version %}## {{ version }} — {{ timestamp | date(format="%Y-%m-%d") }}{% else %}## Unreleased{% endif %}
+{% set breaking = commits | filter(attribute="breaking", value=true) %}
+{% if breaking %}
+### Action required
+{% for commit in breaking %}
+- {{ commit.breaking_description | default(value=commit.message) | upper_first }}
+{% endfor %}{% endif %}
+{% for group, commits in commits | filter(attribute="breaking", value=false) | group_by(attribute="group") %}
+### {{ group | striptags | trim }}
+{% for commit in commits %}
+- {% if commit.scope %}**{{ commit.scope }}:** {% endif %}{{ commit.message | upper_first }}
+{% endfor %}{% endfor %}
+"""
+trim = true
+
+[git]
+conventional_commits = true
+filter_unconventional = true
+protect_breaking_commits = true
+filter_commits = true
+tag_pattern = "^v?[0-9]{4}\\.[0-9]{1,2}\\.[0-9]+$"
+commit_parsers = [
+  { message = "^feat", group = "<!-- 0 -->Added" },
+  { message = "^fix", group = "<!-- 1 -->Fixed" },
+  { message = "^perf", group = "<!-- 2 -->Faster" },
+  { message = ".*", group = "<!-- 9 -->Internal", skip = true },
+]

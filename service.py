@@ -31,7 +31,7 @@ REQUEST_TIMEOUT = 1800.0
 CLOSE_TIMEOUT = 5.0  # per stage of the EOF → SIGTERM → SIGKILL escalation
 
 _lock = threading.RLock()
-_bridge: "Bridge | None" = None
+_bridge: Bridge | None = None
 
 
 def source_fingerprint() -> str:
@@ -93,7 +93,7 @@ def render_journal(limit: int) -> str:
     like; a copy in two languages would drift the first time a step gained a field.
     """
     done = subprocess.run([*RENDER_COMMAND, str(runtime_dir()), str(limit)],
-                          cwd=HERE, capture_output=True, text=True, timeout=RENDER_TIMEOUT)
+                          cwd=HERE, capture_output=True, text=True, timeout=RENDER_TIMEOUT, check=False)
     if done.returncode != 0:
         raise RuntimeError(done.stderr.strip()[-400:] or "the journal would not render")
     return done.stdout.strip()
@@ -169,7 +169,7 @@ class Bridge:
                 message = json.loads(line)
                 box = self.waiting.get(str(message.get("id")))
                 (box if box is not None else self.inbox).put(message)
-        except Exception as error:  # a malformed line kills the bridge rather than desyncing ids
+        except Exception as error:  # noqa: BLE001 - a malformed line kills the bridge rather than desyncing ids
             self.inbox.put(error)
             for box in list(self.waiting.values()):
                 box.put(error)
@@ -179,7 +179,7 @@ class Bridge:
             for box in list(self.waiting.values()):
                 box.put(closed)
 
-    def _receive(self, timeout: float, box: "queue.Queue | None" = None) -> dict[str, Any]:
+    def _receive(self, timeout: float, box: queue.Queue | None = None) -> dict[str, Any]:
         try:
             value = (box if box is not None else self.inbox).get(timeout=timeout)
         except queue.Empty as error:
@@ -231,14 +231,14 @@ class Bridge:
                 continue
 
 
-def _in_flight(bridge: "Bridge") -> bool:
+def _in_flight(bridge: Bridge) -> bool:
     """Is work going on that a recycle would destroy? A request of ours still waiting for its
     reply, or a run the bridge has not ended — the signal the wake gate reads."""
     from .juncture import run_in_flight
     return bool(bridge.waiting) or run_in_flight()
 
 
-def _defer_reload(bridge: "Bridge", sources: str) -> None:
+def _defer_reload(bridge: Bridge, sources: str) -> None:
     """Say once, in the pilot's journal, that newer code is on disk and the run in flight keeps
     the bridge it has. Tearing down a working run to pick up an edit costs more than waiting."""
     if bridge.deferred == sources:

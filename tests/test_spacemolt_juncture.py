@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import copy
 import json
+import os
 import re
 
 import spacemolt
@@ -388,3 +389,51 @@ def test_reflect_sets_goal_and_stance_through_the_bridge_whatever_the_pilot_is_d
     bad = spacemolt._reflect({"stance": "Cowboy"})
     assert "Cowboy" in bad and "Prospector" in bad and sent == []
     assert "Nothing to write" in spacemolt._reflect({})
+
+
+_GATEWAY_LOAD = """
+import json, sys
+sys.path.insert(0, sys.argv[1])
+from tools.registry import registry
+assert registry.get_entry("cronjob_manage") is None, "the premise: core tools load after plugins"
+from hermes_cli.plugins import discover_plugins
+discover_plugins()
+from cron.jobs import load_jobs
+print(json.dumps(load_jobs()))
+"""
+
+
+def test_a_fresh_profile_loaded_as_the_gateway_loads_it_gets_its_juncture_job(tmp_path):
+    """Live 2026-09-26: gateway startup calls ``discover_plugins()`` before anything imports the
+    core tools, so ``cronjob_manage`` was not yet registered when ``register()`` wrote the job
+    through ``ctx.dispatch_tool``. The load swallowed "Unknown tool", and a fresh install never
+    had a job. In-process tests cannot see it — pytest has the tools loaded by then — so this is a
+    fresh interpreter on a fresh home, the plugin installed and enabled, and nothing else."""
+    import subprocess
+    import sys
+
+    from conftest import HERMES, ROOT
+
+    home = tmp_path / "fresh"
+    (home / "plugins").mkdir(parents=True)
+    (home / "plugins" / "spacemolt").symlink_to(ROOT, target_is_directory=True)
+    (home / "config.yaml").write_text("plugins:\n  enabled:\n    - spacemolt\n  disabled: []\n")
+    env = {**os.environ, "HERMES_HOME": str(home), "HERMES_TEST_ISOLATION": str(home)}
+    done = subprocess.run([sys.executable, "-c", _GATEWAY_LOAD, str(HERMES)], env=env, cwd=tmp_path,
+                          capture_output=True, text=True, timeout=120, check=False)
+    assert done.returncode == 0, done.stderr[-2000:]
+    jobs = json.loads(done.stdout.strip().splitlines()[-1])
+    assert [job["skills"] for job in jobs] == [["spacemolt:play"]], done.stderr[-2000:]
+
+
+def test_a_failed_job_write_on_load_is_written_down(monkeypatch):
+    """A load that cannot write the job leaves a pilot that never flies and looks idle, so the
+    failure goes to the journal and the log rather than nowhere."""
+    def refuse(**args):
+        raise RuntimeError("cronjob_manage list: Unknown tool: cronjob_manage")
+
+    monkeypatch.setattr(spacemolt, "ensure_juncture_job", refuse)
+    spacemolt.wake_on_load()
+    events = [json.loads(line) for line in
+              (service.runtime_dir() / juncture.JOURNAL_FILE).read_text().splitlines()]
+    assert events[-1]["event"] == "wake_failed" and "Unknown tool" in events[-1]["error"]

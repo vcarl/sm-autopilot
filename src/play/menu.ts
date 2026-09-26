@@ -5,12 +5,13 @@
  * stagnation `menuDue` names. Reads only; writes nothing (DESIGN §4). */
 import type {ActiveMissionInfo,GetNearbyResponse,GetMissionsResponse,MapSystemInfo,MarketListingItem,ShipClass,ShipListing,
   ShippingListResponse,StationPassengersResponse,SystemInfo,SystemPoi,V2Module,ViewMarketResponse,ViewStorageResponse} from '@spacemolt/lib';
-import {resolveFuelReserve} from '../mood-policy.ts';
 import type {ReadinessAccount,ReadinessCommand} from '../readiness.ts';
 import {details} from '../response-details.ts';
 import {evaluateMenu,jobStop,type CounterName,type Facts} from '../rules-table.ts';
 import {combatLine,readCombat,statsFor} from '../combat-memory.ts';
+import {cellReserve} from '../mining-inventory.ts';
 import {readJournal} from '../run-record.ts';
+import {readFleet} from './freighter/host.ts';
 import {PACKAGE_CARGO} from './hauling/freight.ts';
 import {bench,moduleSpec,whyNotFit} from './hangar.ts';
 import {readSightings,recall} from '../sighting-memory.ts';
@@ -18,6 +19,9 @@ import {knownBooks,ticksOld} from './market.ts';
 import {stuck} from './missions.ts';
 import {acct,command,pilot,present,runCalls,type Pilot} from './runtime.ts';
 import {serviceElsewhere} from './service.ts';
+import {IGNORE_TICKS} from './freighter/index.ts';
+import {candidates,SCOUT_JUMPS,target,type Candidate} from './trading/scout.ts';
+import {pilotSeat} from './trading/trading.ts';
 import type {Status} from './types.ts';
 
 export type Advances='knowledge'|'skill'|'credits'|'influence'|'ship'|'objective';
@@ -72,14 +76,14 @@ const attempt=async<T>(read:()=>Promise<T>):Promise<T|undefined>=>{try {return a
  * bid a book read on an earlier visit shows, with depth on both ends. The game publishes no
  * cross-station prices (see `market.ts`), so the far end is this runtime's market memory; with
  * no memory there is no spread, which is the same answer J6 gives today. */
-function bestSpread(here:Map<string,MarketListingItem>,at:string,now:number,runtime?:string):{item_id:string;margin:number;age:number}|undefined {
+function bestSpread(here:Map<string,MarketListingItem>,at:string,now:number,runtime?:string):NonNullable<Facts['observed']['spread']>|undefined {
   return (runtime?knownBooks(runtime):[]).filter(book=>book.base_id!==at)
-    .flatMap(book=>book.items.map(far=>({far,age:ticksOld(book.tick,now)})))
-    .flatMap(({far,age})=>{
+    .flatMap(book=>book.items.map(far=>({far,base_id:book.base_id,age:ticksOld(book.tick,now)})))
+    .flatMap(({far,base_id,age})=>{
       const mine=here.get(far.item_id);
       // Depth on both ends: an ask nobody is filling and a bid for nothing are not a trade.
       return mine&&mine.best_sell>0&&mine.best_sell_qty>0&&far.best_buy_qty>0
-        ?[{item_id:far.item_id,margin:far.best_buy-mine.best_sell,age}]:[];
+        ?[{item_id:far.item_id,base_id,margin:far.best_buy-mine.best_sell,age}]:[];
     }).filter(row=>row.margin>0).sort((a,b)=>b.margin-a.margin)[0];
 }
 
@@ -217,7 +221,7 @@ const lit=(value:unknown)=>JSON.stringify(value).replace(/"/g,"'").replace(/'(\w
 /** The loop that trains a skill, by the lib's `SkillProgress.category` or the skill id. */
 const TRAINS:[RegExp,string][]=[[/mining/,'gatherUntil'],[/trad|commerce/,'sell'],[/navigation|piloting|explor/,'goTo'],
   [/weapon|gunnery|tactic|xeno|combat|bounty/,'hunt'],[/engineer/,'refit']];
-const LEADS:Record<string,string>={Prospector:'gatherUntil',Trader:'sell',Hunter:'hunt',Scout:'goTo',Carrier:'acceptMission',Industrialist:'refit'};
+const LEADS:Record<string,string>={Prospector:'gatherUntil',Trader:'tradeRun',Hunter:'hunt',Scout:'goTo',Carrier:'acceptMission',Industrialist:'refit'};
 /** The call the pilot's own words name as the work. The objective and the goal decide; the
  * stance is the fallback. A Hunter told to cull fauna was offered gatherUntil and selling and
  * no hunt at all, every line tagged [credits]: the menu answered the belt, not the orders. */
@@ -244,7 +248,7 @@ export const leadCall=(who:Pilot):string=>{
   return hit?.call??LEADS[who.stance??'']??'';
 };
 const FITS:Record<string,string[]>={Prospector:['gatherUntil','goTo'],Hunter:['hunt','goTo'],Scout:['goTo'],Carrier:['haul','goTo'],
-  Trader:['goTo','haul'],Industrialist:['gatherUntil','goTo']};
+  Trader:['tradeRun','goTo','haul'],Industrialist:['gatherUntil','goTo']};
 
 /** The menu from where the ship stands: the present in one read, the last ten runs, the
  * skills, the store, and when docked the board, the market and the yard. At most five
@@ -275,31 +279,34 @@ export async function menu(runtime?:string):Promise<Menu> {
     return {...stagnation?{stagnation}:{},moves,not_now};
   }
 
-  const reserve=resolveFuelReserve(who.mood??'Cautious'),fuel=ship?.fuel??0;
+  const fuel=ship?.fuel??0;
   const stop=jobStop(facts);
   /** A move that starts work: refused under a threat or a mood that may not start a job. */
   const work=(move:Move)=>stop?not_now.push({move:move.call.split('(')[0]!,why:stop}):moves.push(move);
   /** The fuel refusal the last `flies` produced, if any. A pilot that cannot reach anywhere it
    * was offered needs the way to a counter, whatever the mood — the wedge that stranded the
-   * pilot on 2026-09-24 was an Aggressive one, too far above reserve 12 for Tired to fire. */
+   * pilot on 2026-09-24 was an Aggressive one, too far above reserve 12 for Tired to fire.
+   * A route is reachable when the tank covers it; the reserve is where Tired begins, not a margin. */
   let shortFuel='';
   const flies=async(id:string):Promise<string|null>=>{
     const quote=await attempt(async()=>details(await command('spacemolt/find_route',{id})));
     if(!quote?.found)return `no route to ${id}`;
-    const need=Number(quote.estimated_fuel)+reserve;
+    const need=Number(quote.estimated_fuel);
     if(fuel>=need)return null;
-    shortFuel=`fuel ${fuel}, need ${need} with the ${who.mood} reserve ${reserve}`;
+    shortFuel=`fuel ${fuel}, the route to ${id} needs ${need}`;
     return shortFuel;
   };
 
   const full=!!ship&&ship.cargo_used>=ship.cargo_capacity;
+  const cells=cellReserve(acct().state);
+  if(docked&&cells.due)moves.push({call:'service()',why:`fuel cells ${cells.held}/${cells.target}: service() tops them up to 5% of the hold`,advances:'ship'});
   /** Calls that clear a blocker the menu also states under `not_now`; ranked above everything
    * else, because a move that unblocks three jobs is worth more than the best of the three. */
   const unblocks=new Set<string>();
 
   // Sell what you hold where there is a bid.
-  const book=docked?await attempt(async()=>new Map(((details(await command('spacemolt_market/view_market',{})) as ViewMarketResponse).items??[])
-    .map((row:MarketListingItem)=>[row.item_id,row]))):undefined;
+  const market=docked?await attempt(async()=>details(await command('spacemolt_market/view_market',{})) as ViewMarketResponse):undefined;
+  const book=market&&new Map((market.items??[]).map((row:MarketListingItem)=>[row.item_id,row]));
   const hold=(acct().state.cargo??[]).filter(row=>row.quantity>0);
   const bids=hold.filter(row=>(book?.get(row.item_id)?.best_buy??0)>0);
   if(bids.length) {
@@ -311,6 +318,37 @@ export async function menu(runtime?:string):Promise<Menu> {
   const stored=(store?.items??[]).filter(row=>row.quantity>0&&(book?.get(row.item_id)?.best_buy??0)>0);
   if(stored.length)moves.push({call:`sell(${lit(stored.map(row=>({item_id:row.item_id})))}, {from:'store'})`,
     why:`the store here holds ${stored.map(row=>`${row.quantity} ${row.item_id}`).join(', ')} with a bid`,advances:'credits'});
+  // Goods with no bid here, aboard or in the store here, and a remembered book elsewhere that bids
+  // for them: every stance strands ore this way. Live 2026-09-24: 63 units stowed at
+  // sirius_observatory_station, which bids for none of them, and no move ever pointed further.
+  // `tradeRun({stops:[{at}]})` delivers what is aboard there; a stored row is taken out of the store
+  // here first, as the first stop's `buy` with `from:'store'`.
+  if(docked&&book) {
+    const tick=Number(market?.current_tick??0);
+    const far=(item_id:string)=>knownBooks(runtime).filter(row=>row.base_id!==docked)
+      .flatMap(row=>row.items.filter(i=>i.item_id===item_id&&i.best_buy>0&&i.best_buy_qty>0)
+        .map(i=>({base_id:row.base_id,best_buy:i.best_buy,best_buy_qty:i.best_buy_qty,age:ticksOld(row.tick,tick)})))
+      .sort((a,b)=>b.best_buy-a.best_buy)[0];
+    const strand=[...hold.filter(row=>!bids.includes(row)).map(row=>({...row,from:'hold' as const})),
+      ...(store?.items??[]).filter(row=>row.quantity>0&&!((book.get(row.item_id)?.best_buy??0)>0)).map(row=>({...row,from:'store' as const}))];
+    const priced=strand.map(row=>({row,buyer:far(row.item_id)})).filter(({row},i,all)=>
+      all.findIndex(other=>other.row.item_id===row.item_id)===i);
+    const unknown=priced.filter(row=>!row.buyer).map(({row})=>`${row.quantity} ${row.item_id}${row.from==='store'?' (stored)':''}`);
+    if(unknown.length)not_now.push({move:'sell',why:`no bid at ${docked} and no remembered book bids for ${unknown.slice(0,5).join(', ')}; goTo another base and prices() there to learn one`});
+    // ponytail: the two most valuable, one find_route each. Widen when a menu has room for more.
+    const offered=new Set<string>();
+    for(const {row,buyer} of priced.filter(row=>row.buyer).sort((a,b)=>
+      b.buyer!.best_buy*Math.min(b.buyer!.best_buy_qty,b.row.quantity)-a.buyer!.best_buy*Math.min(a.buyer!.best_buy_qty,a.row.quantity)).slice(0,2)) {
+      const call=`tradeRun(${lit({stops:[...row.from==='store'?[{at:docked,buy:row.item_id,from:'store'}]:[],{at:buyer!.base_id}]})})`;
+      if(offered.has(call))continue;
+      offered.add(call);
+      const blocked=await flies(buyer!.base_id);
+      if(blocked){not_now.push({move:call,why:blocked});continue;}
+      work({call,advances:'credits',why:`${row.quantity} ${row.item_id}${row.from==='store'?' in the store here':' aboard'} has no bid at ${docked}; `
+        +`${buyer!.base_id} bid ${buyer!.best_buy} for ${buyer!.best_buy_qty} in a book remembered ${buyer!.age} ticks old — the book may have moved, and the fuel there is not priced in`});
+      if(full&&row.from==='hold')unblocks.add(call);
+    }
+  }
   // A full hold with no bid here for what fills it: the store is the remedy, and the menu owes
   // the call rather than the diagnosis. Live 2026-09-24: `not_now` read "the hold is full;
   // sell(rows) or stow(rows) first" while sirius_observatory_station bid for none of the 63 units
@@ -343,7 +381,7 @@ export async function menu(runtime?:string):Promise<Menu> {
     const fitting=board.filter(m=>!active.some(a=>a.mission_id===m.mission_id)).map(m=>{
       const text=`${m.type} ${(m.objectives??[]).map(o=>o.description??'').join(' ')}`.toLowerCase();
       const fit=/mine|ore|gather|deliver/.test(text)&&(m.objectives??[]).some(o=>o.item_id)?'gatherUntil'
-        :/kill|hunt|creature|destroy/.test(text)?'hunt':/visit|explore|survey|travel|scout/.test(text)?'goTo':/shipment|package|haul|courier/.test(text)?'haul':'';
+        :/kill|hunt|creature|destroy/.test(text)?'hunt':/visit|explore|survey|travel|scout/.test(text)?'goTo':/shipment|package|haul|courier/.test(text)?'haul':/\b(?:trade|sell|buy|market)/.test(text)?'tradeRun':'';
       return {m,fit};
     }).filter(row=>fits.includes(row.fit)).slice(0,2);
     for(const {m,fit} of fitting) {
@@ -351,6 +389,41 @@ export async function menu(runtime?:string):Promise<Menu> {
       if(free<=0)not_now.push({move:'acceptMission',why:`no slot free: ${active.length} of ${mine?.max_missions??5} active${ready.length?'':', none completable'}`});
       else work(move);
     }
+  }
+
+  // A Trader's run: buy here at the ask, sell at the far bid the J6 spread names. J6 is the gate;
+  // a refused or absent spread is said under not_now, never dropped. A full hold is no refusal:
+  // `tradeRun` plans from the hold it has, selling here what pays better here first.
+  if(who.stance==='Trader'&&docked) {
+    const j6=verdicts.find(v=>v.job.startsWith('J6')),spread=facts.observed.spread;
+    if(!spread)not_now.push({move:'tradeRun',why:j6?.reason??'no quoted spread with depth on both ends'});
+    else if(j6&&!j6.admissible)not_now.push({move:'tradeRun',why:j6.reason});
+    else work({call:`tradeRun(${lit({stops:[{at:docked,buy:spread.item_id},{at:spread.base_id}]})})`,advances:'credits',
+      why:`${spread.margin} cr a unit on ${spread.item_id} at ${spread.base_id}, a bid remembered ${spread.age} ticks old; the book may have moved, and the fuel there is not priced in`});
+    // The search, not the menu's to run: routes() costs a map read and up to ~6 find_route calls.
+    // Whatever the hold: every route is planned from it.
+    work({call:'routes()',advances:'credits',
+      why:'ranks every known route of up to 3 stops, from the hold you have, by net per jump after book depth, fuel and tax; each row carries a pasteable next call. The trading README\'s "the best trade known" acts on the top row in one run'});
+    // Books nobody has read lately, near: a route is only ever planned over a book someone read, and
+    // the ledger covers a fraction of the stations. Knowledge, so it ranks under the trades above.
+    const near=await attempt(()=>candidates(pilotSeat(),Number(market?.current_tick??0)))??[];
+    const first=near[0];
+    if(first) {
+      const blocked=await flies(target(first));
+      const count=(kind:Candidate['kind'])=>near.filter(row=>row.kind===kind).length;
+      if(blocked)not_now.push({move:'scoutMarkets()',why:blocked});
+      else work({call:'scoutMarkets()',advances:'knowledge',
+        why:`within ${SCOUT_JUMPS} jumps: ${count('unknown')} base(s) never read, ${count('unexplored')} system(s) never listed, ${count('stale')} book(s) older than ${IGNORE_TICKS} ticks; `
+          +`the nearest is ${target(first)} (${first.kind}, ${first.jumps} jump(s)). It reads up to 3 and files them, for routes() to plan over`});
+    }
+  }
+
+  // Freighters re-plan themselves when a ring drains; the one thing left to the pilot is stopping one.
+  // Said, not offered: it earns nothing, and the rows ride on the juncture as `freighters`.
+  if(runtime) {
+    const flying=Object.entries(readFleet(runtime)).filter(([,entry])=>(entry.state==='running'||entry.state==='waiting'||entry.state==='scouting')&&!entry.stop_after_lap);
+    if(flying.length)not_now.push({move:`recall('${flying[0]![0]}', {after:'lap'})`,
+      why:`${flying.map(([name])=>name).join(', ')} fl${flying.length===1?'ies':'y'} and re-plan${flying.length===1?'s':''} on a drained ring by itself; this stops one after the lap it is on`});
   }
 
   // Mine the nearest belt.
@@ -501,7 +574,8 @@ export async function menu(runtime?:string):Promise<Menu> {
       // the label from `play` meant this branch never fired at all and every rules-table reason
       // was computed and dropped, while `play/README.md` promised the pilot the opposite.
       // `already serviced` is not a refusal worth a line: it is the ship being fine.
-      if(!/already at the serviced-dock targets/.test(verdict.reason))
+      // A refused J6 is said once, by the Trader row above, as the tradeRun it refuses.
+      if(!/already at the serviced-dock targets/.test(verdict.reason)&&!(verdict.job.startsWith('J6')&&docked))
         refused.push({move:fn||verdict.job,why:verdict.reason,rank:REFUSAL_RANK[verdict.tag]??9});
       continue;
     }
@@ -549,7 +623,8 @@ export async function menu(runtime?:string):Promise<Menu> {
   // for it. A read that unblocks something still leads, which is why that term stays first.
   const key=(m:Move)=>{const fn=m.call.split('(')[0]!;
     return [unblocks.has(m.call)?1:0,READ_CALLS.has(fn)?0:1,repeated&&fn!==repeated?1:0,
-      stanceWork.has(m.call)?1:0,wants[m.advances].test(goal)?1:0,LEADS[who.stance??'']===fn?1:0,gain(fn)];};
+      stanceWork.has(m.call)?1:0,wants[m.advances].test(goal)?1:0,
+      LEADS[who.stance??'']===fn?2:who.stance==='Trader'&&fn==='routes'?1:0,gain(fn)];};
   const seen=new Set<string>();
   const ranked=moves.filter(m=>!seen.has(m.call)&&seen.add(m.call)).map(m=>({m,k:key(m)}))
     .sort((a,b)=>b.k[0]!-a.k[0]!||b.k[1]!-a.k[1]!||b.k[2]!-a.k[2]!||b.k[3]!-a.k[3]!||b.k[4]!-a.k[4]!

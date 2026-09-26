@@ -13,7 +13,6 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-
 from spacemolt.juncture import STANCE_FOLDER, job_fields
 from spacemolt.skills_register import qualified, readme_skills, register_skills
 
@@ -103,3 +102,30 @@ def test_a_fire_carries_the_stances_readme_and_the_base_one_or_the_base_alone(ct
     assert first("play") in body and first("trading") in body
     alone = prompt({})
     assert first("play") in alone and first("trading") not in alone
+def test_the_skill_namespace_is_the_manifest_name_whatever_module_hermes_imports_us_as():
+    """Hermes imports the plugin as ``hermes_plugins.spacemolt``. A namespace taken from the
+    package name was dotted, cron refused every skill as an invalid namespace, and the pilot flew
+    with no skills at all. The namespace is the manifest's ``name``, and only that."""
+    import importlib.util
+    import re
+
+    import yaml
+
+    spec = importlib.util.spec_from_file_location(
+        "hermes_plugins.spacemolt.skills_register", PLUGIN_ROOT / "skills_register.py")
+    as_hermes_loads_it = importlib.util.module_from_spec(spec)
+    as_hermes_loads_it.__package__ = "hermes_plugins.spacemolt"
+    spec.loader.exec_module(as_hermes_loads_it)
+
+    manifest = yaml.safe_load((PLUGIN_ROOT / "plugin.yaml").read_text())
+    assert as_hermes_loads_it.NAMESPACE == manifest["name"]
+    assert re.fullmatch(r"[a-zA-Z0-9_-]+", as_hermes_loads_it.NAMESPACE)
+
+
+def test_every_config_schema_entry_is_a_mapping_hermes_reads():
+    """Hermes reads ``config_schema`` as key -> {type, default, description}; a JSON-Schema
+    ``{type: object, properties: …}`` is two bad entries it skips with a warning at every load."""
+    import yaml
+
+    schema = yaml.safe_load((PLUGIN_ROOT / "plugin.yaml").read_text())["config_schema"]
+    assert schema and all(isinstance(spec, dict) and "type" in spec for spec in schema.values())

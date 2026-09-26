@@ -11,7 +11,6 @@ import shutil
 import sys
 
 import pytest
-
 import spacemolt
 from spacemolt import juncture, service
 
@@ -157,7 +156,9 @@ def test_the_window_carries_no_job_tools_and_the_juncture_no_direction_tool():
 
     window = by_toolset["spacemolt_observer"]
     fire = by_toolset["spacemolt"]
-    assert {"spacemolt_status", "spacemolt_direct", "spacemolt_stop"} == window
+    assert {"spacemolt_status", "spacemolt_direct"} == window
+    # Stop is for every client: a fire holding a paused question is told it may stop the run.
+    assert by_toolset["spacemolt_observe"] == {"spacemolt_stop"}
     assert not window & {"spacemolt_run", "spacemolt_scripts"}
     # Acting is running a script; a fire that could fly by hand would not write one.
     published = {definition["name"] for definition in spacemolt.TOOL_DEFINITIONS}
@@ -188,3 +189,6 @@ def test_a_cron_fire_cannot_reach_status_while_the_window_can():
     # Direction comes from outside the pilot: the window sends the sentence, the fire reads it.
     assert "spacemolt_direct" not in fire, "a pilot does not instruct itself"
     assert "spacemolt_direct" in window, "the observer's window is where a sentence is sent"
+    # Both can stop a run: the window as the human's brake, the fire to drop a question.
+    assert "spacemolt_stop" in fire and "spacemolt_stop" in window
+    assert "spacemolt_answer" in fire and "spacemolt_answer" not in window

@@ -1,7 +1,7 @@
 # SpaceMolt plugin — working on it
 
 Setup and operation live in [README.md](README.md). This file is for changing the code.
-[GAMEPLAY.md](GAMEPLAY.md) is observed game mechanics, not guarantees.
+[docs/GAMEPLAY.md](docs/GAMEPLAY.md) is observed game mechanics, not guarantees.
 
 ## Shape
 
@@ -18,15 +18,19 @@ play.py              drives the same bridge from a shell, outside Hermes
 src/bridge.ts        the request loop; everything below it is game logic
 src/play/            the library the pilot's program imports, one folder per career
 src/play/README.md   the base skill — what the pilot reads to know how to play at all
+src/play/freighter/  freighters: each its own account and connection, hosted in the bridge process
 ```
 
 ### The seam
 
 `service.py` spawns `node src/bridge.ts` and talks JSON lines over its stdio. Requests run
-concurrently; none is replayed. A `run` request blocks for as long as the program flies: the bridge
-caps it (`RUN_CAP_MS`, then `RUN_GRACE_MS`, 26 minutes in all) under `REQUEST_TIMEOUT = 1800`, which
-is only a backstop. A script that ignores the stop at the cap is abandoned and the bridge exits, so
-it cannot send another command. There is **no build step**: Node strips the types itself, so keep the
+concurrently; none is replayed. A `run` request blocks for as long as the program flies — or until
+the program calls `ask()`, when the `run` answers early with the question (also kept in
+`run.json`) and `answer` resumes the program and follows the run the same way. Streamed lines go to
+whichever request is waiting on the run. The bridge caps a run (`RUN_CAP_MS`, then `RUN_GRACE_MS`,
+26 minutes in all; a pending question is withdrawn at the cap) under `REQUEST_TIMEOUT = 1800`,
+which is only a backstop. A script that ignores the stop at the cap is abandoned and the bridge
+exits, so it cannot send another command. There is **no build step**: Node strips the types itself, so keep the
 TypeScript erasable (no enums, namespaces or parameter properties) and keep `.ts` on relative
 imports.
 
@@ -49,8 +53,10 @@ cron's `mark_job_run`, which is how every in-fire wake silently did nothing from
 The **gate** (`install_gate`, `gate_main`) is a shim written into `HERMES_HOME/scripts/` and
 named on the job as a *relative* path — cron resolves relative scripts there, and the tool layer
 rejects absolute ones. Cron runs it before it builds the prompt, and a fire whose gate prints
-`{"wakeAgent": false}` ends with no model turn. It suppresses exactly one thing, a run in flight
-(`run.json` not ended), and journals every decision with its reason.
+`{"wakeAgent": false}` ends with no model turn. It runs outside the gateway, so it reads
+`runtime/run.json`. It suppresses exactly one thing, a run in flight (not ended) that is not
+paused on a question; a paused run wakes the fire, and the gate prints the question, which cron
+puts at the head of the prompt. Every decision is journalled with its reason.
 
 The **context** (`juncture_context`) is built from live facts at fire time: the bridge's `menu`
 (present, derived mood, threats, suggested moves) and the pilot's own recent runs and reflections
@@ -87,7 +93,8 @@ instruction stands until a run starts after it was given.
 |---|---|
 | `npm run typecheck` | must be clean |
 | `npm test` | the TypeScript: game logic, the bridge, the play library |
-| `pytest` | the Python: junctures, the channel, rest, skills, the wake |
+| `pytest` | the Python: junctures, the gate, the channel, skills |
+| `uvx ruff@0.16.9 check .` | must be clean; default rules, no config, the version CI pins |
 
 The Python tests import `cron` and `hermes_cli` to prove the plugin works against the real host,
 so they need the Hermes tree and an interpreter with Hermes' own dependencies. `conftest.py` finds
@@ -100,6 +107,47 @@ none of them may touch a real install. Where one reaches a *private* Hermes name
 never a plugin surface, and a red suite meaning "the host refactored" teaches nothing.
 
 Prefer asserting `job_fields()` output as data over driving cron's internals.
+
+## Flying a change in a real profile
+
+The tests prove the plugin against Hermes; only a real profile proves it against the game. The
+dev profile's plugin is a symlink to a worktree of this repo that is never worked in, only
+pointed:
+
+```
+~/.hermes/profiles/<profile>/plugins/spacemolt -> ~/workspace/sm-autopilot-live   (detached HEAD)
+```
+
+To fly a branch:
+
+```
+git -C ~/workspace/sm-autopilot-live switch --detach <branch>
+npm --prefix ~/workspace/sm-autopilot-live ci            # only if package-lock.json changed
+hermes --profile <profile> gateway restart               # Python is imported once; see below
+```
+
+Then check it landed: the juncture job in `~/.hermes/profiles/<profile>/cron/jobs.json` lists
+`spacemolt:play` and the stance's skill, and `logs/errors.log` has no `skill not found` or
+`Plugin spacemolt:` warning since the restart. The pilot's state lives in the profile
+(`spacemolt/runtime/`, `spacemolt/pilot.json`), not the checkout, so switching branches never
+touches it. Detached, so any branch can be flown while it stays checked out where it is worked on.
+
+## Commits and releases
+
+Commits are [Conventional Commits](https://www.conventionalcommits.org), because the changelog is
+generated from them: `type(scope): summary`, and a body that says why. `feat`, `fix` and `perf`
+reach users' release notes; `refactor`, `test`, `docs`, `chore`, `build` and `ci` do not. The
+scope is the subsystem — `juncture`, `bridge`, `play`, `skills`, `service` — and becomes the
+package name once this is a monorepo.
+
+A change the user must act on — edit a setting, re-run setup, upgrade Hermes — takes `!` after the
+type and a `BREAKING CHANGE:` footer saying *what to do*. Those footers become the release's
+"Action required" section, verbatim, so write them for the person installing the bot. The footer
+is only read after a body paragraph; without one, the notes fall back to the summary line.
+
+Versions are CalVer, `YYYY.M.patch`, and only what a user installs carries one. Carl cuts releases
+and sets versions; an agent never does. `npx git-cliff --unreleased` previews the notes
+(`cliff.toml`).
 
 ## Things that have gone wrong, so they are load-bearing now
 
@@ -116,6 +164,11 @@ Prefer asserting `job_fields()` output as data over driving cron's internals.
   them governed nothing. The interval is the only clock; do not mark the job due from a fire.
 - **Auto-resume turned every bridge spawn into a detached, uncapped re-run** of an old script.
   An un-ended run is closed `interrupted` at boot instead.
+- **A fresh install never got a juncture job.** Gateway startup loads plugins before the core
+  tools, so `cronjob_manage` did not exist yet during `register()`, and the load swallowed
+  "Unknown tool". `cron_manage` imports `tools.cronjob_tools` itself, and a failed write goes to
+  the journal (`wake_failed`) and the log. Only a fresh interpreter shows this; pytest has the
+  tools loaded already.
 - **A test run wrote a pilot record, a lock and a cron job into `~/.hermes`** (09-25), before the
   conftest redirect existed. The redirect now precedes binding the plugin, and every test asserts
   the runtime directory is under its own home.

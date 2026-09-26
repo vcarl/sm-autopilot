@@ -14,10 +14,10 @@ from __future__ import annotations
 
 import hashlib
 import json
-import os
+from collections.abc import Mapping
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any
 
 from hermes_constants import get_hermes_home
 
@@ -268,6 +268,9 @@ def _recent_line(row: dict[str, Any]) -> str:
 
 def _busy(menu: dict[str, Any]) -> str:
     started = _when(menu.get("started"))
+    if isinstance(menu.get("question"), dict):
+        return ("SpaceMolt juncture — the run in flight is paused on a question for you.\n"
+                + question_text(menu["question"]))
     return (f"SpaceMolt juncture. Run in flight: yes — started {_stamp(started)}, in "
             f"{menu.get('fn') or 'pilot'}, {menu.get('commands') or 0} commands so far.")
 
@@ -393,6 +396,35 @@ def run_in_flight() -> bool:
     return record.get("ended", True) is False
 
 
+def pending_question() -> dict[str, Any] | None:
+    """The question the running program is paused on (``ask()``), as ``run.json`` carries it.
+
+    Only a run in flight can be waiting: a record left un-ended by a dead bridge is no question.
+    """
+    if not run_in_flight():
+        return None
+    try:
+        question = json.loads((runtime_dir() / "run.json").read_text()).get("question")
+    except (OSError, ValueError, AttributeError):
+        return None
+    return question if isinstance(question, dict) and question.get("question") else None
+
+
+def question_text(question: dict[str, Any]) -> str:
+    """A pending question as every reader is handed it: the question, the choices, and the one
+    or two calls that move the program on — said outright, never left to be inferred."""
+    choices = [str(choice) for choice in question.get("choices") or []]
+    lines = [(f"QUESTION from your running program, which is paused until it is answered "
+              f"(asked {_stamp(_when(question.get('asked_at')))}):"),
+             f"  {question.get('question')}"]
+    if choices:
+        lines.append(f"  Choices: {' | '.join(choices)} — the answer must be one of these.")
+    lines.append("Next: call spacemolt_answer with your answer; the program resumes, and that call "
+                 "then waits for the rest of the run exactly as spacemolt_run does. Or call "
+                 "spacemolt_stop to end the run instead of answering.")
+    return "\n".join(lines)
+
+
 def gate_main() -> int:
     """The wake gate: a fire that lands on a run in flight ends silently, with no model turn.
     That is the only thing it suppresses.
@@ -400,17 +432,27 @@ def gate_main() -> int:
     Saying nothing is not "wake normally": cron ends a fire whose script printed nothing
     ("script produced no output, skipping AI call"), which suppressed every juncture, live, on
     the first restart. So the wake is always prose. Each decision is journalled with its reason.
+
+    A run paused on ``ask()`` is in flight but waiting on the pilot, so its fire wakes, and the
+    question is the output: cron prepends that to the prompt, so the fire reads it first.
     """
-    flying = run_in_flight()
+    question = pending_question()
+    flying = run_in_flight() and not question
     try:
         endings = _run_endings()
         journal_event("gate", wake=not flying,
-                      reason="a run is in flight (run.json not ended)" if flying else "no run in flight",
+                      reason=("a run is paused on a question" if question
+                              else "a run is in flight (run.json not ended)" if flying
+                              else "no run in flight"),
                       unproductive_streak=unproductive_streak(endings),
                       last_run=(endings[-1].get("outcome") or endings[-1].get("phase")) if endings else None)
     except OSError:
         pass  # the log is never worth the fire
-    print('{"wakeAgent": false}' if flying else "No run in flight: the pilot is idle.")
+    if question:
+        print(question_text(question) + "\nAnswer it before anything else, and do not write a new "
+              "pilot/index.ts. When the run returns its report, carry on with the juncture below.")
+    else:
+        print('{"wakeAgent": false}' if flying else "No run in flight: the pilot is idle.")
     return 0
 
 
@@ -470,11 +512,16 @@ def cron_manage(**args: Any) -> dict[str, Any]:
     """One ``cronjob_manage`` call, raising on failure rather than returning an error dict.
 
     The gate on that tool (``HERMES_GATEWAY_SESSION``) is a *schema exposure* check:
-    ``registry.dispatch`` runs the handler without consulting ``check_fn``.
+    ``registry.dispatch`` runs the handler without consulting ``check_fn``, so a plugin and a
+    one-shot both reach it.
+
+    The tool's module is imported on both paths: importing it is what registers the tool, and
+    gateway startup loads plugins before it loads the core tools, so during ``register()`` the
+    host's dispatcher answers "Unknown tool" (live 2026-09-26: a fresh install never got a job).
     """
+    import tools.cronjob_tools  # noqa: F401 - registers cronjob_manage; a no-op once loaded
     dispatch = _dispatch_tool
     if dispatch is None:
-        import tools.cronjob_tools  # noqa: F401 - importing it is what registers the tool
         from tools.registry import registry
         dispatch = registry.dispatch
     result = dispatch("cronjob_manage", args)

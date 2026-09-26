@@ -171,7 +171,7 @@ test('a remembered far book against this counter is the J6 spread',async()=>{
     writeFileSync(join(f.runtime,'markets.json'),JSON.stringify([{base_id:'range_base',at:'earlier',tick:TICK-5,
       items:[{item_id:'ore',best_buy:40,best_buy_qty:99,best_sell:0,best_sell_qty:0}]}]));
     const seen=await facts(f,who);
-    assert.deepEqual(seen.observed.spread,{item_id:'ore',margin:28,age:5});
+    assert.deepEqual(seen.observed.spread,{item_id:'ore',base_id:'range_base',margin:28,age:5});
     assert.equal(verdict(seen,'J6').admissible,true,verdict(seen,'J6').reason);
     assert.match(verdict(seen,'J6').reason,/5 ticks old/,'J6 hands the pilot the age, it does not gate on it');
     // No memory, no spread — which is the answer J6 gave before the field was wired.
@@ -189,7 +189,7 @@ test('a remembered book written before books carried a tick is read as 20 ticks 
     writeFileSync(join(f.runtime,'markets.json'),JSON.stringify([{base_id:'range_base',at:'earlier',
       items:[{item_id:'ore',best_buy:40,best_buy_qty:99,best_sell:0,best_sell_qty:0}]}]));
     const seen=await facts(f,who);
-    assert.deepEqual(seen.observed.spread,{item_id:'ore',margin:28,age:20});
+    assert.deepEqual(seen.observed.spread,{item_id:'ore',base_id:'range_base',margin:28,age:20});
     // Still admissible: the age is reported, never a gate.
     assert.equal(verdict(seen,'J6').admissible,true,verdict(seen,'J6').reason);
     assert.match(verdict(seen,'J6').reason,/20 ticks old/);
@@ -203,9 +203,50 @@ test('a remembered tick ahead of now — a restart or a season rollover — read
     writeFileSync(join(f.runtime,'markets.json'),JSON.stringify([{base_id:'range_base',at:'earlier',tick:TICK+50,
       items:[{item_id:'ore',best_buy:40,best_buy_qty:99,best_sell:0,best_sell_qty:0}]}]));
     const seen=await facts(f,who);
-    assert.deepEqual(seen.observed.spread,{item_id:'ore',margin:28,age:0});
+    assert.deepEqual(seen.observed.spread,{item_id:'ore',base_id:'range_base',margin:28,age:0});
     assert.doesNotMatch(verdict(seen,'J6').reason,/-\d/);
   } finally {f.close();}
+});
+
+test("the J6 spread is a Trader's pasteable tradeRun; a refused J6 says so under not_now; no other stance is offered one",async()=>{
+  const far=JSON.stringify([{base_id:'range_base',at:'earlier',tick:TICK-40,
+    items:[{item_id:'ore',best_buy:40,best_buy_qty:99,best_sell:0,best_sell_qty:0}]}]);
+  // J6 passes: the move names the item and the far base, carries the age, and compiles.
+  const ok=world({mood:'Opportunistic',stance:'Trader'},{cargoUsed:0});
+  try {
+    writeFileSync(join(ok.runtime,'markets.json'),far);
+    const built=await menu(ok.runtime);
+    const run=built.moves.find(m=>m.call==="tradeRun({stops:[{at:'sol_base',buy:'ore'},{at:'range_base'}]})");
+    assert.ok(run,`no tradeRun: ${JSON.stringify(built.moves)} / ${JSON.stringify(built.not_now)}`);
+    assert.match(run!.why,/28 cr a unit on ore at range_base, a bid remembered 40 ticks old/);
+    assert.equal(built.moves[0]!.call,run!.call,'the Trader leads with the run');
+    const runtime=mkdtempSync(join(tmpdir(),'menu-trade-'));
+    mkdirSync(join(runtime,'pilot'),{recursive:true});
+    writeFileSync(join(runtime,'pilot','index.ts'),
+      `import {tradeRun} from 'play';\nexport default async function main() {\n  await ${run!.call};\n}\n`);
+    assert.deepEqual((await check(runtime)).errors,[]);
+  } finally {ok.close();}
+  // J6 fails with a spread in hand (a mood that may not start a job): not_now, with J6's reason.
+  const relaxed=world({mood:'Relaxed',stance:'Trader'},{cargoUsed:0});
+  try {
+    writeFileSync(join(relaxed.runtime,'markets.json'),far);
+    const built=await menu(relaxed.runtime);
+    assert.ok(!built.moves.some(m=>m.call.startsWith('tradeRun(')),JSON.stringify(built.moves));
+    assert.ok(built.not_now.some(row=>row.move==='tradeRun'&&/Relaxed may not initiate a job/.test(row.why)),JSON.stringify(built.not_now));
+  } finally {relaxed.close();}
+  // J6 fails for want of a spread: still said, not silently dropped.
+  const blind=world({mood:'Opportunistic',stance:'Trader'},{cargoUsed:0});
+  try {
+    const built=await menu(blind.runtime);
+    assert.ok(built.not_now.some(row=>row.move==='tradeRun'&&/no quoted spread/.test(row.why)),JSON.stringify(built.not_now));
+  } finally {blind.close();}
+  // Not a Trader: the same spread in memory is no tradeRun, on the menu or under not_now.
+  const miner=world({mood:'Opportunistic',stance:'Prospector'},{cargoUsed:0});
+  try {
+    writeFileSync(join(miner.runtime,'markets.json'),far);
+    const built=await menu(miner.runtime);
+    assert.ok(!built.moves.some(m=>m.call.startsWith('tradeRun('))&&!built.not_now.some(row=>row.move==='tradeRun'),renderMenu(built));
+  } finally {miner.close();}
 });
 
 test("the crafting service is J7's workshop; a base without one still refuses",async()=>{
@@ -350,19 +391,20 @@ test('the undocked hunt row claims a legal creature only when one was observed',
   } finally {live.close();}
 });
 
-test('an undocked pilot short of fuel is offered the route to a counter in a mood Tired never reaches',async()=>{
-  // The wedge that stranded the pilot for six hours on 2026-09-24, one mood over: Aggressive holds a
-  // reserve of 12, so fuel 15 never crosses into Tired, `flies()` still refuses the belt at 7+12, and
+test('an undocked pilot short of fuel for every route is offered the route to a counter',async()=>{
+  // The wedge that stranded the pilot for six hours on 2026-09-24: `flies()` refused the belt and
   // `service()` is pushed only when docked. Every row refused, `moves` empty, nothing to paste.
+  // `flies()` now asks only whether the tank covers the route (7); the reserve is where Tired
+  // begins (operator, 2026-09-26). The record here is fixed, so the mood stays Aggressive.
   const out=world({mood:'Aggressive',stance:'Prospector',goal:'obtain credits'},{cargoUsed:6});
   try {
     out.account.server.location.docked_at=null;out.account.server.location.poi_id='belt';
-    out.account.server.ship.fuel=15;
+    out.account.server.ship.fuel=5;
     const built=await menu(out.runtime);
-    assert.ok(built.not_now.some(row=>/fuel 15, need 19 with the Aggressive reserve 12/.test(row.why)),JSON.stringify(built.not_now));
+    assert.ok(built.not_now.some(row=>/fuel 5, the route to \S+ needs 7/.test(row.why)),JSON.stringify(built.not_now));
     const exit=built.moves.find(m=>m.call==="goTo('sol_base')");
     assert.ok(exit,`no way to fuel: ${JSON.stringify(built.moves)}`);
-    assert.match(exit!.why,/fuel 15, need 19 with the Aggressive reserve 12; Sol Base in sol/);
+    assert.match(exit!.why,/fuel 5, the route to \S+ needs 7; Sol Base in sol/);
     // It unblocks every row the shortfall refused, so it is the move the pilot reads first.
     assert.equal(built.moves[0]!.call,"goTo('sol_base')",JSON.stringify(built.moves));
   } finally {out.close();}
@@ -370,7 +412,7 @@ test('an undocked pilot short of fuel is offered the route to a counter in a moo
   // and no route to another base is added on top of it.
   const home=world({mood:'Aggressive',stance:'Prospector',goal:'obtain credits'},{cargoUsed:6});
   try {
-    home.account.server.ship.fuel=15;
+    home.account.server.ship.fuel=5;
     const built=await menu(home.runtime);
     assert.ok(built.moves.some(m=>m.call==='service()'),JSON.stringify(built.moves));
     assert.ok(!built.moves.some(m=>m.call.startsWith("goTo('sol_base')")),JSON.stringify(built.moves));
@@ -552,4 +594,99 @@ test('nothing in the system is filtered out of a hunt, only ordered',async()=>{
     assert.match(hunt!.call,/^hunt\(\{look:\['belt'/,hunt!.call);
     assert.match(hunt!.call,/'p1'|'p2'/,`the planets were excluded rather than ranked: ${hunt!.call}`);
   } finally {f.close();}
+});
+
+test("a docked Trader is offered routes(), below a live J6 run, whatever the hold; another stance is not",async()=>{
+  const far=JSON.stringify([{base_id:'range_base',at:'earlier',tick:TICK-40,
+    items:[{item_id:'ore',best_buy:40,best_buy_qty:99,best_sell:0,best_sell_qty:0}]}]);
+  // No spread: routes() is the Trader's lead, and it compiles.
+  const blind=world({mood:'Opportunistic',stance:'Trader'},{cargoUsed:0});
+  try {
+    const built=await menu(blind.runtime);
+    assert.equal(built.moves[0]?.call,'routes()',renderMenu(built));
+    assert.match(built.moves[0]!.why,/net per jump.*next call.*the best trade known/);
+    const runtime=mkdtempSync(join(tmpdir(),'menu-routes-'));
+    mkdirSync(join(runtime,'pilot'),{recursive:true});
+    writeFileSync(join(runtime,'pilot','index.ts'),
+      `import {routes} from 'play';\nexport default async function main() {\n  return ${built.moves[0]!.call};\n}\n`);
+    assert.deepEqual((await check(runtime)).errors,[]);
+  } finally {blind.close();}
+  // A concrete spread beats the search.
+  const ok=world({mood:'Opportunistic',stance:'Trader'},{cargoUsed:0});
+  try {
+    writeFileSync(join(ok.runtime,'markets.json'),far);
+    const calls=(await menu(ok.runtime)).moves.map(m=>m.call);
+    const run=calls.indexOf("tradeRun({stops:[{at:'sol_base',buy:'ore'},{at:'range_base'}]})"),search=calls.indexOf('routes()');
+    assert.ok(run>=0&&search>run,JSON.stringify(calls));
+  } finally {ok.close();}
+  // A full hold: goods aboard are routes too.
+  const full=world({mood:'Opportunistic',stance:'Trader'},{cargoUsed:12,cargoCapacity:12});
+  try {
+    const built=await menu(full.runtime);
+    assert.ok(built.moves.some(m=>m.call==='routes()'),renderMenu(built));
+  } finally {full.close();}
+  // Not a Trader.
+  const miner=world({mood:'Opportunistic',stance:'Prospector'},{cargoUsed:0});
+  try {
+    const built=await menu(miner.runtime);
+    assert.ok(!built.moves.some(m=>m.call==='routes()')&&!built.not_now.some(row=>row.move==='routes'),renderMenu(built));
+  } finally {miner.close();}
+});
+
+test('a docked Trader with unread books near is offered scoutMarkets(), under the trades, and it compiles; with none near, not',async()=>{
+  const near=world({mood:'Opportunistic',stance:'Trader'},{cargoUsed:0});
+  try {
+    const built=await menu(near.runtime);
+    const calls=built.moves.map(m=>m.call),scout=built.moves.find(m=>m.call==='scoutMarkets()');
+    assert.ok(scout,renderMenu(built));
+    assert.equal(scout!.advances,'knowledge');
+    assert.match(scout!.why,/within 4 jumps: 0 base\(s\) never read, 2 system\(s\) never listed, 0 book\(s\) older than 1080 ticks/);
+    assert.ok(calls.indexOf('routes()')<calls.indexOf('scoutMarkets()'),JSON.stringify(calls));
+    const runtime=mkdtempSync(join(tmpdir(),'menu-scout-'));
+    mkdirSync(join(runtime,'pilot'),{recursive:true});
+    writeFileSync(join(runtime,'pilot','index.ts'),
+      `import {scoutMarkets} from 'play';\nexport default async function main() {\n  return ${scout!.call};\n}\n`);
+    assert.deepEqual((await check(runtime)).errors,[]);
+  } finally {near.close();}
+  // Every base placed, every book fresh: nothing to scout.
+  const known=world({mood:'Opportunistic',stance:'Trader'},{cargoUsed:0});
+  try {
+    writeFileSync(join(known.runtime,'places.json'),JSON.stringify({sol_base:'sol',range_base:'deep_range'}));
+    writeFileSync(join(known.runtime,'markets.json'),JSON.stringify(['sol_base','range_base'].map(base_id=>({base_id,at:'',tick:TICK,items:[]}))));
+    const built=await menu(known.runtime);
+    assert.ok(!built.moves.some(m=>m.call==='scoutMarkets()')&&!built.not_now.some(row=>row.move==='scoutMarkets()'),renderMenu(built));
+  } finally {known.close();}
+});
+
+test('goods with no bid here and a remembered far bid are a pasteable tradeRun in every stance; with no far bid, not_now says so',async()=>{
+  // Live 2026-09-24: dark_matter_residue, iridium, vanadium and copper aboard at a station that
+  // bid for none of them; the menu offered stow and never the base that did bid.
+  const far=JSON.stringify([{base_id:'range_base',at:'earlier',tick:TICK-30,items:[
+    {item_id:'ore',best_buy:40,best_buy_qty:99,best_sell:0,best_sell_qty:0},
+    {item_id:'iridium',best_buy:90,best_buy_qty:50,best_sell:0,best_sell_qty:0}]}]);
+  const held=world({mood:'Focused',stance:'Prospector',goal:'obtain credits'},
+    {cargoUsed:12,cargoCapacity:12,store:[{item_id:'iridium',quantity:30}],markets:{sol_base:[]}});
+  try {
+    writeFileSync(join(held.runtime,'markets.json'),far);
+    const built=await menu(held.runtime);
+    const aboard=built.moves.find(m=>m.call==="tradeRun({stops:[{at:'range_base'}]})");
+    assert.ok(aboard,renderMenu(built));
+    assert.match(aboard!.why,/12 ore aboard has no bid at sol_base; range_base bid 40 .* 30 ticks old .* fuel there is not priced in/);
+    assert.equal(built.moves[0]!.call,aboard!.call,'the full hold ranks the far sale above the stow');
+    const stored=built.moves.find(m=>m.call==="tradeRun({stops:[{at:'sol_base',buy:'iridium',from:'store'},{at:'range_base'}]})");
+    assert.ok(stored,renderMenu(built));
+    assert.match(stored!.why,/30 iridium in the store here/);
+    const runtime=mkdtempSync(join(tmpdir(),'menu-far-'));
+    mkdirSync(join(runtime,'pilot'),{recursive:true});
+    writeFileSync(join(runtime,'pilot','index.ts'),
+      `import {tradeRun} from 'play';\nexport default async function main() {\n  await ${aboard!.call};\n  return ${stored!.call};\n}\n`);
+    assert.deepEqual((await check(runtime)).errors,[]);
+  } finally {held.close();}
+  // No book anywhere bids: no move, and the menu says why rather than going quiet.
+  const blind=world({mood:'Focused',stance:'Prospector'},{cargoUsed:12,cargoCapacity:12,store:[],markets:{sol_base:[]}});
+  try {
+    const built=await menu(blind.runtime);
+    assert.ok(!built.moves.some(m=>m.call.startsWith('tradeRun(')),renderMenu(built));
+    assert.ok(built.not_now.some(row=>row.move==='sell'&&/no remembered book bids for 12 ore/.test(row.why)),renderMenu(built));
+  } finally {blind.close();}
 });

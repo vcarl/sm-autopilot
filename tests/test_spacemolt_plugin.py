@@ -2,14 +2,13 @@
 from __future__ import annotations
 
 import json
-import re
 import os
+import re
 import signal
 import sys
 import time
 
 import pytest
-
 import spacemolt
 from spacemolt import service
 
@@ -166,14 +165,15 @@ def test_register_publishes_every_tool_in_the_spacemolt_toolset(monkeypatch):
 
     spacemolt.register(RecordingContext())
     # One prefix, no strays, and each tool in exactly one of the three toolsets: the job tools
-    # a fire flies with, the reads any client may make, and the one tool that sets direction.
+    # a fire flies with, what any client may call, and the window's own read and direction.
     assert tools and all(name.startswith("spacemolt_") for name in tools)
     by_toolset: dict[str, set[str]] = {}
     for name, (toolset, *_rest) in tools.items():
         by_toolset.setdefault(toolset, set()).add(name)
     assert by_toolset == {
-        "spacemolt": {"spacemolt_run", "spacemolt_check", "spacemolt_reflect"},
-        "spacemolt_observer": {"spacemolt_direct", "spacemolt_status", "spacemolt_stop"},
+        "spacemolt": {"spacemolt_run", "spacemolt_answer", "spacemolt_check", "spacemolt_reflect"},
+        "spacemolt_observe": {"spacemolt_stop"},
+        "spacemolt_observer": {"spacemolt_direct", "spacemolt_status"},
     }
     # The pilot plays by running its file; the observer sends a sentence or stops a run.
     assert tools["spacemolt_run"][1]["parameters"]["required"] == []
@@ -233,7 +233,6 @@ def test_no_tool_tells_the_pilot_to_call_a_tool_that_is_not_registered():
 def test_the_observers_sentence_is_bounded_and_lands_on_the_pilot(monkeypatch):
     """One sentence of direction, and the pilot reads it at its next juncture. The cap is the
     scope of the instruction, and setting it leaves the objective alone."""
-    from spacemolt import juncture
 
     sent: list[dict] = []
 
@@ -262,7 +261,6 @@ def test_status_answers_the_objective_the_run_and_what_happened_in_one_read(brid
     """The window asked "what is our objective?" and got a mining snapshot, because the record
     was in no read it had. One tool now carries all three."""
     monkeypatch.setenv("SPACEMOLT_RUNTIME_DIR", str(tmp_path / "runtime"))
-    from spacemolt import juncture
 
     service.pilot_path().parent.mkdir(parents=True, exist_ok=True)
     service.pilot_path().write_text(json.dumps({"name": "kvothe", "objective": "buy a hauler",

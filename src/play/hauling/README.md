@@ -42,7 +42,7 @@ is how a `partial` resumes — `service()`, then `haul` the same id again.
   it puts against the allowance.
 - `fits: true`. A sealed package occupies exactly **100 cargo**, whatever is inside — an early
   package filled 100 of a 125 hold. Nothing fits in a starter hull.
-- `reachable: true` — the quoted `fuel` plus your mood's fuel reserve is inside the tank.
+- `reachable: true` — the tank covers the quoted `fuel`. Arriving under your mood's fuel reserve makes you Tired.
 - `net` is `base_reward` less the fuel bill at this base's `fuel_price_all_in`, and the list is
   sorted by `net / fuel`. A 148 cr package one jump away beats 1,295 cr four jumps away unless
   you were going there anyway.

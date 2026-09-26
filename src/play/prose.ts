@@ -1,6 +1,7 @@
 /** `prose(outcome)`: the report at the end of a run, static text assembled from the value.
  * No model, no per-function template (DESIGN.md "Outcome and prose"). */
 import type {Call} from './runtime.ts';
+import {cellReserve} from '../mining-inventory.ts';
 import type {Outcome} from './types.ts';
 
 const n=(value:number)=>Number.isInteger(value)?value.toLocaleString('en-US'):value.toFixed(1);
@@ -56,8 +57,9 @@ export function prose(outcome:Outcome<unknown>,calls:Call[]=[]):string {
     :location?.in_transit?`in transit to ${location.transit_dest_poi_id??location.transit_dest_system_id??'?'}`
       :`at ${location?.poi_id??'?'} (${location?.system_name??location?.system_id??'?'})`;
   const missions=now.ship?(outcome.now as any).missions:undefined;
+  const cells=cellReserve(now);
   out.push(`Now: ${place}, fuel ${ship?.fuel??'?'}/${ship?.max_fuel??'?'}, hull ${ship?.hull??'?'}/${ship?.max_hull??'?'}, `+
-    `hold ${ship?.cargo_used??'?'}/${ship?.cargo_capacity??'?'}, ${n(now.credits)} cr, mood ${now.mood}${now.tired_by?` (Tired: ${now.tired_by})`:''}.`+
+    `hold ${ship?.cargo_used??'?'}/${ship?.cargo_capacity??'?'}${cells.target?` (fuel cells ${cells.held}/${cells.target})`:''}, ${n(now.credits)} cr, mood ${now.mood}${now.tired_by?` (Tired: ${now.tired_by})`:''}.`+
     (Array.isArray(missions)&&missions.length?` Active missions: ${missions.length}.`:''));
 
   if(calls.length>1)out.push(thisRun(calls));

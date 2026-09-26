@@ -35,7 +35,7 @@ test('a first run installs the example, and the three gates refuse before anythi
     assert.equal(typed.ok,false);
     assert.match(typed.errors.join('\n'),/tsc: .*fule/);
     // A reach outside the boundary and an uncapped loop are refused too.
-    f.write("import {readFileSync} from 'node:fs';\nexport default async function main(){ readFileSync('/etc/passwd'); }\n");
+    f.write("import {readFileSync} from 'node:fs';\nexport default async function main(){ readFileSync('notes.txt'); }\n");
     assert.match((await check(f.runtime)).errors.join(' '),/tsc: |may import/);
     f.write("import {orient} from 'play';\nexport default async function main(){ while(true){ await orient(); } }\n");
     assert.match((await check(f.runtime)).errors.join(' '),/stopped\(\)/);

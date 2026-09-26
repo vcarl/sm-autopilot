@@ -62,7 +62,9 @@ for(const mood of ['Tired','Cautious'] as const)
       assert.deepEqual(out.detail.issued,['spacemolt/refuel','spacemolt/repair']);
       assert.equal(out.detail.spent,51,'3 fuel at the posted 1 cr plus the 48 the repair charged');
       assert.deepEqual(out.detail.short,[],'a full fill leaves nothing short');
-      assert.deepEqual(out.next??[],[],'a full fill advises no other station');
+      // The fuel-cell read after the fill is a command, and a command is where a restored Tired
+      // clears, so `next` may say so; it never names another station.
+      assert.ok(!(out.next??[]).some(line=>line.includes('goTo')),'a full fill advises no other station');
     } finally {unbind();}
   });
 
@@ -122,5 +124,35 @@ test('the standing credit reserve still refuses a Tired fill, by name',async()=>
     assert.equal(out.status,'refused',out.did);
     assert.match(out.why!,/credits 100 less reserve 90 cannot cover the quoted/);
     assert.equal(game.account.server.ship.fuel,10,'a service under the reserve spends nothing');
+  } finally {unbind();}
+});
+
+// Live 2026-09-24: a Cautious pilot's service() refused two refuels quoted over the 500 credit
+// margin, and the tank was filled by a raw refuel. Fuel is resupply: no mood refuses it; the
+// reserve still bounds it.
+test('a Cautious refuel quoted over the 500 credit margin is filled; only the reserve bounds it',async()=>{
+  const game=bridgeWorld({services:['refuel','repair'],cargoUsed:0});
+  const command:typeof game.command=async(action,params)=>{
+    const res=await game.command(action,params);
+    if(action==='spacemolt/get_base')
+      (res as {delta:{details:{fuel_price_all_in:number}}}).delta.details.fuel_price_all_in=8;
+    return res;
+  };
+  // 80 units at 8 is 640: over Cautious's 500, and fuel 40 is above its reserve of 30, so no Tired.
+  game.account.server.ship.fuel=40;
+  game.account.server.player.credits=1_000;
+  let who:Pilot={mood:'Cautious',permissions:{credit_reserve:200}};
+  bind({account:game.account as unknown as ReadinessAccount,command,
+    pilot:()=>who,emit:()=>{}});
+  try {
+    const out=await service();
+    assert.equal(out.status,'done',out.why);
+    assert.equal(who.mood,'Cautious');
+    assert.equal(game.account.server.ship.fuel,120);
+    who={...who,permissions:{credit_reserve:900}};
+    game.account.server.ship.fuel=40;
+    const held=await service();
+    assert.equal(held.status,'refused');
+    assert.match(held.why!,/less reserve 900 cannot cover the quoted 640/);
   } finally {unbind();}
 });

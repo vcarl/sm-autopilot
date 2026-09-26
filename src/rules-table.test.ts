@@ -75,6 +75,19 @@ test('a travel verdict the fuel refuses carries no call to paste',()=>{
   assert.equal(trip!.play,undefined);
 });
 
+test('a travel verdict admits the route the tank covers; the reserve is not added to it',()=>{
+  // The stranding of 2026-09-25: Focused keeps 24, the route quotes 4, and 26 was refused "short 2".
+  const facts=(fuel:number):Facts=>({mood:'Focused',stance:'Prospector',
+    place:{kind:'space',sites:[{poi_id:'sol_base',quoted_fuel:4,serviced_base:true}]},
+    holdings:{fuel,max_fuel:120,hull:100,max_hull:100,cargo_free:50,credits:1000},
+    obligations:{},permissions:{},observed:{}});
+  const verdict=(fuel:number)=>evaluateMenu(facts(fuel)).find(v=>v.job==='Travel to sol_base')!;
+  assert.equal(verdict(26).admissible,true,verdict(26).reason);
+  assert.equal(verdict(4).admissible,true,verdict(4).reason);
+  assert.equal(verdict(3).admissible,false);
+  assert.match(verdict(3).reason,/route quotes 4 fuel, have 3; shortfall 1 fuel units/);
+});
+
 /** Every verdict a stance can be shown, with the barrel line the pilot would paste, or
  * `undefined` where the barrel has no primitive for it at all. The menu offers exactly the
  * rows with a line and leaves the rest unsaid, so this table is the contract between what the
@@ -127,7 +140,7 @@ test('each admissible verdict carries the barrel call it would be taken with, or
   assert.ok(j7?.admissible,j7?.reason);
   assert.equal(j7!.play,'recipes()');
 
-  const j6=play(rich({stance:'Trader',observed:{spread:{item_id:'ore',margin:40,age:12}}}),'J6');
+  const j6=play(rich({stance:'Trader',observed:{spread:{item_id:'ore',base_id:'range_base',margin:40,age:12}}}),'J6');
   assert.ok(j6?.admissible,j6?.reason);
   assert.equal(j6!.play,'spreads()','the remembered bid is a lead; spreads() is what confirms it live');
 

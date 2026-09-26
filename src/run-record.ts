@@ -6,6 +6,7 @@
  */
 import {appendFileSync,mkdirSync,readFileSync,renameSync,writeFileSync} from 'node:fs';
 import {join} from 'node:path';
+import type {Question} from './play/runtime.ts';
 
 export interface RunRecord {
   script:string;
@@ -19,6 +20,8 @@ export interface RunRecord {
   ended:boolean;
   /** Present exactly when the run ended: the same shape the juncture reads as `last`. */
   outcome?:Record<string,unknown>;
+  /** Present while the program is paused on `ask()`: what the juncture gate wakes the pilot for. */
+  question?:Question;
 }
 
 /** Temp file then rename: a torn write would tell a restarting bridge a lie about the pilot. */

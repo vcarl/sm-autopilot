@@ -79,22 +79,48 @@ same goes for `withdraw` of rows the store does not have and `sell` of rows you 
 Every line here has cost a whole juncture at the typecheck gate. `tsc` is the first gate and it
 sees the real types, so these are not style notes.
 
+- **A variable you reassign across calls is `Outcome<unknown>`.** `let last = await goTo(base);
+  last = await prices();` is a type error: `last` was inferred `Outcome<Trip>`, and a
+  `prices()` Outcome is not one. Write `let last: Outcome<unknown> = await goTo(base);` (import
+  `Outcome` from `'play'`), or a fresh `const` per call.
+- **`account().cargo` may be undefined.** `account().cargo.map(…)` fails the typecheck; write
+  `(account().cargo ?? []).map(…)`, or read the hold from an Outcome's `now.cargo`, which is always
+  an array.
 - **Everything is `await`ed.** Every library function returns a `Promise<Outcome>`.
   `const s = sell(rows)` then `s.status` is `Property 'status' does not exist on type
   'Promise<Outcome<Sold>>'` — the missing `await` is the entire error.
-- **`sell` takes two options and neither names a market.** `{from: 'hold' | 'store'}` and
-  `{floor: {[item_id]: number}}`. `{market: 'local'}` does not exist; `sell` is always the counter
-  you are docked at.
+- **`sell` takes two options and neither names a market.** `sell(rows, {from?, floor?})`:
+  `from: 'hold' | 'store'` and `floor: {[item_id]: number}`, nothing else. `buy(item_id, quantity,
+  {deliverTo?, maxEach?, force?})` names no market either. `{market: 'local'}` does not exist; both
+  are always the counter you are docked at. To sell somewhere else, `goTo` it first, or
+  `tradeRun({stops: [{at}]})`, which flies there and sells what is aboard. `tradeRun` takes only
+  `{stops}`: `{item, sellAt}` and `{buyAt}` do not exist, and a route is one call with no
+  `goTo(...)` before it — each stop is `{at, buy?, quantity?, from?}`.
+- **The fields are not the ones you would guess.** A `sell` answers `detail: Sold` =
+  `{base_id, fills, short, total}`: `total` is the credits, `fills[i]` is the lib's `SellResponse`
+  (`item_id`, `quantity_sold`, `total_earned`, `xp_gained`), and `short[i]` is
+  `{item_id, requested, sold, why}`. There is no `Sold.settled` (`settled` is `gatherUntil`'s).
+  A `Row` is exactly `{item_id, quantity}`, with no `Row.unit_value`. `prices()` answers
+  `detail.quotes`, and each quote is the book plus your position: `item_id`, `best_buy`,
+  `best_buy_qty`, `best_sell`, `best_sell_qty`, `spread`, `held`, `stored`. There is no
+  `detail.sellable`; a quote with `best_buy > 0` is one that sells here.
 - **`Want` to ask with, `Row` to receive.** `{item_id: 'carbon_ore'}` is a `Want`. `Row` requires
   `quantity`, so annotating a list you build `Row[]` is what rejects it.
 - **A raw command is not an Outcome.** `account().commands.<tool>.<action>()` answers
   `QueryResult<T>` (read `.structuredContent`) or `MutationResult<T>` (read `.delta.details`) —
   never `status`, `did`, `why`, `detail`. A refusal *throws* rather than returning `refused`, so an
   unguarded raw command breaks the run: wrap it in `try`/`catch`.
+- **A docked refuel fills the tank.** Raw `spacemolt.refuel({quantity: 40})` at a station ignores
+  `quantity` (it counts fuel cells burned in space, or units transferred to another ship) and
+  bills for a full tank. There is no partial refuel at a counter; `service()` is the same fill.
+- **The fuel cells aboard are a reserve, not cargo.** `service()` keeps about 5% of the hold in
+  `fuel_cell`s. `sell`, `stow` and every settle leave that many aboard and part only with cells
+  above it, so `sell([{item_id:'fuel_cell'}])` sells the spare and a hold is never quite empty.
 - **A location has no `id` and no `name`.** `V2Location` is `poi_id`, `poi_name`, `system_id`,
   `system_name`, `docked_at` (null when undocked), plus `connections` and the `nearby_*` counts.
-- **`Cannot find name 'x'` means you did not import it.** There are no globals: `note`, `outcome`,
-  `stopped` and `account` come from `'play'` like everything else.
+- **`Cannot find name 'x'` means you did not import it.** There are no globals. Every function you
+  call, `sell` and `buy` included, and `note`, `outcome`, `stopped` and `account` too, comes from one
+  line: `import {…} from 'play'`. Name each one there.
 
 ## The root functions (every stage)
 
@@ -102,8 +128,8 @@ sees the real types, so these are not style notes.
 |---|---|
 | `orient()` | the whole world model in one read: present, skills, storage everywhere, ships, missions, debts |
 | `scout(target?)` | POIs of a system (this one by default) with types, stations, resources here, creatures here |
-| `goTo(id)` | fly to a POI, base or system, jumping as needed; dock if a base. Any of the three ids works, or a display name: a system id ends the trip anywhere in that system, a POI id at that POI, a base id docked at it — a guess that names a system with a single base goes to that base, and any other word that names nothing is `refused` with the nearest ids instead of being flown. On the way it flies through and completes any active distress mission whose system is on the route or one jump off it, when the detour stays inside a quarter of the route's length and the tank still covers the rest plus the reserve |
-| `service()` | full tank and hull at the counter you are docked at, inside the mood's spend margin. A station bills for fuel and repairs after the fact, so it needs no posted price: where it posts one, that is the estimate the spend is checked against first; where it posts none — which is most stations for the hull — the charge itself is checked against `permissions.credit_reserve` and the margin, and nothing further is bought if it breaches either |
+| `goTo(id)` | fly to a POI, base or system, jumping as needed; dock if a base. Any of the three ids works, or a display name: a system id with one base ends docked at that base (a system with several ends wherever the jump lands, undocked, and `prices()` there is refused until you `goTo` a base id), a POI id at that POI, a base id docked at it. A display name works for a base in this system or in the market memory (any base you have read `prices()` at); a guess that names a system with a single base goes to that base, and any other word that names nothing is `refused` with the nearest ids, remembered bases among them, instead of being flown. On the way it flies through and completes any active distress mission whose system is on the route or one jump off it, when the detour stays inside a quarter of the route's length and the whole trip still ends above the mood's fuel reserve. A leg is flown when the tank covers its quoted route; no reserve is kept on top |
+| `service()` | full tank and hull at the counter you are docked at, the repair inside the mood's spend margin; fuel is resupply and only `permissions.credit_reserve` bounds it. A station bills for fuel and repairs after the fact, so it needs no posted price: where it posts one, that is the estimate the spend is checked against first; where it posts none — which is most stations for the hull — the charge itself is checked against `permissions.credit_reserve` and, for the repair, the margin, and nothing further is bought if it breaches either. It also keeps **fuel cells** aboard: once they fall under 1% of the hold it buys up to 5% (at least one), bounded like the fuel by `permissions.credit_reserve` alone, and skipped — `did` says why — where the ask is over 1.5× the median ask your market memory remembers for them. `did` shows `fuel cells held/target` |
 | `stow(rows)` / `withdraw(rows)` / `storage(base?)` | station storage; rows you name (omit a row's `quantity` for all of it); readable from anywhere |
 | `prices(items?)` / `sell(rows, opts?)` / `buy(item, qty)` | the market here, live at the moment of the act, and remembered for `spreads()`. `sell`'s options are exactly two: `{from: 'hold' \| 'store'}` (default `'hold'`; `'store'` empties the store a hold-load at a time) and `{floor: {[item_id]: number}}` (skip a row whose `best_buy` is under it). There is no option naming a market — `sell` is always the counter you are docked at |
 | `refit({install,remove})` / `shipsForSale(opts?)` / `buyShip(id, opts?)` | the hangar: modules on and off within the grid, the hulls for sale here, the next one |
@@ -114,6 +140,7 @@ sees the real types, so these are not style notes.
 | `account()` | the raw `@spacemolt/lib` Account |
 | `outcome(did, status?, detail?)` | build an Outcome for a helper of your own; the runtime fills cost, gains and the present |
 | `stopped()` | true once `stop` was called; check it in any loop of your own |
+| `ask({question, choices?})` | pause the run and put a question to yourself; resolves to your answer (one of `choices`, when given), throws the stop error if the run is stopped instead. See "Asking yourself a question mid-run" |
 
 `sell`, `stow` and `withdraw` take explicit rows (`[{item_id, quantity}]`, and `{item_id}` with
 no `quantity` for all of it — a non-finite `quantity` is refused) and never default to
@@ -129,7 +156,7 @@ Everything game-shaped in a `detail` is the lib's own type (`SystemPoi`, `Missio
 
 Careers add more: [`mining/`](mining/README.md) (`gatherUntil`),
 [`hauling/`](hauling/README.md), [`industry/`](industry/README.md), [`combat/`](combat/README.md) (`hunt`, `salvage`),
-[`trading/`](trading/README.md) (`spreads`, `tradeRun`), [`exploration/`](exploration/README.md), [`fleet/`](fleet/README.md).
+[`trading/`](trading/README.md) (`spreads`, `routes`, `tradeRun`, `scoutMarkets`), [`exploration/`](exploration/README.md), [`fleet/`](fleet/README.md) (`assign`, `recall`, `freighters`).
 Each folder's README is the skill for that career; the one for your stance is loaded beside this.
 
 ## Reading a counter before you spend at it
@@ -180,19 +207,23 @@ export default async function main() {
 ## Mood and Tired
 
 Your mood is not chosen: it is your stance's own (Cautious with no stance), and it sets margins —
-fuel kept beyond a route, credits a single service may spend, the hull fraction a fight breaks off
-at. When fuel, hull or credits are through those margins the mood reads **Tired**: the function you
-are in finishes and nothing new starts until the ship is brought back up. Tired **widens** what a
-resupply may do rather than narrowing where you may go — it lifts the spend margin and drops the
-fuel reserve to 0. It never refuses a flight: `goTo` any base you like. Docked anywhere,
-`service()` (or `rest()`) is the move: a counter does not need to post a price to refuel or repair.
-Which base, when you are out: the suggested moves already carry every price that is readable from
-here, so take them rather than re-reading. `inspect` reaches **this system only** —
+the fuel line under which you are Tired, credits a single repair may spend (never a refuel: fuel is
+resupply, and no mood strands a ship), the hull fraction a fight breaks off at. When fuel, hull or
+credits are through those margins the mood reads **Tired**: the function you are in finishes and
+nothing new starts until the ship is brought back up. Tired **widens** what a resupply may do rather
+than narrowing where you may go — it lifts the spend margin and drops the fuel reserve to 0. The
+fuel reserve is **not** kept back from travel: a trip is flown when the tank covers its route, and a
+leg that takes fuel under the reserve is how Tired arrives — the resupply trigger, working as meant.
+It never refuses a flight: `goTo` any base you like. Docked anywhere, `service()` (or `rest()`) is
+the move: a counter does not need to post a price to refuel or repair. Which base, when you are
+out: the suggested moves already carry every price that is readable from here, so take them rather
+than re-reading. `inspect` reaches **this system only** —
 `account().commands.spacemolt.inspect({id})` on a base in another system throws "You can only
 inspect a point of interest in your current system", and an uncaught throw from a raw command breaks
 the whole run. For a base outside this system the price is unknown until you dock there, which is no
-reason to stay put. Back inside the margins, Tired is gone. `permissions.credit_reserve` is a
-standing bound and Tired does not widen it; a fill it refuses says so by name.
+reason to stay put. Back inside the margins, Tired is gone. Fuel cells are resupply too, so Tired's
+"service only" buys them. `permissions.credit_reserve` is a standing bound and Tired does not widen
+it; a fill it refuses says so by name.
 
 ## Goal and stance
 
@@ -209,8 +240,49 @@ which skills would move, what you hold and owe.
   `process`, `fetch`, `eval`, dynamic `import()`; `while(true)`/`for(;;)` without a
   `stopped()` check; `unload_passenger` with id `all`; a file with no `export default async function main`.
 - At runtime, inside the helpers: spending under `permissions.credit_reserve`; a route
-  without the mood's fuel reserve; starting work under Tired. Tired refuses *work*, never
-  movement or resupply.
+  the tank cannot cover; starting work under Tired. Tired refuses *work*, never movement or
+  resupply.
+
+## Asking yourself a question mid-run
+
+`ask({question, choices?})` pauses the program and hands the question back to you, the
+model that started the run; it resolves to your answer. With `choices`, the answer is always
+exactly one of them. The run's wall-clock cap still runs while it waits: a question unanswered at
+the cap is withdrawn and the run ends `partial`.
+
+```ts
+import {ask, goTo, note, outcome} from 'play';
+
+export default async function main() {
+  const trip = await goTo('far_belt');
+  if (trip.status !== 'done') return trip;
+  // A fork the script cannot judge: the author decides, once, and the run carries on.
+  const pick = await ask({question: 'Pirates are camping the far belt. Push on or turn home?',
+    choices: ['push on', 'turn home']});
+  note(`chose to ${pick}`);
+  if (pick === 'turn home') return goTo('sol_base');
+  return outcome('pushed on past the pirates');
+}
+```
+
+Ask at a strategic fork, where your judgment is what is missing: which market to commit a hold
+to, whether to fight something the numbers say is close. Never ask per tick or per item — every
+answer is a model call, which takes minutes, and the game's clock keeps turning while you think.
+If a rule could decide it, write the rule.
+
+What you see: `spacemolt_run` returns early, with the lines so far and the question below them.
+The protocol, exactly:
+
+- `spacemolt_answer({answer})` resumes the program. That call then blocks like `spacemolt_run`:
+  it returns the rest of the run and its report, or the program's next question. An answer that
+  is not one of the choices is refused and the program keeps waiting.
+- `spacemolt_stop` ends the run instead: `ask` throws the same stop error a stopped run throws,
+  the program unwinds (the run ends `partial`), and the call returns the report.
+- `spacemolt_run` with a new `source` is refused while a question waits; with no `source`, it
+  starts nothing and hands the pending question back.
+
+If your turn ends without an answer, the question waits in the run record, and the next juncture
+opens with it.
 
 ## When you are stuck
 

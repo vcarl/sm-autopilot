@@ -1,5 +1,6 @@
-// D2 fuel units kept beyond the quoted route. Job admission and other mood
-// margins are separate consumers; Tired can still make its resupply trip.
+// D2 fuel reserve, in units: the line under which the runtime imposes Tired (D3), and so the
+// trigger for resupply. It is not a travel margin; a trip is admitted on its route cost alone
+// (operator's decision, 2026-09-26).
 const fuelReserves=Object.freeze({
   Relaxed:30,Cautious:30,Focused:24,Opportunistic:20,Aggressive:12,Tired:0,
 });
@@ -23,20 +24,19 @@ export function resolveWalkAway(mood:Mood):number {
   if(!Object.hasOwn(retreatHull,mood))throw new Error('Unknown walk-away mood');
   return retreatHull[mood];
 }
-/** Standing bounds, in units, separate from numeric script allocations. */
-export interface StandingFuelPolicy {fuelReserveFloor?:number}
-
-export function resolveFuelReserve(mood:Mood,standingPolicy:StandingFuelPolicy={}):number {
+export function resolveFuelReserve(mood:Mood):number {
   if(!Object.hasOwn(fuelReserves,mood))throw new Error('Unknown travel mood');
-  const floor=standingPolicy.fuelReserveFloor;
-  if(floor!==undefined&&(typeof floor!=='number'||!Number.isFinite(floor)||floor<0))
-    throw new Error('Standing fuel reserve floor must be a finite non-negative number');
-  return Math.max(fuelReserves[mood],floor??0);
+  return fuelReserves[mood];
 }
 
 /** The margin a mood's ship has crossed, if any: fuel under the reserve, hull under the walk-away
- * line, credits under the standing reserve. ponytail: the fuel line is a flat reserve, not a route
- * home; `serviceElsewhere` (play/service.ts) prices the route when a service is refused.
+ * line, credits under the standing reserve.
+ *
+ * This is the only place the fuel reserve binds. Travel keeps nothing back — a leg is flown when
+ * the tank covers its route (operator's decision, 2026-09-26) — so a leg that takes fuel under the
+ * reserve lands here, and Tired's rules send the pilot to service. ponytail: the fuel line is a
+ * flat reserve, not a route home; `serviceElsewhere` (play/service.ts) prices the route when a
+ * service is refused.
  * ponytail: `crossed` has no hysteresis. A ship sitting exactly on a line flips per command; add a
  * band if the journal ever shows it chattering. */
 export function crossed(mood:Mood,ship:{fuel:number;hull:number;max_hull:number}|undefined,

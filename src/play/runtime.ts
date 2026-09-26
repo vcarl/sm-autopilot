@@ -11,7 +11,7 @@
  */
 import type {Account,SkillProgress,V2CargoItem,V2Location,V2Ship} from '@spacemolt/lib';
 import type {ReadinessAccount,ReadinessCommand} from '../readiness.ts';
-import {journalRun} from '../run-record.ts';
+import {journalRun,readRun,writeRun} from '../run-record.ts';
 import {TravelBlocked} from '../travel.ts';
 import type {Outcome,Present,Row,Status,Want} from './types.ts';
 
@@ -43,6 +43,8 @@ export interface Binding {
   runtime?:string;
   /** Where a streamed line goes after the journal has it. */
   emit:(text:string)=>void;
+  /** Told when the program pauses on `ask()`, so the request waiting on the run can answer. */
+  onAsk?:(question:Question)=>void;
 }
 
 let bound:Binding|null=null;
@@ -63,11 +65,24 @@ export interface Call {fn:string;arg:string;status:Status;did:string;
 let calls:Call[]=[];
 export const runCalls=()=>calls;
 
+/** A question the program is paused on, as run.json and the tools carry it. */
+export interface Question {question:string;choices?:string[];asked_at:string}
+let asking:{question:Question;resolve:(answer:string)=>void;reject:(error:unknown)=>void}|null=null;
+/** The question the program is paused on, or null. */
+export const pendingQuestion=():Question|null=>asking?.question??null;
+/** run.json carries the pending question, so the juncture gate (another process) can see it. */
+function recordQuestion(question:Question|null):void {
+  const runtime=bound?.runtime,record=runtime?readRun(runtime):null;
+  if(!runtime||!record)return;
+  if(question)record.question=question;else delete record.question;
+  writeRun(runtime,record);
+}
+
 const need=()=>{if(!bound)throw new Error('the play runtime is not bound: only `run` may execute pilot code');return bound;};
 
 /** Bind the runtime for one run. Resets the stop flag and the counters. */
 export function bind(binding:Binding):void {
-  bound=binding;stopFlag=false;commands=0;started=Date.now();last={fn:'pilot'};calls=[];
+  bound=binding;stopFlag=false;commands=0;asking=null;started=Date.now();last={fn:'pilot'};calls=[];
   lastCommandAt=0;pending=null;lastTick=undefined;
   mark=snapshot();
   lastMood=binding.pilot().mood;
@@ -75,7 +90,7 @@ export function bind(binding:Binding):void {
   const live=binding.account as unknown as {onStateChange?:(fn:()=>void)=>()=>void};
   unwatch=typeof live.onStateChange==='function'?live.onStateChange(()=>{try {watchMood();} catch {/* a push is not the place to fail */}}):undefined;
 }
-export function unbind():void {unwatch?.();unwatch=undefined;bound=null;}
+export function unbind():void {unwatch?.();unwatch=undefined;asking=null;bound=null;}
 export const isBound=()=>bound!==null;
 
 /** The pilot record as it is right now. Cheap; call it, do not cache it. */
@@ -96,11 +111,57 @@ export function note(text:string):void {line(text);}
 /** True once the pilot (or the observer) asked the run to stop. Every library function checks it
  * between commands and returns `partial`; a loop of your own should check it too. */
 export function stopped():boolean {return stopFlag;}
-export function stop():void {stopFlag=true;}
+/** Ask the run to stop. A program paused on `ask()` is not at a safe point, it is waiting: the
+ * ask rejects with `Stopped` there and then, and the question is withdrawn. */
+export function stop():void {
+  stopFlag=true;
+  const waiting=asking;
+  if(!waiting)return;
+  asking=null;
+  recordQuestion(null);
+  line(`question withdrawn by stop: ${waiting.question.question}`);
+  waiting.reject(new Stopped());
+}
 
 /** Thrown from a travel checkpoint when the pilot asked to stop; the leg in flight finishes. */
 export class Stopped extends TravelBlocked {constructor(){super('stopped by pilot');}}
 export const checkStop=()=>{if(stopFlag)throw new Stopped();};
+
+/** Pause the program and put a question to the model that is running it; resolves to its
+ * answer, which is always one of `choices` when they are given. It waits until the answer
+ * comes, or rejects with `Stopped` when the run is stopped — by a person, or by the run's
+ * wall-clock cap (run.ts).
+ * A model call takes minutes, so ask at a strategic fork, never once per tick. */
+export function ask(asked:{question:string;choices?:string[]}):Promise<string> {
+  need();
+  if(stopFlag)return Promise.reject(new Stopped());
+  const text=String(asked?.question??'').trim();
+  const choices=asked?.choices;
+  const refused=!text?'ask needs a question'
+    :asking?'ask: a question is already pending; await one before asking the next'
+    :choices!==undefined&&(!Array.isArray(choices)||!choices.length||choices.some(c=>typeof c!=='string'||!c.trim()))
+      ?'ask: choices must be a non-empty list of non-empty strings'
+    :null;
+  if(refused)return Promise.reject(new Error(refused));
+  const question:Question={question:text,...choices?{choices:[...choices]}:{},
+    asked_at:new Date().toISOString()};
+  return new Promise<string>((resolve,reject)=>{
+    asking={question,resolve,reject};
+    recordQuestion(question);
+    line(`? ${text}${choices?`  [${choices.join(' | ')}]`:''}`);
+    need().onAsk?.(question);
+  });
+}
+
+/** Resume the paused program with `text`. The caller has already held it to the choices. */
+export function answer(text:string):void {
+  const waiting=asking;
+  if(!waiting)throw new Error('no question is pending');
+  asking=null;
+  recordQuestion(null);
+  line(`answered: ${text}`);
+  waiting.resolve(text);
+}
 
 /** Build an Outcome for a function of your own. You supply the sentence, the status and the
  * detail; the runtime fills `fn`, `cost`, `gained` and `now` from what it measured since the

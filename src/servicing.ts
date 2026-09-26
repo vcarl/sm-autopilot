@@ -2,6 +2,8 @@ import type {GameState} from '@spacemolt/lib';
 import type {ReadinessAccount,ReadinessCommand} from './readiness.ts';
 import {details} from './response-details.ts';
 import {resolveServiceSpend,type Mood} from './mood-policy.ts';
+import {FUEL_CELL,cellReserve} from './mining-inventory.ts';
+import {knownBooks,rememberBook} from './play/market.ts';
 
 /** `decided` carried the deleted rules engine's Decision; it is typed loose here only
  * so the first-attempt consumers (industry, recovery) keep compiling unchanged.
@@ -15,8 +17,15 @@ export interface ServiceOptions {
   mood:Mood;
   /** A standing permission (D11), independent of the mood. */
   creditReserve?:number;
+  /** The runtime whose market memory the fuel-cell price is checked against and written to. */
+  runtime?:string;
+  /** False skips the fuel-cell top-up: a freighter's hold is its circuit's to plan. */
+  cells?:boolean;
 }
-export interface ServiceOutcome {satisfied:true;issued:string[];spent:number;fuel:number;hull:number}
+/** The fuel-cell top-up that follows a fill: cells aboard against the reserve, what was bought
+ * for what, and `skipped` saying why nothing was when the reserve was due. */
+export interface CellTopUp {held:number;target:number;bought:number;spent:number;skipped?:string}
+export interface ServiceOutcome {satisfied:true;issued:string[];spent:number;fuel:number;hull:number;cells?:CellTopUp}
 
 /** Carries the units still missing, so a caller can never mistake it for readiness. */
 export class ServiceBlocked extends Error {
@@ -32,7 +41,8 @@ const shortfall=(name:string,have:number,need:number,unit:string)=>
   `${name} have ${have}, need ${need}; shortfall ${need-have} ${unit}`;
 
 /** Servicing is script-owned: the mood resolves the spend margin and D3 resolves the
- * targets. A serviced dock restores the full tank and full hull; the mood's retreat
+ * targets. The margin meters the repair only: fuel is resupply, and a mood never strands a ship,
+ * so a refuel is bounded by the wallet and `creditReserve` alone. A serviced dock restores the full tank and full hull; the mood's retreat
  * fraction is the away-from-dock line, not a service target. A partial fill is never
  * success — the post-state is read authoritatively and decides.
  *
@@ -50,6 +60,55 @@ const shortfall=(name:string,have:number,need:number,unit:string)=>
  * anything further being bought and names the reserve.
  */
 export async function serviceShip(account:ReadinessAccount,command:ReadinessCommand,options:ServiceOptions):Promise<ServiceOutcome> {
+  const done=await fill(account,command,options);
+  return options.cells===false?done:{...done,cells:await topUpCells(account,command,options)};
+}
+
+/** A live cell price over this multiple of the remembered median is not paid. */
+export const CELL_PRICE_BOUND=1.5;
+const median=(values:number[])=>{
+  const sorted=[...values].sort((a,b)=>a-b),mid=sorted.length>>1;
+  return sorted.length%2?sorted[mid]!:(sorted[mid-1]!+sorted[mid]!)/2;
+};
+
+/** Fuel cells are resupply, bought with the fill: up to `CELL_TARGET` of the hold once they fall
+ * under `CELL_FLOOR`. Bounded as the refuel is — by `creditReserve` alone, never the mood's
+ * margin, so Tired's "service only" covers them. The live ask here is checked against the asks
+ * this runtime remembers (`markets.json`): over `CELL_PRICE_BOUND`× their median it is skipped,
+ * and with none remembered it is paid and remembered. Never throws: a counter without cells is
+ * still a serviced ship, and `skipped` says why nothing was bought. */
+async function topUpCells(account:ReadinessAccount,command:ReadinessCommand,options:ServiceOptions):Promise<CellTopUp> {
+  const reserve=cellReserve(account.state);
+  const out:CellTopUp={held:reserve.held,target:reserve.target,bought:0,spent:0};
+  if(!reserve.due)return out;
+  const skip=(why:string)=>({...out,skipped:`fuel cells: ${why}`});
+  try {
+    const ship=account.state.ship!,room=Math.floor((ship.cargo_capacity-ship.cargo_used)/reserve.size);
+    const want=Math.min(reserve.target-reserve.held,room);
+    if(want<=0)return skip('no room in the hold');
+    const market=details(await command('spacemolt_market/view_market',{}));
+    const items=Array.isArray(market.items)?market.items:[];
+    const ask=items.find((row:{item_id:string})=>row.item_id===FUEL_CELL)?.best_sell;
+    const seen=knownBooks(options.runtime??'').flatMap(book=>book.items)
+      .filter(row=>row.item_id===FUEL_CELL&&row.best_sell>0).map(row=>row.best_sell);
+    const base=account.state.location?.docked_at??'';
+    rememberBook(options.runtime??'',base,account.state.location?.system_id,items,Number(market.current_tick??0));
+    if(!(ask>0))return skip(`${base} sells none`);
+    if(seen.length&&ask>CELL_PRICE_BOUND*median(seen))
+      return skip(`${ask} cr is over ${CELL_PRICE_BOUND}x the remembered median ${median(seen)}`);
+    const quote=details(await command('spacemolt_market/estimate_purchase',{item_id:FUEL_CELL,quantity:want}));
+    const credits=account.state.player!.credits,cost=Number(quote.total_cost),floor=options.creditReserve??0;
+    const n=Math.min(want,Number(quote.available??want));
+    if(!(n>0))return skip(`${base} has none available`);
+    if(!Number.isFinite(cost)||credits-cost<floor)return skip(`${n} cost ${cost}; credits ${credits} would fall under the reserve ${floor}`);
+    await command('spacemolt/buy',{id:FUEL_CELL,quantity:n});
+    await account.refresh();
+    const after=cellReserve(account.state);
+    return {...out,held:after.held,bought:after.held-reserve.held,spent:credits-account.state.player!.credits};
+  } catch(error) {return skip((error as Error).message);}
+}
+
+async function fill(account:ReadinessAccount,command:ReadinessCommand,options:ServiceOptions):Promise<ServiceOutcome> {
   const margin=resolveServiceSpend(options.mood),reserve=options.creditReserve??0;
   if(!finite(reserve))throw new Error('Service credit reserve must be a finite non-negative number');
   const custody=(state:GameState)=>{
@@ -105,8 +164,9 @@ export async function serviceShip(account:ReadinessAccount,command:ReadinessComm
   ].filter(service=>service.need>0);
   const blockers:string[]=[];
   const estimated=services.reduce((sum,service)=>sum+(service.estimate??0),0);
+  const repair=services.find(service=>service.action==='spacemolt/repair')?.estimate??0;
   const opening=account.state.player!.credits;
-  if(estimated>margin)blockers.push(`quoted ${estimated} credits exceeds the ${options.mood} service spend margin ${margin}`);
+  if(repair>margin)blockers.push(`quoted ${repair} credits of repair exceeds the ${options.mood} service spend margin ${margin}`);
   // An unpriced service needs room above the reserve to spend at all; a priced one may fit exactly.
   const spendable=opening-estimated-reserve;
   if(spendable<0||(!estimated&&!spendable))blockers.push(estimated
@@ -133,8 +193,8 @@ export async function serviceShip(account:ReadinessAccount,command:ReadinessComm
       throw new ServiceBlocked([`${service.action} charged ${cost} against a ${service.estimate} credit quote`,...gaps()]);
     if(account.state.player!.credits<reserve)
       throw new ServiceBlocked([`${service.action} charged ${cost}, leaving credits ${account.state.player!.credits} under the reserve ${reserve}`,...gaps()]);
-    if(spent>margin)
-      throw new ServiceBlocked([`${service.action} charged ${cost}: ${spent} credits spent exceeds the ${options.mood} service spend margin ${margin}`,...gaps()]);
+    if(service.action==='spacemolt/repair'&&cost>margin)
+      throw new ServiceBlocked([`${service.action} charged ${cost}, over the ${options.mood} service spend margin ${margin}`,...gaps()]);
     if(!service.reached())throw new ServiceBlocked([`${service.action} did not reach the serviced-dock target`,...gaps()]);
   }
   await account.refresh();
