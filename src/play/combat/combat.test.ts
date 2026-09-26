@@ -487,19 +487,79 @@ test('every look is remembered, the empty ones included, and a remembered absenc
   } finally {unbind();}
 });
 
-test('a prey named is the prey hunted: the wrong species at the first POI is left alone',async()=>{
-  // `species` narrows the search as well as the fight. A search that engaged whatever stood at
+test('species narrows the search as well as the fight, under strict: the wrong species at the first POI is left alone',async()=>{
+  // `strict` narrows the search as well as the fight. A search that engaged whatever stood at
   // the first stop would make the prey argument a lie and spend the hull on the wrong animal.
+  // (Unset, `species` is a preference and this same habitat would fight the tortoise at `belt`
+  // instead of flying on — see the `species`/`strict` tests below.)
   const f=worldWithMemory({mood:'Focused'},
     {wildlife:{creatures:[{...tortoise,poi:'belt'},{...grazer,poi:'far_belt'}],polls:1,damage:1}});
   try {
     f.account.server.location.docked_at=null;f.account.server.location.poi_id='belt';
-    const out=await hunt({species:'molt_grazer',look:['belt','far_belt']});
+    const out=await hunt({species:'molt_grazer',strict:true,look:['belt','far_belt']});
     assert.equal(out.detail.fights.length,1,JSON.stringify(out.detail.looked));
     assert.equal(out.detail.fights[0]!.target.name,'Molt Grazer','the tortoise was fought instead');
     // And the tortoise it declined is still remembered as having been there.
     assert.ok(readSightings(f.runtime).some(row=>row.poi_id==='belt'&&row.species==='slag_tortoise'),
       'a look records what was there, not only what was wanted');
+  } finally {unbind();}
+});
+
+// ---- `species` as a list, and `strict` --------------------------------------------------
+// One evening cost 48 declines and 0 fights: `species: 'rime_grazer'` named a species that
+// was never present, and every legal creature standing there was turned down for being the
+// wrong one. `species` now takes several names, and unless `strict` is asked for, a named
+// species is a preference — fought first if present — not a filter that empties the habitat.
+
+test('a species list counts any of them as named, even the one not first in the habitat',async()=>{
+  const f=world({mood:'Focused'},{wildlife:{creatures:[tortoise],polls:1,damage:1}});
+  try {
+    const out=await hunt({species:['molt_grazer','slag_tortoise']});
+    assert.equal(out.detail.fights.length,1,JSON.stringify(out.detail));
+    assert.equal(out.detail.fights[0]!.target.name,'Slag Tortoise');
+  } finally {unbind();}
+});
+
+test('strict:false falls back to a legal creature of any species when none named is here',async()=>{
+  const f=world({mood:'Focused'},{wildlife:{creatures:[tortoise],polls:1,damage:1}});
+  try {
+    const out=await hunt({species:'molt_grazer',strict:false});
+    assert.equal(out.status,'done',out.why);
+    assert.equal(out.detail.fights.length,1,'the named species was absent, but a legal one stood here');
+    assert.equal(out.detail.fights[0]!.target.name,'Slag Tortoise');
+    // Nothing was declined for the wrong species: the fallback is not a refusal in disguise.
+    assert.equal(out.detail.looked[0]!.legal,1);
+  } finally {unbind();}
+});
+
+test('strict:false still prefers a named species over another legal one standing here',async()=>{
+  // The tortoise is first in the habitat; the preference has to look past it for the named one.
+  const f=world({mood:'Focused'},{wildlife:{creatures:[tortoise,grazer],polls:1,damage:1}});
+  try {
+    const out=await hunt({species:'molt_grazer',strict:false});
+    assert.equal(out.detail.fights.length,1);
+    assert.equal(out.detail.fights[0]!.target.name,'Molt Grazer','the preference lost to the first-legal fallback');
+  } finally {unbind();}
+});
+
+test('strict:true keeps the old refusals: only the named species is fought',async()=>{
+  const f=world({mood:'Focused'},{wildlife:{creatures:[tortoise],polls:1,damage:1}});
+  try {
+    const out=await hunt({species:'molt_grazer',strict:true});
+    assert.equal(out.status,'done',out.why);
+    assert.equal(out.detail.fights.length,0,'the only creature here is the wrong species');
+    assert.equal(out.detail.ended,'nothing here');
+    assert.equal(out.detail.looked[0]!.legal,0,'declined for species under strict, not counted legal');
+    assert.equal(f.count('spacemolt/hunt'),0,'nothing was engaged');
+  } finally {unbind();}
+});
+
+test('omitting strict is the same as strict:false',async()=>{
+  const f=world({mood:'Focused'},{wildlife:{creatures:[tortoise],polls:1,damage:1}});
+  try {
+    const out=await hunt({species:'molt_grazer'});
+    assert.equal(out.detail.fights.length,1,'no strict given: the fallback still applies');
+    assert.equal(out.detail.fights[0]!.target.name,'Slag Tortoise');
   } finally {unbind();}
 });
 
