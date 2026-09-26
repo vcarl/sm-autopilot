@@ -1,0 +1,55 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: The tag, plugin.yaml, package.json and CHANGELOG.md agree
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          plugin=$(sed -n 's/^version:[[:space:]]*//p' plugin.yaml | tr -d "\"'[:space:]")
+          package=$(node -p "require('./package.json').version")
+          ok=1
+          if [ "$plugin" != "$version" ]; then
+            echo "::error file=plugin.yaml::tag $GITHUB_REF_NAME wants version $version, plugin.yaml says '$plugin'"; ok=0
+          fi
+          if [ "$package" != "$version" ]; then
+            echo "::error file=package.json::tag $GITHUB_REF_NAME wants version $version, package.json says '$package'"; ok=0
+          fi
+          if ! grep -qF "## [$version]" CHANGELOG.md; then
+            echo "::error file=CHANGELOG.md::no '## [$version]' section for tag $GITHUB_REF_NAME"; ok=0
+          fi
+          [ "$ok" = 1 ]
+
+  ci:
+    uses: ./.github/workflows/ci.yml
+
+  release:
+    needs: [verify, ci]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+      - name: Publish the CHANGELOG section as the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          awk -v head="## [$version]" '
+            /^## \[/ { if (found) exit; found = index($0, head) == 1; next }
+            found && /^\[[^]]+\]: / { exit }
+            found
+          ' CHANGELOG.md > notes.md
+          if ! grep -q '[^[:space:]]' notes.md; then
+            echo "::error file=CHANGELOG.md::the '## [$version]' section is missing or empty"; exit 1
+          fi
+          gh release create "$GITHUB_REF_NAME" --verify-tag --title "$GITHUB_REF_NAME" --notes-file notes.md
