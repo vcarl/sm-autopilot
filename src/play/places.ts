@@ -27,17 +27,28 @@ export function markPlace(runtime:string,base_id:string,system_id:string):void {
  * beside `places.json`, a list of base ids, written by a freighter's host and read by `chart`, which
  * places a mobile base afresh with `find_route` every time, never from `places.json` or a memory. */
 const MOBILE='mobile.json';
-export function readMobile(runtime:string):Set<string> {
-  try {const ids=JSON.parse(readFileSync(join(runtime,MOBILE),'utf8'));return new Set(Array.isArray(ids)?ids.filter(id=>typeof id==='string'):[]);}
+export const readMobile=(runtime:string)=>readList(runtime,MOBILE);
+export const markMobile=(runtime:string,base_id:string)=>addToList(runtime,MOBILE,base_id);
+
+/** Systems whose bases a live `get_system` there listed (or the faction's intel map did):
+ * `explored.json` beside `places.json`, a list of system ids, so a system is flown to for its
+ * bases once, ever. The bases themselves go to `places.json`. Read by `candidates` (trading/scout.ts). */
+const EXPLORED='explored.json';
+export const readExplored=(runtime:string)=>readList(runtime,EXPLORED);
+export const markExplored=(runtime:string,system_id:string)=>addToList(runtime,EXPLORED,system_id);
+
+function readList(runtime:string,file:string):Set<string> {
+  try {const ids=JSON.parse(readFileSync(join(runtime,file),'utf8'));return new Set(Array.isArray(ids)?ids.filter(id=>typeof id==='string'):[]);}
   catch {return new Set();}
 }
-export function markMobile(runtime:string,base_id:string):void {
-  const ids=readMobile(runtime);
-  if(!base_id||ids.has(base_id))return;
+/** Temp file then rename; a no-op when the id is already listed or empty. */
+function addToList(runtime:string,file:string,id:string):void {
+  const ids=readList(runtime,file);
+  if(!id||ids.has(id))return;
   try {
     mkdirSync(runtime,{recursive:true});
-    const path=join(runtime,MOBILE),temp=`${path}.${process.pid}.tmp`;
-    writeFileSync(temp,JSON.stringify([...ids,base_id],null,2),{mode:0o600});
+    const path=join(runtime,file),temp=`${path}.${process.pid}.tmp`;
+    writeFileSync(temp,JSON.stringify([...ids,id],null,2),{mode:0o600});
     renameSync(temp,path);
-  } catch {/* unkept: the next move is seen again */}
+  } catch {/* unkept: seen again next time */}
 }

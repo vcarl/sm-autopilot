@@ -12,6 +12,7 @@ assembled from everything this pilot is allowed to know.
 | `spreads(items?)` | the best buyers known for each thing you hold (up to `BUYERS`, 3, an item), anywhere, with the trip priced and netted, ranked as `routes()` ranks a one-stop route |
 | `routes({items?, circuit?, maxStops?, maxLegJumps?, maxJumps?})` | every route known within the scope (by default up to 4 stops, 3 jumps a leg), planned from the hold you have, fuelled, and ranked by trust-weighted net per jump; each row carries the call to paste. With `circuit: {hold}`, every row is a closed lap for a freighter instead, past the rings a freighter drained within `REST_TICKS` |
 | `tradeRun({stops})` | fly the stops in order; at each, sell what pays best there and fill the hold from the stop's `buy` items, re-planned against the live book. The realised net from the wallet |
+| `scoutMarkets({jumps?, max?})` | fly to the nearest books nobody has read lately, up to `max` (3) hops within `jumps` (`SCOUT_JUMPS`, 4), and read, remember and file each one; the ground `routes()` plans over. Never buys or sells |
 
 Root functions do the rest: `prices()` for the counter you are standing at, `sell()`/`buy()`
 for one side only.
@@ -260,6 +261,58 @@ The menu offers `tradeRun({stops: [{at}]})` in every stance when something aboar
 and a remembered book elsewhere bids for it. For goods in the store here, it offers
 `tradeRun({stops: [{at: here, buy, from: 'store'}, {at}]})`. The fuel to get there is not priced
 into that line.
+
+## Scouting: reading the books nobody has
+
+A route is only ever planned over a book someone read, and the faction ledger covers about 15 of
+the galaxy's ~79 stations. `get_map` lists systems, not their bases. A base id is learned from a
+book, a `find_route`, the faction's intel map (`spacemolt_intel/query_intel`, each system with its
+POIs and their `base_id`s, when your faction has one), or a `get_system` standing in its system,
+which lists every POI there with its `base_id`. So scouting goes jump by jump where nothing else
+knows.
+
+`scoutMarkets({jumps?, max?})` answers `detail: {filed, explored, left}`:
+
+| Option | What it is |
+|---|---|
+| `jumps` | how far to look, in jumps from the system you are in: `SCOUT_JUMPS` (4) unless given |
+| `max` | hops to fly, all told: 3 unless given |
+
+Each hop goes to the first candidate within `jumps`, chosen afresh after every hop:
+
+1. a base known by id (in `places.json`, the intel map or a far book's system) with **no book** at all;
+2. a system on the map whose bases were **never listed** (not in `explored.json`, no base of it
+   placed, and some POI in it);
+3. a base whose freshest book, ledger or memory, is older than `IGNORE_TICKS` (1080 ticks, three hours).
+
+The first two rank together, nearer first and a base before a system; stale books come after. A base
+is flown to with `goTo` and its book read as `prices()` reads one: remembered in `markets.json` and
+filed to the ledger. After every hop the system's bases are listed (`get_system`) and kept in
+`places.json`, and the system in `explored.json`, so a system flown to for its bases makes them the
+next candidates, and a system with one base docks there on arrival. It never buys or sells.
+
+| Field | What it is |
+|---|---|
+| `filed` | the bases whose book it read, in order |
+| `explored` | `{system_id, bases}` for each system it flew to for its bases, and the base ids it listed |
+| `left` | candidates still within `jumps` after the last hop; `next` says `scoutMarkets() again` while there are any |
+
+A hop that does not arrive is skipped and said in `why`, and the call is `partial`; `refused` when
+none arrived, when you are not docked (ages are read against a counter's tick), or in a mood that may
+not start a job. With nothing to scout it is `done` and says so. The menu offers `scoutMarkets()` to a
+docked Trader whenever a candidate lies within `SCOUT_JUMPS`, under the trades. A freighter with no
+circuit that qualifies scouts by the same choice (see [fleet](../fleet/README.md#freighters)).
+
+```ts
+import {orient, scoutMarkets, routes} from 'play';
+
+export default async function main() {
+  await orient();
+  const scouted = await scoutMarkets({jumps: 3, max: 2});   // the two nearest unread books, within 3 jumps
+  if (!scouted.detail.filed.length) return scouted;
+  return routes();                                          // planned over what was just read
+}
+```
 
 ## Worked example — the ore nobody here will buy
 

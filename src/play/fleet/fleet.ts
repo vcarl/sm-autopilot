@@ -136,9 +136,9 @@ export function freighters():Promise<Outcome<{freighters:FreighterRow[]}>> {
       +(r.last_lap_net===null?'':`, last lap ${r.last_lap_net} of ${r.lap_net} predicted`)+(held(r.holding)?`, holding ${held(r.holding)}`:'')
       +(r.stop_after_lap?', stops after this lap':'')
       +(r.reassigned?`, re-planned itself ${r.reassigned.count}× (last onto ${r.reassigned.ring}, ${r.reassigned.lap_net} cr a lap predicted)`:'')
-      +(r.stowed?`, stowed ${r.stowed.join('; ')}`:'')
+      +(r.stowed?`, stowed ${r.stowed.join('; ')}`:'')+(r.scouted?`, scouted ${r.scouted} book(s) waiting for a circuit`:'')
       +(r.why?` (${r.why})`:'')).join('; '):'no freighters assigned',
-      detail:{freighters:rows},next:rows.length?rows.filter(r=>(r.state==='running'||r.state==='waiting')&&!r.stop_after_lap)
+      detail:{freighters:rows},next:rows.length?rows.filter(r=>(r.state==='running'||r.state==='waiting'||r.state==='scouting')&&!r.stop_after_lap)
         .map(r=>`recall('${r.name}', {after:'lap'})`):['routes({circuit: {hold: 50}}), then assign the top row']};
   });
 }

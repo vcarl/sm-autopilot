@@ -21,18 +21,20 @@ import {journalCommand,journalRun} from '../../run-record.ts';
 import {pilotHome} from '../../run.ts';
 import {checkBoundary,specifiers} from '../boundary.ts';
 import {checkPolicy} from '../policy.ts';
-import {knownBooks} from '../market.ts';
+import {knownBooks,rememberBook} from '../market.ts';
 import {buysOf,ledgerItems,REST_TICKS,search,type Circuit,type Seat} from '../trading/trading.ts';
-import {markMobile,markPlace} from '../places.ts';
+import {markMobile,markPlace,readPlaces} from '../places.ts';
+import {candidates,explore,target,type Candidate} from '../trading/scout.ts';
 import {markDrained,ring} from './drained.ts';
-import {claims as carried,freeTarget,type Approach,type Claim,type Freighter,type Holding,type Known,type Market} from './index.ts';
+import {claims as carried,freeTarget,scoutHop,type Approach,type Claim,type Freighter,type Holding,type Known,type Market} from './index.ts';
 
 /** One freighter as `freighters.json` keeps it. */
 export interface Entry {
-  /** `running` flies (and is resumed after a restart); `waiting` is docked until a circuit qualifies,
-   * re-planning every `REPLAN_TICKS` (and resumed so after a restart); `recalling` finishes its stop;
-   * `parked` is stopped for good. */
-  state:'running'|'waiting'|'recalling'|'parked';
+  /** `running` flies (and is resumed after a restart); `scouting` has no circuit that qualifies and
+   * flies to read the nearest unknown or stale books (`candidates`), re-planning after each; `waiting`
+   * has none and nothing left to scout, docked, re-planning every `REPLAN_TICKS` (both resumed so after
+   * a restart); `recalling` finishes its stop; `parked` is stopped for good. */
+  state:'running'|'waiting'|'scouting'|'recalling'|'parked';
   circuit:Circuit;float:number;owner:string;
   /** Laps completed since it was assigned, the base it is at or was last at, its wallet there. */
   lap:number;stop?:string;credits?:number;
@@ -54,12 +56,14 @@ export interface Entry {
   reassigned?:{count:number;ring:string;lap_net:number};
   /** Every stow of cargo no circuit stop sold, oldest first: what, at what cost, where, whose storage. */
   stowed?:string[];
+  /** Books it read scouting while it waited for a circuit, all told. */
+  scouted?:number;
   at:string;
 }
 /** A freighter as `freighters()` and the menu report it. */
 export interface FreighterRow {name:string;state:Entry['state'];lap:number;stop:string|null;credits:number|null;
   returned:number;last_lap_net:number|null;lap_net:number;holding:Holding;approach?:Approach;why?:string;
-  stop_after_lap?:true;reassigned?:Entry['reassigned'];stowed?:string[]}
+  stop_after_lap?:true;reassigned?:Entry['reassigned'];stowed?:string[];scouted?:number}
 
 const FILE='freighters.json',RETRY_MS=60_000,TICK_MS=10_000;
 /** A freighter with no circuit that qualifies re-plans this often: a quarter of the rest a drained ring takes. */
@@ -91,7 +95,7 @@ function update(runtime:string,name:string,fields:Partial<Entry>):void {
 export const row=(name:string,entry:Entry):FreighterRow=>({name,state:entry.state,lap:entry.lap,stop:entry.stop??null,
   credits:entry.credits??null,returned:entry.returned,last_lap_net:entry.last_lap_net??null,lap_net:entry.circuit.lap_net,
   holding:entry.holding??{},...entry.approach?{approach:entry.approach}:{},...entry.why?{why:entry.why}:{},
-  ...entry.stop_after_lap?{stop_after_lap:true as const}:{},...entry.reassigned?{reassigned:entry.reassigned}:{},...entry.stowed?.length?{stowed:entry.stowed}:{}});
+  ...entry.stop_after_lap?{stop_after_lap:true as const}:{},...entry.reassigned?{reassigned:entry.reassigned}:{},...entry.stowed?.length?{stowed:entry.stowed}:{},...entry.scouted?{scouted:entry.scouted}:{}});
 /** `holding` in words: `40 copper_piping (1148 cr)`. */
 export const held=(holding:Holding)=>Object.entries(holding).map(([item,row])=>`${row.quantity} ${item} (${Math.round(row.cost)} cr)`).join(', ');
 /** The menu's `freighters` rows; nothing when none was ever assigned. */
@@ -143,7 +147,7 @@ export function install(runtime:string,name:string,circuit:Circuit,fields:{float
   const fleet=readFleet(runtime),was=fleet[name],reassigned=fields.reassigned??was?.reassigned;
   // The cargo aboard stays aboard, and keeps what it cost.
   fleet[name]={state:'running',circuit:clean,float:fields.float,owner:fields.owner,lap:0,returned:was?.returned??0,
-    ...was?.holding?{holding:was.holding}:{},...reassigned?{reassigned}:{},...was?.stowed?{stowed:was.stowed}:{},at:new Date().toISOString()};
+    ...was?.holding?{holding:was.holding}:{},...reassigned?{reassigned}:{},...was?.stowed?{stowed:was.stowed}:{},...was?.scouted?{scouted:was.scouted}:{},at:new Date().toISOString()};
   writeFleet(runtime,fleet);
   return null;
 }
@@ -258,7 +262,7 @@ export function launch(runtime:string,name:string,account:ReadinessAccount,comma
   pilotHome(runtime);
   return (async()=>{
     await opts.login?.(loop);
-    let waiting=entry?.state==='waiting';
+    let waiting=entry?.state==='waiting'||entry?.state==='scouting';
     for(;;) {
       if(!waiting&&!await run(runtime,name,account,command,loop))return;
       waiting=false;
@@ -271,6 +275,27 @@ export function launch(runtime:string,name:string,account:ReadinessAccount,comma
       claimed.delete(join(runtime,name));
       try {loop.close();} catch {/* never connected */}
     });
+}
+
+/** What `name` says, into its entry and the journal: a lap's stop and a scouting hop alike. */
+function reporter(runtime:string,name:string,account:ReadinessAccount,loop:Loop):Freighter['report'] {
+  return fields=>{
+    const now=readFleet(runtime)[name];
+    if(!now)return;
+    // `cleared` is journalled, not kept: the holding after the stop says what is left. `stowed`
+    // is kept, all of them, so the owner can find the cargo in storage.
+    const {deposited,lapped,cleared:_,stowed,moved,...rest}=fields;
+    // A base found moved is mobile: planned from a live find_route from now on, never from a kept place.
+    if(moved){markMobile(runtime,moved.at);if(moved.system_id)markPlace(runtime,moved.at,moved.system_id);}
+    // A lap ended with a stop after it scheduled: the script's next recalled() is true.
+    if(lapped!==undefined&&loop.afterLap)loop.lapDone=true;
+    // Arrived at a stop: where it is is a place the owner's routes() need not look up again.
+    const at=account.state.location;
+    if(fields.stop&&at?.docked_at===fields.stop)markPlace(runtime,fields.stop,at.system_id??'');
+    update(runtime,name,{...rest,...deposited?{returned:now.returned+deposited}:{},
+      ...lapped===undefined?{}:{lap:now.lap+1,last_lap_net:lapped},...stowed?{stowed:[...now.stowed??[],stowed]}:{}});
+    journalRun(runtime,{freighter:name,...fields},'freighter');
+  };
 }
 
 /** Run the script `name` has now, once, on a fresh `Freighter`. True when it parked for a re-plan:
@@ -292,23 +317,7 @@ async function run(runtime:string,name:string,account:ReadinessAccount,command:R
       if(drained!==undefined)markDrained(runtime,ring(entry.circuit.stops),drained);
       journalRun(runtime,{freighter:name,parked:why,...drained===undefined?{}:{drained}},'freighter');
       return {park:why,net:0};},
-    report:fields=>{
-      const now=readFleet(runtime)[name];
-      if(!now)return;
-      // `cleared` is journalled, not kept: the holding after the stop says what is left. `stowed`
-      // is kept, all of them, so the owner can find the cargo in storage.
-      const {deposited,lapped,cleared:_,stowed,moved,...rest}=fields;
-      // A base found moved is mobile: planned from a live find_route from now on, never from a kept place.
-      if(moved){markMobile(runtime,moved.at);if(moved.system_id)markPlace(runtime,moved.at,moved.system_id);}
-      // A lap ended with a stop after it scheduled: the script's next recalled() is true.
-      if(lapped!==undefined&&loop.afterLap)loop.lapDone=true;
-      // Arrived at a stop: where it is is a place the owner's routes() need not look up again.
-      const at=account.state.location;
-      if(fields.stop&&at?.docked_at===fields.stop)markPlace(runtime,fields.stop,at.system_id??'');
-      update(runtime,name,{...rest,...deposited?{returned:now.returned+deposited}:{},
-        ...lapped===undefined?{}:{lap:now.lap+1,last_lap_net:lapped},...stowed?{stowed:[...now.stowed??[],stowed]}:{}});
-      journalRun(runtime,{freighter:name,...fields},'freighter');
-    }};
+    report:reporter(runtime,name,account,loop)};
   const path=scriptPath(runtime,name);
   const url=`${pathToFileURL(path).href}?v=${sha(readFileSync(path)).slice(0,12)}`;
   const loaded=await import(url) as {default?:(f:Freighter)=>Promise<unknown>};
@@ -320,8 +329,14 @@ async function run(runtime:string,name:string,account:ReadinessAccount,command:R
 /** After a park for a re-plan: `routes({circuit:{hold}, ...circuit.scope})`, the one planner, read on
  * the freighter's own connection and the owner's runtime files (never the play runtime), then the
  * top circuit installed at its float. True when it has a new circuit to fly. With none, a hold full
- * of cargo the circuit never sells stays parked, its why as it was; any other park waits docked,
- * re-planning every `REPLAN_TICKS`.
+ * of cargo the circuit never sells stays parked, its why as it was; any other park scouts: one hop
+ * at a time to the nearest `candidates` row (within `SCOUT_JUMPS`) not yet tried this wait, its book
+ * read, filed and remembered, the system's bases listed, then re-planned. A system flown to for its
+ * bases is left for a base, and with none left to read it flies back to where it last docked. With
+ * nothing to scout it waits docked, re-planning every `REPLAN_TICKS`. A recall or a stop after the
+ * lap ends it after the hop it is on (or between a failing hop's tries).
+ * ponytail: no police or threat gate on a hop: `get_map` carries no police level, and `get_system`
+ * only answers once there. Gate on `ClientSystemInfo.police_level` from `explore` if a scout is lost.
  * A blocked park is a hold the lap could neither sell at cost nor stow to `FREE_HOLD` free (`lap`
  * stows what no stop sells to there), so only when both deposits were refused.
  * ponytail: circuits are planned from an empty hold, so a blocked hold takes the first row that sells
@@ -333,6 +348,8 @@ async function replan(runtime:string,name:string,account:ReadinessAccount,comman
       const reply=details(await command('spacemolt_market/view_market',{})) as ViewMarketResponse;
       return {items:new Map<string,MarketListingItem>((reply.items??[]).map(row=>[row.item_id,row])),tick:Number(reply.current_tick??0)};
     }};
+  // Candidates flown to this wait: each once, so a wait scouts a finite list and then sits docked.
+  const tried=new Set<string>(),shared=market(runtime,name,command);
   for(;;) {
     const entry=readFleet(runtime)[name];
     if(!entry||loop.stopping)return false;
@@ -367,6 +384,33 @@ async function replan(runtime:string,name:string,account:ReadinessAccount,comman
       journalRun(runtime,{freighter:name,not_reassigned:`no circuit sells the cargo aboard: ${why}`},'freighter');
       return false;
     }
+    // Nothing qualifies: read the nearest book nobody has read lately, then re-plan on it.
+    const docked=account.state.location?.docked_at;
+    let list:Candidate[]=[];
+    try {list=await candidates(seat,docked?(await seat.book()).tick:shared.tick());}
+    catch(error) {if(/^session_replaced or disconnected/.test(message(error)))throw error;}
+    // Undocked, only a base: a system flown to for its bases is left for one, never for another system.
+    const next=list.find(row=>!tried.has(target(row))&&(docked||row.base_id));
+    if(next||!docked) {
+      // Scouting ends docked: a system with no base in it, and nothing more to read, flies back to where it last docked.
+      const to=next??(entry.stop?{kind:'stale' as const,base_id:entry.stop,system_id:readPlaces(runtime)[entry.stop]??'',jumps:0}:undefined);
+      if(!to){update(runtime,name,{state:'parked',why:`scouting left it undocked with no base to return to: ${why}`});return false;}
+      tried.add(target(to));
+      update(runtime,name,{state:'scouting',why:next?`scouting ${target(to)} (${to.kind}, ${to.jumps} jump(s) away); no circuit qualifies: ${why}`
+        :`scouting done, back to ${target(to)}; no circuit qualifies: ${why}`});
+      journalRun(runtime,{freighter:name,scouting:to},'freighter');
+      const f:Freighter={name,account,command,owner:entry.owner,float:entry.float,...entry.holding?{holding:entry.holding}:{},market:shared,
+        recalled:()=>loop.recall||loop.afterLap||loop.stopping,park:why=>({park:why,net:0}),report:reporter(runtime,name,account,loop)};
+      const hop=await scoutHop(f,{...to.base_id?{at:to.base_id}:{},system_id:to.system_id});
+      // Remembered as the owner's own read: the next re-plan, and the owner's routes(), plan on it.
+      if(hop.read)rememberBook(runtime,to.base_id!,account.state.location?.system_id,hop.read.items,hop.read.tick);
+      let bases:string[]=[];
+      if(!hop.why)try {bases=await explore(command,runtime);} catch {/* unlisted: the system is scouted again another wait */}
+      if(hop.read&&next)update(runtime,name,{scouted:(readFleet(runtime)[name]?.scouted??0)+1});
+      journalRun(runtime,{freighter:name,scouted:target(to),...hop.read?{tick:hop.read.tick}:{},...hop.why?{why:hop.why}:{},...bases.length?{bases}:{}},'freighter');
+      if(!next&&hop.why){update(runtime,name,{state:'parked',why:`scouting left it undocked: ${target(to)}: ${hop.why}`});return false;}
+      continue;
+    }
     update(runtime,name,{state:'waiting',why:`waiting for a circuit: ${why}`});
     journalRun(runtime,{freighter:name,waiting:why},'freighter');
     for(let waited=0;waited<REPLAN_TICKS*TICK_MS&&!loop.recall&&!loop.afterLap&&!loop.stopping;waited+=RETRY_MS)await sleep(RETRY_MS);
@@ -389,7 +433,7 @@ export function recallLoop(runtime:string,name:string,after?:'lap'):string|null 
 export function resumeFreighters(runtime:string):void {
   for(const [name,entry] of Object.entries(readFleet(runtime))) {
     if(entry.state==='recalling')update(runtime,name,{state:'parked',why:'recalled'});
-    if(entry.state!=='running'&&entry.state!=='waiting')continue;
+    if(entry.state!=='running'&&entry.state!=='waiting'&&entry.state!=='scouting')continue;
     const why=start(runtime,name);
     if(why)console.error(`freighter ${name} not resumed: ${why}`);
   }

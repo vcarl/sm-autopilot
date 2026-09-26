@@ -8,7 +8,10 @@ import type {ReadinessAccount,ReadinessCommand} from '../../readiness.ts';
 import {check} from '../../run.ts';
 import {bridgeWorld,TICK,type WorldOptions} from '../../test-support/bridge-world.ts';
 import {assign,reassign,tiedUp} from '../fleet/fleet.ts';
+import {readJournal} from '../../run-record.ts';
+import {knownBooks} from '../market.ts';
 import {menu,renderMenu} from '../menu.ts';
+import {readPlaces} from '../places.ts';
 import {acct,bind,unbind} from '../runtime.ts';
 import {REST_TICKS,routes,type Circuit} from '../trading/trading.ts';
 import {markDrained,ring} from './drained.ts';
@@ -610,6 +613,10 @@ test('with no ring that qualifies it waits docked, re-planning every REPLAN_TICK
     for(let i=0;i<1000&&h.now().state!=='waiting';i++)await settle();
     assert.equal(h.now().state,'waiting');
     assert.match(h.now().why!,/^waiting for a circuit: no route pays .*skipped 1 ring\(s\) a freighter drained/);
+    // Every base within SCOUT_JUMPS has a fresh book and every system a placed base: nothing to scout.
+    assert.equal(h.now().scouted,undefined);
+    assert.ok(!readJournal(h.runtime,4000).some(e=>e.scouting),'no hop flown');
+    assert.equal(h.world.account.server.location.docked_at,'range_base','docked where it parked');
     // Twin's book turns up; nothing moves until the next re-plan.
     writeFileSync(join(h.runtime,'markets.json'),JSON.stringify([SOL,TWIN,RANGE]));
     mock.timers.tick(60_000);await settle();
@@ -773,4 +780,83 @@ test('one ledger fetch serves every freighter of the host within BOOK_TTL_MS',as
     await a.book('range_base');
     assert.equal(asked,2,'fetched again once the minute is up');
   } finally {mock.timers.reset();rmSync(runtime,{recursive:true,force:true});}
+});
+
+// Scouting while it waits. Sol ↔ range drains (range bids 115, under the 120 floor), and Reach, two
+// jumps out past Deep Range, bids 150 for gems in a book nobody has read.
+const REACH:WorldOptions={systems:[{id:'far_reach',connections:['deep_range'],pois:[{id:'reach_dock',base_id:'reach_base'}]}],tradeIntel:[],
+  markets:{sol_base:[{item_id:'gem',best_buy:0,best_buy_qty:0,best_sell:100,best_sell_qty:50}],
+    range_base:[{item_id:'gem',best_buy:115,best_buy_qty:50,best_sell:0,best_sell_qty:0}],
+    reach_base:[{item_id:'gem',best_buy:150,best_buy_qty:50,best_sell:0,best_sell_qty:0}]}};
+const RANGE_115=memory('range_base','deep_range',{best_buy:115,best_buy_qty:50});
+/** `hauler` over the Reach world; `placed`, the owner's places.json, is how it knows of reach_base. */
+function scouting(placed:Record<string,string>,hook:(h:ReturnType<typeof hosted>,action:string,params:Record<string,unknown>)=>void=()=>{}) {
+  const h:ReturnType<typeof hosted>=hosted(115,[SOL,RANGE_115],{},REACH,(action,params)=>hook(h,action,params));
+  writeFileSync(join(h.runtime,'places.json'),JSON.stringify(placed));
+  return h;
+}
+const scoutedAt=(h:ReturnType<typeof hosted>)=>readJournal(h.runtime,4000).filter(e=>e.scouted).map(e=>e.scouted);
+const reassignedOnce=(h:ReturnType<typeof hosted>)=>{if(h.now().reassigned&&!h.now().stop_after_lap)recallLoop(h.runtime,'hauler','lap');};
+
+test('a waiting freighter scouts an unknown base two jumps away, files its book, re-plans and flies the ring the new book made',async()=>{
+  const h=scouting({reach_base:'far_reach'},reassignedOnce);
+  try {
+    await h.fly();
+    const entry=h.now();
+    assert.equal(entry.reassigned?.ring,'reach_base sol_base',entry.why);
+    assert.equal(entry.scouted,1);
+    assert.equal(row('hauler',entry).scouted,1,'freighters() says it');
+    assert.deepEqual(scoutedAt(h),['reach_base']);
+    assert.ok(knownBooks(h.runtime).some(book=>book.base_id==='reach_base'&&book.system_id==='far_reach'),'remembered for the owner');
+    assert.ok(h.world.sent.some(c=>c.action==='spacemolt_intel/submit_trade_intel'&&JSON.stringify(c.params).includes('reach_base')),'filed');
+    assert.equal(h.world.count('spacemolt/buy'),1,'the lap bought; the scouting hop never did');
+    assert.equal(entry.why,'stopped after its lap, as scheduled');
+  } finally {h.done();}
+});
+
+test('a system never listed is flown to for its bases, and the base it lists is read next and flown',async()=>{
+  const h=scouting({},reassignedOnce);
+  try {
+    await h.fly();
+    assert.equal(h.now().reassigned?.ring,'reach_base sol_base',h.now().why);
+    assert.deepEqual(scoutedAt(h),['far_reach','reach_base']);
+    assert.deepEqual(JSON.parse(readFileSync(join(h.runtime,'explored.json'),'utf8')),['far_reach']);
+    assert.equal(readPlaces(h.runtime).reach_base,'far_reach');
+  } finally {h.done();}
+});
+
+test('a recall or a stop after the lap during scouting parks it after the hop, never re-planned',async()=>{
+  for(const [after,why] of [[undefined,'recalled'],['lap','stopped after its lap, as scheduled']] as const) {
+    const h=scouting({reach_base:'far_reach'},(h,action)=>{
+      if(action==='spacemolt_market/view_market'&&h.world.account.server.location.docked_at==='reach_base')recallLoop(h.runtime,'hauler',after);});
+    try {
+      await h.fly();
+      assert.equal(h.now().state,'parked');
+      assert.equal(h.now().why,why);
+      assert.equal(h.now().scouted,1,'the hop it was on is finished');
+      assert.equal(h.now().reassigned,undefined);
+    } finally {h.done();}
+  }
+});
+
+test('a scouting hop that fails STOP_TRIES times is skipped for the wait, and it waits docked',async()=>{
+  let tries=0;
+  const h=scouting({reach_base:'far_reach'},(_,action,params)=>{
+    if(action==='spacemolt/find_route'&&params.id==='reach_base'){tries++;throw new Error('reach unreachable');}});
+  mock.timers.enable({apis:['setTimeout']});
+  try {
+    const flying=h.fly();
+    const settle=async()=>{for(let i=0;i<50;i++)await new Promise(resolve=>setImmediate(resolve));};
+    for(let i=0;i<200&&h.now().state!=='waiting';i++){await settle();mock.timers.tick(60_000);}
+    assert.equal(h.now().state,'waiting',h.now().why);
+    assert.equal(tries,3);
+    assert.equal(h.now().scouted,undefined);
+    assert.equal(h.world.account.server.location.docked_at,'sol_base');
+    assert.ok(readJournal(h.runtime,4000).some(e=>e.scouted==='reach_base'&&e.why==='skipped after 3 tries: reach unreachable'));
+    recallLoop(h.runtime,'hauler');
+    for(let i=0;i<10;i++){mock.timers.tick(60_000);await settle();}
+    await flying;
+    assert.equal(h.now().why,'recalled');
+    assert.equal(tries,3,'not tried again this wait');
+  } finally {mock.timers.reset();h.done();}
 });

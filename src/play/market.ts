@@ -62,12 +62,15 @@ export function knownBooks(dir=runtimeDir()):RememberedBook[] {
 
 /** Temp file then rename, as `writeRun` does: a torn write would price a trip on a lie.
  * Evicted by age (`MEMORY_TICKS`), newest first, capped at `BASES`. */
-function remember(base_id:string,items:MarketListingItem[],tick:number):void {
-  const dir=runtimeDir();
+const remember=(base_id:string,items:MarketListingItem[],tick:number)=>
+  rememberBook(runtimeDir(),base_id,acct().state.location?.system_id,items,tick);
+/** Keep `base_id`'s book, read at `tick` in `system_id`, in `dir`'s market memory, and its place.
+ * What `book()` does for the pilot, and a freighter's host for a book it scouted. */
+export function rememberBook(dir:string|undefined,base_id:string,system_id:string|undefined,items:MarketListingItem[],tick:number):void {
   if(!dir||!base_id)return;
-  markPlace(dir,base_id,acct().state.location?.system_id??'');
-  const kept=[{base_id,at:new Date().toISOString(),tick,system_id:acct().state.location?.system_id,items},
-    ...knownBooks().filter(row=>row.base_id!==base_id&&ticksOld(row.tick,tick)<=MEMORY_TICKS)].slice(0,BASES);
+  markPlace(dir,base_id,system_id??'');
+  const kept=[{base_id,at:new Date().toISOString(),tick,system_id,items},
+    ...knownBooks(dir).filter(row=>row.base_id!==base_id&&ticksOld(row.tick,tick)<=MEMORY_TICKS)].slice(0,BASES);
   try {
     mkdirSync(dir,{recursive:true});
     const path=join(dir,MEMORY),temp=`${path}.${process.pid}.tmp`;

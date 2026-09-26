@@ -152,7 +152,7 @@ Everything game-shaped in a `detail` is the lib's own type (`SystemPoi`, `Missio
 
 Careers add more: [`mining/`](mining/README.md) (`gatherUntil`),
 [`hauling/`](hauling/README.md), [`industry/`](industry/README.md), [`combat/`](combat/README.md) (`hunt`, `salvage`),
-[`trading/`](trading/README.md) (`spreads`, `routes`, `tradeRun`), [`exploration/`](exploration/README.md), [`fleet/`](fleet/README.md) (`assign`, `recall`, `freighters`).
+[`trading/`](trading/README.md) (`spreads`, `routes`, `tradeRun`, `scoutMarkets`), [`exploration/`](exploration/README.md), [`fleet/`](fleet/README.md) (`assign`, `recall`, `freighters`).
 Each folder's README is the skill for that career; the one for your stance is loaded beside this.
 
 ## Reading a counter before you spend at it

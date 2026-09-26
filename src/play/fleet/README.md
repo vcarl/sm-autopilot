@@ -153,11 +153,24 @@ plans. Each auto-reassign is journalled, and counted in `reassigned` with the ri
 that ring's predicted `lap_net`. It passes over any ring another of your freighters is flying
 (`state: 'running'`): two on one ring would split its bids.
 
-When no circuit qualifies, it does not spin: it waits docked, `state: 'waiting'`, the `why` reading
-`waiting for a circuit: <what routes said>`, and plans again every `REPLAN_TICKS` (90 ticks, a
-quarter of `REST_TICKS`, about 15 minutes). Rings rest out and books refill, so it resumes on its own
-once one pays. A waiting freighter waits on through a restart. It is never re-planned after a
-`recall` or a stop after the lap: those are yours.
+When no circuit qualifies, it scouts: `state: 'scouting'`, one hop at a time to the nearest book
+nobody has read lately within `SCOUT_JUMPS` (4), the same choice `scoutMarkets()` makes (see
+[trading](../trading/README.md#scouting-reading-the-books-nobody-has)). At a base it docks, services,
+reads the book, files it to the ledger and remembers it in your `markets.json`, lists the system's
+bases, and re-plans on what it read; a system never listed it flies to for its bases, then docks at
+one. It never buys scouting; cargo aboard that it bought is sold where a bid covers its cost, and
+credits over the float go home, as at any stop. A hop that fails three times (`STOP_TRIES`), or cannot be
+flown (fuel, a blocked route), is skipped for this wait; each candidate is flown to once a wait. The
+`why` reads `scouting <id> (<kind>, <n> jump(s) away); no circuit qualifies: <what routes said>`,
+each hop is journalled, and `scouted` counts the books it read. There is no police gate on a hop:
+the map carries no police level.
+
+With nothing left to scout it waits docked (a system with no base in it flies back to the base it
+last left first), `state: 'waiting'`, the `why` reading `waiting for a circuit: <what routes said>`,
+and plans again every `REPLAN_TICKS` (90 ticks, a quarter of `REST_TICKS`, about 15 minutes). Rings
+rest out and books refill, so it resumes on its own once one pays. A scouting or waiting freighter
+carries on through a restart. A `recall` or a stop after the lap ends scouting after the hop it is
+on, and it is never re-planned after either: those are yours.
 
 A hold under 40% free for cargo the circuit never sells, that storage refused, gets one re-plan too, taking the first row that sells
 some of it. Circuits are planned for an empty hold, so there seldom is one; with none, it stays
@@ -203,7 +216,7 @@ only for when you want it stopped.
 | Field | What it is |
 |---|---|
 | `name` | the name it was assigned under |
-| `state` | `running`; `waiting` (docked, planning its next circuit or waiting for one to qualify, `why` says which); `recalling` (finishing its stop); `parked` (stopped for good, `why` says why) |
+| `state` | `running`; `scouting` (no circuit qualifies: flying to read the nearest unread books, re-planning after each); `waiting` (docked, planning its next circuit or waiting for one to qualify with nothing left to scout, `why` says which); `recalling` (finishing its stop); `parked` (stopped for good, `why` says why) |
 | `lap` | laps completed since it was assigned |
 | `stop` | the base it is at, or was last at |
 | `credits` | its wallet there, after the deposit |
@@ -215,7 +228,8 @@ only for when you want it stopped.
 | `stop_after_lap` | `true` while it is scheduled to stop at the end of the lap it is on; absent otherwise |
 | `reassigned` | `{count, ring, lap_net}`: how many times it has re-planned itself, and the ring it last went onto (its bases, as `drained.json` keys them) with the `lap_net` predicted for it. Absent until the first; kept across an `assign` |
 | `stowed` | every stow, oldest first: `98 copper_piping (cost 2898) at nova_terra_central for <you>`, or `… in its own storage` when yours was refused. What it holds for you, and where; absent until the first; kept across an `assign`. `storage(base)` reads the store there; the menu offers it only while you are docked at that base |
-| `why` | why it parked, why it waits (`waiting for a circuit: …`), or what fell short at the last stop |
+| `scouted` | books it read scouting while it had no circuit, all told; absent until the first; kept across an `assign` |
+| `why` | why it parked, where it scouts (`scouting …`), why it waits (`waiting for a circuit: …`), or what fell short at the last stop |
 
 ```ts
 import {orient, routes, assign, note} from 'play';

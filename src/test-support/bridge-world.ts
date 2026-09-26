@@ -96,6 +96,10 @@ export interface WorldOptions {
   taxBps?:number;
   /** The docked base's `fuel_price_all_in`. Default 1. */
   fuelPrice?:number;
+  /** Systems beyond Sol and Deep Range, each linked both ways to the systems it names, with its
+   * POIs: on `get_map`, listed by `get_system` there, nameable to `find_route` (routed over the
+   * links, a jump each), dockable where a POI carries a `base_id`. */
+  systems?:{id:string;connections:string[];pois:{id:string;type?:string;base_id?:string}[]}[];
 }
 
 /** The freight board and the carrier behind it. A listing's `reserved_exposure` is the
@@ -241,17 +245,35 @@ export function bridgeWorld(options:WorldOptions={}) {
   const extra=(options.pois??[]).map(row=>({type:'station',position:{x:2,y:2},has_base:Boolean(row.base_id),...row,
     name:row.name??row.id}));
   const here={...system,pois:[...system.pois,...extra]};
+  // Every system, each one's links both ways: the built-in two, and `options.systems` beyond them.
+  const beyond=(options.systems??[]).map(row=>({id:row.id,name:row.id,connections:row.connections.map(system_id=>({system_id,name:system_id,distance:4})),
+    pois:row.pois.map(poi=>({type:'station',position:{x:3,y:3},has_base:Boolean(poi.base_id),...poi,name:poi.id}))}));
+  const galaxy=[here,deepRange,...beyond].map(row=>({...row,connections:[...row.connections,
+    ...beyond.filter(far=>far.connections.some(link=>link.system_id===row.id)&&!row.connections.some(link=>link.system_id===far.id))
+      .map(far=>({system_id:far.id,name:far.name,distance:4}))]}));
+  const systemAt=(id:string)=>galaxy.find(row=>row.id===id)??deepRange;
   /** Base id → what `inspect` quotes for it. A base with no entry answers no base body at all. */
   const quotes=Object.fromEntries(extra.filter(row=>row.base_id&&(row.fuel_price!==undefined||row.repair_price!==undefined))
     .map(row=>[row.base_id!,{fuel:row.fuel_price,hull:row.repair_price}]));
   /** The faction ledger as filed so far: `options.tradeIntel`, copied, plus what this world's pilots submit. */
   const ledger=options.tradeIntel&&[...options.tradeIntel];
   const homes:Record<string,string>={...homeOf,
-    ...Object.fromEntries(extra.flatMap(row=>[[row.id,'sol'],...row.base_id?[[row.base_id,'sol']]:[]]))};
+    ...Object.fromEntries(extra.flatMap(row=>[[row.id,'sol'],...row.base_id?[[row.base_id,'sol']]:[]])),
+    ...Object.fromEntries(beyond.flatMap(row=>[[row.id,row.id],...row.pois.flatMap(poi=>[[poi.id,row.id],...poi.base_id?[[poi.base_id,row.id]]:[]])]))};
   const poiIds:Record<string,string>={...poiOf,
-    ...Object.fromEntries(extra.filter(row=>row.base_id).map(row=>[row.base_id!,row.id]))};
+    ...Object.fromEntries([...extra,...beyond.flatMap(row=>row.pois)].filter(row=>row.base_id).map(row=>[row.base_id!,row.id]))};
   const bases:Record<string,string>={...baseAt,
-    ...Object.fromEntries(extra.filter(row=>row.base_id).map(row=>[row.id,row.base_id!]))};
+    ...Object.fromEntries([...extra,...beyond.flatMap(row=>row.pois)].filter(row=>row.base_id).map(row=>[row.id,row.base_id!]))};
+  /** The systems from one to another over the links, breadth first, both ends included. */
+  const path=(from:string,to:string):string[]=>{
+    const back=new Map<string,string>([[from,'']]);
+    for(let frontier=[from];frontier.length&&!back.has(to);)
+      frontier=frontier.flatMap(id=>systemAt(id).connections.map(link=>link.system_id).filter(next=>!back.has(next)&&!!back.set(next,id)));
+    if(!back.has(to))return [from,to];
+    const out=[to];
+    while(out[0]!==from)out.unshift(back.get(out[0]!)!);
+    return out;
+  };
   const account=new FakeLibGoalAccount({
     // The location section carries who else is at the POI, as the live one does: a scenario
     // that wants a fight happening here pushes a row with `in_combat` set.
@@ -559,16 +581,16 @@ export function bridgeWorld(options:WorldOptions={}) {
         wreck_empty:!(wreck.cargo as unknown[]).length}}};
     },
     'spacemolt/get_system':()=>({structuredContent:{kind:'normal',
-      system:account.server.location.system_id==='sol'?here:deepRange}}),
+      system:systemAt(account.server.location.system_id)}}),
     // The map entry for a system, as a far one answers: never visited, so a neighbour is
     // always somewhere the menu can point at.
     'spacemolt/get_map':params=>{
       // No id asked for is the whole galaxy, which is what a name or a near miss is matched
       // against; one id is the entry for that system.
-      if(params.system_id===undefined)return {structuredContent:{total_count:2,
-        systems:[here,deepRange].map(s=>({system_id:s.id,name:s.name,poi_count:s.pois.length,visited:s.id==='sol',
+      if(params.system_id===undefined)return {structuredContent:{total_count:galaxy.length,
+        systems:galaxy.map(s=>({system_id:s.id,name:s.name,poi_count:s.pois.length,visited:s.id==='sol',
           connections:s.connections.map(link=>link.system_id),online:0,position:{x:0,y:0},visited_at:''}))}};
-      const far=String(params.system_id)==='sol'?here:deepRange;
+      const far=systemAt(String(params.system_id));
       return {structuredContent:{system_id:far.id,name:far.name,poi_count:far.pois.length,visited:far.id==='sol',
         connections:far.connections.map(link=>link.system_id),online:0,position:{x:0,y:0},visited_at:''}};
     },
@@ -578,7 +600,7 @@ export function bridgeWorld(options:WorldOptions={}) {
       // word was a system and says so. That throw is what goTo has to read as "no such place".
       if(!target)throw new Error('Target system not found');
       const from=account.server.location.system_id;
-      const route=from===target?[from]:[from,target];
+      const route=path(from,target);
       // A system id answers with a system and no POI of its own: there is no one place in a
       // system that "is" the system, which is why naming it as a POI is rejected below.
       return {found:true,target_system:target,
@@ -602,7 +624,7 @@ export function bridgeWorld(options:WorldOptions={}) {
       notInBattle();
       // The server's own refusal when the id is not a POI in this system — a system id
       // handed on as a destination is rejected here, after the jump was flown and paid for.
-      const where=account.server.location.system_id==='sol'?here:deepRange;
+      const where=systemAt(account.server.location.system_id);
       if(!where.pois.some((row:{id:string})=>row.id===String(params.id)))throw new Error(`Unknown destination: ${params.id}`);
       account.server.ship.fuel-=7;account.server.location.poi_id=String(params.id);return {};},
     // The reply over-claims: only the cargo delta says what the trip actually took.

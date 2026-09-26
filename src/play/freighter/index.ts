@@ -245,7 +245,7 @@ const service=async(f:Freighter,stop:Stop)=>{await attempt(f,stop.at,'service',(
  * send the credits above the float home. Returns how many trades took, the book's tick, and whether
  * a buy was cut for a later stop with no book to go by (`scouted`: this lap learns it). */
 async function visit(f:Freighter,stop:Stop,later:readonly Stop[],leftover:Holding,stow:(item:string)=>boolean,sent:(credits:number)=>void,
-  bought:(item:string,n:number,spent:number)=>void,stowed:(item:string,n:number)=>void):Promise<{traded:number;tick:number;scouted:boolean}> {
+  bought:(item:string,n:number,spent:number)=>void,stowed:(item:string,n:number)=>void):Promise<{traded:number;tick:number;scouted:boolean;items:MarketListingItem[]}> {
   const {account,command}=f;
   await fly(f,stop);
   await service(f,stop);
@@ -341,7 +341,7 @@ async function visit(f:Freighter,stop:Stop,later:readonly Stop[],leftover:Holdin
     await account.refresh();
   }
   f.report({credits:account.state.player?.credits??0});
-  return {traded,tick:now,scouted};
+  return {traded,tick:now,scouted,items:market.items??[]};
 }
 
 /** Stops in a row with no trade, laps in a row that lost money, and the cargo at cost, across laps. */
@@ -462,4 +462,40 @@ export async function lap(f:Freighter,circuit:Circuit):Promise<Lap> {
   losing.set(f,lost);
   if(lost>=LOSING_LAPS)return {...f.park(`${lost} laps lost money: last ${net} vs predicted ${circuit.lap_net}`,tick),net};
   return {net};
+}
+
+/** One scouting hop while the freighter waits for a circuit (the host's `replan`). With `at`: fly
+ * there and dock, and do a stop that neither sells a circuit's goods nor buys (`visit` with an empty
+ * stop): serviced, the book read and filed, cargo aboard at cost cleared where a bid covers its cost,
+ * the credits above the float sent home. Without: fly to `system_id`, undocked, for its bases.
+ * STOP_TRIES tries a minute apart; a route that cannot be flown (fuel, a blocked route) is not
+ * retried; recalled between tries, it stops. The book read, or why the hop failed. A session taken
+ * elsewhere throws. */
+export async function scoutHop(f:Freighter,to:{at?:string;system_id:string}):Promise<{read?:{tick:number;items:MarketListingItem[]};why?:string}> {
+  const holding=structuredClone(f.holding??{});
+  for(let tries=1;;tries++) {
+    try {
+      if(!to.at) {
+        await f.account.refresh();
+        const from=f.account.state.location?.docked_at??'';
+        if(f.account.state.location?.system_id!==to.system_id)await travelTo(f.account,f.command,{system_id:to.system_id},
+          {reserve:FUEL_RESERVE,maxJumps:null,refuel:()=>service(f,{at:from,system_id:'',sell:[]})});
+        return {};
+      }
+      const {tick,items}=await visit(f,{at:to.at,system_id:to.system_id,sell:[]},[],holding,()=>false,()=>{},()=>{},()=>{});
+      aboard(holding,miningInventory(f.account.state));
+      f.report({holding:structuredClone(holding)});
+      return {read:{tick,items}};
+    }
+    catch(error) {
+      const why=parked(error),text=message(error);
+      if(why==='session taken elsewhere')throw error;
+      if(why)return {why};
+      if(to.at&&/not here right now/i.test(text))f.report({moved:{at:to.at}});
+      if(tries>=STOP_TRIES)return {why:`skipped after ${tries} tries: ${text}`};
+      f.report({why:`${to.at??to.system_id}: ${text}; again in a minute`});
+      await sleep(RETRY_MS);
+      if(f.recalled())return {why:'recalled'};
+    }
+  }
 }

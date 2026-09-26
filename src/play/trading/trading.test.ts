@@ -11,6 +11,7 @@ import {goTo} from '../travel.ts';
 import {check} from '../../run.ts';
 import {readPlaces} from '../places.ts';
 import {routes,runCall,spreads,tradeRun} from './trading.ts';
+import {scoutMarkets} from './scout.ts';
 
 function world(record:Pilot,options:WorldOptions={},runtime?:string) {
   const game=bridgeWorld({services:['refuel','repair','storage'],cargoUsed:0,...options});
@@ -702,4 +703,27 @@ test('a route search lets the event loop run: the bridge\'s freighters and comma
     assert.ok(took>150,`the fixture has to outlast many slices: ${Math.round(took)} ms`);
     assert.ok(gap<60,`the longest stall was ${Math.round(gap)} ms of a ${Math.round(took)} ms search`);
   } finally {running=false;unbind();rmSync(runtime,{recursive:true,force:true});}
+});
+
+test('scoutMarkets reads the nearest unread books, one hop at a time, files them, and says what is left',async()=>{
+  // Deep Range's bases were never listed; reach_base, two jumps out, is known by place only.
+  const runtime=mkdtempSync(join(tmpdir(),'spacemolt-scout-'));
+  writeFileSync(join(runtime,'places.json'),JSON.stringify({reach_base:'far_reach'}));
+  const f=world({mood:'Focused'},{tradeIntel:[],systems:[{id:'far_reach',connections:['deep_range'],pois:[{id:'reach_dock',base_id:'reach_base'}]}]},runtime);
+  const filed=()=>f.sent.filter(c=>c.action==='spacemolt_intel/submit_trade_intel').map(c=>(c.params.stations as {base_id:string}[])[0]!.base_id);
+  try {
+    const first=await scoutMarkets({max:1});
+    assert.equal(first.status,'done',first.why);
+    assert.deepEqual(first.detail,{filed:['range_base'],explored:[{system_id:'deep_range',bases:['range_base']}],left:1},first.did);
+    assert.match(first.did,/read and filed 1 book\(s\): range_base; listed the bases of deep_range \(1\); 1 more within 4 jumps/);
+    assert.equal(first.next[0],'scoutMarkets() again for the next ones');
+    const second=await scoutMarkets();
+    assert.equal(second.status,'done',second.why);
+    assert.deepEqual(second.detail,{filed:['reach_base'],explored:[],left:0},second.did);
+    assert.deepEqual(knownBooks(runtime).map(book=>book.base_id).sort(),['range_base','reach_base','sol_base']);
+    assert.deepEqual(filed(),['sol_base','range_base','reach_base'],'each book filed to the ledger as it was read');
+    const third=await scoutMarkets();
+    assert.equal(third.status,'done');
+    assert.match(third.did,/filed no book; nothing to scout within 4 jumps/);
+  } finally {unbind();rmSync(runtime,{recursive:true,force:true});}
 });

@@ -30,7 +30,7 @@ export interface Seat {account:ReadinessAccount;command:ReadinessCommand;runtime
   /** Throws to end a search early. */
   stop():void}
 /** The pilot's seat: the play runtime, and `book()` remembering and filing what it reads. */
-const pilotSeat=():Seat=>({account:acct(),command,runtime:runtimeDir(),book:async()=>({items:await book(),tick:marketTick()}),stop:checkStop});
+export const pilotSeat=():Seat=>({account:acct(),command,runtime:runtimeDir(),book:async()=>({items:await book(),tick:marketTick()}),stop:checkStop});
 
 /** One item and one buyer known for it, with the trip to that buyer priced and ranked. */
 export interface Spread {
