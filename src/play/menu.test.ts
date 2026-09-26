@@ -658,6 +658,31 @@ test("a docked Trader is offered routes(), below a live J6 run, whatever the hol
   } finally {miner.close();}
 });
 
+test('a docked Trader with unread books near is offered scoutMarkets(), under the trades, and it compiles; with none near, not',async()=>{
+  const near=world({mood:'Opportunistic',stance:'Trader'},{cargoUsed:0});
+  try {
+    const built=await menu(near.runtime);
+    const calls=built.moves.map(m=>m.call),scout=built.moves.find(m=>m.call==='scoutMarkets()');
+    assert.ok(scout,renderMenu(built));
+    assert.equal(scout!.advances,'knowledge');
+    assert.match(scout!.why,/within 4 jumps: 0 base\(s\) never read, 2 system\(s\) never listed, 0 book\(s\) older than 1080 ticks/);
+    assert.ok(calls.indexOf('routes()')<calls.indexOf('scoutMarkets()'),JSON.stringify(calls));
+    const runtime=mkdtempSync(join(tmpdir(),'menu-scout-'));
+    mkdirSync(join(runtime,'pilot'),{recursive:true});
+    writeFileSync(join(runtime,'pilot','index.ts'),
+      `import {scoutMarkets} from 'play';\nexport default async function main() {\n  return ${scout!.call};\n}\n`);
+    assert.deepEqual((await check(runtime)).errors,[]);
+  } finally {near.close();}
+  // Every base placed, every book fresh: nothing to scout.
+  const known=world({mood:'Opportunistic',stance:'Trader'},{cargoUsed:0});
+  try {
+    writeFileSync(join(known.runtime,'places.json'),JSON.stringify({sol_base:'sol',range_base:'deep_range'}));
+    writeFileSync(join(known.runtime,'markets.json'),JSON.stringify(['sol_base','range_base'].map(base_id=>({base_id,at:'',tick:TICK,items:[]}))));
+    const built=await menu(known.runtime);
+    assert.ok(!built.moves.some(m=>m.call==='scoutMarkets()')&&!built.not_now.some(row=>row.move==='scoutMarkets()'),renderMenu(built));
+  } finally {known.close();}
+});
+
 test('goods with no bid here and a remembered far bid are a pasteable tradeRun in every stance; with no far bid, not_now says so',async()=>{
   // Live 2026-09-24: dark_matter_residue, iridium, vanadium and copper aboard at a station that
   // bid for none of them; the menu offered stow and never the base that did bid.

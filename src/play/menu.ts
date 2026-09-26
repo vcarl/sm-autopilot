@@ -19,6 +19,9 @@ import {knownBooks,ticksOld} from './market.ts';
 import {stuck} from './missions.ts';
 import {acct,command,pilot,present,runCalls,type Pilot} from './runtime.ts';
 import {serviceElsewhere} from './service.ts';
+import {IGNORE_TICKS} from './freighter/index.ts';
+import {candidates,SCOUT_JUMPS,target,type Candidate} from './trading/scout.ts';
+import {pilotSeat} from './trading/trading.ts';
 import type {Status} from './types.ts';
 
 export type Advances='knowledge'|'skill'|'credits'|'influence'|'ship'|'objective';
@@ -399,12 +402,24 @@ export async function menu(runtime?:string):Promise<Menu> {
     // Whatever the hold: every route is planned from it.
     work({call:'routes()',advances:'credits',
       why:'ranks every known route of up to 3 stops, from the hold you have, by net per jump after book depth, fuel and tax; each row carries a pasteable next call. The trading README\'s "the best trade known" acts on the top row in one run'});
+    // Books nobody has read lately, near: a route is only ever planned over a book someone read, and
+    // the ledger covers a fraction of the stations. Knowledge, so it ranks under the trades above.
+    const near=await attempt(()=>candidates(pilotSeat(),Number(market?.current_tick??0)))??[];
+    const first=near[0];
+    if(first) {
+      const blocked=await flies(target(first));
+      const count=(kind:Candidate['kind'])=>near.filter(row=>row.kind===kind).length;
+      if(blocked)not_now.push({move:'scoutMarkets()',why:blocked});
+      else work({call:'scoutMarkets()',advances:'knowledge',
+        why:`within ${SCOUT_JUMPS} jumps: ${count('unknown')} base(s) never read, ${count('unexplored')} system(s) never listed, ${count('stale')} book(s) older than ${IGNORE_TICKS} ticks; `
+          +`the nearest is ${target(first)} (${first.kind}, ${first.jumps} jump(s)). It reads up to 3 and files them, for routes() to plan over`});
+    }
   }
 
   // Freighters re-plan themselves when a ring drains; the one thing left to the pilot is stopping one.
   // Said, not offered: it earns nothing, and the rows ride on the juncture as `freighters`.
   if(runtime) {
-    const flying=Object.entries(readFleet(runtime)).filter(([,entry])=>(entry.state==='running'||entry.state==='waiting')&&!entry.stop_after_lap);
+    const flying=Object.entries(readFleet(runtime)).filter(([,entry])=>(entry.state==='running'||entry.state==='waiting'||entry.state==='scouting')&&!entry.stop_after_lap);
     if(flying.length)not_now.push({move:`recall('${flying[0]![0]}', {after:'lap'})`,
       why:`${flying.map(([name])=>name).join(', ')} fl${flying.length===1?'ies':'y'} and re-plan${flying.length===1?'s':''} on a drained ring by itself; this stops one after the lap it is on`});
   }
