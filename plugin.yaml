@@ -8,11 +8,11 @@ requires_env:
   - SPACEMOLT_CREDENTIALS_FILE
 provides_tools:
   - spacemolt_run
+  - spacemolt_answer
   - spacemolt_check
   - spacemolt_stop
   - spacemolt_status
   - spacemolt_direct
-  - spacemolt_rest
   - spacemolt_reflect
 # Nothing beyond the standard library: the game client is Node, reached through the bridge.
 python_dependencies: []

@@ -145,6 +145,9 @@ def juncture_context(session_info: Mapping[str, Any] | None = None) -> str:
     # material a rest needs is the reflection, so the fire gets both.
     if menu.get("rest") or menu.get("at_rest"):
         return _rest_context(call("reflect"), menu.get("text"), _alerts(menu), _battle(menu))
+    if menu.get("busy") and isinstance(menu.get("question"), dict):
+        return ("SpaceMolt juncture — the run in flight is paused on a question for you.\n"
+                + question_text(menu["question"]))
     if menu.get("busy"):
         return "SpaceMolt juncture — a run is already in flight; its report comes with the next one."
     said = read_pilot().get("instruction")
@@ -480,6 +483,35 @@ def _lock_held(lock: Any) -> bool:
     return True
 
 
+def pending_question() -> dict[str, Any] | None:
+    """The question the running program is paused on (``ask()``), as ``run.json`` carries it.
+
+    Only a run in flight can be waiting: a record left un-ended by a dead bridge is no question.
+    """
+    if not run_in_flight():
+        return None
+    try:
+        question = json.loads((runtime_dir() / "run.json").read_text()).get("question")
+    except (OSError, ValueError, AttributeError):
+        return None
+    return question if isinstance(question, dict) and question.get("question") else None
+
+
+def question_text(question: dict[str, Any]) -> str:
+    """A pending question as every reader is handed it: the question, the choices, and the one
+    or two calls that move the program on — said outright, never left to be inferred."""
+    choices = [str(choice) for choice in question.get("choices") or []]
+    lines = [(f"QUESTION from your running program, which is paused until it is answered "
+              f"(asked {_stamp(_when(question.get('asked_at')))}):"),
+             f"  {question.get('question')}"]
+    if choices:
+        lines.append(f"  Choices: {' | '.join(choices)} — the answer must be one of these.")
+    lines.append("Next: call spacemolt_answer with your answer; the program resumes, and that call "
+                 "then waits for the rest of the run exactly as spacemolt_run does. Or call "
+                 "spacemolt_stop to end the run instead of answering.")
+    return "\n".join(lines)
+
+
 def gate_main() -> int:
     """The wake gate: a fire that lands on a run in flight ends silently, with no model turn.
 
@@ -489,8 +521,16 @@ def gate_main() -> int:
     juncture, live, on the first restart. A runner that is not up is not in flight: the fire
     wakes and the tools say so themselves. Idle, the line is prose: cron wakes on any output
     that is not ``{"wakeAgent": false}`` and hands it to the fire as its script output.
+
+    A run paused on ``ask()`` is in flight but waiting on the pilot, so its fire wakes, and the
+    question is the output: cron prepends that to the prompt, so the fire reads it first.
     """
-    print('{"wakeAgent": false}' if run_in_flight() else "No run in flight: the pilot is idle.")
+    question = pending_question()
+    if question:
+        print(question_text(question) + "\nAnswer it before anything else, and do not write a new "
+              "pilot/index.ts. When the run returns its report, carry on with the juncture below.")
+    else:
+        print('{"wakeAgent": false}' if run_in_flight() else "No run in flight: the pilot is idle.")
     return 0
 
 
@@ -520,8 +560,13 @@ def job_fields(pilot: dict[str, Any]) -> dict[str, Any]:
 
     No ``workdir``, which is what makes cron open the conversation with
     ``skip_context_files=True`` — a juncture is the pilot's world, not a project's.
+
+    ``reasoning_effort`` is present exactly while the running program is paused on a question
+    that asked for one, so the fire that picks the question up thinks as hard as it asked; the
+    next rewrite after the question clears drops it.
     """
     folder = STANCE_FOLDER.get(str(pilot.get("stance") or "").strip())
+    effort = (pending_question() or {}).get("effort")
     return {
         "prompt": JUNCTURE_PROMPT,
         # Namespaced plugin skills: registered by the plugin, resolved by cron through the
@@ -532,6 +577,7 @@ def job_fields(pilot: dict[str, Any]) -> dict[str, Any]:
         # with no model turn. ``update_job`` merges fields, so a live job gains it on the next
         # ensure without being deleted.
         "script": install_gate(),
+        **({"reasoning_effort": str(effort)} if effort else {}),
     }
 
 
@@ -576,11 +622,30 @@ def ensure_juncture_job(schedule: str = IDLE_SCHEDULE) -> dict[str, Any]:
     pilot = read_pilot()
     name = job_name(pilot)
     fields = job_fields(pilot)
+    effort = fields.pop("reasoning_effort", None)
     existing = next((job for job in cron_manage(action="list")["jobs"]
                      if job.get("name") == name), None)
     if existing is not None:
-        return cron_manage(action="update", job_id=existing["job_id"], **fields)["job"]
-    return cron_manage(action="create", schedule=schedule, name=name, **fields)["job"]
+        job = cron_manage(action="update", job_id=existing["job_id"], **fields)["job"]
+    else:
+        job = cron_manage(action="create", schedule=schedule, name=name, **fields)["job"]
+    pin_effort(job, effort)
+    return job
+
+
+def pin_effort(job: dict[str, Any], effort: str | None) -> None:
+    """Set the job's ``reasoning_effort`` to ``effort``, or clear it.
+
+    The plugin's second reach into a Hermes module, and it has to be: ``cronjob_manage`` drops
+    ``reasoning_effort`` on purpose (``_HANDLER_FORWARDED_ARGS`` — "models don't pick models"),
+    so the tool cannot carry it. ``cron.jobs.update_job`` is the store's own public writer and
+    validates the level; an empty string is its documented way to clear the pin. Written only
+    when it differs, so an ordinary rewrite never touches the field.
+    """
+    from cron.jobs import get_job, update_job
+
+    if ((get_job(job["job_id"]) or {}).get("reasoning_effort") or None) != (effort or None):
+        update_job(job["job_id"], {"reasoning_effort": effort or ""})
 
 
 def mark_due(job: dict[str, Any]) -> dict[str, Any]:

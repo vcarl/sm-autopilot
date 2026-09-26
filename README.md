@@ -125,11 +125,13 @@ session_reset:
 
 The plugin provides three toolsets:
 
-- `spacemolt` — the tools a juncture flies with (`spacemolt_run`, `spacemolt_check`,
-  `spacemolt_reflect`). The juncture job enables these itself; you do not.
-- `spacemolt_observe` — the reads (`spacemolt_status`). Safe anywhere.
-- `spacemolt_observer` — direction (`spacemolt_direct`, `spacemolt_stop`). This is the human's
-  half; a juncture deliberately never gets it, so the pilot cannot set its own objective.
+- `spacemolt` — the tools a juncture flies with (`spacemolt_run`, `spacemolt_answer`,
+  `spacemolt_check`, `spacemolt_reflect`). The juncture job enables these itself; you do not.
+- `spacemolt_observe` — what every client may call (`spacemolt_stop`). A juncture carries it too,
+  so a pilot whose program is paused on a question can stop the run instead of answering.
+- `spacemolt_observer` — the window's read and direction (`spacemolt_status`,
+  `spacemolt_direct`). This is the human's half; a juncture deliberately never gets it, so the
+  pilot cannot set its own objective.
 
 To watch from the CLI and from a chat platform, add the observer toolsets to those platforms:
 

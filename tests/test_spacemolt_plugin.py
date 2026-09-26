@@ -165,7 +165,7 @@ def test_register_publishes_every_tool_in_the_spacemolt_toolset(monkeypatch):
 
     spacemolt.register(RecordingContext())
     # One prefix, no strays, and each tool in exactly one of the three toolsets: the job tools
-    # a fire flies with, the reads any client may make, and the one tool that sets direction.
+    # a fire flies with, what any client may call, and the window's own read and direction.
     assert tools and all(name.startswith("spacemolt_") for name in tools)
     by_toolset: dict[str, set[str]] = {}
     for name, (toolset, *_rest) in tools.items():
@@ -173,8 +173,9 @@ def test_register_publishes_every_tool_in_the_spacemolt_toolset(monkeypatch):
     assert by_toolset == {
         # No spacemolt_rest: a shift ends with `rest()` inside pilot/index.ts, which saves the
         # round-trip a tool call would spend saying what the script already knows.
-        "spacemolt": {"spacemolt_run", "spacemolt_check", "spacemolt_reflect"},
-        "spacemolt_observer": {"spacemolt_direct", "spacemolt_status", "spacemolt_stop"},
+        "spacemolt": {"spacemolt_run", "spacemolt_answer", "spacemolt_check", "spacemolt_reflect"},
+        "spacemolt_observe": {"spacemolt_stop"},
+        "spacemolt_observer": {"spacemolt_direct", "spacemolt_status"},
     }
     # The pilot plays by running its file; the observer sends a sentence or stops a run.
     assert tools["spacemolt_run"][1]["parameters"]["required"] == []

@@ -1,13 +1,13 @@
 """Hermes plugin: play SpaceMolt by editing pilot/index.ts and running it.
 
 Three toolsets, because a tool name is global and belongs to exactly one of them:
-``spacemolt`` is what a juncture acts with — run, check, reflect; rest is not among them, because
-ending a shift is a line in the pilot's own file (``rest()`` from the play barrel) and a tool call
-would cost a whole round-trip to say it — ``spacemolt_observe``
-the reads every client of the runner may make (empty since the journal folded into status),
-and ``spacemolt_observer`` the observer's own three window tools: spacemolt_status (the
-record, the run and the journal in one read), spacemolt_direct (objective, permissions,
-instruction) and spacemolt_stop. A chat window carries observe + observer and never a play
+``spacemolt`` is what a juncture acts with — run, answer, check, reflect; rest is not among them,
+because ending a shift is a line in the pilot's own file (``rest()`` from the play barrel) and a
+tool call would cost a whole round-trip to say it — ``spacemolt_observe`` what every client of
+the runner may call (spacemolt_stop: a fire paused on a question or refused mid-run is told to
+stop the run, so it must hold the tool), and ``spacemolt_observer`` the observer's own window
+tools: spacemolt_status (the record, the run and the journal in one read) and spacemolt_direct
+(objective, permissions, instruction). A chat window carries observe + observer and never a play
 tool (N19); a cron fire carries spacemolt + observe and never sets its own objective.
 """
 from __future__ import annotations
@@ -29,6 +29,7 @@ from .juncture import (
     journal_event,
     juncture_context,
     mark_due,
+    question_text,
     raise_juncture,
     read_pilot,
     unproductive_streak,
@@ -108,6 +109,10 @@ def _run(arguments: dict[str, Any] | None = None, **_: Any) -> str:
             flying = call("status")
         except Exception:  # noqa: BLE001 - no bridge means nothing is in flight to lose
             flying = None
+        if isinstance(flying, dict) and flying.get("running") and isinstance(flying.get("question"), dict):
+            return ("Refused: pilot/index.ts is left as it is, because the run in flight is paused "
+                    "on a question, and no new program starts until it is answered or stopped.\n\n"
+                    + question_text(flying["question"]))
         if isinstance(flying, dict) and flying.get("running"):
             return json.dumps({"accepted": False,
                                "reason": "a run is already in flight; pilot/index.ts is left as it is. "
@@ -122,7 +127,49 @@ def _run(arguments: dict[str, Any] | None = None, **_: Any) -> str:
     if not result.get("accepted"):
         return json.dumps({"accepted": False, "reason": result.get("reason"),
                            "errors": result.get("errors") or []}, separators=(",", ":"))
-    return "\n".join(lines) or json.dumps(result, separators=(",", ":"))
+    return _report(result, lines)
+
+
+def _sync_job() -> None:
+    """Rewrite the juncture job from run.json, so a pending question's effort is pinned on it
+    and a cleared one's is dropped. A cron failure never costs the pilot its question."""
+    try:
+        ensure_juncture_job()
+    except Exception:  # noqa: BLE001, S110 - the gate still wakes a fire for the question
+        pass
+
+
+def _report(result: dict[str, Any], lines: list[str], asked: bool = False) -> str:
+    """What a request that waited on the run hands back: the streamed lines, then either the
+    question the program paused on, with the calls that move it on, or the run's end."""
+    question = result.get("question") if result.get("paused") else None
+    if question or asked:
+        _sync_job()
+    if not question:
+        return "\n".join(lines) or json.dumps(result, separators=(",", ":"))
+    head = ("You picked up the question your running program is waiting on; nothing new was "
+            "started." if result.get("reattached") else "")
+    return "\n\n".join(part for part in ("\n".join(lines), head, question_text(question)) if part)
+
+
+def _answer(arguments: dict[str, Any] | None = None, **_: Any) -> str:
+    """Deliver the answer to the program paused on ``ask()``, then wait on the run as
+    ``spacemolt_run`` does: the rest of its lines and its report, or its next question."""
+    lines: list[str] = []
+    try:
+        result = call("answer", {"answer": str((arguments or {}).get("answer") or "")}, on_line=lines.append)
+    except Exception as error:  # noqa: BLE001 - any bridge failure becomes the tool's refusal, not a crash
+        return json.dumps({"accepted": False, "reason": str(error)}, separators=(",", ":"))
+    if result.get("accepted"):
+        return _report(result, lines, asked=True)
+    if isinstance(result.get("question"), dict):
+        return (f"Not delivered: {result.get('reason')}. The program is still paused, untouched.\n\n"
+                + question_text(result["question"]))
+    return ("Nothing to answer: no question is pending, and " +
+            ("a run is in flight that is not waiting on anything; its report goes to the call "
+             "waiting on it, and the next juncture follows its end. End the turn."
+             if result.get("running") else
+             "no run is in flight. spacemolt_run starts one."))
 
 
 def _check(arguments: dict[str, Any] | None = None, **_: Any) -> str:
@@ -173,8 +220,18 @@ def _check_after_edit(tool_name: str = "", result: Any = None, **_: Any) -> str 
 
 
 def _stop(arguments: dict[str, Any] | None = None, **_: Any) -> str:
-    """Ask the run in flight to stop at its next safe point; it returns `partial`."""
-    return json.dumps(call("stop", {}), separators=(",", ":"))
+    """Ask the run in flight to stop at its next safe point; it returns `partial`. A run paused
+    on a question has no one waiting on it, so this call waits for the unwind and hands back
+    the report itself."""
+    lines: list[str] = []
+    result = call("stop", {}, on_line=lines.append)
+    withdrawn = result.get("withdrawn") if isinstance(result, dict) else None
+    if not isinstance(withdrawn, dict):
+        return json.dumps(result, separators=(",", ":"))
+    _sync_job()
+    report = "\n".join(lines) or str(result.get("prose") or "")
+    return (f"The question {withdrawn.get('question')!r} was withdrawn and the program stopped. "
+            f"Nothing is waiting on an answer now; this is the run's report:\n\n{report}")
 
 
 def _status(arguments: dict[str, Any] | None = None, **_: Any) -> str:
@@ -189,7 +246,9 @@ def _status(arguments: dict[str, Any] | None = None, **_: Any) -> str:
         run = call("status")
     except Exception:  # noqa: BLE001 - no bridge means nothing is flying; the record still reads
         run = None
-    return json.dumps({"pilot": read_pilot(), "run": run, "journal": _journal_lines(arguments)},
+    question = run.get("question") if isinstance(run, dict) else None
+    return json.dumps({"pilot": read_pilot(), "run": run, "journal": _journal_lines(arguments),
+                       **({"question_pending": question_text(question)} if isinstance(question, dict) else {})},
                       separators=(",", ":"))
 
 
@@ -391,11 +450,27 @@ TOOL_DEFINITIONS = (
                        "typechecked, boundary-checked and policy-checked first; a refusal comes "
                        "back as diagnostics and nothing runs. The run blocks and streams one line "
                        "per move, then the prose report of the Outcome main returned. No cap; the "
-                       "observer can stop it at its next safe point.",
+                       "observer can stop it at its next safe point. When the program calls "
+                       "ask(), this returns early with its question: answer it with "
+                       "spacemolt_answer. Called with no `source` while a question is pending, "
+                       "it starts nothing and hands the question back.",
                        {"source": {"type": "string",
                                    "description": "The whole of pilot/index.ts, written before "
                                                   "the run."}},
                        [])},
+    {"name": "spacemolt_answer", "toolset": "spacemolt", "handler": _answer,
+     "description": "Answer the question your running program asked with ask(); it resumes, and "
+                    "this waits for the rest of the run as spacemolt_run does.",
+     "schema": _schema("spacemolt_answer",
+                       "Answer the question the running program is paused on (it called ask()). "
+                       "When the question lists choices, the answer must be one of them, or it is "
+                       "refused and the program keeps waiting. Delivered, the program resumes and "
+                       "this call blocks like spacemolt_run: it returns the rest of the run's "
+                       "lines and its report, or the program's next question.",
+                       {"answer": {"type": "string",
+                                   "description": "Your answer: one of the choices, when the "
+                                                  "question gave any."}},
+                       ["answer"])},
     {"name": "spacemolt_check", "toolset": "spacemolt", "handler": _check,
      "description": "Validate pilot/index.ts without running it. Use when a run came back "
                     "refused, to fix the file before running again.",
@@ -440,12 +515,16 @@ TOOL_DEFINITIONS = (
                                                           "pursues. There is no way to reflect "
                                                           "without opening a shift."}},
                        ["goal", "stance", "mood"])},
-    {"name": "spacemolt_stop", "toolset": "spacemolt_observer", "handler": _stop,
+    # In the reads every client carries, not the observer's own: a fire holding a paused
+    # question, or refused because a run is in flight, is told to stop it and must be able to.
+    {"name": "spacemolt_stop", "toolset": "spacemolt_observe", "handler": _stop,
      "description": "Ask the run in flight to stop at its next safe point.",
      "schema": _schema("spacemolt_stop",
                        "End the run in flight: every library function checks the flag between "
                        "commands, finishes the command it is on, and returns partial. The run's "
-                       "report follows in the conversation that started it.",
+                       "report follows in the conversation that started it. A run paused on a "
+                       "question is stopped at once: the question is withdrawn and this call "
+                       "returns the run's report itself.",
                        {}, [])},
     {"name": "spacemolt_status", "toolset": "spacemolt_observer", "handler": _status,
      "description": "The one read: what the objective is, what the pilot is doing, what happened.",
