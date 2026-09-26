@@ -16,8 +16,7 @@ import json, os, shutil, socket, subprocess, sys, threading
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-CREDS = os.environ.get("SPACEMOLT_CREDENTIALS_FILE") or os.path.expanduser(
-    "~/workspace/testbench/hermes-spacemolt/credentials.kvothe.txt")
+CREDS = os.environ.get("SPACEMOLT_CREDENTIALS_FILE")
 
 
 def sock_for(playground: Path) -> Path:
@@ -26,6 +25,9 @@ def sock_for(playground: Path) -> Path:
 
 
 def serve(playground: Path) -> None:
+    if not CREDS or not Path(CREDS).expanduser().is_file():
+        raise SystemExit("SPACEMOLT_CREDENTIALS_FILE must point at a readable SpaceMolt credentials "
+                         f"file{f' (got {CREDS!r})' if CREDS else ''}. See README.md.")
     runtime = playground / "runtime"
     runtime.mkdir(parents=True, exist_ok=True)
     if not (playground / "pilot.json").exists():
