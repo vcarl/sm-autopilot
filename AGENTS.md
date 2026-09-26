@@ -146,6 +146,11 @@ and sets versions; an agent never does. `npx git-cliff --unreleased` previews th
 - **A refused-run loop ran at model speed.** Three runs that did nothing in a row stop the
   immediate chaining and let the 30-minute interval govern; one productive run restores it, with
   no state to reset — the streak is derived from the journal.
+- **A fresh install never got a juncture job.** Gateway startup loads plugins before the core
+  tools, so `cronjob_manage` did not exist yet during `register()`, and the wake swallowed
+  "Unknown tool". `cron_manage` imports `tools.cronjob_tools` itself, and a failed wake goes to
+  the journal (`wake_failed`) and the log. Only a fresh interpreter shows this; pytest has the
+  tools loaded already.
 - **Python changes do not reach a running pilot.** `service.py` fingerprints the TypeScript so a
   stale bridge is visible, but the plugin's Python is imported once. A change there needs a
   gateway restart, and a broken juncture means the pilot never wakes again.

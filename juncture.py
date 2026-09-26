@@ -594,10 +594,14 @@ def cron_manage(**args: Any) -> dict[str, Any]:
     The gate on that tool (``HERMES_GATEWAY_SESSION``) is a *schema exposure* check:
     ``registry.dispatch`` runs the handler without consulting ``check_fn``, so a plugin and a
     one-shot both reach it.
+
+    The tool's module is imported on both paths: importing it is what registers the tool, and
+    gateway startup loads plugins before it loads the core tools, so during ``register()`` the
+    host's dispatcher answers "Unknown tool" (live 2026-09-26: a fresh install never got a job).
     """
+    import tools.cronjob_tools  # noqa: F401 - registers cronjob_manage; a no-op once loaded
     dispatch = _dispatch_tool
     if dispatch is None:
-        import tools.cronjob_tools  # noqa: F401 - importing it is what registers the tool
         from tools.registry import registry
         dispatch = registry.dispatch
     result = dispatch("cronjob_manage", args)

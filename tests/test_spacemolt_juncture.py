@@ -372,6 +372,54 @@ def test_a_profile_that_has_never_flown_is_given_a_pilot_to_wake(monkeypatch):
     assert juncture.read_pilot()["goal"] == "a goal the pilot chose"
 
 
+_GATEWAY_LOAD = """
+import json, sys
+sys.path.insert(0, sys.argv[1])
+from tools.registry import registry
+assert registry.get_entry("cronjob_manage") is None, "the premise: core tools load after plugins"
+from hermes_cli.plugins import discover_plugins
+discover_plugins()
+from cron.jobs import load_jobs
+print(json.dumps(load_jobs()))
+"""
+
+
+def test_a_fresh_profile_loaded_as_the_gateway_loads_it_gets_its_juncture_job(tmp_path):
+    """Live 2026-09-26: gateway startup calls ``discover_plugins()`` before anything imports the
+    core tools, so ``cronjob_manage`` was not yet registered when ``register()`` wrote the job
+    through ``ctx.dispatch_tool``. The wake swallowed "Unknown tool", and a fresh install never
+    had a job. In-process tests cannot see it — pytest has the tools loaded by then — so this is a
+    fresh interpreter on a fresh home, the plugin installed and enabled, and nothing else."""
+    import subprocess
+    import sys
+
+    from conftest import HERMES, ROOT
+
+    home = tmp_path / "fresh"
+    (home / "plugins").mkdir(parents=True)
+    (home / "plugins" / "spacemolt").symlink_to(ROOT, target_is_directory=True)
+    (home / "config.yaml").write_text("plugins:\n  enabled:\n    - spacemolt\n  disabled: []\n")
+    env = {**os.environ, "HERMES_HOME": str(home), "HERMES_TEST_ISOLATION": str(home)}
+    done = subprocess.run([sys.executable, "-c", _GATEWAY_LOAD, str(HERMES)], env=env, cwd=tmp_path,
+                          capture_output=True, text=True, timeout=120, check=False)
+    assert done.returncode == 0, done.stderr[-2000:]
+    jobs = json.loads(done.stdout.strip().splitlines()[-1])
+    assert [job["skills"] for job in jobs] == [["spacemolt:play"]], done.stderr[-2000:]
+
+
+def test_a_failed_wake_is_written_down(monkeypatch):
+    """A wake that cannot write the job leaves a pilot that never flies and looks idle, so the
+    failure goes to the journal and the log rather than nowhere."""
+    def refuse(**args):
+        raise RuntimeError("cronjob_manage list: Unknown tool: cronjob_manage")
+
+    monkeypatch.setattr(spacemolt, "ensure_juncture_job", refuse)
+    spacemolt.wake_on_load()
+    events = [json.loads(line) for line in
+              (service.runtime_dir() / juncture.JOURNAL_FILE).read_text().splitlines()]
+    assert events[-1]["event"] == "wake_failed" and "Unknown tool" in events[-1]["error"]
+
+
 def test_a_live_battle_is_the_first_line_of_the_context(monkeypatch):
     """Live 2026-09-25: a pilot woke at hull 3/80 inside a battle left over from the previous
     shift and died one second after its first move, because nothing it read said it was in a

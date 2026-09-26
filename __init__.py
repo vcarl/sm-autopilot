@@ -13,6 +13,7 @@ tool (N19); a cron fire carries spacemolt + observe and never sets its own objec
 from __future__ import annotations
 
 import json
+import logging
 from collections.abc import Mapping
 from datetime import datetime, timezone
 from pathlib import Path
@@ -38,6 +39,8 @@ from .juncture import (
 )
 from .service import available, call, close_bridge, render_journal, runtime_dir
 from .skills_register import register_skills
+
+logger = logging.getLogger(__name__)
 
 _JOURNAL_DEFAULT, _JOURNAL_CAP = 20, 80
 
@@ -595,8 +598,11 @@ def wake_on_load() -> None:
         if record.is_file() and not json.loads(record.read_text()).get("ended", True):
             return
         mark_due(job)
-    except Exception:  # noqa: BLE001, S110 - a wake that fails costs nothing; the schedule still comes round
-        pass
+    except Exception as exc:
+        # Never fail the load, but never silently: with no job the schedule does not come
+        # round, and the pilot looks exactly like a healthy idle one.
+        logger.warning("spacemolt: the juncture wake failed: %s", exc, exc_info=True)
+        journal_event("wake_failed", error=f"{type(exc).__name__}: {exc}")
 
 
 def register(ctx) -> None:
