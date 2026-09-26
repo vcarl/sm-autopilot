@@ -16,7 +16,7 @@ import {prose} from './play/prose.ts';
 import {runSummary} from './play/menu.ts';
 import {disengage} from './play/combat/hunting.ts';
 import {battleNow} from './travel.ts';
-import {bind,command,line,outcome as build,progress,runCalls,unbind,type Binding} from './play/runtime.ts';
+import {bind,command,line,outcome as build,progress,runCalls,Stopped,unbind,type Binding} from './play/runtime.ts';
 import type {Outcome} from './play/types.ts';
 import {restNow} from './play/rest.ts';
 import {journalRun,writeRun,type RunRecord} from './run-record.ts';
@@ -207,7 +207,10 @@ export async function runPilot(deps:RunDeps):Promise<RunResult> {
     const returned=await loaded.default();
     result=isOutcome(returned)?returned:build('main returned nothing to report','done',{returned:returned??null});
   } catch(error) {
-    result=build('the run broke','failed',{},message(error));
+    // A stop that reached the program's own code (a paused `ask()` rejects with it) is a stop,
+    // as it is inside any library call: `partial`, not a broken script.
+    result=error instanceof Stopped?build('the run was stopped','partial',{},message(error))
+      :build('the run broke','failed',{},message(error));
   }
   // Before the report is rendered, so the fact is in the report rather than after it.
   const held=await closeBattle();
