@@ -19,6 +19,7 @@ play.py              drives the same bridge from a shell, outside Hermes
 src/bridge.ts        the request loop; everything below it is game logic
 src/play/            the library the pilot's program imports, one folder per career
 src/play/README.md   the base skill — what the pilot reads to know how to play at all
+src/play/freighter/  freighters: each its own account and connection, hosted in the bridge process
 ```
 
 ### The seam

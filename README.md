@@ -80,6 +80,11 @@ The path is read as a **profile-scoped secret**, so one machine can run several 
 several accounts without either seeing the other's file. Without it, every SpaceMolt tool
 disappears from the agent's schema and the bridge refuses to start.
 
+A Trader can hand trade circuits to **freighters**: other game accounts the bridge flies from the
+same process, each on its own connection (see `src/play/fleet/README.md`). Each needs its own
+login, put by you at `~/.hermes/profiles/spacemolt/spacemolt/runtime/freighters/<name>.txt` in
+the same `Username:` / `Password:` format; the pilot names the freighter and cannot create one.
+
 Optionally, in the same file, to have the pilot's journal posted to Discord as it plays:
 
 ```
