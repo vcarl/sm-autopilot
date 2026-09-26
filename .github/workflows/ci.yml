@@ -1,0 +1,54 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  # Weekly, against Hermes' default branch, so host drift shows up before a user hits it.
+  schedule:
+    - cron: "17 6 * * 1"
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  typescript:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # 22.18.0 is the engines floor: the first LTS that strips types unflagged.
+        node: ["22.18.0", "lts/*"]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+
+  python:
+    runs-on: ubuntu-latest
+    env:
+      # Pushes and PRs test against a pinned Hermes release; the scheduled run tests main,
+      # which supports only Python 3.14 while the release line wants >=3.11,<3.14.
+      HERMES_REF: ${{ github.event_name == 'schedule' && 'main' || 'v2026.9.24' }}
+      PYTHON: ${{ github.event_name == 'schedule' && '3.14' || '3.11' }}
+      HERMES_AGENT_ROOT: ${{ github.workspace }}/hermes-agent
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: ${{ env.PYTHON }}
+      # Before Hermes is checked out beside it, so ruff sees only this repository.
+      - run: pipx run ruff==0.16.9 check .
+      - uses: actions/checkout@v7
+        with:
+          repository: NousResearch/hermes-agent
+          ref: ${{ env.HERMES_REF }}
+          path: hermes-agent
+      - run: pip install -e "$HERMES_AGENT_ROOT" pytest
+      - run: python -m pytest
