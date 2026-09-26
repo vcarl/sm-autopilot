@@ -69,5 +69,5 @@ is yours, not a split.
   you mean it.
 - `job_list` only answers for a facility whose station you are docked at right now; asking it
   from elsewhere fails, which is why `facilities()` never calls it.
-- Facility runs give **0 xp**; the passive corporation_management xp is from owning one, not
-  running it.
+- Facility runs give **0 xp**, owned or rented: train crafting at the workshop. Building one
+  grants corporation_management xp once; no passive accrual has been seen.

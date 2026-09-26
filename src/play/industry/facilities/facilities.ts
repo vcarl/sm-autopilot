@@ -1,6 +1,6 @@
 /** Owning production. Not a separate specialty: the stage the Industry career grows into once
  * a bench's margins are proven, so the pilot who already stands at the counter keeps the fee
- * instead of paying it. A facility earns passive corporation_management xp and bills rent
+ * instead of paying it. A build grants corporation_management xp once, and a facility bills rent
  * every cycle (100 ticks, ~17 min) from your wallet, everywhere it stands, whether or not you
  * are there to see it.
  */
@@ -101,7 +101,7 @@ export interface Built {facility_id:string;rent_per_cycle:number;ready_tick?:num
  * a workshop of your own. Owned already here → `done`, nothing sent. Refused, naming the
  * shortfall, when this station's store is short a build material or the price would breach
  * `credit_reserve`. Costs the build price at commit; construction pauses rent until it
- * completes; earns passive corporation_management xp thereafter. */
+ * completes; the build grants corporation_management xp once. */
 export function buildFacility(type:string):Promise<Outcome<Built>> {
   return job<Built>('buildFacility',type,async()=>{
     const none={facility_id:'',rent_per_cycle:0};
