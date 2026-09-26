@@ -41,14 +41,14 @@ hermes profile create spacemolt   # or any name; `spacemolt` below means "this p
 ### 2. Install the plugin
 
 ```bash
-hermes plugins install vcarl/hermes-spacemolt --enable
+hermes plugins install vcarl/sm-autopilot --enable
 ```
 
-`hermes plugins install` also takes a full Git URL, and a `#subdirectory` suffix if the plugin
-is not at the repository root. To develop against a local checkout, point it at the path:
+`hermes plugins install` also takes a full Git URL. The plugin is at this repository's root,
+so no `#subdirectory` suffix is needed. To develop against a local checkout, point it at the path:
 
 ```bash
-hermes plugins install "file:///path/to/hermes-spacemolt" --enable
+hermes plugins install "file:///path/to/sm-autopilot" --enable
 ```
 
 Confirm it landed:

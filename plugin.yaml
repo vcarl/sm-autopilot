@@ -1,9 +1,9 @@
 name: spacemolt
 version: 0.1.0
 description: "SpaceMolt pilot: play by editing pilot/index.ts; junctures and the observer window."
-author: Hermes SpaceMolt
+author: Carl Vitullo
 kind: standalone
-homepage: https://github.com/vcarl/hermes-spacemolt
+homepage: https://github.com/vcarl/sm-autopilot
 requires_env:
   - SPACEMOLT_CREDENTIALS_FILE
 provides_tools:
