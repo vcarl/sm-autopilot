@@ -1,1 +1,1 @@
-export {buildFacility,facilities,queueJob,type Owned} from './facilities.ts';
+export {buildFacility,facilities,type Built,type Owned,type Rentable} from './facilities.ts';
