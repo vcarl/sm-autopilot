@@ -245,6 +245,24 @@ test('sell, stow and withdraw take rows by name and never default to the whole h
   } finally {unbind();}
 });
 
+test('withdraw all of two bulky rows the hold cannot take shares its room by footprint and says the rest had no room',async()=>{
+  // The live case: 48 osmium (size 2) and 39 dark matter (size 3), 75 free. Counting units, both
+  // asks looked like they fit, and the game refused each whole ask: nothing moved.
+  const f=world({mood:'Focused'},['refuel','repair','storage'],{cargoCapacity:100,cargoUsed:25,
+    store:[{item_id:'osmium_ore',quantity:48},{item_id:'dark_matter_residue',quantity:39}]});
+  try {
+    const took=await withdraw([{item_id:'osmium_ore'},{item_id:'dark_matter_residue'}]);
+    assert.equal(took.status,'partial',took.why);
+    assert.equal(f.sent.filter(c=>c.action==='spacemolt_storage/withdraw').length,2,'no ask the hold could not take');
+    const [ore,dark]=took.detail.moved.map(row=>row.quantity);
+    // 96:117 of 75 cargo is ~34:41; floored and the leftover to the first row, 18×2 and 13×3.
+    assert.deepEqual([ore,dark],[18,13]);
+    assert.ok(f.account.server.ship.cargo_capacity-f.account.server.ship.cargo_used<2,'the hold is as full as it goes');
+    assert.deepEqual(took.detail.short.map(row=>[row.item_id,row.moved,row.why]),
+      [['osmium_ore',18,'no room'],['dark_matter_residue',13,'no room']]);
+  } finally {unbind();}
+});
+
 test('a row that is not there is done with nothing to do, and a real precondition is still refused',async()=>{
   const f=world({mood:'Focused',permissions:{credit_reserve:0}},['refuel','repair','storage']);
   try {
