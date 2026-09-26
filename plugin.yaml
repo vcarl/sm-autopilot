@@ -3,6 +3,7 @@ version: 0.1.0
 description: "SpaceMolt pilot: play by editing pilot/index.ts; junctures and the observer window."
 author: Hermes SpaceMolt
 kind: standalone
+homepage: https://github.com/vcarl/hermes-spacemolt
 requires_env:
   - SPACEMOLT_CREDENTIALS_FILE
 provides_tools:
@@ -13,3 +14,28 @@ provides_tools:
   - spacemolt_direct
   - spacemolt_rest
   - spacemolt_reflect
+# Nothing beyond the standard library: the game client is Node, reached through the bridge.
+python_dependencies: []
+# Declared so the two settings a working install needs are read from the manifest rather than
+# learned from a failure. Hermes surfaces and validates these; it does not apply them — the
+# timeout is a profile setting, because it bounds every tool the profile runs (see README.md).
+config_schema:
+  type: object
+  properties:
+    credentials_file:
+      type: string
+      description: >-
+        Path to the SpaceMolt game credentials file. Set as the profile secret
+        SPACEMOLT_CREDENTIALS_FILE; the bridge refuses to start without it.
+    journal_webhook:
+      type: string
+      description: >-
+        Optional Discord webhook the rendered journal is posted to, as the profile secret
+        SPACEMOLT_JOURNAL_WEBHOOK. Absent, the bridge posts nothing.
+    sequential_call_timeout:
+      type: integer
+      default: 1860
+      description: >-
+        REQUIRED as profile config timeouts.tools.sequential_call. One spacemolt_run blocks for
+        up to the bridge's own 1800s; the core default of 420s kills it first and the run is
+        lost with the pilot still flying. Set it to 1860 or higher.

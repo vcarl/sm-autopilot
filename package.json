@@ -13,5 +13,8 @@
   },
   "private": true,
   "name": "hermes-spacemolt",
-  "version": "0.1.0"
+  "version": "0.1.0",
+  "engines": {
+    "node": ">=22.18.0"
+  }
 }
