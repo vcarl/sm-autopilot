@@ -16,7 +16,7 @@ import {walkBook} from '../../order-book.ts';
 import {details} from '../../response-details.ts';
 import {book,buy,knownBooks,marketTick,sell,ticksOld} from '../market.ts';
 import {readDrained,ring} from '../freighter/drained.ts';
-import {markPlace,readPlaces} from '../places.ts';
+import {markPlace,readMobile,readPlaces} from '../places.ts';
 import {acct,admit,checkStop,command,job,runtimeDir,step,type Said} from '../runtime.ts';
 import {withdraw} from '../storage.ts';
 import {goTo} from '../travel.ts';
@@ -548,7 +548,9 @@ export function hops(links:ReadonlyMap<string,readonly string[]>,from:string,to:
 async function chart(here:string,bases:readonly string[],far:readonly FarBook[],seat:Seat) {
   // Where each base is: the memory's system, else one find_route (which also prices a jump).
   const systems=new Map<string,string>([[here,seat.account.state.location?.system_id??'']]);
-  for(const row of far)if(row.system_id)systems.set(row.base_id,row.system_id);
+  // A mobile base (one a freighter found moved) is never placed from memory: find_route says where it is now.
+  const mobile=seat.runtime?readMobile(seat.runtime):new Set<string>();
+  for(const row of far)if(row.system_id&&!mobile.has(row.base_id))systems.set(row.base_id,row.system_id);
   const lost=new Map<string,string>();
   let perJump:number|undefined;
   const place=async(base:string)=>{

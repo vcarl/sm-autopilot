@@ -235,6 +235,22 @@ test('placements are kept: each routes() places up to 5 new bases, and a base pl
   } finally {unbind();rmSync(runtime,{recursive:true,force:true});}
 });
 
+test('a base flagged mobile is placed by a live find_route every time, never by its remembered system (live: frontier_station)',async()=>{
+  // Remembered in Sol, where it no longer is; find_route places range_base in deep_range, a jump away.
+  // twin_base, placed in Sol and first, is what a jump would be priced off were range_base trusted.
+  const runtime=remembered([{base_id:'twin_base',age:0,system_id:'sol',items:[{item_id:'ore',best_buy:1,best_buy_qty:1}]},{...RANGE,system_id:'sol'}]);
+  writeFileSync(join(runtime,'mobile.json'),JSON.stringify(['range_base']));
+  const f=world({mood:'Focused'},{cargo:[],cargoUsed:0,cargoCapacity:20,store:[],markets:HERE,pois:[{id:'twin',base_id:'twin_base'}]},runtime);
+  try {
+    for(let i=0;i<2;i++) {
+      const [gem]=(await routes({items:['gem'],maxStops:2})).detail.routes;
+      assert.equal(said(gem!),'sol_base+gem range_base');
+      assert.equal(gem!.total_jumps,1,'placed where find_route says, not the remembered sol');
+    }
+    assert.deepEqual(f.sent.filter(call=>call.action==='spacemolt/find_route').map(call=>call.params.id),['range_base','range_base'],'looked up on every search');
+  } finally {unbind();rmSync(runtime,{recursive:true,force:true});}
+});
+
 test('a full hold with a far bid: the top route is one stop there that sells it, like any other route',async()=>{
   const runtime=remembered([{...RANGE,system_id:'deep_range'}]);
   world({mood:'Focused'},{cargo:[{item_id:'gem',quantity:20}],cargoUsed:20,cargoCapacity:20,store:[],markets:HERE},runtime);

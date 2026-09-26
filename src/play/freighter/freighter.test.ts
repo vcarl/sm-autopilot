@@ -452,6 +452,61 @@ test('a why said for a retried stop clears once the retry gets through (live: "Y
   assert.ok(reports.slice(said+1).some(r=>'why' in r&&r.why===undefined),JSON.stringify(reports.slice(said)));
 });
 
+/** `lap`s flown under mocked timers, a minute passing whenever one waits, until a park or `max` laps. */
+async function flown(f:Freighter,circuit:Circuit,max=5):Promise<{last:Lap;laps:number}> {
+  mock.timers.enable({apis:['setTimeout']});
+  try {
+    let laps=0,last:Lap;
+    do {
+      let done=false;
+      const running=lap(f,circuit).finally(()=>{done=true;});
+      while(!done){await new Promise(resolve=>setImmediate(resolve));mock.timers.tick(60_000);}
+      last=await running;laps++;
+    } while(!last.park&&laps<max);
+    return {last,laps};
+  } finally {mock.timers.reset();}
+}
+// Range remembered in Sol: where a mobile station was when the circuit was planned.
+const STALE:Circuit={...GEMS,stops:[GEMS.stops[0]!,{...GEMS.stops[1]!,system_id:'sol'}]};
+const GONE="It's called a Mobile Capital for a reason — it's not here right now. Jump to The Telescope to find it.";
+
+test('a stop that fails STOP_TRIES times is skipped for the lap, the lap goes on, and three idle stops park the ring as drained (live: frontier_station retried for hours)',async()=>{
+  const {world,f,reports,parked,drained}=freighter(130);
+  const send=f.command;
+  let tries=0;
+  f.command=async(action,params)=>{
+    if(action==='spacemolt/find_route'&&params.id==='range_base'){tries++;throw new Error('range unreachable');}
+    return send(action,params);
+  };
+  await world.account.refresh();
+  const {last,laps}=await flown(f,GEMS);
+  assert.equal(laps,2,'lap 1: sol buys, range skipped; lap 2: sol has nothing to buy, range skipped');
+  assert.equal(last.park,'circuit dead: 3 stops in a row with no trade');
+  assert.equal(parked(),last.park);
+  assert.equal(drained(),TICK,'drained, so the host re-plans it');
+  assert.equal(tries,6,'three tries a lap, no more');
+  assert.equal(reports.filter(r=>r.why==='range_base: skipped this lap after 3 tries: range unreachable').length,2);
+  assert.equal(reports.filter(r=>r.lapped!==undefined).length,1,'the skipping lap still ends');
+});
+
+test('a base away from its circuit system is flown to where find_route places it now, and a "not here right now" is retried and visited (live: Mobile Capital)',async()=>{
+  const {world,f,reports}=freighter(130);
+  const send=f.command;
+  let jam=true;
+  f.command=async(action,params)=>{
+    if(action==='spacemolt/travel'&&jam){jam=false;throw new Error(GONE);}
+    return send(action,params);
+  };
+  await world.account.refresh();
+  const circuit=structuredClone(STALE);
+  const {last}=await flown(f,circuit,1);
+  assert.equal(last.park,undefined,reports.map(r=>r.why).filter(Boolean).join('; '));
+  assert.deepEqual(reports.flatMap(r=>r.moved??[]),[{at:'range_base',system_id:'deep_range'},{at:'range_base'}]);
+  assert.equal(circuit.stops[1]!.system_id,'deep_range','the circuit in memory follows it');
+  assert.equal(world.account.server.location.docked_at,'range_base');
+  assert.deepEqual(world.sent.filter(c=>c.action==='spacemolt/sell').map(c=>c.params),[{id:'gem',quantity:10}]);
+});
+
 // The host's loop, as it flies live but on the fake world's account, and never bound: any call to
 // the play runtime singleton throws, and the loop would park with "the loop broke".
 const memory=(base_id:string,system_id:string,row:Record<string,number>)=>({base_id,at:'',tick:TICK,system_id,
@@ -476,7 +531,7 @@ function hosted(rangeBid:number,known:object[],entry:Partial<Entry>={},options:W
   };
   writeFleet(runtime,{hauler:{state:'running',circuit:GEMS,float:5_000,owner:'B',lap:0,returned:0,at:'',...entry}});
   mkdirSync(join(runtime,'freighters'));
-  writeFileSync(scriptPath(runtime,'hauler'),script(GEMS));
+  writeFileSync(scriptPath(runtime,'hauler'),script(entry.circuit??GEMS));
   return {runtime,world,now:()=>readFleet(runtime).hauler!,
     fly:async()=>{await world.account.refresh();return launch(runtime,'hauler',world.account as unknown as ReadinessAccount,command);},
     done:()=>rmSync(runtime,{recursive:true,force:true})};
@@ -531,6 +586,16 @@ test('a freighter scheduled to stop after its lap finishes the lap, selling, and
     assert.equal(h.now().lap,1);
     assert.equal(h.world.count('spacemolt/sell'),1,'the lap sold at range');
     assert.equal(h.now().reassigned,undefined);
+  } finally {h.done();}
+});
+
+test('a base found moved is recorded mobile, and placed where it is now, for the owner\'s routes()',async()=>{
+  const h=hosted(130,[SOL,TWIN],{stop_after_lap:true,circuit:STALE});
+  try {
+    await h.fly();
+    assert.equal(h.now().why,'stopped after its lap, as scheduled');
+    assert.deepEqual(JSON.parse(readFileSync(join(h.runtime,'mobile.json'),'utf8')),['range_base']);
+    assert.equal(JSON.parse(readFileSync(join(h.runtime,'places.json'),'utf8')).range_base,'deep_range');
   } finally {h.done();}
 });
 

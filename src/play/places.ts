@@ -22,3 +22,22 @@ export function markPlace(runtime:string,base_id:string,system_id:string):void {
     renameSync(temp,path);
   } catch {/* a place not kept is only looked up again */}
 }
+
+/** Bases seen away from their kept place: mobile stations, which move between systems. `mobile.json`
+ * beside `places.json`, a list of base ids, written by a freighter's host and read by `chart`, which
+ * places a mobile base afresh with `find_route` every time, never from `places.json` or a memory. */
+const MOBILE='mobile.json';
+export function readMobile(runtime:string):Set<string> {
+  try {const ids=JSON.parse(readFileSync(join(runtime,MOBILE),'utf8'));return new Set(Array.isArray(ids)?ids.filter(id=>typeof id==='string'):[]);}
+  catch {return new Set();}
+}
+export function markMobile(runtime:string,base_id:string):void {
+  const ids=readMobile(runtime);
+  if(!base_id||ids.has(base_id))return;
+  try {
+    mkdirSync(runtime,{recursive:true});
+    const path=join(runtime,MOBILE),temp=`${path}.${process.pid}.tmp`;
+    writeFileSync(temp,JSON.stringify([...ids,base_id],null,2),{mode:0o600});
+    renameSync(temp,path);
+  } catch {/* unkept: the next move is seen again */}
+}

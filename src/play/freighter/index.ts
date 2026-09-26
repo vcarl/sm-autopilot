@@ -6,7 +6,10 @@
  * Every failure is handled here, once, so the script stays a loop:
  * - a disconnect or any other throw: wait a minute and redo the stop from a fresh read. A stop is
  *   idempotent: sales are sized by what is held, each buy by the free hold and what is already aboard.
- *   The why it said clears once the stop is reached;
+ *   The why it said clears once the stop is reached. STOP_TRIES failed tries in a row skip the stop
+ *   for the lap, as a stop with no trade, so no stop can hold a freighter forever;
+ * - a base away from the circuit's system for it (a mobile station): each flight goes to the system
+ *   `find_route` names for the base now, and the move is reported for the host to record;
  * - the session taken by another connection: park, and never log in again;
  * - cargo it bought that the circuit never sells (left from an old circuit): sold at any stop whose
  *   bid covers its cost a unit, after the stop's own sales and before its buys; never at a loss, and
@@ -45,7 +48,10 @@ export interface Approach {jumps:number;credits:number}
  * `cleared` leftover cargo sold at cost or better, e.g. "cleared 98 copper_piping at 36 (cost 29.6)";
  * `stowed` cargo the circuit never sells put in storage, e.g. "98 copper_piping (cost 2898) at
  * nova_terra_central for Chrisjen Avasarala", or "… in its own storage" when the owner's was refused. */
-export interface Report {stop?:string;credits?:number;deposited?:number;lapped?:number;holding?:Holding;approach?:Approach;cleared?:string;stowed?:string;why?:string}
+export interface Report {stop?:string;credits?:number;deposited?:number;lapped?:number;holding?:Holding;approach?:Approach;cleared?:string;stowed?:string;why?:string;
+  /** A stop's base found away from the system the circuit kept for it: a mobile station. `system_id`
+   * where `find_route` places it now, when known. The host records it mobile and re-places it. */
+  moved?:{at:string;system_id?:string}}
 /** What the host hands a freighter's script. */
 export interface Freighter {
   name:string;
@@ -75,6 +81,10 @@ const FUEL_RESERVE=10,FUEL_MONEY=2_000;
 const TAX=0.05;
 /** Stops in a row with no trade before the circuit is called dead. */
 const DEAD_STOPS=3;
+/** ponytail: tries at one stop (a minute apart) before it is skipped for the lap. Any throw counts,
+ * a disconnect too, so a long outage skips stops and parks the ring as dead; the re-plan picks it
+ * up again once it rests. Tunable. */
+const STOP_TRIES=3;
 /** ponytail: laps in a row netting 0 or less before the circuit parks as a loser. The first lap
  * starts empty and only buys, so one losing lap is expected; three is the books. A lap that pays
  * but far under `lap_net` flies on: it still makes money. Tunable. */
@@ -134,6 +144,9 @@ async function fly(f:Freighter,stop:Stop):Promise<number> {
   await account.refresh();
   if(account.state.location?.docked_at===stop.at)return 0;
   const quote=details(await command('spacemolt/find_route',{id:stop.at}));
+  // find_route says where the base is now; a mobile station moves, so the circuit's system can be stale.
+  const now=typeof quote.target_system==='string'&&quote.target_system?quote.target_system:stop.system_id;
+  if(now!==stop.system_id){f.report({moved:{at:stop.at,system_id:now}});stop.system_id=now;}
   const {jumps}=await travelTo(account,command,{system_id:stop.system_id,poi_id:String(quote.target_poi??stop.at),base_id:stop.at},
     {reserve:FUEL_RESERVE,maxJumps:null,refuel:()=>service(f,stop)});
   return jumps;
@@ -247,7 +260,7 @@ export async function lap(f:Freighter,circuit:Circuit):Promise<Lap> {
   for(const [i,stop] of circuit.stops.entries()) {
     // Stowed at a new circuit's first stop, so lap 1 has the hold, and at every lap's last.
     const stowing=(fresh&&i===0)||i===circuit.stops.length-1;
-    let traded:number;
+    let traded:number,tries=0;
     for(;;) {
       try {
         if(opening===undefined) {
@@ -274,9 +287,18 @@ export async function lap(f:Freighter,circuit:Circuit):Promise<Lap> {
         break;
       }
       catch(error) {
-        const why=parked(error);
+        const why=parked(error),text=message(error);
         if(why)return f.park(why);
-        f.report({why:`${stop.at}: ${message(error)}; again in a minute`});
+        // The game's word for a mobile station gone from the system it was flown to; the next try's
+        // find_route places it afresh.
+        if(/not here right now/i.test(text))f.report({moved:{at:stop.at}});
+        if(++tries>=STOP_TRIES) {
+          // Skipped as a stop with no trade: DEAD_STOPS of them park the circuit for a re-plan.
+          f.report({why:`${stop.at}: skipped this lap after ${tries} tries: ${text}`});
+          traded=0;opening??=wallet();
+          break;
+        }
+        f.report({why:`${stop.at}: ${text}; again in a minute`});
         await sleep(RETRY_MS);
         if(f.recalled())return f.park('recalled');
       }

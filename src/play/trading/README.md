@@ -125,7 +125,9 @@ memory keeps each base's system, and lends it to a ledger entry for the same bas
 no system for (a ledger entry for a base never visited, an old memory) is placed with one `find_route`, at most 5 a call. One `find_route` also prices a jump in fuel.
 Every place learned — a docked book read, a `find_route` here, a freighter arriving at a stop — is
 kept in `places.json` in the runtime dir and read first, so a base is placed once, ever: each call
-places up to 5 new bases, and the `did` says how many wait for a later call.
+places up to 5 new bases, and the `did` says how many wait for a later call. A mobile station
+moves: a base a freighter found away from its kept system is listed in `mobile.json`, and is
+placed by a live `find_route` on every call, never from `places.json` or the memory.
 
 Each row of `routes` is a `Route`:
 

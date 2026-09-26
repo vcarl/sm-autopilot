@@ -22,7 +22,7 @@ import {pilotHome} from '../../run.ts';
 import {checkBoundary,specifiers} from '../boundary.ts';
 import {checkPolicy} from '../policy.ts';
 import {buysOf,REST_TICKS,search,type Circuit,type Seat} from '../trading/trading.ts';
-import {markPlace} from '../places.ts';
+import {markMobile,markPlace} from '../places.ts';
 import {markDrained,ring} from './drained.ts';
 import type {Approach,Freighter,Holding} from './index.ts';
 
@@ -250,7 +250,9 @@ async function run(runtime:string,name:string,account:ReadinessAccount,command:R
       if(!now)return;
       // `cleared` is journalled, not kept: the holding after the stop says what is left. `stowed`
       // is kept, all of them, so the owner can find the cargo in storage.
-      const {deposited,lapped,cleared:_,stowed,...rest}=fields;
+      const {deposited,lapped,cleared:_,stowed,moved,...rest}=fields;
+      // A base found moved is mobile: planned from a live find_route from now on, never from a kept place.
+      if(moved){markMobile(runtime,moved.at);if(moved.system_id)markPlace(runtime,moved.at,moved.system_id);}
       // A lap ended with a stop after it scheduled: the script's next recalled() is true.
       if(lapped!==undefined&&loop.afterLap)loop.lapDone=true;
       // Arrived at a stop: where it is is a place the owner's routes() need not look up again.

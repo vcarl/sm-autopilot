@@ -84,7 +84,12 @@ in turn, one command each, up to its `qty`, counting what is already aboard, at 
 `max_price`, within the free hold and the credits over the fuel money; then send home everything
 above the float. A circuit assigned before `buys` has one `buy` a stop; it flies as it did, and a
 freighter restarted on one picks it up where it was. A stop the
-connection drops on is done again a minute later; the why it says then clears once the stop is reached. A sale or buy the game refuses is skipped;
+connection drops on is done again a minute later; the why it says then clears once the stop is reached.
+A stop that fails 3 tries in a row (`STOP_TRIES`) is skipped for the lap as a stop with no trade,
+the why saying so (`frontier_station: skipped this lap after 3 tries: …`), so no stop holds a
+freighter forever. Each flight goes to the system `find_route` names for the base now, not the one
+the circuit kept: a mobile station (a Mobile Capital) moves between systems, and one found moved,
+or answering "not here right now", is recorded in `mobile.json` for the planner. A sale or buy the game refuses is skipped;
 three stops in a row with no trade park it. When those stops traded nothing because the hold is
 full of cargo the circuit never sells that no stop bid its cost for and both stores refused, the why
 names that cargo (`hold full of 100 copper_wiring this circuit never sells, no stop on it bids at or
