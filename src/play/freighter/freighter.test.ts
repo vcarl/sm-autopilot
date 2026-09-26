@@ -3,7 +3,7 @@ import {existsSync,mkdirSync,mkdtempSync,readFileSync,rmSync,writeFileSync} from
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import test,{mock} from 'node:test';
-import {ConnectionClosedError,SpacemoltError} from '@spacemolt/lib';
+import {Account,ConnectionClosedError,SpacemoltError} from '@spacemolt/lib';
 import type {ReadinessAccount,ReadinessCommand} from '../../readiness.ts';
 import {check} from '../../run.ts';
 import {bridgeWorld,TICK,type WorldOptions} from '../../test-support/bridge-world.ts';
@@ -15,7 +15,7 @@ import {readPlaces} from '../places.ts';
 import {acct,bind,unbind} from '../runtime.ts';
 import {REST_TICKS,routes,type Circuit} from '../trading/trading.ts';
 import {markDrained,ring} from './drained.ts';
-import {BOOK_TTL_MS,gate,launch,market,readFleet,recallLoop,RECONNECT_MS,REPLAN_TICKS,row,script,scriptPath,writeFleet,type Entry} from './host.ts';
+import {BOOK_TTL_MS,gate,launch,market,mender,readFleet,recallLoop,RECONNECT_MS,REPLAN_TICKS,row,script,scriptPath,writeFleet,type Entry} from './host.ts';
 import {IGNORE_TICKS,lap,STALE_TICKS,type Freighter,type Lap,type Report} from './index.ts';
 
 // Gems bought at sol for at most 110, sold at range for at least 120.
@@ -912,4 +912,55 @@ test('a loop broken by a lost connection outside a stop is launched again, not p
     assert.equal(h.now().reassigned?.ring,'sol_base twin_base');
     assert.equal(h.now().why,'stopped after its lap, as scheduled');
   } finally {h.done();}
+});
+
+/** The lib's own Account over sockets that answer a welcome, a login and get_status; `close()` does
+ * nothing (a half-open socket), `kick(code)` is the server closing it. */
+function fakeGame() {
+  const sockets:EventTarget[]=[];let logins=0;
+  class FakeSocket extends EventTarget {
+    constructor() {
+      super();sockets.push(this);
+      setImmediate(()=>{this.dispatchEvent(new Event('open'));this.frame({type:'welcome',payload:{current_tick:1,game_info:'',help_text:'',
+        release_date:'',release_notes:[],server_time:0,terms:'',tick_rate:10,version:'',website:''}});});
+    }
+    send(text:string) {
+      const f=JSON.parse(text) as {tool:string;request_id:string};
+      if(f.tool==='spacemolt_auth'){logins++;this.frame({type:'logged_in',request_id:f.request_id,payload:{}});}
+      else this.frame({type:'result',request_id:f.request_id,payload:{result:'ok',structuredContent:{}}});
+    }
+    close() {}
+    frame(frame:object) {setImmediate(()=>this.dispatchEvent(new MessageEvent('message',{data:JSON.stringify(frame)})));}
+  }
+  const kick=(socket:EventTarget,code:number)=>socket.dispatchEvent(Object.assign(new Event('close'),{code,reason:'session_replaced'}));
+  const account=new Account({url:'ws://fake',reconnect:true,seedState:false,webSocketFactory:()=>new FakeSocket() as never,
+    credentials:()=>({kind:'login',username:'a',password:'p'})});
+  return {account,sockets,kick,logins:()=>logins};
+}
+const settle=()=>new Promise(resolve=>setTimeout(resolve,50));
+
+test('a forced reconnect cuts the stale socket loose: its late 4001 neither parks nor logs in again, and commands go on (live 2026-09-26: a "session taken elsewhere" nobody took)',async()=>{
+  const {account,sockets,kick,logins}=fakeGame();
+  const {reconnect,gone}=mender(account);
+  await account.connect();await account.authenticate({kind:'login',username:'a',password:'p'});
+  await reconnect(new Error('No action_result for mutation r13 within 600000ms of its ack'));
+  assert.equal(logins(),2);
+  kick(sockets[0]!,4001);
+  await settle();
+  assert.equal(gone(),undefined);
+  assert.equal(account.authenticated,true);
+  assert.equal(logins(),2,'no second login from the lib');
+  await account.refresh();
+  account.close();
+});
+
+test('a 4001 on the current connection whose status read fails too parks: session taken elsewhere',async()=>{
+  const {account,sockets,kick}=fakeGame();
+  const {reconnect,gone}=mender(account);
+  await account.connect();await account.authenticate({kind:'login',username:'a',password:'p'});
+  kick(sockets[0]!,4001);
+  await settle();
+  assert.match(String(gone()?.message),/^session_replaced or disconnected/);
+  await assert.rejects(reconnect(new ConnectionClosedError('WebSocket connection closed')),/^Error: session_replaced or disconnected/);
+  account.close();
 });

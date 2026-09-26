@@ -221,13 +221,11 @@ export function start(runtime:string,name:string):string|null {
   catch(error) {return refused(`${who.username} is held by another live controller (${message(error)})`);}
   const credentials=()=>({kind:'login' as const,...who});
   const account=new Account({url:GAME_WS_URL,reconnect:true,credentials,fastMutationTimeoutMs:60_000});
-  // Gone for good: the session was taken (the lib retries anything else forever). Every later read and command says so.
-  let gone:Error|undefined;
-  account.onDisconnected(error=>{gone=new Error(`session_replaced or disconnected: ${error.message}`);});
+  const {reconnect,gone}=mender(account);
   const live:ReadinessAccount={get state(){return account.state as GameState;},
-    refresh:async()=>{if(gone)throw gone;return account.refresh();}};
+    refresh:async()=>{const error=gone();if(error)throw error;return account.refresh();}};
   const command:ReadinessCommand=async(action,params)=>{
-    if(gone)throw gone;
+    const error=gone();if(error)throw error;
     const [tool,verb]=action.split('/');
     try {
       const reply=await account.send(tool!,verb!,params);
@@ -238,9 +236,38 @@ export function start(runtime:string,name:string):string|null {
       throw error;
     }
   };
-  // A socket can die without closing (live 2026-09-26: each command then hung ~16 minutes until the OS
-  // gave up on it), and the lib's own reconnect only starts at a close. So: the lib's reconnect if it
-  // is under way or done, else a fresh socket and login forced in place — same Account, same listeners.
+  void launch(runtime,name,live,command,{unlock,close:()=>account.close(),reconnect,
+    // A login that fails (the server down, the network out) is tried again each minute.
+    login:async loop=>{
+      for(;;) {
+        try {await account.connect();await account.authenticate(credentials());return;}
+        catch(error) {
+          if(loop.stopping||loop.recall||gone())throw error;
+          update(runtime,name,{why:`login failed (${message(error)}); again in a minute`});
+          await sleep(RETRY_MS);
+        }
+      }
+    }});
+  return null;
+}
+
+/** Reconnects for `account` that never log in twice, and `gone()`: the error once the session is
+ * taken for good. A socket can die without closing (live 2026-09-26: each command then hung ~16 minutes
+ * until the OS gave up on it), and the lib's own reconnect only starts at a close. So: the lib's
+ * reconnect if it is under way or done; else the stale socket is cut loose (its late close, or a 4001
+ * when the new login supersedes it, would reach the lib as the current one's, start the lib's own
+ * reconnect on top of ours, and a second login would kick ours: live 2026-09-26, a parked "session
+ * taken elsewhere" nobody else took) and a fresh socket and login forced in place. The lib reports a
+ * close it will not reconnect through (4001/4002) by `onDisconnected`; that parks only when the
+ * current connection fails a status read too. */
+export function mender(account:Account) {
+  // ponytail: reaches into the lib's privates; a lib reconnectOnce that detaches the old socket would replace this.
+  const lib=account as unknown as {reconnecting:boolean;_authenticated:boolean;
+    socket:{onClose?:unknown;onFrame?:unknown};correlator:{rejectAll(error:Error):void}};
+  let gone:Error|undefined;
+  account.onDisconnected(error=>{
+    account.refresh().catch(()=>{gone??=new Error(`session_replaced or disconnected: ${error.message}`);});
+  });
   const bounded=<T>(work:Promise<T>)=>{
     let timer:NodeJS.Timeout|undefined;
     return Promise.race([work,new Promise<never>((_,reject)=>{
@@ -249,27 +276,21 @@ export function start(runtime:string,name:string):string|null {
   };
   const reconnect=async(error:unknown)=>{
     if(gone)throw gone;
-    if(error instanceof ConnectionClosedError) {
-      if(account.authenticated)return;
+    if(error instanceof ConnectionClosedError||lib.reconnecting) {
+      if(account.authenticated&&!lib.reconnecting)return;
       let off=()=>{};
       const back=await bounded(new Promise<void>(resolve=>{off=account.onReconnected(resolve);})).then(()=>true,()=>false).finally(()=>off());
       if(back)return;
+      if(lib.reconnecting)throw new Error('the lib is still reconnecting');
     }
+    if(gone)throw gone;
+    // What the lib does at a close, minus its reconnect and its onDisconnected.
+    lib.socket.onClose=undefined;lib.socket.onFrame=undefined;
+    lib._authenticated=false;
+    lib.correlator.rejectAll(new ConnectionClosedError('socket replaced by a reconnect'));
     await bounded(account.reconnectOnce());
   };
-  void launch(runtime,name,live,command,{unlock,close:()=>account.close(),reconnect,
-    // A login that fails (the server down, the network out) is tried again each minute.
-    login:async loop=>{
-      for(;;) {
-        try {await account.connect();await account.authenticate(credentials());return;}
-        catch(error) {
-          if(loop.stopping||loop.recall||gone)throw error;
-          update(runtime,name,{why:`login failed (${message(error)}); again in a minute`});
-          await sleep(RETRY_MS);
-        }
-      }
-    }});
-  return null;
+  return {reconnect,gone:()=>gone};
 }
 
 /** Run `name`'s loop on `account`, logged in by `login`: its script lap after lap, re-planned when
