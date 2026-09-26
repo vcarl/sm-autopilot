@@ -89,6 +89,23 @@ never a plugin surface, and a red suite meaning "the host refactored" teaches no
 
 Prefer asserting `job_fields()` output as data over driving cron's internals.
 
+## Commits and releases
+
+Commits are [Conventional Commits](https://www.conventionalcommits.org), because the changelog is
+generated from them: `type(scope): summary`, and a body that says why. `feat`, `fix` and `perf`
+reach users' release notes; `refactor`, `test`, `docs`, `chore`, `build` and `ci` do not. The
+scope is the subsystem — `juncture`, `bridge`, `play`, `skills`, `service` — and becomes the
+package name once this is a monorepo.
+
+A change the user must act on — edit a setting, re-run setup, upgrade Hermes — takes `!` after the
+type and a `BREAKING CHANGE:` footer saying *what to do*. Those footers become the release's
+"Action required" section, verbatim, so write them for the person installing the bot. The footer
+is only read after a body paragraph; without one, the notes fall back to the summary line.
+
+Versions are CalVer, `YYYY.M.patch`, and only what a user installs carries one. Carl cuts releases
+and sets versions; an agent never does. `npx git-cliff --unreleased` previews the notes
+(`cliff.toml`).
+
 ## Things that have gone wrong, so they are load-bearing now
 
 - **A 420-second tool timeout killed an 11-minute run**, and the pilot's next program overwrote
