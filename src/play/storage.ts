@@ -26,6 +26,18 @@ async function view(stationId?:string):Promise<ViewStorageResponse> {
   const reply=details(await command('spacemolt_storage/view',stationId?{station_id:stationId}:{})) as ViewStorageResponse;
   return {...reply,items:(reply.items??[]).slice(0,ITEM_CAP),locations:reply.locations??[],ships:reply.ships??[]};
 }
+/** Cargo one unit of `item` occupies, from the store's or the hold's row; one when neither says. */
+const sizeOf=(item:string,rows:{item_id:string;size?:number}[])=>Number(rows.find(row=>row.item_id===item&&Number(row.size)>0)?.size)||1;
+
+/** Units of each row that fit `room` cargo: every want when they all fit, else each row's
+ * share of the room in proportion to its footprint, floored, the leftover handed out in order. */
+export function share(room:number,wants:number[],sizes:number[]):number[] {
+  const total=wants.reduce((sum,want,i)=>sum+want*sizes[i]!,0);
+  if(total<=room)return wants;
+  let left=room;
+  const caps=wants.map((want,i)=>{const cap=Math.floor(room*want/total);left-=cap*sizes[i]!;return cap;});
+  return caps.map((cap,i)=>{const more=Math.min(wants[i]!-cap,Math.floor(left/sizes[i]!));left-=more*sizes[i]!;return cap+more;});
+}
 const held=(rows:{item_id:string;quantity:number}[],item:string)=>rows.filter(row=>row.item_id===item).reduce((sum,row)=>sum+row.quantity,0);
 
 /** The counter a deposit or withdraw needs: docked, at a base with `storage`. */
@@ -53,12 +65,17 @@ async function move(fn:'stow'|'withdraw',items:Want[]):Promise<Outcome<Moved>> {
     if('refused' in at)return {status:'refused',did:`${fn} nothing`,why:at.refused,detail:empty()};
     let store=await view();
     let carried=miningInventory(acct().state);
+    const free=()=>Math.max(0,(acct().state.ship?.cargo_capacity??0)-(acct().state.ship?.cargo_used??0));
+    const sizes=asked.map(row=>sizeOf(row.item_id,[...store.items??[],...(acct().state.cargo??[]) as V2CargoItem[]]));
+    const avail=asked.map(row=>fn==='stow'?disposable(acct().state)[row.item_id]??0:held(store.items,row.item_id));
+    const wants=asked.map((row,i)=>Math.min(row.quantity,avail[i]!));
+    // Rows the hold cannot take whole share its room by cargo footprint, not first come first served.
+    const caps=fn==='withdraw'?share(free(),wants,sizes):wants;
     const moved:Row[]=[],short:Moved['short']=[];
-    for(const row of asked) {
+    for(const [i,row] of asked.entries()) {
       checkStop();
-      const free=(acct().state.ship?.cargo_capacity??0)-(acct().state.ship?.cargo_used??0);
-      const available=fn==='stow'?disposable(acct().state)[row.item_id]??0:held(store.items,row.item_id);
-      const quantity=Math.min(row.quantity===Infinity?available:row.quantity,available,fn==='withdraw'?Math.max(0,free):Infinity);
+      const available=avail[i]!,size=sizes[i]!;
+      let quantity=Math.min(caps[i]!,fn==='withdraw'?Math.floor(free()/size):Infinity);
       if(quantity<=0) {
         short.push({item_id:row.item_id,requested:row.quantity,moved:0,
           why:available<=0?(fn==='stow'?'not held':'not in store'):'no room'});
@@ -66,14 +83,23 @@ async function move(fn:'stow'|'withdraw',items:Want[]):Promise<Outcome<Moved>> {
       }
       const before=carried[row.item_id]??0;
       try {await command(action,{item_id:row.item_id,quantity});}
-      catch(error){short.push({item_id:row.item_id,requested:row.quantity,moved:0,why:message(error)});continue;}
+      catch(error) {
+        // No size on record and the game counts one: "Need 96 but only 75 available" for 48
+        // is size 2, so 37 fit. One retry at that, never a second guess.
+        const full=/Need (\d+) but only (\d+) available/.exec(message(error));
+        const fits=full?Math.floor(Number(full[2])/(Number(full[1])/quantity)):0;
+        if(fits<=0||fits>=quantity){short.push({item_id:row.item_id,requested:row.quantity,moved:0,why:message(error)});continue;}
+        quantity=fits;
+        try {await command(action,{item_id:row.item_id,quantity});}
+        catch(again){short.push({item_id:row.item_id,requested:row.quantity,moved:0,why:message(again)});continue;}
+      }
       await acct().refresh();
       carried=miningInventory(acct().state);
       const delta=Math.abs((carried[row.item_id]??0)-before);
       if(delta>0){moved.push({item_id:row.item_id,quantity:delta});step(`${fn} ${delta} ${row.item_id}`);}
-      if(delta<row.quantity&&row.quantity!==Infinity)
+      if(delta<row.quantity&&(row.quantity!==Infinity||delta<available))
         short.push({item_id:row.item_id,requested:row.quantity,moved:delta,
-          why:delta===0?`${action.split('/')[1]} did not clear`:available<row.quantity?(fn==='stow'?'not held':'not in store'):'no room'});
+          why:delta===0?`${action.split('/')[1]} did not clear`:delta<wants[i]!?'no room':fn==='stow'?'not held':'not in store'});
       if((acct().state.location?.docked_at??null)!==at.docked){short.push({item_id:row.item_id,requested:row.quantity,moved:delta,why:`no longer docked at ${at.docked}`});break;}
     }
     if(moved.length)store=await view();
@@ -98,8 +124,10 @@ async function move(fn:'stow'|'withdraw',items:Want[]):Promise<Outcome<Moved>> {
 export function stow(items:Want[]):Promise<Outcome<Moved>> {return move('stow',items);}
 
 /** Take rows out of the store here into the hold. Over `storage/withdraw` it adds: the
- * counter check, each row bounded by the store's count and the hold's room, and the reason
- * the rest stayed. Omit a row's `quantity` to mean all stored. Refused when not docked; a row
+ * counter check, each row bounded by the store's count and the hold's room counted in each
+ * item's cargo `size`, and the reason the rest stayed. Rows that together overfill the hold
+ * share its room in proportion to their footprint: each moves partly, the rest `short` with
+ * `no room`, and the status is `partial`. Omit a row's `quantity` to mean all stored. Refused when not docked; a row
  * the store does not hold is `short` and `done`. Costs nothing. */
 export function withdraw(items:Want[]):Promise<Outcome<Moved>> {return move('withdraw',items);}
 

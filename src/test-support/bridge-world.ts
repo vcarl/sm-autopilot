@@ -173,8 +173,10 @@ const CLASSES:Record<string,Record<string,unknown>>={
   hauler_ii:{id:'hauler_ii',name:'Hauler II',class:'Hauler',cargo_capacity:120,base_speed:2,base_fuel:150,
     utility_slots:3,weapon_slots:1,defense_slots:1,minimum_crew:1},
 };
-/** A sealed package occupies 100 cargo whatever its quantity; everything else is one each. */
-const footprint=(item:string)=>item.startsWith('package:')?100:1;
+/** A sealed package occupies 100 cargo whatever its quantity; the bulky ores their catalog
+ * `size` each, as live (48 osmium_ore "Need 96"); everything else is one each. */
+const SIZES:Record<string,number>={osmium_ore:2,dark_matter_residue:3};
+const footprint=(item:string)=>item.startsWith('package:')?100:SIZES[item]??1;
 const BERTH_CLASSES=['economy','business','first'] as const;
 /** Berths by class, with `free` counted against who is aboard now. */
 function berthsView(options:PassengerOptions,onboard:{class?:string}[]=[]) {
@@ -760,7 +762,7 @@ export function bridgeWorld(options:WorldOptions={}) {
       return {delta:{details:{action:'repair',cost}}};
     },
     'spacemolt_storage/view':()=>({structuredContent:{action:'view_storage',base_id:'sol_base',
-      hint:'',items:structuredClone(store),
+      hint:'',items:store.map(row=>({...row,size:footprint(row.item_id)})),
       ships:[{ship_id:'spare',class_id:'hauler',cargo_used:0,modules:0}],
       locations:[{base_id:'sol_base',base_name:'Sol Base',item_count:store.length,ship_count:1,
         system:'sol',system_name:'Sol'}]}}),
@@ -806,8 +808,9 @@ export function bridgeWorld(options:WorldOptions={}) {
       const item=String(params.item_id);
       const row=store.find(current=>current.item_id===item);
       const room=account.server.ship.cargo_capacity-account.server.ship.cargo_used;
-      const moved=Math.min(row?.quantity??0,Number(params.quantity),
-        Math.max(0,Math.floor(room/footprint(item))));
+      const moved=Math.min(row?.quantity??0,Number(params.quantity));
+      // The live refusal, word for word: the whole ask or nothing.
+      if(moved*footprint(item)>room)throw new Error(`cargo_full: Not enough cargo space. Need ${moved*footprint(item)} but only ${room} available. Use 'deposit_items' or 'jettison' to free space.`);
       if(row) {
         row.quantity-=moved;
         if(!row.quantity)store.splice(store.indexOf(row),1);
