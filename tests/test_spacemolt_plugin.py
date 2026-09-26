@@ -136,12 +136,21 @@ def test_a_run_sent_while_one_is_in_flight_is_refused_without_touching_the_scrip
         service.close_bridge()
 
 
-def test_register_publishes_every_tool_in_the_spacemolt_toolset():
+def test_register_publishes_every_tool_in_the_spacemolt_toolset(monkeypatch):
+    # register() hands the plugin's tool dispatcher to juncture, which holds it on the module.
+    # monkeypatch puts the real one back afterwards, so no later test writes cron jobs through
+    # this stub.
+    monkeypatch.setattr("spacemolt.juncture._dispatch_tool", None)
     tools, sections, unloads, skills = {}, {}, [], []
 
     class RecordingContext:
         def register_skill(self, name, path, **kwargs):
             skills.append(name)
+
+        def dispatch_tool(self, tool_name, args, **kwargs):
+            """The seam the juncture job is written through. Answering `list` with nothing is
+            enough for register(): wake_on_load swallows what a create then fails on."""
+            return json.dumps({"success": True, "count": 0, "jobs": []})
 
         def register_tool(self, name, toolset, schema, handler, **kwargs):
             tools[name] = (toolset, schema, handler, kwargs)
@@ -183,8 +192,10 @@ def test_register_publishes_every_tool_in_the_spacemolt_toolset():
     # Flying, docking, mining and every read are calls inside the pilot's file, not tools.
     assert not {"spacemolt_travel", "spacemolt_dock", "spacemolt_gather", "spacemolt_where",
                 "spacemolt_storage", "spacemolt_scripts"} & set(tools)
-    # The READMEs of the play library are the skills: the root one and one per career.
-    assert "spacemolt" in skills and "spacemolt-mining" in skills
+    # The READMEs of the play library are the skills, registered under the plugin's namespace by
+    # their bare names — `spacemolt:mining`, never `spacemolt:spacemolt-mining`.
+    assert "play" in skills and "mining" in skills
+    assert not any(name.startswith("spacemolt") for name in skills), skills
     # Credentials gate the tools out of the schema, and unload must release the bridge.
     assert all(kwargs["requires_env"] == ["SPACEMOLT_CREDENTIALS_FILE"] for *_, kwargs in tools.values())
     assert sections and unloads == [service.close_bridge]
@@ -265,17 +276,18 @@ def test_status_answers_the_objective_the_run_and_what_happened_in_one_read(brid
 
 
 def test_a_stance_fire_carries_the_root_readme_and_its_career_readme():
-    """The skills a fire lists are the play README and the stance's folder README, by the
-    names skills_register links into the profile's skills dir."""
+    """The skills a fire lists are the play README and the stance's folder README, under the
+    plugin's own namespace — which is how a plugin skill is looked up."""
     from spacemolt import juncture, skills_register
 
     named = skills_register.readme_skills(service.HERE)
-    assert "spacemolt" in named and named["spacemolt"].name == "README.md"
+    assert "play" in named and named["play"].name == "README.md"
     for stance, folder in juncture.STANCE_FOLDER.items():
         fields = juncture.job_fields({"stance": stance})
-        assert fields["skills"] == ["spacemolt", f"spacemolt-{folder}"]
-        assert f"spacemolt-{folder}" in named, stance
-    assert juncture.job_fields({})["skills"] == ["spacemolt"]
+        assert fields["skills"] == ["spacemolt:play", f"spacemolt:{folder}"]
+        assert folder in named, stance
+    # No stance yet — a seeded pilot's first fire — carries the base skill alone.
+    assert juncture.job_fields({})["skills"] == ["spacemolt:play"]
 
 
 def test_close_bridge_ends_a_bridge_that_ignores_its_closed_stdin(tmp_path, monkeypatch):

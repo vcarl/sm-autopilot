@@ -20,8 +20,8 @@ from pathlib import Path
 
 from .juncture import (IDLE_STREAK_LIMIT, JOB_MOODS, JOURNAL_FILE, JUNCTURE_PLATFORM,
                        SECTION_LIMIT, STANCES, unproductive_streak,
-                       ensure_juncture_job, journal_event, juncture_context, read_pilot,
-                       write_pilot)
+                       ensure_juncture_job, journal_event, juncture_context, mark_due,
+                       raise_juncture, read_pilot, use_dispatch, write_pilot)
 from .service import available, call, close_bridge, render_journal, runtime_dir
 from .skills_register import register_skills
 
@@ -259,8 +259,6 @@ def _reflect(arguments: dict[str, Any] | None = None, **_: Any) -> str:
         write_pilot(record)
     journal_event("reflection", goal=goal, stance=stance, mood=mood,
                   **({"objective_done": True, "objective": retired} if finished else {}))
-    from cron.jobs import trigger_job
-
     # Every reflection normally asks for the next juncture straight away, which is the faster play
     # the operator wants. The floor under it: a run of turns that accomplished nothing stops chaining
     # and lets the interval govern instead. A repeating fault otherwise loops at model speed rather
@@ -269,7 +267,7 @@ def _reflect(arguments: dict[str, Any] | None = None, **_: Any) -> str:
     streak = unproductive_streak()
     throttled = streak >= IDLE_STREAK_LIMIT
     if not throttled:
-        trigger_job(ensure_juncture_job()["id"])
+        raise_juncture()
     else:
         ensure_juncture_job()
         journal_event("cadence", reason="unproductive streak", runs=streak)
@@ -306,15 +304,13 @@ def _nudge_juncture() -> str:
     sets. While a script runs the runner raises its own juncture at its end (N4), so a
     nudge here would only double-fire it.
     """
-    from cron.jobs import trigger_job
-
     try:
         running = bool((call("status") or {}).get("running"))
     except Exception:
         running = False  # no bridge means nothing is flying; a juncture is safe to ask for
     if running:
         return " A script is running, so the runner raises the juncture when it ends."
-    trigger_job(ensure_juncture_job()["id"])
+    raise_juncture()
     return " The pilot is idle, so that juncture is due on the next scheduler tick."
 
 
@@ -492,17 +488,25 @@ TOOL_DEFINITIONS = (
 )
 
 
+#: What a profile that has never flown starts from. No stance: the first reflection picks one,
+#: and a fire with none carries the shared skill alone, which is what a first look needs.
+FIRST_PILOT = {"mood": "Cautious",
+               "goal": "Learn the ship: look around, find what sells, and make the first profit."}
+
+
 def wake_on_load() -> None:
     """A process that just loaded the pilot rewrites its juncture job (audit 2026-09-15: the live
     job carried a prompt three revisions old) and owes it one look around: the juncture is marked
     due now instead of waiting for the idle schedule (Carl, 2026-09-15). A run still in flight
     raises its own juncture when it ends, so nothing is marked then, and the bridge is not
-    touched: a plugin load opens no game socket. Without a pilot record there is no one to wake.
+    touched: a plugin load opens no game socket. A profile that has never flown has no pilot
+    record, so the first load seeds one: an installed plugin with no juncture job looks exactly
+    like a healthy idle pilot, and nothing else on this path ever writes the record.
     """
-    from .juncture import ensure_juncture_job
     from .service import pilot_path
     if not pilot_path().is_file():
-        return
+        write_pilot(dict(FIRST_PILOT))
+        journal_event("seeded", **FIRST_PILOT)
     record = runtime_dir() / "run.json"
     try:
         # The job is rewritten on every load so a prompt or skill revision reaches the next
@@ -510,13 +514,14 @@ def wake_on_load() -> None:
         job = ensure_juncture_job()
         if record.is_file() and not json.loads(record.read_text()).get("ended", True):
             return
-        from cron.jobs import trigger_job
-        trigger_job(job["id"])
+        mark_due(job)
     except Exception:  # noqa: BLE001 - a wake that fails costs nothing; the schedule still comes round
         pass
 
 
 def register(ctx) -> None:
+    # Before wake_on_load, which writes the juncture job through the host's tool dispatcher.
+    use_dispatch(ctx.dispatch_tool)
     wake_on_load()
     for definition in TOOL_DEFINITIONS:
         ctx.register_tool(**definition, check_fn=available,

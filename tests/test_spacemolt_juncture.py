@@ -12,15 +12,18 @@ import copy
 import json
 import os
 
+import pytest
+
 import spacemolt
 from spacemolt import juncture, service
+from tests.test_spacemolt_skills import _private
 
 
 def test_a_fire_while_a_script_runs_changes_nothing(monkeypatch, capsys):
     """N4: a fire that lands mid-run is a true no-op — cron's wake gate ends it before a prompt
     is built, so there is no model turn at all. The gate reads the run record the bridge keeps,
     because the shim runs outside the gateway and cannot ask the bridge anything."""
-    from cron.scheduler_prompt import _parse_wake_gate
+    _parse_wake_gate = _private("cron.scheduler_prompt", "_parse_wake_gate")
 
     runtime = service.runtime_dir()
     runtime.mkdir(parents=True, exist_ok=True)
@@ -38,7 +41,7 @@ def test_a_fire_while_a_script_runs_changes_nothing(monkeypatch, capsys):
 
     # Nothing running: no record at all, then one that ended. The fire wakes, and what the gate
     # said reaches its prompt as the script's output.
-    from cron.scheduler_prompt import _build_job_prompt
+    _build_job_prompt = _private("cron.scheduler_prompt", "_build_job_prompt")
     idle = gate_line()
     assert _parse_wake_gate(idle) is True
     assert idle in _build_job_prompt({"prompt": juncture.JUNCTURE_PROMPT, "script": "gate"},
@@ -61,21 +64,26 @@ def test_a_fire_while_a_script_runs_changes_nothing(monkeypatch, capsys):
 
 def test_the_juncture_job_carries_the_stance_and_passes_the_cron_toolset_clamp(tmp_path):
     from cron import jobs as cron_jobs
-    from cron.scheduler import (_CronAgentSetup, _construct_cron_agent,
-                                _resolve_cron_disabled_toolsets, _resolve_cron_enabled_toolsets)
+    (_CronAgentSetup, _construct_cron_agent, _resolve_cron_disabled_toolsets,
+     _resolve_cron_enabled_toolsets) = _private(
+        "cron.scheduler", "_CronAgentSetup", "_construct_cron_agent",
+        "_resolve_cron_disabled_toolsets", "_resolve_cron_enabled_toolsets")
 
     # `home` is a key the library dropped; a live record still carries it, and nothing reads it.
     juncture.write_pilot({"name": "kvothe", "stance": "Prospector", "mood": "Focused",
                           "objective": "fill the hold", "home": "sol_base"})
     job = juncture.ensure_juncture_job()
 
-    stored = cron_jobs.get_job(job["id"])
+    stored = cron_jobs.get_job(job["job_id"])
     # The wake gate cron runs before it builds the prompt, installed where cron will run it from.
-    assert stored["script"].endswith(juncture.GATE_SCRIPT)
-    from cron.scheduler_script import _resolve_script_path
+    # Relative, not absolute: the tool layer rejects an absolute script and resolves a bare name
+    # under HERMES_HOME/scripts, which is where install_gate writes it.
+    assert stored["script"] == juncture.GATE_SCRIPT
+    _resolve_script_path = _private("cron.scheduler_script", "_resolve_script_path")
     assert _resolve_script_path(stored["script"])[0] is not None, "cron must accept the path"
-    # The stance's skill is its career folder's README (STANCE_FOLDER), not the stance name.
-    assert stored["skills"] == ["spacemolt", "spacemolt-mining"]
+    # The stance's skill is its career folder's README (STANCE_FOLDER), not the stance name, and
+    # it is namespaced to the plugin that registered it.
+    assert stored["skills"] == ["spacemolt:play", "spacemolt:mining"]
     # The job tools and the reads; never the observer's toolset — a pilot does not direct itself.
     assert stored["enabled_toolsets"] == ["spacemolt", "spacemolt_observe"]
     assert "spacemolt_observer" not in stored["enabled_toolsets"]
@@ -102,8 +110,8 @@ def test_the_juncture_job_carries_the_stance_and_passes_the_cron_toolset_clamp(t
     # One cron job per pilot: rest rewrites it, never adds a second.
     juncture.write_pilot({"name": "kvothe", "stance": "Hunter", "mood": "Aggressive"})
     again = juncture.ensure_juncture_job()
-    assert again["id"] == job["id"]
-    assert cron_jobs.get_job(again["id"])["skills"] == ["spacemolt", "spacemolt-combat"]
+    assert again["job_id"] == job["job_id"]
+    assert cron_jobs.get_job(again["job_id"])["skills"] == ["spacemolt:play", "spacemolt:combat"]
     assert len(cron_jobs.load_jobs()) == 1
 
 
@@ -333,8 +341,6 @@ def test_loading_the_plugin_wakes_an_idle_pilot_once_and_leaves_a_running_one_al
     from spacemolt import service
     runtime = service.runtime_dir(); runtime.mkdir(parents=True, exist_ok=True)
     assert cron_jobs.load_jobs() == []
-    spacemolt.wake_on_load()  # no pilot record: no one to wake
-    assert cron_jobs.load_jobs() == []
     juncture.write_pilot({"name": "kvothe", "stance": "Industrialist", "mood": "Cautious"})
     (runtime / "run.json").write_text(json.dumps({"script": "gather", "ended": False}))
     spacemolt.wake_on_load()  # a run in flight raises its own juncture at its end, but the job is rewritten
@@ -344,6 +350,28 @@ def test_loading_the_plugin_wakes_an_idle_pilot_once_and_leaves_a_running_one_al
     spacemolt.wake_on_load()
     job, = cron_jobs.load_jobs()
     assert job["next_run_at"] is not None and job["state"] == "scheduled"
+
+
+def test_a_profile_that_has_never_flown_is_given_a_pilot_to_wake(monkeypatch):
+    """The one thing a third party could not do for themselves: nothing else on the plugin path
+    writes a pilot record, and without one the wake refuses and the juncture never fires — an
+    install that looks healthy and never plays."""
+    from cron import jobs as cron_jobs
+
+    assert not service.pilot_path().is_file()
+    spacemolt.wake_on_load()
+
+    seeded = juncture.read_pilot()
+    assert seeded == spacemolt.FIRST_PILOT
+    assert seeded["mood"] in juncture.JOB_MOODS, "Relaxed never opens a shift and Tired is imposed"
+    assert "stance" not in seeded, "the first reflection chooses the stance"
+    job, = cron_jobs.load_jobs()
+    assert job["skills"] == ["spacemolt:play"], "no stance yet, so the base skill alone"
+    assert job["next_run_at"] is not None and job["state"] == "scheduled"
+    # And it is seeded once: a second load finds the record and leaves it alone.
+    juncture.write_pilot({**seeded, "goal": "a goal the pilot chose"})
+    spacemolt.wake_on_load()
+    assert juncture.read_pilot()["goal"] == "a goal the pilot chose"
 
 
 def test_a_live_battle_is_the_first_line_of_the_context(monkeypatch):
@@ -412,8 +440,8 @@ def test_reflect_rests_the_pilot_itself_and_opens_the_next_shift(tmp_path, monke
         return {}
 
     monkeypatch.setattr(spacemolt, "call", fake_call)
-    monkeypatch.setattr(spacemolt, "ensure_juncture_job", lambda: {"id": "job-1"})
-    monkeypatch.setattr("cron.jobs.trigger_job", lambda _id: None)
+    monkeypatch.setattr(spacemolt, "ensure_juncture_job", lambda: {"job_id": "job-1"})
+    monkeypatch.setattr(spacemolt, "raise_juncture", lambda: None)
 
     said = spacemolt._reflect({"goal": "walk a price circuit", "stance": "Scout", "mood": "Cautious"})
 
@@ -437,7 +465,8 @@ def test_a_run_that_ends_adrift_cannot_rest_and_the_shift_carries(tmp_path, monk
                           "stance": "Prospector", "mood": "Focused", "goal": "three loads"})
     monkeypatch.setattr(spacemolt, "call", lambda action, params=None, on_line=None: {
         "rested": False, "reason": "rest happens docked at a base; dock to end the shift"})
-    monkeypatch.setattr(spacemolt, "ensure_juncture_job", lambda: {"id": "job-1"})
+    monkeypatch.setattr(spacemolt, "ensure_juncture_job", lambda: {"job_id": "job-1"})
+    monkeypatch.setattr(spacemolt, "raise_juncture", lambda: None)
 
     said = spacemolt._reflect({"goal": "walk a price circuit", "stance": "Scout", "mood": "Cautious"})
 
@@ -479,8 +508,8 @@ def test_a_streak_of_runs_that_did_nothing_stops_the_immediate_next_juncture(tmp
         tmp_path, [("done", 12), ("refused", 0), ("failed", 3), ("refused", 1)])))
     juncture.write_pilot({"name": "kvothe"})
     triggered: list[str] = []
-    monkeypatch.setattr(spacemolt, "ensure_juncture_job", lambda: {"id": "job-1"})
-    monkeypatch.setattr("cron.jobs.trigger_job", lambda _id: triggered.append(_id))
+    monkeypatch.setattr(spacemolt, "ensure_juncture_job", lambda: {"job_id": "job-1"})
+    monkeypatch.setattr(spacemolt, "raise_juncture", lambda: triggered.append("job-1"))
 
     said = spacemolt._reflect({"goal": "try again", "stance": "Scout", "mood": "Cautious"})
 
@@ -502,8 +531,8 @@ def test_one_turn_that_did_something_restores_the_fast_cadence_by_itself(tmp_pat
         tmp_path, [("refused", 0), ("failed", 0), ("refused", 0), ("done", 9)])))
     juncture.write_pilot({"name": "kvothe"})
     triggered: list[str] = []
-    monkeypatch.setattr(spacemolt, "ensure_juncture_job", lambda: {"id": "job-1"})
-    monkeypatch.setattr("cron.jobs.trigger_job", lambda _id: triggered.append(_id))
+    monkeypatch.setattr(spacemolt, "ensure_juncture_job", lambda: {"job_id": "job-1"})
+    monkeypatch.setattr(spacemolt, "raise_juncture", lambda: triggered.append("job-1"))
 
     said = spacemolt._reflect({"goal": "keep going", "stance": "Prospector", "mood": "Focused"})
 
@@ -521,8 +550,8 @@ def test_the_refused_run_loop_heals_itself_without_a_human(tmp_path, monkeypatch
     """
     monkeypatch.setenv("SPACEMOLT_RUNTIME_DIR", str(_journal(tmp_path, [("refused", 0)])))
     juncture.write_pilot({"name": "kvothe", "objective": "fill the hold"})
-    monkeypatch.setattr(spacemolt, "ensure_juncture_job", lambda: {"id": "job-1"})
-    monkeypatch.setattr("cron.jobs.trigger_job", lambda _id: None)
+    monkeypatch.setattr(spacemolt, "ensure_juncture_job", lambda: {"job_id": "job-1"})
+    monkeypatch.setattr(spacemolt, "raise_juncture", lambda: None)
     # If this path touched the bridge it would be a bug: there is no shift to end.
     monkeypatch.setattr(spacemolt, "call", lambda *a, **k: (_ for _ in ()).throw(
         AssertionError("the already-at-rest path must not need the bridge")))

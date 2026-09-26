@@ -15,11 +15,11 @@ from typing import Any, Mapping
 from hermes_constants import get_hermes_home
 
 from .service import pilot_path, runtime_dir
+from .skills_register import SHARED_SKILL, qualified
 
 #: What a fire carries: the job tools plus the reads every client of the runner may make.
 #: ``spacemolt_observer`` is deliberately absent — the pilot does not set its own objective.
 TOOLSETS = ("spacemolt", "spacemolt_observe")
-SHARED_SKILL = "spacemolt"
 #: Cron's platform name. A juncture is the only session the menu is delivered into; a CLI
 #: or chat session is a client of the runner and never opens the game to build a prompt.
 JUNCTURE_PLATFORM = "cron"
@@ -495,7 +495,9 @@ def gate_main() -> int:
 
 def install_gate() -> str:
     """Put the shim where cron will run it from, rewritten every time so a moved plugin or a
-    changed profile cannot leave a stale one behind. Returns the path for the job's ``script``."""
+    changed profile cannot leave a stale one behind. Returns the job's ``script``: the bare
+    name, because the tool layer rejects an absolute script and resolves a relative one
+    against the very directory written to here."""
     from .service import wake_env
 
     env = wake_env()
@@ -504,7 +506,7 @@ def install_gate() -> str:
     roots = list(dict.fromkeys(env["PYTHONPATH"].split(os.pathsep)))
     path.write_text(_GATE_SHIM.format(roots=roots, home=env["HERMES_HOME"]))
     path.chmod(0o700)
-    return str(path)
+    return GATE_SCRIPT
 
 
 def job_name(pilot: dict[str, Any]) -> str:
@@ -521,7 +523,9 @@ def job_fields(pilot: dict[str, Any]) -> dict[str, Any]:
     folder = STANCE_FOLDER.get(str(pilot.get("stance") or "").strip())
     return {
         "prompt": JUNCTURE_PROMPT,
-        "skills": [SHARED_SKILL] + ([f"{SHARED_SKILL}-{folder}"] if folder else []),
+        # Namespaced plugin skills: registered by the plugin, resolved by cron through the
+        # plugin registry, never copied into the profile's skills directory.
+        "skills": [qualified(SHARED_SKILL)] + ([qualified(folder)] if folder else []),
         "enabled_toolsets": list(TOOLSETS),
         # Cron runs this before it builds the prompt: a fire that lands mid-run ends there,
         # with no model turn. ``update_job`` merges fields, so a live job gains it on the next
@@ -530,17 +534,81 @@ def job_fields(pilot: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def ensure_juncture_job(schedule: str = IDLE_SCHEDULE) -> dict[str, Any]:
-    """Write or rewrite this pilot's one juncture job from the current pilot record."""
-    from cron.jobs import create_job, load_jobs, update_job
+#: Set from ``register()`` to the host's ``PluginContext.dispatch_tool``. Absent — the wake
+#: one-shot, a bare ``python -m spacemolt.juncture`` — the tool registry is asked directly,
+#: which is all ``dispatch_tool`` does once the parent agent is resolved.
+_dispatch_tool = None
 
+
+def use_dispatch(dispatch) -> None:
+    """Take the host's tool dispatcher, so cron is reached through the public tool and never
+    through ``cron.*``."""
+    global _dispatch_tool
+    _dispatch_tool = dispatch
+
+
+def cron_manage(**args: Any) -> dict[str, Any]:
+    """One ``cronjob_manage`` call, raising on failure rather than returning an error dict.
+
+    The gate on that tool (``HERMES_GATEWAY_SESSION``) is a *schema exposure* check:
+    ``registry.dispatch`` runs the handler without consulting ``check_fn``, so a plugin and a
+    one-shot both reach it.
+    """
+    dispatch = _dispatch_tool
+    if dispatch is None:
+        import tools.cronjob_tools  # noqa: F401 - importing it is what registers the tool
+        from tools.registry import registry
+        dispatch = registry.dispatch
+    result = dispatch("cronjob_manage", args)
+    result = json.loads(result) if isinstance(result, str) else result
+    if not result.get("success"):
+        raise RuntimeError(f"cronjob_manage {args.get('action')}: {result.get('error') or result}")
+    return result
+
+
+def ensure_juncture_job(schedule: str = IDLE_SCHEDULE) -> dict[str, Any]:
+    """Write or rewrite this pilot's one juncture job from the current pilot record.
+
+    Returns the tool's own view of the job — ``job_id``/``name``/``schedule``, not the stored
+    record: what the job store keeps is the store's business.
+    """
     pilot = read_pilot()
     name = job_name(pilot)
     fields = job_fields(pilot)
-    existing = next((job for job in load_jobs() if job.get("name") == name), None)
+    existing = next((job for job in cron_manage(action="list")["jobs"]
+                     if job.get("name") == name), None)
     if existing is not None:
-        return update_job(existing["id"], fields)
-    return create_job(schedule=schedule, name=name, **fields)
+        return cron_manage(action="update", job_id=existing["job_id"], **fields)["job"]
+    return cron_manage(action="create", schedule=schedule, name=name, **fields)["job"]
+
+
+def mark_due(job: dict[str, Any]) -> dict[str, Any]:
+    """Mark an already-written juncture job due, so the gateway's next tick fires it.
+
+    The one place the plugin reaches a Hermes module, and it has to be: ``cronjob_manage``'s
+    ``run`` *executes* the fire, and every caller here needs it merely *marked*.
+
+    - Reflection runs inside the juncture's own fire. That job is registered running, so a
+      ``run`` is refused as already-running — and refused with ``success: True`` and the reason
+      buried in ``execution_skipped``, so the pilot would simply stop waking and look healthy.
+    - ``wake_on_load`` runs during plugin registration. With no session to deliver a background
+      completion to, ``run`` falls back to an inline fire: gateway boot would block for the
+      length of a whole juncture.
+    - The wake one-shot is a bridge child with no gateway either, and an inline fire there opens
+      a second Node bridge the controller lock refuses.
+
+    ``cron.jobs.trigger_job`` is a public name in a module every Hermes ships, so an unmodified
+    host satisfies the import; job *creation* goes through the tool like everything else.
+    """
+    from cron.jobs import trigger_job
+
+    trigger_job(job["job_id"])
+    return job
+
+
+def raise_juncture() -> dict[str, Any]:
+    """Rewrite this pilot's juncture job from the record and mark it due."""
+    return mark_due(ensure_juncture_job())
 
 
 if __name__ == "__main__":  # what the shim calls, runnable by hand: python -m spacemolt.juncture

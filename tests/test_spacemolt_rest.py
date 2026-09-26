@@ -100,7 +100,7 @@ def test_a_fire_at_rest_reflects_and_the_choice_opens_the_next_stances_own_conve
     # is due on the next tick, so the shift starts in a conversation this one never touches.
     jobs = cron_jobs.load_jobs()
     assert len(jobs) == 1, "one cron job per pilot; reflection rewrites it, never adds one"
-    assert jobs[0]["skills"] == ["spacemolt", "spacemolt-hauling"]
+    assert jobs[0]["skills"] == ["spacemolt:play", "spacemolt:hauling"]
     assert jobs[0]["enabled_toolsets"] == ["spacemolt", "spacemolt_observe"], "the toolset is fixed"
     assert cron_jobs.get_job(jobs[0]["id"]).get("manual_run_at"), \
         "the new stance's first juncture is due on the next tick, not waited out"
