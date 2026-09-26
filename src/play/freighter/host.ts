@@ -7,7 +7,7 @@
  * journals into the pilot's journal under a `<name>:` prefix. When its ring drains it re-plans
  * with `search`, the planner `routes()` is, on its own connection and this runtime's files. Not reachable from a pilot file
  * (`play/freighter` resolves to `index.ts`, never here). */
-import {Account,type FactionQueryTradeIntelResponse,type GameState,type MarketListingItem,type ViewMarketResponse} from '@spacemolt/lib';
+import {Account,ConnectionClosedError,type FactionQueryTradeIntelResponse,type GameState,type MarketListingItem,type ViewMarketResponse} from '@spacemolt/lib';
 import {createHash} from 'node:crypto';
 import {existsSync,mkdirSync,readFileSync,renameSync,writeFileSync} from 'node:fs';
 import {dirname,join} from 'node:path';
@@ -26,7 +26,7 @@ import {buysOf,ledgerItems,REST_TICKS,search,type Circuit,type Seat} from '../tr
 import {markMobile,markPlace,readPlaces} from '../places.ts';
 import {candidates,explore,target,type Candidate} from '../trading/scout.ts';
 import {markDrained,ring} from './drained.ts';
-import {claims as carried,freeTarget,scoutHop,type Approach,type Claim,type Freighter,type Holding,type Known,type Market} from './index.ts';
+import {claims as carried,dropped,freeTarget,scoutHop,type Approach,type Claim,type Freighter,type Holding,type Known,type Market} from './index.ts';
 
 /** One freighter as `freighters.json` keeps it. */
 export interface Entry {
@@ -66,6 +66,9 @@ export interface FreighterRow {name:string;state:Entry['state'];lap:number;stop:
   stop_after_lap?:true;reassigned?:Entry['reassigned'];stowed?:string[];scouted?:number}
 
 const FILE='freighters.json',RETRY_MS=60_000,TICK_MS=10_000;
+/** ponytail: the wait before a failed reconnect is tried again, doubling from RECONNECT_MS to at most
+ * RECONNECT_MAX_MS; and how long one reconnect (or the lib's own) may take before it is given up on. */
+export const RECONNECT_MS=1_000,RECONNECT_MAX_MS=300_000,RECONNECT_WAIT_MS=60_000;
 /** A freighter with no circuit that qualifies re-plans this often: a quarter of the rest a drained ring takes. */
 export const REPLAN_TICKS=REST_TICKS/4;
 const STOPPED='stopped after its lap, as scheduled';
@@ -218,7 +221,7 @@ export function start(runtime:string,name:string):string|null {
   catch(error) {return refused(`${who.username} is held by another live controller (${message(error)})`);}
   const credentials=()=>({kind:'login' as const,...who});
   const account=new Account({url:GAME_WS_URL,reconnect:true,credentials,fastMutationTimeoutMs:60_000});
-  // Gone for good: the session was taken, or the lib gave up. Every later read and command says so.
+  // Gone for good: the session was taken (the lib retries anything else forever). Every later read and command says so.
   let gone:Error|undefined;
   account.onDisconnected(error=>{gone=new Error(`session_replaced or disconnected: ${error.message}`);});
   const live:ReadinessAccount={get state(){return account.state as GameState;},
@@ -235,7 +238,26 @@ export function start(runtime:string,name:string):string|null {
       throw error;
     }
   };
-  void launch(runtime,name,live,command,{unlock,close:()=>account.close(),
+  // A socket can die without closing (live 2026-09-26: each command then hung ~16 minutes until the OS
+  // gave up on it), and the lib's own reconnect only starts at a close. So: the lib's reconnect if it
+  // is under way or done, else a fresh socket and login forced in place — same Account, same listeners.
+  const bounded=<T>(work:Promise<T>)=>{
+    let timer:NodeJS.Timeout|undefined;
+    return Promise.race([work,new Promise<never>((_,reject)=>{
+      timer=setTimeout(()=>reject(new Error(`no reconnect in ${RECONNECT_WAIT_MS/1000}s`)),RECONNECT_WAIT_MS);timer.unref?.();
+    })]).finally(()=>clearTimeout(timer));
+  };
+  const reconnect=async(error:unknown)=>{
+    if(gone)throw gone;
+    if(error instanceof ConnectionClosedError) {
+      if(account.authenticated)return;
+      let off=()=>{};
+      const back=await bounded(new Promise<void>(resolve=>{off=account.onReconnected(resolve);})).then(()=>true,()=>false).finally(()=>off());
+      if(back)return;
+    }
+    await bounded(account.reconnectOnce());
+  };
+  void launch(runtime,name,live,command,{unlock,close:()=>account.close(),reconnect,
     // A login that fails (the server down, the network out) is tried again each minute.
     login:async loop=>{
       for(;;) {
@@ -253,20 +275,61 @@ export function start(runtime:string,name:string):string|null {
 /** Run `name`'s loop on `account`, logged in by `login`: its script lap after lap, re-planned when
  * its ring drains. Resolves once it has stopped; the entry says how. What `start` runs detached. */
 export function launch(runtime:string,name:string,account:ReadinessAccount,command:ReadinessCommand,
-  opts:{login?:(loop:Loop)=>Promise<void>;close?:()=>void;unlock?:()=>void}={}):Promise<void> {
+  opts:{login?:(loop:Loop)=>Promise<void>;close?:()=>void;unlock?:()=>void;reconnect?:(error:unknown)=>Promise<void>}={}):Promise<void> {
   const entry=readFleet(runtime)[name];
   const loop:Loop={recall:entry?.state==='recalling',afterLap:entry?.stop_after_lap===true,lapDone:false,stopping:false,close:opts.close??(()=>{})};
   loops.set(name,loop);
+  // A lost connection is reconnected here, once for every command in flight, with capped backoff until
+  // it is back (or the loop is recalled or stopping); then the error goes on up, and the stop that saw
+  // it is redone from a fresh read. Never re-sent: a jump or a buy may have landed.
+  let healing:Promise<void>|undefined;
+  const heal=(error:unknown)=>healing??=(async()=>{
+    for(let n=0;!loop.stopping&&!loop.recall;n++) {
+      try {await opts.reconnect!(error);return;}
+      catch(failed) {
+        if(/^session_replaced or disconnected/.test(message(failed)))return;
+        const ms=Math.min(RECONNECT_MS*2**n,RECONNECT_MAX_MS);
+        update(runtime,name,{why:`connection lost (${message(error)}); reconnect failed (${message(failed)}); again in ${ms/1000}s`});
+        journalRun(runtime,{freighter:name,reconnect_failed:message(failed),again_ms:ms},'freighter');
+        await sleep(ms);
+      }
+    }
+  })().finally(()=>{healing=undefined;});
+  const mended=async<T>(work:()=>Promise<T>):Promise<T>=>{
+    try {return await work();}
+    catch(error) {if(opts.reconnect&&dropped(error))await heal(error);throw error;}
+  };
+  const raw=account,send=command;
+  account={get state(){return raw.state;},refresh:()=>mended(()=>raw.refresh())};
+  command=(action,params)=>mended(()=>send(action,params));
   // Claims rebuilt from the entry as it resumes: its holding, to the stop that sells each item from the lap's start.
   if(entry)market(runtime,name,command).claim(carried(entry.circuit,0,Object.fromEntries(Object.entries(entry.holding??{}).map(([item,lot])=>[item,lot.quantity]))));
   pilotHome(runtime);
   return (async()=>{
     await opts.login?.(loop);
     let waiting=entry?.state==='waiting'||entry?.state==='scouting';
+    // A loop that breaks is launched again, never left for a human: after a lost connection (already
+    // reconnected by `mended`) in a minute, after anything else every REPLAN_TICKS.
+    // A session taken elsewhere stays parked: another login owns the account.
     for(;;) {
-      if(!waiting&&!await run(runtime,name,account,command,loop))return;
-      waiting=false;
-      if(!await replan(runtime,name,account,command,loop))return;
+      try {
+        for(;;) {
+          if(!waiting&&!await run(runtime,name,account,command,loop))return;
+          waiting=false;
+          if(!await replan(runtime,name,account,command,loop))return;
+        }
+      } catch(error) {
+        if(loop.stopping||/^session_replaced or disconnected/.test(message(error)))throw error;
+        // Its state is left as it was, so a bridge restart in the wait resumes it too.
+        const ms=dropped(error)?RETRY_MS:REPLAN_TICKS*TICK_MS;
+        update(runtime,name,{why:`the loop broke: ${message(error)}; again in ${ms/60_000} minute(s)`});
+        journalRun(runtime,{freighter:name,loop_broke:message(error),again_ms:ms},'freighter');
+        for(let waited=0;waited<ms&&!loop.recall&&!loop.afterLap&&!loop.stopping;waited+=RETRY_MS)await sleep(RETRY_MS);
+        if(loop.stopping)return;
+        if(loop.recall||loop.afterLap){update(runtime,name,{state:'parked',why:loop.recall?'recalled':STOPPED});return;}
+        const now=readFleet(runtime)[name]?.state;
+        waiting=now==='waiting'||now==='scouting';
+      }
     }
   })().catch(error=>{if(!loop.stopping)update(runtime,name,{state:'parked',why:`the loop broke: ${message(error)}`});})
     .finally(()=>{

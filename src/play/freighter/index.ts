@@ -7,7 +7,8 @@
  * - a disconnect or any other throw: wait a minute and redo the stop from a fresh read. A stop is
  *   idempotent: sales are sized by what is held, each buy by the free hold and what is already aboard.
  *   The why it said clears once the stop is reached. STOP_TRIES failed tries in a row skip the stop
- *   for the lap, as a stop with no trade, so no stop can hold a freighter forever;
+ *   for the lap, as a stop with no trade, so no stop can hold a freighter forever. A lost connection
+ *   (`dropped`) is not a try: the host reconnects before it reaches here, and the stop is redone;
  * - a base away from the circuit's system for it (a mobile station): each flight goes to the system
  *   `find_route` names for the base now, and the move is reported for the host to record;
  * - the session taken by another connection: park, and never log in again;
@@ -29,7 +30,7 @@
  * starts by planning the whole lap: one that plans at 0 or less on fresh books parks drained unflown.
  * A parked ship keeps the circuit's cargo aboard, and `holding` says what it cost. A drained or blocked park is
  * the host's to re-plan (`host.ts`); the script only parks. */
-import {SpacemoltError,type MarketListingItem,type OrderLevel,type ViewMarketResponse} from '@spacemolt/lib';
+import {ConnectionClosedError,SpacemoltError,type MarketListingItem,type OrderLevel,type ViewMarketResponse} from '@spacemolt/lib';
 import {miningInventory} from '../../mining-inventory.ts';
 import type {ReadinessAccount,ReadinessCommand} from '../../readiness.ts';
 import {details} from '../../response-details.ts';
@@ -105,9 +106,9 @@ const FUEL_RESERVE=10,FUEL_MONEY=2_000;
 const TAX=0.05;
 /** Stops in a row with no trade before the circuit is called dead. */
 const DEAD_STOPS=3;
-/** ponytail: tries at one stop (a minute apart) before it is skipped for the lap. Any throw counts,
- * a disconnect too, so a long outage skips stops and parks the ring as dead; the re-plan picks it
- * up again once it rests. Tunable. */
+/** ponytail: tries at one stop (a minute apart) before it is skipped for the lap. Any throw counts
+ * but a lost connection (`dropped`): an outage is the host's to reconnect through, never a dead
+ * stop (live 2026-09-26: an hour of closed sockets skipped every stop and parked the ring). Tunable. */
 const STOP_TRIES=3;
 /** ponytail: laps in a row netting 0 or less before the circuit parks as a loser. The first lap
  * starts empty and only buys, so one losing lap is expected; three is the books. A lap that pays
@@ -199,6 +200,11 @@ export function claims(circuit:Circuit,from:number,cargo:Record<string,number>):
   });
 }
 const free=(f:Freighter)=>{const ship=f.account.state.ship;return Math.max(0,(ship?.cargo_capacity??0)-(ship?.cargo_used??0));};
+
+/** A lost connection rather than the game's answer: the socket closed or never opened, or a
+ * mutation's result never came (a half-open socket). Matched on the message too, never thrown on. */
+export const dropped=(error:unknown)=>error instanceof ConnectionClosedError||
+  /closed socket|connection closed|failed before open|No action_result|timed out/i.test(message(error));
 
 /** Why a throw ends the circuit, or null when the stop is worth redoing. */
 function parked(error:unknown):string|null {
@@ -427,7 +433,7 @@ export async function lap(f:Freighter,circuit:Circuit):Promise<Lap> {
         // The game's word for a mobile station gone from the system it was flown to; the next try's
         // find_route places it afresh.
         if(/not here right now/i.test(text))f.report({moved:{at:stop.at}});
-        if(++tries>=STOP_TRIES) {
+        if(!dropped(error)&&++tries>=STOP_TRIES) {
           // Skipped as a stop with no trade: DEAD_STOPS of them park the circuit for a re-plan.
           f.report({why:`${stop.at}: skipped this lap after ${tries} tries: ${text}`});
           traded=0;opening??=wallet();
@@ -473,7 +479,7 @@ export async function lap(f:Freighter,circuit:Circuit):Promise<Lap> {
  * elsewhere throws. */
 export async function scoutHop(f:Freighter,to:{at?:string;system_id:string}):Promise<{read?:{tick:number;items:MarketListingItem[]};why?:string}> {
   const holding=structuredClone(f.holding??{});
-  for(let tries=1;;tries++) {
+  for(let tries=1;;) {
     try {
       if(!to.at) {
         await f.account.refresh();
@@ -492,7 +498,7 @@ export async function scoutHop(f:Freighter,to:{at?:string;system_id:string}):Pro
       if(why==='session taken elsewhere')throw error;
       if(why)return {why};
       if(to.at&&/not here right now/i.test(text))f.report({moved:{at:to.at}});
-      if(tries>=STOP_TRIES)return {why:`skipped after ${tries} tries: ${text}`};
+      if(!dropped(error)&&tries++>=STOP_TRIES)return {why:`skipped after ${tries-1} tries: ${text}`};
       f.report({why:`${to.at??to.system_id}: ${text}; again in a minute`});
       await sleep(RETRY_MS);
       if(f.recalled())return {why:'recalled'};

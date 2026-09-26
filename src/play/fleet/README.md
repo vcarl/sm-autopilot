@@ -88,6 +88,11 @@ in turn, one command each, up to its `qty`, counting what is already aboard, at 
 above the float. A circuit assigned before `buys` has one `buy` a stop; it flies as it did, and a
 freighter restarted on one picks it up where it was. A stop the
 connection drops on is done again a minute later; the why it says then clears once the stop is reached.
+A dropped connection (closed socket, or a move whose result never came) is reconnected by the host
+first: the lib's own reconnect if it is back within a minute, else a fresh socket and login forced,
+retried 1 s, 2 s, 4 s … up to 5 minutes apart until it holds. A drop is never a try and never makes a
+stop dead; a loop that breaks on one is launched again a minute later, and one broken by anything
+else every `REPLAN_TICKS`, its why saying so. Only a session taken by another login parks it for good.
 A stop that fails 3 tries in a row (`STOP_TRIES`) is skipped for the lap as a stop with no trade,
 the why saying so (`frontier_station: skipped this lap after 3 tries: …`), so no stop holds a
 freighter forever. Each flight goes to the system `find_route` names for the base now, not the one

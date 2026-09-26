@@ -3,7 +3,7 @@ import {existsSync,mkdirSync,mkdtempSync,readFileSync,rmSync,writeFileSync} from
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import test,{mock} from 'node:test';
-import {SpacemoltError} from '@spacemolt/lib';
+import {ConnectionClosedError,SpacemoltError} from '@spacemolt/lib';
 import type {ReadinessAccount,ReadinessCommand} from '../../readiness.ts';
 import {check} from '../../run.ts';
 import {bridgeWorld,TICK,type WorldOptions} from '../../test-support/bridge-world.ts';
@@ -15,7 +15,7 @@ import {readPlaces} from '../places.ts';
 import {acct,bind,unbind} from '../runtime.ts';
 import {REST_TICKS,routes,type Circuit} from '../trading/trading.ts';
 import {markDrained,ring} from './drained.ts';
-import {BOOK_TTL_MS,gate,launch,market,readFleet,recallLoop,REPLAN_TICKS,row,script,scriptPath,writeFleet,type Entry} from './host.ts';
+import {BOOK_TTL_MS,gate,launch,market,readFleet,recallLoop,RECONNECT_MS,REPLAN_TICKS,row,script,scriptPath,writeFleet,type Entry} from './host.ts';
 import {IGNORE_TICKS,lap,STALE_TICKS,type Freighter,type Lap,type Report} from './index.ts';
 
 // Gems bought at sol for at most 110, sold at range for at least 120.
@@ -580,7 +580,8 @@ function hosted(rangeBid:number,known:object[],entry:Partial<Entry>={},options:W
   mkdirSync(join(runtime,'freighters'));
   writeFileSync(scriptPath(runtime,'hauler'),script(entry.circuit??GEMS));
   return {runtime,world,now:()=>readFleet(runtime).hauler!,
-    fly:async()=>{await world.account.refresh();return launch(runtime,'hauler',world.account as unknown as ReadinessAccount,command);},
+    fly:async(opts:Parameters<typeof launch>[4]={},account=world.account as unknown as ReadinessAccount)=>{
+      await world.account.refresh();return launch(runtime,'hauler',account,command,opts);},
     done:()=>rmSync(runtime,{recursive:true,force:true})};
 }
 /** Once it is on a new ring, stop it after that lap: how a test ends a loop that would fly on. */
@@ -859,4 +860,56 @@ test('a scouting hop that fails STOP_TRIES times is skipped for the wait, and it
     assert.equal(h.now().why,'recalled');
     assert.equal(tries,3,'not tried again this wait');
   } finally {mock.timers.reset();h.done();}
+});
+
+/** Mocked timers ticked a minute at a time while `work` runs. */
+async function ticking<T>(work:()=>Promise<T>):Promise<T> {
+  mock.timers.enable({apis:['setTimeout']});
+  try {
+    let done=false;
+    const running=work().finally(()=>{done=true;});
+    while(!done){await new Promise(resolve=>setImmediate(resolve));mock.timers.tick(60_000);}
+    return await running;
+  } finally {mock.timers.reset();}
+}
+
+test('a socket closed mid-lap is reconnected and the stop redone: no try counted, no skip, the lap ends (live 2026-09-26: an hour of closed sockets parked the ring)',async()=>{
+  let closes=3,reconnects=0;
+  const h=hosted(150,[SOL,RANGE],{stop_after_lap:true},{},action=>{
+    if(action==='spacemolt/find_route'&&closes>0){closes--;throw new ConnectionClosedError('WebSocket connection closed');}
+  });
+  try {
+    await ticking(()=>h.fly({reconnect:async()=>{reconnects++;}}));
+    assert.equal(reconnects,3);
+    assert.equal(h.now().lap,1,h.now().why);
+    assert.notEqual(h.now().last_lap_net,undefined);
+    assert.equal(h.now().why,'stopped after its lap, as scheduled');
+    assert.ok(!readJournal(h.runtime,4000).some(e=>/skipped/.test(String(e.why??''))),'no stop skipped');
+  } finally {h.done();}
+});
+
+test('a reconnect that keeps failing backs off, doubling from RECONNECT_MS, and the lap goes on once it holds',async()=>{
+  let closed=true,fails=4;
+  const h=hosted(150,[SOL,RANGE],{stop_after_lap:true},{},action=>{
+    if(action==='spacemolt/find_route'&&closed)throw new ConnectionClosedError('cannot send on a closed socket');
+  });
+  try {
+    await ticking(()=>h.fly({reconnect:async()=>{if(fails-->0)throw new Error('refused');closed=false;}}));
+    assert.deepEqual(readJournal(h.runtime,4000).flatMap(e=>e.again_ms===undefined||!e.reconnect_failed?[]:[e.again_ms]),
+      [RECONNECT_MS,2*RECONNECT_MS,4*RECONNECT_MS,8*RECONNECT_MS]);
+    assert.equal(h.now().lap,1,h.now().why);
+  } finally {h.done();}
+});
+
+test('a loop broken by a lost connection outside a stop is launched again, not parked for a human',async()=>{
+  const h:ReturnType<typeof hosted>=hosted(115,[SOL,TWIN,RANGE],{state:'waiting'},{},stopOnceReassigned(()=>h));
+  let drop=true;
+  const account:ReadinessAccount={get state(){return h.world.account.state as never;},
+    refresh:async()=>{if(drop){drop=false;throw new ConnectionClosedError('WebSocket connection closed');}return h.world.account.refresh();}};
+  try {
+    await ticking(()=>h.fly({reconnect:async()=>{}},account));
+    assert.ok(readJournal(h.runtime,4000).some(e=>e.loop_broke==='WebSocket connection closed'));
+    assert.equal(h.now().reassigned?.ring,'sol_base twin_base');
+    assert.equal(h.now().why,'stopped after its lap, as scheduled');
+  } finally {h.done();}
 });
