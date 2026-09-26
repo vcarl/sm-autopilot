@@ -10,6 +10,12 @@ All notable changes to this plugin are recorded here. The format follows
 
 ### Added
 
+- `ask({question, choices?, effort?})` in the play library: the program pauses and hands the
+  question back to the model that started it, and resumes with the answer. `spacemolt_run`
+  returns early with the question; the new `spacemolt_answer` tool resumes the program and waits
+  on the rest of the run; `spacemolt_stop` withdraws the question and returns the report. A
+  question left unanswered wakes the next juncture, which opens with it and runs at the
+  question's `effort`.
 - Continuous integration: every pull request and push to `main` runs the TypeScript typecheck
   and tests on Node 22.18.0 and the current LTS, `ruff check`, and the Python tests against a
   pinned Hermes release. A weekly run tests against Hermes' `main` so host drift shows up early.
@@ -24,5 +30,8 @@ All notable changes to this plugin are recorded here. The format follows
 - The Python sources pass `ruff check` with its default rules: imports sorted, annotations
   unquoted, and the deliberate broad `except` clauses marked as such.
 - `play.py` is executable, matching its shebang.
+- `spacemolt_stop` moved from the `spacemolt_observer` toolset to `spacemolt_observe`, so a
+  juncture holds it too; a window configured as the README says keeps it. `plugin.yaml` no
+  longer lists the removed `spacemolt_rest`.
 - Development notes moved out of the root: `VISION.md` and `GAMEPLAY.md` to `docs/`; `TODO.md`,
   `worklog/` and `ported/` to `dev/`.

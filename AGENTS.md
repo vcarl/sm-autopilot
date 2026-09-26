@@ -26,7 +26,9 @@ src/play/freighter/  freighters: each its own account and connection, hosted in 
 
 `service.py` spawns `node src/bridge.ts` and talks JSON lines over its stdio. One request in
 flight; no replay. A `run` request blocks for as long as the program flies, up to
-`REQUEST_TIMEOUT = 1800`. There is **no build step**: Node strips the types itself, so keep the
+`REQUEST_TIMEOUT = 1800` — or until the program calls `ask()`, when the `run` answers early with
+the question (also kept in `run.json`) and `answer` resumes the program and follows the run the
+same way. Streamed lines go to whichever request is waiting on the run. There is **no build step**: Node strips the types itself, so keep the
 TypeScript erasable (no enums, namespaces or parameter properties) and keep `.ts` on relative
 imports.
 
@@ -44,13 +46,15 @@ The **gate** (`install_gate`, `gate_main`) is a shim written into `HERMES_HOME/s
 named on the job as a *relative* path — cron resolves relative scripts there, and the tool layer
 rejects absolute ones. Cron runs it before it builds the prompt, and a fire whose gate prints
 `{"wakeAgent": false}` ends with no model turn. It runs outside the gateway, so it cannot ask the
-bridge anything; it reads `runtime/run.json` instead.
+bridge anything; it reads `runtime/run.json` instead. A run in flight that is paused on a question
+wakes the fire anyway, and the gate prints the question, which cron puts at the head of the prompt.
 
 Cron is reached through the **`cronjob_manage` tool**, via `ctx.dispatch_tool` (the plugin API)
 or the tool registry when there is no plugin context. `check_cronjob_requirements` gates schema
-*exposure*, not dispatch, so both work. The one exception is `mark_due`, which needs
-`cron.jobs.trigger_job` — its docstring says why, and that is the plugin's only import from a
-Hermes module. Do not "finish the job" by routing it through `cronjob_manage`'s `run`: that
+*exposure*, not dispatch, so both work. The two exceptions are `mark_due`, which needs
+`cron.jobs.trigger_job`, and `pin_effort`, which needs `cron.jobs.update_job` because the tool
+drops `reasoning_effort` on purpose — their docstrings say why, and they are the plugin's only
+imports from a Hermes module. Do not "finish the job" by routing it through `cronjob_manage`'s `run`: that
 executes the fire in the calling process, which is wrong in all three places it happens.
 
 ### Skills

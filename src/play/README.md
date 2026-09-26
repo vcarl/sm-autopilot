@@ -137,6 +137,7 @@ sees the real types, so these are not style notes.
 | `account()` | the raw `@spacemolt/lib` Account |
 | `outcome(did, status?, detail?)` | build an Outcome for a helper of your own; the runtime fills cost, gains and the present |
 | `stopped()` | true once `stop` was called; check it in any loop of your own |
+| `ask({question, choices?, effort?})` | pause the run and put a question to yourself; resolves to your answer (one of `choices`, when given), throws the stop error if the run is stopped instead. See "Asking yourself a question mid-run" |
 
 `sell`, `stow` and `withdraw` take explicit rows (`[{item_id, quantity}]`, and `{item_id}` with
 no `quantity` for all of it — a non-finite `quantity` is refused) and never default to
@@ -275,6 +276,48 @@ not the normal one.
 - At runtime, inside the helpers: spending under `permissions.credit_reserve`; a route
   without the mood's fuel reserve; starting work under Tired or Relaxed. Tired refuses *work*,
   never movement or resupply.
+
+## Asking yourself a question mid-run
+
+`ask({question, choices?, effort?})` pauses the program and hands the question back to you, the
+model that started the run; it resolves to your answer. With `choices`, the answer is always
+exactly one of them. There is no timeout: the program waits for as long as the question does.
+
+```ts
+import {ask, goTo, note, outcome} from 'play';
+
+export default async function main() {
+  const trip = await goTo('far_belt');
+  if (trip.status !== 'done') return trip;
+  // A fork the script cannot judge: the author decides, once, and the run carries on.
+  const pick = await ask({question: 'Pirates are camping the far belt. Push on or turn home?',
+    choices: ['push on', 'turn home'], effort: 'high'});
+  note(`chose to ${pick}`);
+  if (pick === 'turn home') return goTo('sol_base');
+  return outcome('pushed on past the pirates');
+}
+```
+
+Ask at a strategic fork, where your judgment is what is missing: which market to commit a hold
+to, whether to fight something the numbers say is close. Never ask per tick or per item — every
+answer is a model call, which takes minutes, and the game's clock keeps turning while you think.
+If a rule could decide it, write the rule.
+
+What you see: `spacemolt_run` returns early, with the lines so far and the question below them.
+The protocol, exactly:
+
+- `spacemolt_answer({answer})` resumes the program. That call then blocks like `spacemolt_run`:
+  it returns the rest of the run and its report, or the program's next question. An answer that
+  is not one of the choices is refused and the program keeps waiting.
+- `spacemolt_stop` ends the run instead: `ask` throws the same stop error a stopped run throws,
+  the program unwinds (the run ends `partial`), and the call returns the report.
+- `spacemolt_run` with a new `source` is refused while a question waits; with no `source`, it
+  starts nothing and hands the pending question back.
+
+If your turn ends without an answer, the question waits in the run record, and the next juncture
+opens with it. `effort` only applies there: the juncture that picks the question up runs at that
+reasoning effort. In the conversation that started the run it does nothing — that conversation's
+effort was fixed when it began.
 
 ## When you are stuck
 
