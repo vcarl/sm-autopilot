@@ -94,6 +94,30 @@ never a plugin surface, and a red suite meaning "the host refactored" teaches no
 
 Prefer asserting `job_fields()` output as data over driving cron's internals.
 
+## Flying a change in a real profile
+
+The tests prove the plugin against Hermes; only a real profile proves it against the game. The
+dev profile's plugin is a symlink to a worktree of this repo that is never worked in, only
+pointed:
+
+```
+~/.hermes/profiles/<profile>/plugins/spacemolt -> ~/workspace/sm-autopilot-live   (detached HEAD)
+```
+
+To fly a branch:
+
+```
+git -C ~/workspace/sm-autopilot-live switch --detach <branch>
+npm --prefix ~/workspace/sm-autopilot-live ci            # only if package-lock.json changed
+hermes --profile <profile> gateway restart               # Python is imported once; see below
+```
+
+Then check it landed: the juncture job in `~/.hermes/profiles/<profile>/cron/jobs.json` lists
+`spacemolt:play` and the stance's skill, and `logs/errors.log` has no `skill not found` or
+`Plugin spacemolt:` warning since the restart. The pilot's state lives in the profile
+(`spacemolt/runtime/`, `spacemolt/pilot.json`), not the checkout, so switching branches never
+touches it. Detached, so any branch can be flown while it stays checked out where it is worked on.
+
 ## Things that have gone wrong, so they are load-bearing now
 
 - **A 420-second tool timeout killed an 11-minute run**, and the pilot's next program overwrote
