@@ -32,7 +32,7 @@ export type Dispatch=(action:string,params?:Record<string,unknown>,attach?:()=>v
 
 /** The actions whose answer is an outcome: a journal line keeps its shape, trimmed. */
 const OUTCOME_ACTIONS=new Set(['run','answer','status','rest','reflect','menu','resume','stop','check']);
-const OUTCOME_KEYS=new Set(['accepted','reason','status','record','running','rested','shift_ended','at_rest',
+const OUTCOME_KEYS=new Set(['accepted','reason','fixable','status','record','running','rested','shift_ended','at_rest',
   'cleared','serviced','resumed','busy','objective','objective_done','stance','mood','errors','stopping',
   'ok','fn','did','sha','step','commands','elapsed_s','started','stagnation','rest',
   'paused','reattached','question','withdrawn',

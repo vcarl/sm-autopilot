@@ -42,6 +42,20 @@ function fixture(over:{ship?:Record<string,number>;pilot?:Pilot;docked?:string|n
     'spacemolt/get_base':()=>({delta:{details:{services:['refuel','repair'],
       ...over.fuelPrice===null?{}:{fuel_price_all_in:over.fuelPrice??1},
       base:{poi_id:'station',...over.fuelPrice===null?{}:{repair_price_per_hull:1}}}}}),
+    // Rest brings the ship up itself now, before it puts the evening down: the same two calls
+    // `service()` would issue, against the same server-side numbers `get_base` quoted from.
+    'spacemolt/refuel':()=>{
+      const ship=account.server.ship,cost=(over.fuelPrice??1)*(ship.max_fuel-ship.fuel);
+      ship.fuel=ship.max_fuel;
+      account.server.player.credits-=cost;
+      return {cost};
+    },
+    'spacemolt/repair':()=>{
+      const ship=account.server.ship,cost=1*(ship.max_hull-ship.hull);
+      ship.hull=ship.max_hull;
+      account.server.player.credits-=cost;
+      return {cost};
+    },
   };
   const command:ReadinessCommand=async(action,params)=>{
     assert.ok(Object.hasOwn(handlers,action),`Unexpected command: ${action}`);
@@ -56,12 +70,15 @@ function fixture(over:{ship?:Record<string,number>;pilot?:Pilot;docked?:string|n
     journal:()=>readFileSync(join(runtime,'gameplay.jsonl'),'utf8').trim().split('\n').map(line=>JSON.parse(line))};
 }
 
-test('rest refuses undocked, on a ship this base could service, and while a script runs, naming what would admit it', async () => {
-  // Any base will do, but a base is required: an evening is not put down in open space.
+test('rest refuses undocked, services and rests where the bill fits, and refuses with options where it does not', async () => {
+  // Not docked at all: a base is required, and rest never flies there itself — the options
+  // named are `goTo` calls the model may run, never a trip rest takes on its own.
   const adrift=fixture({docked:null});
   const refusedAdrift=await adrift.dispatch('rest') as any;
   assert.equal(refusedAdrift.rested,false);
   assert.match(refusedAdrift.reason,/dock to end the shift/);
+  assert.match(refusedAdrift.reason,/goTo\('sol_base'\)/,'the one base in this system is offered to try');
+  assert.equal(refusedAdrift.fixable,true,'a reachable base is something a program can still do');
   assert.equal(adrift.record(),undefined,'a refused rest writes no record');
 
   // A base that is not the one the last shift began at is still a base rest happens at: the
@@ -69,20 +86,32 @@ test('rest refuses undocked, on a ship this base could service, and while a scri
   const elsewhere=fixture({docked:'other_base'});
   assert.equal((await elsewhere.dispatch('rest') as any).rested,true);
 
-  // Docked, but short of fuel at a base that quotes a price the wallet covers: service first.
+  // Docked, short of fuel, at a base that quotes a price the wallet covers: rest brings the ship
+  // up itself — the same refuel `service()` would issue — and only then puts the evening down.
   const short=fixture({ship:{fuel:60}});
-  const refusedShort=await short.dispatch('rest') as any;
-  assert.equal(refusedShort.rested,false);
-  assert.match(refusedShort.reason,/refuel and repair first/);
-  assert.equal(short.record(),undefined);
-
-  // The same short ship with a wallet that cannot pay the counter rests anyway, and says it is
-  // short: a service that cannot happen is not a reason to keep an evening open forever.
-  // (A counter posting no price is no longer such a case — it bills after the fact.)
-  const unserviceable=fixture({ship:{fuel:60},credits:0});
-  const rested=await unserviceable.dispatch('rest') as any;
+  const rested=await short.dispatch('rest') as any;
   assert.equal(rested.rested,true);
-  assert.equal(rested.serviced,false,'reflection is told the ship is short');
+  assert.equal(rested.serviced,true,'the auto-service reached the serviced-dock targets before rest');
+  assert.equal(short.account.state.ship?.fuel,120,'the refuel is a real command, not merely reported');
+  assert.ok(short.record(),'a rest that serviced first still ends the shift');
+
+  // The live deadlock (2026-09-26): Tired, docked, short a service the wallet could pay for.
+  // The same one-call fix applies whatever the mood — Tired never gated resting, and does not
+  // gate this either.
+  const tiredShort=fixture({ship:{fuel:60},pilot:{...PILOT,mood:'Tired'}});
+  const restedTired=await tiredShort.dispatch('rest') as any;
+  assert.equal(restedTired.rested,true);
+  assert.equal(restedTired.serviced,true,'Tired and docked no longer deadlocks on an affordable bill');
+  assert.equal(tiredShort.account.state.ship?.fuel,120);
+
+  // The same short ship with a wallet that cannot cover the counter: rest refuses with that
+  // reason, and — nothing else known from a fresh runtime — nothing is offered to try either.
+  const unserviceable=fixture({ship:{fuel:60},credits:0});
+  const refusedPoor=await unserviceable.dispatch('rest') as any;
+  assert.equal(refusedPoor.rested,false);
+  assert.match(refusedPoor.reason,/cannot cover/);
+  assert.equal(refusedPoor.fixable,false,'no other base is known, so nothing here can be run yet');
+  assert.equal(unserviceable.record(),undefined);
 
   // A run in flight owns the pilot; rest waits for the juncture at its end.
   let release:((result:RunResult)=>void)|undefined;

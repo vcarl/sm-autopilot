@@ -22,8 +22,11 @@ import type {ReadinessAccount,ReadinessCommand} from '../readiness.ts';
 import {reflectReport,type ReflectReport} from '../reflect.ts';
 import {REST_JOB,STANCES,evaluateMenu} from '../rules-table.ts';
 import {journalRun} from '../run-record.ts';
+import {ServiceBlocked,serviceShip} from '../servicing.ts';
 import {factsNow} from './menu.ts';
-import {acct,command,job,pilot,runtimeDir,setPilot,type Mood,type Pilot,type Stance} from './runtime.ts';
+import {serviceElsewhere} from './service.ts';
+import {acct,bind,command,isBound,job,pilot,runtimeDir,setPilot,unbind,
+  type Mood,type Pilot,type Stance} from './runtime.ts';
 import type {Outcome} from './types.ts';
 
 /** The moods a shift may open in: every stance's own initial moods, and nothing else. Relaxed is
@@ -67,13 +70,61 @@ export function validateNext(asked:Partial<NextShift>|undefined):{next:NextShift
   return {next:{goal,stance,mood,...asked?.objective_done?{objective_done:true}:{}}};
 }
 
+/** A refusal that names what would clear it: the bases `goTo` can still reach and what they post,
+ * never a trip taken on the pilot's behalf (rest must not fly). `fixable` is exactly whether any
+ * option is offered — the only two shapes the model's next move needs to tell apart: a program it
+ * can run now, or a shift that has nothing left to try and waits for the next juncture.
+ *
+ * `serviceElsewhere` reads through the runtime's own globals (`acct()`, `command`), which is fine
+ * called from a script's `rest()` — already bound, for the run in flight — but restNow is also
+ * the runner's own way in, with no run in flight and nothing bound. Binding here only when
+ * nothing already is keeps both callers working without the reentrant `bind()` that would reset
+ * the outer run's own counters mid-run. */
+async function refuseWithOptions(account:ReadinessAccount,send:ReadinessCommand,who:Pilot,
+  write:(next:Pilot)=>void,runtime:string|undefined,reason:string,
+  docked?:string):Promise<{rested:false;reason:string;fixable:boolean}> {
+  const already=isBound();
+  if(!already)bind({account,command:send,pilot:()=>who,setPilot:write,...runtime?{runtime}:{},emit:()=>{}});
+  let options:Awaited<ReturnType<typeof serviceElsewhere>>;
+  try {options=await serviceElsewhere(docked);}
+  finally {if(!already)unbind();}
+  const reason_=options.length
+    ?`${reason}; try instead: ${options.map(row=>`${row.call} — ${row.why}`).join('; ')}`
+    :reason;
+  return {rested:false,reason:reason_,fixable:options.length>0};
+}
+
 /** The act itself, on explicit deps so the runner can call it with no runtime bound. */
 export async function restNow(account:ReadinessAccount,send:ReadinessCommand,who:Pilot,
   write:(next:Pilot)=>void,runtime?:string,
-  next?:NextShift):Promise<{rested:false;reason:string}|({rested:true}&Rested)> {
-  const facts=await factsNow(account,send,who,runtime);
+  next?:NextShift):Promise<{rested:false;reason:string;fixable?:boolean}|({rested:true}&Rested)> {
+  let facts=await factsNow(account,send,who,runtime);
+  if(facts.place.kind==='base'&&!(facts.holdings.fuel>=facts.holdings.max_fuel&&facts.holdings.hull>=facts.holdings.max_hull)) {
+    const counter=evaluateMenu(facts).find(row=>row.job==='J12 Home, serviced');
+    if(!counter?.admissible)
+      return refuseWithOptions(account,send,who,write,runtime,
+        `refuel and repair first — ${counter?.reason??'this counter cannot service the ship'}`,
+        facts.place.base_id);
+    // The bill fits: bring the ship up before deciding whether rest is admissible, rather than
+    // handing the model a refusal it would only clear by writing the exact program this already
+    // is. `service()`'s own job wrapper is a script-runtime primitive (bind()); restNow runs
+    // outside a run, on the same explicit deps as the rest of this call, so it drives
+    // `serviceShip` directly, the same act at one layer down.
+    try {
+      const mood=who.mood??'Cautious';
+      const done=await serviceShip(account,send,{mood,creditReserve:who.permissions?.credit_reserve??0});
+      if(runtime)journalRun(runtime,{issued:done.issued,spent:done.spent,fuel:done.fuel,hull:done.hull},'service');
+    } catch(error) {
+      if(!(error instanceof ServiceBlocked))throw error;
+      return refuseWithOptions(account,send,who,write,runtime,
+        `refuel and repair first — ${error.blockers.join('; ')}`,facts.place.base_id);
+    }
+    facts=await factsNow(account,send,who,runtime);
+  }
   const verdict=evaluateMenu(facts).find(row=>row.job===REST_JOB);
-  if(!verdict?.admissible)return {rested:false,reason:verdict?.reason??'rest is not admissible here'};
+  if(!verdict?.admissible)
+    return refuseWithOptions(account,send,who,write,runtime,verdict?.reason??'rest is not admissible here',
+      facts.place.kind==='base'?facts.place.base_id:undefined);
   const {stance,mood,goal,mood_before_tired:_m,tired_forced:_t,objective_done:_d,...kept}=who;
   // One write, not two: the record never passes through the state with no stance and no mood, so
   // nothing reading it between the two can see a pilot that cannot work.

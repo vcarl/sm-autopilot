@@ -177,24 +177,22 @@ const RULES:Rule[]=[
   {id:'shared.counters',apply:counters},
   {id:'shared.travel',apply:facts=>sites(facts).filter(site=>!site.serviced_base).map(site=>trip(facts,site,'shared'))},
   // Rest ends the shift, and only docked (N6): an evening is not put down in open space or at
-  // a POI with no counter. Servicing is wanted only as far as this base can give it: where the
-  // wallet covers the bill, resting on a ship that cannot leave is a shift ended badly; where it
-  // cannot, rest still happens and reflection is told the ship is short. Mood
+  // a POI with no counter. A ship going home short is not a shift ended, it is a shift deferred:
+  // `rest()`'s caller (restNow) services automatically wherever the bill fits and only reaches
+  // this rule with an unserviced ship when it does not — a credit shortfall, a repair over the
+  // mood's margin — so this rule can require serviced(facts) outright and stay pure (R5). Mood
   // does not gate it — rest is what clears one.
   {id:'rest.docked',apply:facts=>{
     if(facts.place.kind!=='base')
       return no('rest',REST_JOB,'rest happens docked at a base; dock to end the shift');
-    const counter=service(facts);
-    if(!serviced(facts)&&counter.admissible)
-      return no('rest',REST_JOB,`refuel and repair first — ${counter.reason}`);
+    if(!serviced(facts))
+      return no('rest',REST_JOB,`refuel and repair first — ${service(facts).reason}`);
     // `rest()` is a barrel call now, so the shift's end is a line a script can write and a move
     // the menu can offer. That matters beyond the saved round-trip: it used to be reachable only
     // as an AI tool, which was the pilot's always-available path to ending a shift, and rest is
     // what makes reflection — and so a change of stance — happen at all. The menu carrying it is
     // what replaces that, and the menu is delivered after every run however the run ended.
-    return yes('rest',REST_JOB,serviced(facts)
-      ?'docked, safe and serviced: the evening can be put down and a new goal chosen'
-      :`docked, and this base cannot bring the ship up (${counter.reason}); the evening can still be put down`,
+    return yes('rest',REST_JOB,'docked, safe and serviced: the evening can be put down and a new goal chosen',
       // `rest` ends this shift AND opens the next, so the call has to name one. The menu cannot
       // choose a goal — that is the pilot's whole job here — so it pre-fills the stance and mood the
       // ship is already in, which is a real choice (carry on as you are) and one that typechecks,

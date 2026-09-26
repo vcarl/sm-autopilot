@@ -131,7 +131,7 @@ sees the real types, so these are not style notes.
 | `prices(items?)` / `sell(rows, opts?)` / `buy(item, qty)` | the market here, live at the moment of the act, and remembered for `spreads()`. `sell`'s options are exactly two: `{from: 'hold' \| 'store'}` (default `'hold'`; `'store'` empties the store a hold-load at a time) and `{floor: {[item_id]: number}}` (skip a row whose `best_buy` is under it). There is no option naming a market — `sell` is always the counter you are docked at |
 | `refit({install,remove})` / `shipsForSale(opts?)` / `buyShip(id, opts?)` | the hangar: modules on and off within the grid, the hulls for sale here, the next one |
 | `missions()` / `acceptMission(id)` / `completeMissions()` / `abandonMission(id, opts?)` | the board here; the cheapest credits and xp early |
-| `rest({goal, stance, mood, objective_done?})` | end this shift **and open the next one**, in one call: docked at a base, on a ship this base has brought as far up as it can. All three are required — a shift that ends naming nothing leaves a pilot every job refuses. `objective_done` retires a finished objective alongside the goal replacing it. Refused, it says what is missing and the shift stays open |
+| `rest({goal, stance, mood, objective_done?})` | end this shift **and open the next one**, in one call: docked at a base. Short of a full tank or hull, it services itself first — the same fill `service()` would issue, inside the mood's margin and `permissions.credit_reserve` — and only then rests. All three fields are required — a shift that ends naming nothing leaves a pilot every job refuses. `objective_done` retires a finished objective alongside the goal replacing it. Refused — not docked, or the bill does not fit — it never flies you anywhere: the reason names what to try, a `goTo(base)` this system or your own history can still reach, and the shift stays open |
 | `reflection()` | the material the choice deserves: stagnation signals, the skills that would move, holdings, what is owed, how your scripts have been running. Read it before you name the next shift |
 | `note(text)` | write a line into the journal and the run's stream |
 | `account()` | the raw `@spacemolt/lib` Account |
@@ -231,9 +231,12 @@ The three arguments are required, and that is deliberate. Ending a shift without
 leaves a record with no stance and no mood — a pilot every job refuses, which once spent a whole
 juncture on 38 identical refusals. If you end a shift, you choose what follows it.
 
-It needs you docked at a base (any base) and the ship as far up as that base can bring it, so
-`service()` comes first; where the wallet cannot cover the counter, rest happens anyway and the next
-shift is told the ship is short.
+It needs you docked at a base (any base), and it brings the ship up itself where the bill fits —
+you do not need to call `service()` first. Where it does not fit (the counter's own margin or
+`permissions.credit_reserve` refuses it) or you are not docked at all, `rest` refuses rather than
+ending the shift short: it never flies you anywhere itself, and the refusal names what to try —
+a base `goTo` can still reach, this system's or one from your own history — for a script to run
+before calling `rest` again.
 
 `reflection()` is the read that makes the choice answerable to how the shift actually went — the same
 material a reflection shows: what is repeating, which skills would move, what you hold and owe. Take

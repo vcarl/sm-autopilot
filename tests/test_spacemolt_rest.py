@@ -111,6 +111,64 @@ def test_a_fire_at_rest_reflects_and_the_choice_opens_the_next_stances_own_conve
             "stance": "Carrier", "mood": "Cautious"}.items() <= entries[-1].items()
 
 
+# A bridge whose "rest" refuses on shift, carrying the bridge's own `fixable` field — the
+# structured signal that replaces guessing from the refusal's prose (live deadlock 2026-09-26:
+# a Tired, docked pilot short a 282cr service was told to "End the turn" on every juncture after,
+# because the refusal's wording was read as the away-from-base case regardless of which it was).
+FIXABLE_REST_BRIDGE = '''
+import json, sys
+
+print(json.dumps({"event": "ready"}), flush=True)
+for line in sys.stdin:
+    request = json.loads(line)
+    if request["action"] == "rest":
+        result = {"rested": False, "fixable": %(fixable)s,
+                  "reason": %(reason)r}
+    else:
+        result = {"unexpected": request["action"]}
+    print(json.dumps({"id": request["id"], "ok": True, "result": result}), flush=True)
+'''
+
+
+def _rest_refusal_bridge(tmp_path, monkeypatch, *, fixable, reason):
+    stub = tmp_path / "fake_rest_bridge.py"
+    stub.write_text(FIXABLE_REST_BRIDGE % {"fixable": "True" if fixable else "False", "reason": reason})
+    credentials = tmp_path / "credentials.txt"
+    credentials.write_text("Username: pilot\nPassword: secret\n")
+    monkeypatch.setenv("SPACEMOLT_CREDENTIALS_FILE", str(credentials))
+    monkeypatch.setattr(service, "BRIDGE_COMMAND", [sys.executable, str(stub)])
+
+
+def test_a_fixable_rest_refusal_says_run_a_program_and_reflect_again(tmp_path, monkeypatch):
+    _rest_refusal_bridge(tmp_path, monkeypatch, fixable=True,
+                          reason="refuel and repair first — quoted 282 credits of repair …")
+    juncture.write_pilot({"name": "kvothe", "home": "sol_base", "stance": "Prospector",
+                          "mood": "Tired", "goal": "three loads of ore"})
+
+    # Tired is imposed, never named to open a shift (D2/D3) — the next shift is asked in one of
+    # its own initial moods, exactly as the live juncture would.
+    answer = spacemolt._reflect({"goal": "three loads of ore", "stance": "Prospector", "mood": "Cautious"})
+
+    assert "End the turn" not in answer, "a service the pilot can pay for is not a dead end"
+    assert "spacemolt_run" in answer and "spacemolt_reflect again" in answer
+    # Nothing moved: the refusal is reported, not resolved on the model's behalf.
+    assert juncture.read_pilot()["stance"] == "Prospector"
+    service.close_bridge()
+
+
+def test_an_away_from_base_rest_refusal_still_ends_the_turn(tmp_path, monkeypatch):
+    _rest_refusal_bridge(tmp_path, monkeypatch, fixable=False,
+                          reason="rest happens docked at a base; dock to end the shift")
+    juncture.write_pilot({"name": "kvothe", "home": "sol_base", "stance": "Prospector",
+                          "mood": "Focused", "goal": "three loads of ore"})
+
+    answer = spacemolt._reflect({"goal": "three loads of ore", "stance": "Prospector", "mood": "Focused"})
+
+    assert "End the turn" in answer
+    assert "spacemolt_run" not in answer
+    service.close_bridge()
+
+
 def test_a_stance_already_held_refuses_the_choice(bridged):
     juncture.write_pilot({"name": "kvothe", "home": "sol_base", "stance": "Prospector",
                           "mood": "Focused", "goal": "three loads of ore"})

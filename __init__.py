@@ -296,10 +296,19 @@ def _reflect(arguments: dict[str, Any] | None = None, **_: Any) -> str:
         if not isinstance(rested, dict) or not rested.get("rested"):
             reason = (rested or {}).get("reason", "rest is not admissible here") \
                 if isinstance(rested, dict) else "the bridge did not answer"
-            # A run that ended away from a base cannot put the evening down. That is a normal
-            # outcome, not a fault: the stance carries and the next juncture continues this shift.
-            # Said as a refusal it reads as something to retry, and the pilot would keep trying
-            # instead of getting on with the work it already has.
+            fixable = isinstance(rested, dict) and bool(rested.get("fixable"))
+            # Two shapes of refusal, and they are not the same outcome. Away from a base, rest has
+            # nothing to work with: that is a normal outcome, not a fault, and the stance carries
+            # while the next juncture continues this shift. Anything else — a service bill this
+            # base can quote, cargo to settle, and so on — is a program the pilot has not run yet;
+            # telling it to end the turn there is what deadlocked a Tired, docked pilot for good
+            # (live 2026-09-26): every later juncture read the same refusal and did the same nothing.
+            if fixable:
+                return (f"The shift carries on, and nothing was written: {reason}. "
+                        f"Still {record.get('stance')}, {record.get('mood')}, "
+                        f"goal {record.get('goal')!r}. This is not a fault, but it is not settled "
+                        "either: do that first — write a program that does it, fly it with "
+                        "spacemolt_run, then call spacemolt_reflect again.")
             return (f"The shift carries on, and nothing was written: {reason}. "
                     f"Still {record.get('stance')}, {record.get('mood')}, "
                     f"goal {record.get('goal')!r}. This is not a fault — rest needs a base, so the "
