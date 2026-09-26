@@ -165,8 +165,11 @@ async function ledger(seat:Seat):Promise<FactionQueryTradeIntelResponse['entries
 }
 
 /** A book row as far as a source can say: a ledger entry has the top of book and volumes, no levels. */
-type Listing=Pick<MarketListingItem,'item_id'|'best_buy'|'best_buy_qty'|'best_sell'|'best_sell_qty'>
+export type Listing=Pick<MarketListingItem,'item_id'|'best_buy'|'best_buy_qty'|'best_sell'|'best_sell_qty'>
   &Partial<Pick<MarketListingItem,'buy_orders'|'sell_orders'>>;
+/** A ledger entry's rows as book rows: its top of book and volumes. */
+export const ledgerItems=(entry:FactionQueryTradeIntelResponse['entries'][number]):Listing[]=>(entry.items??[]).map(item=>
+  ({item_id:item.item_id,best_buy:item.best_buy,best_buy_qty:item.buy_volume,best_sell:item.best_sell,best_sell_qty:item.sell_volume}));
 /** A book at another base, with its age in ticks against `now`, and its system when the memory kept it. */
 interface FarBook {base_id:string;source:'faction ledger'|'remembered';age:number;system_id?:string;items:Listing[]}
 
@@ -182,9 +185,7 @@ export async function farBooks(here:string,now:number,seat:Seat=pilotSeat()):Pro
   const filed=(await ledger(seat)).filter(entry=>entry.base_id!==here).map(entry=>{
     const system_id=entry.system_id||systemOf.get(entry.base_id);
     return {base_id:entry.base_id,source:'faction ledger' as const,age:ticksOld(entry.submitted_at_tick,now),
-      ...system_id?{system_id}:{},
-      items:(entry.items??[]).map(item=>({item_id:item.item_id,best_buy:item.best_buy,best_buy_qty:item.buy_volume,
-        best_sell:item.best_sell,best_sell_qty:item.sell_volume}))};
+      ...system_id?{system_id}:{},items:ledgerItems(entry)};
   });
   const remembered=memory.filter(known=>known.base_id!==here).map(known=>({base_id:known.base_id,
     source:'remembered' as const,age:ticksOld(known.tick,now),...systemOf.has(known.base_id)?{system_id:systemOf.get(known.base_id)!}:{},items:known.items}));

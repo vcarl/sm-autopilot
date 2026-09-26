@@ -12,8 +12,8 @@ import {menu,renderMenu} from '../menu.ts';
 import {acct,bind,unbind} from '../runtime.ts';
 import {REST_TICKS,routes,type Circuit} from '../trading/trading.ts';
 import {markDrained,ring} from './drained.ts';
-import {gate,launch,readFleet,recallLoop,REPLAN_TICKS,row,script,scriptPath,writeFleet,type Entry} from './host.ts';
-import {lap,type Freighter,type Lap,type Report} from './index.ts';
+import {BOOK_TTL_MS,gate,launch,market,readFleet,recallLoop,REPLAN_TICKS,row,script,scriptPath,writeFleet,type Entry} from './host.ts';
+import {IGNORE_TICKS,lap,STALE_TICKS,type Freighter,type Lap,type Report} from './index.ts';
 
 // Gems bought at sol for at most 110, sold at range for at least 120.
 const GEMS:Circuit={closed:true,hold:10,lap_jumps:2,lap_net:500,stops:[
@@ -578,7 +578,8 @@ test('with no ring that qualifies it waits docked, re-planning every REPLAN_TICK
 });
 
 test('a freighter scheduled to stop after its lap finishes the lap, selling, and parks without re-planning',async()=>{
-  const h=hosted(130,[SOL,TWIN],{stop_after_lap:true});
+  // Range's book known: a buy is sized by what a later stop is known to take.
+  const h=hosted(130,[SOL,TWIN,RANGE],{stop_after_lap:true});
   try {
     await h.fly();
     assert.equal(h.now().state,'parked');
@@ -631,4 +632,101 @@ test('a hold full of cargo no circuit sells and no store takes tries one re-plan
     assert.equal(h.world.count('spacemolt/get_map'),1,'planned once');
     assert.equal(existsSync(join(h.runtime,'drained.json')),false,'the ring is not drained');
   } finally {h.done();}
+});
+
+// Sizing against the books the host knows. Sol asks gems at 100, deep; the ledger has range's bid.
+const LEDGER=(rangeTick:number,depth:number,bid=130)=>[{base_id:'sol_base',submitted_at_tick:TICK,items:[{item_id:'gem',best_buy:0,best_sell:100,sell_volume:100}]},
+  {base_id:'range_base',submitted_at_tick:rangeTick,items:[{item_id:'gem',best_buy:bid,buy_volume:depth}]}];
+const SIZED=(rangeTick:number,depth:number,bid=130):WorldOptions=>({cargo:[],cargoUsed:0,cargoCapacity:100,tradeIntel:LEDGER(rangeTick,depth,bid),
+  markets:{sol_base:[{item_id:'gem',best_buy:0,best_buy_qty:0,best_sell:100,best_sell_qty:100}],
+    range_base:[{item_id:'gem',best_buy:bid,best_buy_qty:depth,best_sell:0,best_sell_qty:0}]}});
+// The live circuit's fixed qty: 83 coolant_fluid for unknown_edge.
+const DEEP:Circuit={...GEMS,hold:100,stops:[{...GEMS.stops[0]!,buy:{item:'gem',qty:83,max_price:110}},GEMS.stops[1]!]};
+/** A freighter flown with a host's market over `options`, in a runtime of its own. */
+function marketed(options:WorldOptions,name='hauler',runtime=mkdtempSync(join(tmpdir(),'freighter-market-'))) {
+  const h=freighter(130,[],options);
+  h.f.market=market(runtime,name,h.f.command);
+  return {...h,runtime,bought:()=>h.world.sent.filter(c=>c.action==='spacemolt/buy').map(c=>c.params.quantity)};
+}
+
+test('a buy is sized to what the later stop\'s fresh book takes above cost, not the circuit\'s qty (live: 83 coolant_fluid for a bid about 10 deep)',async()=>{
+  const {world,f,reports,bought,runtime}=marketed(SIZED(TICK,10));
+  try {
+    await world.account.refresh();
+    const done=await lap(f,DEEP);
+    assert.equal(done.park,undefined);
+    assert.deepEqual(bought(),[10]);
+    assert.ok(reports.some(r=>r.why==='sol_base: sized gem to 10 of 83, what the later stops take above cost: range_base\'s book is 0 ticks old'),
+      reports.map(r=>r.why).filter(Boolean).join('\n'));
+  } finally {rmSync(runtime,{recursive:true,force:true});}
+});
+
+test('a later book past STALE_TICKS counts at half its depth; past IGNORE_TICKS it justifies no buy, the lap scouts on and is not dead',async()=>{
+  const stale=marketed(SIZED(TICK-STALE_TICKS-1,10));
+  const ignored=marketed(SIZED(TICK-IGNORE_TICKS-1,10));
+  try {
+    await stale.world.account.refresh();await ignored.world.account.refresh();
+    await lap(stale.f,DEEP);
+    assert.deepEqual(stale.bought(),[5]);
+    assert.ok(stale.reports.some(r=>/range_base's book is 181 ticks old, half its depth counted/.test(r.why??'')));
+    const done=await lap(ignored.f,DEEP);
+    assert.equal(done.park,undefined,'buying nothing for want of a book is scouting, not a dead stop');
+    assert.deepEqual(ignored.bought(),[]);
+    assert.ok(ignored.reports.some(r=>r.why===`sol_base: sized gem to 0 of 83, what the later stops take above cost: range_base's book is 1081 ticks old, past ${IGNORE_TICKS}: no buy for a sale there`));
+  } finally {rmSync(stale.runtime,{recursive:true,force:true});rmSync(ignored.runtime,{recursive:true,force:true});}
+});
+
+test('two freighters on one bid: the second buys only what the first has not claimed, and the first\'s sale releases its claim',async()=>{
+  const runtime=mkdtempSync(join(tmpdir(),'freighter-claims-'));
+  const a=marketed(SIZED(TICK,16),'a',runtime),b=marketed(SIZED(TICK,16),'b',runtime);
+  // a flies range first, so its lap ends at sol with its load aboard, claimed on range's bid.
+  const out:Circuit={...GEMS,stops:[GEMS.stops[1]!,GEMS.stops[0]!]};
+  const seen:number[]=[];
+  const report=a.f.report;
+  a.f.report=fields=>{if(fields.stop)seen.push(b.f.market!.claimed('range_base','gem'));report(fields);};
+  try {
+    await a.world.account.refresh();await b.world.account.refresh();
+    await lap(a.f,out);
+    assert.deepEqual(a.bought(),[10]);
+    assert.equal(b.f.market!.claimed('range_base','gem'),10);
+    await lap(b.f,GEMS);
+    assert.deepEqual(b.bought(),[6],'16 deep, 10 of it claimed');
+    assert.equal(a.f.market!.claimed('range_base','gem'),0,'b sold its 6 at range, releasing them');
+    await lap(a.f,out);
+    assert.deepEqual(seen,[0,0,10,0],'claimed while carried to range; released by the sale there');
+  } finally {rmSync(runtime,{recursive:true,force:true});}
+});
+
+test('a lap that plans at 0 or less on fresh books parks drained before it flies',async()=>{
+  // Range bids 95, under the 120 floor: nothing the circuit buys sells anywhere on it.
+  const {world,f,parked,drained,runtime}=marketed(SIZED(TICK,50,95));
+  try {
+    f.market!.saw('elsewhere',{tick:TICK,items:[]});
+    await world.account.refresh();
+    const done=await lap(f,GEMS);
+    assert.equal(done.park,'lap planned at 0 on fresh books (two laps ahead); circuit drained');
+    assert.equal(parked(),done.park);
+    assert.equal(drained(),TICK,'drained, so the host re-plans it');
+    assert.equal(world.count('spacemolt_market/view_market')+world.count('spacemolt/buy'),0,'not flown');
+  } finally {rmSync(runtime,{recursive:true,force:true});}
+});
+
+test('one ledger fetch serves every freighter of the host within BOOK_TTL_MS',async()=>{
+  const runtime=mkdtempSync(join(tmpdir(),'freighter-cache-'));
+  let asked=0;
+  const command:ReadinessCommand=async action=>{
+    assert.equal(action,'spacemolt_intel/query_trade_intel');asked++;
+    return {structuredContent:{entries:[{base_id:'range_base',submitted_at_tick:TICK,items:[{item_id:'gem',best_buy:130,buy_volume:10}]}]}};
+  };
+  mock.timers.enable({apis:['Date'],now:1_000_000});
+  try {
+    const a=market(runtime,'a',command),b=market(runtime,'b',command);
+    const [x,y]=await Promise.all([a.book('range_base'),b.book('range_base')]);
+    await b.book('range_base');
+    assert.equal(asked,1);
+    assert.equal(x!.tick,TICK);assert.equal(y,x);
+    mock.timers.tick(BOOK_TTL_MS);
+    await a.book('range_base');
+    assert.equal(asked,2,'fetched again once the minute is up');
+  } finally {mock.timers.reset();rmSync(runtime,{recursive:true,force:true});}
 });

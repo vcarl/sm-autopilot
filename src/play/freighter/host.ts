@@ -7,7 +7,7 @@
  * journals into the pilot's journal under a `<name>:` prefix. When its ring drains it re-plans
  * with `search`, the planner `routes()` is, on its own connection and this runtime's files. Not reachable from a pilot file
  * (`play/freighter` resolves to `index.ts`, never here). */
-import {Account,type GameState,type MarketListingItem,type ViewMarketResponse} from '@spacemolt/lib';
+import {Account,type FactionQueryTradeIntelResponse,type GameState,type MarketListingItem,type ViewMarketResponse} from '@spacemolt/lib';
 import {createHash} from 'node:crypto';
 import {existsSync,mkdirSync,readFileSync,renameSync,writeFileSync} from 'node:fs';
 import {dirname,join} from 'node:path';
@@ -21,10 +21,11 @@ import {journalCommand,journalRun} from '../../run-record.ts';
 import {pilotHome} from '../../run.ts';
 import {checkBoundary,specifiers} from '../boundary.ts';
 import {checkPolicy} from '../policy.ts';
-import {buysOf,REST_TICKS,search,type Circuit,type Seat} from '../trading/trading.ts';
+import {knownBooks} from '../market.ts';
+import {buysOf,ledgerItems,REST_TICKS,search,type Circuit,type Seat} from '../trading/trading.ts';
 import {markMobile,markPlace} from '../places.ts';
 import {markDrained,ring} from './drained.ts';
-import type {Approach,Freighter,Holding} from './index.ts';
+import {claims as carried,type Approach,type Claim,type Freighter,type Holding,type Known,type Market} from './index.ts';
 
 /** One freighter as `freighters.json` keeps it. */
 export interface Entry {
@@ -152,6 +153,47 @@ export function install(runtime:string,name:string,circuit:Circuit,fields:{float
 interface Loop {recall:boolean;afterLap:boolean;lapDone:boolean;stopping:boolean;close():void}
 const loops=new Map<string,Loop>();
 export const flying=(name:string)=>loops.has(name);
+
+/** ponytail: how long one base's book, fetched for one freighter, serves every freighter of this
+ * process before it is fetched again: a minute, so N freighters on a ring cost one ledger query a
+ * base a minute, not one a stop each. Tunable. */
+export const BOOK_TTL_MS=60_000;
+/** The host's books, by owner runtime and base: the ledger's and the owner's memory's as fetched (at most once a
+ * `BOOK_TTL_MS`), and the last live read by any freighter here. */
+const fetched=new Map<string,{at:number;book:Promise<Known|undefined>}>(),seen=new Map<string,Known>();
+let latest=0;
+/** Each flying freighter's claims (by runtime and name): what it carries, to the stop that sells it. */
+const claimed=new Map<string,Claim[]>();
+const fresher=(a:Known|undefined,b:Known|undefined)=>!a||b&&b.tick>=a.tick?b:a;
+/** One base's book off the faction ledger (`query_trade_intel` by `base_id`: its whole book in one
+ * call), or the owner's memory, whichever is fresher. Undefined when neither has it. */
+async function fetchBook(runtime:string,command:ReadinessCommand,base_id:string):Promise<Known|undefined> {
+  const memory=knownBooks(runtime).find(book=>book.base_id===base_id);
+  let filed:Known|undefined;
+  try {
+    const entry=(details(await command('spacemolt_intel/query_trade_intel',{base_id})) as FactionQueryTradeIntelResponse).entries?.find(row=>row.base_id===base_id);
+    if(entry)filed={tick:entry.submitted_at_tick,items:ledgerItems(entry)};
+  } catch {/* no faction, or no ledger: the memory stands */}
+  // An untagged memory is as old as can be: it sizes nothing.
+  return fresher(filed,memory&&{tick:memory.tick??0,items:memory.items});
+}
+/** The books and claims `name`'s loop shares with every other freighter this process flies. */
+export function market(runtime:string,name:string,command:ReadinessCommand):Market {
+  const key=join(runtime,name);
+  return {
+    book:async base_id=>{
+      const at=join(runtime,base_id);
+      let hit=fetched.get(at);
+      if(!hit||Date.now()-hit.at>=BOOK_TTL_MS)fetched.set(at,hit={at:Date.now(),book:fetchBook(runtime,command,base_id)});
+      return fresher(await hit.book,seen.get(at));
+    },
+    saw:(base_id,known)=>{seen.set(join(runtime,base_id),known);latest=Math.max(latest,known.tick);},
+    tick:()=>latest,
+    claimed:(base_id,item_id)=>[...claimed].filter(([who])=>who!==key)
+      .reduce((sum,[,rows])=>sum+rows.filter(row=>row.base_id===base_id&&row.item_id===item_id).reduce((part,row)=>part+row.quantity,0),0),
+    claim:rows=>{claimed.set(key,rows);},
+  };
+}
 const sleep=(ms:number)=>new Promise(resolve=>setTimeout(resolve,ms));
 
 /** Log `name` in on its own account and run its loop, detached. Null when it is off; else why
@@ -211,6 +253,8 @@ export function launch(runtime:string,name:string,account:ReadinessAccount,comma
   const entry=readFleet(runtime)[name];
   const loop:Loop={recall:entry?.state==='recalling',afterLap:entry?.stop_after_lap===true,lapDone:false,stopping:false,close:opts.close??(()=>{})};
   loops.set(name,loop);
+  // Claims rebuilt from the entry as it resumes: its holding, to the stop that sells each item from the lap's start.
+  if(entry)market(runtime,name,command).claim(carried(entry.circuit,0,Object.fromEntries(Object.entries(entry.holding??{}).map(([item,lot])=>[item,lot.quantity]))));
   pilotHome(runtime);
   return (async()=>{
     await opts.login?.(loop);
@@ -223,6 +267,8 @@ export function launch(runtime:string,name:string,account:ReadinessAccount,comma
   })().catch(error=>{if(!loop.stopping)update(runtime,name,{state:'parked',why:`the loop broke: ${message(error)}`});})
     .finally(()=>{
       loops.delete(name);opts.unlock?.();
+      // Parked, it carries nothing anywhere: its claims go.
+      claimed.delete(join(runtime,name));
       try {loop.close();} catch {/* never connected */}
     });
 }
@@ -235,6 +281,7 @@ async function run(runtime:string,name:string,account:ReadinessAccount,command:R
   if(!entry)return false;
   let again=false;
   const f:Freighter={name,account,command,owner:entry.owner,float:entry.float,...entry.holding?{holding:entry.holding}:{},
+    market:market(runtime,name,command),
     recalled:()=>loop.recall||loop.stopping||loop.lapDone,
     // A bridge shutting down stops every loop; the entry stays as it is so the next one resumes it.
     park:(why,drained,blocked)=>{
@@ -291,15 +338,17 @@ async function replan(runtime:string,name:string,account:ReadinessAccount,comman
     if(!entry||loop.stopping)return false;
     if(loop.recall||loop.afterLap){update(runtime,name,{state:'parked',why:loop.recall?'recalled':STOPPED});return false;}
     await account.refresh();
-    const cargo=miningInventory(account.state),ship=account.state.ship;
+    const cargo=miningInventory(account.state),ship=account.state.ship,fleet=readFleet(runtime);
+    // A ring another freighter here flies is its: two on one ring split its bids.
+    const flown=new Set(Object.entries(fleet).filter(([other,row])=>other!==name&&row.state==='running').map(([,row])=>ring(row.circuit.stops)));
     const blocked=(ship?.cargo_capacity??0)-(ship?.cargo_used??0)<=0&&Object.keys(cargo).length>0
       &&Object.keys(cargo).every(item=>!entry.circuit.stops.some(stop=>stop.sell.some(sale=>sale.item===item)));
     let why:string;
     try {
       const found=await search(seat,{circuit:{hold:entry.circuit.hold},...entry.circuit.scope});
-      const rows=found.detail.routes.flatMap(row=>row.circuit??[]);
+      const rows=found.detail.routes.flatMap(row=>row.circuit??[]).filter(circuit=>!flown.has(ring(circuit.stops)));
       const next=blocked?rows.find(circuit=>circuit.stops.some(stop=>stop.sell.some(sale=>cargo[sale.item]))):rows[0];
-      why=found.why??found.did;
+      why=(found.why??found.did)+(flown.size?`; passed over the ring(s) another freighter here flies: ${[...flown].join('; ')}`:'');
       if(next) {
         const reassigned={count:(entry.reassigned?.count??0)+1,ring:ring(next.stops),lap_net:next.lap_net};
         const refused=install(runtime,name,next,{float:entry.float,owner:entry.owner,reassigned});

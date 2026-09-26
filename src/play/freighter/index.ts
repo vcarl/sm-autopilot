@@ -23,6 +23,9 @@
  * - recalled: it buys nothing more, and parks after the stop it is on;
  * - a route short of fuel, a blocked flight, no credits for fuel: park, docked where it is;
  * - LOSING_LAPS laps in a row that net 0 or less: park, docked at the lap's last stop, the ring drained.
+ * With a host's `market` (always, flown from a host), each buy is sized by `plan`, the one planner,
+ * against the live book here and the freshest known books of the lap's later stops, and each lap
+ * starts by planning the whole lap: one that plans at 0 or less on fresh books parks drained unflown.
  * A parked ship keeps the circuit's cargo aboard, and `holding` says what it cost. A drained or blocked park is
  * the host's to re-plan (`host.ts`); the script only parks. */
 import {SpacemoltError,type MarketListingItem,type OrderLevel,type ViewMarketResponse} from '@spacemolt/lib';
@@ -32,7 +35,7 @@ import {details} from '../../response-details.ts';
 import {ServiceBlocked,serviceShip} from '../../servicing.ts';
 import {fileIntel} from '../../trade-intel.ts';
 import {FuelRouteShortfall,TravelBlocked,travelTo} from '../../travel.ts';
-import {buysOf,type Circuit} from '../trading/trading.ts';
+import {buysOf,plan,type Book,type Circuit,type Listing} from '../trading/trading.ts';
 
 /** What one lap did: `park` when the freighter stopped for good, and why; `net` the credits it
  * made, deposits home included, with the cargo aboard at its cost (see `Holding`). */
@@ -52,6 +55,24 @@ export interface Report {stop?:string;credits?:number;deposited?:number;lapped?:
   /** A stop's base found away from the system the circuit kept for it: a mobile station. `system_id`
    * where `find_route` places it now, when known. The host records it mobile and re-places it. */
   moved?:{at:string;system_id?:string}}
+/** A base's book as the host knows it: rows, and the game tick it was read or filed on. */
+export interface Known {tick:number;items:Listing[]}
+/** One freighter's claim on a base's bids: units aboard it carries there to sell. */
+export interface Claim {base_id:string;item_id:string;quantity:number}
+/** What a host shares between its freighters (`host.ts`): books and depth claims. */
+export interface Market {
+  /** The freshest book known for `base_id`: the faction ledger's (cached `BOOK_TTL_MS`), a live read
+   * by any freighter of the host, or the owner's market memory. Never throws. */
+  book(base_id:string):Promise<Known|undefined>;
+  /** A live read at `base_id`, kept for every freighter of the host. */
+  saw(base_id:string,known:Known):void;
+  /** The latest game tick any freighter of the host has read; 0 before any. */
+  tick():number;
+  /** Units of `item_id` the host's other freighters carry to sell at `base_id`. */
+  claimed(base_id:string,item_id:string):number;
+  /** This freighter's claims now, replacing its last. */
+  claim(rows:Claim[]):void;
+}
 /** What the host hands a freighter's script. */
 export interface Freighter {
   name:string;
@@ -70,6 +91,8 @@ export interface Freighter {
    * when the hold is full of cargo the circuit never sells: the host re-plans, the ring not drained. */
   park(why:string,drained?:number,blocked?:boolean):Lap;
   report(fields:Report):void;
+  /** The host's books and claims. Absent (a bare `lap` in a test), buys are sized by the circuit's caps alone. */
+  market?:Market;
 }
 type Stop=Circuit['stops'][number];
 
@@ -90,6 +113,12 @@ const STOP_TRIES=3;
  * but far under `lap_net` flies on: it still makes money. Tunable. */
 const LOSING_LAPS=3;
 const RETRY_MS=60_000;
+/** A later stop's book older than this many ticks (30 minutes at ten seconds a tick) counts at half
+ * its depth when a buy is sized: NPC books move rarely, but other traders fill bids. */
+export const STALE_TICKS=180;
+/** ponytail: past this many ticks (3 hours) a later stop's book justifies no buy for a sale there;
+ * the lap visits it, and its fresh read sizes the next lap. Tunable. */
+export const IGNORE_TICKS=1080;
 const BUILD='use routes({circuit:{hold}})';
 
 const message=(error:unknown)=>error instanceof Error?error.message:String(error);
@@ -116,6 +145,53 @@ export function closure(circuit:Circuit):string|null {
 /** One side of a book row, best first; a row without levels is its top of book. */
 const levels=(orders:OrderLevel[]|undefined,price:number,quantity:number):OrderLevel[]=>
   orders?.length?orders:price>0&&quantity>0?[{price_each:price,quantity}]:[];
+
+/** How much of a book `age` ticks old counts: whole, half past `STALE_TICKS`, none past `IGNORE_TICKS` or unknown. */
+const share=(age:number|undefined)=>age===undefined||age>IGNORE_TICKS?0:age>STALE_TICKS?0.5:1;
+const ageOf=(known:Known|undefined,now:number)=>known&&Math.max(0,now-known.tick);
+/** Units `from` to `to` of a side, best first, each level's depth scaled by `part`. */
+const units=(side:OrderLevel[],part:number,from:number,to:number):OrderLevel[]=>{
+  let at=0;
+  return side.flatMap(level=>{
+    const n=Math.floor(level.quantity*part),lo=Math.max(at,from),hi=Math.min(at+n,to);
+    at+=n;return hi>lo?[{price_each:level.price_each,quantity:hi-lo}]:[];
+  });
+};
+const listing=(item_id:string,bids:OrderLevel[],asks:OrderLevel[]):Listing=>({item_id,best_buy:bids[0]?.price_each??0,
+  best_buy_qty:bids[0]?.quantity??0,best_sell:asks[0]?.price_each??0,best_sell_qty:asks[0]?.quantity??0,buy_orders:bids,sell_orders:asks});
+/** `stop`'s book as a lap plans it: bids only for what it sells, at or above each floor, less what
+ * the host's other freighters carry there; asks only for what it buys, at or under each cap, to
+ * `cap(item)` units; the depth weighed by the book's age (`share`). What `plan` sizes a freighter by. */
+function planned(f:Freighter,stop:Stop,known:Known|undefined,now:number,cap:(item:string)=>number):Book {
+  const age=ageOf(known,now),part=share(age),rows=new Map(known?.items.map(one=>[one.item_id,one]));
+  const items=new Map<string,Listing>();
+  for(const {item,min_price} of stop.sell) {
+    const one=rows.get(item);
+    if(one)items.set(item,listing(item,units(levels(one.buy_orders,one.best_buy,one.best_buy_qty).filter(level=>level.price_each>=min_price),
+      part,f.market?.claimed(stop.at,item)??0,Infinity),[]));
+  }
+  for(const {item,max_price} of buysOf(stop)) {
+    const one=rows.get(item);
+    if(one)items.set(item,listing(item,items.get(item)?.buy_orders??[],
+      units(levels(one.sell_orders,one.best_sell,one.best_sell_qty).filter(level=>level.price_each<=max_price),part,0,cap(item))));
+  }
+  return {base_id:stop.at,source:'faction ledger',age:age??0,items};
+}
+/** What a later stop's book says of a sale of `item` there, when it cut a buy. */
+function heard(f:Freighter,stop:Stop,known:Known|undefined,now:number,item:string):string {
+  const age=ageOf(known,now),claimed=f.market?.claimed(stop.at,item)??0;
+  return age===undefined?`no book of ${stop.at}`:age>IGNORE_TICKS?`${stop.at}'s book is ${age} ticks old, past ${IGNORE_TICKS}: no buy for a sale there`
+    :`${stop.at}'s book is ${age} ticks old${age>STALE_TICKS?', half its depth counted':''}${claimed?`, ${claimed} claimed by other freighters`:''}`;
+}
+/** What each item aboard is carried to: the first stop from `from` on round the lap that sells it. */
+export function claims(circuit:Circuit,from:number,cargo:Record<string,number>):Claim[] {
+  const ring=[...circuit.stops.slice(from),...circuit.stops.slice(0,from)];
+  return Object.entries(cargo).flatMap(([item_id,quantity])=>{
+    const to=ring.find(stop=>stop.sell.some(sale=>sale.item===item_id));
+    return to&&quantity>0?[{base_id:to.at,item_id,quantity}]:[];
+  });
+}
+const free=(f:Freighter)=>{const ship=f.account.state.ship;return Math.max(0,(ship?.cargo_capacity??0)-(ship?.cargo_used??0));};
 
 /** Why a throw ends the circuit, or null when the stop is worth redoing. */
 function parked(error:unknown):string|null {
@@ -157,10 +233,12 @@ const service=async(f:Freighter,stop:Stop)=>{await attempt(f,stop.at,'service',(
 
 /** One stop: fly there and dock, service, sell the listed items at their floors, sell the `leftover`
  * (cargo bought that the circuit never sells) where the bid covers its cost a unit, stow every item
- * aboard `stow` names that is still there, buy each listed item within its cap, one command each,
- * send the credits above the float home. Returns how many trades took, and the book's tick. */
-async function visit(f:Freighter,stop:Stop,leftover:Holding,stow:(item:string)=>boolean,sent:(credits:number)=>void,
-  bought:(item:string,n:number,spent:number)=>void,stowed:(item:string,n:number)=>void):Promise<{traded:number;tick:number}> {
+ * aboard `stow` names that is still there, buy each listed item within its cap and what `plan` says
+ * the `later` stops (the rest of the ring, round to this one) take above its cost, one command each,
+ * send the credits above the float home. Returns how many trades took, the book's tick, and whether
+ * a buy was cut for a later stop with no book to go by (`scouted`: this lap learns it). */
+async function visit(f:Freighter,stop:Stop,later:readonly Stop[],leftover:Holding,stow:(item:string)=>boolean,sent:(credits:number)=>void,
+  bought:(item:string,n:number,spent:number)=>void,stowed:(item:string,n:number)=>void):Promise<{traded:number;tick:number;scouted:boolean}> {
   const {account,command}=f;
   await fly(f,stop);
   await service(f,stop);
@@ -168,7 +246,9 @@ async function visit(f:Freighter,stop:Stop,leftover:Holding,stow:(item:string)=>
   f.report({stop:stop.at,why:undefined});
   const market=details(await command('spacemolt_market/view_market',{})) as ViewMarketResponse;
   const book=new Map<string,MarketListingItem>((market.items??[]).map(row=>[row.item_id,row]));
-  await fileIntel(account,command,stop.at,market.items??[],Number(market.current_tick??0),why=>f.report({why}));
+  const now=Number(market.current_tick??0);
+  f.market?.saw(stop.at,{tick:now,items:market.items??[]});
+  await fileIntel(account,command,stop.at,market.items??[],now,why=>f.report({why}));
   let traded=0;
   for(const {item,min_price} of stop.sell) {
     const row=book.get(item),held=miningInventory(account.state)[item]??0;
@@ -206,10 +286,28 @@ async function visit(f:Freighter,stop:Stop,leftover:Holding,stow:(item:string)=>
     f.report({stowed:`${n} ${item}${cost??''} at ${stop.at} ${where}`});
   }
   // Recalled: it parks after this stop, so it buys no load it would only strand in the hold.
-  for(const {item,qty,max_price} of f.recalled()?[]:buysOf(stop)) {
+  const buys=f.recalled()?[]:buysOf(stop);
+  // Sized by the planner: this book's asks within the caps, the later stops' bids as the host knows them.
+  let sized:Map<string,number>|undefined,scouted=false;
+  const known=f.market&&buys.length?await Promise.all(later.map(next=>f.market!.book(next.at))):[];
+  if(f.market&&buys.length) {
+    const cargo=miningInventory(account.state);
+    const here=planned(f,{...stop,sell:[]},{tick:now,items:market.items??[]},now,item=>(buys.find(buy=>buy.item===item)?.qty??0)-(cargo[item]??0));
+    const [leg]=plan(cargo,free(f),[{book:here,buy:buys.map(buy=>buy.item),rate:TAX},
+      ...later.map((next,i)=>({book:planned(f,next,known[i],now,()=>0),rate:TAX}))]).legs;
+    sized=new Map(leg!.buys.map(buy=>[buy.item_id,buy.quantity]));
+  }
+  for(const {item,qty,max_price} of buys) {
     const row=book.get(item),ship=account.state.ship;
     // ponytail: a unit is one unit of hold. A bulkier item's buy is refused by the game and skipped.
-    const want=Math.min(qty-(miningInventory(account.state)[item]??0),(ship?.cargo_capacity??0)-(ship?.cargo_used??0));
+    const cap=Math.min(qty-(miningInventory(account.state)[item]??0),(ship?.cargo_capacity??0)-(ship?.cargo_used??0));
+    const want=Math.min(cap,sized?.get(item)??(sized?0:Infinity));
+    if(sized&&want<cap) {
+      const sellers=later.flatMap((next,i)=>next.sell.some(sale=>sale.item===item)?[{next,known:known[i]}]:[]);
+      scouted||=sellers.some(({known})=>!share(ageOf(known,now)));
+      f.report({why:`${stop.at}: sized ${item} to ${want} of ${cap}, what the later stops take above cost: `
+        +sellers.map(({next,known})=>heard(f,next,known,now,item)).join('; ')});
+    }
     let n=0,budget=(account.state.player?.credits??0)-FUEL_MONEY;
     for(const level of row?levels(row.sell_orders,row.best_sell,row.best_sell_qty):[]) {
       if(level.price_each>max_price||n>=want)break;
@@ -230,7 +328,7 @@ async function visit(f:Freighter,stop:Stop,leftover:Holding,stow:(item:string)=>
     await account.refresh();
   }
   f.report({credits:account.state.player?.credits??0});
-  return {traded,tick:Number(market.current_tick??0)};
+  return {traded,tick:now,scouted};
 }
 
 /** Stops in a row with no trade, laps in a row that lost money, and the cargo at cost, across laps. */
@@ -245,6 +343,25 @@ function aboard(holding:Holding,cargo:Record<string,number>):void {
   }
 }
 
+/** The lap planned before it is flown, from the hold aboard, on the host's books of every stop
+ * (`planned`, as each buy is sized), two laps ahead so a buy at the last stop sells at the first. A
+ * park, drained, when those plan at 0 or less; undefined when they pay, or when any stop has no book
+ * younger than `IGNORE_TICKS` (or no tick is known yet): the lap flies, and its reads decide the next.
+ * ponytail: the fuel is not in the planned net; `LOSING_LAPS` backs it. */
+async function lapPlan(f:Freighter,circuit:Circuit):Promise<Lap|undefined> {
+  const now=f.market?.tick();
+  if(!f.market||!now)return undefined;
+  const known=await Promise.all(circuit.stops.map(stop=>f.market!.book(stop.at)));
+  if(!known.every(book=>share(ageOf(book,now))))return undefined;
+  // Cargo the circuit never sells is cleared or stowed, not planned: a hold it blocks parks as blocked, not drained.
+  const sells=new Set(circuit.stops.flatMap(stop=>stop.sell.map(sale=>sale.item)));
+  const aboard=Object.entries(miningInventory(f.account.state)),hold=Object.fromEntries(aboard.filter(([item])=>sells.has(item)));
+  const room=free(f)+aboard.filter(([item])=>!sells.has(item)).reduce((sum,[,n])=>sum+n,0);
+  const {net}=plan(hold,room,[...circuit.stops,...circuit.stops].map((stop,i)=>({
+    book:planned(f,stop,known[i%known.length],now,item=>buysOf(stop).find(buy=>buy.item===item)?.qty??0),buy:buysOf(stop).map(buy=>buy.item),rate:TAX})));
+  return net>0?undefined:f.park(`lap planned at ${net} on fresh books (two laps ahead); circuit drained`,now);
+}
+
 /** Fly `circuit` once round, stop by stop, from wherever the freighter is. Never throws: every
  * failure is redone or parks it (see the module note). Ends with the lap's net reported. */
 export async function lap(f:Freighter,circuit:Circuit):Promise<Lap> {
@@ -257,10 +374,14 @@ export async function lap(f:Freighter,circuit:Circuit):Promise<Lap> {
   // `kept`: what was stowed, at cost; handed over like a deposit home, never a loss of this lap's.
   let home=0,kept=0,tick=0,opening:number|undefined,stocked=0,left:number|undefined,jumps=0;
   const sells=new Set(circuit.stops.flatMap(stop=>stop.sell.map(sale=>sale.item)));
+  const cargo=()=>miningInventory(f.account.state);
+  f.market?.claim(claims(circuit,0,cargo()));
+  const drained=await lapPlan(f,circuit);
+  if(drained)return drained;
   for(const [i,stop] of circuit.stops.entries()) {
     // Stowed at a new circuit's first stop, so lap 1 has the hold, and at every lap's last.
     const stowing=(fresh&&i===0)||i===circuit.stops.length-1;
-    let traded:number,tries=0;
+    let traded:number,scouted=false,tries=0;
     for(;;) {
       try {
         if(opening===undefined) {
@@ -280,7 +401,7 @@ export async function lap(f:Freighter,circuit:Circuit):Promise<Lap> {
           opening=wallet();
         }
         const leftover=Object.fromEntries(Object.entries(holding).filter(([item])=>!sells.has(item)));
-        ({traded,tick}=await visit(f,stop,leftover,item=>stowing&&!sells.has(item),credits=>{home+=credits;},(item,n,spent)=>{
+        ({traded,tick,scouted}=await visit(f,stop,[...circuit.stops.slice(i+1),...circuit.stops.slice(0,i)],leftover,item=>stowing&&!sells.has(item),credits=>{home+=credits;},(item,n,spent)=>{
           const row=holding[item]??={quantity:0,cost:0};row.quantity+=n;row.cost+=spent;},(item,n)=>{
           // Its units leave `holding` with the check after the stop; their cost goes into `kept` now.
           const row=holding[item];if(row)kept+=row.cost*Math.min(n,row.quantity)/row.quantity;}));
@@ -303,9 +424,12 @@ export async function lap(f:Freighter,circuit:Circuit):Promise<Lap> {
         if(f.recalled())return f.park('recalled');
       }
     }
-    aboard(holding,miningInventory(f.account.state));
+    aboard(holding,cargo());
     f.report({holding:structuredClone(holding)});
-    const dead=traded?0:(idle.get(f)??0)+1;
+    // What it carries on, claimed at the stop that sells it; what it sold, stowed or cleared is released.
+    f.market?.claim(claims(circuit,(i+1)%circuit.stops.length,cargo()));
+    // A stop that bought less for want of a book is scouting, not dead: the next lap sizes by what it read.
+    const dead=traded||scouted?0:(idle.get(f)??0)+1;
     idle.set(f,dead);
     if(dead>=DEAD_STOPS) {
       // A hold full of cargo this circuit never sells blocks every buy: the ring is not drained.
