@@ -81,9 +81,9 @@ const serviced=(facts:Facts)=>facts.holdings.fuel>=facts.holdings.max_fuel&&fact
 /** The same arithmetic travelTo applies before departure, from the same table, so an
  * option on the menu is one the script will accept (R5). */
 function trip(facts:Facts,site:Site,tag:Tag):Verdict {
-  const {fuel,max_fuel}=facts.holdings,reserve=resolveFuelReserve(facts.mood);
-  const required=site.quoted_fuel+reserve,job=`Travel to ${site.poi_id}`;
-  const quote=`route quotes ${site.quoted_fuel} fuel; with the ${facts.mood} reserve ${reserve} you need ${required}`;
+  const {fuel,max_fuel}=facts.holdings;
+  const required=site.quoted_fuel,job=`Travel to ${site.poi_id}`;
+  const quote=`route quotes ${site.quoted_fuel} fuel`;
   if(required>max_fuel)return no(tag,job,`${quote}, beyond the ${max_fuel} unit tank; a nearer site or a bigger tank admits it`);
   if(fuel<required)return no(tag,job,`${quote}, have ${fuel}; shortfall ${required-fuel} fuel units — refuel here or pick a nearer site`);
   // `goTo` is the barrel's one flight primitive and it takes any nameable id — a POI, a base or
@@ -268,11 +268,11 @@ const RULES:Rule[]=[
   {id:'stance.scout.J9',stance:'Scout',apply:facts=>{
     const job='J9 Price circuit walked';
     const loop=sites(facts).filter(site=>site.serviced_base).map(site=>trip(facts,site,'stance')).filter(verdict=>verdict.admissible);
-    if(loop.length<2)return no('stance',job,'fewer than two stations are quoted inside the fuel reserve; a nearer pair admits it');
+    if(loop.length<2)return no('stance',job,'fewer than two stations are quoted inside the tank; a nearer pair admits it');
     // The circuit's first act is reading the book where the ship already is: every `prices()`
     // writes the whole book to this runtime's market memory, which is the only place a far bid
     // can come from later (market.ts). The hops themselves are the travel rows.
-    return yes('stance',job,`${loop.length} stations inside the ${facts.mood} fuel reserve (${loop.map(v=>v.job.replace('Travel to ','')).join(', ')}); observations only, no capital committed`,
+    return yes('stance',job,`${loop.length} stations inside the tank (${loop.map(v=>v.job.replace('Travel to ','')).join(', ')}); observations only, no capital committed`,
       facts.place.kind==='base'?'prices()':undefined);
   }},
 ];

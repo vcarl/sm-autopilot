@@ -48,11 +48,13 @@ function fixture(local:boolean) {
   return {home,away,server,account,calls,quotes,command,movement};
 }
 
-for(const local of [true,false])test(`${local?'local':'cross-system'} return re-quotes loaded fuel cost and enforces the mood boundary`,async()=>{
-  // D2 expectations are independent of the production resolver used by travelTo.
-  for(const [mood,reserve] of [['Cautious',30],['Aggressive',12]] as const)for(const deficit of [0,1]) {
+for(const local of [true,false])test(`${local?'local':'cross-system'} return re-quotes loaded fuel cost and enforces the route boundary`,async()=>{
+  // The return leg is revalidated on its own loaded route cost and nothing more: the mood's
+  // reserve is where Tired begins, not a margin travel keeps (operator, 2026-09-26).
+  const reserve=0;
+  for(const deficit of [0,1]) {
     const f=fixture(local);
-    const outbound=await travelTo(f.account,f.command,f.away,{mood});
+    const outbound=await travelTo(f.account,f.command,f.away,{});
     assert.deepEqual(outbound.location,f.server.location);
     assert.equal(outbound.location!.docked_at,f.away.base_id);
     assert.equal(f.account.state.ship!.fuel,93);
@@ -69,7 +71,7 @@ for(const local of [true,false])test(`${local?'local':'cross-system'} return re-
     assert.ok(f.account.state.ship!.fuel>required);
     assert.ok(f.server.ship.fuel>f.quotes[0].cost+reserve,'outbound quote would wrongly permit the short return');
     const callIndex=f.calls.length;
-    const trip=travelTo(f.account,f.command,f.home,{mood});
+    const trip=travelTo(f.account,f.command,f.home,{});
     if(deficit) {
       await assert.rejects(trip,error=>error instanceof TravelBlocked&&
         error.message===`fuel_below_route_minimum: have ${required-1}, need ${required}; shortfall 1 fuel units`);

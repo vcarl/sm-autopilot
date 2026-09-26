@@ -25,7 +25,7 @@ when you know the neighbourhood and want the prey in it.
 ## Worked example
 
 ```ts
-import {orient, scout, goTo, missions, acceptMission, prices, note} from 'play';
+import {orient, scout, goTo, missions, acceptMission, prices, note, pilot} from 'play';
 
 export default async function main() {
   const start = await orient();
@@ -35,12 +35,14 @@ export default async function main() {
   for (const m of board.detail.board.filter(m => m.fits === 'goTo').slice(0, board.detail.slots_free))
     await acceptMission(m.mission_id);                    // "visit N stations" pays for the trip
 
-  // The neighbours, from the map the orient already read. `goTo` refuses a hop the mood's fuel
-  // reserve will not cover, so the circuit stops rather than stranding.
+  // The neighbours, from the map the orient already read. `goTo` refuses a hop the tank will not
+  // cover; a hop that takes fuel under the mood's reserve makes you Tired, so the circuit ends
+  // there and goes to be serviced.
   const here = await scout();
   for (const link of here.detail.connections.slice(0, 2)) {
     const hop = await goTo(link.system_id);
     if (hop.status !== 'done') { note(`stopped at ${link.system_id}: ${hop.why ?? ''}`); break; }
+    if (pilot().mood === 'Tired') { note(`Tired at ${link.system_id}; going to service`); break; }
     const seen = await scout();                           // first visit is what trains exploration
     note(`${seen.detail.system.name}: ${seen.detail.pois.length} POIs`);
     const station = seen.detail.pois.find(p => p.base_id);
@@ -54,7 +56,7 @@ export default async function main() {
 
 ## What a safe circuit looks like
 
-- Three unvisited systems on a loop that ends where it started, inside the fuel reserve with margin.
+- Three unvisited systems on a loop that ends where it started, the whole loop above the mood's fuel reserve (under it is Tired, and the circuit ends).
 - At least one station on the loop: a market to read, a board to accept from, fuel to buy.
 - `police_level` above 0 on every leg, or an Opportunistic/Aggressive mood that accepts it.
 
@@ -68,5 +70,6 @@ export default async function main() {
 - A jump that reports failure has often succeeded. `goTo` reads before it trusts; do not
   re-send jumps by hand.
 - Fuel out in a system with no station means a distress signal and an hour's wait. `goTo` refuses a
-  hop the mood's fuel reserve will not cover, so check every `hop.status` and stop on the first that
-  is not `done` — that refusal is the circuit turning back, and ignoring it is how a ship strands.
+  hop the tank will not cover, and a hop that lands you under the mood's fuel reserve makes you
+  Tired. Check every `hop.status` and `pilot().mood`, and stop on the first hop that is not `done`
+  or leaves you Tired: that is the circuit turning back, and ignoring it is how a ship strands.

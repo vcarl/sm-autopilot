@@ -190,8 +190,10 @@ export function distressPlan(quote:Pick<FindRouteResponse,'route'|'total_jumps'|
     stops.push({...row,extra,at:leg.total_jumps});
   }
   stops.sort((a,b)=>a.at-b.at);
-  // Each extra jump is paid twice, out and back. Drop the farthest stops until the tank
-  // covers the whole trip plus the mood's reserve.
+  // Each extra jump is paid twice, out and back. Drop the farthest stops until the whole trip
+  // ends above the mood's reserve. This is not travel admission (the trip itself needs only its
+  // route): a detour is optional work, and one that would take the tank under the reserve is
+  // work that makes the pilot Tired, so it is not taken.
   let extra=stops.reduce((sum,s)=>sum+s.extra,0);
   while(stops.length&&quote.fuel_available<quote.estimated_fuel+extra*quote.fuel_per_jump*2+reserve)
     extra-=stops.pop()!.extra;
@@ -219,12 +221,12 @@ async function distressStops(quote:FindRouteResponse,reserve:number):Promise<Sto
  * wherever the jump lands. The destination is always named: there is no default.
  *
  * Over `find_route` + `jump`/`travel` + `dock` it adds: base ids resolved to their POI before
- * the arrival wait, the mood's fuel reserve, a refuel first when docked and short, and one
+ * the arrival wait, a fuel check that the tank covers the route, a refuel first when docked and short, and one
  * `partial` on stop instead of a wedged runner.
  *
  * On the way it answers active distress calls: a mission whose system is on the route, or at
  * most `DETOUR_JUMPS` off it while all detours together stay inside `DETOUR_SHARE` of the
- * route and the tank still covers the rest plus the reserve, is flown through and claimed
+ * route and the whole trip still ends above the mood's reserve, is flown through and claimed
  * with `complete_mission`. It never accepts a mission, and never detours under Tired.
  *
  * Idempotent: already there (and docked, if a base) sends nothing and is `done`. */
@@ -270,12 +272,11 @@ export function goTo(id:string):Promise<Outcome<Trip>> {
       +(stops.length?`, answering ${stops.length} distress call(s) at ${stops.map(s=>s.system).join(', ')}`:''));
     let jumps=0;
     const answered:string[]=[];
-    // The mood is read per leg and per quote inside it (`moodNow`), never frozen at the top of
-    // the trip: Tired's reserve is 0 where the mood it replaced kept 30, and a crossing
-    // mid-route is exactly when the stale reserve would refuse the leg to a counter.
+    // The mood is read when it is needed, never frozen at the top of the trip: a leg that takes
+    // fuel under the reserve imposes Tired mid-route, and the refuel is Tired's to buy.
     const flying=():Mood=>pilot().mood??'Cautious';
     const fly=(destination:{system_id:string;poi_id?:string})=>travelTo(acct(),command,destination,{
-      mood:flying(),moodNow:flying,maxJumps:null,
+      maxJumps:null,
       checkpoint:async()=>checkStop(),
       onJump:()=>{jumps++;step(`jump ${jumps} of ${planned}, fuel ${acct().state.ship?.fuel}`);},
       refuel:async()=>{try {await serviceShip(acct(),command,{mood:flying(),creditReserve:who.permissions?.credit_reserve??0});} catch {/* the fuel check after decides */}},
@@ -310,7 +311,7 @@ export function goTo(id:string):Promise<Outcome<Trip>> {
         // `did` says where the ship actually is rather than claiming it never left.
         return {status:jumps?'partial':'refused',
           did:jumps?`stopped at ${acct().state.location?.system_id} short of ${target} after ${jumps} jump(s)${answered.length?`; ${answered.join('; ')}`:''}`:`did not fly to ${target}`,
-          why:`fuel ${actualFuel}, need ${requiredFuel} with the ${flying()} reserve; short ${shortfall}`,
+          why:`fuel ${actualFuel}, the route needs ${requiredFuel}; short ${shortfall}`,
           detail:{...detail(),jumps},next:['service() where you are docked, or a nearer destination']};
       }
       throw error;

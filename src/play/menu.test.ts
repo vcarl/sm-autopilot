@@ -391,19 +391,20 @@ test('the undocked hunt row claims a legal creature only when one was observed',
   } finally {live.close();}
 });
 
-test('an undocked pilot short of fuel is offered the route to a counter in a mood Tired never reaches',async()=>{
-  // The wedge that stranded the pilot for six hours on 2026-09-24, one mood over: Aggressive holds a
-  // reserve of 12, so fuel 15 never crosses into Tired, `flies()` still refuses the belt at 7+12, and
+test('an undocked pilot short of fuel for every route is offered the route to a counter',async()=>{
+  // The wedge that stranded the pilot for six hours on 2026-09-24: `flies()` refused the belt and
   // `service()` is pushed only when docked. Every row refused, `moves` empty, nothing to paste.
+  // `flies()` now asks only whether the tank covers the route (7); the reserve is where Tired
+  // begins (operator, 2026-09-26). The record here is fixed, so the mood stays Aggressive.
   const out=world({mood:'Aggressive',stance:'Prospector',goal:'obtain credits'},{cargoUsed:6});
   try {
     out.account.server.location.docked_at=null;out.account.server.location.poi_id='belt';
-    out.account.server.ship.fuel=15;
+    out.account.server.ship.fuel=5;
     const built=await menu(out.runtime);
-    assert.ok(built.not_now.some(row=>/fuel 15, need 19 with the Aggressive reserve 12/.test(row.why)),JSON.stringify(built.not_now));
+    assert.ok(built.not_now.some(row=>/fuel 5, the route to \S+ needs 7/.test(row.why)),JSON.stringify(built.not_now));
     const exit=built.moves.find(m=>m.call==="goTo('sol_base')");
     assert.ok(exit,`no way to fuel: ${JSON.stringify(built.moves)}`);
-    assert.match(exit!.why,/fuel 15, need 19 with the Aggressive reserve 12; Sol Base in sol/);
+    assert.match(exit!.why,/fuel 5, the route to \S+ needs 7; Sol Base in sol/);
     // It unblocks every row the shortfall refused, so it is the move the pilot reads first.
     assert.equal(built.moves[0]!.call,"goTo('sol_base')",JSON.stringify(built.moves));
   } finally {out.close();}
@@ -411,7 +412,7 @@ test('an undocked pilot short of fuel is offered the route to a counter in a moo
   // and no route to another base is added on top of it.
   const home=world({mood:'Aggressive',stance:'Prospector',goal:'obtain credits'},{cargoUsed:6});
   try {
-    home.account.server.ship.fuel=15;
+    home.account.server.ship.fuel=5;
     const built=await menu(home.runtime);
     assert.ok(built.moves.some(m=>m.call==='service()'),JSON.stringify(built.moves));
     assert.ok(!built.moves.some(m=>m.call.startsWith("goTo('sol_base')")),JSON.stringify(built.moves));

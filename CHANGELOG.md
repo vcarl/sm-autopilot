@@ -26,6 +26,15 @@ All notable changes to this plugin are recorded here. The format follows
 
 ### Changed
 
+- A trip needs only the fuel its route costs. The mood's fuel reserve (Focused 24, Relaxed and
+  Cautious 30, Opportunistic 20, Aggressive 12, Tired 0) is no longer added to travel admission,
+  before departure or before the return leg; it is the line under which the runtime imposes
+  Tired, and so the trigger for resupply. Before, a pilot with 26 fuel was refused a 4-fuel trip
+  for want of Focused's 24 and, never crossing the line, was never Tired either. The menu's
+  travel rows, `freightBoard`'s `reachable` and `hunt`'s per-hop check follow the same rule; a
+  hunt hop that lands under the reserve ends the search Tired before any fight. Distress detours
+  in `goTo` are still only taken when the whole trip stays above the reserve. The freighter's
+  own 10-unit travel margin and the internal standing reserve floor are gone with it.
 - The Python sources pass `ruff check` with its default rules: imports sorted, annotations
   unquoted, and the deliberate broad `except` clauses marked as such.
 - `play.py` is executable, matching its shebang.

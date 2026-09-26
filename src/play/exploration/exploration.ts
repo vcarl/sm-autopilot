@@ -14,7 +14,7 @@ export interface Explored {
 
 /** Visit up to `systems` (default 2) unvisited systems within `jumps` (default 2) of here,
  * docking at each one's first station to read its board and market, then come home. Picks
- * the loop that visits the most unvisited systems inside the mood's fuel reserve, skipping
+ * the loop that visits the most unvisited systems the tank covers, skipping
  * (Cautious, Focused) police 0. Trains exploration (first visits),
  * navigation, piloting; scanning when `survey:true` runs a `survey_system` in each. Costs
  * fuel. Every system entered lands in the scout cache, so `scout(id)` answers from it

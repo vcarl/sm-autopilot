@@ -57,7 +57,7 @@ export default async function main() {
     note('that list is empty; pick another system next run');
     return out;
   }
-  if (out.detail.ended === 'fuel') return out;     // the reserve refused the next hop; go refuel
+  if (out.detail.ended === 'fuel') return out;     // the tank cannot cover the next hop; go refuel
 
   if (dock) { await goTo(dock); await stow(out.gained.items); return service(); }
   return out;
@@ -66,10 +66,10 @@ export default async function main() {
 
 Three things to know about it:
 
-- **The looking is bounded by fuel.** Every hop is re-quoted and checked against your mood's fuel
-  reserve, and a hop the reserve refuses **ends** the search with `ended: 'fuel'` naming the place
-  — if you cannot afford the next POI you cannot afford the one after it. The search never spends
-  into the reserve to go looking.
+- **The looking is bounded by fuel.** Every hop is re-quoted and checked against the tank, and a
+  hop the tank cannot cover **ends** the search with `ended: 'fuel'` naming the place — if you
+  cannot afford the next POI you cannot afford the one after it. A hop that takes fuel under your
+  mood's reserve makes you Tired, and the search ends there with `ended: 'tired'`: go service.
 - **Every look is remembered, the empty ones included.** An empty belt is the more useful of the
   two facts: it is what stops you paying for the same dead rock next shift. A remembered look
   reports its own age, and an absence expires sooner than a sighting, because believing "nothing

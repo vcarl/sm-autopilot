@@ -450,20 +450,34 @@ test('a search that finds nothing anywhere is done, and names every place it loo
 });
 
 test('a search stops at the first place the fuel cannot reach, and never departs on the hop',async()=>{
-  // The stranding case, which is the one that kills a pilot: fuel spent looking, with nothing
-  // left to reach a counter. The mood's reserve is the bound, and the search ends rather than
-  // skipping on — a pilot that cannot afford the second POI cannot afford the third either.
+  // The tank is the bound on a hop, and the search ends rather than skipping on — a pilot
+  // that cannot afford the second POI cannot afford the third either.
   const f=worldWithMemory({mood:'Focused'},{wildlife:{creatures:[{...grazer,poi:'far_belt'}],polls:1}});
   try {
     f.account.server.location.docked_at=null;f.account.server.location.poi_id='belt';
-    // Focused keeps 24 back and the route quotes 7, so 30 is one unit short of the 31 it needs.
-    f.account.server.ship.fuel=30;
+    // The route quotes 7, so 6 is one unit short.
+    f.account.server.ship.fuel=6;
     const out=await hunt({species:'molt_grazer',look:['belt','far_belt']});
     assert.equal(out.detail.ended,'fuel',JSON.stringify(out.detail));
     assert.equal(f.count('spacemolt/jump'),0,'the hop it could not afford was flown anyway');
     assert.match(out.why??'',/fuel/,out.why);
     assert.match(out.why??'',/far_belt/,`the POI that stopped the search is not named: ${out.why}`);
-    assert.equal(out.now.ship.fuel,30,'the search spent fuel it had refused to spend');
+    assert.equal(out.now.ship.fuel,6,'the search spent fuel it had refused to spend');
+  } finally {unbind();}
+});
+
+test('a hop the tank covers but that crosses the reserve is flown, and the search ends Tired before any fight',async()=>{
+  // The reserve is where Tired begins, not a margin on the hop (operator, 2026-09-26): Focused
+  // keeps 24, the route quotes 7, and 30 flies it and lands under the line.
+  const f=worldWithMemory({mood:'Focused'},{wildlife:{creatures:[{...grazer,poi:'far_belt'}],polls:1}});
+  try {
+    f.account.server.location.docked_at=null;f.account.server.location.poi_id='belt';
+    f.account.server.ship.fuel=30;
+    const out=await hunt({species:'molt_grazer',look:['belt','far_belt']});
+    assert.equal(out.detail.ended,'tired',JSON.stringify(out.detail));
+    assert.equal(out.detail.fights.length,0,'a Tired pilot started a fight');
+    assert.equal(out.status,'partial');
+    assert.ok(out.now.ship.fuel<24,`fuel ${out.now.ship.fuel}`);
   } finally {unbind();}
 });
 

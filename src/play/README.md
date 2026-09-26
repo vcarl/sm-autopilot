@@ -125,7 +125,7 @@ sees the real types, so these are not style notes.
 |---|---|
 | `orient()` | the whole world model in one read: present, skills, storage everywhere, ships, missions, debts |
 | `scout(target?)` | POIs of a system (this one by default) with types, stations, resources here, creatures here |
-| `goTo(id)` | fly to a POI, base or system, jumping as needed; dock if a base. Any of the three ids works, or a display name: a system id with one base ends docked at that base (a system with several ends wherever the jump lands, undocked, and `prices()` there is refused until you `goTo` a base id), a POI id at that POI, a base id docked at it. A display name works for a base in this system or in the market memory (any base you have read `prices()` at); a guess that names a system with a single base goes to that base, and any other word that names nothing is `refused` with the nearest ids, remembered bases among them, instead of being flown. On the way it flies through and completes any active distress mission whose system is on the route or one jump off it, when the detour stays inside a quarter of the route's length and the tank still covers the rest plus the reserve |
+| `goTo(id)` | fly to a POI, base or system, jumping as needed; dock if a base. Any of the three ids works, or a display name: a system id with one base ends docked at that base (a system with several ends wherever the jump lands, undocked, and `prices()` there is refused until you `goTo` a base id), a POI id at that POI, a base id docked at it. A display name works for a base in this system or in the market memory (any base you have read `prices()` at); a guess that names a system with a single base goes to that base, and any other word that names nothing is `refused` with the nearest ids, remembered bases among them, instead of being flown. On the way it flies through and completes any active distress mission whose system is on the route or one jump off it, when the detour stays inside a quarter of the route's length and the whole trip still ends above the mood's fuel reserve. A leg is flown when the tank covers its quoted route; no reserve is kept on top |
 | `service()` | full tank and hull at the counter you are docked at, the repair inside the mood's spend margin; fuel is resupply and only `permissions.credit_reserve` bounds it. A station bills for fuel and repairs after the fact, so it needs no posted price: where it posts one, that is the estimate the spend is checked against first; where it posts none — which is most stations for the hull — the charge itself is checked against `permissions.credit_reserve` and, for the repair, the margin, and nothing further is bought if it breaches either |
 | `stow(rows)` / `withdraw(rows)` / `storage(base?)` | station storage; rows you name (omit a row's `quantity` for all of it); readable from anywhere |
 | `prices(items?)` / `sell(rows, opts?)` / `buy(item, qty)` | the market here, live at the moment of the act, and remembered for `spreads()`. `sell`'s options are exactly two: `{from: 'hold' \| 'store'}` (default `'hold'`; `'store'` empties the store a hold-load at a time) and `{floor: {[item_id]: number}}` (skip a row whose `best_buy` is under it). There is no option naming a market — `sell` is always the counter you are docked at |
@@ -203,12 +203,14 @@ export default async function main() {
 
 ## Mood and Tired
 
-You choose a mood at rest. It sets margins: fuel kept beyond a route, credits a single repair
+You choose a mood at rest. It sets margins: the fuel line under which you are Tired, credits a single repair
 may spend (never a refuel: fuel is resupply, and no mood strands a ship), the hull fraction a fight breaks off at. When fuel, hull or credits fall through the
 margin, the runtime imposes **Tired**: the function you are in finishes and nothing new starts,
 until the ship is brought back up. Tired then **widens** what a resupply may do rather than
 narrowing where you may go — it lifts the mood's own spend margin and drops its fuel reserve to 0.
-It never refuses a flight: `goTo` any base you like. Docked anywhere, `service()` is the move:
+The fuel reserve is **not** kept back from travel: a trip is flown when the tank covers its route,
+and a leg that takes fuel under the reserve is how Tired arrives — the resupply trigger, working as
+meant. It never refuses a flight: `goTo` any base you like. Docked anywhere, `service()` is the move:
 a counter does not need to post a price to refuel or repair. Which base, when you are out: the
 suggested moves already carry every price that is readable from here, so take them rather than
 re-reading. `inspect` reaches **this system only** — `account().commands.spacemolt.inspect({id})` on a base in another system throws "You can
@@ -274,7 +276,7 @@ not the normal one.
   `process`, `fetch`, `eval`, dynamic `import()`; `while(true)`/`for(;;)` without a
   `stopped()` check; `unload_passenger` with id `all`; a file with no `export default async function main`.
 - At runtime, inside the helpers: spending under `permissions.credit_reserve`; a route
-  without the mood's fuel reserve; starting work under Tired or Relaxed. Tired refuses *work*,
+  the tank cannot cover; starting work under Tired or Relaxed. Tired refuses *work*,
   never movement or resupply.
 
 ## Asking yourself a question mid-run

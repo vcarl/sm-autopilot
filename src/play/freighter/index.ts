@@ -98,10 +98,10 @@ export interface Freighter {
 }
 type Stop=Circuit['stops'][number];
 
-/** ponytail: fuel units kept beyond each leg's quote, and credits never spent on cargo so a tank
- * can always be bought. Flat numbers, not the hull's: a Titan burns 7 a jump and fills for
- * ~1600 cr. Tunable. */
-const FUEL_RESERVE=10,FUEL_MONEY=2_000;
+/** ponytail: credits never spent on cargo so a tank can always be bought. A flat number, not
+ * the hull's: a Titan fills for ~1600 cr. Tunable. A leg keeps no fuel beyond its quote; the
+ * mood's reserve is where Tired begins, and the circuit services at every stop. */
+const FUEL_MONEY=2_000;
 /** ponytail: the tax a buy is sized against, above the live 250 bps so a buy never overdraws. */
 const TAX=0.05;
 /** Stops in a row with no trade before the circuit is called dead. */
@@ -237,7 +237,7 @@ async function fly(f:Freighter,stop:Stop):Promise<number> {
   const now=typeof quote.target_system==='string'&&quote.target_system?quote.target_system:stop.system_id;
   if(now!==stop.system_id){f.report({moved:{at:stop.at,system_id:now}});stop.system_id=now;}
   const {jumps}=await travelTo(account,command,{system_id:stop.system_id,poi_id:String(quote.target_poi??stop.at),base_id:stop.at},
-    {reserve:FUEL_RESERVE,maxJumps:null,refuel:()=>service(f,stop)});
+    {maxJumps:null,refuel:()=>service(f,stop)});
   return jumps;
 }
 /** Tired's service margin is the wallet itself; the reserve is 0, and the fill is checked after. A
@@ -485,7 +485,7 @@ export async function scoutHop(f:Freighter,to:{at?:string;system_id:string}):Pro
         await f.account.refresh();
         const from=f.account.state.location?.docked_at??'';
         if(f.account.state.location?.system_id!==to.system_id)await travelTo(f.account,f.command,{system_id:to.system_id},
-          {reserve:FUEL_RESERVE,maxJumps:null,refuel:()=>service(f,{at:from,system_id:'',sell:[]})});
+          {maxJumps:null,refuel:()=>service(f,{at:from,system_id:'',sell:[]})});
         return {};
       }
       const {tick,items}=await visit(f,{at:to.at,system_id:to.system_id,sell:[]},[],holding,()=>false,()=>{},()=>{},()=>{});

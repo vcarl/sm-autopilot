@@ -90,11 +90,11 @@ function expectedQuotes(reserve:number) {
   ];
 }
 
-test('loaded two-jump return re-quotes each leg and docks with the effective reserve retained',async()=>{
-  // Independent D2 expectation; production travelTo resolves the mood itself.
-  for(const floor of [undefined,30.5]) {
-    const reserve=floor??24,options:TravelOptions={mood:'Focused',
-      standingPolicy:floor===undefined?undefined:{fuelReserveFloor:floor}};
+test('loaded two-jump return re-quotes each leg and docks with only what it carried beyond the route',async()=>{
+  // `reserve` here is spare fuel the ship happens to carry, not a margin travel demands: the
+  // leg is admitted on its route alone, so zero spare still flies home (operator, 2026-09-26).
+  for(const reserve of [0,6.5]) {
+    const options:TravelOptions={};
     const f=fixture();await outbound(f,options,reserve);
     const callIndex=f.calls.length;
     const result=await travelTo(f.account,f.command,f.home,options);
@@ -122,9 +122,8 @@ test('loaded two-jump return re-quotes each leg and docks with the effective res
 });
 
 test('fuel loss after either return jump blocks the next jump or paid local leg despite stale cache',async()=>{
-  for(const floor of [undefined,30.5])for(const lossAt of ['b','a']) {
-    const reserve=floor??24,options:TravelOptions={mood:'Focused',
-      standingPolicy:floor===undefined?undefined:{fuelReserveFloor:floor}};
+  for(const lossAt of ['b','a']) {
+    const reserve=0,options:TravelOptions={};
     const f=fixture(lossAt);await outbound(f,options,reserve);
     const callIndex=f.calls.length,required=(lossAt==='b'?10:4)+reserve;
     await assert.rejects(travelTo(f.account,f.command,f.home,options),error=>error instanceof TravelBlocked&&
@@ -147,7 +146,7 @@ test('fuel loss after either return jump blocks the next jump or paid local leg 
 });
 
 test('a re-sent jump answered "already in" the jump target completes the route; "already in" elsewhere is still an error',async()=>{
-  const options:TravelOptions={mood:'Focused'};
+  const options:TravelOptions={};
   // The runtime re-issues a jump once after a dropped socket: the first landed, so the
   // re-send is refused, and the refusal arrives after the ship has already moved.
   const f=fixture();await outbound(f,options,24);

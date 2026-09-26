@@ -2,7 +2,6 @@
  * carrier tier (probationary → licensed at 5 deliveries → trusted → prime), which is the
  * only thing that raises the liability you may carry. */
 import type {CarrierProfile,ShipmentContract,ShippingActiveContract,ShippingActiveResponse,ShippingContractResponse,ShippingListResponse,ShippingListing,ShippingProfileResponse,ShippingSettlementResponse,V2CargoItem} from '@spacemolt/lib';
-import {resolveFuelReserve} from '../../mood-policy.ts';
 import {details} from '../../response-details.ts';
 import {acct,admit,checkStop,command,job,pilot,step} from '../runtime.ts';
 import {withdraw} from '../storage.ts';
@@ -59,7 +58,7 @@ function overLimit(liability:number,profile:ShippingProfileResponse):string|null
  * `permissions.max_liability` refuse are dropped, and what is left is sorted by net reward
  * per fuel unit. Reads only. `next` names the best three.
  *
- * `reachable` is fuel only — whether the quoted route fits inside the mood's fuel reserve.
+ * `reachable` is fuel only — whether the tank covers the quoted route.
  * The lib gives a deadline in ticks and a route in jumps with no published tick cost per
  * jump, so a deadline is not checked here; read `deadline_ticks` yourself. */
 export function freightBoard(opts:{destination?:string;limit?:number}={}):Promise<Outcome<Board>> {
@@ -73,7 +72,7 @@ export function freightBoard(opts:{destination?:string;limit?:number}={}):Promis
       {sort:'reward',...opts.destination?{filter_destination:opts.destination}:{}})) as ShippingListResponse;
     const offered=(reply.shipments??[]).filter(row=>row.eligible&&!overLimit(liabilityOf(row.contract),profile));
     const fuelPrice=Number(details(await command('spacemolt/get_base',{})).fuel_price_all_in??1);
-    const ship=acct().state.ship,reserve=resolveFuelReserve(pilot().mood??'Cautious');
+    const ship=acct().state.ship;
     const free=freeCargo();
     // ponytail: one find_route per listing, so only the top `limit` by reward are quoted.
     const rows:Board['listings']=[];
@@ -81,7 +80,7 @@ export function freightBoard(opts:{destination?:string;limit?:number}={}):Promis
       checkStop();
       let fuel=Infinity;
       try {fuel=Number((await route(row.contract.destination_base_id)).estimated_fuel??0);} catch {/* unroutable: left at Infinity */}
-      rows.push({...row,fuel,reachable:Number.isFinite(fuel)&&fuel+reserve<=(ship?.fuel??0),
+      rows.push({...row,fuel,reachable:Number.isFinite(fuel)&&fuel<=(ship?.fuel??0),
         fits:PACKAGE_CARGO<=free,liability:liabilityOf(row.contract),
         net:row.contract.base_reward-(Number.isFinite(fuel)?fuel*fuelPrice:0)});
     }

@@ -2,7 +2,6 @@ import {SpacemoltError,type GameState} from '@spacemolt/lib';
 import type {ReadinessAccount,ReadinessCommand} from './readiness.ts';
 import {details} from './response-details.ts';
 import {routeSteps} from './normal-route.ts';
-import {resolveFuelReserve,type Mood,type StandingFuelPolicy} from './mood-policy.ts';
 import {dockAt} from './dock.ts';
 import {position,reconcileMove,type Position,type Reconciliation} from './reconcile.ts';
 
@@ -11,7 +10,7 @@ export interface FuelRouteEvidence {
   kind:'available_fuel'|'capacity';
   actualFuel:number;
   quotedCost:number;
-  effectiveReserve:number;
+  /** The quoted route cost: admission keeps no reserve on top (the reserve is where Tired begins). */
   requiredFuel:number;
   /** Required minus available fuel; capacityShortfall measures tank infeasibility separately. */
   shortfall:number;
@@ -26,7 +25,7 @@ export class FuelRouteShortfall extends TravelBlocked {
   constructor(evidence:FuelRouteEvidence) {
     const {actualFuel,requiredFuel,shortfall}=evidence;
     super(evidence.kind==='capacity'?
-      `fuel_below_route_minimum: route and reserve exceed tank capacity; shortfall ${shortfall} fuel units; capacity shortfall ${evidence.capacityShortfall} fuel units`:
+      `fuel_below_route_minimum: route exceeds tank capacity; shortfall ${shortfall} fuel units; capacity shortfall ${evidence.capacityShortfall} fuel units`:
       `fuel_below_route_minimum: have ${actualFuel}, need ${requiredFuel}; shortfall ${shortfall} fuel units`);
     // Later refreshes and caller mutations must not rewrite a refusal's observations.
     this.evidence=structuredClone(evidence);
@@ -81,18 +80,13 @@ export async function battleNow(send:ReadinessCommand):Promise<BattleNow|undefin
 
 
 export interface TravelDestination {system_id:string;poi_id?:string;base_id?:string}
+/** A leg is admitted when the tank covers its quoted route, and nothing more. The mood's fuel
+ * reserve is not a travel margin: it is the line under which the runtime imposes Tired
+ * (`crossed` in play/runtime.ts), and Tired's own rules send the pilot to service. A margin
+ * added here kept fuel above that line forever, so Tired never fired and a pilot with 26 fuel
+ * was refused a 4-fuel trip for want of Focused's 24 (operator's decision, 2026-09-26). */
 export interface TravelOptions {
-  mood?:Mood;
-  /** The mood this leg is quoted on, read as each quote is taken. The runtime imposes Tired
-   * between any two commands and Tired carries its own fuel reserve, so a route already under
-   * way must be quoted against the mood in force now — the mood it departed under refuses the
-   * resupply leg the crossing exists to allow. Defaults to `mood`, which is what a caller with
-   * no live pilot record has. Same shape as `GatherOptions.moodNow`, for the same reason. */
-  moodNow?:()=>Mood;
-  /** Internal standing policy; tightens the mood, never a model-facing allocation. */
-  standingPolicy?:StandingFuelPolicy;
-  /** Internal script allocations only; cannot override a mood's reserve. */
-  reserve?:number;maxJumps?:number|null;
+  maxJumps?:number|null;
   checkpoint?:(settled?:boolean)=>Promise<void>;
   beforeMove?:()=>Promise<void>;
   refuel?:(minimum:number)=>Promise<void>;
@@ -147,18 +141,8 @@ const retryable=(error:unknown)=>error instanceof SpacemoltError&&!error.pending
 /** One shared movement path; policy, spending and command ownership stay with the caller. */
 export async function travelTo(account:ReadinessAccount,command:ReadinessCommand,destination:TravelDestination,options:TravelOptions={}) {
   if(battleHolds)throw new InBattle('a battle already refused this ship\'s last move and nothing has ended it since');
-  if(options.mood!==undefined&&options.reserve!==undefined)throw new TravelBlocked('Travel mood cannot be combined with a numeric reserve');
-  if(options.standingPolicy!==undefined&&options.mood===undefined)throw new TravelBlocked('A standing fuel policy requires a travel mood');
-  if(options.mood===undefined&&options.reserve===undefined)throw new TravelBlocked('Travel requires a mood or an internal script allocation');
-  /** The reserve the next quote is taken against, read then rather than once at departure:
-   * the mood moves mid-route and the reserve is what the mood picks. */
-  const fuelReserve=():number=>{
-    try {return options.mood!==undefined?resolveFuelReserve(options.moodNow?.()??options.mood,options.standingPolicy):options.reserve!;}
-    catch(error){throw new TravelBlocked(String(error));}
-  };
-  let reserve=fuelReserve();
   let maxJumps=options.maxJumps===null?null:options.maxJumps??2;
-  if(!destination.system_id||!Number.isFinite(reserve)||reserve<0||(maxJumps!==null&&(!Number.isSafeInteger(maxJumps)||maxJumps<0)))throw new TravelBlocked('Invalid travel destination or allocation');
+  if(!destination.system_id||(maxJumps!==null&&(!Number.isSafeInteger(maxJumps)||maxJumps<0)))throw new TravelBlocked('Invalid travel destination or allocation');
   const stable=(s:GameState)=>Boolean(s.location?.system_id&&!s.location.in_transit);
   const arrived=(s:GameState)=>stable(s)&&s.location!.system_id===destination.system_id&&
     (!destination.poi_id||s.location!.poi_id===destination.poi_id);
@@ -197,16 +181,13 @@ export async function travelTo(account:ReadinessAccount,command:ReadinessCommand
     if((result.fuel_available!==undefined&&result.fuel_available!==ship.fuel)||(result.cargo_used!==undefined&&result.cargo_used!==ship.cargo_used))throw new TravelBlocked('Route quote does not match current fuel or cargo');
     // Objective travel admits this finite route, not an unlimited rerouting loop.
     maxJumps??=steps.length;
-    // The reserve belongs to this quote, read after the route command that may have imposed the
-    // mood it is read from: the crossing lands in a command's own return, never between legs.
-    reserve=fuelReserve();
-    return {steps,cost:result.estimated_fuel as number,required:result.estimated_fuel+reserve,origin:location!,ship};
+    return {steps,cost:result.estimated_fuel as number,required:result.estimated_fuel as number,origin:location!,ship};
   };
   while(!arrived(account.state)) {
     await checkpoint();
     let plan=await quote();
     const fuelShortfall=(kind:FuelRouteEvidence['kind'])=>new FuelRouteShortfall({
-      kind,actualFuel:account.state.ship!.fuel,quotedCost:plan.cost,effectiveReserve:reserve,
+      kind,actualFuel:account.state.ship!.fuel,quotedCost:plan.cost,
       requiredFuel:plan.required,shortfall:plan.required-account.state.ship!.fuel,
       ...(kind==='capacity'?{capacityShortfall:plan.required-account.state.ship!.max_fuel}:{}),
       destination,observed:{ship:account.state.ship,location:account.state.location},quoteOrigin:plan.origin,

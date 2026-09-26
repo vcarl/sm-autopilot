@@ -1,7 +1,7 @@
 /** Hunting: wildlife anywhere (legal everywhere), pirates in low-police space. The only loops
  * that train weapons, gunnery, tactics, and — by being hit — shields and armor. */
 import type {CreatureInfo,EnrichedWreck,GetBattleStatusResponse,GetNearbyResponse,PirateInfo,V2Module,V2Ship} from '@spacemolt/lib';
-import {resolveFuelReserve,resolveWalkAway} from '../../mood-policy.ts';
+import {resolveWalkAway} from '../../mood-policy.ts';
 import {details} from '../../response-details.ts';
 import {battleEnded} from '../../travel.ts';
 import {active as activeMissions} from '../missions.ts';
@@ -41,7 +41,7 @@ export interface Hunted {
   /** Every place looked at, in order. One entry for a hunt that stood still. */
   looked:Looked[];
   /** Why the loop ended: `asked` fights done, nothing at the one place looked, nothing at any
-   * of several, the fuel reserve refusing the next hop, hull line, hold full, tired. */
+   * of several, a tank that cannot cover the next hop, hull line, hold full, tired. */
   ended:'asked'|'nothing here'|'nothing found'|'fuel'|'hull'|'hold full'|'stopped'|'tired';
 }
 
@@ -414,9 +414,9 @@ const say=(rows:Row[])=>rows.map(row=>`${row.quantity} ${row.item_id}`).join(', 
  * a lie (`sighting-memory.ts`).
  *
  * **The looking is bounded by fuel.** Before each hop the route is re-quoted and checked
- * against the mood's fuel reserve, and the search ENDS rather than skipping on: a pilot that
+ * against the tank, and the search ENDS rather than skipping on: a pilot that
  * cannot afford the next POI cannot afford the one after it either, and `ended:'fuel'` names the
- * place that stopped it. `goTo` enforces the same reserve itself — this check is what lets the
+ * place that stopped it. `goTo` enforces the same check itself — this check is what lets the
  * search stop cleanly and say where, instead of accumulating refusals.
  *
  * Nothing to hunt is `done`, never `refused`: the fact was learned and nothing was spent
@@ -466,7 +466,7 @@ export function hunt(opts:{poi?:string;look?:string[];fights?:number;species?:st
     if(blocked)return refuse(blocked);
     const gap=await loadout();
     if(gap)return refuse(gap);
-    /** Why the search stopped travelling, when the fuel reserve is what stopped it. */
+    /** Why the search stopped travelling, when the tank is what stopped it. */
     let shortFuel='';
     // The hull line the mood draws, read at each check rather than once at the top: the pilot
     // record moves under a running loop (the runtime imposes Tired, the observer rewrites the
@@ -486,10 +486,9 @@ export function hunt(opts:{poi?:string;look?:string[];fights?:number;species?:st
       checkStop();
       let flew=false;
       if(where&&acct().state.location?.poi_id!==where) {
-        // Re-quoted per hop, against the reserve as it stands now: the runtime imposes Tired
-        // under a running loop, and Tired keeps nothing back, so a reserve captured at the top
-        // would be the wrong number by the time the search got here.
-        const reserve=resolveFuelReserve(pilot().mood??'Cautious');
+        // Re-quoted per hop, against the fuel as it stands now. The tank must cover the route and
+        // nothing more: a hop that takes fuel under the mood's reserve imposes Tired, and the
+        // search ends there, before a look can start a fight a Tired pilot may not.
         const fuel=Number(acct().state.ship?.fuel??0);
         let quoted=NaN;
         try {quoted=Number((await route(where)).estimated_fuel);} catch {/* unplaceable below */}
@@ -499,8 +498,8 @@ export function hunt(opts:{poi?:string;look?:string[];fights?:number;species?:st
           step(`${where}: no route there, skipped`);
           continue;
         }
-        if(fuel<quoted+reserve) {
-          shortFuel=`fuel ${fuel}, and reaching ${where} needs ${quoted+reserve} with the ${pilot().mood} reserve ${reserve}`;
+        if(fuel<quoted) {
+          shortFuel=`fuel ${fuel}, and reaching ${where} needs ${quoted}`;
           result.ended='fuel';
           break;
         }
@@ -511,6 +510,7 @@ export function hunt(opts:{poi?:string;look?:string[];fights?:number;species?:st
           break;
         }
         flew=true;
+        if(pilot().mood==='Tired'){result.ended='tired';break;}
       }
       result.poi_id=acct().state.location?.poi_id??where;
       // The look. One read answers what is at this POI and nothing about any other, which is
@@ -622,7 +622,7 @@ export function hunt(opts:{poi?:string;look?:string[];fights?:number;species?:st
         why:`${shortFuel}; looked at ${trailSaid}`,detail:result,
         next:['goTo a base and service(), then hunt a nearer list']};
     const did=`${result.fights.length} fight(s) at ${result.poi_id}: ${say(loot)||'no loot'}, hull ${hull}/${acct().state.ship?.max_hull??'?'}`;
-    if(result.ended==='tired')return {status:'partial',did,why:'Tired: broke off after the round in flight',detail:result,
+    if(result.ended==='tired')return {status:'partial',did,why:result.fights.length?'Tired: broke off after the round in flight':'Tired on arrival, so no fight was started',detail:result,
       next:['goTo a base and service(); that clears Tired']};
     if(result.ended==='stopped')return {status:'partial',did,why:'stopped by the pilot',detail:result};
     // A fight that could not be broken off is the fact that outranks the hull number: nothing

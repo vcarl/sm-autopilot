@@ -126,7 +126,7 @@ test('the next run stows the ore an interrupted trip left aboard, by what the si
 
 // S2: `imposeTired()` moves the mood between any two commands, and Tired is what lets a script
 // force the resupply that ends it — so it may not stop a leg. A job planned under Tired runs,
-// and a crossing mid-job flies the rest on Tired's own reserve rather than the stale mood's.
+// and a crossing mid-job flies the rest.
 test('Tired flies the job it is planned under, and the one a crossing lands in',async()=>{
   const tired=fixture();
   const planned=await tired.run({home,site,mood:'Tired'});
@@ -141,11 +141,10 @@ test('Tired flies the job it is planned under, and the one a crossing lands in',
   assert.equal(crossing.server.location.docked_at,home.base_id);
 });
 
-// S3: the mood the job was planned under is stale by the time the leg home is flown, and the
-// mood is what picks the fuel reserve the leg is quoted against. Fuel short of the planning
-// mood's reserve but inside Tired's own is the shape that shows it: a leg quoted on the frozen
-// mood refuses the trip home the pilot has the fuel for.
-test('the legs are quoted on the mood in force now, not the one the job was planned under',async()=>{
+// S3: a leg is admitted on its route cost alone; no mood's reserve rides on it (operator,
+// 2026-09-26). Fuel short of the planning mood's reserve but covering the route is the shape that
+// shows it: the reserve made the pilot Tired, and the trip home is flown on the fuel it needs.
+test('the leg home needs only its route, whatever reserve the job was planned under',async()=>{
   const f=fixture();
   let mood:GatherPlan['mood']='Cautious';
   const result=await f.run({home,site,mood},{

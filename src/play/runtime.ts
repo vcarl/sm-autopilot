@@ -401,9 +401,15 @@ let tiredBy='';
  * line, credits under the reserve. ponytail: the route home is not quoted here (that is a
  * find_route per check); the mood's reserve in units stands in for it. Ammunition waits for hunt.
  *
+ * This is the only place the fuel reserve binds. Travel keeps nothing back — a leg is flown when
+ * the tank covers its route (operator's decision, 2026-09-26) — so a leg that takes fuel under
+ * the reserve lands here, and Tired's rules send the pilot to service. A margin on travel as well
+ * held fuel above this line forever: Tired never fired, and a pilot with 26 fuel was refused a
+ * 4-fuel trip for want of Focused's 24.
+ *
  * ponytail: the fuel line is a flat reserve, not a route, and it stays one. Ceiling: a pilot
- * four jumps from the nearest serviced station is inside a 30 unit reserve and cannot reach
- * anything, while one docked at a station is Tired over a tank it could fill in one command.
+ * that crosses it four jumps from the nearest serviced station may not have the fuel to reach
+ * one, while one docked at a station is Tired over a tank it could fill in one command.
  * The advice half of that idea now exists where it costs nothing per check: `serviceElsewhere`
  * (play/service.ts) prices the route to another base with `find_route` when a service is
  * refused, and the menu offers that move to a Tired pilot that is not docked at a counter.

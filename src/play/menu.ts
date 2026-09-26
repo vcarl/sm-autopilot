@@ -5,7 +5,6 @@
  * stagnation `menuDue` names. Reads only; writes nothing (DESIGN §4). */
 import type {ActiveMissionInfo,GetNearbyResponse,GetMissionsResponse,MapSystemInfo,MarketListingItem,ShipClass,ShipListing,
   ShippingListResponse,StationPassengersResponse,SystemInfo,SystemPoi,V2Module,ViewMarketResponse,ViewStorageResponse} from '@spacemolt/lib';
-import {resolveFuelReserve} from '../mood-policy.ts';
 import type {ReadinessAccount,ReadinessCommand} from '../readiness.ts';
 import {details} from '../response-details.ts';
 import {evaluateMenu,jobStop,type CounterName,type Facts} from '../rules-table.ts';
@@ -280,20 +279,21 @@ export async function menu(runtime?:string):Promise<Menu> {
     return {...stagnation?{stagnation}:{},moves,not_now};
   }
 
-  const reserve=resolveFuelReserve(who.mood??'Cautious'),fuel=ship?.fuel??0;
+  const fuel=ship?.fuel??0;
   const stop=jobStop(facts);
   /** A move that starts work: refused under a threat or a mood that may not start a job. */
   const work=(move:Move)=>stop?not_now.push({move:move.call.split('(')[0]!,why:stop}):moves.push(move);
   /** The fuel refusal the last `flies` produced, if any. A pilot that cannot reach anywhere it
    * was offered needs the way to a counter, whatever the mood — the wedge that stranded the
-   * pilot on 2026-09-24 was an Aggressive one, too far above reserve 12 for Tired to fire. */
+   * pilot on 2026-09-24 was an Aggressive one, too far above reserve 12 for Tired to fire.
+   * A route is reachable when the tank covers it; the reserve is where Tired begins, not a margin. */
   let shortFuel='';
   const flies=async(id:string):Promise<string|null>=>{
     const quote=await attempt(async()=>details(await command('spacemolt/find_route',{id})));
     if(!quote?.found)return `no route to ${id}`;
-    const need=Number(quote.estimated_fuel)+reserve;
+    const need=Number(quote.estimated_fuel);
     if(fuel>=need)return null;
-    shortFuel=`fuel ${fuel}, need ${need} with the ${who.mood} reserve ${reserve}`;
+    shortFuel=`fuel ${fuel}, the route to ${id} needs ${need}`;
     return shortFuel;
   };
 
