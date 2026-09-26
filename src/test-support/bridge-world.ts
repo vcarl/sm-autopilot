@@ -739,7 +739,11 @@ export function bridgeWorld(options:WorldOptions={}) {
         total_cost:subtotal+sales_tax,sales_tax,...options.taxBps===undefined?{}:{sales_tax_rate_bps:options.taxBps},unfilled:0}};
     },
     'spacemolt/buy':params=>{
-      add(String(params.id),Number(params.quantity));
+      // `deliver_to:'storage'` lands the fill in this base's store instead of the hold.
+      const row=params.deliver_to==='storage'?store.find(current=>current.item_id===String(params.id)):undefined;
+      if(params.deliver_to!=='storage')add(String(params.id),Number(params.quantity));
+      else if(row)row.quantity+=Number(params.quantity);
+      else store.push({item_id:String(params.id),quantity:Number(params.quantity)});
       account.server.player.credits-=Number(params.quantity)*12+tax(Number(params.quantity)*12);
       return {delta:{details:{action:'buy',item_id:params.id,quantity:Number(params.quantity),
         total_cost:Number(params.quantity)*12,unfilled:0}}};
@@ -785,7 +789,10 @@ export function bridgeWorld(options:WorldOptions={}) {
         return {delta:{details:{kind:'queue',jobs:structuredClone(queued),total_jobs:queued.length}}};
       }
       if(bench.refusal)throw new Error(bench.refusal);
-      if(params.dry_run)return {delta:{details:{kind:'quote',action:'craft',recipe:bench.recipe,
+      // A facility id is the venue; the workshop preset or neither is the workshop here.
+      const venue=params.facility_id?{venue:String(params.facility_id),venue_type:'facility',facility_id:String(params.facility_id)}
+        :{venue:'Sol Base Workshop',venue_type:'workshop'};
+      if(params.dry_run)return {delta:{details:{kind:'quote',action:'craft',recipe:bench.recipe,...venue,
         cost:{inputs:bench.inputs,labor:10,fee:9},credits_total:bench.credits_total,dry_run:true,
         have_inputs:options.craft?.have_inputs??bench.inputs.every(row=>
           (store.find(current=>current.item_id===row.item_id)?.quantity??0)>=row.quantity),

@@ -7,7 +7,7 @@ import type {Catalog} from '@spacemolt/lib';
 import type {ReadinessAccount} from '../../readiness.ts';
 import {bridgeWorld,type WorldOptions} from '../../test-support/bridge-world.ts';
 import {bind,unbind,type Pilot} from '../runtime.ts';
-import {craft,recipes,revalidated,useCatalog} from './crafting.ts';
+import {craft,jobs,materials,quote,recipes,revalidated,supply,useCatalog} from './crafting.ts';
 
 /** The catalog behind the fake bench's one recipe: 5 iron ore into 2 steel plate. */
 const CATALOG={version:'test',recipes:[{id:'refine_steel',name:'Refine Steel',category:'Refining',
@@ -112,6 +112,155 @@ test('craft re-enters the wait for a job already queued here, escrowing nothing 
     assert.deepEqual(again.detail.made,[{item_id:'steel_plate',quantity:2}]);
     assert.equal(f.account.server.player.credits,credits,'no second escrow left the wallet');
     assert.equal(f.store.find(row=>row.item_id==='iron_ore')?.quantity,20,'nothing was escrowed twice');
+  } finally {unbind();}
+});
+
+/** The commits a world was sent: `craft` with a recipe and no `dry_run`. */
+const commits=(f:ReturnType<typeof world>)=>f.sent.filter(call=>call.action==='spacemolt/craft'&&call.params.id!==undefined&&!call.params.dry_run);
+const mutations=(f:ReturnType<typeof world>)=>commits(f).length+f.count('spacemolt/buy')+f.count('spacemolt_storage/deposit');
+
+test('quote values produces per run times runs',async()=>{
+  // 6 plate asked for, 3 per run: the server quotes 2 runs and `produces` says 3 — per run.
+  const f=world({mood:'Focused'},{store:[{item_id:'iron_ore',quantity:20}],
+    craft:{runs:2,quantity:6,produces:[{item_id:'steel_plate',quantity:3}]}});
+  try {
+    const out=await quote('refine_steel',6);
+    assert.equal(out.status,'done',out.why);
+    assert.deepEqual(out.detail.produces_total.map(row=>[row.item_id,row.quantity]),[['steel_plate',6]]);
+    assert.equal(out.detail.output_value,600,'6 plate at 100, not 3');
+    assert.equal(out.detail.margin,581);
+    assert.match(out.did,/2 runs at Sol Base Workshop \(labour 10 \+ fee 9 cr\), 19 cr in all, makes 6 steel_plate/);
+    assert.equal(f.count('spacemolt/craft'),1);
+  } finally {unbind();}
+});
+
+test('at names the venue the dry run is sent to',async()=>{
+  const f=world({mood:'Focused'},{store:[{item_id:'iron_ore',quantity:20}]});
+  try {
+    await quote('refine_steel',2);
+    await quote('refine_steel',2,{at:'workshop'});
+    const there=await quote('refine_steel',2,{at:'fac-1'});
+    const sent=f.sent.filter(call=>call.action==='spacemolt/craft').map(call=>call.params);
+    assert.equal(sent[0]!.preset,undefined);
+    assert.equal(sent[0]!.facility_id,undefined,'omitted is the server\'s choice');
+    assert.equal(sent[1]!.preset,'workshop');
+    assert.equal(sent[1]!.facility_id,undefined,'the workshop is a preset, never a facility id');
+    assert.equal(sent[2]!.facility_id,'fac-1');
+    assert.equal(sent[2]!.preset,undefined);
+    assert.equal(there.detail.venue_type,'facility');
+    assert.equal(there.detail.facility_id,'fac-1');
+    assert.equal(there.detail.labor,10);
+    assert.equal(there.detail.fee,9);
+  } finally {unbind();}
+});
+
+test('quote prices each missing input to buy and to sell, and names its source',async()=>{
+  const f=world({mood:'Focused'},{store:[]});
+  try {
+    const out=await quote('refine_steel',2);
+    assert.equal(out.status,'done',out.why);
+    // The fake market charges 12 each, fee included; the book here bids 3 for ore.
+    assert.deepEqual(out.detail.missing,[{item_id:'iron_ore',need:5,have:0,buy_each:12,sell_each:3,source:'mining'}]);
+    assert.match(out.next.join('\n'),/iron_ore: store has 0 of 5; buys at 12 cr each, sells at 3/);
+    assert.equal(mutations(f),0,'a quote moves nothing');
+  } finally {unbind();}
+});
+
+test('quote survives a catalog outage and an unsold input',async()=>{
+  const f=world({mood:'Focused'},{store:[]});
+  useCatalog(async()=>{throw new Error('down');});
+  bind({account:f.account as unknown as ReadinessAccount,pilot:()=>f.record(),emit:()=>{},
+    command:async(action,params)=>action==='spacemolt_market/estimate_purchase'
+      ?{structuredContent:{item_id:params.item_id,available:0,total_cost:0,unfilled:Number(params.quantity)}}
+      :f.command(action,params)});
+  try {
+    const out=await quote('refine_steel',2);
+    assert.equal(out.status,'done',out.why);
+    assert.equal(out.detail.missing[0]!.buy_each,null,'not sold here: mine it');
+    assert.equal(out.detail.missing[0]!.source,'unknown');
+    assert.match(out.next.join('\n'),/materials\('iron_ore', 5\)/);
+  } finally {unbind();}
+});
+
+test('craft does not re-enter a queued job of the same recipe with a different run count',async()=>{
+  const f=world({mood:'Focused'},{store:[{item_id:'iron_ore',quantity:20}]});
+  f.queued.push({base_id:'sol_base',job_id:'job-0',recipe:'Refine Steel',mode:'craft',
+    deliver_to:'storage',produces:[{item_id:'steel_plate',quantity:2}],runs_total:3,runs_done:0,
+    status:'queued',eta_ticks:0});
+  try {
+    const out=await craft('refine_steel',2);
+    assert.equal(out.status,'done',out.why);
+    assert.equal(commits(f).length,1,'a 3-run job is a different order: this one is committed');
+    assert.equal(out.detail.venue_type,'workshop');
+    assert.match(out.did,/made at Sol Base Workshop \(labour 10 \+ fee 9 cr\)/);
+  } finally {unbind();}
+});
+
+test('supply is done with nothing sent when the store already holds the inputs',async()=>{
+  const f=world({mood:'Focused'},{store:[{item_id:'iron_ore',quantity:20}]});
+  try {
+    const out=await supply('refine_steel',2);
+    assert.equal(out.status,'done',out.why);
+    assert.equal(mutations(f),0);
+    assert.deepEqual(out.detail,{stowed:[],bought:[],short:[],spent:0});
+  } finally {unbind();}
+});
+
+test('supply stows what the hold carries and buys the rest into the store',async()=>{
+  const f=world({mood:'Focused'},{cargoUsed:2,cargo:[{item_id:'iron_ore',quantity:2}],store:[]});
+  try {
+    const out=await supply('refine_steel',2);
+    assert.equal(out.status,'done',out.why);
+    assert.deepEqual(out.detail.stowed,[{item_id:'iron_ore',quantity:2}]);
+    assert.deepEqual(out.detail.bought,[{item_id:'iron_ore',quantity:3}]);
+    assert.equal(out.detail.spent,36,'3 at 12, from the buy');
+    assert.equal(f.store.find(row=>row.item_id==='iron_ore')?.quantity,5);
+    assert.equal(f.sent.find(call=>call.action==='spacemolt/buy')?.params.deliver_to,'storage');
+    const again=await supply('refine_steel',2);
+    assert.equal(again.status,'done');
+    assert.equal(f.count('spacemolt/buy'),1,'a second call buys nothing');
+  } finally {unbind();}
+});
+
+test('supply refuses a bill over maxSpend before anything moves',async()=>{
+  const f=world({mood:'Focused'},{cargoUsed:2,cargo:[{item_id:'iron_ore',quantity:2}],store:[]});
+  try {
+    const out=await supply('refine_steel',2,{maxSpend:30});
+    assert.equal(out.status,'refused');
+    assert.match(out.why!,/costs 36 cr, over maxSpend 30/);
+    assert.equal(mutations(f),0,'nothing stowed, nothing bought');
+  } finally {unbind();}
+});
+
+test('jobs reads the queue undocked and flags a workshop job away from the ship as paused',async()=>{
+  const f=world({mood:'Focused'},{craft:{polls:5}});
+  const row={mode:'craft',deliver_to:'storage',runs_total:2,runs_done:1,status:'active',eta_ticks:3};
+  f.queued.push({...row,job_id:'w',base_id:'sol_base',recipe:'Refine Steel',facility_id:''},
+    {...row,job_id:'f',base_id:'sol_base',recipe:'Refine Steel',facility_id:'fac-1'});
+  f.account.server.location.docked_at=null;
+  try {
+    const out=await jobs();
+    assert.equal(out.status,'done',out.why);
+    assert.deepEqual(out.detail.jobs.map(job=>[job.job_id,job.paused]),[['w',true],['f',false]]);
+    assert.deepEqual(out.detail.jobs[0],{job_id:'w',recipe:'Refine Steel',base_id:'sol_base',status:'active',
+      runs_done:1,runs_total:2,paused:true});
+    assert.match(out.did,/1 paused until you dock at sol_base/);
+  } finally {unbind();}
+});
+
+test('materials walks a two-level tree to its raw leaves, net of what is held',async()=>{
+  world({mood:'Focused'},{store:[{item_id:'steel_plate',quantity:2},{item_id:'iron_ore',quantity:3}]});
+  useCatalog(async()=>({...CATALOG,recipes:[...CATALOG.recipes,{id:'assemble_hull',name:'Assemble Hull',
+    category:'Components',description:'',crafting_time:1,inputs:[{item_id:'steel_plate',quantity:3}],
+    outputs:[{item_id:'hull_panel',quantity:1}]}]}) as unknown as Catalog);
+  try {
+    // 2 panels take 6 plate; 2 are stored, so 4 more is 2 runs of 2, which takes 10 ore.
+    const out=await materials('hull_panel',2);
+    assert.equal(out.status,'done',out.why);
+    assert.deepEqual(out.detail.steps,[{recipe:'refine_steel',runs:2,facility_only:false},
+      {recipe:'assemble_hull',runs:2,facility_only:false}]);
+    assert.deepEqual(out.detail.leaves,[{item_id:'iron_ore',need:10,have:3,source:'mining'}]);
+    assert.match(out.next[0]!,/iron_ore: 7 more to get \(mining\)/);
   } finally {unbind();}
 });
 
