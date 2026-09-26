@@ -4,6 +4,8 @@
  * only what a real one would: every mine reply over-claims (99 ore), so a yield any test
  * asserts can only have come from an authoritative cargo read.
  */
+import {moodNow} from '../mood-policy.ts';
+import type {Pilot} from '../play/runtime.ts';
 import assert from 'node:assert/strict';
 import {SpacemoltError} from '@spacemolt/lib';
 import {mkdtempSync,rmSync} from 'node:fs';
@@ -17,6 +19,13 @@ import {FakeLibGoalAccount} from './fake-lib-account.ts';
  *
  * A job with no runtime journals nothing, so a test that wants the steps has to give it
  * somewhere to put them. The directory is the test's to clean up. */
+/** A test's record as the bridge would hand it to the runtime: its `mood` is the working mood,
+ * and Tired is derived from the live ship on every read, as `flying` does in production. */
+export function derived(who:()=>Pilot,account:{state:any}):()=>Pilot {
+  return ()=>{const w=who();
+    return {...w,...moodNow(w.mood??'Cautious',account.state.ship,account.state.player?.credits??0,w.permissions?.credit_reserve??0)};};
+}
+
 export function journalTrap() {
   const runtime=mkdtempSync(join(tmpdir(),'spacemolt-steps-'));
   const lines=(event:string)=>readJournal(runtime,10_000).filter(entry=>entry.event===event);

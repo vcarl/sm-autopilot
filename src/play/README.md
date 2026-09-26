@@ -1,8 +1,9 @@
 # play — how you play SpaceMolt
 
 You are a pilot. You play by writing one file, `pilot/index.ts`, and running it with
-`spacemolt_run`, passing the whole file as `source`. It is the only file you can write, and you
-cannot read files: this README and your stance's README are the whole reference. The file calls
+`spacemolt_run`, passing the whole file as `source`. It is the only file you can write;
+`spacemolt_check` with no `source` hands back the file as it stands. This README and your
+stance's README are the whole reference. The file calls
 functions from this library with literal arguments. Every function returns the same shape
 (`Outcome`), so you can chain them, branch on `status`, and return the last one.
 
@@ -30,9 +31,9 @@ export default async function main() {
 `spacemolt_run` typechecks, boundary-checks and policy-checks the file first; a refusal comes
 back as diagnostics instead of a run. A run blocks and streams what it does, one line per move,
 and ends with a prose report of the returned Outcome. `spacemolt_check` validates without
-running, so it names a wrong field before a run does. A `write_file` or `patch` to a pilot `.ts` file
-carries the same check back in its result (`lsp_diagnostics`). The observer can stop a run at its next
-safe point (`partial`); a loop of your own checks `stopped()` to end there too.
+running, so it names a wrong field before a run does. A run is capped at 24 minutes of wall clock:
+at the cap it is asked to stop at its next safe point (`partial`), and one that does not stop within
+two more minutes is cut off. A loop of your own checks `stopped()` to end there too.
 
 ## The library is the lib
 
@@ -47,9 +48,8 @@ fits, and read its reply before sending the same mutation again.
 
 Your objective, in your context, governs what you do. When it is open-ended, advance
 in general: learn the world, raise your skill levels, gain credits and influence, get a better
-ship. `pilot()` returns the record that says what you are for (`objective`), what you
-chose at your last rest (`goal`, `stance`, `mood`) and your `permissions`. What is
-carried in from outside, and your rest, write it.
+ship. `pilot()` returns the record that says what you are for (`objective`), the `goal` and
+`stance` you set with `spacemolt_reflect`, your `permissions`, and the `mood` the ship is in now.
 
 ## What every Outcome tells you
 
@@ -108,8 +108,8 @@ sees the real types, so these are not style notes.
 | `prices(items?)` / `sell(rows, opts?)` / `buy(item, qty)` | the market here, live at the moment of the act, and remembered for `spreads()`. `sell`'s options are exactly two: `{from: 'hold' \| 'store'}` (default `'hold'`; `'store'` empties the store a hold-load at a time) and `{floor: {[item_id]: number}}` (skip a row whose `best_buy` is under it). There is no option naming a market — `sell` is always the counter you are docked at |
 | `refit({install,remove})` / `shipsForSale(opts?)` / `buyShip(id, opts?)` | the hangar: modules on and off within the grid, the hulls for sale here, the next one |
 | `missions()` / `acceptMission(id)` / `completeMissions()` / `abandonMission(id, opts?)` | the board here; the cheapest credits and xp early |
-| `rest({goal, stance, mood, objective_done?})` | end this shift **and open the next one**, in one call: docked at a base, on a ship this base has brought as far up as it can. All three are required — a shift that ends naming nothing leaves a pilot every job refuses. `objective_done` retires a finished objective alongside the goal replacing it. Refused, it says what is missing and the shift stays open |
-| `reflection()` | the material the choice deserves: stagnation signals, the skills that would move, holdings, what is owed, how your scripts have been running. Read it before you name the next shift |
+| `rest(base?)` | put in and bring the ship up: `goTo(base)` when you name one, then `service()` at the counter. It changes nothing else |
+| `reflection()` | stagnation signals, the skills that would move, holdings, what is owed, how your scripts have been running |
 | `note(text)` | write a line into the journal and the run's stream |
 | `account()` | the raw `@spacemolt/lib` Account |
 | `outcome(did, status?, detail?)` | build an Outcome for a helper of your own; the runtime fills cost, gains and the present |
@@ -121,8 +121,8 @@ no `quantity` for all of it — a non-finite `quantity` is refused) and never de
 (`{item_id, quantity?}`); `Row` — what `gained.items` and `detail.settled` hand back — requires
 `quantity`. Annotate a list you build yourself `Want[]`, or nothing at all: a `Row[]` annotation
 is what makes `{item_id: 'carbon_ore'}` an error. Some career functions are not built yet and throw
-`unimplemented`: `survey`, `exploreNearby`, `facilities`, `buildFacility`, `queueJob`, `ships`,
-`switchShip`. `account()` reaches those commands.
+`unimplemented`: `survey`, `exploreNearby`, `patrol`, `facilities`, `buildFacility`, `queueJob`,
+`ships`, `switchShip`. `account()` reaches those commands.
 
 Everything game-shaped in a `detail` is the lib's own type (`SystemPoi`, `MissionInfo`,
 `SellResponse`, `V2Module` …); `tsc` knows the field names.
@@ -179,70 +179,29 @@ export default async function main() {
 
 ## Mood and Tired
 
-You choose a mood at rest. It sets margins: fuel kept beyond a route, credits a single service
-may spend, the hull fraction a fight breaks off at. When fuel, hull or credits fall through the
-margin, the runtime imposes **Tired**: the function you are in finishes and nothing new starts,
-until the ship is brought back up. Tired then **widens** what a resupply may do rather than
-narrowing where you may go — it lifts the mood's own spend margin and drops its fuel reserve to 0.
-It never refuses a flight: `goTo` any base you like. Docked anywhere, `service()` is the move:
-a counter does not need to post a price to refuel or repair. Which base, when you are out: the
-suggested moves already carry every price that is readable from here, so take them rather than
-re-reading. `inspect` reaches **this system only** — `account().commands.spacemolt.inspect({id})` on a base in another system throws "You can
-only inspect a point of interest in your current system", and an uncaught throw from a raw command
-breaks the whole run. For a base outside this system the price is unknown until you dock there,
-which is no reason to stay put. Resupplying back inside the margins — `service()` here,
-or at any base — clears Tired and restores the mood it replaced. You never set or clear Tired
-yourself. Rest clears everything. `permissions.credit_reserve` is a standing bound and Tired does
-not widen it; a fill it refuses says so by name.
+Your mood is not chosen: it is your stance's own (Cautious with no stance), and it sets margins —
+fuel kept beyond a route, credits a single service may spend, the hull fraction a fight breaks off
+at. When fuel, hull or credits are through those margins the mood reads **Tired**: the function you
+are in finishes and nothing new starts until the ship is brought back up. Tired **widens** what a
+resupply may do rather than narrowing where you may go — it lifts the spend margin and drops the
+fuel reserve to 0. It never refuses a flight: `goTo` any base you like. Docked anywhere,
+`service()` (or `rest()`) is the move: a counter does not need to post a price to refuel or repair.
+Which base, when you are out: the suggested moves already carry every price that is readable from
+here, so take them rather than re-reading. `inspect` reaches **this system only** —
+`account().commands.spacemolt.inspect({id})` on a base in another system throws "You can only
+inspect a point of interest in your current system", and an uncaught throw from a raw command breaks
+the whole run. For a base outside this system the price is unknown until you dock there, which is no
+reason to stay put. Back inside the margins, Tired is gone. `permissions.credit_reserve` is a
+standing bound and Tired does not widen it; a fill it refuses says so by name.
 
-## Ending the shift, and opening the next one
+## Goal and stance
 
-`rest({goal, stance, mood})` is the last line of a run that has nothing left to do this shift. It
-ends the shift **and names the next one in the same call**, so it costs no juncture of its own and no
-model turn: the next wake simply starts working in the stance you named.
+`spacemolt_reflect` sets your `goal`, your `stance`, or retires a finished objective
+(`objective_done`); each is optional, and none of them is needed to run. The stance picks which
+career's README the next juncture carries: with none, you have this README alone.
 
-The three arguments are required, and that is deliberate. Ending a shift without naming the next one
-leaves a record with no stance and no mood — a pilot every job refuses, which once spent a whole
-juncture on 38 identical refusals. If you end a shift, you choose what follows it.
-
-It needs you docked at a base (any base) and the ship as far up as that base can bring it, so
-`service()` comes first; where the wallet cannot cover the counter, rest happens anyway and the next
-shift is told the ship is short.
-
-`reflection()` is the read that makes the choice answerable to how the shift actually went — the same
-material a reflection shows: what is repeating, which skills would move, what you hold and owe. Take
-it before you choose. Be honest with yourself about the limit: your script was written before the
-shift ran, so it can **branch** on that report but it cannot reason about it. Where the choice really
-needs thinking about, write a short file whose only job is to read and rest, and make the choice when
-you write it.
-
-```ts
-import {gatherUntil, reflection, rest, service} from 'play';
-
-export default async function main() {
-  const trip = await gatherUntil({poi: 'belt', base: 'sol_base'});
-  if (trip.status !== 'done') return trip;
-  await service();
-
-  // What the shift looked like, before deciding what the next one does about it.
-  const review = await reflection();
-  const stuck = (review.detail?.stagnation ?? []).length > 0;
-
-  // Three loads in the store is the goal met: put the evening down and open the next shift here,
-  // rather than spending a juncture to say so.
-  const put = await rest(stuck
-    ? {goal: 'walk a price circuit and learn where the ore sells', stance: 'Scout', mood: 'Cautious'}
-    : {goal: 'three more loads from the same belt', stance: 'Prospector', mood: 'Focused'});
-  return put.status === 'done' ? put : trip;
-}
-```
-
-Nothing forces it: a run that ends any other way leaves the shift open and the next juncture
-picks up where this one left off. The one exception is not yours — a run that ends with the
-pilot Tired and docked is rested by the runner itself. That one cannot name a next shift — a script
-that broke does not know what comes next — so it leaves the record empty on purpose, the next run is
-refused before it starts, and `spacemolt_reflect` opens the shift instead. That is the recovery path,
-not the normal one.
+`reflection()` is the read a script takes to branch on how its runs have gone: what is repeating,
+which skills would move, what you hold and owe.
 
 ## Rules that will refuse you
 
@@ -250,8 +209,8 @@ not the normal one.
   `process`, `fetch`, `eval`, dynamic `import()`; `while(true)`/`for(;;)` without a
   `stopped()` check; `unload_passenger` with id `all`; a file with no `export default async function main`.
 - At runtime, inside the helpers: spending under `permissions.credit_reserve`; a route
-  without the mood's fuel reserve; starting work under Tired or Relaxed. Tired refuses *work*,
-  never movement or resupply.
+  without the mood's fuel reserve; starting work under Tired. Tired refuses *work*, never
+  movement or resupply.
 
 ## When you are stuck
 
@@ -264,5 +223,4 @@ through the rules; paste it into `index.ts`. `not now` says what the rules refus
 
 Define a helper as a function inside `pilot/index.ts`, beside `main`, and return an `Outcome`
 from it (build one with `outcome(...)`, or return the last library Outcome). The file persists
-between junctures, so a helper you wrote is there next time; rest is where you read how it ran
-and rewrite it.
+between junctures, so a helper you wrote is there next time.

@@ -13,16 +13,14 @@ import {battleEnded,battleNow} from './travel.ts';
 import {controllerLock} from './controller-lock.ts';
 import type {ReadinessAccount,ReadinessCommand} from './readiness.ts';
 import {details} from './response-details.ts';
-import {resolveWalkAway,type Mood} from './mood-policy.ts';
-import {reflectReport} from './reflect.ts';
-import {type Facts,type StanceName} from './rules-table.ts';
-import {journalCommand,journalRun,readRun,type RunRecord} from './run-record.ts';
+import {moodNow,resolveWalkAway} from './mood-policy.ts';
+import {stanceMood,type Facts,type StanceName} from './rules-table.ts';
+import {closeInterrupted,journalCommand,journalRun,readRun} from './run-record.ts';
 import {startHeartbeat} from './heartbeat.ts';
 import {flushJournalDrain,startJournalDrain} from './journal-webhook.ts';
 import {check as checkPilot,runPilot as defaultRunPilot,type RunResult} from './run.ts';
-import {menu as buildMenu,renderMenu} from './play/menu.ts';
-import {restNow,validateNext,type NextShift} from './play/rest.ts';
-import {bind,isBound,present,progress,stop as stopRun,unbind} from './play/runtime.ts';
+import {menu as buildMenu,renderMenu,threatsHere} from './play/menu.ts';
+import {bind,isBound,present,progress,stop as stopRun,unbind,type Pilot as Flying} from './play/runtime.ts';
 
 /** The one endpoint this runner talks to. */
 export const GAME_WS_URL='wss://game.spacemolt.com/ws/v2';
@@ -30,9 +28,9 @@ export const GAME_WS_URL='wss://game.spacemolt.com/ws/v2';
 export type Dispatch=(action:string,params?:Record<string,unknown>)=>Promise<unknown>;
 
 /** The actions whose answer is an outcome: a journal line keeps its shape, trimmed. */
-const OUTCOME_ACTIONS=new Set(['run','status','rest','reflect','menu','resume','stop','check']);
+const OUTCOME_ACTIONS=new Set(['run','status','pilot','menu','stop','check']);
 const OUTCOME_KEYS=new Set(['accepted','reason','status','record','running','rested','shift_ended','at_rest',
-  'cleared','serviced','resumed','busy','objective','objective_done','stance','mood','errors','stopping',
+  'cleared','serviced','busy','objective','objective_done','stance','mood','errors','stopping',
   'ok','fn','did','sha','step','commands','elapsed_s','started','stagnation','rest',
   // A reflection's skill rows, which are small and are the one thing a later reflection cannot
   // read any other way: they are what "raise this by two levels" is judged against, and without
@@ -181,14 +179,24 @@ export function pushJournal(account:{on:(type:string,handler:(payload:Record<str
   });
 }
 
-/** What the runner set at the last rest. The agent never writes any of it: reflection asks
- * the runner to, and rest asks the runner to take it away. */
-export interface Pilot {name?:string;objective?:string;objective_done?:boolean;goal?:string;
-  stance?:StanceName;mood?:Mood;mood_before_tired?:Mood;tired_forced?:boolean;
-  permissions?:Facts['permissions'];instruction?:{text:string;at:string}}
+/** `pilot.json` as stored. The bridge is its only writer (the `pilot` request); the mood is never
+ * in it — it is derived from the ship on every read (`flying`). */
+export interface Pilot {name?:string;objective?:string;objective_done?:boolean;objective_completed?:string;
+  goal?:string;stance?:StanceName;permissions?:Facts['permissions'];instruction?:{text:string;at:string}}
+/** The keys the record keeps. Anything else — a stored mood from an older runner included — is
+ * dropped on read and never written. */
+export const PILOT_KEYS=['name','objective','objective_done','objective_completed','goal','stance','permissions','instruction'] as const;
+const stored=(record:Record<string,unknown>):Pilot=>
+  Object.fromEntries(PILOT_KEYS.filter(key=>record[key]!==undefined&&record[key]!==null).map(key=>[key,record[key]])) as Pilot;
+
+/** The record as the play runtime reads it: the stored fields and the mood the ship is in now. */
+export function flying(record:Pilot,state:ReadinessAccount['state']):Flying {
+  const ship=state.ship as {fuel:number;hull:number;max_hull:number}|undefined;
+  return {...record,...moodNow(stanceMood(record.stance),ship,state.player?.credits??0,record.permissions?.credit_reserve??0)};
+}
 export interface ServeOptions {
   pilot?:()=>Pilot;
-  /** How the runner puts the record back after rest and when Tired is imposed. */
+  /** The one writer of `pilot.json`. */
   setPilot?:(pilot:Pilot)=>void;
   runPilot?:typeof defaultRunPilot;
   /** Where the run record, the journal and the pilot's files live. */
@@ -199,24 +207,25 @@ export interface ServeOptions {
 
 export function readPilot(path:string):Pilot {
   if(!existsSync(path))return {};
-  try {return JSON.parse(readFileSync(path,'utf8')) as Pilot;}
+  try {return stored(JSON.parse(readFileSync(path,'utf8')));}
   catch(error){throw new Error(`Unreadable pilot record ${path}: ${error instanceof Error?error.message:String(error)}`);}
 }
 
 /** Temp file then rename, so a reader never catches half a pilot. */
 export function writePilot(path:string,pilot:Pilot):void {
   const temp=`${path}.${process.pid}.tmp`;
-  writeFileSync(temp,`${JSON.stringify(pilot,null,2)}\n`,{mode:0o600});
+  writeFileSync(temp,`${JSON.stringify(stored(pilot as Record<string,unknown>),null,2)}\n`,{mode:0o600});
   renameSync(temp,path);
 }
 
 /** Pure dispatch over an account + command pair, so tests never connect. */
 export function serve(account:ReadinessAccount,command:ReadinessCommand,options:ServeOptions={}):Dispatch {
-  const pilot=options.pilot??(()=>({} as Pilot));
+  const record=options.pilot??(()=>({} as Pilot));
+  const pilot=()=>flying(record(),account.state);
   const runner=options.runPilot??defaultRunPilot;
   const runtime=options.runtime;
   if(runtime) {startJournalDrain();startHeartbeat(runtime);}
-  const stored=()=>runtime?readRun(runtime):null;
+  const kept=()=>runtime?readRun(runtime):null;
   let running:{started:string}|null=null,last:Record<string,unknown>|null=null;
   const busy=()=>({running:true as const,...running!,...isBound()?progress():{},
     fuel:account.state.ship?.fuel,hull:account.state.ship?.hull,credits:account.state.player?.credits});
@@ -226,31 +235,20 @@ export function serve(account:ReadinessAccount,command:ReadinessCommand,options:
   const brief=(result:RunResult):Record<string,unknown>=>({...result.sha?{sha:result.sha}:{},
     started:result.started,ended:true,...result.ended_at?{ended_at:result.ended_at}:{},status:result.status,did:result.reason,
     ...result.why?{why:result.why}:{},prose:result.prose,commands:result.commands});
-  const lastOutcome=()=>last??(stored()?.ended?{...stored()!.outcome as Record<string,unknown>}:null);
+  const lastOutcome=()=>last??(kept()?.ended?{...kept()!.outcome as Record<string,unknown>}:null);
 
   /** Run `pilot/index.ts`: validate, execute, stream, and answer with the report when it ends. */
-  const run=async(_params:Record<string,unknown>,resume?:RunRecord)=>{
+  const run=async()=>{
     if(!runtime)throw new Error('This runner has no runtime directory to run a pilot from');
-    if(running)return {accepted:false,reason:'a run is already in flight; stop it or wait for status.running to clear',...busy()};
-    const started=resume?.started??new Date().toISOString();
-    running={started};
+    // Kept: a second run would overwrite the program still flying.
+    if(running)return {accepted:false,reason:'a run is already in flight',...busy()};
+    running={started:new Date().toISOString()};
     try {
-      const result=await runner({account,command,pilot,setPilot:options.setPilot??(()=>{}),runtime,
-        emit:options.emit??(()=>{}),...resume?{resume}:{}});
+      const result=await runner({account,command,pilot,runtime,emit:options.emit??(()=>{})});
       if(!result.accepted)return result;
       last=brief(result);
-      return {accepted:true,...last};
+      return {accepted:true,...last,...result.abandoned?{abandoned:true}:{}};
     } finally {running=null;}
-  };
-  const resume=async()=>{
-    if(!runtime)return {resumed:false,last:null};
-    const kept=stored();
-    if(!kept||kept.ended)return {resumed:false,last:lastOutcome()};
-    if(running)return {resumed:false,reason:'a run is already in flight',...busy()};
-    // Re-run from the top: every helper is named for an end state and re-enters from the
-    // live world, so nothing already done happens twice.
-    void run({},kept).catch(()=>{});
-    return {resumed:true,started:kept.started};
   };
 
   /** The menu from where the ship stands (DESIGN §4): the present, the moves with the call
@@ -258,17 +256,11 @@ export function serve(account:ReadinessAccount,command:ReadinessCommand,options:
    * runtime is bound for the reads and released after; a run in flight answers `busy`. */
   const menu=async()=>{
     if(running)return {busy:true,...busy()};
-    // At rest the stance and the mood are cleared, but the menu is never empty (VISION): the
-    // moves are computed all the same, under the resting default mood, and what reflect would
-    // set is named beside them rather than in place of them. The reader stays live: the reads
-    // below push state, every push runs `imposeTired`, and a frozen copy clears the same Tired
-    // on every push and then reports a mood the pilot no longer has (playtest 2026-09-22).
-    const flying=():Pilot=>{const now=pilot();return now.mood?now:{...now,mood:'Cautious'};};
-    bind({account,command,pilot:flying,setPilot:options.setPilot??(()=>{}),...runtime?{runtime}:{},emit:()=>{}});
+    bind({account,command,pilot,...runtime?{runtime}:{},emit:()=>{}});
     try {
       const built=await buildMenu(runtime);
       const {location,ship,player,modules}=account.state;
-      // Read back after the reads, never before: Tired may have been imposed or cleared in them.
+      // Read after the reads, never before: they refreshed the ship the mood is derived from.
       const who=pilot();
       // Handed over and stamped delivered in the same breath: this handler is the single
       // reader and the single writer, in one process, so once-only needs no lock and none of
@@ -276,18 +268,17 @@ export function serve(account:ReadinessAccount,command:ReadinessCommand,options:
       const waiting=runtime?pendingAlerts(runtime):[];
       if(runtime)markAlertsDelivered(runtime,waiting);
       const fight=await battleNow(command);
-      const absent=(['goal','stance','mood'] as const).filter(key=>!who[key]);
-      const resting=!who.stance||!who.mood;
+      const threats=threatsHere(location,location?.docked_at??null);
       return {
         // First key, first fact: the juncture renders it ahead of everything else.
         ...fight?{battle:fight}:{},
         now:new Date().toISOString(),
-        ...who.stance?{stance:who.stance}:{},...who.mood?{mood:who.mood}:{},
+        ...who.stance?{stance:who.stance}:{},mood:who.mood,...who.tired_by?{tired_by:who.tired_by}:{},
         ...who.goal?{goal:who.goal}:{},
         ...who.permissions?{permissions:who.permissions}:{},
-        ...resting?{rest:{at_rest:true,absent,
-          set_by:'reflect names the goal, then the stance and the mood that fit it'}}:{},
         ...who.objective?{objective:who.objective}:{},
+        ...who.instruction?{instruction:who.instruction}:{},
+        ...threats.length?{threats}:{},
         present:{system:location?.system_id,poi:location?.poi_id,docked_at:location?.docked_at??null,
           in_transit:Boolean(location?.in_transit),fuel:ship?.fuel,max_fuel:ship?.max_fuel,
           hull:ship?.hull,max_hull:ship?.max_hull,
@@ -296,7 +287,7 @@ export function serve(account:ReadinessAccount,command:ReadinessCommand,options:
           weapons:(modules??[]).filter(row=>row.slot==='weapon')
             .map(row=>({id:row.type_id,...row.current_ammo!==undefined?{loaded:row.current_ammo}:{}})),
           skills:Object.fromEntries(Object.entries(present().skills).map(([id,row])=>[id,row.level])),
-          // The hull this mood breaks off a fight at, as `imposeTired` computes it: the juncture
+          // The hull this mood breaks off a fight at, as `moodNow` computes it: the juncture
           // cannot reach the D2 table, and a pilot left to guess the line guesses it low.
           ...ship?.max_hull===undefined?{}:{walk_away:Math.floor(resolveWalkAway(who.mood??'Cautious')*ship.max_hull)}},
         ...built,text:renderMenu(built),last:lastOutcome(),
@@ -305,25 +296,19 @@ export function serve(account:ReadinessAccount,command:ReadinessCommand,options:
     } finally {unbind();}
   };
 
-  /** Rest: the one act that ends a shift (N6), and the only thing that touches the stance.
-   * The act itself is `play/rest.ts`, which a script reaches as `rest()`; this is the runner's
-   * own way in, for the juncture. Admissibility is the menu's own rest rule (R5) either way. */
-  /** Rest, and open the next shift when the caller names one. `spacemolt_reflect` reaches this with
-   * the goal, stance and mood the model chose from the run report it is holding — so the resting and
-   * the naming are one request and the record is written once, never through the stanceless state
-   * that cost a juncture. Called with nothing it is the runner's own rest, which is the path a
-   * broken script leaves behind: it cannot name what comes next, and the run guard catches it. */
-  const rest=async(params:Record<string,unknown>={})=>{
-    if(running)return {rested:false,reason:'a run is in flight; rest when it ends',...busy()};
+  /** Set fields of `pilot.json`; a null removes one. The only writer of the record: Python's
+   * reflect and direct send this rather than editing the file, so nothing races a read-modify-write. */
+  const setRecord=async(params:Record<string,unknown>={})=>{
     const write=options.setPilot;
-    if(!write)return {rested:false,reason:'this runner cannot write the pilot record'};
-    const asked=params.goal!==undefined||params.stance!==undefined||params.mood!==undefined;
-    if(!asked)return restNow(account,command,pilot(),write,runtime);
-    const checked=validateNext(params as Partial<NextShift>);
-    if('error' in checked)return {rested:false,reason:checked.error};
-    return restNow(account,command,pilot(),write,runtime,checked.next);
+    if(!write)throw new Error('this runner cannot write the pilot record');
+    const set=(params.set??{}) as Record<string,unknown>;
+    const next:Record<string,unknown>={...record()};
+    for(const [key,value] of Object.entries(set))if(value===null)delete next[key];else next[key]=value;
+    write(next as Pilot);
+    const written=record();
+    if(runtime)journalRun(runtime,{set:Object.keys(set),record:written},'pilot');
+    return {record:written};
   };
-  const reflect=async()=>reflectReport(account,command,pilot(),runtime);
 
   const actions:Record<string,(params:Record<string,unknown>)=>Promise<unknown>>={
     run,
@@ -338,9 +323,7 @@ export function serve(account:ReadinessAccount,command:ReadinessCommand,options:
       return {stopping:true,...busy()};
     },
     status:async()=>running?busy():{running:false,last:lastOutcome()},
-    rest,
-    reflect,
-    resume,
+    pilot:setRecord,
     menu,
   };
   return async(action,params={})=>{
@@ -413,13 +396,16 @@ async function main() {
   // The pushes, on the one account that outlives every run and every juncture.
   pushJournal(account,runtime);
   const pilotFile=resolve(runtime,'..','pilot.json');
-  // The request whose run is in flight gets the stream; a run started by resume has none.
+  // The request whose run is in flight gets the stream.
   let streamTo:string|undefined;
   const emit=(text:string)=>console.log(JSON.stringify({id:streamTo,event:'line',text}));
   const dispatch=serve(account,command,
     {pilot:()=>readPilot(pilotFile),setPilot:next=>writePilot(pilotFile,next),runtime,emit});
-  const resumed=await dispatch('resume',{});
-  console.log(JSON.stringify({event:'ready',resumed}));
+  // A run a dead bridge left un-ended is closed, never re-run: the next juncture reads it as
+  // interrupted and decides for itself. The lock above means no live bridge owns it.
+  const interrupted=closeInterrupted(runtime);
+  journalRun(runtime,{pid:process.pid,...interrupted?{interrupted:interrupted.started}:{}},'boot');
+  console.log(JSON.stringify({event:'ready',...interrupted?{interrupted:interrupted.outcome}:{}}));
   const handle=async(line:string)=>{
     let request:{id?:string;action:string;params?:Record<string,unknown>}|undefined;
     let response:Record<string,unknown>;
@@ -434,6 +420,12 @@ async function main() {
       response:{...response,...'result' in response
         ?{result:journalResult(String(request?.action??''),response.result)}:{}}},'request');
     console.log(JSON.stringify(response));
+    // A script cut off at the cap may still be running inside this process; ending the process is
+    // the only way to be sure it sends nothing more. The next request starts a fresh bridge.
+    if((response.result as {abandoned?:boolean}|undefined)?.abandoned) {
+      journalRun(runtime,{message:'exiting: a run was abandoned at the wall-clock cap'},'boot');
+      triggerShutdown();
+    }
   };
   for await(const line of createInterface({input:process.stdin,terminal:false})) {
     if(stopped)break;

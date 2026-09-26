@@ -34,7 +34,7 @@ async function attempt<T>(missing:string[],name:string,read:()=>Promise<T>):Prom
 /** Refresh the whole world model in one call: where you are, what you have, what you owe,
  * what you own elsewhere, your skills, your missions, and the pilot record. Over the seven
  * reads it adds: one call, each reply cut to what a decision needs, and `next` naming the
- * most obvious gap ("no mood", "hold is full", "tax due 16 cr"). Returns `done` always. */
+ * most obvious gap ("hold is full", "tax due 16 cr"). Returns `done` always. */
 export function orient():Promise<Outcome<Orientation>> {
   return job<Orientation>('orient','',async()=>{
     const missing:string[]=[];
@@ -54,7 +54,6 @@ export function orient():Promise<Outcome<Orientation>> {
     const bounty=Number((acct().state.player as any)?.bounty??0);
     const taxDue=tax?Number(tax.income_tax_total??0)+Number(tax.property_tax_total??0)-Number(tax.tax_prepaid??0):0;
     const next:string[]=[];
-    if(!who.mood)next.push('no mood: the shift has not been opened; reflect at rest');
     if(now.ship&&now.ship.cargo_used>=now.ship.cargo_capacity)next.push('the hold is full: sell(rows) or stow(rows) before a gather');
     if(taxDue>0)next.push(`tax due ${taxDue} cr`);
     if(carrier&&Number((carrier as any).outstanding_debt??0)>0)next.push(`shipping debt ${(carrier as any).outstanding_debt} cr`);

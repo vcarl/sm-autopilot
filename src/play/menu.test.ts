@@ -16,7 +16,7 @@ import {bind,unbind,type Pilot} from './runtime.ts';
 function world(record:Pilot,options:WorldOptions={}) {
   const runtime=mkdtempSync(join(tmpdir(),'spacemolt-menu-'));
   const game=bridgeWorld({services:['refuel','repair','storage','shipyard'],...options});
-  bind({account:game.account as unknown as ReadinessAccount,command:game.command,pilot:()=>record,setPilot:()=>{},runtime,emit:()=>{}});
+  bind({account:game.account as unknown as ReadinessAccount,command:game.command,pilot:()=>record,runtime,emit:()=>{}});
   return {...game,runtime,close:()=>{unbind();rmSync(runtime,{recursive:true,force:true});}};
 }
 const gather=(over:Partial<RunSummary>={}):RunSummary=>({fn:'gatherUntil',arg:'belt',status:'done',credits:0,items:12,xp:0,at:'sol_base',...over});
@@ -139,13 +139,13 @@ test('a fight at the POI is a threat, and docking ends it: safety-only out there
     assert.deepEqual(seen.observed.threats,['Raider']);
     assert.match(jobStop(seen)!,/threat seen: Raider/);
     assert.deepEqual([...new Set(evaluateMenu(seen).map(row=>row.tag))],['safety']);
-    // Docked, the same brawl outside is not a threat: rest and resupply stay on the menu.
+    // Docked, the same brawl outside is not a threat: resupply stays on the menu.
     f.account.server.location.docked_at='sol_base';
     f.account.server.location.poi_id='station';
     const inside=await facts(f,who);
     assert.equal(inside.observed.threats,undefined);
     assert.equal(jobStop(inside),null);
-    assert.ok(evaluateMenu(inside).some(row=>row.tag==='rest'),'no rest row at the counter under a brawl outside');
+    assert.ok(evaluateMenu(inside).some(row=>row.tag!=='safety'),'only safety rows at the counter under a brawl outside');
   } finally {f.close();}
 });
 
@@ -471,32 +471,6 @@ test('a verdict with no barrel primitive behind it is left unsaid, not invented'
     const built=await menu(f.runtime);
     for(const bad of ['watch','dock(','retreat','undock','disengage'])
       assert.ok(!built.moves.some(m=>m.call.includes(bad)),`invented a safety primitive: ${JSON.stringify(built.moves)}`);
-  } finally {f.close();}
-});
-
-test('a docked, serviced pilot is offered rest, because the menu is now the only always-open way to end a shift',async()=>{
-  // Rest left the pilot's AI tools for the barrel, which removes a model round-trip per shift but
-  // also removes the path that was always available. The menu is the replacement: the juncture
-  // delivers it after EVERY run however that run ended, so a script that threw before its own
-  // `rest()` line still leaves the pilot a pasteable way to end the shift and reflect. Without
-  // that, a pilot that cannot rest cannot change stance, and nothing unattended recovers it.
-  const f=world({mood:'Focused',stance:'Prospector',goal:'obtain credits'});
-  try {
-    f.account.server.ship.fuel=f.account.server.ship.max_fuel;
-    f.account.server.ship.hull=f.account.server.ship.max_hull;
-    const built=await menu(f.runtime);
-    const rest=built.moves.find(m=>m.call.startsWith('rest({'));
-    assert.ok(rest,`no way to end the shift: ${JSON.stringify(built.moves)} / ${JSON.stringify(built.not_now)}`);
-    // The offer names a shift, because rest opens one now. The stance and mood are pre-filled with
-    // the ones in force — carrying on is a real choice — and the goal is the blank the pilot fills.
-    assert.match(rest!.call,/goal:'<[^']+>'/,rest!.call);
-    assert.match(rest!.call,/stance:'Prospector'/,rest!.call);
-    // The shape the pilot would paste, through the real gate.
-    const runtime=mkdtempSync(join(tmpdir(),'menu-rest-'));
-    mkdirSync(join(runtime,'pilot'),{recursive:true});
-    writeFileSync(join(runtime,'pilot','index.ts'),
-      `import {rest} from 'play';\nexport default async function main() {\n  return ${rest!.call};\n}\n`);
-    assert.deepEqual((await check(runtime)).errors,[]);
   } finally {f.close();}
 });
 

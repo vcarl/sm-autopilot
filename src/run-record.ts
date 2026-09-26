@@ -1,18 +1,15 @@
-/** The run on disk: what a restarting runner knows about the work it was doing.
+/** The run on disk: the durable half of `status`, and the one account a process outside the
+ * bridge (the juncture's gate) has of whether a run is in flight.
  *
- * Nothing here decides anything. It is the durable half of `status`: which script was
- * running with which parameters, where it had got to, and the outcome once it has one, so a
- * bridge that died mid-run does not leave the next one answering `last: null` with the ship
- * still out at the belt.
+ * A bridge that dies mid-run leaves the record un-ended; the next bridge closes it as
+ * `interrupted` at boot (`closeInterrupted`) rather than re-running anything.
  */
 import {appendFileSync,mkdirSync,readFileSync,renameSync,writeFileSync} from 'node:fs';
 import {join} from 'node:path';
 
 export interface RunRecord {
   script:string;
-  /** The source of a script the pilot wrote, kept whole so a restart can re-run the very
-   * script it was running. `script` is then the source's label, which is what the journal
-   * and the juncture read: a hash names the run without carrying its text. */
+  /** The sha of the program that ran; the text is kept at `programs/<sha>.ts`. */
   source?:string;
   params?:Record<string,unknown>;
   /** The run's identity: no counter, no ids to keep unique across restarts. */
@@ -38,6 +35,21 @@ export function readRun(runtime:string):RunRecord|null {
     const stored=JSON.parse(readFileSync(join(runtime,'run.json'),'utf8')) as RunRecord;
     return stored?.script&&stored.started?stored:null;
   } catch {return null;}
+}
+
+/** A record a dead bridge left un-ended, closed as `interrupted` and journalled; null when there
+ * was none. Called at boot, after the controller lock is held, so no live bridge owns the run. */
+export function closeInterrupted(runtime:string):RunRecord|null {
+  const kept=readRun(runtime);
+  if(!kept||kept.ended)return null;
+  const ended_at=new Date().toISOString();
+  const did='the bridge ended while this run was in flight; nothing was re-run';
+  const closed:RunRecord={...kept,ended:true,outcome:{...kept.source?{sha:kept.source}:{},started:kept.started,
+    ended:true,ended_at,status:'interrupted',did}};
+  writeRun(runtime,closed);
+  journalRun(runtime,{phase:'ended',script:kept.script,...kept.source?{sha:kept.source}:{},started:kept.started,
+    outcome:'interrupted',reason:did});
+  return closed;
 }
 
 /** The tail of the journal as data: what the pilot has actually done, for the one reader

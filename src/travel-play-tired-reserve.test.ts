@@ -3,6 +3,7 @@ import test from 'node:test';
 import type {ReadinessAccount,ReadinessCommand} from './readiness.ts';
 import {FakeLibGoalAccount,type FakeCommandHandlers} from './test-support/fake-lib-account.ts';
 import {goTo} from './play/travel.ts';
+import {derived} from './test-support/bridge-world.ts';
 import {bind,unbind,type Pilot} from './play/runtime.ts';
 
 // S4: the mood picks the fuel reserve a leg is quoted against, and `goTo` froze it at the top
@@ -63,10 +64,10 @@ function fixture() {
     const [tool,action]=name.split('/');
     return account.send(tool,action,payload);
   };
-  let who:Pilot={mood:'Cautious'};
+  const who=derived(()=>({mood:'Cautious'}),account);
   bind({account:account as unknown as ReadinessAccount,command,
-    pilot:()=>who,setPilot:next=>{who=next;},emit:()=>{}});
-  return {account,server,command,pilot:()=>who,
+    pilot:who,emit:()=>{}});
+  return {account,server,command,pilot:who,
     jumps:()=>account.calls.filter(call=>call.action==='jump').length};
 }
 

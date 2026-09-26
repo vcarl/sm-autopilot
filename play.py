@@ -30,9 +30,6 @@ def serve(playground: Path) -> None:
                          f"file{f' (got {CREDS!r})' if CREDS else ''}. See README.md.")
     runtime = playground / "runtime"
     runtime.mkdir(parents=True, exist_ok=True)
-    if not (playground / "pilot.json").exists():
-        (playground / "pilot.json").write_text(json.dumps(
-            {"name": "kvothe", "mood": "Cautious", "permissions": {}}, indent=2))
     sock_path = sock_for(playground)
     if sock_path.exists():
         sock_path.unlink()

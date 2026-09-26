@@ -16,7 +16,7 @@ function fixture(options:ServeOptions={},services=['refuel','repair']) {
     dispatch:serve(world.account as unknown as ReadinessAccount,world.command,options)};
 }
 
-const PILOT:Pilot={name:'kvothe',objective:'fill the hold',stance:'Prospector',mood:'Focused'};
+const PILOT:Pilot={name:'kvothe',objective:'fill the hold',stance:'Prospector'};
 
 /** A run that starts and does not finish, so the bridge can be observed mid-flight. */
 function heldRun() {
@@ -47,36 +47,35 @@ test('menu answers with moves from the present, each a paste-able call, and the 
   const armed=bridgeWorld({wildlife:{creatures:[]}});
   const fitted=await serve(armed.account as unknown as ReadinessAccount,armed.command,{pilot:()=>PILOT})('menu') as any;
   assert.deepEqual(fitted.present.weapons,[{id:'autocannon_i',loaded:500}]);
-  // A pilot with no stance is at rest, and the menu is still never empty (VISION): the moves
-  // are computed all the same and what reflect would set is named beside them.
-  const resting=await fixture({pilot:()=>({objective:'fill the hold',mood:'Focused'})}).dispatch('menu') as any;
-  assert.equal(resting.rest.at_rest,true);
-  assert.deepEqual(resting.rest.absent,['goal','stance']);
-  assert.ok(resting.moves?.length,JSON.stringify(resting));
-  assert.ok(resting.moves.some((move:any)=>move.call.startsWith('sell(')),resting.text);
-  // With no mood either, the resting default stands in so the rules still have one.
+  // A pilot with no stance gets the same menu: nothing about a missing stance is a state to leave.
   const blank=await fixture().dispatch('menu') as any;
-  assert.deepEqual(blank.rest.absent,['goal','stance','mood']);
-  assert.ok(blank.moves?.length,JSON.stringify(blank));
+  assert.equal(blank.stance,undefined);
+  assert.equal(blank.mood,'Cautious','no stance flies the Cautious margins');
+  assert.ok(blank.moves.some((move:any)=>move.call.startsWith('sell(')),blank.text);
 });
 
-test('the menu reports the mood the record holds after its reads, and the walk-away line', async () => {
-  // The reads push state, every push runs `imposeTired`, and Tired clears the moment the ship
-  // is back inside the prior mood's margins. A frozen copy of the record cleared the same Tired
-  // on every push and then reported a mood the pilot no longer had (playtest 2026-09-22).
+test('the menu derives the mood from the ship after its reads, writes nothing, and names the walk-away line', async () => {
   const world=bridgeWorld();
-  let push:(()=>void)|undefined;
-  (world.account as any).onStateChange=(fn:()=>void)=>{push=fn;return ()=>{push=undefined;};};
-  const pushing=async(action:string,params:Record<string,unknown>={})=>{
-    const reply=await world.command(action,params);push?.();return reply;};
-  let record:Pilot={...PILOT,mood:'Tired',mood_before_tired:'Focused'};
   const writes:Pilot[]=[];
-  const menu=await serve(world.account as unknown as ReadinessAccount,pushing,
-    {pilot:()=>record,setPilot:next=>{writes.push(next);record=next;}})('menu') as any;
-  assert.equal(menu.mood,'Focused','the reads cleared Tired; the menu says so');
-  assert.equal(writes.length,1,'cleared once, not once per push');
-  // The mood's walk-away line, so the pilot is told the hull it breaks off at, never guessing.
+  // A record an older runner wrote, mood and all: the stored mood is ignored.
+  const serveIt=()=>serve(world.account as unknown as ReadinessAccount,world.command,
+    {pilot:()=>({...PILOT,mood:'Aggressive'} as Pilot),setPilot:next=>{writes.push(next);}});
+  const menu=await serveIt()('menu') as any;
+  assert.equal(menu.mood,'Focused','a Prospector flies Focused');
   assert.equal(menu.present.walk_away,90,'0.90 of a 100 hull is the Focused line');
+  world.account.server.ship.fuel=3;
+  const tired=await serveIt()('menu') as any;
+  assert.equal(tired.mood,'Tired');
+  assert.match(tired.tired_by,/fuel 3 under the Focused reserve 24/);
+  assert.equal(writes.length,0,'building the menu wrote the record');
+});
+
+test('the pilot request is the one writer of the record, and a null removes a field', async () => {
+  let record:Pilot={name:'kvothe',objective:'fill the hold'};
+  const f=fixture({pilot:()=>record,setPilot:next=>{record=next;}});
+  const out=await f.dispatch('pilot',{set:{stance:'Trader',goal:'walk a price circuit',objective:null}}) as any;
+  assert.deepEqual(out.record,{name:'kvothe',stance:'Trader',goal:'walk a price circuit'});
+  assert.deepEqual(record,out.record);
 });
 
 test('run blocks until the pilot file ends; status, stop and menu answer meanwhile', async () => {

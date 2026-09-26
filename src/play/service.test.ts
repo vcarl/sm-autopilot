@@ -5,7 +5,7 @@ import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {journalRun} from '../run-record.ts';
 import type {ReadinessAccount} from '../readiness.ts';
-import {bridgeWorld} from '../test-support/bridge-world.ts';
+import {bridgeWorld,derived} from '../test-support/bridge-world.ts';
 import {bind,unbind,type Pilot} from './runtime.ts';
 import {service} from './service.ts';
 
@@ -28,14 +28,14 @@ test('the spend margin is the mood the crossing imposed, not the one service ope
   // Fuel 10 against the Cautious reserve of 30: the crossing is already true, and the quote
   // command is what reports it.
   game.account.server.ship.fuel=10;
-  let who:Pilot={mood:'Cautious'};
+  const who=derived(()=>({mood:'Cautious'}),game.account);
   bind({account:game.account as unknown as ReadinessAccount,command,
-    pilot:()=>who,setPilot:next=>{who=next;},emit:()=>{}});
+    pilot:who,emit:()=>{}});
   try {
     const out=await service();
     assert.equal(out.status,'done',out.why);
     assert.equal(out.detail.cleared_tired,true,'the fill put the ship back inside the Cautious margins');
-    assert.equal(who.mood,'Cautious','the mood Tired replaced is restored, not left as Tired');
+    assert.equal(who().mood,'Cautious','the working mood is back once the ship is');
     assert.equal(game.account.server.ship.fuel,120);
     assert.equal(game.account.server.ship.hull,100);
   } finally {unbind();}
@@ -53,7 +53,7 @@ for(const mood of ['Tired','Cautious'] as const)
     game.account.server.ship.hull=52;
     let who:Pilot={mood};
     bind({account:game.account as unknown as ReadinessAccount,command:game.command,
-      pilot:()=>who,setPilot:next=>{who=next;},emit:()=>{}});
+      pilot:()=>who,emit:()=>{}});
     try {
       const out=await service();
       assert.equal(out.status,'done',out.why);
@@ -75,7 +75,7 @@ test('an unpriced repair that eats into the standing reserve is refused by name'
   game.account.server.player.credits=100;
   let who:Pilot={mood:'Tired',permissions:{credit_reserve:90}};
   bind({account:game.account as unknown as ReadinessAccount,command:game.command,
-    pilot:()=>who,setPilot:next=>{who=next;},emit:()=>{}});
+    pilot:()=>who,emit:()=>{}});
   try {
     const out=await service();
     assert.equal(out.status,'refused',out.did);
@@ -94,7 +94,7 @@ test('an unpriced counter is not tried at all with nothing above the reserve',as
   journalRun(runtime,{response:{result:{docked_at:{base_id:'range_base'}}}},'request');
   let who:Pilot={mood:'Tired',permissions:{credit_reserve:90}};
   bind({account:game.account as unknown as ReadinessAccount,command:game.command,
-    pilot:()=>who,setPilot:next=>{who=next;},emit:()=>{},runtime});
+    pilot:()=>who,emit:()=>{},runtime});
   try {
     const out=await service();
     assert.equal(out.status,'refused',out.did);
@@ -116,7 +116,7 @@ test('the standing credit reserve still refuses a Tired fill, by name',async()=>
   game.account.server.player.credits=100;
   let who:Pilot={mood:'Tired',permissions:{credit_reserve:90}};
   bind({account:game.account as unknown as ReadinessAccount,command:game.command,
-    pilot:()=>who,setPilot:next=>{who=next;},emit:()=>{}});
+    pilot:()=>who,emit:()=>{}});
   try {
     const out=await service();
     assert.equal(out.status,'refused',out.did);

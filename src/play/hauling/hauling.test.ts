@@ -11,7 +11,7 @@ function world(record:Pilot,options:WorldOptions={}) {
   const lines:string[]=[];
   let who:Pilot=record;
   bind({account:game.account as unknown as ReadinessAccount,command:game.command,
-    pilot:()=>who,setPilot:next=>{who=next;},emit:text=>lines.push(text)});
+    pilot:()=>who,emit:text=>lines.push(text)});
   return {...game,lines,record:()=>who};
 }
 // A near package the tier admits, and a fat one it does not.

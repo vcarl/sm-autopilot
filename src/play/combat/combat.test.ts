@@ -6,7 +6,7 @@ import test from 'node:test';
 import {writeFight} from '../../combat-memory.ts';
 import {readSightings,recall} from '../../sighting-memory.ts';
 import type {ReadinessAccount} from '../../readiness.ts';
-import {bridgeWorld,type WorldOptions} from '../../test-support/bridge-world.ts';
+import {bridgeWorld,derived,type WorldOptions} from '../../test-support/bridge-world.ts';
 import {bind,unbind,type Pilot} from '../runtime.ts';
 import {disengage,hunt,pace,type TickDecision,type TickView} from './hunting.ts';
 import {salvage} from './salvage.ts';
@@ -17,10 +17,10 @@ pace.tickMs=1;
 function world(record:Pilot,options:WorldOptions={}) {
   const game=bridgeWorld({services:['refuel','repair','storage'],cargoUsed:0,...options});
   const lines:string[]=[];
-  let who:Pilot=record;
+  const who=derived(()=>record,game.account);
   bind({account:game.account as unknown as ReadinessAccount,command:game.command,
-    pilot:()=>who,setPilot:next=>{who=next;},emit:text=>lines.push(text)});
-  return {...game,lines,record:()=>who};
+    pilot:who,emit:text=>lines.push(text)});
+  return {...game,lines,record:who};
 }
 
 /** `world`, but `spacemolt_battle/status` answers whatever `tick_duration` the live server
@@ -37,7 +37,7 @@ function worldWithStuckTick(record:Pilot,options:WorldOptions={}) {
     return res;
   };
   bind({account:game.account as unknown as ReadinessAccount,command,
-    pilot:()=>who,setPilot:next=>{who=next;},emit:text=>lines.push(text)});
+    pilot:()=>who,emit:text=>lines.push(text)});
   return {...game,command,lines,record:()=>who};
 }
 /** `world`, but the pilot record is REPLACED mid-hunt, the way a re-read of `pilot.json` gives
@@ -52,7 +52,7 @@ function worldWithMoodMoved(record:Pilot,on:string,to:Pilot['mood'],options:Worl
     return res;
   };
   bind({account:game.account as unknown as ReadinessAccount,command,
-    pilot:()=>who,setPilot:next=>{who=next;},emit:()=>{}});
+    pilot:()=>who,emit:()=>{}});
   return {...game,command,record:()=>who};
 }
 const grazer={creature_id:'c1',species:'molt_grazer',name:'Molt Grazer'};
@@ -268,7 +268,7 @@ function worldWithMemory(record:Pilot,options:WorldOptions={}) {
   const lines:string[]=[],runtime=mkdtempSync(join(tmpdir(),'spacemolt-ontick-'));
   let who:Pilot=record;
   bind({account:game.account as unknown as ReadinessAccount,command:game.command,runtime,
-    pilot:()=>who,setPilot:next=>{who=next;},emit:text=>lines.push(text)});
+    pilot:()=>who,emit:text=>lines.push(text)});
   return {...game,lines,runtime,record:()=>who};
 }
 

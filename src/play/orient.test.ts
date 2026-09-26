@@ -10,7 +10,7 @@ import {bind,unbind,type Pilot} from './runtime.ts';
 function world(record:Pilot) {
   const game=bridgeWorld({services:['refuel','repair','storage']});
   bind({account:game.account as unknown as ReadinessAccount,command:game.command,
-    pilot:()=>record,setPilot:()=>{},emit:()=>{}});
+    pilot:()=>record,emit:()=>{}});
   return game;
 }
 

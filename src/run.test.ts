@@ -5,8 +5,9 @@ import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import type {ReadinessAccount} from './readiness.ts';
 import {check,runPilot} from './run.ts';
-import {readJournal,readRun} from './run-record.ts';
+import {closeInterrupted,readJournal,readRun,writeRun} from './run-record.ts';
 import {bridgeWorld,type WorldOptions} from './test-support/bridge-world.ts';
+import {flying} from './bridge.ts';
 import {pace} from './play/combat/hunting.ts';
 
 const PILOT={name:'kvothe',mood:'Focused' as const,stance:'Prospector' as const};
@@ -15,11 +16,10 @@ function harness(options:WorldOptions={}) {
   const runtime=mkdtempSync(join(tmpdir(),'spacemolt-run-'));
   const game=bridgeWorld({services:['refuel','repair','storage'],cargoUsed:0,...options});
   const lines:string[]=[];
-  const wakes:string[][]=[];
   const deps={account:game.account as unknown as ReadinessAccount,command:game.command,runtime,
-    pilot:()=>PILOT,setPilot:()=>{},emit:(text:string)=>lines.push(text),wake:(argv:string[])=>{wakes.push(argv);}};
+    pilot:()=>PILOT,emit:(text:string)=>lines.push(text)};
   const write=(source:string)=>{mkdirSync(join(runtime,'pilot'),{recursive:true});writeFileSync(join(runtime,'pilot','index.ts'),source);};
-  return {...game,runtime,lines,wakes,deps,write,close:()=>rmSync(runtime,{recursive:true,force:true})};
+  return {...game,runtime,lines,deps,write,close:()=>rmSync(runtime,{recursive:true,force:true})};
 }
 
 test('a first run installs the example, and the three gates refuse before anything reaches the game',async()=>{
@@ -42,6 +42,12 @@ test('a first run installs the example, and the three gates refuse before anythi
     const refused=await runPilot(f.deps);
     assert.equal(refused.accepted,false);
     assert.equal(f.sent.length,0,'nothing reached the game');
+    // A refusal is journalled with the program's sha, and the program is kept under that sha, so
+    // a reader of the journal can see what was refused and why.
+    const logged=readJournal(f.runtime).find(entry=>entry.event==='run'&&entry.phase==='refused')!;
+    assert.ok(logged,'the refusal is in the journal');
+    assert.match(logged.errors.join(' '),/stopped\(\)/);
+    assert.ok(existsSync(join(f.runtime,'programs',`${logged.sha}.ts`)),'the refused program is kept');
   } finally {f.close();}
 });
 
@@ -73,7 +79,7 @@ test('the run summary says how the run ended, not how its first call did',async(
   } finally {f.close();}
 });
 
-test('a run streams a line per move (journalled first), ends with the prose, writes the record and raises the juncture',async()=>{
+test('a run streams a line per move (journalled first), ends with the prose and writes the record',async()=>{
   const f=harness();
   try {
     f.write("import {goTo, service, stow, note} from 'play';\n"+
@@ -94,7 +100,6 @@ test('a run streams a line per move (journalled first), ends with the prose, wri
     assert.equal(record.ended,true);
     assert.equal((record.outcome as any).status,'done');
     assert.equal(f.account.server.location.docked_at,'sol_base');
-    assert.deepEqual(f.wakes.length,0,'no SPACEMOLT_WAKE argv in the test environment');
     assert.match(readFileSync(join(f.runtime,'gameplay.jsonl'),'utf8'),/"phase":"ended"/);
   } finally {f.close();}
 });
@@ -120,85 +125,50 @@ test('a run that would hand back with a battle live breaks it off and says so',a
   } finally {f.close();pace.tickMs=10_000;}
 });
 
-test('a script that throws while the pilot is Tired and docked still ends the shift rested',async()=>{
-  // Rest lives in the barrel now, so a script that throws never reaches its own `rest()` line.
-  // Tired is imposed by the runtime and only rest clears it, so a Tired pilot docked at the end
-  // of a run is the one case the runner ends the shift itself: without it a broken script leaves
-  // a pilot that can never reflect, and so can never change stance, with no human in the loop.
+test('a pilot with no stance runs its script, and the script can bring the ship up',async()=>{
+  // Live 2026-09-26 (kvothe): a fresh pilot had a mood and no stance, every run was refused for
+  // want of a stance, so it could never service, and rest (which needed a serviced ship) could
+  // never open the shift that would admit the run. Nothing about a missing stance stops a run now.
   const f=harness();
   try {
-    let record:any={name:'kvothe',mood:'Tired',stance:'Prospector',goal:'three loads of ore'};
-    // Nothing for this base to bring up, so the rest rule admits the evening.
-    f.account.server.ship.fuel=f.account.server.ship.max_fuel;
-    f.account.server.ship.hull=f.account.server.ship.max_hull;
-    f.write("export default async function main(){ throw new Error('the script broke'); }\n");
-    const result=await runPilot({...f.deps,pilot:()=>record,setPilot:(next:any)=>{record=next;}});
-    assert.equal(result.status,'failed',result.reason);
-    assert.deepEqual(record,{name:'kvothe'},'the shift is put down whatever the script did');
-    const line=readJournal(f.runtime).find(entry=>entry.event==='rest');
-    assert.ok(line,'rest leaves its own line in the journal');
-    assert.deepEqual({stance:line!.stance,mood:line!.mood,goal:line!.goal},
-      {stance:'Prospector',mood:'Tired',goal:'three loads of ore'});
+    f.account.server.ship.fuel=10;
+    await f.account.refresh();
+    const record={name:'kvothe'};
+    f.write("import {rest} from 'play';\nexport default async function main(){ return rest(); }\n");
+    const result=await runPilot({...f.deps,pilot:()=>flying(record,f.account.state as never)});
+    assert.equal(result.accepted,true,result.errors?.join('\n'));
+    assert.equal(result.status,'done',`${result.reason}: ${result.why}`);
+    assert.match(f.lines[0]!,/mood Tired  stance none$/,'the header says what the derived mood was');
+    assert.equal(f.account.server.ship.fuel,f.account.server.ship.max_fuel,'the ship was refuelled');
+    assert.ok(f.sent.some(c=>c.action==='spacemolt/refuel'));
+    assert.ok(f.lines.some(line=>/tired cleared: back inside the Cautious margins/.test(line)),f.lines.join('\n'));
   } finally {f.close();}
 });
 
-test('a run that ends on a mood the pilot chose leaves the shift where the pilot put it',async()=>{
-  // Not after every run: ending a shift on a good run takes the boundary out of the pilot's hands.
+test('a run past its wall-clock cap is asked to stop, then cut off, and the record is closed',async()=>{
   const f=harness();
   try {
-    let record:any={name:'kvothe',mood:'Focused',stance:'Prospector'};
-    f.write("import {orient} from 'play';\nexport default async function main(){ return orient(); }\n");
-    await runPilot({...f.deps,pilot:()=>record,setPilot:(next:any)=>{record=next;}});
-    assert.equal(record.stance,'Prospector','the shift is still the pilot\'s');
-    assert.equal(readJournal(f.runtime).find(entry=>entry.event==='rest'),undefined);
+    f.write("export default async function main(){ await new Promise(()=>{}); }\n");
+    const result=await runPilot({...f.deps,capMs:20,graceMs:20});
+    assert.equal(result.status,'partial');
+    assert.equal(result.abandoned,true,'the bridge is told to exit');
+    assert.match(f.lines.join('\n'),/wall-clock cap/);
+    assert.equal(readRun(f.runtime)?.ended,true,'run.json was left open');
+    const ended=readJournal(f.runtime).find(entry=>entry.phase==='ended')!;
+    assert.equal(ended.abandoned,true);
   } finally {f.close();}
 });
 
-test('a script ends its own shift and opens the next one, and the run reports it',async()=>{
+test('a run a dead bridge left open is closed as interrupted at boot, and nothing is re-run',()=>{
   const f=harness();
   try {
-    let record:any={name:'kvothe',mood:'Focused',stance:'Prospector',goal:'three loads of ore'};
-    f.account.server.ship.fuel=f.account.server.ship.max_fuel;
-    f.account.server.ship.hull=f.account.server.ship.max_hull;
-    f.write("import {rest} from 'play';\nexport default async function main(){ "
-      +"return rest({goal:'three more loads',stance:'Prospector',mood:'Focused'}); }\n");
-    const result=await runPilot({...f.deps,pilot:()=>record,setPilot:(next:any)=>{record=next;}});
-    assert.equal(result.status,'done',result.reason);
-    // The record never passes through the empty state: the shift it put down is replaced by the one
-    // it named, in a single write. Anything reading between the two cannot see a pilot that cannot work.
-    assert.deepEqual(record,{name:'kvothe',goal:'three more loads',stance:'Prospector',mood:'Focused'},
-      'the next shift was not opened by the rest that ended this one');
-    assert.ok(f.lines.some(line=>/^✓ rest  done/.test(line)),f.lines.join('\n'));
-  } finally {f.close();}
-});
-
-test('a run does not start at all when the record names no stance or mood',async()=>{
-  // Live 2026-09-25, 23:07Z: one run started with the header reading `mood - stance -`, then spent
-  // the whole juncture on 38 identical refusals — `hunt not started: the pilot record names no mood;
-  // reflect at rest first` — across deep_range, last_light, altais and the_telescope, cycling. Zero
-  // reflections. Every mood-gated call refuses in that state, so the run cannot accomplish anything,
-  // and `run.ts` prints the empty record in its own header at entry: it knew before the first call.
-  //
-  // One guard at the start kills the whole class. A retry limit on each mood-gated call would not:
-  // there are a dozen of them and the next one would burn the juncture just as well.
-  const f=harness();
-  try {
-    // `orient()` is not mood-gated, so it proves whether the script body ran at all.
-    f.write("import {orient, hunt} from 'play';\nexport default async function main(){ await orient(); return hunt({look:['belt','station']}); }\n");
-    const atRest={name:'kvothe'};   // exactly what rest() leaves behind
-    const result=await runPilot({...f.deps,pilot:()=>atRest as any});
-    // Nothing the SCRIPT would have sent reached the game: the body never ran. The one command that
-    // does go out is the runner's own battle check, which happens on every exit path because a
-    // battle holding the ship outranks everything and a refused run must still report it.
-    const byScript=f.sent.map(c=>c.action).filter(action=>action!=='spacemolt_battle/status');
-    assert.deepEqual(byScript,[],`a run that cannot work still sent ${byScript.length} commands`);
-    // And the refusal is unmistakable where the pilot actually reads: the report and run.json.
-    const said=f.lines.join('\n');
-    assert.match(said,/spacemolt_reflect/,`the report does not say what to do instead: ${said}`);
-    assert.match(said,/goal/,said);
-    const record=readRun(f.runtime);
-    assert.equal(record?.ended,true,'run.json was left open');
-    assert.match(JSON.stringify(record),/reflect/i,`run.json does not carry the reason: ${JSON.stringify(record)}`);
-    assert.equal((result as {accepted?:boolean}).accepted??true,true,'the run was accepted and then refused, not rejected unread');
+    writeRun(f.runtime,{script:'index.ts',source:'abc123abc123',started:'2026-09-26T18:00:00.000Z',ended:false});
+    const closed=closeInterrupted(f.runtime);
+    assert.equal(closed?.ended,true);
+    assert.equal((readRun(f.runtime)!.outcome as any).status,'interrupted');
+    const ended=readJournal(f.runtime).find(entry=>entry.phase==='ended')!;
+    assert.equal(ended.outcome,'interrupted');
+    assert.equal(f.sent.length,0,'nothing was sent to the game');
+    assert.equal(closeInterrupted(f.runtime),null,'an ended record is left alone');
   } finally {f.close();}
 });

@@ -9,7 +9,7 @@ function world(options:WorldOptions={}) {
   const game=bridgeWorld({services:['refuel','repair','storage'],cargoUsed:0,cargo:[],...options});
   let who:Pilot={mood:'Focused'};
   bind({account:game.account as unknown as ReadinessAccount,command:game.command,
-    pilot:()=>who,setPilot:next=>{who=next;},emit:()=>{}});
+    pilot:()=>who,emit:()=>{}});
   return game;
 }
 /** One active mission as `get_active_missions` lists it, with the objective's progress row. */

@@ -90,14 +90,14 @@ function bestSpread(here:Map<string,MarketListingItem>,at:string,now:number,runt
  * ponytail: pirates present are deliberately NOT threats. `V2NearbyPirate.status` has no
  * published values to read, and a Hunter's own quarry may be a pirate — counting them would
  * refuse every job the Hunter woke up to do. Upgrade when the spec names the statuses. */
-function threatsHere(location:ReadinessAccount['state']['location'],docked:string|null):string[] {
+export function threatsHere(location:ReadinessAccount['state']['location'],docked:string|null):string[] {
   if(docked||!location)return [];
   return [...(location.nearby_players??[]).filter(row=>row.in_combat).map(row=>row.username??row.player_id),
     ...(location.nearby_empire_npcs??[]).filter(row=>row.in_combat).map(row=>row.name??row.npc_id)];
 }
 
 /** The facts the rules table reads, assembled from live state and the pilot record. The
- * bridge's `rest` and the menu build them the same way, so what one refuses the other does.
+ * menu and `jobStop` read them the same way, so what one refuses the other does.
  *
  * The stance decides which counters are worth a round trip: only a Hunter's J8 reads
  * `observed.targets`, only a Carrier's J4/J5 read the board, only a Trader's J6 reads a
@@ -105,7 +105,6 @@ function threatsHere(location:ReadinessAccount['state']['location'],docked:strin
  * same as before for everyone else. Every one of them is `attempt`ed: a counter that refuses
  * leaves its field absent, which is the answer the rule already gave before it was wired. */
 export async function factsNow(account:ReadinessAccount,send:ReadinessCommand,who:Pilot,runtime?:string):Promise<Facts> {
-  if(!who.mood)throw new Error('The pilot record names no mood; the runner sets stance and mood at rest');
   await account.refresh();
   const {location,ship,player}=account.state;
   const system=details(await send('spacemolt/get_system',{})).system as Record<string,any>|undefined;
@@ -174,7 +173,7 @@ export async function factsNow(account:ReadinessAccount,send:ReadinessCommand,wh
   }
   return {
     ...who.stance?{stance:who.stance}:{},
-    mood:who.mood,
+    mood:who.mood??'Cautious',
     place:{kind:docked?'base':location?.poi_id?'poi':'space',...docked?{base_id:docked}:{},
       counters,workshop,
       ...service_prices?{service_prices}:{},sites,
@@ -192,7 +191,7 @@ export async function factsNow(account:ReadinessAccount,send:ReadinessCommand,wh
 /** What a verdict's own call serves, keyed by the barrel function it names. The verdict decides
  * whether the move is admissible and says why; this only labels it for the pilot. A call with no
  * row here is not offered — a move the menu cannot tag is one nobody decided what it was for. */
-const SERVES:Record<string,Advances>={goTo:'knowledge',service:'ship',rest:'objective',
+const SERVES:Record<string,Advances>={goTo:'knowledge',service:'ship',
   prices:'credits',storage:'knowledge',recipes:'knowledge',shipsForSale:'ship',missions:'credits',
   freightBoard:'credits',haul:'credits',carryPassengers:'credits',spreads:'credits',
   hunt:'objective',gatherUntil:'credits'};
@@ -494,7 +493,7 @@ export async function menu(runtime?:string):Promise<Menu> {
    * budget as much as `moves` is: `shared.travel` refuses once per site, so a single fuel shortfall
    * would otherwise bury the stance row that actually explains why the shift is stuck. */
   const refused:{move:string;why:string;rank:number}[]=[];
-  const REFUSAL_RANK:Record<string,number>={stance:0,resupply:1,rest:2,shared:3,safety:4};
+  const REFUSAL_RANK:Record<string,number>={stance:0,resupply:1,shared:2,safety:3};
   for(const verdict of verdicts) {
     const fn=verdict.play?.split('(')[0]??'';
     if(!verdict.admissible) {
@@ -556,13 +555,6 @@ export async function menu(runtime?:string):Promise<Menu> {
     .sort((a,b)=>b.k[0]!-a.k[0]!||b.k[1]!-a.k[1]!||b.k[2]!-a.k[2]!||b.k[3]!-a.k[3]!||b.k[4]!-a.k[4]!
       ||b.k[5]!-a.k[5]!||b.k[6]!-a.k[6]!)
     .map(({m})=>m).slice(0,5);
-  // Rest is appended rather than ranked, and so can never be crowded off by work. It is the one
-  // move that is not work at all — it ends the shift — and since it left the pilot's AI tools for
-  // the barrel, the menu is the only always-open way to reach it. A pilot that cannot rest cannot
-  // reflect, and so cannot change stance; nothing unattended recovers from that, so this row does
-  // not compete for the five.
-  const rest=moves.find(m=>m.call.startsWith('rest('));
-  if(rest&&!ranked.includes(rest))ranked.push(rest);
   // The tag says what a move serves, and what the objective names serves the objective: the
   // ranking is already settled, so this only corrects the label the pilot reads.
   const tagged=ranked.map(m=>lead&&m.call.split('(')[0]===lead?{...m,advances:'objective' as const}:m);

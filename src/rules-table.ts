@@ -34,6 +34,10 @@ export const STANCES:readonly Stance[]=Object.freeze([
     counters:['Comms / news','Market','Services'],initial_moods:['Cautious','Opportunistic']},
 ] as const satisfies readonly Stance[]);
 
+/** The working mood a stance flies in: its first initial mood, Cautious with no stance. The mood
+ * is never chosen or stored; `moodNow` turns this into Tired when a margin is crossed. */
+export const stanceMood=(stance?:string):Mood=>STANCES.find(row=>row.name===stance)?.initial_moods[0]??'Cautious';
+
 export interface Site {poi_id:string;quoted_fuel:number;resource?:string;serviced_base?:boolean}
 export interface Facts {
   stance?:StanceName;
@@ -51,13 +55,8 @@ export interface Bounds {spend:number;fuelReserve:number;walkAway:number}
 export const resolveBounds=(mood:Mood):Bounds=>
   ({spend:resolveServiceSpend(mood),fuelReserve:resolveFuelReserve(mood),walkAway:resolveWalkAway(mood)});
 
-/** `safety` survives danger; `safety`, `resupply` and `rest` survive Tired — a pilot that
- * reached a dock may put the evening down whatever the world imposed on it, and rest is what
- * clears an imposed mood for good. */
-type Tag='safety'|'resupply'|'rest'|'shared'|'stance';
-/** The one rest option, named once: the runner's own rest action asks this same rule, so
- * what the menu offers and what the runner accepts cannot drift (R5). */
-export const REST_JOB='Rest and reflect';
+/** `safety` survives danger; `safety` and `resupply` survive Tired — resupply is what clears it. */
+type Tag='safety'|'resupply'|'shared'|'stance';
 /** `play` is the exact line from the `play` barrel an option would be taken with, so the pilot
  * is never left to invent parameters (playtest 2026-09-15: a gather dispatched twice at the
  * station the ship was already docked at). It is what the pilot pastes, which is why it is a
@@ -67,7 +66,7 @@ export const REST_JOB='Rest and reflect';
  * A verdict the rules refuse carries none: handing back a call the same build just refused is
  * how a menu contradicts itself. A verdict with **no** `play` has no barrel primitive behind it
  * at all, and the menu leaves it unoffered rather than inventing one — the three `safety` rows
- * and `rest` are the standing cases. */
+ * are the standing cases. */
 export interface Verdict {job:string;reason:string;admissible:boolean;tag:Tag;play?:string}
 interface Rule {id:string;stance?:StanceName;apply(facts:Facts):Verdict|Verdict[]|null}
 
@@ -175,32 +174,6 @@ const RULES:Rule[]=[
   {id:'resupply.travel',apply:facts=>sites(facts).filter(site=>site.serviced_base).map(site=>trip(facts,site,'resupply'))},
   {id:'shared.counters',apply:counters},
   {id:'shared.travel',apply:facts=>sites(facts).filter(site=>!site.serviced_base).map(site=>trip(facts,site,'shared'))},
-  // Rest ends the shift, and only docked (N6): an evening is not put down in open space or at
-  // a POI with no counter. Servicing is wanted only as far as this base can give it: where the
-  // wallet covers the bill, resting on a ship that cannot leave is a shift ended badly; where it
-  // cannot, rest still happens and reflection is told the ship is short. Mood
-  // does not gate it — rest is what clears one.
-  {id:'rest.docked',apply:facts=>{
-    if(facts.place.kind!=='base')
-      return no('rest',REST_JOB,'rest happens docked at a base; dock to end the shift');
-    const counter=service(facts);
-    if(!serviced(facts)&&counter.admissible)
-      return no('rest',REST_JOB,`refuel and repair first — ${counter.reason}`);
-    // `rest()` is a barrel call now, so the shift's end is a line a script can write and a move
-    // the menu can offer. That matters beyond the saved round-trip: it used to be reachable only
-    // as an AI tool, which was the pilot's always-available path to ending a shift, and rest is
-    // what makes reflection — and so a change of stance — happen at all. The menu carrying it is
-    // what replaces that, and the menu is delivered after every run however the run ended.
-    return yes('rest',REST_JOB,serviced(facts)
-      ?'docked, safe and serviced: the evening can be put down and a new goal chosen'
-      :`docked, and this base cannot bring the ship up (${counter.reason}); the evening can still be put down`,
-      // `rest` ends this shift AND opens the next, so the call has to name one. The menu cannot
-      // choose a goal — that is the pilot's whole job here — so it pre-fills the stance and mood the
-      // ship is already in, which is a real choice (carry on as you are) and one that typechecks,
-      // and leaves the goal as the blank the pilot fills. Every field is editable and the reason
-      // says so; what the menu must not do is hand over a line that does not compile.
-      `rest({goal:'<what the next shift will do>',stance:'${facts.stance??'Prospector'}',mood:'${facts.mood==='Tired'||facts.mood==='Relaxed'?'Cautious':facts.mood}'})`);
-  }},
   // Stance rows (D7 section 2). A stance sees only its own; jobs carry the proposal's
   // numbers and end-state names.
   {id:'stance.prospector.J1',stance:'Prospector',apply:facts=>{
@@ -277,11 +250,11 @@ const RULES:Rule[]=[
 ];
 
 /** D2/D3: Relaxed and Tired are not initial moods (Relaxed is rest-like, Tired is
- * imposed), so neither may initiate a stance job. Counters, watch, rest, and travel
+ * derived from a crossed margin), so neither may initiate a stance job. Counters, watch, and travel
  * (including to a resource site) are unaffected — only J-numbered stance work is blocked. */
 function jobMoodBlock(mood:Mood):string|null {
   return mood==='Relaxed'||mood==='Tired'
-    ?`${mood} may not initiate a job; a job mood chosen at reflection admits it`
+    ?`${mood} may not initiate a job${mood==='Tired'?'; resupply clears it':''}`
     :null;
 }
 
@@ -304,6 +277,6 @@ export function evaluateMenu(facts:Facts):Verdict[] {
     .map(verdict=>blocked&&verdict.tag==='stance'?no('stance',verdict.job,blocked):verdict);
   if(dangerous)return verdicts.filter(verdict=>verdict.tag==='safety');
   if(facts.mood==='Tired')return verdicts.filter(verdict=>
-    verdict.tag==='safety'||verdict.tag==='resupply'||verdict.tag==='rest');
+    verdict.tag==='safety'||verdict.tag==='resupply');
   return verdicts;
 }

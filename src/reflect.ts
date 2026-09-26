@@ -1,5 +1,5 @@
-/** What a resting pilot reflects on: needs, holdings, what it has seen, what it has been
- * doing, and where it has been standing still (N7, N9).
+/** What a pilot reflects on: needs, holdings, what it has been doing, and where it has been
+ * standing still (N7, N9).
  *
  * Read-only and compact. It answers the questions VISION's "Rest and reflection" asks —
  * what skills are lagging, what the ship lacks, what it owns and owes, what it has seen of
@@ -17,7 +17,7 @@ import {viewStorage} from './storage.ts';
 
 /** Enough of each list to choose from; the whole report stays well under the 3 KB the
  * juncture's own context budget allows it. */
-const CAP={skills:6,visited:16,items:10,runs:5,bases:6,script_runs:3,reason:120};
+const CAP={skills:6,items:10,runs:5,bases:6,script_runs:3,reason:120};
 /** How many journal entries back a reflection looks. Most of them are steps and commands,
  * which this report ignores; the runs, rests and reflections it counts are the sparse ones. */
 const JOURNAL_SPAN=6_000;
@@ -30,7 +30,6 @@ export interface ScriptReview {name:string;saved?:true;bytes?:number;runs:number
 export interface Pilotish {objective?:string;objective_done?:boolean;goal?:string}
 
 export interface ReflectReport {
-  at_rest:true;
   objective?:string;
   objective_done?:boolean;
   /** The lowest-levelled skills first: what training would move (N7). `was`/`since` are the
@@ -41,12 +40,11 @@ export interface ReflectReport {
   ship:{fuel:number;max_fuel:number;hull:number;max_hull:number;cargo_capacity:number;modules:string[]};
   holdings:{credits:number;storage:{base_id:string;items:number;ships:number}[];here?:{item_id:string;quantity:number}[]};
   owes:{tax_due?:number;shipping_debt?:number;carrier_tier?:string};
-  seen:{systems_and_pois:string[];bases:string[]};
   recent:{script?:string;outcome?:string;reason?:string}[];
   /** The pilot's library beside how it ran: what a rest reviews and rewrites. */
   scripts?:ScriptReview[];
   stagnation:string[];
-  stances:{name:string;initial_moods:string[]}[];
+  stances:string[];
   /** Named, never guessed: the inputs this report could not read this time. */
   missing:string[];
 }
@@ -101,7 +99,7 @@ export async function reflectReport(account:ReadinessAccount,command:ReadinessCo
   // lives much further back than the default tail: read wide, and let the filters below
   // pick the few kinds of line that say where the pilot has been.
   const journal=runtime?readJournal(runtime,JOURNAL_SPAN):[];
-  const visited=new Set<string>(),bases=new Set<string>(),chosen=new Set<string>();
+  const chosen=new Set<string>();
   /** The oldest reflection in the span and the levels it saw: the baseline this report measures
    * against. Oldest rather than latest because an objective set several rests ago is measured
    * from before it, and the date is reported so the pilot knows what window it is reading. */
@@ -110,7 +108,10 @@ export async function reflectReport(account:ReadinessAccount,command:ReadinessCo
   const recent:ReflectReport['recent']=[];
   for(const entry of journal) {
     if(entry.event==='reflection'&&entry.stance)chosen.add(String(entry.stance));
-    const past=entry.request?.action==='reflect'?entry.response?.result?.skills:undefined;
+    // `reflection_read` is what a script's `reflection()` journals; a `reflect` request is the same
+    // rows as an older bridge journalled them.
+    const past=entry.event==='reflection_read'?entry.skills
+      :entry.request?.action==='reflect'?entry.response?.result?.skills:undefined;
     if(!baseline&&Array.isArray(past)&&past.length)
       baseline={at:String(entry.at??'an unrecorded time'),
         levels:new Map(past.filter((row:any)=>typeof row?.level==='number').map((row:any)=>[String(row.name),row.level as number]))};
@@ -119,15 +120,9 @@ export async function reflectReport(account:ReadinessAccount,command:ReadinessCo
       const name=String(entry.script??'');
       if(name)(ranScripts.get(name)??ranScripts.set(name,[]).get(name)!)
         .push({outcome:entry.outcome,reason:String(entry.reason??'').slice(0,CAP.reason)});
-      for(const job of Array.isArray(entry.jobs)?entry.jobs:[])
-        if(job?.job)ranJobs.set(String(job.job),(ranJobs.get(String(job.job))??0)+1);
+      // `work` is the run's first work call, as `run` journals it (`runSummary`).
+      if(entry.work?.fn)ranJobs.set(String(entry.work.fn),(ranJobs.get(String(entry.work.fn))??0)+1);
     }
-    const result=entry.response?.result;
-    if(!result||typeof result!=='object')continue;
-    const system=result.system?.id??result.location?.system,poi=result.poi?.id??result.location?.poi;
-    if(system)visited.add(poi?`${system}/${poi}`:String(system));
-    const dock=result.docked_at?.base_id??result.location?.docked_at??result.docked_at;
-    if(typeof dock==='string'&&dock)bases.add(dock);
   }
 
   const skills=skillRows?.filter(row=>typeof row?.level==='number')
@@ -144,16 +139,11 @@ export async function reflectReport(account:ReadinessAccount,command:ReadinessCo
   const runCount=recent.length;
   const kinds=[...ranJobs.entries()].sort((a,b)=>b[1]-a[1]);
   if(runCount>=3&&kinds.length===1)
-    stagnation.push(`every job in the journal's span was ${kinds[0]![0]} (${kinds[0]![1]} of them)`);
-  if(bases.size===1&&runCount>=2)
-    stagnation.push(`the pilot has not left ${[...bases][0]} in the journal's span`);
-  if(visited.size<=2&&visited.size>0)
-    stagnation.push(`only ${[...visited].join(', ')} appear in the journal: the world beyond is unseen`);
+    stagnation.push(`every run in the journal's span led with ${kinds[0]![0]} (${kinds[0]![1]} of them)`);
   const untried=STANCES.map(stance=>stance.name).filter(name=>!chosen.has(name));
   if(untried.length)stagnation.push(`stances never chosen: ${untried.join(', ')}`);
 
   return {
-    at_rest:true,
     ...pilot.objective?{objective:pilot.objective}:{},
     ...pilot.objective_done?{objective_done:true}:{},
     ...skills?.length?{skills}:{},
@@ -168,11 +158,10 @@ export async function reflectReport(account:ReadinessAccount,command:ReadinessCo
     owes:{...taxDue===undefined?{}:{tax_due:taxDue},
       ...shipping===undefined?{}:{shipping_debt:Number(shipping.profile?.outstanding_debt??0),
         carrier_tier:String(shipping.profile?.tier??'unknown')}},
-    seen:{systems_and_pois:[...visited].slice(-CAP.visited),bases:[...bases].slice(-CAP.bases)},
     recent:recent.slice(-CAP.runs),
     ...scripts?.length?{scripts}:{},
     stagnation,
-    stances:STANCES.map(stance=>({name:stance.name,initial_moods:[...stance.initial_moods]})),
+    stances:STANCES.map(stance=>stance.name),
     // The ship's fit against each stance's needs has no table behind it yet: D7 names the
     // counters a stance points at, never a hull or a module a stance requires.
     missing:[...missing,'ship fit against each stance (no per-stance ship requirement exists yet)',

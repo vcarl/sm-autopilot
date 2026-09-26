@@ -10,7 +10,6 @@
  * a multi-account runtime is a second process per account (DESIGN.md "Fleet").
  */
 import type {Account,SkillProgress,V2CargoItem,V2Location,V2Ship} from '@spacemolt/lib';
-import {resolveFuelReserve,resolveWalkAway} from '../mood-policy.ts';
 import type {ReadinessAccount,ReadinessCommand} from '../readiness.ts';
 import {journalRun} from '../run-record.ts';
 import {TravelBlocked} from '../travel.ts';
@@ -19,16 +18,16 @@ import type {Outcome,Present,Row,Status,Want} from './types.ts';
 export type Mood='Cautious'|'Focused'|'Opportunistic'|'Aggressive'|'Relaxed'|'Tired';
 export type Stance='Prospector'|'Industrialist'|'Trader'|'Carrier'|'Hunter'|'Scout';
 
-/** `pilot.json`, read fresh on every call. The pilot never writes it: reflection sets goal,
- * stance and mood; the runtime imposes and clears Tired; the observer carries in the rest. */
+/** `pilot.json`, read fresh on every call, plus the mood derived from the ship. The pilot never
+ * writes it: reflection sets goal and stance; the observer carries in the rest. */
 export interface Pilot {
   name?:string;
   objective?:string;objective_done?:boolean;
-  goal?:string;stance?:Stance;mood?:Mood;
-  /** The mood Tired replaced, restored when resupply clears Tired. Runtime-owned. */
-  mood_before_tired?:Mood;
-  /** Set from outside the harness: a Tired that resupply does not clear. Rest does. */
-  tired_forced?:boolean;
+  goal?:string;stance?:Stance;
+  /** Derived, never stored: the stance's working mood, or Tired past its margins (`moodNow`). */
+  mood?:Mood;
+  /** Present only while the mood is Tired: the margin that made it so. */
+  tired_by?:string;
   /** Standing bounds the human sets. Who to fight is not among them: combat targeting is
    * the pilot's judgement, kept honest by the hull floors and the walk-away fraction. */
   permissions?:{credit_reserve?:number;max_liability?:number};
@@ -38,8 +37,8 @@ export interface Pilot {
 export interface Binding {
   account:ReadinessAccount;
   command:ReadinessCommand;
+  /** The record with its derived mood; the bridge derives it from the live ship on every call. */
   pilot:()=>Pilot;
-  setPilot:(pilot:Pilot)=>void;
   /** Where the journal lives. Without one nothing is journalled; lines still stream. */
   runtime?:string;
   /** Where a streamed line goes after the journal has it. */
@@ -71,9 +70,10 @@ export function bind(binding:Binding):void {
   bound=binding;stopFlag=false;commands=0;started=Date.now();last={fn:'pilot'};calls=[];
   lastCommandAt=0;pending=null;lastTick=undefined;
   mark=snapshot();
+  lastMood=binding.pilot().mood;
   // A lib Account pushes state between commands (a tick, a fight); the fake in tests does not.
   const live=binding.account as unknown as {onStateChange?:(fn:()=>void)=>()=>void};
-  unwatch=typeof live.onStateChange==='function'?live.onStateChange(()=>{try {imposeTired();} catch {/* a push is not the place to fail */}}):undefined;
+  unwatch=typeof live.onStateChange==='function'?live.onStateChange(()=>{try {watchMood();} catch {/* a push is not the place to fail */}}):undefined;
 }
 export function unbind():void {unwatch?.();unwatch=undefined;bound=null;}
 export const isBound=()=>bound!==null;
@@ -148,8 +148,8 @@ function reconnected(ms=60_000):Promise<boolean> {
   });
 }
 
-/** Every game command a helper sends. Journalled by the bridge's command; counted and
- * Tired-checked here.
+/** Every game command a helper sends. Journalled by the bridge's command; counted, and a mood
+ * change it caused is said here.
  *
  * A connection that drops mid-command is not the trip ending: the lib reconnects and
  * re-authenticates by itself, so this waits for that, re-reads the world, and re-issues the
@@ -182,7 +182,7 @@ export async function command(action:string,params:Record<string,unknown>={}):Pr
     line(`  ${action}: reconnected; re-issued once`);
     return await sent(action,params);
   }
-  finally {imposeTired();}
+  finally {watchMood();}
 }
 
 /** A command pending longer than this says so, and keeps saying so every this often. The
@@ -209,9 +209,6 @@ async function sent(action:string,params:Record<string,unknown>):Promise<unknown
 }
 export const acct=():ReadinessAccount=>need().account;
 export const runtimeDir=()=>need().runtime;
-/** Write the pilot record. Not a pilot-facing call and not in the barrel: the runtime imposes
- * and clears Tired with it, and `rest` puts the shift down with it. Nothing else writes it. */
-export const setPilot=(next:Pilot):void=>need().setPilot(next);
 
 /** One streamed line: journalled first, then sent. */
 export function line(text:string,extra:Record<string,unknown>={}):void {
@@ -232,10 +229,9 @@ export const progress=()=>({fn:last.fn,step:last.step,commands,elapsed_s:Math.ro
  * begin something (a gather, a buy, a mission) ask before sending; reads and the safe legs
  * (service, stow, sell, going to a base) do not. */
 export function admit(fn:string):string|null {
-  const mood=pilot().mood;
-  if(!mood)return `${fn} not started: the pilot record names no mood; reflect at rest first`;
-  if(mood==='Tired')return `${fn} not started: Tired — service here or goTo a base and service there`;
-  if(mood==='Relaxed')return `${fn} not started: Relaxed may not initiate a job; a job mood chosen at reflection admits it`;
+  const {mood,tired_by}=pilot();
+  if(mood==='Tired')return `${fn} not started: Tired (${tired_by??'a margin crossed'}) — service here or goTo a base and service there`;
+  if(mood==='Relaxed')return `${fn} not started: Relaxed may not initiate a job`;
   return null;
 }
 
@@ -258,7 +254,7 @@ export function present():Present {
   const state=need().account.state,who=pilot();
   return {ship:state.ship as V2Ship,location:state.location as V2Location,cargo:(state.cargo??[]) as V2CargoItem[],
     credits:state.player?.credits??0,skills:skillMap(state.skills),mood:who.mood??'Cautious',
-    ...who.mood==='Tired'?{tired_by:tiredBy}:{}};
+    ...who.mood==='Tired'?{tired_by:who.tired_by??''}:{}};
 }
 
 /** What a helper hands back; the wrapper measures the rest. */
@@ -334,54 +330,20 @@ export function measured():Row[] {
     .sort((a,b)=>a.item_id<b.item_id?-1:1);
 }
 
-// ---- Tired: imposed and cleared by the runtime, never by a helper -----------------------
+// ---- Tired: derived from the ship, said here when it changes ----------------------------
 
-let tiredBy='';
-/** The margin the mood crosses, if any: fuel under the reserve, hull under the walk-away
- * line, credits under the reserve. ponytail: the route home is not quoted here (that is a
- * find_route per check); the mood's reserve in units stands in for it. Ammunition waits for hunt.
- *
- * ponytail: the fuel line is a flat reserve, not a route, and it stays one. Ceiling: a pilot
- * four jumps from the nearest serviced station is inside a 30 unit reserve and cannot reach
- * anything, while one docked at a station is Tired over a tank it could fill in one command.
- * The advice half of that idea now exists where it costs nothing per check: `serviceElsewhere`
- * (play/service.ts) prices the route to another base with `find_route` when a service is
- * refused, and the menu offers that move to a Tired pilot that is not docked at a counter.
- * Making the line itself a route still waits on a read the runtime does not
- * have: lib 14.2.0 answers `get_system`/`get_poi`/`get_base` only for where the ship is, so
- * "the nearest serviced station" is unknowable outside this system, and a per-check
- * `find_route` per station would pay for it on every command. */
-function crossed(mood:Mood):string|null {
-  const {ship,player}=need().account.state,who=pilot();
-  if(!ship)return null;
-  if(ship.fuel<resolveFuelReserve(mood))return `fuel ${ship.fuel} under the ${mood} reserve ${resolveFuelReserve(mood)}`;
-  const line=Math.floor(resolveWalkAway(mood)*ship.max_hull);
-  if(ship.hull<line)return `hull ${ship.hull}/${ship.max_hull} under the ${mood} walk-away line ${line}`;
-  const reserve=who.permissions?.credit_reserve??0;
-  if((player?.credits??0)<reserve)return `credits ${player?.credits??0} under the reserve ${reserve}`;
-  return null;
-}
-
-/** After every command and state push: cross a margin and Tired is imposed; back inside the
- * prior mood's margins (resupplied, anywhere) and it is cleared. A forced Tired
- * is not cleared here; rest clears everything. */
-export function imposeTired():void {
-  const b=need(),who=b.pilot();
-  if(!who.mood)return;
-  if(who.mood!=='Tired') {
-    const why=crossed(who.mood);
-    if(!why)return;
-    tiredBy=why;
-    b.setPilot({...who,mood:'Tired',mood_before_tired:who.mood});
-    if(b.runtime)journalRun(b.runtime,{rule:why,mood_before:who.mood},'tired');
-    line(`tired: ${why}; finishing the safe leg, then service`);
-    return;
+let lastMood:Mood|undefined;
+/** After every command and state push: when the derived mood crossed into or out of Tired, the
+ * journal and the stream say so. Nothing is written to the record — the mood is the facts. */
+export function watchMood():void {
+  const b=need(),who=b.pilot(),was=lastMood;
+  lastMood=who.mood;
+  if(!was||who.mood===was)return;
+  if(who.mood==='Tired') {
+    if(b.runtime)journalRun(b.runtime,{rule:who.tired_by,mood_before:was},'tired');
+    line(`tired: ${who.tired_by}; finishing the safe leg, then service`);
+  } else if(was==='Tired') {
+    if(b.runtime)journalRun(b.runtime,{mood:who.mood},'tired_cleared');
+    line(`tired cleared: back inside the ${who.mood} margins`);
   }
-  if(who.tired_forced||!who.mood_before_tired)return;
-  if(crossed(who.mood_before_tired))return;
-  const {mood_before_tired,...rest}=who;
-  b.setPilot({...rest,mood:mood_before_tired});
-  tiredBy='';
-  if(b.runtime)journalRun(b.runtime,{mood:mood_before_tired},'tired_cleared');
-  line(`tired cleared: back inside the ${mood_before_tired} margins`);
 }

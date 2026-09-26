@@ -15,7 +15,7 @@ for you — and the store's own delta before and after is the only evidence the 
 | `recipes(search?)` | what can be made here from hold + store, each one dry-run and priced, sorted by `margin` |
 | `quote(recipe, qty?)` | one recipe's escrow, fee, ETA and margin; the inputs the store is short of; commits nothing |
 | `craft(recipe, qty?, {preset})` | stow, quote, escrow, wait out the queue, confirm the outputs in the store |
-| [`facilities/`](facilities/README.md) | owning production (advanced): build, queue jobs, rent out capacity |
+| `facilities()`, `buildFacility`, `queueJob` | owning production (advanced): not built yet, and they throw `unimplemented`; `account()` reaches the commands |
 
 All three are refused unless the ship is docked at a base whose services include `crafting`.
 That refusal is itself the answer: the ore is at the wrong base.
@@ -71,7 +71,7 @@ export default async function main() {
 - The workshop queue is long and `craft` keeps returning `partial`. Queue before a gather trip
   and call `craft` again after; it re-enters the wait.
 - Crafting is at 5+ and you own no facility. Owning one earns passive corporation_management
-  xp; see `facilities/`.
+  xp; the facility commands are on `account()`.
 
 ## Pitfalls
 

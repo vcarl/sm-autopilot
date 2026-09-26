@@ -33,3 +33,26 @@ export function resolveFuelReserve(mood:Mood,standingPolicy:StandingFuelPolicy={
     throw new Error('Standing fuel reserve floor must be a finite non-negative number');
   return Math.max(fuelReserves[mood],floor??0);
 }
+
+/** The margin a mood's ship has crossed, if any: fuel under the reserve, hull under the walk-away
+ * line, credits under the standing reserve. ponytail: the fuel line is a flat reserve, not a route
+ * home; `serviceElsewhere` (play/service.ts) prices the route when a service is refused.
+ * ponytail: `crossed` has no hysteresis. A ship sitting exactly on a line flips per command; add a
+ * band if the journal ever shows it chattering. */
+export function crossed(mood:Mood,ship:{fuel:number;hull:number;max_hull:number}|undefined,
+  credits:number,creditReserve=0):string|null {
+  if(!ship)return null;
+  if(ship.fuel<resolveFuelReserve(mood))return `fuel ${ship.fuel} under the ${mood} reserve ${resolveFuelReserve(mood)}`;
+  const line=Math.floor(resolveWalkAway(mood)*ship.max_hull);
+  if(ship.hull<line)return `hull ${ship.hull}/${ship.max_hull} under the ${mood} walk-away line ${line}`;
+  if(credits<creditReserve)return `credits ${credits} under the reserve ${creditReserve}`;
+  return null;
+}
+
+/** The mood, derived and never stored: the working mood the caller names (the stance's own), or
+ * Tired while the ship is past that mood's margins. Resupply clears it by changing the facts. */
+export function moodNow(working:Mood,ship:{fuel:number;hull:number;max_hull:number}|undefined,
+  credits:number,creditReserve=0):{mood:Mood;tired_by?:string} {
+  const why=crossed(working,ship,credits,creditReserve);
+  return why?{mood:'Tired',tired_by:why}:{mood:working};
+}

@@ -2,8 +2,13 @@
  *
  * The pilot's file is the composition; this is the machinery around it. Three gates before
  * anything reaches the game — tsc, the import boundary, the game policy — then the runtime
- * is bound, `main()` runs, the returned Outcome is rendered to prose, the record is written
- * and the next juncture raised. No wall-clock cap: `stop` is the way out.
+ * is bound, `main()` runs, the returned Outcome is rendered to prose and the record is written.
+ * The next juncture is cron's interval, not the run's business.
+ *
+ * A run is capped by the wall clock (`RUN_CAP_MS`): the stop flag is raised at the cap, and a
+ * script that ignores it is cut off `RUN_GRACE_MS` later. Both land well inside the transport's
+ * own request timeout, so the bridge ends its run itself and the kill in `service.py` is only a
+ * backstop.
  */
 import {execFile} from 'node:child_process';
 import {createHash} from 'node:crypto';
@@ -16,28 +21,17 @@ import {prose} from './play/prose.ts';
 import {runSummary} from './play/menu.ts';
 import {disengage} from './play/combat/hunting.ts';
 import {battleNow} from './travel.ts';
-import {bind,command,line,outcome as build,progress,runCalls,unbind,type Binding} from './play/runtime.ts';
+import {bind,command,line,outcome as build,progress,runCalls,stop,unbind,type Binding} from './play/runtime.ts';
 import type {Outcome} from './play/types.ts';
-import {restNow} from './play/rest.ts';
 import {journalRun,writeRun,type RunRecord} from './run-record.ts';
 
 const PLUGIN=fileURLToPath(new URL('..',import.meta.url));
 const PLAY=join(PLUGIN,'src','play');
 const EXAMPLE=join(PLAY,'pilot','index.ts.example');
 
-/** Raising the juncture is running an argv: the cron jobs file is held by a cross-process
- * lock only Python takes, so the runner asks a Python one-shot rather than editing it. */
-export type Wake=(argv:string[])=>void;
-export function wakeArgv(value=process.env.SPACEMOLT_WAKE):string[] {
-  try {const argv=JSON.parse(value??'') as unknown;return Array.isArray(argv)&&argv.length?argv.map(String):[];}
-  catch {return [];}
-}
-export const QUICK_FAIL_MS=60_000;
-export const spawnWake:Wake=argv=>{
-  execFile(argv[0]!,argv.slice(1),(error,_stdout,stderr)=>{
-    console.error(error?`juncture wake failed: ${String(stderr).trim()||error.message}`:'juncture wake: ok');
-  });
-};
+/** 24 minutes, then the stop flag; 2 more for the script to honour it. Both inside the 30 of
+ * `service.REQUEST_TIMEOUT`, leaving room for the battle check and the record after. */
+export const RUN_CAP_MS=24*60_000,RUN_GRACE_MS=2*60_000;
 
 /** The pilot's directory, ready to typecheck and run: `pilot/index.ts` (from the example on
  * first use), `node_modules/play` and `node_modules/@spacemolt` linked so the bare specifiers
@@ -120,9 +114,9 @@ export async function check(runtime:string):Promise<Check> {
 
 export interface RunDeps extends Omit<Binding,'runtime'> {
   runtime:string;
-  wake?:Wake;
-  /** A record being re-run after a restart. */
-  resume?:RunRecord;
+  /** The wall-clock cap and the grace after it; tests shorten them. */
+  capMs?:number;
+  graceMs?:number;
 }
 /** What a run answers with: the sentence, the reason and the rendered report — never the
  * Outcome itself, which is kilobytes of ship, location and skills. That stays in `run.json`
@@ -141,6 +135,20 @@ export interface RunResult {
   started:string;
   ended_at?:string;
   commands?:number;
+  /** The script ignored the stop at the cap and was left behind; the bridge must exit so it
+   * cannot send another command. */
+  abandoned?:boolean;
+}
+
+/** The pilot's program as it was checked, kept by sha beside the file it overwrote, so a reader
+ * of the journal can see exactly what a run or a refusal was about. */
+function keepProgram(runtime:string,entry:string,sha:string):void {
+  try {
+    const dir=join(runtime,'programs');
+    mkdirSync(dir,{recursive:true});
+    const kept=join(dir,`${sha}.ts`);
+    if(!existsSync(kept))copyFileSync(entry,kept);
+  } catch {/* the record of a program is never worth a run */}
 }
 
 /** A battle still running when the script returns is unattended combat. The pilot is blind
@@ -165,78 +173,66 @@ const isOutcome=(value:unknown):value is Outcome<unknown>=>
 const message=(error:unknown)=>error instanceof Error?error.message:String(error);
 
 /** Validate, bind, import fresh, run `main()`, report. Every exit path journals the end,
- * writes the record, unbinds the runtime and raises the juncture. */
+ * writes the record and unbinds the runtime. */
 export async function runPilot(deps:RunDeps):Promise<RunResult> {
-  const {runtime,resume}=deps;
-  const started=resume?.started??new Date().toISOString();
+  const {runtime}=deps;
+  const started=new Date().toISOString();
   const gate=await check(runtime);
-  if(!gate.ok)return {accepted:false,reason:`pilot/index.ts is not admissible`,errors:gate.errors,started};
+  keepProgram(runtime,gate.entry,gate.sha);
+  if(!gate.ok) {
+    journalRun(runtime,{phase:'refused',script:'index.ts',sha:gate.sha,started,errors:gate.errors.slice(0,5)});
+    return {accepted:false,reason:`pilot/index.ts is not admissible`,errors:gate.errors,started};
+  }
   const record:RunRecord={script:'index.ts',source:gate.sha,started,ended:false};
   const save=()=>writeRun(runtime,record);
   save();
-  journalRun(runtime,{phase:'started',script:'index.ts',sha:gate.sha,started,...resume?{resumed:true}:{}});
+  const who=deps.pilot();
+  journalRun(runtime,{phase:'started',script:'index.ts',sha:gate.sha,started,stance:who.stance??null,mood:who.mood??null});
   bind({...deps});
-  line(`run started ${started}  index.ts sha ${gate.sha}  mood ${deps.pilot().mood??'-'}  stance ${deps.pilot().stance??'-'}`);
-  /** A record with no stance or mood is a pilot at rest, and every mood-gated call refuses in that
-   * state (`admit`), so the script cannot accomplish anything whatever it contains.
-   *
-   * Live 2026-09-25, 23:07Z: one run started with this exact header — `mood - stance -` — and spent
-   * the whole juncture on 38 identical `hunt not started: the pilot record names no mood` refusals
-   * across four systems, cycling, with zero reflections. The gating chain was right at every step
-   * and `rest()` had cleared the record as designed; what was missing was anyone asking the question
-   * at the top, where the answer was already printed.
-   *
-   * One guard here kills the class. A retry limit on each mood-gated call would not: there are a
-   * dozen of them, and the next one burns the juncture just as well. */
-  const shiftless=!deps.pilot().stance||!deps.pilot().mood
-    ?'no shift is open: the pilot record names '
-      +`${!deps.pilot().stance&&!deps.pilot().mood?'no stance and no mood'
-        :!deps.pilot().stance?'no stance':'no mood'}`
-      +', so every job would refuse and nothing this script does can work. '
-      +'Do not run a script: call spacemolt_reflect with a goal, a stance and a mood, and end the turn.'
-    :null;
+  line(`run started ${started}  index.ts sha ${gate.sha}  mood ${who.mood??'-'}  stance ${who.stance??'none'}`);
+  const cap=deps.capMs??RUN_CAP_MS,grace=deps.graceMs??RUN_GRACE_MS;
+  const timers:ReturnType<typeof setTimeout>[]=[];
+  let abandoned=false;
+  const cutOff=new Promise<Outcome<unknown>>(resolveCut=>{
+    timers.push(setTimeout(()=>{
+      line(`the run reached its wall-clock cap of ${Math.round(cap/60_000)} min: asking it to stop`);
+      journalRun(runtime,{job:'index.ts',message:'wall-clock cap: stop requested',cap_ms:cap},'log');
+      stop();
+    },cap));
+    timers.push(setTimeout(()=>{
+      abandoned=true;
+      resolveCut(build('the run was cut off at the wall-clock cap','partial',{},
+        `it did not stop within ${Math.round(grace/1000)}s of being asked`));
+    },cap+grace));
+  });
+  for(const timer of timers)timer.unref?.();
   let result:Outcome<unknown>;
-  if(shiftless) {
-    line(shiftless);
-    result=build('no run was started','refused',{shiftless:true},shiftless);
-  }
-  else try {
-    const url=pathToFileURL(gate.entry);
-    const loaded=await import(`${url.href}?v=${statSync(gate.entry).mtimeMs}-${gate.sha}`) as {default?:()=>Promise<unknown>};
-    if(typeof loaded.default!=='function')throw new Error('pilot/index.ts exports no default function');
-    const returned=await loaded.default();
-    result=isOutcome(returned)?returned:build('main returned nothing to report','done',{returned:returned??null});
+  try {
+    result=await Promise.race([(async()=>{
+      const url=pathToFileURL(gate.entry);
+      const loaded=await import(`${url.href}?v=${statSync(gate.entry).mtimeMs}-${gate.sha}`) as {default?:()=>Promise<unknown>};
+      if(typeof loaded.default!=='function')throw new Error('pilot/index.ts exports no default function');
+      const returned=await loaded.default();
+      return isOutcome(returned)?returned:build('main returned nothing to report','done',{returned:returned??null});
+    })(),cutOff]);
   } catch(error) {
     result=build('the run broke','failed',{},message(error));
-  }
+  } finally {for(const timer of timers)clearTimeout(timer);}
   // Before the report is rendered, so the fact is in the report rather than after it.
   const held=await closeBattle();
   if(held) {
     const why=held.ended
       ?`the run ended mid-battle against ${held.opponent}; it was broken off before the run closed`
-      :`BATTLE STILL LIVE against ${held.opponent}: the run ended mid-fight and could not break off. `
-        +'Nothing will move the ship until it ends; disengage() is the first call of the next run';
+      :`the run ended mid-fight against ${held.opponent} and could not break off; the battle is still live`;
     line(why);
     result={...result,...held.ended?{}:{status:'partial'},why:result.why?`${why}; ${result.why}`:why};
-  }
-  // Rest is a barrel call now, and a script that broke never reached its own `rest()` line. Tired
-  // is imposed by the runtime and rest is the only thing that clears it, so a pilot left Tired and
-  // docked is one that can no longer start work and — reflection happening only at rest — can no
-  // longer change stance either. That is a deadlock with no human in it to break, so the runner
-  // ends the shift here, and only here: after any other run the boundary stays the pilot's.
-  if(deps.pilot().mood==='Tired'&&deps.account.state.location?.docked_at) {
-    try {
-      const ended=await restNow(deps.account,command,deps.pilot(),deps.setPilot,runtime);
-      line(ended.rested
-        ?'tired and docked when the run ended: the shift was put down for the pilot, and the next juncture reflects'
-        :`tired and docked when the run ended, but rest is not admissible: ${ended.reason}`);
-    } catch(error){line(`tired and docked when the run ended, but rest broke: ${message(error)}`);}
   }
   const text=prose(result,runCalls());
   for(const said of text.split('\n'))line(said);
   const {commands}=progress();
   const work=runSummary(result.status);
-  journalRun(runtime,{phase:'ended',script:'index.ts',started,outcome:result.status,reason:result.did,commands,...work?{work}:{}});
+  journalRun(runtime,{phase:'ended',script:'index.ts',sha:gate.sha,started,outcome:result.status,reason:result.did,
+    ...result.why?{why:result.why}:{},commands,...work?{work}:{},...abandoned?{abandoned:true}:{}});
   line(`run ended  ${result.status}  ${commands} commands`);
   unbind();
   record.ended=true;
@@ -245,19 +241,8 @@ export async function runPilot(deps:RunDeps):Promise<RunResult> {
   record.outcome={sha:gate.sha,started,ended:true,ended_at,status:result.status,did:result.did,
     ...result.why?{why:result.why}:{},prose:text,commands};
   save();
-  // A run that failed inside a minute did no work; its juncture would only try the same thing
-  // again at once. The schedule carries that one. Real work, however it ended, gets its juncture.
-  // A run left with a live battle is the one thing that must not wait for the schedule, so it
-  // is never "brief": the juncture it raises is how a pilot learns the ship is still in a fight.
-  const brief=!held&&result.status!=='done'&&Date.now()-Date.parse(started)<QUICK_FAIL_MS;
-  const argv=brief?[]:wakeArgv();
-  if(brief)journalRun(runtime,{job:'index.ts',message:'juncture left to the schedule: failed inside a minute'},'log');
-  if(argv.length) {
-    journalRun(runtime,{job:'index.ts',message:'juncture raised'},'log');
-    try {(deps.wake??spawnWake)(argv);} catch(error){console.error(`juncture wake failed: ${message(error)}`);}
-  }
   return {accepted:true,status:result.status,reason:result.did,...result.why?{why:result.why}:{},
-    prose:text,sha:gate.sha,started,ended_at,commands};
+    prose:text,sha:gate.sha,started,ended_at,commands,...abandoned?{abandoned:true}:{}};
 }
 
 /** Where the plugin's own play library is, for a caller that wants to read it. */

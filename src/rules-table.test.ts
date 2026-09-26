@@ -164,16 +164,4 @@ test('the verdicts with no barrel primitive behind them carry no call, and the m
   assert.ok(safety.length>=2&&safety.every(v=>v.tag==='safety'),JSON.stringify(safety.map(v=>v.job)));
   assert.deepEqual(safety.filter(v=>v.play!==undefined),[],'a safety row must not offer a call the barrel has no export for');
 
-  const ready:Facts={mood:'Relaxed',place:{kind:'base',base_id:'sol_base',counters:[],sites:[]},
-    holdings:{fuel:120,max_fuel:120,hull:100,max_hull:100,cargo_free:50,credits:100},
-    obligations:{},permissions:{},observed:{}};
-  // Rest is the counter-example, and it changed: it used to carry no call because resting was an
-  // AI tool. It is a barrel call now, which is what lets the menu offer the end of a shift — and
-  // the menu has to, because that tool was the pilot's always-available path to reflecting, and
-  // without reflection it can never change stance.
-  const rest=evaluateMenu(ready).find(v=>v.job==='Rest and reflect');
-  assert.ok(rest?.admissible,rest?.reason);
-  // It names the next shift, because rest opens one now: the stance and mood in force are
-  // pre-filled and the goal is the blank only the pilot can fill.
-  assert.match(rest!.play??'',/^rest\(\{goal:'<[^']+>',stance:'[A-Za-z]+',mood:'[A-Za-z]+'\}\)$/,rest!.play);
 });

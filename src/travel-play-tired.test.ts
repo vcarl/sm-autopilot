@@ -60,7 +60,7 @@ function fixture() {
   };
   let who:Pilot={mood:'Tired'};
   bind({account:account as unknown as ReadinessAccount,command,
-    pilot:()=>who,setPilot:next=>{who=next;},emit:()=>{}});
+    pilot:()=>who,emit:()=>{}});
   return {account,server,command,pilot:()=>who,
     jumps:()=>account.calls.filter(call=>call.action==='jump').length};
 }

@@ -1,3 +1,4 @@
+import {flying} from '../bridge.ts';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import type {ReadinessAccount} from '../readiness.ts';
@@ -15,7 +16,7 @@ function world(record:Pilot,services=['refuel','repair','storage'],options:World
   const lines:string[]=[];
   let who:Pilot=record;
   bind({account:game.account as unknown as ReadinessAccount,command:game.command,
-    pilot:()=>who,setPilot:next=>{who=next;},emit:text=>lines.push(text)});
+    pilot:()=>who,emit:text=>lines.push(text)});
   return {...game,lines,record:()=>who};
 }
 
@@ -47,32 +48,26 @@ test('job measures cost and gains from state reads, and streams its entry and ex
   } finally {unbind();}
 });
 
-test('Tired is imposed on the command seam when a margin is crossed and cleared when service brings it back',async()=>{
-  const f=world({mood:'Focused',permissions:{credit_reserve:0}});
+test('Tired follows the ship: said on the command seam when a margin is crossed, and cleared by service',async()=>{
+  const f=world({});
+  const lines:string[]=[];
+  // What the bridge binds: the record plus the mood derived from the live ship on every read.
+  bind({account:f.account as unknown as ReadinessAccount,command:f.command,emit:text=>lines.push(text),
+    pilot:()=>flying({stance:'Prospector',permissions:{credit_reserve:0}},f.account.state as never)});
   try {
-    // Focused keeps 24 fuel: a command that leaves the tank under it imposes Tired.
+    assert.equal(pilot().mood,'Focused','a Prospector flies Focused');
+    // Focused keeps 24 fuel: a command that leaves the tank under it makes the pilot Tired.
     f.account.server.ship.fuel=20;
     await f.account.refresh();
     await command('spacemolt/get_base',{});
-    assert.equal(f.record().mood,'Tired');
-    assert.equal(f.record().mood_before_tired,'Focused');
-    assert.match(f.lines.at(-1)!,/tired: fuel 20 under the Focused reserve 24/);
+    assert.equal(pilot().mood,'Tired');
+    assert.match(lines.at(-1)!,/tired: fuel 20 under the Focused reserve 24/);
     // Under Tired, a gather may not start but service may; refuelling clears it anywhere.
     const fixed=await service();
     assert.equal(fixed.status,'done',fixed.why);
     assert.equal(fixed.detail.cleared_tired,true);
-    assert.equal(f.record().mood,'Focused');
-    assert.equal('mood_before_tired' in f.record(),false);
-    assert.ok(f.lines.some(line=>line.startsWith('tired cleared')));
-    // A forced Tired is not cleared by resupply.
-    f.account.server.ship.fuel=10;await f.account.refresh();
-    await command('spacemolt/get_base',{});
-    assert.equal(f.record().mood,'Tired');
-    const forced=f.record();
-    bind({account:f.account as unknown as ReadinessAccount,command:f.command,
-      pilot:()=>({...forced,tired_forced:true}),setPilot:()=>{assert.fail('a forced Tired must not be rewritten');},emit:()=>{}});
-    await service();
-    assert.equal(pilot().mood,'Tired');
+    assert.equal(pilot().mood,'Focused');
+    assert.ok(lines.some(line=>line.startsWith('tired cleared')));
   } finally {unbind();}
 });
 
@@ -288,7 +283,7 @@ test('a disconnect mid-command is waited out, an idempotent command re-issued on
   const account=Object.assign(game.account,{onReconnected:(fn:()=>void)=>{setTimeout(fn,0);return ()=>{};}});
   const lines:string[]=[];
   bind({account:account as unknown as ReadinessAccount,command:flaky,
-    pilot:()=>({mood:'Focused'}),setPilot:()=>{},emit:text=>lines.push(text)});
+    pilot:()=>({mood:'Focused'}),emit:text=>lines.push(text)});
   try {
     await command('spacemolt/get_base',{});
     assert.equal(calls,2,'the read was re-issued once after the reconnect');
@@ -311,7 +306,7 @@ test('a command pending longer than 30s says so every 30s, and status names what
     return game.command(action,params);
   };
   bind({account:game.account as unknown as ReadinessAccount,command:slow,
-    pilot:()=>({mood:'Focused'}),setPilot:()=>{},emit:text=>lines.push(text)});
+    pilot:()=>({mood:'Focused'}),emit:text=>lines.push(text)});
   try {
     const flight=command('spacemolt/mine',{});
     t.mock.timers.tick(30_000);
@@ -341,7 +336,7 @@ test('a half-open socket the lib never reconnects is forced back, then the comma
   const account=Object.assign(game.account,{onReconnected:()=>()=>{},reconnectOnce:async()=>{forced++;}});
   const lines:string[]=[];
   bind({account:account as unknown as ReadinessAccount,command:flaky,
-    pilot:()=>({mood:'Focused'}),setPilot:()=>{},emit:text=>lines.push(text)});
+    pilot:()=>({mood:'Focused'}),emit:text=>lines.push(text)});
   try {
     const flight=command('spacemolt/get_base',{});
     // The throw and the catch that arms the reconnect wait are microtasks: let them land first.

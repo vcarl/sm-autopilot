@@ -35,7 +35,7 @@ test('a Tired pilot can goTo a base whose id equals its own POI id',async()=>{
   };
   const pilot:Pilot={mood:'Tired'};
   bind({account:account as unknown as ReadinessAccount,command,
-    pilot:()=>pilot,setPilot:()=>{assert.fail('Tired is not cleared by this trip')},emit:()=>{}});
+    pilot:()=>pilot,emit:()=>{}});
   try {
     const trip=await goTo('unknown_edge_waystation');
     assert.equal(trip.status,'done',trip.why);

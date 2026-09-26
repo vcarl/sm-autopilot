@@ -15,7 +15,7 @@ function world(record:Pilot,options:WorldOptions={},runtime?:string) {
   const lines:string[]=[];
   let who:Pilot=record;
   bind({account:game.account as unknown as ReadinessAccount,command:game.command,
-    pilot:()=>who,setPilot:next=>{who=next;},emit:text=>lines.push(text),...runtime?{runtime}:{}});
+    pilot:()=>who,emit:text=>lines.push(text),...runtime?{runtime}:{}});
   return {...game,lines,record:()=>who};
 }
 

@@ -287,8 +287,8 @@ before and after, and `gained.items` is the cargo delta — a `loot` reply over-
 
 ## The flee rule
 
-Every mood has a walk-away fraction of max hull (Cautious 0.95, Focused and Relaxed 0.90,
-Aggressive 0.80). `hunt` reads the hull each round and breaks off the moment it crosses that
+Every mood has a walk-away fraction of max hull (Cautious 0.95, Focused 0.90, Aggressive 0.80);
+a Hunter flies Focused, so it is 0.90. `hunt` reads the hull each round and breaks off the moment it crosses that
 line. A ship that escapes at 30% hull keeps everything.
 
 `battle/retreat` is not the way out: it is a range maneuver (`backOff`), and the server takes

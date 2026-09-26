@@ -101,8 +101,8 @@ const asNext=(rows:Elsewhere[],system:string):string[]=>rows.length
  * price still refuels and repairs: the posted price is only a pre-flight estimate, and the
  * reserve is held against the charge itself.
  *
- * Tired: resupplying back inside the margins is what clears it; the runtime restores the
- * mood Tired replaced and `cleared_tired` says so. `insure` and `dues` are accepted and
+ * Tired: resupplying back inside the margins is what clears it (the mood is derived from the
+ * ship), and `cleared_tired` says so. `insure` and `dues` are accepted and
  * reported in `short` until a later slice implements them. */
 export function service(opts:{fuel?:number;hull?:number;insure?:boolean;dues?:boolean|'all'}={}):Promise<Outcome<Serviced>> {
   return job<Serviced>('service',Object.keys(opts).join(' '),async()=>{
