@@ -2,7 +2,7 @@
 
 ## Using this checklist
 
-- This is the checklist. [VISION.md](VISION.md) is intent; `worklog/` is history, one file per finished task, written from verified artifacts. Neither is edited from here.
+- This is the checklist. [../docs/VISION.md](../docs/VISION.md) is intent; `worklog/` is history, one file per finished task, written from verified artifacts. Neither is edited from here.
 - Check an item only when its observable result exists. A stub, an accepted command, or a model claim is not completion.
 - Put evidence beside a checked item: path, test command, or reviewed receipt. Name the level (fixture, replay, live).
 - Record progress, decisions, and the next action here before ending work.

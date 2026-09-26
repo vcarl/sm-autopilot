@@ -1,7 +1,7 @@
 # SpaceMolt plugin — working on it
 
 Setup and operation live in [README.md](README.md). This file is for changing the code.
-[GAMEPLAY.md](GAMEPLAY.md) is observed game mechanics, not guarantees.
+[docs/GAMEPLAY.md](docs/GAMEPLAY.md) is observed game mechanics, not guarantees.
 
 ## Shape
 
