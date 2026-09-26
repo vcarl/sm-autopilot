@@ -4,8 +4,9 @@
  * from this pilot's process (`assign`). */
 import type {ListShipsResponse,MapSystemInfo,StoredShip,SwitchShipResponse,V2Ship} from '@spacemolt/lib';
 import {details} from '../../response-details.ts';
-import {closure,type Holding} from '../freighter/index.ts';
+import {closure,IGNORE_TICKS,type Holding} from '../freighter/index.ts';
 import {flying,held,install,readFleet,recallLoop,row,start,type FreighterRow} from '../freighter/host.ts';
+import {marketTick} from '../market.ts';
 import {acct,command,job,runtimeDir} from '../runtime.ts';
 import {farBooks,hops,routes,type Circuit} from '../trading/trading.ts';
 import type {Outcome} from '../types.ts';
@@ -43,7 +44,9 @@ export function tiedUp(holding:Holding,circuit:Circuit):string|undefined {
  * freighter flies on. Refused unless the circuit is closed, of 2+ bases this pilot has read books
  * at, buys somewhere everything it sells, and every hop (the last back to the first too) is on the
  * map; refused over `FLOAT_MAX`, or while `name` is flying (recall it first). Cargo aboard the circuit
- * never sells is not refused: the `why` says how much of the hold it ties up. */
+ * never sells is not refused: the `why` says how much of the hold it ties up. Nor is a circuit whose
+ * every stop's book is older than `IGNORE_TICKS`: the `why` says its first lap buys only what fresh
+ * books justify. */
 export function assign(name:string,circuit:Circuit,caps:{float:number}):Promise<Outcome<{freighter:FreighterRow|null}>> {
   return job<{freighter:FreighterRow|null}>('assign',name,async()=>{
     const refuse=(why:string)=>({status:'refused' as const,did:`assigned no freighter ${name}`,why,detail:{freighter:null}});
@@ -54,8 +57,11 @@ export function assign(name:string,circuit:Circuit,caps:{float:number}):Promise<
     if(open)return refuse(open);
     // Every base `routes()` may put on a circuit, and its system where a source kept one: a ledger
     // entry carries none, and `routes()` placed it with find_route, so the stop's own stands.
-    const known=new Map<string,string|undefined>();
-    for(const book of await farBooks('',0))if(!known.get(book.base_id))known.set(book.base_id,book.system_id);
+    const known=new Map<string,string|undefined>(),ages=new Map<string,number>();
+    for(const book of await farBooks('',marketTick())) {
+      if(!known.get(book.base_id))known.set(book.base_id,book.system_id);
+      ages.set(book.base_id,Math.min(ages.get(book.base_id)??Infinity,book.age));
+    }
     for(const stop of circuit.stops) {
       if(!known.has(stop.at))return refuse(`${stop.at}: no book for it remembered or on the faction ledger, so its system is unknown; ${BUILD}`);
       const system=known.get(stop.at);
@@ -76,8 +82,12 @@ export function assign(name:string,circuit:Circuit,caps:{float:number}):Promise<
     const entry=readFleet(runtime)[name]!,clean=entry.circuit;
     const why=start(runtime,name),tied=entry.holding&&tiedUp(entry.holding,clean);
     if(why)return refuse(why);
+    // Never refused: the freighter sizes every buy by the books, so a lap on old ones scouts.
+    const old=clean.stops.every(stop=>(ages.get(stop.at)??Infinity)>IGNORE_TICKS)
+      &&`every stop's book is older than ${IGNORE_TICKS} ticks: the first lap buys only what fresh books justify, a light scouting lap`;
+    const said=[tied,old].filter(Boolean).join('; ');
     return {status:'done',did:`assigned ${name}: ${clean.stops.map(stop=>stop.at).join(' → ')} → back, ${clean.lap_net} cr a lap predicted; it flies on its own account now`,
-      detail:{freighter:row(name,readFleet(runtime)[name]!)},next:['freighters()',`recall('${name}', {after:'lap'})`],...tied?{why:tied}:{}};
+      detail:{freighter:row(name,readFleet(runtime)[name]!)},next:['freighters()',`recall('${name}', {after:'lap'})`],...said?{why:said}:{}};
   });
 }
 
