@@ -34,6 +34,20 @@ def _private(module: str, *names):
     return found[0] if len(found) == 1 else found
 
 
+def _cron(name: str):
+    """A cron-internal function by name, from whichever module this Hermes keeps it in: newer
+    trees split ``cron.scheduler_prompt`` out of ``cron.scheduler``. Skips when neither has it."""
+    import importlib
+    for module in ("cron.scheduler_prompt", "cron.scheduler", "cron.scheduler_script", "cron.lifecycle_guard"):
+        try:
+            found = getattr(importlib.import_module(module), name, None)
+        except ImportError:
+            continue
+        if found is not None:
+            return found
+    pytest.skip(f"no cron module exposes {name}")
+
+
 @pytest.fixture
 def ctx(tmp_path, monkeypatch):
     """A real ``PluginContext`` on a fresh manager: the registration path, not a stand-in, because
@@ -73,3 +87,19 @@ def test_an_unregistered_skill_would_have_been_skipped(ctx):
     load = _private("cron.scheduler_prompt", "_load_cron_skill_parts")
     parts = load({"id": "j1", "name": "n"}, [qualified("play")])
     assert "could not be found" in "\n".join(parts) or parts == []
+
+
+def test_a_fire_carries_the_stances_readme_and_the_base_one_or_the_base_alone(ctx):
+    """The stance is how a fire's career text is chosen: its README reaches the prompt cron
+    builds, beside the base README; with no stance the base README does. Asserted on the text,
+    because cron skips a skill it cannot resolve and fires anyway."""
+    build = _cron("_build_job_prompt")
+    register_skills(ctx, PLUGIN_ROOT)
+    readmes = readme_skills(PLUGIN_ROOT)
+    first = lambda name: readmes[name].read_text(encoding="utf-8").splitlines()[0]
+    prompt = lambda pilot: build({"id": "j1", "name": "n", **job_fields(pilot, gate=False)},
+                                 prerun_script=(True, "No run in flight: the pilot is idle."))
+    body = prompt({"stance": "Trader"})
+    assert first("play") in body and first("trading") in body
+    alone = prompt({})
+    assert first("play") in alone and first("trading") not in alone

@@ -11,12 +11,10 @@ import os
 import queue
 import shutil
 import subprocess
-import sys
 import threading
 from pathlib import Path
 from typing import Any
 
-import hermes_constants
 from agent.secret_scope import UnscopedSecretError, get_secret
 from hermes_constants import get_hermes_home
 
@@ -28,7 +26,8 @@ RENDER_COMMAND = ["node", "src/journal-lines.ts"]
 RENDER_TIMEOUT = 30.0
 BRIDGE_STDERR = "bridge.stderr.log"
 READY_TIMEOUT = 120.0
-REQUEST_TIMEOUT = 1800.0  # one travel leg can wait out many minutes of game ticks
+#: A backstop only: the bridge caps a run itself (``RUN_CAP_MS`` + grace in run.ts, 26 min).
+REQUEST_TIMEOUT = 1800.0
 CLOSE_TIMEOUT = 5.0  # per stage of the EOF → SIGTERM → SIGKILL escalation
 
 _lock = threading.RLock()
@@ -75,8 +74,8 @@ def runtime_dir() -> Path:
 
 
 def pilot_path() -> Path:
-    """The runner's pilot record — objective, stance, mood. The bridge reads the
-    same file (``resolve(runtime,'..','pilot.json')``); the agent never writes it."""
+    """The pilot record — objective, goal, stance, permissions. The bridge is its one writer
+    (``resolve(runtime,'..','pilot.json')``); Python only reads it."""
     return runtime_dir().parent / "pilot.json"
 
 
@@ -100,23 +99,6 @@ def render_journal(limit: int) -> str:
     return done.stdout.strip()
 
 
-def wake_argv() -> list[str]:
-    """What the bridge runs when a run ends: this interpreter and the wake one-shot (N4).
-
-    Python tells the bridge exactly what to run rather than the bridge guessing at a venv.
-    """
-    return [sys.executable, str(HERE / "wake_juncture.py")]
-
-
-def wake_env() -> dict[str, str]:
-    """What that one-shot needs to import: the plugin's parent for ``spacemolt`` and the
-    Hermes tree for ``cron``, both read off this process, plus this profile's home."""
-    roots = [str(HERE.parent), str(Path(hermes_constants.__file__).resolve().parent)]
-    existing = os.environ.get("PYTHONPATH")
-    return {"PYTHONPATH": os.pathsep.join([*roots, *([existing] if existing else [])]),
-            "HERMES_HOME": str(get_hermes_home())}
-
-
 def available() -> bool:
     return credentials_file() is not None and shutil.which("node") is not None
 
@@ -132,7 +114,6 @@ class Bridge:
         runtime.mkdir(parents=True, exist_ok=True)
         webhook = journal_webhook()
         env = {**os.environ, "SPACEMOLT_CREDENTIALS_FILE": str(credentials), "SPACEMOLT_RUNTIME_DIR": str(runtime),
-               **wake_env(), "SPACEMOLT_WAKE": json.dumps(wake_argv()),
                **({"SPACEMOLT_JOURNAL_WEBHOOK": webhook} if webhook else {})}
         self.runtime = runtime
         #: The sources this process booted on, so "is the bridge running the latest code?" is
@@ -252,7 +233,7 @@ class Bridge:
 
 def _in_flight(bridge: "Bridge") -> bool:
     """Is work going on that a recycle would destroy? A request of ours still waiting for its
-    reply, or a run the bridge has not ended — the same durable signal the wake gate reads."""
+    reply, or a run the bridge has not ended — the signal the wake gate reads."""
     from .juncture import run_in_flight
     return bool(bridge.waiting) or run_in_flight()
 

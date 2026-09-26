@@ -1,73 +1,71 @@
 """The juncture: one cron job per pilot, and every fire a fresh conversation.
 
-A fire opens a new session carrying the shared skill, the stance's skill and the
-``spacemolt`` toolset; the agent reads the menu, runs one script, and ends the turn. The script
-then runs on in the bridge, which outlives the conversation (N5). The runner rewrites this
-job at rest, when the stance changes (N18).
+A fire opens a new session carrying the base skill, the stance's career skill when there is a
+stance, and the ``spacemolt`` toolset. The agent reads the context, runs one script —
+``spacemolt_run`` blocks until the run ends, capped in the bridge — and ends the turn. The next
+fire is cron's interval, which cron re-anchors on the fire's completion, so a juncture comes a few
+minutes after the last one ended. The only suppression is a run genuinely in flight (the gate).
+
+What happened is in the journal (``runtime/gameplay.jsonl``): each gate decision, each juncture
+with the skills it carried and the context it rendered, and the bridge's own run, refusal, boot
+and record lines.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Mapping
 
 from hermes_constants import get_hermes_home
 
 from .service import pilot_path, runtime_dir
-from .skills_register import SHARED_SKILL, qualified
+from .skills_register import SHARED_SKILL, qualified, readme_skills
 
 #: What a fire carries: the job tools plus the reads every client of the runner may make.
 #: ``spacemolt_observer`` is deliberately absent — the pilot does not set its own objective.
 TOOLSETS = ("spacemolt", "spacemolt_observe")
-#: Cron's platform name. A juncture is the only session the menu is delivered into; a CLI
+#: Cron's platform name. A juncture is the only session the context is delivered into; a CLI
 #: or chat session is a client of the runner and never opens the game to build a prompt.
 JUNCTURE_PLATFORM = "cron"
-#: How long the pilot may sit idle before the runner brings a juncture (N4). A script that
-#: ends raises its own juncture; a fire that lands on a running script is a no-op.
-IDLE_SCHEDULE = "30m"
+#: The job's interval. Cron sets the next fire from a fire's completion, so this is the pause
+#: between one juncture ending and the next beginning.
+IDLE_SCHEDULE = "5m"
 #: The six stances (D7), mirrored from ``src/rules-table.ts``: a tool schema cannot read
-#: TypeScript, and the reflection report carries the same list for the agent to choose from.
+#: TypeScript.
 STANCES = ("Prospector", "Industrialist", "Trader", "Carrier", "Hunter", "Scout")
-#: D2: Relaxed never opens a shift and Tired is imposed, so neither is an initial mood.
-JOB_MOODS = ("Cautious", "Focused", "Opportunistic", "Aggressive")
 #: Where the runner's own journal lives. The bridge writes most of it; the lines the runner
-#: makes outside the bridge (reflection) take the same shape under their own event name.
+#: makes outside the bridge (gate, juncture, reflection, instruction) take the same shape.
 JOURNAL_FILE = "gameplay.jsonl"
+#: What a pilot with no goal of its own is pointed at.
+FIRST_GOAL = "Learn the ship: look around, find what sells, and make the first profit."
 
 JUNCTURE_PROMPT = (
-    "A SpaceMolt juncture. You choose the pilot's next run, start it, judge how it went, and "
-    "put the shift down.\n"
+    "A SpaceMolt juncture. You choose the pilot's next run, start it, and say how it went.\n"
     "What to expect:\n"
-    "- The context above is current and is everything you need to choose.\n"
+    "- The context above was read from the game as this juncture began.\n"
     "- A run takes minutes of real time and spacemolt_run waits for it, so its report comes back "
-    "to you in this same turn — you are the one holding it, and you are the only one who will.\n"
+    "to you in this same turn.\n"
     "- A wrong field costs a spacemolt_check, a wrong move costs a run, and looking costs "
     "almost nothing: when a fact you need is missing, a run that only looks (orient(), "
     "scout(), note() the numbers) is a good turn.\n"
     "- Spending, selling and fighting are the moves that stay done; the permissions bound the "
     "money, and who to fight is your judgement.\n"
-    "Whose word wins: the instruction carried in for this juncture, then the objective, then "
-    "your goal, then the suggested moves. When the instruction asks for something the library"
-    " can't do, do the nearest thing it can and say so.\n"
+    "Whose word wins: the instruction carried in, then the objective, then your goal, then the "
+    "suggested moves. When the instruction asks for something the library can't do, do the "
+    "nearest thing it can and say so.\n"
     "Your turn:\n"
-    "1. Pick the move that best serves the instruction or objective, using what the present "
+    "1. Pick the move that best serves the instruction or objective, using what the context "
     "shows.\n"
     "2. Write the whole of pilot/index.ts and pass it as `source` to spacemolt_run.\n"
-    "3. When the run returns, read its report against what the shift set out to do: what it cost, "
-    "what it gained, the skills that moved and where the ship now stands.\n"
-    "4. Then call spacemolt_reflect with a goal, a stance and an initial mood for the next shift. "
-    "It rests the pilot and opens that shift in one call. Judge the choice on the before and after "
-    "the report just gave you — this is the best-informed moment there is, and the next juncture "
-    "will be half an hour staler. Pass objective_done alongside them if this shift finished the "
-    "objective.\n"
-    "5. Answer in one or two lines — what ran, how it ended, what it measured, what comes next — "
-    "and end the turn.\n"
-    "A run that ended away from a base cannot rest: spacemolt_reflect says so, the stance carries, "
-    "and the next juncture continues this same shift. That is a normal outcome, not a fault, and "
-    "nothing needs retrying.\n"
-    "Hold instead when every suggested move is refused, and name the refusal in one line.\n"
-    "At rest the context says what to do instead.\n"
+    "3. Read the report: what it cost, what it gained, the skills that moved and where the ship "
+    "now stands.\n"
+    "4. When the report says the next juncture should pursue something else, call "
+    "spacemolt_reflect with a new goal, a stance, or objective_done. Otherwise leave them.\n"
+    "5. Answer in one or two lines — what ran, how it ended, what comes next — and end the turn.\n"
+    "When a run is already in flight, say so in one line and end the turn.\n"
     'When there is no SpaceMolt context above, say "no context from the runner" and end the '
     "turn."
 )
@@ -78,92 +76,91 @@ STANCE_FOLDER = {"Prospector": "mining", "Industrialist": "industry", "Trader": 
 
 #: The juncture section's ``max_chars``: core skips a section over it whole, not truncated.
 SECTION_LIMIT = 4_000
+#: How many of the pilot's own recent runs and reflections the context lists.
+RECENT = 5
+#: ponytail: the journal tail read for the recent list and the gate log, not the whole file
+#: (tens of MB). Entries older than this window are simply not recent.
+_TAIL_BYTES = 2 << 20
 
 
-#: How many runs that accomplished nothing, back to back, before the immediate next juncture stops
-#: being triggered and the interval governs again. Small on purpose: three is enough to tell a
-#: repeating fault from one bad turn, and cheap enough that a real fault cannot run far.
-IDLE_STREAK_LIMIT = 3
-
-
-def unproductive_streak() -> int:
-    """How many of the most recent runs, back to back, did nothing at all.
-
-    Derived from the journal rather than counted into the pilot record, and that is the point: there
-    is no state to reset, nothing that can be left set by a crash, and a productive run breaks the
-    streak the moment it is written. Recovery needs no human and no bookkeeping.
-
-    "Did nothing" is ``refused``, ``failed``, or zero commands sent. Deliberately NOT "gained
-    nothing": a run that only looks is a good turn under the juncture contract, and the live burn of
-    2026-09-25 ended ``partial`` having sent 315 commands — so gains mislead in both directions.
-    """
+def _journal_tail(events: tuple[str, ...]) -> list[dict[str, Any]]:
+    """The journal's last few MB, as the entries whose event is one of ``events``."""
     path = runtime_dir() / JOURNAL_FILE
-    if not path.is_file():
-        return 0
-    endings: list[dict[str, Any]] = []
     try:
-        with path.open(encoding="utf-8") as handle:
-            for raw in handle:
-                # Cheap prefilter: the journal is tens of megabytes and almost none of it is a run
-                # ending. Matched on the bare words, not on `"event":"run"` — the separator spacing
-                # belongs to whichever writer produced the line, and keying on it silently matched
-                # nothing at all the first time.
-                if "run" not in raw or "ended" not in raw:
-                    continue
-                try:
-                    row = json.loads(raw)
-                except ValueError:
-                    continue
-                if row.get("event") == "run" and row.get("phase") == "ended":
-                    endings.append(row)
+        with path.open("rb") as handle:
+            handle.seek(max(0, path.stat().st_size - _TAIL_BYTES))
+            raw = handle.read().decode("utf-8", errors="replace")
     except OSError:
-        return 0
+        return []
+    rows = []
+    for line in raw.splitlines():
+        if not any(f'"{event}"' in line for event in events):
+            continue
+        try:
+            row = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(row, dict) and row.get("event") in events:
+            rows.append(row)
+    return rows
+
+
+def _run_endings() -> list[dict[str, Any]]:
+    return [row for row in _journal_tail(("run",)) if row.get("phase") in ("ended", "refused")]
+
+
+def unproductive_streak(endings: list[dict[str, Any]] | None = None) -> int:
+    """How many of the latest runs, back to back, did nothing: refused (at the check or by the
+    script), failed, or sent no commands. An interrupted run is skipped, not counted: the bridge
+    died under it, which says nothing about the program. Logged by the gate for a reader of the
+    journal; nothing acts on it."""
     streak = 0
-    for row in reversed(endings):
-        did_nothing = (str(row.get("outcome")) in {"refused", "failed"}
-                       or not int(row.get("commands") or 0))
-        if not did_nothing:
+    for row in reversed(endings if endings is not None else _run_endings()):
+        if row.get("outcome") == "interrupted":
+            continue
+        if not (row.get("phase") == "refused" or str(row.get("outcome")) in {"refused", "failed"}
+                or not int(row.get("commands") or 0)):
             break
         streak += 1
     return streak
 
 
 def juncture_context(session_info: Mapping[str, Any] | None = None) -> str:
-    """The present, the menu, and what just happened — delivered, never fetched (N15).
+    """The present, the menu, and the pilot's own recent runs — delivered, never fetched (N15).
 
     Core renders this once per new session and freezes the bytes into that conversation's
-    system prompt, so the agent reads it before its first move, spends no turn fetching it,
-    and nothing mutates mid-conversation to invalidate the cached prefix.
+    system prompt. Rendering reads the game and the record and writes neither; it journals what
+    it rendered and which skills the fire carries, for whoever reviews the fire later.
     """
     if (session_info or {}).get("platform") != JUNCTURE_PLATFORM:
         return ""
     from .service import call
 
     menu = call("menu")
-    # At rest the menu still carries moves (VISION: the menu is never empty); the choosing
-    # material a rest needs is the reflection, so the fire gets both.
-    if menu.get("rest") or menu.get("at_rest"):
-        return _rest_context(call("reflect"), menu.get("text"), _alerts(menu), _battle(menu))
-    if menu.get("busy"):
-        return "SpaceMolt juncture — a run is already in flight; its report comes with the next one."
-    said = read_pilot().get("instruction")
-    context = _situation(menu, said)
-    if said:
-        _deliver(said)
+    record = read_pilot()
+    context = _busy(menu) if menu.get("busy") else _situation(menu, _pending_instruction(record))
+    skills = job_fields(record, gate=False)["skills"]
+    sizes = {name: path.stat().st_size for name, path in readme_skills(Path(__file__).parent).items()}
+    journal_event("juncture", stance=record.get("stance"),
+                  skills=[{"name": name, "bytes": sizes.get(name.split(":", 1)[-1])} for name in skills],
+                  busy=bool(menu.get("busy")), context_chars=len(context),
+                  context_sha=hashlib.sha256(context.encode()).hexdigest()[:12], context=context)
     return context
 
 
-def _deliver(said: dict[str, Any]) -> None:
-    """The instruction is for one juncture: once rendered, it moves to ``instruction_delivered``.
-
-    Re-read just before the write so an instruction the window set in between is not the one
-    moved. ponytail: read-modify-write without a lock; a ``_direct`` landing inside that
-    microsecond window is lost. Add a file lock if the window ever writes in bulk.
-    """
-    record = read_pilot()
-    if record.get("instruction") == said:
-        record["instruction_delivered"] = record.pop("instruction")
-        write_pilot(record)
+def _pending_instruction(record: dict[str, Any]) -> dict[str, Any] | None:
+    """The observer's sentence, until a run starts after it was given. Derived from run.json
+    rather than moved aside at render time, so a fire that never got as far as a run still
+    leaves it for the next one, and rendering writes nothing."""
+    said = record.get("instruction")
+    if not isinstance(said, dict) or not said.get("text"):
+        return None
+    try:
+        started = json.loads((runtime_dir() / "run.json").read_text()).get("started")
+    except (OSError, ValueError):
+        started = None
+    given, ran = _when(said.get("at")), _when(started)
+    return said if not (given and ran and ran >= given) else None
 
 
 def _when(iso: str | None) -> datetime | None:
@@ -177,24 +174,16 @@ def _stamp(at: datetime | None) -> str:
     return at.astimezone(timezone.utc).strftime("%m-%d %H:%MZ") if at else "unknown time"
 
 
-def _age(then: datetime, now: datetime) -> str:
-    minutes = int((now - then).total_seconds() // 60)
-    if minutes >= 2 * 1440:
-        return f"{minutes // 1440} days ago"
-    if minutes >= 120:
-        return f"{minutes // 60} hours ago"
-    return f"{max(minutes, 0)} min ago"
+def _clock(iso: str | None) -> str:
+    at = _when(iso)
+    return at.astimezone(timezone.utc).strftime("%m-%d %H:%MZ") if at else "--:--"
 
 
 _PERMISSION = {"credit_reserve": "keep {:,} credits", "max_liability": "owe at most {:,} on one job"}
 
-#: The rest of the story a free hold of 0 leaves untold. A full hold is not a dead end and it
-#: is not a mystery either: it is ore with two places to go and a gather that will return
-#: nothing until it does (playtest 2026-09-15: three gathers dispatched on a full hold).
-#: Docked, the hold has two places to go. Undocked it has neither: ``sell`` is refused away from
-#: a counter ("not docked; a market is a station counter") and ``stow`` needs a storage service, so
-#: out at a belt — the commonest way to fill a hold — both offers were dead and the one real move
-#: was missing. The suggested moves below carry the base ids.
+#: The rest of the story a free hold of 0 leaves untold (playtest 2026-09-15: three gathers
+#: dispatched on a full hold). Undocked, ``sell`` and ``stow`` are both refused, so the one real
+#: move out at a belt is a base.
 _HOLD_FULL_DOCKED = ("hold full: a gather needs free hold. sell(rows) or stow(rows) here first "
                      "(name the rows from the hold above), then gatherUntil")
 _HOLD_FULL_OUT = ("hold full: a gather needs free hold, and neither sell nor stow works out here — "
@@ -211,12 +200,9 @@ _ALERT_LINES = 4
 
 
 def _alerts(menu: dict[str, Any]) -> list[str]:
-    """The alerts the bridge handed over with this menu, as fact lines.
-
-    The bridge stamped them delivered as it answered, so they appear at exactly one juncture.
-    They go with the facts, above the cuttable material: a repossession deadline is the one
-    thing a pilot cannot recover by looking again next time.
-    """
+    """The alerts the bridge handed over with this menu, as fact lines. The bridge stamped them
+    delivered as it answered, so they appear at exactly one juncture, and they go with the
+    facts, above the cuttable material."""
     items = [item for item in (menu.get("alerts") or []) if isinstance(item, dict)]
     if not items:
         return []
@@ -243,12 +229,8 @@ def _alerts(menu: dict[str, Any]) -> list[str]:
 
 
 def _battle(menu: dict[str, Any]) -> str | None:
-    """Whether a battle holds the ship, in one line, ahead of every other fact.
-
-    Live 2026-09-25: a pilot woke at hull 3/80 inside a battle left over from the previous shift
-    and died one second after its first move, because nothing it read said it was in a fight. A
-    live battle also refuses every travel, jump and undock, so it is never a detail.
-    """
+    """Whether a battle holds the ship, in one line, ahead of every other fact. Live 2026-09-25:
+    a pilot woke at hull 3/80 inside a battle and died one second after its first move."""
     fight = menu.get("battle")
     if not isinstance(fight, dict):
         return None
@@ -257,36 +239,62 @@ def _battle(menu: dict[str, Any]) -> str | None:
     return (f"IN BATTLE NOW with {fight.get('opponent') or 'an unnamed opponent'} "
             f"(battle tick {fight.get('tick') or '?'}{at}). Nothing moves the ship until it ends: "
             # NOT "fight it with hunt's onTick": `hunt` declines any creature whose `in_combat` is
-            # true (hunting.ts:136), which the current opponent is by definition, so it would look,
-            # decline it and spend the juncture. `onTick` only exists on fights `hunt` itself opens.
+            # true (hunting.ts:136), which the current opponent is by definition.
             "disengage() breaks off; to keep fighting, hold the stance by hand with "
             "account().commands.spacemolt_battle.stance({id:'brace'}).")
+
+
+def _recent_line(row: dict[str, Any]) -> str:
+    """One of the pilot's own recent acts, as a fact."""
+    at = _clock(row.get("at"))
+    if row.get("event") == "reflection":
+        bits = [f"stance {row['stance']}" if row.get("stance") else "",
+                f"goal {row['goal']!r}" if row.get("goal") else "",
+                f"objective {row.get('objective')!r} retired" if row.get("objective_done") else ""]
+        return f"{at} reflect: {', '.join(bit for bit in bits if bit)}"
+    if row.get("phase") == "refused":
+        first = str((row.get("errors") or ["no reason recorded"])[0]).splitlines()[0][:160]
+        return f"{at} run refused at the check, nothing ran: {first}"
+    head = f"{at} run {row.get('outcome')}: {str(row.get('reason') or '')[:120]}"
+    if row.get("why"):
+        head += f": {str(row['why'])[:160]}"
+    work = row.get("work") if isinstance(row.get("work"), dict) else {}
+    gained = [f"+{work['credits']:,} cr" if work.get("credits") else "",
+              f"{work['items']} items" if work.get("items") else "",
+              f"{work['xp']} xp" if work.get("xp") else ""]
+    tail = [f"{row.get('commands') or 0} commands"] + [bit for bit in gained if bit]
+    return f"{head} ({', '.join(tail)})" if row.get("outcome") != "interrupted" else head
+
+
+def _busy(menu: dict[str, Any]) -> str:
+    started = _when(menu.get("started"))
+    return (f"SpaceMolt juncture. Run in flight: yes — started {_stamp(started)}, in "
+            f"{menu.get('fn') or 'pilot'}, {menu.get('commands') or 0} commands so far.")
 
 
 def _situation(menu: dict[str, Any], said: dict[str, Any] | None) -> str:
     """The juncture as labelled lines, each fact once, budgeted on the final string.
 
     Over ``SECTION_LIMIT`` core drops the section whole, so the suggested moves go first, then
-    the hold list is cut, then the last run's report — never a fact line.
+    the hold list, then the older recent lines — never a fact line.
     """
     now = _when(menu.get("now")) or datetime.now(timezone.utc)
     p = menu.get("present") or {}
-    head = f"SpaceMolt juncture — mid-shift. Now {now.strftime('%Y-%m-%d %H:%MZ')}."
-    if menu.get("stance") or menu.get("mood"):
-        head += f" Stance {menu.get('stance') or 'none'}, mood {menu.get('mood') or 'none'}."
-    # The battle goes above the head line: it is the one fact that outranks where the ship is.
-    facts = [line for line in (_battle(menu),) if line] + [head]
+    facts = [line for line in (_battle(menu),) if line]
+    facts.append(f"SpaceMolt juncture — {now.strftime('%Y-%m-%d %H:%MZ')}. Run in flight: no.")
     if menu.get("objective"):
         facts.append(f"Objective (carried in): {menu['objective']}")
     if said:
-        facts.append(f"Instruction (carried in, {_stamp(_when(said.get('at')))}, this juncture "
-                     f"only): {said.get('text')}")
+        facts.append(f"Instruction (carried in {_stamp(_when(said.get('at')))}): {said.get('text')}")
     facts += _alerts(menu)
-    if menu.get("goal"):
-        facts.append(f"Goal (yours, from rest): {menu['goal']}")
+    facts.append(f"Goal: {menu['goal']}" if menu.get("goal")
+                 else f"Goal: none set yet; a first one: {FIRST_GOAL}")
+    mood = str(menu.get("mood") or "Cautious")
+    if menu.get("tired_by"):
+        mood += f" ({menu['tired_by']})"
+    facts.append(f"Stance: {menu.get('stance') or 'none'}. Mood: {mood}.")
     # Only the keys rendered here: a permission the code no longer knows is one the pilot
-    # cannot act on, and a stale ``wildlife: false`` left in the record read as "wildlife
-    # False" and bought a turn of wondering whether hunting was allowed (playtest 2026-09-22).
+    # cannot act on (playtest 2026-09-22: a stale ``wildlife: false`` read as "wildlife False").
     permits = [_PERMISSION[k].format(v) for k, v in (menu.get("permissions") or {}).items()
                if k in _PERMISSION and isinstance(v, (int, float)) and not isinstance(v, bool)]
     if permits:
@@ -302,129 +310,55 @@ def _situation(menu: dict[str, Any], said: dict[str, Any] | None) -> str:
     free = p.get("cargo_free")
     weapons = ", ".join(f"{w.get('id')}" + (f" ({w['loaded']} loaded)" if "loaded" in w else "")
                         for w in p.get("weapons") or []) or "none"
-    # A skill is an object in the library, not a number: naming the field the number came from
-    # keeps a script from writing `skills.weapons > 2` (playtest 2026-09-22).
+    # A skill is an object in the library, not a number (playtest 2026-09-22).
     skills = ", ".join(f"{k} {v} (.level)" for k, v in (p.get("skills") or {}).items()) or "none known"
-    facts_after = [f"  Fitted weapons: {weapons}. Skills: {skills}."]
+    facts_after = []
+    if menu.get("threats"):
+        facts_after.append(f"  Fighting here: {', '.join(map(str, menu['threats']))}.")
+    facts_after.append(f"  Fitted weapons: {weapons}. Skills: {skills}.")
     if p.get("walk_away") is not None:
         facts_after.append(f"  Walk-away: break off a fight below hull {p['walk_away']}.")
 
-    last = menu.get("last")
-    # A record from before the run record carried its sha is another schema: not this pilot's.
-    last = last if isinstance(last, dict) and last.get("sha") else None
-    report = ""
-    if last:
-        ended = _when(last.get("ended_at"))
-        report = str(last.get("prose") or last.get("status") or "")
-        if free == 0 and "Gained:" not in report:
-            report += "\nThe hold was full (0 free), so a gather would have mined nothing."
-        last_head = (f"Last run (ended {_stamp(ended)}, {_age(ended, now)}):" if ended
-                     else "Last run (end time not recorded):")
+    recent = [_recent_line(row) for row in
+              [row for row in _journal_tail(("run", "reflection"))
+               if row.get("event") == "reflection" or row.get("phase") in ("ended", "refused")][-RECENT:]]
     moves = menu.get("text")
 
-    def render(moves: str | None, kept: int, report: str) -> str:
+    def render(moves: str | None, kept: int, shown_recent: list[str]) -> str:
         shown = hold[:kept] + ([f"+{len(hold) - kept} more"] if kept < len(hold) else [])
         hold_line = (f" Hold: {', '.join(shown) or 'empty'} ({free} free)."
                      + (f" {_HOLD_FULL_DOCKED if p.get('docked_at') else _HOLD_FULL_OUT}."
                         if free == 0 else ""))
         lines = facts + [ship + hold_line] + facts_after
-        lines.append(f"{last_head}\n  " + report.replace("\n", "\n  ") if last
-                     else "Last run: none yet.")
+        lines.append("Your recent runs (newest last):\n  " + "\n  ".join(shown_recent)
+                     if shown_recent else "Your recent runs: none yet.")
         if moves:
             lines.append("Suggested moves (advice, pasteable into main()):\n  "
                          + moves.replace("\n", "\n  "))
         return "\n".join(lines)
 
     kept = len(hold)
-    text = render(moves, kept, report)
+    text = render(moves, kept, recent)
     if len(text) > SECTION_LIMIT:
-        text = render(None, kept, report)
+        text = render(None, kept, recent)
     while len(text) > SECTION_LIMIT and kept:
         kept = max(0, kept - max(1, (len(text) - SECTION_LIMIT) // 12))
-        text = render(None, kept, report)
-    if len(text) > SECTION_LIMIT:
-        report = report[:max(0, len(report) - (len(text) - SECTION_LIMIT) - 1)] + "…"
-        text = render(None, kept, report)
-    return text
-
-
-def _rest_context(report: dict[str, Any], moves: str | None = None,
-                  alerts: list[str] | None = None, battle: str | None = None) -> str:
-    """A fire that lands on a pilot at rest: reflection, not a menu (N7).
-
-    There is no stance, so there is no stance work to offer and nothing to choose between.
-    What the agent gets instead is the report rest exists for — needs, holdings, debts, what
-    has been seen, what has been done, and where it has been standing still.
-    """
-    head = ("SpaceMolt rest — the shift is over and the stance and mood are cleared. Below is "
-            "what the pilot has, owes and has seen, what it did lately, where it stood still, "
-            "and `scripts`: pilot/index.ts beside how its runs ended.\n"
-            "Your turn:\n"
-            "1. Review pilot/index.ts against how its runs ended. When another version would have "
-            "served better, write the whole file as `source` to spacemolt_check; the next shift "
-            "flies the file this review leaves.\n"
-            "2. Judge your objective against the numbers, not against your memory of "
-            "it: each skill row carries its level, and `was`/`since` when it has moved since the "
-            "earliest reflection on record. `missing` names what could not be read.\n"
-            "3. Choose one goal that serves the objective, then the stance and mood that fit it.\n"
-            "4. Call spacemolt_reflect once with them — with objective_done beside them if the "
-            "numbers say the objective is met — and end the turn.\n")
-    # Above everything, at rest as mid-shift: a battle still running owns the ship.
-    if battle:
-        head = f"{battle}\n{head}"
-    # A finished objective is not a reason to wait: the pilot retires it and chooses its own goal
-    # in the same call. Waiting here is what wedged two junctures and an hour, live (2026-09-24).
-    if report.get("objective_done"):
-        head += (f"Your objective ({report.get('objective') or 'unnamed'}) is already "
-                 "complete: pass objective_done beside the goal, stance and mood you choose and it "
-                 "is retired. Advance in general — the world, your levels, credits, a better "
-                 "ship — until the human names another.\n")
-    # The menu call above stamped these delivered, so a rest that dropped them would drop them
-    # for good.
-    head += "".join(f"{line}\n" for line in alerts or [])
-    render = lambda: (head + json.dumps(report, separators=(",", ":"), sort_keys=True)
-                      + (("\n" + moves) if moves else ""))
-    # Over the section limit core skips the whole section, so the suggested moves go first and
-    # then the travelogue: the needs and the stagnation signals are the choosing.
-    for drop in (None, "moves", "seen", "recent"):
-        if drop == "moves":
-            moves = None
-        elif drop:
-            report.pop(drop, None)
-        if len(render()) <= SECTION_LIMIT:
-            break
-    return render()
+        text = render(None, kept, recent)
+    while len(text) > SECTION_LIMIT and len(recent) > 1:
+        recent = recent[1:]
+        text = render(None, kept, recent)
+    return text[:SECTION_LIMIT]
 
 
 def read_pilot() -> dict[str, Any]:
-    """The runner's pilot record, or an empty one when no shift has been opened."""
+    """The pilot record, read-only here: the bridge is its one writer (the ``pilot`` request)."""
     path = pilot_path()
     return json.loads(path.read_text()) if path.is_file() else {}
 
 
-def write_pilot(record: dict[str, Any]) -> dict[str, Any]:
-    """Set objective, stance and mood.
-
-    ponytail: a plain file, written by whoever owns rest — for now the observer or a test.
-    The runner's own rest path takes it over when there is one; no CLI command until then.
-    """
-    path = pilot_path()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    # Temp then rename, as the bridge's ``writePilot`` does: its reader throws on half a file.
-    temp = path.with_name(f"{path.name}.{os.getpid()}.tmp")
-    temp.write_text(json.dumps(record, indent=2, sort_keys=True) + "\n")
-    temp.chmod(0o600)
-    os.replace(temp, path)
-    return record
-
-
 def journal_event(event: str, **fields: Any) -> None:
-    """One line in the pilot's journal for a change the runner made outside the bridge.
-
-    Reflection is the runner's own act and it changes the shift, so it is written down the
-    way the bridge writes its own: a setting changed with no record is a mystery to whoever
-    reads the journal later (S45).
-    """
+    """One line in the pilot's journal for something the runner did outside the bridge: a gate
+    decision, a juncture rendered, a reflection, an instruction carried in (S45)."""
     path = runtime_dir() / JOURNAL_FILE
     path.parent.mkdir(parents=True, exist_ok=True)
     entry = {"at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
@@ -438,8 +372,8 @@ def journal_event(event: str, **fields: Any) -> None:
 #: resolved), so the plugin installs a shim there rather than naming a file in its own tree.
 GATE_SCRIPT = "spacemolt-juncture-gate.py"
 #: The shim is a separate process from the gateway, so it cannot ask the bridge anything — a
-#: ``service.call`` would start a *second* bridge and be refused the controller lock. It reads
-#: the same durable signal ``wake_on_load`` reads instead: the run record the bridge keeps.
+#: ``service.call`` would start a second bridge and be refused the controller lock. It reads the
+#: run record the bridge keeps instead.
 _GATE_SHIM = '''"""Written by spacemolt.juncture: the juncture's wake gate. Do not edit."""
 import os, sys
 sys.path[:0] = {roots!r}
@@ -450,46 +384,33 @@ raise SystemExit(gate_main())
 
 
 def run_in_flight() -> bool:
-    """Is a run going on right now, as a process outside the gateway can tell?
-
-    The bridge keeps ``running`` in memory, so the only account of it another process can read
-    is ``run.json``: a record that has not ended. A gateway that died mid-run leaves that
-    record un-ended forever, and a gate that believed it would silence the pilot for good — so
-    the controller lock, which a live bridge holds for as long as it runs, has the last word.
-    """
-    runtime = runtime_dir()
+    """Is a run going on right now? ``run.json`` un-ended. Only a live bridge leaves it so: a
+    bridge that dies mid-run has its record closed ``interrupted`` by the next one at boot."""
     try:
-        record = json.loads((runtime / "run.json").read_text())
+        record = json.loads((runtime_dir() / "run.json").read_text())
     except (OSError, ValueError):
         return False
-    if record.get("ended", True):
-        return False
-    return any(_lock_held(lock) for lock in runtime.glob("controller-*.lock"))
-
-
-def _lock_held(lock: Any) -> bool:
-    """Is the bridge that wrote this lock still alive? ``controller-lock.ts`` reads it the same
-    way: the pid alone, with EPERM meaning alive but not ours."""
-    try:
-        os.kill(int(json.loads(lock.read_text())["pid"]), 0)
-    except PermissionError:
-        return True
-    except (OSError, ValueError, KeyError, TypeError):
-        return False
-    return True
+    return record.get("ended", True) is False
 
 
 def gate_main() -> int:
     """The wake gate: a fire that lands on a run in flight ends silently, with no model turn.
+    That is the only thing it suppresses.
 
-    The gate always says which it is. Saying nothing is not "wake normally": a script job whose
-    script printed nothing has no prompt to build, and cron ends that fire silently too
-    (``scheduler.py``: "script produced no output, skipping AI call") — which suppressed every
-    juncture, live, on the first restart. A runner that is not up is not in flight: the fire
-    wakes and the tools say so themselves. Idle, the line is prose: cron wakes on any output
-    that is not ``{"wakeAgent": false}`` and hands it to the fire as its script output.
+    Saying nothing is not "wake normally": cron ends a fire whose script printed nothing
+    ("script produced no output, skipping AI call"), which suppressed every juncture, live, on
+    the first restart. So the wake is always prose. Each decision is journalled with its reason.
     """
-    print('{"wakeAgent": false}' if run_in_flight() else "No run in flight: the pilot is idle.")
+    flying = run_in_flight()
+    try:
+        endings = _run_endings()
+        journal_event("gate", wake=not flying,
+                      reason="a run is in flight (run.json not ended)" if flying else "no run in flight",
+                      unproductive_streak=unproductive_streak(endings),
+                      last_run=(endings[-1].get("outcome") or endings[-1].get("phase")) if endings else None)
+    except OSError:
+        pass  # the log is never worth the fire
+    print('{"wakeAgent": false}' if flying else "No run in flight: the pilot is idle.")
     return 0
 
 
@@ -498,27 +419,28 @@ def install_gate() -> str:
     changed profile cannot leave a stale one behind. Returns the job's ``script``: the bare
     name, because the tool layer rejects an absolute script and resolves a relative one
     against the very directory written to here."""
-    from .service import wake_env
+    import hermes_constants
 
-    env = wake_env()
+    here = Path(__file__).resolve().parent
+    roots = list(dict.fromkeys([str(here.parent), str(Path(hermes_constants.__file__).resolve().parent)]))
     path = get_hermes_home() / "scripts" / GATE_SCRIPT
     path.parent.mkdir(parents=True, exist_ok=True)
-    roots = list(dict.fromkeys(env["PYTHONPATH"].split(os.pathsep)))
-    path.write_text(_GATE_SHIM.format(roots=roots, home=env["HERMES_HOME"]))
+    path.write_text(_GATE_SHIM.format(roots=roots, home=str(get_hermes_home())))
     path.chmod(0o700)
     return GATE_SCRIPT
 
 
 def job_name(pilot: dict[str, Any]) -> str:
-    """One job per pilot, found again by this name so rest rewrites rather than adds."""
+    """One job per pilot, found again by this name so a rewrite never adds a second."""
     return f"spacemolt juncture: {pilot.get('name') or 'pilot'}"
 
 
-def job_fields(pilot: dict[str, Any]) -> dict[str, Any]:
-    """What a fire carries: the juncture prompt, the stance's skills, the stance's tools.
+def job_fields(pilot: dict[str, Any], *, gate: bool = True) -> dict[str, Any]:
+    """What a fire carries: the juncture prompt, the skills, the tools, the gate.
 
-    No ``workdir``, which is what makes cron open the conversation with
-    ``skip_context_files=True`` — a juncture is the pilot's world, not a project's.
+    The skills are the base README and the stance's career README when there is a stance: the
+    stance is how the career text a fire carries is chosen. No ``workdir``, which is what makes
+    cron open the conversation with ``skip_context_files=True``.
     """
     folder = STANCE_FOLDER.get(str(pilot.get("stance") or "").strip())
     return {
@@ -527,16 +449,13 @@ def job_fields(pilot: dict[str, Any]) -> dict[str, Any]:
         # plugin registry, never copied into the profile's skills directory.
         "skills": [qualified(SHARED_SKILL)] + ([qualified(folder)] if folder else []),
         "enabled_toolsets": list(TOOLSETS),
-        # Cron runs this before it builds the prompt: a fire that lands mid-run ends there,
-        # with no model turn. ``update_job`` merges fields, so a live job gains it on the next
-        # ensure without being deleted.
-        "script": install_gate(),
+        **({"script": install_gate()} if gate else {}),
     }
 
 
-#: Set from ``register()`` to the host's ``PluginContext.dispatch_tool``. Absent — the wake
-#: one-shot, a bare ``python -m spacemolt.juncture`` — the tool registry is asked directly,
-#: which is all ``dispatch_tool`` does once the parent agent is resolved.
+#: Set from ``register()`` to the host's ``PluginContext.dispatch_tool``. Absent — a bare
+#: ``python -m spacemolt.juncture`` — the tool registry is asked directly, which is all
+#: ``dispatch_tool`` does once the parent agent is resolved.
 _dispatch_tool = None
 
 
@@ -551,8 +470,7 @@ def cron_manage(**args: Any) -> dict[str, Any]:
     """One ``cronjob_manage`` call, raising on failure rather than returning an error dict.
 
     The gate on that tool (``HERMES_GATEWAY_SESSION``) is a *schema exposure* check:
-    ``registry.dispatch`` runs the handler without consulting ``check_fn``, so a plugin and a
-    one-shot both reach it.
+    ``registry.dispatch`` runs the handler without consulting ``check_fn``.
     """
     dispatch = _dispatch_tool
     if dispatch is None:
@@ -567,10 +485,10 @@ def cron_manage(**args: Any) -> dict[str, Any]:
 
 
 def ensure_juncture_job(schedule: str = IDLE_SCHEDULE) -> dict[str, Any]:
-    """Write or rewrite this pilot's one juncture job from the current pilot record.
+    """Write or rewrite this pilot's one juncture job from the current pilot record, schedule
+    included, so a live job picks up an interval change as well as a stance change.
 
-    Returns the tool's own view of the job — ``job_id``/``name``/``schedule``, not the stored
-    record: what the job store keeps is the store's business.
+    Returns the tool's own view of the job — ``job_id``/``name``/``schedule``.
     """
     pilot = read_pilot()
     name = job_name(pilot)
@@ -578,37 +496,8 @@ def ensure_juncture_job(schedule: str = IDLE_SCHEDULE) -> dict[str, Any]:
     existing = next((job for job in cron_manage(action="list")["jobs"]
                      if job.get("name") == name), None)
     if existing is not None:
-        return cron_manage(action="update", job_id=existing["job_id"], **fields)["job"]
+        return cron_manage(action="update", job_id=existing["job_id"], schedule=schedule, **fields)["job"]
     return cron_manage(action="create", schedule=schedule, name=name, **fields)["job"]
-
-
-def mark_due(job: dict[str, Any]) -> dict[str, Any]:
-    """Mark an already-written juncture job due, so the gateway's next tick fires it.
-
-    The one place the plugin reaches a Hermes module, and it has to be: ``cronjob_manage``'s
-    ``run`` *executes* the fire, and every caller here needs it merely *marked*.
-
-    - Reflection runs inside the juncture's own fire. That job is registered running, so a
-      ``run`` is refused as already-running — and refused with ``success: True`` and the reason
-      buried in ``execution_skipped``, so the pilot would simply stop waking and look healthy.
-    - ``wake_on_load`` runs during plugin registration. With no session to deliver a background
-      completion to, ``run`` falls back to an inline fire: gateway boot would block for the
-      length of a whole juncture.
-    - The wake one-shot is a bridge child with no gateway either, and an inline fire there opens
-      a second Node bridge the controller lock refuses.
-
-    ``cron.jobs.trigger_job`` is a public name in a module every Hermes ships, so an unmodified
-    host satisfies the import; job *creation* goes through the tool like everything else.
-    """
-    from cron.jobs import trigger_job
-
-    trigger_job(job["job_id"])
-    return job
-
-
-def raise_juncture() -> dict[str, Any]:
-    """Rewrite this pilot's juncture job from the record and mark it due."""
-    return mark_due(ensure_juncture_job())
 
 
 if __name__ == "__main__":  # what the shim calls, runnable by hand: python -m spacemolt.juncture

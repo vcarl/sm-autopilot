@@ -32,9 +32,19 @@ for line in sys.stdin:
                   "docked_at": {"base_id": "sol_base", "name": "Sol Station"},
                   "fuel": 88, "max_fuel": 100, "hull": 96, "max_hull": 100,
                   "pois": [{"id": "belt", "name": "Belt", "type": "asteroid_belt"}]}
+    elif action == "pilot":
+        # The record's one writer: set fields, a null removes one.
+        pilot = json.load(open(pilot_file)) if os.path.exists(pilot_file) else {}
+        for key, value in request["params"]["set"].items():
+            if value is None:
+                pilot.pop(key, None)
+            else:
+                pilot[key] = value
+        json.dump(pilot, open(pilot_file, "w"))
+        result = {"record": pilot}
     elif action == "menu":
         pilot = json.load(open(pilot_file))
-        result = {"stance": pilot.get("stance"), "mood": pilot.get("mood"),
+        result = {"stance": pilot.get("stance"), "mood": "Focused",
                   "objective": pilot.get("objective"), "permissions": pilot.get("permissions"),
                   "present": {"docked_at": "sol_base", "fuel": 88},
                   "moves": [], "not_now": [],
@@ -48,8 +58,14 @@ for line in sys.stdin:
     print(json.dumps({"id": request["id"], "ok": True, "result": result}), flush=True)
 '''
 
-PILOT = {"name": "kvothe", "stance": "Prospector", "mood": "Focused", "home": "sol_base",
+PILOT = {"name": "kvothe", "stance": "Prospector", "home": "sol_base",
          "objective": "fill the hold", "permissions": {"wildlife": False, "credit_reserve": 500}}
+
+
+def _seed(record: dict) -> None:
+    """A pilot record on disk, as the bridge would have written it."""
+    service.pilot_path().parent.mkdir(parents=True, exist_ok=True)
+    service.pilot_path().write_text(json.dumps(record))
 
 
 def _entry(action: str, ok: bool, payload: dict) -> str:
@@ -83,7 +99,7 @@ def test_an_inquiry_is_answered_from_state_and_journal_with_nothing_changed(brid
     lines.append(_entry("gather", True, {"outcome": "done", "yield": [{"item_id": "ore", "quantity": 42}]}))
     lines.append(_entry("travel", False, {"error": "no route to belt with 12 fuel"}))
     (runtime / "gameplay.jsonl").write_text("\n".join(lines) + "\n")
-    juncture.write_pilot(dict(PILOT))
+    _seed(dict(PILOT))
     before = service.pilot_path().read_bytes()
 
     status = json.loads(spacemolt._status({}))
@@ -103,7 +119,7 @@ def test_an_inquiry_is_answered_from_state_and_journal_with_nothing_changed(brid
 
 
 def test_direction_sets_objective_and_permissions_and_lands_at_the_next_juncture(bridged):
-    juncture.write_pilot(dict(PILOT))
+    _seed(dict(PILOT))
 
     answer = spacemolt._direct({"objective": "buy a hauler", "permissions": {"credit_reserve": 2000}})
     assert "next juncture" in answer, "direction is integrated at a juncture, not applied now"
@@ -112,8 +128,10 @@ def test_direction_sets_objective_and_permissions_and_lands_at_the_next_juncture
     assert record["objective"] == "buy a hauler"
     # A standing permission left unnamed keeps its bound; the asking widens nothing else (T11).
     assert record["permissions"] == {"wildlife": False, "credit_reserve": 2000}
-    assert {key: record[key] for key in ("name", "stance", "mood", "home")} == \
-        {"name": "kvothe", "stance": "Prospector", "mood": "Focused", "home": "sol_base"}
+    assert {key: record[key] for key in ("name", "stance", "home")} == \
+        {"name": "kvothe", "stance": "Prospector", "home": "sol_base"}
+    # Written by the bridge, the record's one writer.
+    assert "pilot" in (bridged / "actions.log").read_text().split()
 
     # The next juncture is built from the record the observer wrote (T9, N17).
     context = juncture.juncture_context({"platform": "cron"})
@@ -122,26 +140,14 @@ def test_direction_sets_objective_and_permissions_and_lands_at_the_next_juncture
     assert juncture.juncture_context({"platform": "discord"}) == ""
 
 
-def test_direction_while_idle_makes_the_juncture_due_and_leaves_a_running_script_alone(bridged):
-    """Direction lands at a juncture, so an idle pilot needs one brought promptly (N3, N4).
-
-    The window does not act: it asks the runner's own cron job to fire on the next tick, the
-    same ``manual_run_at`` / ``next_run_at`` marker ``hermes cron run <id>`` writes.
-    """
+def test_direction_marks_nothing_due_the_interval_brings_the_juncture(bridged):
+    """A mark made while a fire held the job was erased by cron (09-16 to 09-26), so direction
+    marks nothing: the interval is minutes, and the answer says so."""
     from cron import jobs as cron_jobs
-    juncture.write_pilot(dict(PILOT))
-
+    _seed(dict(PILOT))
     answer = spacemolt._direct({"objective": "buy a hauler"})
-    job, = cron_jobs.load_jobs()
-    assert job["manual_run_at"] and job["next_run_at"] == job["manual_run_at"]
-    assert "next scheduler tick" in answer
-
-    # While a script runs the runner raises the juncture at its end; nudging would double-fire.
-    (bridged / "run.running").touch()
-    cron_jobs.update_job(job["id"], {"manual_run_at": None})
-    answer = spacemolt._direct({"objective": "sell it again"})
-    assert cron_jobs.get_job(job["id"])["manual_run_at"] is None
-    assert "A script is running" in answer and len(cron_jobs.load_jobs()) == 1
+    assert cron_jobs.load_jobs() == []
+    assert "within 5m" in answer, answer
 
 
 def test_the_window_carries_no_job_tools_and_the_juncture_no_direction_tool():

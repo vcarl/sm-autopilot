@@ -12,7 +12,6 @@ provides_tools:
   - spacemolt_stop
   - spacemolt_status
   - spacemolt_direct
-  - spacemolt_rest
   - spacemolt_reflect
 # Nothing beyond the standard library: the game client is Node, reached through the bridge.
 python_dependencies: []
@@ -37,5 +36,5 @@ config_schema:
       default: 1860
       description: >-
         REQUIRED as profile config timeouts.tools.sequential_call. One spacemolt_run blocks for
-        up to the bridge's own 1800s; the core default of 420s kills it first and the run is
-        lost with the pilot still flying. Set it to 1860 or higher.
+        up to the bridge's own cap (24 min, then 2 min for the script to stop); the core default
+        of 420s kills it first and the report is lost. Set it to 1860 or higher.

@@ -12,9 +12,8 @@ TypeScript is the game side — one long-lived process that owns the connection.
 plugin.yaml          manifest: name, toolsets, the settings a working install needs
 __init__.py          register(): the tools, the system-prompt sections, the observer window
 service.py           bridge ownership: one Node child per Hermes process, one request in flight
-juncture.py          the cron job, its prompt, its wake gate, the pilot record
+juncture.py          the cron job, its prompt, its wake gate, the juncture context
 skills_register.py   the play READMEs, registered as this plugin's own namespaced skills
-wake_juncture.py     a one-shot the bridge spawns when a run ends, to ask for the next juncture
 play.py              drives the same bridge from a shell, outside Hermes
 src/bridge.ts        the request loop; everything below it is game logic
 src/play/            the library the pilot's program imports, one folder per career
@@ -23,39 +22,51 @@ src/play/README.md   the base skill — what the pilot reads to know how to play
 
 ### The seam
 
-`service.py` spawns `node src/bridge.ts` and talks JSON lines over its stdio. One request in
-flight; no replay. A `run` request blocks for as long as the program flies, up to
-`REQUEST_TIMEOUT = 1800`. There is **no build step**: Node strips the types itself, so keep the
+`service.py` spawns `node src/bridge.ts` and talks JSON lines over its stdio. Requests run
+concurrently; none is replayed. A `run` request blocks for as long as the program flies: the bridge
+caps it (`RUN_CAP_MS`, then `RUN_GRACE_MS`, 26 minutes in all) under `REQUEST_TIMEOUT = 1800`, which
+is only a backstop. A script that ignores the stop at the cap is abandoned and the bridge exits, so
+it cannot send another command. There is **no build step**: Node strips the types itself, so keep the
 TypeScript erasable (no enums, namespaces or parameter properties) and keep `.ts` on relative
 imports.
 
-A run outlives the conversation that started it. That is the whole reason the juncture exists,
-and it is why anything that must happen at a run's end happens in `run.ts`, not in a tool
-handler — no handler is waiting by then.
+A run lives inside the fire that started it. When a bridge dies under a run, the next bridge to
+boot closes `run.json` as `interrupted` and re-runs nothing.
+
+The bridge is the only writer of `pilot.json` (the `pilot` request). Python reads it. The mood is
+never stored: the bridge derives it on every read from the stance's working mood and the ship
+(`moodNow`, `flying`), so an older record's `mood` key is dropped on read.
 
 ### The juncture
 
 One cron job per pilot, named for it, rewritten from the pilot record every time it is touched
-(`ensure_juncture_job`). What a fire carries is entirely `job_fields()`: the prompt, the stance's
-skills, the fixed toolsets, and the gate script.
+(`ensure_juncture_job`, schedule included). What a fire carries is entirely `job_fields()`: the
+prompt, the skills, the fixed toolsets, and the gate script. The interval is `IDLE_SCHEDULE = "5m"`
+and cron re-anchors it on a fire's completion, so it is the pause between junctures. There is no
+other wake: nothing marks the job due. (A mark made while a fire holds the job is erased by
+cron's `mark_job_run`, which is how every in-fire wake silently did nothing from 09-16 to 09-26.)
 
 The **gate** (`install_gate`, `gate_main`) is a shim written into `HERMES_HOME/scripts/` and
 named on the job as a *relative* path — cron resolves relative scripts there, and the tool layer
 rejects absolute ones. Cron runs it before it builds the prompt, and a fire whose gate prints
-`{"wakeAgent": false}` ends with no model turn. It runs outside the gateway, so it cannot ask the
-bridge anything; it reads `runtime/run.json` instead.
+`{"wakeAgent": false}` ends with no model turn. It suppresses exactly one thing, a run in flight
+(`run.json` not ended), and journals every decision with its reason.
+
+The **context** (`juncture_context`) is built from live facts at fire time: the bridge's `menu`
+(present, derived mood, threats, suggested moves) and the pilot's own recent runs and reflections
+from the journal. It writes nothing but a `juncture` journal line — the skills carried, their
+sizes, and the context itself — so a reviewer can see what the pilot was told.
 
 Cron is reached through the **`cronjob_manage` tool**, via `ctx.dispatch_tool` (the plugin API)
 or the tool registry when there is no plugin context. `check_cronjob_requirements` gates schema
-*exposure*, not dispatch, so both work. The one exception is `mark_due`, which needs
-`cron.jobs.trigger_job` — its docstring says why, and that is the plugin's only import from a
-Hermes module. Do not "finish the job" by routing it through `cronjob_manage`'s `run`: that
-executes the fire in the calling process, which is wrong in all three places it happens.
+*exposure*, not dispatch, so both work. The plugin imports no `cron.*` module.
 
 ### Skills
 
 The play READMEs *are* the skills. `ctx.register_skill("mining", …)` makes the career README
-resolvable as `spacemolt:mining`, and a cron job names it that way. Nothing is copied or linked
+resolvable as `spacemolt:mining`, and a cron job names it that way. A fire carries the base
+README plus the stance's career README; the stance exists so a smaller model is not handed every
+career at once. Nothing is copied or linked
 into the profile's skills directory.
 
 The failure mode to design against: cron **skips** a skill it cannot resolve, logs a warning, and
@@ -65,9 +76,10 @@ prompt.
 
 ### The pilot record
 
-`runtime/../pilot.json`: objective, goal, stance, mood, permissions. Written by the runner at
-rest and by the observer; never by the agent directly. `wake_on_load` seeds one on a profile that
-has never flown, because nothing else on this path does and a juncture will not fire without it.
+`runtime/../pilot.json`: objective, goal, stance, permissions, instruction. Every field is
+optional — a profile with no record is a pilot with no goal and no stance, and it flies. Written
+only by the bridge's `pilot` request, which `spacemolt_reflect` and `spacemolt_direct` send. An
+instruction stands until a run starts after it was given.
 
 ## Tests
 
@@ -92,14 +104,21 @@ Prefer asserting `job_fields()` output as data over driving cron's internals.
 ## Things that have gone wrong, so they are load-bearing now
 
 - **A 420-second tool timeout killed an 11-minute run**, and the pilot's next program overwrote
-  the one still flying. Hence `timeouts.tools.sequential_call: 1860` in the profile.
+  the one still flying. Hence `timeouts.tools.sequential_call: 1860` in the profile, and
+  `spacemolt_run` refusing to write `pilot/index.ts` while a run is in flight.
 - **A gate that printed nothing suppressed every juncture.** Cron ends a fire whose script
   produced no output, so "wake normally" must be *prose*, never silence.
-- **A gateway that died mid-run left `run.json` un-ended forever**, and a gate that believed it
-  silenced the pilot for good. The controller lock has the last word.
-- **A refused-run loop ran at model speed.** Three runs that did nothing in a row stop the
-  immediate chaining and let the 30-minute interval govern; one productive run restores it, with
-  no state to reset — the streak is derived from the journal.
+- **States that refused the one act that would leave them deadlocked a fresh pilot** (09-26): no
+  stance refused every run, so the ship could not be serviced, so rest refused, so no stance. There
+  is no shift state now, a missing stance refuses nothing, and the mood is derived. Do not add a
+  gate a pilot must satisfy before it may act; report the condition instead.
+- **Wakes raised from inside a fire were erased by cron** for ten days, and the throttle built on
+  them governed nothing. The interval is the only clock; do not mark the job due from a fire.
+- **Auto-resume turned every bridge spawn into a detached, uncapped re-run** of an old script.
+  An un-ended run is closed `interrupted` at boot instead.
+- **A test run wrote a pilot record, a lock and a cron job into `~/.hermes`** (09-25), before the
+  conftest redirect existed. The redirect now precedes binding the plugin, and every test asserts
+  the runtime directory is under its own home.
 - **Python changes do not reach a running pilot.** `service.py` fingerprints the TypeScript so a
   stale bridge is visible, but the plugin's Python is imported once. A change there needs a
   gateway restart, and a broken juncture means the pilot never wakes again.

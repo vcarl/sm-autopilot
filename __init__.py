@@ -1,9 +1,7 @@
 """Hermes plugin: play SpaceMolt by editing pilot/index.ts and running it.
 
 Three toolsets, because a tool name is global and belongs to exactly one of them:
-``spacemolt`` is what a juncture acts with — run, check, reflect; rest is not among them, because
-ending a shift is a line in the pilot's own file (``rest()`` from the play barrel) and a tool call
-would cost a whole round-trip to say it — ``spacemolt_observe``
+``spacemolt`` is what a juncture acts with — run, check, reflect — ``spacemolt_observe``
 the reads every client of the runner may make (empty since the journal folded into status),
 and ``spacemolt_observer`` the observer's own three window tools: spacemolt_status (the
 record, the run and the journal in one read), spacemolt_direct (objective, permissions,
@@ -18,10 +16,9 @@ from typing import Any, Mapping
 
 from pathlib import Path
 
-from .juncture import (IDLE_STREAK_LIMIT, JOB_MOODS, JOURNAL_FILE, JUNCTURE_PLATFORM,
-                       SECTION_LIMIT, STANCES, unproductive_streak,
-                       ensure_juncture_job, journal_event, juncture_context, mark_due,
-                       raise_juncture, read_pilot, use_dispatch, write_pilot)
+from .juncture import (IDLE_SCHEDULE, JOURNAL_FILE, JUNCTURE_PLATFORM, SECTION_LIMIT, STANCES,
+                       ensure_juncture_job, journal_event, juncture_context, read_pilot,
+                       use_dispatch)
 from .service import available, call, close_bridge, render_journal, runtime_dir
 from .skills_register import register_skills
 
@@ -33,7 +30,8 @@ _INSTRUCTION_LIMIT = 80
 
 _FLIGHT_PROMPT = (
     "You act by writing pilot/index.ts and running it with spacemolt_run; it is the one file "
-    "you write, and the play README with your stance's README is the whole reference. A run "
+    "you write, and the play README (with your stance's README, when you have a stance) is the "
+    "whole reference. A run "
     "blocks for minutes while the game's clock turns, and its report is what happened. Report"
     " only what tool results say."
 )
@@ -95,10 +93,11 @@ def _run(arguments: dict[str, Any] | None = None, **_: Any) -> str:
             flying = call("status")
         except Exception:  # noqa: BLE001 - no bridge means nothing is in flight to lose
             flying = None
+        # Kept: writing now would overwrite the program that is still flying.
         if isinstance(flying, dict) and flying.get("running"):
             return json.dumps({"accepted": False,
-                               "reason": "a run is already in flight; pilot/index.ts is left as it is. "
-                                         "Wait for its report, or spacemolt_stop, then send this source again.",
+                               "reason": "a run is already in flight; pilot/index.ts is left as it is "
+                                         "and nothing new was started.",
                                "started": flying.get("started")}, separators=(",", ":"))
         _write_pilot_file(str(args["source"]))
     lines: list[str] = []
@@ -181,104 +180,36 @@ def _status(arguments: dict[str, Any] | None = None, **_: Any) -> str:
 
 
 def _reflect(arguments: dict[str, Any] | None = None, **_: Any) -> str:
-    """Open the next shift: a goal, the stance that pursues it, and the mood it starts in.
+    """Set the goal, the stance, or retire a finished objective — any of them, none required.
 
-    The only place a stance is chosen (N8). On shift it rests the pilot first, in one bridge
-    request, so the record never passes through the stanceless state. A stance change is a handoff
-    (N12): this writes the record, rewrites the cron job for the new stance's skills and asks
-    for the next fire, which opens a fresh conversation with those skills and the same
-    toolset. Mood moves inside the shift after this; nothing here touches it again.
-
-    A run that ended away from a base cannot rest: the stance carries, nothing is written, and the
-    next juncture continues the same shift. That is a normal outcome and is reported as one.
-
-    A reflection always commits. Nothing here writes a record that leaves ``goal`` and ``stance``
-    unset, because a pilot at rest with neither has no next move and no way to get one but a
-    human: ``objective_done`` retires the objective carried in *alongside* the goal the pilot
-    names, it is never a shift of its own.
+    The stance is which career README the next juncture carries: this writes it through the
+    bridge (the record's one writer) and rewrites the cron job, so the next fire loads it. Nothing
+    here depends on what the pilot is doing; a missing stance is a pilot with the base skill only.
     """
     args = arguments or {}
-    record = read_pilot()
     goal = str(args.get("goal") or "").strip()
-    stance = {name.lower(): name for name in STANCES}.get(str(args.get("stance") or "").strip().lower())
-    mood = {name.lower(): name for name in JOB_MOODS}.get(str(args.get("mood") or "").strip().lower())
-    if not goal or stance is None or mood is None:
-        # A reflection that writes nothing is what stranded a live pilot for an hour: it read the
-        # report, said the objective was done, committed to no goal and no stance, and every
-        # following juncture read the same finished objective and did the same nothing. There is
-        # no "report and stop": the pilot always leaves rest holding a shift of its own.
-        return ("Nothing written. A shift opens with a goal, one stance of "
-                f"{', '.join(STANCES)}, and an initial mood of {', '.join(JOB_MOODS)}. When the "
-                "objective is complete, pass objective_done alongside them and name a "
-                "goal of your own: the objective is retired and this shift pursues the goal.")
-    # `objective_done` retires the objective exactly once, here. Either the pilot says so now, or
-    # the record already carried the flag from before this fix; both resolve on this write, and
-    # neither can be reported a second time because the objective it named is gone.
-    # The pop runs first: `or` short-circuits, so a pilot that passes the flag would leave
-    # a stale one on the record and be handed its own completion back next wakeup.
-    stale = bool(record.pop("objective_done", None))
-    finished = bool(args.get("objective_done")) or stale
-
-    # On shift, this call does the resting itself. It used to refuse — "Reflection happens at rest" —
-    # because rest was a separate act the pilot had to perform first, and the turn ended before it
-    # ever did. `spacemolt_run` blocks, so when it returns the model is in a turn holding the report,
-    # which is the one moment both well-informed and able to reason about what comes next.
-    #
-    # The resting and the naming go in ONE bridge request, so the record never passes through the
-    # state with no stance and no mood — that state is a pilot every job refuses, and it cost a whole
-    # juncture on 38 identical refusals.
-    if record.get("stance") or record.get("mood"):
-        rested = call("rest", {"goal": goal, "stance": stance, "mood": mood,
-                               **({"objective_done": True} if finished else {})})
-        if not isinstance(rested, dict) or not rested.get("rested"):
-            reason = (rested or {}).get("reason", "rest is not admissible here") \
-                if isinstance(rested, dict) else "the bridge did not answer"
-            # A run that ended away from a base cannot put the evening down. That is a normal
-            # outcome, not a fault: the stance carries and the next juncture continues this shift.
-            # Said as a refusal it reads as something to retry, and the pilot would keep trying
-            # instead of getting on with the work it already has.
-            return (f"The shift carries on, and nothing was written: {reason}. "
-                    f"Still {record.get('stance')}, {record.get('mood')}, "
-                    f"goal {record.get('goal')!r}. This is not a fault — rest needs a base, so the "
-                    "next juncture continues this shift. End the turn.")
-        retired = rested.get("retired")
-        # The bridge wrote goal, stance and mood, and dropped a retired objective. Re-read rather
-        # than assume, and add only what Python owns: the completion the next reflection reports.
-        record = read_pilot()
-        if retired:
-            record["objective_completed"] = retired
-            write_pilot(record)
-    else:
-        # Already at rest, which is where the runner's broken-script fallback leaves the pilot.
-        # There is no shift to end, so the record is written directly: this is the unattended
-        # recovery path and it must work with the ship wherever it happens to be, base or not.
-        retired = record.pop("objective", None) if finished else None
-        record.update(goal=goal, stance=stance, mood=mood)
-        if retired:
-            record["objective_completed"] = retired
-        write_pilot(record)
-    journal_event("reflection", goal=goal, stance=stance, mood=mood,
-                  **({"objective_done": True, "objective": retired} if finished else {}))
-    # Every reflection normally asks for the next juncture straight away, which is the faster play
-    # the operator wants. The floor under it: a run of turns that accomplished nothing stops chaining
-    # and lets the interval govern instead. A repeating fault otherwise loops at model speed rather
-    # than twice an hour, and would run until a human noticed — the one thing no recovery path may
-    # depend on. The shift is still opened either way; only the cadence changes.
-    streak = unproductive_streak()
-    throttled = streak >= IDLE_STREAK_LIMIT
-    if not throttled:
-        raise_juncture()
-    else:
-        ensure_juncture_job()
-        journal_event("cadence", reason="unproductive streak", runs=streak)
-    return ((f"Objective {retired!r} retired as complete. " if retired else "")
-            + f"Shift open: {stance}, starting {mood}, goal {goal!r}. "
-            + (f"The last {streak} runs did nothing — refused, failed, or sending no commands — so "
-               "the next juncture comes on the normal interval rather than immediately, to stop a "
-               "repeating fault looping. One run that does something restores it. End the turn."
-               if throttled else
-               "End the turn — the stance begins in a fresh conversation carrying its own skills, "
-               "due on the next scheduler tick, and the mood moves inside the shift from here."))
+    asked = str(args.get("stance") or "").strip()
+    stance = {name.lower(): name for name in STANCES}.get(asked.lower())
+    done = bool(args.get("objective_done"))
+    if asked and stance is None:
+        # Validation, not a gate: a stance with no career README would load nothing.
+        return f"Nothing written: {asked!r} is not a stance. The stances: {', '.join(STANCES)}."
+    if not (goal or stance or done):
+        return "Nothing to write: pass a goal, a stance, or objective_done."
+    record = read_pilot()
+    patch: dict[str, Any] = {**({"goal": goal} if goal else {}), **({"stance": stance} if stance else {})}
+    retired = record.get("objective") if done or record.get("objective_done") else None
+    if done or record.get("objective_done"):
+        patch.update(objective=None, objective_done=None,
+                     **({"objective_completed": retired} if retired else {}))
+    call("pilot", {"set": patch})
+    journal_event("reflection", **({"goal": goal} if goal else {}), **({"stance": stance} if stance else {}),
+                  **({"objective_done": True, "objective": retired} if done else {}))
+    ensure_juncture_job()
+    said = [f"goal {goal!r}" if goal else "", f"stance {stance}" if stance else "",
+            f"objective {retired!r} retired" if retired else ("objective retired" if done else "")]
+    return ("Recorded: " + ", ".join(bit for bit in said if bit) + "."
+            + (f" The next juncture carries the {stance} skill." if stance else ""))
 
 
 def _journal_lines(arguments: dict[str, Any] | None = None) -> list[str]:
@@ -295,36 +226,17 @@ def _journal_lines(arguments: dict[str, Any] | None = None) -> list[str]:
     return render_journal(limit).splitlines()
 
 
-def _nudge_juncture() -> str:
-    """Ask the runner to bring the juncture on the next scheduler tick, and say so.
-
-    A human turn is not a juncture (N3): the window records direction, the runner raises the
-    juncture because the world changed. Idle, nothing else will raise one until the wakeup
-    schedule comes round, so mark the pilot's cron job due — the same field ``hermes cron run``
-    sets. While a script runs the runner raises its own juncture at its end (N4), so a
-    nudge here would only double-fire it.
-    """
-    try:
-        running = bool((call("status") or {}).get("running"))
-    except Exception:
-        running = False  # no bridge means nothing is flying; a juncture is safe to ask for
-    if running:
-        return " A script is running, so the runner raises the juncture when it ends."
-    raise_juncture()
-    return " The pilot is idle, so that juncture is due on the next scheduler tick."
-
-
 def _direct(arguments: dict[str, Any] | None = None, **_: Any) -> str:
     """Set the objective, the standing permissions, and one sentence for the next juncture.
 
     The observer's tool: it carries in what the human and the player agreed.
 
-    Nothing else in the record moves: stance and mood are the pilot's, chosen at rest, and
-    Tired is the stop, not a direction.
+    Nothing else in the record moves: goal and stance are the pilot's, and the mood is derived
+    from the ship.
 
     RISK (Carl, 2026-09-15): `instruction` is model-generated text conveying a user's
-    intention, and the pilot parses it as outside instruction that outranks the objective for
-    one juncture. A window that paraphrases badly steers the pilot. What bounds it: the 80
+    intention, and the pilot parses it as outside instruction that outranks the objective until
+    its next run starts. A window that paraphrases badly steers the pilot. What bounds it: the 80
     characters cap how much a sentence can ask for; the lint bounds what any script it leads
     to may reach; the rules check between jobs, the credit reserve and the wall-clock cap
     bound what a run can do. Pass the human's words as they were said, shortened by
@@ -341,28 +253,27 @@ def _direct(arguments: dict[str, Any] | None = None, **_: Any) -> str:
         return (f"Nothing set: that instruction is {len(instruction)} characters and the pilot "
                 f"reads at most {_INSTRUCTION_LIMIT}. Say it again in fewer words, keeping the "
                 "human's.")
-    record = read_pilot()
+    patch: dict[str, Any] = {}
     if instruction:
         journal_event("instruction", text=instruction)
-        record["instruction"] = {"text": instruction,
-                                 "at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")}
+        patch["instruction"] = {"text": instruction,
+                                "at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")}
     if objective:
-        record["objective"] = objective
-        # A new objective is not the old finished one: a pilot resting on "done" wakes up.
-        record.pop("objective_done", None)
+        # A new objective is not the old finished one.
+        patch.update(objective=objective, objective_done=None)
     if permissions:
         # A bound this call does not name keeps the value it had: asking widens nothing else.
-        record["permissions"] = {**(record.get("permissions") or {}), **permissions}
-    write_pilot(record)
+        patch["permissions"] = {**(read_pilot().get("permissions") or {}), **permissions}
+    record = call("pilot", {"set": patch})["record"]
     set_what = ", ".join(name for name, given in
                          (("objective", objective), ("permissions", permissions),
                           ("instruction", instruction)) if given)
     said = (f" The sentence {instruction!r} outranks the objective for that one juncture."
             if instruction else "")
-    return (f"Recorded: {set_what}. The pilot takes it up at the next juncture, not now, and a job "
-            "already under way runs to its outcome first."
+    return (f"Recorded: {set_what}. The pilot takes it up at the next juncture — within "
+            f"{IDLE_SCHEDULE} of the last one ending — and a run already under way runs to its "
+            "outcome first."
             + said
-            + _nudge_juncture()
             + " Standing now: "
             + json.dumps({"objective": record.get("objective"),
                           "permissions": record.get("permissions") or {}},
@@ -377,8 +288,8 @@ TOOL_DEFINITIONS = (
                        "Play: write pilot/index.ts from `source` and run it. The file is "
                        "typechecked, boundary-checked and policy-checked first; a refusal comes "
                        "back as diagnostics and nothing runs. The run blocks and streams one line "
-                       "per move, then the prose report of the Outcome main returned. No cap; the "
-                       "observer can stop it at its next safe point.",
+                       "per move, then the prose report of the Outcome main returned. Capped at 24 "
+                       "minutes: asked to stop at the cap, cut off two minutes later.",
                        {"source": {"type": "string",
                                    "description": "The whole of pilot/index.ts, written before "
                                                   "the run."}},
@@ -398,35 +309,22 @@ TOOL_DEFINITIONS = (
                                                   "written before the check."}},
                        [])},
     {"name": "spacemolt_reflect", "toolset": "spacemolt", "handler": _reflect,
-     "description": "At rest only, open the next shift with a goal, a stance and an initial "
-                    "mood. On shift it is refused without writing: rest first.",
+     "description": "Set the goal, the stance, or retire a finished objective. Each is optional.",
      "schema": _schema("spacemolt_reflect",
-                       "Open the next shift. Callable only at rest, and the only place a stance "
-                       "is chosen. While a stance is set the pilot is on shift and this is "
-                       "refused before it reads your arguments — ending the shift is what makes "
-                       "it callable, and a shift ends by calling rest() at a base inside "
-                       "pilot/index.ts (a run that comes back Tired and docked is rested for you), "
-                       "so do not compose a goal for it mid-shift. The shift begins in a fresh conversation with its own skills, "
-                       "so call this once and end the turn. The mood moves inside the shift "
-                       "afterwards; this never sets it again. A reflection always opens a shift: "
-                       "goal, stance and mood are all required, and a finished objective "
-                       "is retired by objective_done beside them, not reported on its own.",
+                       "Set what the next juncture pursues: a goal, a stance, or objective_done "
+                       "(any of them; at least one). The stance chooses which career README the "
+                       "next juncture carries; with none it carries the play README alone. It takes "
+                       "effect at the next juncture, and nothing needs a stance to run.",
                        {"goal": {"type": "string",
-                                 "description": "What this shift will do to advance "
-                                                "your objective. One line."},
+                                 "description": "What the next runs will do to advance your "
+                                                "objective. One line."},
                         "stance": {"type": "string", "enum": list(STANCES),
-                                   "description": "The kind of evening this is."},
-                        "mood": {"type": "string", "enum": list(JOB_MOODS),
-                                 "description": "The attitude the shift starts in: one of "
-                                                "Cautious, Focused, Opportunistic, Aggressive."},
+                                   "description": "The career the next juncture reads up on."},
                         "objective_done": {"type": "boolean",
-                                           "description": "Alongside the shift, never instead of "
-                                                          "one: your bounded objective "
-                                                          "is complete, so it is retired and the "
-                                                          "goal you name here is what this shift "
-                                                          "pursues. There is no way to reflect "
-                                                          "without opening a shift."}},
-                       ["goal", "stance", "mood"])},
+                                           "description": "Your objective is complete: it is "
+                                                          "retired. Name a goal beside it to say "
+                                                          "what comes next."}},
+                       [])},
     {"name": "spacemolt_stop", "toolset": "spacemolt_observer", "handler": _stop,
      "description": "Ask the run in flight to stop at its next safe point.",
      "schema": _schema("spacemolt_stop",
@@ -439,9 +337,8 @@ TOOL_DEFINITIONS = (
      "schema": _schema("spacemolt_status",
                        "The whole state of the pilot in one read — call this for \"what is the "
                        "objective\", \"what is the pilot doing\" and \"what happened\" alike. "
-                       "Returns `pilot` (the standing record the observer wrote: objective, "
-                       "objective_done, goal, stance, mood, the last instruction, the "
-                       "permissions), `run` (the run in flight — function and step, elapsed "
+                       "Returns `pilot` (the standing record: objective, goal, stance, the last "
+                       "instruction, the permissions), `run` (the run in flight — function and step, elapsed "
                        "seconds, commands sent, fuel, hull, credits — or the last run's outcome "
                        "when idle, null when the runner is not up) and `journal` (the tail of "
                        "the pilot's journal, newest last, one line per thing it actually did). "
@@ -462,16 +359,15 @@ TOOL_DEFINITIONS = (
                        "next juncture only. Pass any one of them; at least one is required. The "
                        "pilot takes this up at its next juncture, not now, and a job under way "
                        "runs to its outcome first. A permission left unnamed keeps the value it "
-                       "had. This sets nothing else: stance and mood are the pilot's.",
+                       "had. This sets nothing else: goal and stance are the pilot's.",
                        {"instruction": {"type": "string", "maxLength": _INSTRUCTION_LIMIT,
-                                        "description": "One sentence for the next juncture only, "
+                                        "description": "One sentence for the next juncture, "
                                                        f"at most {_INSTRUCTION_LIMIT} characters, "
                                                        "in the human's own words (shorten by "
                                                        "dropping words). It outranks the "
-                                                       "objective for that one juncture. An "
-                                                       "outcome the pilot can reach in one run; "
-                                                       "it is delivered once, at the next "
-                                                       "juncture."},
+                                                       "objective until the pilot's next run "
+                                                       "starts. An outcome the pilot can reach in "
+                                                       "one run."},
                         "objective": {"type": "string",
                                       "description": "What the pilot is to accomplish. Outlives every "
                                                      "shift; bounded or open-ended."},
@@ -488,34 +384,15 @@ TOOL_DEFINITIONS = (
 )
 
 
-#: What a profile that has never flown starts from. No stance: the first reflection picks one,
-#: and a fire with none carries the shared skill alone, which is what a first look needs.
-FIRST_PILOT = {"mood": "Cautious",
-               "goal": "Learn the ship: look around, find what sells, and make the first profit."}
-
-
 def wake_on_load() -> None:
-    """A process that just loaded the pilot rewrites its juncture job (audit 2026-09-15: the live
-    job carried a prompt three revisions old) and owes it one look around: the juncture is marked
-    due now instead of waiting for the idle schedule (Carl, 2026-09-15). A run still in flight
-    raises its own juncture when it ends, so nothing is marked then, and the bridge is not
-    touched: a plugin load opens no game socket. A profile that has never flown has no pilot
-    record, so the first load seeds one: an installed plugin with no juncture job looks exactly
-    like a healthy idle pilot, and nothing else on this path ever writes the record.
+    """A process that just loaded the plugin rewrites its juncture job (audit 2026-09-15: the live
+    job carried a prompt three revisions old). The interval brings the first juncture; a record
+    that does not exist yet is simply a pilot with no goal and no stance, and the bridge writes one
+    when there is something to write. A plugin load opens no game socket.
     """
-    from .service import pilot_path
-    if not pilot_path().is_file():
-        write_pilot(dict(FIRST_PILOT))
-        journal_event("seeded", **FIRST_PILOT)
-    record = runtime_dir() / "run.json"
     try:
-        # The job is rewritten on every load so a prompt or skill revision reaches the next
-        # fire; the wake itself waits when a run is in flight.
-        job = ensure_juncture_job()
-        if record.is_file() and not json.loads(record.read_text()).get("ended", True):
-            return
-        mark_due(job)
-    except Exception:  # noqa: BLE001 - a wake that fails costs nothing; the schedule still comes round
+        ensure_juncture_job()
+    except Exception:  # noqa: BLE001 - the job is rewritten again on the next load or reflection
         pass
 
 
