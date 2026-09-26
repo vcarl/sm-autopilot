@@ -1,3 +1,13 @@
-runtime/
 node_modules/
+runtime/
+playground/
 .hermes/
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+# The game credentials are a file on disk named by SPACEMOLT_CREDENTIALS_FILE.
+# It never belongs in here, whatever it is called.
+credentials*
+*.credentials
+.env
