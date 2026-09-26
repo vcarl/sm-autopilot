@@ -120,21 +120,21 @@ test('leftover cargo the circuit never sells is sold where the bid covers its co
   assert.equal(reports.at(-1)!.holding?.copper_piping,undefined,'gone from the holding');
 });
 
-test('a new circuit stows leftover it cannot sell at cost at its first stop, for the owner, and lap 1 buys a full load and pays (live: 98% of the hold copper, laps of -15 and -44)',async()=>{
+test('a new circuit stows leftover it cannot sell at cost at its first stop, for the owner, only down to 40% free, and lap 1 buys a full load and pays (live: 98% of the hold copper, laps of -15 and -44)',async()=>{
   const nets:number[]=[];
-  for(const [bid,holding,said] of [[29,undefined,'50 copper_piping (cost 1500) at sol_base for B'],[999,{},'50 copper_piping at sol_base for B']] as const) {
+  for(const [bid,holding,said,rides] of [[29,undefined,'20 copper_piping (cost 600) at sol_base for B',{quantity:30,cost:900}],[999,{},'20 copper_piping at sol_base for B',undefined]] as const) {
     const {world,f,reports}=leftover(bid,holding);
     await world.account.refresh();
     const done=await lap(f,GEMS);
     assert.equal(done.park,undefined);
     assert.equal(world.count('spacemolt/sell'),1,`bid ${bid}: only the gems at range; under its cost, or never bought, copper is not sold`);
     const trades=world.sent.filter(c=>c.action==='spacemolt/buy'||(c.action==='spacemolt_storage/deposit'&&c.params.item_id)).map(c=>[c.action,c.params]);
-    assert.deepEqual(trades,[['spacemolt_storage/deposit',{target:'B',item_id:'copper_piping',quantity:50}],['spacemolt/buy',{id:'gem',quantity:10}]]);
+    assert.deepEqual(trades,[['spacemolt_storage/deposit',{target:'B',item_id:'copper_piping',quantity:20}],['spacemolt/buy',{id:'gem',quantity:10}]]);
     assert.deepEqual(reports.flatMap(r=>r.stowed??[]),[said]);
-    assert.equal(reports.at(-1)!.holding?.copper_piping,undefined,'gone from the holding');
+    assert.deepEqual(reports.findLast(r=>r.holding)!.holding!.copper_piping,rides,'the 30 it keeps ride on in the holding, at cost');
     nets.push(done.net);
   }
-  assert.equal(nets[0],nets[1],'the 1500 of copper stowed went to the owner, not a loss of the lap\'s: it nets what a lap stowing untracked cargo nets');
+  assert.equal(nets[0],nets[1],'the 600 of copper stowed went to the owner, not a loss of the lap\'s: it nets what a lap stowing untracked cargo nets');
 });
 
 test('the owner\'s store refused, the leftover goes to the freighter\'s own',async()=>{
@@ -146,24 +146,68 @@ test('the owner\'s store refused, the leftover goes to the freighter\'s own',asy
   };
   await world.account.refresh();
   await lap(f,GEMS);
-  assert.deepEqual(reports.flatMap(r=>r.stowed??[]),['50 copper_piping (cost 1500) at sol_base in its own storage']);
-  assert.ok(reports.some(r=>/stow 50 copper_piping for B refused/.test(r.why??'')));
+  assert.deepEqual(reports.flatMap(r=>r.stowed??[]),['20 copper_piping (cost 600) at sol_base in its own storage']);
+  assert.ok(reports.some(r=>/stow 20 copper_piping for B refused/.test(r.why??'')));
   assert.equal(world.count('spacemolt/buy'),1);
 });
 
-test('at a lap\'s end, cargo no stop sells is stowed and leaves holding; the circuit\'s own cargo, unsold under its floor, stays',async()=>{
-  // Sol sells gems and copper; the circuit buys both but sells only gems, at range, whose 115 bid is under the 120 floor.
+test('at a lap\'s end, cargo no stop sells is stowed and leaves holding; the circuit\'s own cargo, unsold under its floor, stays though the hold is short of 40% free',async()=>{
+  // Sol sells gems and copper; the circuit buys both, a full hold, but sells only gems, at range, whose 115 bid is under the 120 floor.
   const {world,f,reports}=freighter(115,[],{cargo:[],cargoUsed:0,
     markets:{sol_base:[{item_id:'gem',best_buy:0,best_buy_qty:0,best_sell:100,best_sell_qty:50},{item_id:'copper_piping',best_buy:0,best_buy_qty:0,best_sell:20,best_sell_qty:50}],
       range_base:[{item_id:'gem',best_buy:115,best_buy_qty:50,best_sell:0,best_sell_qty:0}]}});
-  const both:Circuit={...GEMS,stops:[{at:'sol_base',system_id:'sol',buys:[{item:'gem',qty:10,max_price:110},{item:'copper_piping',qty:5,max_price:30}],sell:[]},GEMS.stops[1]!]};
+  const both:Circuit={...GEMS,stops:[{at:'sol_base',system_id:'sol',buys:[{item:'gem',qty:40,max_price:110},{item:'copper_piping',qty:10,max_price:30}],sell:[]},GEMS.stops[1]!]};
   await world.account.refresh();
   await lap(f,both);
   const stows=world.sent.filter(c=>c.action==='spacemolt_storage/deposit'&&c.params.item_id);
-  assert.deepEqual(stows.map(c=>c.params),[{target:'B',item_id:'copper_piping',quantity:5}]);
+  assert.deepEqual(stows.map(c=>c.params),[{target:'B',item_id:'copper_piping',quantity:10}],'all the copper, none of the 40 gems');
   assert.equal(world.account.server.location.docked_at,'range_base','at the last stop');
-  assert.match(reports.flatMap(r=>r.stowed??[])[0]!,/^5 copper_piping \(cost \d+\) at range_base for B$/);
+  assert.match(reports.flatMap(r=>r.stowed??[])[0]!,/^10 copper_piping \(cost \d+\) at range_base for B$/);
   assert.deepEqual(Object.keys(reports.findLast(r=>r.holding)!.holding!),['gem'],'the gems stay aboard, the copper is gone');
+});
+
+/** A 100-hold freighter on GEMS carrying `cargo` (none of it gems), its holding `holding`; `range` rows added to range's book. */
+function roomy(cargo:{item_id:string;quantity:number}[],holding:Freighter['holding'],range:object[]=[]) {
+  const h=freighter(130,[],{cargo,cargoUsed:cargo.reduce((sum,row)=>sum+row.quantity,0),cargoCapacity:100,
+    markets:{sol_base:[{item_id:'gem',best_buy:0,best_buy_qty:0,best_sell:100,best_sell_qty:50}],
+      range_base:[{item_id:'gem',best_buy:130,best_buy_qty:50,best_sell:0,best_sell_qty:0},...range] as never}});
+  h.f.holding=holding;
+  return h;
+}
+const stowsOf=(world:ReturnType<typeof freighter>['world'])=>world.sent.filter(c=>c.action==='spacemolt_storage/deposit'&&c.params.item_id).map(c=>c.params);
+
+test('90 unplanned units in a 100 hold: stowed cheapest a unit first, never-bought first, only to 40 free',async()=>{
+  const {world,f}=roomy([{item_id:'copper_piping',quantity:40},{item_id:'gold_ore',quantity:30},{item_id:'rock',quantity:20}],
+    {copper_piping:{quantity:40,cost:1600},gold_ore:{quantity:30,cost:300}});
+  await world.account.refresh();
+  await lap(f,GEMS);
+  assert.deepEqual(stowsOf(world),[{target:'B',item_id:'rock',quantity:20},{target:'B',item_id:'gold_ore',quantity:10}],
+    '10 free to 40: 20 rock (cost 0), then 10 of the 10-a-unit gold, the 40-a-unit copper kept');
+  assert.equal(world.count('spacemolt/buy'),1);
+});
+
+test('a full 100 hold of unplanned cargo stows exactly 40, to 40 free',async()=>{
+  const {world,f}=roomy([{item_id:'copper_piping',quantity:90},{item_id:'rock',quantity:10}],{copper_piping:{quantity:90,cost:2700}});
+  await world.account.refresh();
+  await lap(f,GEMS);
+  assert.deepEqual(stowsOf(world),[{target:'B',item_id:'rock',quantity:10},{target:'B',item_id:'copper_piping',quantity:30}]);
+});
+
+test('50 unplanned units in a 100 hold, already 40% free or more: nothing is stowed',async()=>{
+  const {world,f}=roomy([{item_id:'copper_piping',quantity:50}],{copper_piping:{quantity:50,cost:1500}});
+  await world.account.refresh();
+  await lap(f,GEMS);
+  assert.deepEqual(stowsOf(world),[]);
+});
+
+test('leftover kept aboard past the stow is cleared at a later stop whose bid covers its cost',async()=>{
+  const {world,f,reports}=roomy([{item_id:'copper_piping',quantity:100}],{copper_piping:{quantity:100,cost:3000}},
+    [{item_id:'copper_piping',best_buy:40,best_buy_qty:99,best_sell:0,best_sell_qty:0}]);
+  await world.account.refresh();
+  await lap(f,GEMS);
+  assert.deepEqual(stowsOf(world),[{target:'B',item_id:'copper_piping',quantity:40}]);
+  assert.deepEqual(reports.flatMap(r=>r.cleared??[]),['cleared 60 copper_piping at 40 (cost 30)'],'at range, not sol, which bids nothing for it');
+  assert.equal(reports.findLast(r=>r.holding)!.holding!.copper_piping,undefined);
 });
 
 test('a recalled freighter buys nothing more at the stop it parks after',async()=>{
@@ -190,7 +234,7 @@ test('assign proceeds with cargo the new circuit never sells, and says what it t
     assert.match((await assign('hauler',GEMS,{float:5_000})).why!,/^no login at /);
   } finally {unbind();rmSync(runtime,{recursive:true,force:true});}
   assert.equal(tiedUp({copper_wiring:{quantity:4,cost:40}},GEMS),
-"carrying 4 copper_wiring the circuit never sells (4 of 10 hold); it's sold at the first stop if the bid there covers its cost, else stowed there for you, so lap 1 buys into the whole 10");
+"carrying 4 copper_wiring the circuit never sells (4 of 10 hold); it's sold at the first stop if the bid there covers its cost, else stowed there for you only down to 40% free; the rest rides along and sells at cost where a bid covers it");
   assert.equal(tiedUp({gem:{quantity:10,cost:900}},GEMS),undefined,'a circuit that sells it all says nothing');
 });
 
@@ -601,12 +645,12 @@ test('a base found moved is recorded mobile, and placed where it is now, for the
 });
 
 test('what a freighter stows is kept on its entry and said by freighters(), for the owner to find',async()=>{
-  const h=hosted(130,[SOL,TWIN],{stop_after_lap:true,holding:{copper_wiring:{quantity:4,cost:40}}},{cargo:[{item_id:'copper_wiring',quantity:4}],cargoUsed:4});
+  const h=hosted(130,[SOL,TWIN],{stop_after_lap:true,holding:{copper_wiring:{quantity:4,cost:40}}},{cargo:[{item_id:'copper_wiring',quantity:4}],cargoUsed:4,cargoCapacity:4});
   try {
     await h.fly();
-    assert.deepEqual(h.now().stowed,['4 copper_wiring (cost 40) at sol_base for B']);
-    assert.equal(h.now().holding?.copper_wiring,undefined);
-    assert.deepEqual(row('hauler',h.now()).stowed,['4 copper_wiring (cost 40) at sol_base for B']);
+    assert.deepEqual(h.now().stowed,['2 copper_wiring (cost 20) at sol_base for B'],'a full 4 hold stows down to 2 free');
+    assert.deepEqual(h.now().holding?.copper_wiring,{quantity:2,cost:20});
+    assert.deepEqual(row('hauler',h.now()).stowed,['2 copper_wiring (cost 20) at sol_base for B']);
   } finally {h.done();}
 });
 

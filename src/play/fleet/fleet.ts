@@ -4,7 +4,7 @@
  * from this pilot's process (`assign`). */
 import type {ListShipsResponse,MapSystemInfo,StoredShip,SwitchShipResponse,V2Ship} from '@spacemolt/lib';
 import {details} from '../../response-details.ts';
-import {closure,IGNORE_TICKS,type Holding} from '../freighter/index.ts';
+import {closure,FREE_HOLD,IGNORE_TICKS,type Holding} from '../freighter/index.ts';
 import {flying,held,install,readFleet,recallLoop,row,start,type FreighterRow} from '../freighter/host.ts';
 import {marketTick} from '../market.ts';
 import {acct,command,job,runtimeDir} from '../runtime.ts';
@@ -29,13 +29,14 @@ export const FLOAT_MAX=30_000;
 const BUILD='use routes({circuit:{hold}})';
 
 /** What of `holding` `circuit` never sells; undefined when the circuit sells all of it. Said, never
- * refused: the freighter sells it at the first stop if the bid covers its cost, else stows it there. */
+ * refused: the freighter stows it at the first stop, cheapest first, only down to `FREE_HOLD` free,
+ * and sells the rest at cost wherever a bid covers it. */
 export function tiedUp(holding:Holding,circuit:Circuit):string|undefined {
   const unsold=Object.entries(holding).filter(([item])=>!circuit.stops.some(stop=>stop.sell.some(sale=>sale.item===item)));
   if(!unsold.length)return undefined;
   const k=unsold.reduce((sum,[,lot])=>sum+lot.quantity,0);
   return `carrying ${unsold.map(([item,lot])=>`${lot.quantity} ${item}`).join(', ')} the circuit never sells (${k} of ${circuit.hold} hold); `
-    +`it's sold at the first stop if the bid there covers its cost, else stowed there for you, so lap 1 buys into the whole ${circuit.hold}`;
+    +`it's sold at the first stop if the bid there covers its cost, else stowed there for you only down to ${FREE_HOLD*100}% free; the rest rides along and sells at cost where a bid covers it`;
 }
 
 /** Hand `circuit` to the freighter `name`: another account, whose login the operator has put at
@@ -96,7 +97,7 @@ export function assign(name:string,circuit:Circuit,caps:{float:number}):Promise<
  * which passes over the rings a freighter drained within `REST_TICKS`, then `assign` of the top
  * row at its float. Refused when no circuit pays, or wherever `routes` or `assign` refuse (not
  * docked; still flying). Cargo aboard the new circuit sells rides into it at its cost; the rest is
- * stowed at its first stop, and the `why` says so. */
+ * stowed at its first stop down to `FREE_HOLD` free, and the `why` says so. */
 export function reassign(name:string):Promise<Outcome<{freighter:FreighterRow|null}>> {
   return job<{freighter:FreighterRow|null}>('reassign',name,async()=>{
     const refuse=(why:string)=>({status:'refused' as const,did:`reassigned no freighter ${name}`,why,detail:{freighter:null}});

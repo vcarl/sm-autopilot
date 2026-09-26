@@ -14,12 +14,13 @@
  * - cargo it bought that the circuit never sells (left from an old circuit): sold at any stop whose
  *   bid covers its cost a unit, after the stop's own sales and before its buys; never at a loss, and
  *   cargo it never bought (cost unknown) is never sold;
- * - any cargo aboard the circuit never sells, bought or not, still aboard at a new circuit's first
- *   stop or at a lap's last stop: stowed there, after the sales and before the buys, into the owner's
- *   storage (`deposit` with `target`), else its own, so every lap buys into the whole hold;
+ * - cargo aboard the circuit never sells, bought or not, at a new circuit's first stop or at a lap's
+ *   last stop, after the sales and before the buys: stowed there, the cheapest a unit first (never
+ *   bought counts as 0), only until `FREE_HOLD` of the hold is free, into the owner's storage
+ *   (`deposit` with `target`), else its own; the rest rides along, cleared at cost where a bid covers it;
  * - a sale or buy the game refuses: say so and go on; three stops in a row with no trade parks it,
- *   the ring recorded as drained, unless the hold is full of cargo the circuit never sells that
- *   neither a bid nor a store took: then the why names that cargo and the ring is not drained;
+ *   the ring recorded as drained, unless cargo the circuit never sells, that neither a bid nor a store
+ *   took, holds the free hold under `FREE_HOLD`: then the why names that cargo and the ring is not drained;
  * - recalled: it buys nothing more, and parks after the stop it is on;
  * - a route short of fuel, a blocked flight, no credits for fuel: park, docked where it is;
  * - LOSING_LAPS laps in a row that net 0 or less: park, docked at the lap's last stop, the ring drained.
@@ -112,6 +113,12 @@ const STOP_TRIES=3;
  * starts empty and only buys, so one losing lap is expected; three is the books. A lap that pays
  * but far under `lap_net` flies on: it still makes money. Tunable. */
 const LOSING_LAPS=3;
+/** ponytail: the share of the hold a stow frees, and no more: cargo the circuit never sells is stowed
+ * only down to this much free, the rest kept aboard to clear at cost. Operator's call: a big hauler
+ * still buys at a profit into 40%. Tunable. */
+export const FREE_HOLD=0.4;
+/** The free hold a stow aims at: `FREE_HOLD` of the hold, whole units. */
+export const freeTarget=(ship:{cargo_capacity?:number}|undefined)=>Math.ceil(FREE_HOLD*(ship?.cargo_capacity??0));
 const RETRY_MS=60_000;
 /** A later stop's book older than this many ticks (30 minutes at ten seconds a tick) counts at half
  * its depth when a buy is sized: NPC books move rarely, but other traders fill bids. */
@@ -232,8 +239,8 @@ async function fly(f:Freighter,stop:Stop):Promise<number> {
 const service=async(f:Freighter,stop:Stop)=>{await attempt(f,stop.at,'service',()=>serviceShip(f.account,f.command,{mood:'Tired'}));};
 
 /** One stop: fly there and dock, service, sell the listed items at their floors, sell the `leftover`
- * (cargo bought that the circuit never sells) where the bid covers its cost a unit, stow every item
- * aboard `stow` names that is still there, buy each listed item within its cap and what `plan` says
+ * (cargo bought that the circuit never sells) where the bid covers its cost a unit, stow what `stow`
+ * names that is still there, cheapest a unit first, until `FREE_HOLD` of the hold is free, buy each listed item within its cap and what `plan` says
  * the `later` stops (the rest of the ring, round to this one) take above its cost, one command each,
  * send the credits above the float home. Returns how many trades took, the book's tick, and whether
  * a buy was cut for a later stop with no book to go by (`scouted`: this lap learns it). */
@@ -272,15 +279,21 @@ async function visit(f:Freighter,stop:Stop,later:readonly Stop[],leftover:Holdin
     f.report({cleared:`cleared ${n} ${item} at ${+(gross/n).toFixed(1)} (cost ${+unit.toFixed(1)})`});
   }
   await account.refresh();
-  // No stop sells it: into the owner's store here, else the freighter's own, so the buys get the hold.
-  for(const [item,aboard] of Object.entries(miningInventory(account.state)).filter(([item,n])=>n>0&&stow(item))) {
+  // No stop sells it: into the owner's store here, else the freighter's own, the cheapest a unit
+  // first (never bought: 0), only until FREE_HOLD of the hold is free; the rest rides on to clear at cost.
+  let need=freeTarget(account.state.ship)-free(f);
+  const unit=(item:string)=>{const lot=leftover[item];return lot?lot.cost/lot.quantity:0;};
+  for(const [item,held] of Object.entries(miningInventory(account.state)).filter(([item,n])=>n>0&&stow(item)).sort(([a],[b])=>unit(a)-unit(b))) {
+    if(need<=0)break;
+    const aboard=Math.min(held,need);
     const where=await attempt(f,stop.at,`stow ${aboard} ${item} for ${f.owner}`,()=>command('spacemolt_storage/deposit',{target:f.owner,item_id:item,quantity:aboard}))
       ?`for ${f.owner}`:await attempt(f,stop.at,`stow ${aboard} ${item}`,()=>command('spacemolt_storage/deposit',{item_id:item,quantity:aboard}))?'in its own storage':null;
     if(!where)continue;
     // The hold is the evidence, not the reply: what left it is what was stowed.
     await account.refresh();
-    const n=aboard-(miningInventory(account.state)[item]??0),lot=leftover[item];
+    const n=held-(miningInventory(account.state)[item]??0),lot=leftover[item];
     if(n<=0)continue;
+    need-=n;
     const cost=lot&&` (cost ${Math.round(lot.cost*Math.min(n,lot.quantity)/lot.quantity)})`;
     stowed(item,n);
     f.report({stowed:`${n} ${item}${cost??''} at ${stop.at} ${where}`});
@@ -354,9 +367,10 @@ async function lapPlan(f:Freighter,circuit:Circuit):Promise<Lap|undefined> {
   const known=await Promise.all(circuit.stops.map(stop=>f.market!.book(stop.at)));
   if(!known.every(book=>share(ageOf(book,now))))return undefined;
   // Cargo the circuit never sells is cleared or stowed, not planned: a hold it blocks parks as blocked, not drained.
+  // Stowed only until FREE_HOLD is free, so the room is that much at most; what rides on takes the rest.
   const sells=new Set(circuit.stops.flatMap(stop=>stop.sell.map(sale=>sale.item)));
   const aboard=Object.entries(miningInventory(f.account.state)),hold=Object.fromEntries(aboard.filter(([item])=>sells.has(item)));
-  const room=free(f)+aboard.filter(([item])=>!sells.has(item)).reduce((sum,[,n])=>sum+n,0);
+  const room=Math.max(free(f),Math.min(free(f)+aboard.filter(([item])=>!sells.has(item)).reduce((sum,[,n])=>sum+n,0),freeTarget(f.account.state.ship)));
   const {net}=plan(hold,room,[...circuit.stops,...circuit.stops].map((stop,i)=>({
     book:planned(f,stop,known[i%known.length],now,item=>buysOf(stop).find(buy=>buy.item===item)?.qty??0),buy:buysOf(stop).map(buy=>buy.item),rate:TAX})));
   return net>0?undefined:f.park(`lap planned at ${net} on fresh books (two laps ahead); circuit drained`,now);
@@ -379,7 +393,7 @@ export async function lap(f:Freighter,circuit:Circuit):Promise<Lap> {
   const drained=await lapPlan(f,circuit);
   if(drained)return drained;
   for(const [i,stop] of circuit.stops.entries()) {
-    // Stowed at a new circuit's first stop, so lap 1 has the hold, and at every lap's last.
+    // Stowed at a new circuit's first stop, so lap 1 has FREE_HOLD of the hold, and at every lap's last.
     const stowing=(fresh&&i===0)||i===circuit.stops.length-1;
     let traded:number,scouted=false,tries=0;
     for(;;) {
@@ -432,9 +446,9 @@ export async function lap(f:Freighter,circuit:Circuit):Promise<Lap> {
     const dead=traded||scouted?0:(idle.get(f)??0)+1;
     idle.set(f,dead);
     if(dead>=DEAD_STOPS) {
-      // A hold full of cargo this circuit never sells blocks every buy: the ring is not drained.
-      const cargo=miningInventory(f.account.state),ship=f.account.state.ship;
-      if((ship?.cargo_capacity??0)-(ship?.cargo_used??0)<=0&&Object.keys(cargo).every(item=>!sells.has(item)))
+      // Cargo this circuit never sells, that no store took, keeping the free hold under FREE_HOLD: the ring is not drained.
+      const cargo=miningInventory(f.account.state);
+      if(free(f)<freeTarget(f.account.state.ship)&&Object.keys(cargo).every(item=>!sells.has(item)))
         return f.park(`hold full of ${Object.entries(cargo).map(([item,n])=>`${n} ${item}`).join(', ')} this circuit never sells, no stop on it bids at or above its cost and storage refused it, so it cannot buy; `
           +'assign it a circuit that sells that cargo',undefined,true);
       return f.park(`circuit dead: ${dead} stops in a row with no trade`,tick);

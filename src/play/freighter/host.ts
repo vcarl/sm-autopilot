@@ -25,7 +25,7 @@ import {knownBooks} from '../market.ts';
 import {buysOf,ledgerItems,REST_TICKS,search,type Circuit,type Seat} from '../trading/trading.ts';
 import {markMobile,markPlace} from '../places.ts';
 import {markDrained,ring} from './drained.ts';
-import {claims as carried,type Approach,type Claim,type Freighter,type Holding,type Known,type Market} from './index.ts';
+import {claims as carried,freeTarget,type Approach,type Claim,type Freighter,type Holding,type Known,type Market} from './index.ts';
 
 /** One freighter as `freighters.json` keeps it. */
 export interface Entry {
@@ -322,8 +322,8 @@ async function run(runtime:string,name:string,account:ReadinessAccount,command:R
  * top circuit installed at its float. True when it has a new circuit to fly. With none, a hold full
  * of cargo the circuit never sells stays parked, its why as it was; any other park waits docked,
  * re-planning every `REPLAN_TICKS`.
- * A blocked park is a hold the lap could neither sell at cost nor stow (`lap` stows what no stop
- * sells), so only when both deposits were refused.
+ * A blocked park is a hold the lap could neither sell at cost nor stow to `FREE_HOLD` free (`lap`
+ * stows what no stop sells to there), so only when both deposits were refused.
  * ponytail: circuits are planned from an empty hold, so a blocked hold takes the first row that sells
  * any of its cargo, and there seldom is one; preferring a ring through a base whose remembered bid
  * covers the leftover's cost (or planning lap 1 from the cargo aboard) is the upgrade. */
@@ -341,7 +341,7 @@ async function replan(runtime:string,name:string,account:ReadinessAccount,comman
     const cargo=miningInventory(account.state),ship=account.state.ship,fleet=readFleet(runtime);
     // A ring another freighter here flies is its: two on one ring split its bids.
     const flown=new Set(Object.entries(fleet).filter(([other,row])=>other!==name&&row.state==='running').map(([,row])=>ring(row.circuit.stops)));
-    const blocked=(ship?.cargo_capacity??0)-(ship?.cargo_used??0)<=0&&Object.keys(cargo).length>0
+    const blocked=(ship?.cargo_capacity??0)-(ship?.cargo_used??0)<freeTarget(ship)&&Object.keys(cargo).length>0
       &&Object.keys(cargo).every(item=>!entry.circuit.stops.some(stop=>stop.sell.some(sale=>sale.item===item)));
     let why:string;
     try {
