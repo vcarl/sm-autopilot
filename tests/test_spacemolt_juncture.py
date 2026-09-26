@@ -447,3 +447,89 @@ def test_a_run_that_ends_adrift_cannot_rest_and_the_shift_carries(tmp_path, monk
     # Said as a continuation, not as an error the pilot should retry.
     assert "carries" in said.lower() or "continues" in said.lower(), (
         f"the refusal does not tell the pilot the shift simply carries on: {said}")
+
+
+def _journal(tmp_path, endings):
+    """A runtime whose journal holds these run endings, oldest first."""
+    runtime = tmp_path / "runtime"
+    runtime.mkdir(parents=True, exist_ok=True)
+    lines = []
+    for outcome, commands in endings:
+        lines.append(json.dumps({"at": "2026-09-26T00:00:00.000Z", "event": "run",
+                                 "phase": "ended", "script": "index.ts",
+                                 "outcome": outcome, "commands": commands}))
+    (runtime / "gameplay.jsonl").write_text("\n".join(lines) + "\n")
+    return runtime
+
+
+def test_a_streak_of_runs_that_did_nothing_stops_the_immediate_next_juncture(tmp_path, monkeypatch):
+    """Continuous play needs a floor, or a repeating fault loops at model speed.
+
+    Every reflection triggers the next juncture on the next scheduler tick, which is what the
+    operator wants: faster play. The cost is that a turn which fails for the same reason every time
+    no longer costs one juncture every thirty minutes — it costs twenty to eighty an hour, until a
+    human notices. So a short run of turns that accomplished nothing stops the immediate trigger and
+    lets the interval govern again. The pilot still wakes; it just wakes on its own schedule.
+
+    "Did nothing" is refused, failed, or zero commands sent. Deliberately NOT "gained nothing": a run
+    that only looks is a good turn, and the live burn of 2026-09-25 ended `partial` having sent 315
+    commands, so gains are the wrong signal in both directions.
+    """
+    monkeypatch.setenv("SPACEMOLT_RUNTIME_DIR", str(_journal(
+        tmp_path, [("done", 12), ("refused", 0), ("failed", 3), ("refused", 1)])))
+    juncture.write_pilot({"name": "kvothe"})
+    triggered: list[str] = []
+    monkeypatch.setattr(spacemolt, "ensure_juncture_job", lambda: {"id": "job-1"})
+    monkeypatch.setattr("cron.jobs.trigger_job", lambda _id: triggered.append(_id))
+
+    said = spacemolt._reflect({"goal": "try again", "stance": "Scout", "mood": "Cautious"})
+
+    assert triggered == [], "three turns that did nothing still chained straight into another"
+    # Visible, and it names why: a silent slowdown nobody can explain is worse than the loop.
+    assert "3" in said, said
+    assert "interval" in said.lower() or "schedule" in said.lower(), said
+    # The shift is still opened — the backstop slows the cadence, it never blocks the work.
+    assert juncture.read_pilot()["stance"] == "Scout"
+
+
+def test_one_turn_that_did_something_restores_the_fast_cadence_by_itself(tmp_path, monkeypatch):
+    """Recovery is automatic: no human restores the cadence.
+
+    The streak is derived from the journal rather than counted into the record, so a productive run
+    breaks it the moment it is written. There is nothing to reset and nothing that can be left set.
+    """
+    monkeypatch.setenv("SPACEMOLT_RUNTIME_DIR", str(_journal(
+        tmp_path, [("refused", 0), ("failed", 0), ("refused", 0), ("done", 9)])))
+    juncture.write_pilot({"name": "kvothe"})
+    triggered: list[str] = []
+    monkeypatch.setattr(spacemolt, "ensure_juncture_job", lambda: {"id": "job-1"})
+    monkeypatch.setattr("cron.jobs.trigger_job", lambda _id: triggered.append(_id))
+
+    said = spacemolt._reflect({"goal": "keep going", "stance": "Prospector", "mood": "Focused"})
+
+    assert triggered == ["job-1"], "a productive turn did not restore the immediate next juncture"
+    assert "interval" not in said.lower(), said
+
+
+def test_the_refused_run_loop_heals_itself_without_a_human(tmp_path, monkeypatch):
+    """The specific loop of 2026-09-25, end to end.
+
+    A stanceless record refuses the run before it starts; the pilot reflects; reflection takes the
+    already-at-rest path and writes a stance directly, without needing a base — which matters,
+    because a broken script can leave the pilot adrift AND stanceless, and routing that through rest
+    would have failed in exactly the case it exists for. The next run then has a stance to work in.
+    """
+    monkeypatch.setenv("SPACEMOLT_RUNTIME_DIR", str(_journal(tmp_path, [("refused", 0)])))
+    juncture.write_pilot({"name": "kvothe", "objective": "fill the hold"})
+    monkeypatch.setattr(spacemolt, "ensure_juncture_job", lambda: {"id": "job-1"})
+    monkeypatch.setattr("cron.jobs.trigger_job", lambda _id: None)
+    # If this path touched the bridge it would be a bug: there is no shift to end.
+    monkeypatch.setattr(spacemolt, "call", lambda *a, **k: (_ for _ in ()).throw(
+        AssertionError("the already-at-rest path must not need the bridge")))
+
+    said = spacemolt._reflect({"goal": "three loads of ore", "stance": "Prospector", "mood": "Focused"})
+
+    assert "Nothing written" not in said, said
+    record = juncture.read_pilot()
+    assert (record["stance"], record["mood"]) == ("Prospector", "Focused")
+    assert record["objective"] == "fill the hold"

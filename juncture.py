@@ -80,6 +80,54 @@ STANCE_FOLDER = {"Prospector": "mining", "Industrialist": "industry", "Trader": 
 SECTION_LIMIT = 4_000
 
 
+#: How many runs that accomplished nothing, back to back, before the immediate next juncture stops
+#: being triggered and the interval governs again. Small on purpose: three is enough to tell a
+#: repeating fault from one bad turn, and cheap enough that a real fault cannot run far.
+IDLE_STREAK_LIMIT = 3
+
+
+def unproductive_streak() -> int:
+    """How many of the most recent runs, back to back, did nothing at all.
+
+    Derived from the journal rather than counted into the pilot record, and that is the point: there
+    is no state to reset, nothing that can be left set by a crash, and a productive run breaks the
+    streak the moment it is written. Recovery needs no human and no bookkeeping.
+
+    "Did nothing" is ``refused``, ``failed``, or zero commands sent. Deliberately NOT "gained
+    nothing": a run that only looks is a good turn under the juncture contract, and the live burn of
+    2026-09-25 ended ``partial`` having sent 315 commands — so gains mislead in both directions.
+    """
+    path = runtime_dir() / JOURNAL_FILE
+    if not path.is_file():
+        return 0
+    endings: list[dict[str, Any]] = []
+    try:
+        with path.open(encoding="utf-8") as handle:
+            for raw in handle:
+                # Cheap prefilter: the journal is tens of megabytes and almost none of it is a run
+                # ending. Matched on the bare words, not on `"event":"run"` — the separator spacing
+                # belongs to whichever writer produced the line, and keying on it silently matched
+                # nothing at all the first time.
+                if "run" not in raw or "ended" not in raw:
+                    continue
+                try:
+                    row = json.loads(raw)
+                except ValueError:
+                    continue
+                if row.get("event") == "run" and row.get("phase") == "ended":
+                    endings.append(row)
+    except OSError:
+        return 0
+    streak = 0
+    for row in reversed(endings):
+        did_nothing = (str(row.get("outcome")) in {"refused", "failed"}
+                       or not int(row.get("commands") or 0))
+        if not did_nothing:
+            break
+        streak += 1
+    return streak
+
+
 def juncture_context(session_info: Mapping[str, Any] | None = None) -> str:
     """The present, the menu, and what just happened — delivered, never fetched (N15).
 

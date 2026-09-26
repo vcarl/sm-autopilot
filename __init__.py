@@ -18,7 +18,8 @@ from typing import Any, Mapping
 
 from pathlib import Path
 
-from .juncture import (JOB_MOODS, JOURNAL_FILE, JUNCTURE_PLATFORM, SECTION_LIMIT, STANCES,
+from .juncture import (IDLE_STREAK_LIMIT, JOB_MOODS, JOURNAL_FILE, JUNCTURE_PLATFORM,
+                       SECTION_LIMIT, STANCES, unproductive_streak,
                        ensure_juncture_job, journal_event, juncture_context, read_pilot,
                        write_pilot)
 from .service import available, call, close_bridge, render_journal, runtime_dir
@@ -260,11 +261,26 @@ def _reflect(arguments: dict[str, Any] | None = None, **_: Any) -> str:
                   **({"objective_done": True, "objective": retired} if finished else {}))
     from cron.jobs import trigger_job
 
-    trigger_job(ensure_juncture_job()["id"])
+    # Every reflection normally asks for the next juncture straight away, which is the faster play
+    # the operator wants. The floor under it: a run of turns that accomplished nothing stops chaining
+    # and lets the interval govern instead. A repeating fault otherwise loops at model speed rather
+    # than twice an hour, and would run until a human noticed — the one thing no recovery path may
+    # depend on. The shift is still opened either way; only the cadence changes.
+    streak = unproductive_streak()
+    throttled = streak >= IDLE_STREAK_LIMIT
+    if not throttled:
+        trigger_job(ensure_juncture_job()["id"])
+    else:
+        ensure_juncture_job()
+        journal_event("cadence", reason="unproductive streak", runs=streak)
     return ((f"Objective {retired!r} retired as complete. " if retired else "")
-            + f"Shift open: {stance}, starting {mood}, goal {goal!r}. End the turn — the stance "
-            "begins in a fresh conversation carrying its own skills, due on the next scheduler "
-            "tick, and the mood moves inside the shift from here.")
+            + f"Shift open: {stance}, starting {mood}, goal {goal!r}. "
+            + (f"The last {streak} runs did nothing — refused, failed, or sending no commands — so "
+               "the next juncture comes on the normal interval rather than immediately, to stop a "
+               "repeating fault looping. One run that does something restores it. End the turn."
+               if throttled else
+               "End the turn — the stance begins in a fresh conversation carrying its own skills, "
+               "due on the next scheduler tick, and the mood moves inside the shift from here."))
 
 
 def _journal_lines(arguments: dict[str, Any] | None = None) -> list[str]:
