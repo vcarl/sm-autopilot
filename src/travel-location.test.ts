@@ -4,7 +4,7 @@ import type {ReadinessCommand} from './readiness.ts';
 import {ArrivalUnresolved,travelTo} from './travel.ts';
 import {FakeLibGoalAccount} from './test-support/fake-lib-account.ts';
 
-// Adapted from dev/ported/setpoint/tests/dispatcher/lib-primitives/go-to-poi.test.ts.
+// Adapted from setpoint (removed from this repo; see git history), tests/dispatcher/lib-primitives/go-to-poi.test.ts.
 // Unknown server location must override cached target coordinates before any act.
 function fixture(resolvePoi:string,resolveAt=2_000) {
   let time=0,arrivalAt=Infinity;

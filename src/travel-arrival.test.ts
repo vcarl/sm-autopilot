@@ -4,7 +4,7 @@ import type {ReadinessCommand} from './readiness.ts';
 import {ArrivalUnresolved,travelTo} from './travel.ts';
 import {FakeLibGoalAccount,type FakeCommandHandlers} from './test-support/fake-lib-account.ts';
 
-// Adapted from dev/ported/setpoint/tests/dispatcher/wait-for-location.test.ts.
+// Adapted from setpoint (removed from this repo; see git history), tests/dispatcher/wait-for-location.test.ts.
 // Only refresh delivers location: cargo pushes deliberately leave it stale.
 function fixture(local:boolean,arrivalAt:number) {
   let time=0;
