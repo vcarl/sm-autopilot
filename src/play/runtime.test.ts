@@ -5,6 +5,7 @@ import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import test from 'node:test';
 import type {ReadinessAccount} from '../readiness.ts';
+import {readJournal} from '../run-record.ts';
 import {bridgeWorld,type WorldOptions} from '../test-support/bridge-world.ts';
 import {distressPlan,goTo} from './travel.ts';
 import {admit,bind,command,job,outcome,pilot,progress,stop,unbind,type Pilot} from './runtime.ts';
@@ -553,4 +554,54 @@ test('credits under the standing reserve are not Tired, and work is admitted',as
     assert.equal(pilot().mood,'Focused');
     assert.equal(await admit('gatherUntil'),null);
   } finally {unbind();}
+});
+
+// Tired's whole purpose is that the ship never strands. A cell aboard is fuel the ship already
+// owns: a tank that drops under the reserve away from a counter burns cells back over it, and
+// Tired is never declared.
+test('fuel under the reserve in space burns the cells aboard, only as many as clear it, and work goes on',async()=>{
+  const f=world({},['refuel','repair','storage'],{cargo:[{item_id:'fuel_cell',quantity:2}],cargoUsed:2,cargoCapacity:50});
+  const runtime=mkdtempSync(join(tmpdir(),'spacemolt-cells-'));
+  const lines:string[]=[];
+  bind({account:f.account as unknown as ReadinessAccount,command:f.command,runtime,emit:text=>lines.push(text),
+    pilot:()=>flying({stance:'Prospector',permissions:{credit_reserve:0}},f.account.state as never)});
+  try {
+    f.account.server.location={system_id:'sol',poi_id:'belt',docked_at:null,in_transit:false};
+    // Focused keeps 24: 20 is under it, and one 5-fuel cell clears it.
+    f.account.server.ship.fuel=20;
+    await f.account.refresh();
+    await command('spacemolt/get_system',{});
+    assert.deepEqual(f.sent.filter(c=>c.action==='spacemolt/refuel').map(c=>c.params),[{id:'fuel_cell',quantity:1}]);
+    assert.equal(f.account.server.ship.fuel,25);
+    assert.equal(pilot().mood,'Focused');
+    assert.ok(!lines.some(text=>text.startsWith('tired:')),lines.join('\n'));
+    const journal=readJournal(runtime);
+    assert.ok(!journal.some(entry=>entry.event==='tired'),'Tired was never declared');
+    const burned=journal.filter(entry=>entry.event==='fuel_cell');
+    assert.deepEqual(burned.map(entry=>[entry.burned,entry.fuel_before,entry.fuel_after,entry.cells_left]),[[1,20,25,1]]);
+    assert.equal(await job('work','',async()=>({status:'done' as const,did:String(await admit('gatherUntil')),detail:{}})).then(out=>out.did),'null');
+  } finally {unbind();rmSync(runtime,{recursive:true,force:true});}
+});
+
+// Credits are what resupply spends. A Tired pilot docked with a wallet that covers nothing can
+// only get out by earning, so the work is let through and the journal says why.
+test('Tired and broke at a counter: the work goes on, journalled, and resupply is retried',async()=>{
+  const f=world({});
+  const runtime=mkdtempSync(join(tmpdir(),'spacemolt-broke-'));
+  bind({account:f.account as unknown as ReadinessAccount,command:f.command,runtime,emit:()=>{},
+    pilot:()=>flying({stance:'Prospector',permissions:{credit_reserve:0}},f.account.state as never)});
+  try {
+    f.account.server.ship.fuel=10;
+    f.account.server.player.credits=0;
+    await f.account.refresh();
+    const out=await job('work','',async()=>({status:'done' as const,did:String(await admit('gatherUntil')),detail:{}}));
+    assert.equal(out.did,'null','the work was admitted');
+    assert.equal(pilot().mood,'Tired');
+    const said=readJournal(runtime).filter(entry=>entry.event==='line').map(entry=>String(entry.text));
+    assert.ok(said.some(text=>/resupply unaffordable: working to pay for it/.test(text)),said.join('\n'));
+    // Once there are credits, the next work call resupplies as before.
+    f.account.server.player.credits=1_000;
+    await job('work','',async()=>({status:'done' as const,did:String(await admit('gatherUntil')),detail:{}}));
+    assert.equal(pilot().mood,'Focused');
+  } finally {unbind();rmSync(runtime,{recursive:true,force:true});}
 });

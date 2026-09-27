@@ -11,6 +11,7 @@
  */
 import type {Account,SkillProgress,V2CargoItem,V2Location,V2Ship} from '@spacemolt/lib';
 import type {ReadinessAccount,ReadinessCommand} from '../readiness.ts';
+import {FUEL_CELL} from '../mining-inventory.ts';
 import {journalRun,readRun,writeRun} from '../run-record.ts';
 import {TravelBlocked} from '../travel.ts';
 import {resupply} from './service.ts';
@@ -86,7 +87,7 @@ const need=()=>{if(!bound)throw new Error('the play runtime is not bound: only `
 /** Bind the runtime for one run. Resets the stop flag and the counters. */
 export function bind(binding:Binding):void {
   bound=binding;stopFlag=false;commands=0;asking=null;depth=0;started=Date.now();last={fn:'pilot'};calls=[];
-  lastCommandAt=0;pending=null;lastTick=undefined;
+  lastCommandAt=0;pending=null;lastTick=undefined;burning=false;burnFailed=false;broke=false;
   mark=snapshot();
   lastMood=binding.pilot().mood;
   // A lib Account pushes state between commands (a tick, a fight); the fake in tests does not.
@@ -246,7 +247,7 @@ export async function command(action:string,params:Record<string,unknown>={}):Pr
     line(`  ${action}: reconnected; re-issued once`);
     return await sent(action,params);
   }
-  finally {watchMood();}
+  finally {await burnCells();watchMood();}
 }
 
 /** A command pending longer than this says so, and keeps saying so every this often. The
@@ -298,8 +299,13 @@ export const progress=()=>({fn:last.fn,step:last.step,commands,elapsed_s:Math.ro
  * mid-trade would leave the outer helper at the wrong counter — and the resupply waits for the
  * next top-level call or the run's end. */
 export async function admit(fn:string):Promise<string|null> {
-  if(pilot().mood==='Tired'&&depth===1)await resupply();
+  if(pilot().mood==='Tired'&&depth===1)broke=await resupply()==='broke';
   const {mood,tired_by}=pilot();
+  // Credits are what resupply spends: refusing the work that earns them would strand the ship.
+  if(mood==='Tired'&&broke) {
+    line(`${fn}: Tired (${tired_by}), resupply unaffordable: working to pay for it`);
+    return null;
+  }
   if(mood==='Tired')return `${fn} not started: Tired (${tired_by??'a margin crossed'}) and the runtime's resupply did not clear it`;
   if(mood==='Relaxed')return `${fn} not started: Relaxed may not initiate a job`;
   return null;
@@ -404,9 +410,11 @@ export function measured():Row[] {
 
 let lastMood:Mood|undefined;
 /** After every command and state push: when the derived mood crossed into or out of Tired, the
- * journal and the stream say so. Nothing is written to the record — the mood is the facts. */
+ * journal and the stream say so. Nothing is written to the record — the mood is the facts.
+ * A fuel crossing the cells aboard can clear is not said: `burnCells` clears it first. */
 export function watchMood():void {
   const b=need(),who=b.pilot(),was=lastMood;
+  if(burning||canBurn())return;
   lastMood=who.mood;
   if(!was||who.mood===was)return;
   if(who.mood==='Tired') {
@@ -416,4 +424,41 @@ export function watchMood():void {
     if(b.runtime)journalRun(b.runtime,{mood:who.mood},'tired_cleared');
     line(`tired cleared: back inside the ${who.mood} margins`);
   }
+}
+
+// ---- fuel cells: the reserve aboard, burned before Tired is declared --------------------
+
+/** The last resupply ended short for the wallet, not the route: `admit` lets work earn. */
+let broke=false;
+let burning=false,burnFailed=false;
+const cellsHeld=()=>(need().account.state.cargo??[]).filter(row=>row.item_id===FUEL_CELL).reduce((n,row)=>n+row.quantity,0);
+/** Tired on fuel, away from a counter, with a cell aboard. Docked, the counter is the refill:
+ * a docked `refuel` draws the station's fuel for credits, not the cells (lib RefuelParams). */
+function canBurn():boolean {
+  const b=need(),who=b.pilot(),state=b.account.state;
+  return !burnFailed&&who.mood==='Tired'&&!!who.tired_by?.startsWith('fuel')&&!state.location?.docked_at&&cellsHeld()>0;
+}
+
+/** Burn the fuel cells aboard (`refuel({id:'fuel_cell',quantity:1})`, one at a time) until the tank
+ * is back over the reserve or the cells run out. Runs after every command, so no path strands
+ * with cells in the hold. A burn that fails is journalled and not tried again this run: Tired is
+ * then declared and resupply takes over. Never throws. */
+export async function burnCells():Promise<void> {
+  if(burning||!canBurn())return;
+  const b=need(),fuel=()=>b.account.state.ship?.fuel??0;
+  const fuel_before=fuel(),held=cellsHeld();
+  let why:string|undefined;
+  burning=true;
+  try {
+    while(canBurn()) {
+      const left=cellsHeld();
+      await command('spacemolt/refuel',{id:FUEL_CELL,quantity:1});
+      await b.account.refresh();
+      if(cellsHeld()>=left)throw new Error('the refuel took no cell');
+    }
+  } catch(error){why=message(error);burnFailed=true;}
+  finally {burning=false;}
+  const entry={burned:held-cellsHeld(),fuel_before,fuel_after:fuel(),cells_left:cellsHeld(),...why?{why}:{}};
+  if(b.runtime)journalRun(b.runtime,entry,'fuel_cell');
+  line(`fuel cells: burned ${entry.burned}, fuel ${fuel_before} → ${entry.fuel_after}, ${entry.cells_left} left${why?`; the burn failed: ${why}`:''}`);
 }
