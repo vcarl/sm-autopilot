@@ -145,6 +145,50 @@ test('a pilot with no stance runs its script, and the script can bring the ship 
   } finally {f.close();}
 });
 
+// Tired is the guarantee the ship gets resupplied, and it must not rest on the script remembering
+// to write service(): the runtime brings the ship up itself at the next work helper, and the work
+// then goes on.
+test('a script that crosses the fuel reserve and never services is resupplied by the runtime',async()=>{
+  const f=harness();
+  try {
+    let drained=false;
+    const command:typeof f.command=async(action,params)=>{
+      const res=await f.command(action,params);
+      if(action==='spacemolt/buy'&&!drained){drained=true;f.account.server.ship.fuel=20;}
+      return res;
+    };
+    f.write("import {buy} from 'play';\nexport default async function main(){ for(let i=0;i<3;i++) await buy('ore',1); }\n");
+    const who=()=>flying(PILOT,f.account.state as never);
+    const result=await runPilot({...f.deps,command,pilot:who});
+    assert.equal(result.accepted,true,result.errors?.join('\n'));
+    assert.equal(f.sent.filter(c=>c.action==='spacemolt/buy').length,3,'the work went on once the ship was up');
+    assert.ok(f.sent.some(c=>c.action==='spacemolt/refuel'),'the runtime refuelled');
+    assert.equal(f.account.server.ship.fuel,f.account.server.ship.max_fuel);
+    assert.equal(who().mood,'Focused');
+    const resupplied=readJournal(f.runtime).filter(entry=>entry.event==='resupply');
+    assert.ok(resupplied.some(entry=>entry.cleared===true),JSON.stringify(resupplied));
+  } finally {f.close();}
+});
+
+// A script that ends Tired and away from a counter leaves no one to fly it home: the run does.
+test('a run that ends Tired and undocked flies to a serviced base and services there',async()=>{
+  const f=harness();
+  try {
+    f.account.server.location={system_id:'sol',poi_id:'belt',docked_at:null,in_transit:false};
+    f.account.server.ship.fuel=15;
+    await f.account.refresh();
+    f.write("export default async function main(){}\n");
+    const who=()=>flying(PILOT,f.account.state as never);
+    const result=await runPilot({...f.deps,pilot:who});
+    assert.equal(result.accepted,true,result.errors?.join('\n'));
+    assert.equal(f.account.server.location.docked_at,'sol_base');
+    assert.equal(f.account.server.ship.fuel,f.account.server.ship.max_fuel);
+    assert.equal(who().mood,'Focused');
+    const resupplied=readJournal(f.runtime).filter(entry=>entry.event==='resupply');
+    assert.ok(resupplied.some(entry=>entry.cleared===true&&entry.base==='sol_base'),JSON.stringify(resupplied));
+  } finally {f.close();}
+});
+
 test('a run past its wall-clock cap is asked to stop, then cut off, and the record is closed',async()=>{
   const f=harness();
   try {

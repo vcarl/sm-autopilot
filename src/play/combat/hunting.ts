@@ -462,7 +462,7 @@ export function hunt(opts:{poi?:string;look?:string[];fights?:number;species?:st
     const who=pilot();
     const result:Hunted={poi_id:trail[0]??acct().state.location?.poi_id??'',fights:[],looked:[],ended:'asked'};
     const refuse=(why:string)=>({status:'refused' as const,did:'hunted nothing',why,detail:result});
-    const blocked=admit('hunt');
+    const blocked=await admit('hunt');
     if(blocked)return refuse(blocked);
     const gap=await loadout();
     if(gap)return refuse(gap);

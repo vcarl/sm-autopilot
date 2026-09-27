@@ -13,6 +13,7 @@ import type {Account,SkillProgress,V2CargoItem,V2Location,V2Ship} from '@spacemo
 import type {ReadinessAccount,ReadinessCommand} from '../readiness.ts';
 import {journalRun,readRun,writeRun} from '../run-record.ts';
 import {TravelBlocked} from '../travel.ts';
+import {resupply} from './service.ts';
 import type {Outcome,Present,Row,Status,Want} from './types.ts';
 
 export type Mood='Cautious'|'Focused'|'Opportunistic'|'Aggressive'|'Relaxed'|'Tired';
@@ -48,6 +49,8 @@ export interface Binding {
 }
 
 let bound:Binding|null=null;
+/** How many jobs deep the program is: 1 is a call `main()` made itself. */
+let depth=0;
 let stopFlag=false,commands=0,started=0;
 let last:{fn:string;step?:string}={fn:'pilot'};
 let mark:Snapshot|null=null;
@@ -82,7 +85,7 @@ const need=()=>{if(!bound)throw new Error('the play runtime is not bound: only `
 
 /** Bind the runtime for one run. Resets the stop flag and the counters. */
 export function bind(binding:Binding):void {
-  bound=binding;stopFlag=false;commands=0;asking=null;started=Date.now();last={fn:'pilot'};calls=[];
+  bound=binding;stopFlag=false;commands=0;asking=null;depth=0;started=Date.now();last={fn:'pilot'};calls=[];
   lastCommandAt=0;pending=null;lastTick=undefined;
   mark=snapshot();
   lastMood=binding.pilot().mood;
@@ -288,10 +291,16 @@ export const progress=()=>({fn:last.fn,step:last.step,commands,elapsed_s:Math.ro
 
 /** The rules between one helper and the next: a mood that may not start work. Helpers that
  * begin something (a gather, a buy, a mission) ask before sending; reads and the safe legs
- * (service, stow, sell, going to a base) do not. */
-export function admit(fn:string):string|null {
+ * (service, stow, sell, going to a base) do not.
+ *
+ * Tired is not advice: at a call `main()` made itself, the runtime resupplies first (`resupply`)
+ * and the work goes on when that cleared it. Inside another helper it only refuses — flying off
+ * mid-trade would leave the outer helper at the wrong counter — and the resupply waits for the
+ * next top-level call or the run's end. */
+export async function admit(fn:string):Promise<string|null> {
+  if(pilot().mood==='Tired'&&depth===1)await resupply();
   const {mood,tired_by}=pilot();
-  if(mood==='Tired')return `${fn} not started: Tired (${tired_by??'a margin crossed'}) — service here or goTo a base and service there`;
+  if(mood==='Tired')return `${fn} not started: Tired (${tired_by??'a margin crossed'}) and the runtime's resupply did not clear it`;
   if(mood==='Relaxed')return `${fn} not started: Relaxed may not initiate a job`;
   return null;
 }
@@ -344,7 +353,7 @@ const seconds=(ms:number)=>`${(ms/1000).toFixed(ms<10_000?1:0)}s`;
  * `failed` Outcome, a `Stopped` a `partial` one; nothing escapes as an exception. */
 export async function job<Detail>(fn:string,args:string,body:()=>Promise<Said<Detail>>):Promise<Outcome<Detail>> {
   const outer=last,outerMark=jobMark;
-  last={fn};
+  last={fn};depth++;
   line(`▶ ${fn}${args?` ${args}`:''}`);
   let before:Snapshot;
   try {await acct().refresh();before=snapshot();}
@@ -367,7 +376,7 @@ export async function job<Detail>(fn:string,args:string,body:()=>Promise<Said<De
     ...built.why===undefined?{}:{why:built.why},
     credits:built.gained.credits,cost:built.cost,
     items:built.gained.items.reduce((n,row)=>n+row.quantity,0),xp:Object.values(built.gained.xp).reduce((n,x)=>n+x,0)});
-  last=outer;jobMark=outerMark;
+  last=outer;jobMark=outerMark;depth--;
   return built;
 }
 
@@ -402,7 +411,7 @@ export function watchMood():void {
   if(!was||who.mood===was)return;
   if(who.mood==='Tired') {
     if(b.runtime)journalRun(b.runtime,{rule:who.tired_by,mood_before:was},'tired');
-    line(`tired: ${who.tired_by}; finishing the safe leg, then service`);
+    line(`tired: ${who.tired_by}; the runtime resupplies at the next call or the run's end`);
   } else if(was==='Tired') {
     if(b.runtime)journalRun(b.runtime,{mood:who.mood},'tired_cleared');
     line(`tired cleared: back inside the ${who.mood} margins`);

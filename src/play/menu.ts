@@ -275,7 +275,7 @@ export async function menu(runtime?:string):Promise<Menu> {
     // refused `service()` advises, so the menu and the refusal say one thing, and a counter
     // unreadable until docked is still a move the pilot may take.
     if(docked)moves.push({call:'service()',why:`${why}: resupply here clears it`,advances:'ship'});
-    else for(const row of await serviceElsewhere())moves.push({...row,why:`${why}: ${row.why}`,advances:'ship'});
+    else for(const row of await serviceElsewhere())moves.push({call:row.call,why:`${why}: ${row.why}`,advances:'ship'});
     return {...stagnation?{stagnation}:{},moves,not_now};
   }
 

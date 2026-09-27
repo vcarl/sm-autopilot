@@ -74,7 +74,7 @@ export function gatherUntil(opts:{poi:string;base?:string;until?:{item:string;qu
     const who=pilot();
     const result:Gathered={poi_id:opts.poi,base_id:opts.base??'',trips:0,yield:[],settled:[],ended:'blocked',cargo:[]};
     const cargo=()=>(acct().state.cargo??[]) as V2CargoItem[];
-    const stop=admit('gatherUntil');
+    const stop=await admit('gatherUntil');
     if(stop)return {status:'refused',did:'gathered nothing',why:stop,detail:result};
     const baseId=opts.base??acct().state.location?.docked_at;
     if(!baseId)return {status:'refused',did:'gathered nothing',why:'no base to return to: pass base, or dock first',detail:result};

@@ -115,6 +115,8 @@ test('an unpriced counter is not tried at all with nothing above the reserve',as
 test('the standing credit reserve still refuses a Tired fill, by name',async()=>{
   const game=bridgeWorld({services:['refuel','repair'],cargoUsed:0});
   game.account.server.ship.fuel=10;
+  // Only the fuel is due: a 4-point repair would fit the 10 above the reserve and be bought alone.
+  game.account.server.ship.hull=100;
   game.account.server.player.credits=100;
   let who:Pilot={mood:'Tired',permissions:{credit_reserve:90}};
   bind({account:game.account as unknown as ReadinessAccount,command:game.command,
@@ -154,5 +156,26 @@ test('a Cautious refuel quoted over the 500 credit margin is filled; only the re
     const held=await service();
     assert.equal(held.status,'refused');
     assert.match(held.why!,/less reserve 900 cannot cover the quoted 640/);
+  } finally {unbind();}
+});
+
+// Tired is the guarantee the ship gets resupplied, so a wallet that cannot cover the whole bill
+// buys what it can: the fuel first (resupply), the repair only if what is left still covers it.
+test('credits for only part of the bill buy the fuel and leave the repair short, not refused whole',async()=>{
+  const game=bridgeWorld({services:['refuel','repair'],cargoUsed:0});
+  // 110 fuel at 1 cr and 48 hull at 1 cr is 158; the wallet holds 130.
+  game.account.server.ship.fuel=10;
+  game.account.server.ship.hull=52;
+  game.account.server.player.credits=130;
+  let who:Pilot={mood:'Tired'};
+  bind({account:game.account as unknown as ReadinessAccount,command:game.command,
+    pilot:()=>who,emit:()=>{}});
+  try {
+    const out=await service();
+    assert.equal(out.status,'partial',`${out.did}: ${out.why}`);
+    assert.equal(game.account.server.ship.fuel,120,'the tank was filled');
+    assert.equal(game.account.server.ship.hull,52,'the repair the wallet could not cover was not sent');
+    assert.deepEqual(out.detail.issued,['spacemolt/refuel']);
+    assert.match(out.why!,/repair/);
   } finally {unbind();}
 });

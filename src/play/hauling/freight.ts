@@ -128,7 +128,7 @@ export function haul(shipmentId:string):Promise<Outcome<Hauled>> {
     const id=bare(shipmentId);
     const none=(contract?:ShipmentContract,profile?:CarrierProfile):Hauled=>
       ({contract:(contract??{}) as ShipmentContract,profile_after:(profile??{}) as CarrierProfile,leg:'accepted'});
-    const blocked=admit('haul');
+    const blocked=await admit('haul');
     if(blocked)return {status:'refused',did:`did not haul ${id}`,why:blocked,detail:none()};
 
     let mine=(await readActive()).find(row=>row.contract.id===id);

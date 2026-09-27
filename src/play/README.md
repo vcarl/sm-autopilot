@@ -208,9 +208,14 @@ export default async function main() {
 
 Your mood is not chosen: it is your stance's own (Cautious with no stance), and it sets margins —
 the fuel line under which you are Tired, credits a single repair may spend (never a refuel: fuel is
-resupply, and no mood strands a ship), the hull fraction a fight breaks off at. When fuel, hull or
-credits are through those margins the mood reads **Tired**: the function you are in finishes and
-nothing new starts until the ship is brought back up. Tired **widens** what a resupply may do rather
+resupply, and no mood strands a ship), the hull fraction a fight breaks off at. When fuel or hull
+is through those margins the mood reads **Tired**, and Tired is a guarantee, not advice: the
+function you are in finishes, and then **the runtime resupplies the ship itself** — at your next
+work call (`gatherUntil`, `buy`, `haul`, …) and again when the run ends, docked or not: it services
+where you are docked, else flies to a base it can name and services there, and your work call then
+goes on. You never need to write `service()` to be safe; write it when you want the ship up sooner.
+Credits are not a margin: `permissions.credit_reserve` limits what you spend, never makes you Tired.
+Tired **widens** what a resupply may do rather
 than narrowing where you may go — it lifts the spend margin and drops the fuel reserve to 0. The
 fuel reserve is **not** kept back from travel: a trip is flown when the tank covers its route, and a
 leg that takes fuel under the reserve is how Tired arrives — the resupply trigger, working as meant.
@@ -223,7 +228,8 @@ inspect a point of interest in your current system", and an uncaught throw from 
 the whole run. For a base outside this system the price is unknown until you dock there, which is no
 reason to stay put. Back inside the margins, Tired is gone. Fuel cells are resupply too, so Tired's
 "service only" buys them. `permissions.credit_reserve` is a standing bound and Tired does not widen
-it; a fill it refuses says so by name.
+it. A wallet short of the whole bill buys what fits — the fuel first, then the repair — and
+`service()` answers `partial`, naming what it could not buy.
 
 ## Goal and stance
 
@@ -240,8 +246,8 @@ which skills would move, what you hold and owe.
   `process`, `fetch`, `eval`, dynamic `import()`; `while(true)`/`for(;;)` without a
   `stopped()` check; `unload_passenger` with id `all`; a file with no `export default async function main`.
 - At runtime, inside the helpers: spending under `permissions.credit_reserve`; a route
-  the tank cannot cover; starting work under Tired. Tired refuses *work*, never movement or
-  resupply.
+  the tank cannot cover; starting work under Tired when the runtime's own resupply could not clear
+  it. Tired refuses *work*, never movement or resupply.
 
 ## Asking yourself a question mid-run
 

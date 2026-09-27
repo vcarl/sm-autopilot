@@ -1,9 +1,10 @@
 /** The service counter: fuel and hull. Insurance and dues wait for a later slice. */
 import type {GetBaseResponse,SystemPoi} from '@spacemolt/lib';
 import {details} from '../response-details.ts';
-import {readJournal} from '../run-record.ts';
+import {journalRun,readJournal} from '../run-record.ts';
 import {ServiceBlocked,serviceShip} from '../servicing.ts';
-import {acct,command,job,pilot,runtimeDir} from './runtime.ts';
+import {acct,command,job,line,pilot,runtimeDir,stopped} from './runtime.ts';
+import {goTo} from './travel.ts';
 import type {Outcome} from './types.ts';
 
 export interface Serviced {
@@ -22,7 +23,7 @@ export interface Serviced {
 /** One base worth flying to for a service, as a move: the call, and everything known about it.
  * The menu offers these and a refused (or partially filled) `service` names them in `next`, so
  * the advice a pilot is given is the same advice either way. */
-export interface Elsewhere {call:string;why:string}
+export interface Elsewhere {call:string;why:string;base:string}
 
 /** Where else the pilot could be brought up. Only a service clears Tired, so a station that
  * cannot quote what is missing leaves the mood standing: the route to a base that might is the
@@ -68,7 +69,7 @@ export async function serviceElsewhere(docked?:string):Promise<Elsewhere[]> {
   const system=acct().state.location?.system_id??'this system';
   const rows:Elsewhere[]=[];
   for(const row of pois.filter(poi=>poi.base_id&&poi.base_id!==docked).slice(0,3))
-    rows.push({call:`goTo('${row.base_id}')`,
+    rows.push({call:`goTo('${row.base_id}')`,base:row.base_id!,
       why:`${row.base_name??row.base_id} in ${system}: ${await trip(row.base_id!)}; ${await posted(row.base_id!,row.fuel_price)}`});
   if(rows.length)return rows;
   // Nothing else in this system. A base the pilot has stood at is the only far one it can
@@ -80,7 +81,7 @@ export async function serviceElsewhere(docked?:string):Promise<Elsewhere[]> {
     if(typeof dock==='string'&&dock&&dock!==docked)seen.add(dock);
   }
   for(const base of [...seen].slice(-3))
-    rows.push({call:`goTo('${base}')`,
+    rows.push({call:`goTo('${base}')`,base,
       // No inspect: it is current-system only, so the call could only fail and break nothing usefully.
       why:`a base this pilot has docked at before: ${await trip(base)}; no price readable from here; unknown until docked`});
   return rows;
@@ -100,6 +101,9 @@ const asNext=(rows:Elsewhere[],system:string):string[]=>rows.length
  * A counter bills on credits and reports the charge afterwards, so a station that posts no
  * price still refuels and repairs: the posted price is only a pre-flight estimate, and the
  * reserve is held against the charge itself.
+ *
+ * A wallet short of the whole bill buys what it can — the fuel first, then the repair if it still
+ * fits — and the call is `partial`, with what was not bought in `short` and `why`.
  *
  * Tired: resupplying back inside the margins is what clears it (the mood is derived from the
  * ship), and `cleared_tired` says so. `insure` and `dues` are accepted and
@@ -129,8 +133,10 @@ export function service(opts:{fuel?:number;hull?:number;insure?:boolean;dues?:bo
         ?`serviced at ${docked}: ${done.issued.map(action=>action.split('/')[1]).join(' and ')} for ${done.spent} cr; fuel ${done.fuel}, hull ${done.hull}`
         :`already serviced at ${docked}: fuel ${done.fuel}, hull ${done.hull}`;
       const kept=cells?.target?`; fuel cells ${cells.held}/${cells.target}${cells.bought?` (bought ${cells.bought} for ${cells.spent} cr)`:''}${cells.skipped?`, none bought: ${cells.skipped.replace(/^fuel cells: /,'')}`:''}`:'';
-      return {status:'done',did:did+kept,detail:{base,issued:done.issued,spent:done.spent+(cells?.spent??0),short,cleared_tired:cleared},
-        next:cleared?['Tired cleared: the mood before it is back']:[]};
+      const detail={base,issued:done.issued,spent:done.spent+(cells?.spent??0),short:[...short,...done.short??[]],cleared_tired:cleared};
+      if(done.short)return {status:'partial',did:did+kept,why:done.short.join('; '),detail,
+        next:asNext(await serviceElsewhere(docked),acct().state.location?.system_id??'this system')};
+      return {status:'done',did:did+kept,detail,next:cleared?['Tired cleared: the mood before it is back']:[]};
     } catch(error) {
       if(error instanceof ServiceBlocked)
         return {status:'refused',did:`not serviced at ${docked}`,why:error.blockers.join('; '),
@@ -140,4 +146,43 @@ export function service(opts:{fuel?:number;hull?:number;insure?:boolean;dues?:bo
       throw error;
     }
   });
+}
+
+/** Tired's guarantee, kept by the runtime and not left to the script: bring the ship back inside
+ * its margins. Docked, service here; otherwise (or when this counter could not clear it) fly to
+ * each base `serviceElsewhere` names and service there, until one clears it. `travel:false`
+ * services only where the ship stands — a stopped run does not fly off. Every attempt is
+ * journalled as `resupply`. True when the ship is no longer Tired.
+ *
+ * ponytail: no in-space rescue. A tank that reaches no counter stays Tired and is journalled
+ * `stranded`; burning the fuel cells aboard (`refuel({id:'fuel_cell'})`, the reserve `service`
+ * keeps) is the next rung, when the journal shows one. The bases are tried in `serviceElsewhere`'s
+ * order (this system first), not by route cost. */
+export async function resupply(opts:{travel?:boolean}={}):Promise<boolean> {
+  const tired=()=>pilot().mood==='Tired';
+  if(!tired())return true;
+  const runtime=runtimeDir(),tired_by=pilot().tired_by;
+  const log=(entry:Record<string,unknown>)=>{if(runtime)journalRun(runtime,{tired_by,...entry},'resupply');};
+  line(`tired (${tired_by}): the runtime is bringing the ship up`);
+  const at=async(base:string)=>{
+    const done=await service();
+    log({base,status:done.status,spent:done.detail.spent,issued:done.detail.issued,cleared:!tired(),...done.why?{why:done.why}:{}});
+    return !tired();
+  };
+  const docked=acct().state.location?.docked_at??undefined;
+  if(docked&&await at(docked))return true;
+  if(opts.travel===false) {
+    log({cleared:false,why:'the run is stopping: no flight to another counter'});
+    return false;
+  }
+  for(const row of await serviceElsewhere(docked)) {
+    if(stopped())break;
+    const trip=await goTo(row.base);
+    if(trip.status==='done'&&trip.detail.docked) {
+      if(await at(row.base))return true;
+    } else log({base:row.base,cleared:false,why:`did not reach it: ${trip.why??trip.did}`});
+  }
+  log({cleared:false,stranded:true,why:'no base this runtime can name was reached and serviced'});
+  line(`still tired (${pilot().tired_by}): no base this runtime can name was reached and serviced`);
+  return false;
 }
