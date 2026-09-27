@@ -3,7 +3,7 @@ import type {GetBaseResponse,SystemPoi} from '@spacemolt/lib';
 import {details} from '../response-details.ts';
 import {journalRun,readJournal} from '../run-record.ts';
 import {ServiceBlocked,serviceShip} from '../servicing.ts';
-import {acct,command,job,line,pilot,runtimeDir,stopped} from './runtime.ts';
+import {acct,burnCells,command,job,line,pilot,runtimeDir,stopped} from './runtime.ts';
 import {goTo} from './travel.ts';
 import type {Outcome} from './types.ts';
 
@@ -152,37 +152,43 @@ export function service(opts:{fuel?:number;hull?:number;insure?:boolean;dues?:bo
  * its margins. Docked, service here; otherwise (or when this counter could not clear it) fly to
  * each base `serviceElsewhere` names and service there, until one clears it. `travel:false`
  * services only where the ship stands — a stopped run does not fly off. Every attempt is
- * journalled as `resupply`. True when the ship is no longer Tired.
+ * journalled as `resupply`. Away from a counter the fuel cells aboard are burned first
+ * (`burnCells`), which may be all a fuel crossing needs.
  *
- * ponytail: no in-space rescue. A tank that reaches no counter stays Tired and is journalled
- * `stranded`; burning the fuel cells aboard (`refuel({id:'fuel_cell'})`, the reserve `service`
- * keeps) is the next rung, when the journal shows one. The bases are tried in `serviceElsewhere`'s
- * order (this system first), not by route cost. */
-export async function resupply(opts:{travel?:boolean}={}):Promise<boolean> {
+ * `cleared` when the ship is no longer Tired; `broke` when a counter was reached but the wallet
+ * did not cover what clears it, so earning is the way out; `stranded` otherwise.
+ *
+ * ponytail: the bases are tried in `serviceElsewhere`'s order (this system first), not by route
+ * cost, and a wallet refused here is still flown to the next counter. */
+export async function resupply(opts:{travel?:boolean}={}):Promise<'cleared'|'broke'|'stranded'> {
   const tired=()=>pilot().mood==='Tired';
-  if(!tired())return true;
+  await burnCells();
+  if(!tired())return 'cleared';
+  let broke=false;
   const runtime=runtimeDir(),tired_by=pilot().tired_by;
   const log=(entry:Record<string,unknown>)=>{if(runtime)journalRun(runtime,{tired_by,...entry},'resupply');};
   line(`tired (${tired_by}): the runtime is bringing the ship up`);
   const at=async(base:string)=>{
     const done=await service();
     log({base,status:done.status,spent:done.detail.spent,issued:done.detail.issued,cleared:!tired(),...done.why?{why:done.why}:{}});
+    if(done.status==='refused'||done.status==='partial')broke=true;
     return !tired();
   };
   const docked=acct().state.location?.docked_at??undefined;
-  if(docked&&await at(docked))return true;
+  if(docked&&await at(docked))return 'cleared';
+  const failed=()=>broke?'broke':'stranded';
   if(opts.travel===false) {
     log({cleared:false,why:'the run is stopping: no flight to another counter'});
-    return false;
+    return failed();
   }
   for(const row of await serviceElsewhere(docked)) {
     if(stopped())break;
     const trip=await goTo(row.base);
     if(trip.status==='done'&&trip.detail.docked) {
-      if(await at(row.base))return true;
+      if(await at(row.base))return 'cleared';
     } else log({base:row.base,cleared:false,why:`did not reach it: ${trip.why??trip.did}`});
   }
-  log({cleared:false,stranded:true,why:'no base this runtime can name was reached and serviced'});
-  line(`still tired (${pilot().tired_by}): no base this runtime can name was reached and serviced`);
-  return false;
+  log({cleared:false,stranded:!broke,why:broke?'no counter reached had anything the wallet covers':'no base this runtime can name was reached and serviced'});
+  line(`still tired (${pilot().tired_by}): ${broke?'the wallet covers nothing at the counters reached':'no base this runtime can name was reached and serviced'}`);
+  return failed();
 }

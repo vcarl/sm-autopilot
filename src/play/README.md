@@ -214,6 +214,10 @@ function you are in finishes, and then **the runtime resupplies the ship itself*
 work call (`gatherUntil`, `buy`, `haul`, …) and again when the run ends, docked or not: it services
 where you are docked, else flies to a base it can name and services there, and your work call then
 goes on. You never need to write `service()` to be safe; write it when you want the ship up sooner.
+Away from a counter, fuel under the reserve first burns the **fuel cells** aboard, after any
+command, just enough to clear it — often Tired never arrives. Tired with a wallet that covers
+nothing at the counters reached does not refuse work: the work call goes on (journalled
+"resupply unaffordable"), and the next one resupplies once there are credits.
 Credits are not a margin: `permissions.credit_reserve` limits what you spend, never makes you Tired.
 Tired **widens** what a resupply may do rather
 than narrowing where you may go — it lifts the spend margin and drops the fuel reserve to 0. The
@@ -247,7 +251,8 @@ which skills would move, what you hold and owe.
   `stopped()` check; `unload_passenger` with id `all`; a file with no `export default async function main`.
 - At runtime, inside the helpers: spending under `permissions.credit_reserve`; a route
   the tank cannot cover; starting work under Tired when the runtime's own resupply could not clear
-  it. Tired refuses *work*, never movement or resupply.
+  it for want of a route (for want of credits, the work goes on). Tired refuses *work*, never
+  movement or resupply.
 
 ## Asking yourself a question mid-run
 

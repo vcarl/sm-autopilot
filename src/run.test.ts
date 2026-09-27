@@ -189,6 +189,27 @@ test('a run that ends Tired and undocked flies to a serviced base and services t
   } finally {f.close();}
 });
 
+// Away from a counter with too little fuel to reach one, the cells aboard are the way out: the
+// runtime burns them, then flies to a base and services there.
+test('a run that ends Tired in space short of any base burns its cells, then reaches a counter',async()=>{
+  const f=harness({cargo:[{item_id:'fuel_cell',quantity:2}],cargoUsed:2,cargoCapacity:50});
+  try {
+    f.account.server.location={system_id:'sol',poi_id:'belt',docked_at:null,in_transit:false};
+    // 2 fuel reaches nothing (a hop is 7); two 5-fuel cells make 12, still under the reserve 24.
+    f.account.server.ship.fuel=2;
+    await f.account.refresh();
+    f.write("export default async function main(){}\n");
+    const who=()=>flying(PILOT,f.account.state as never);
+    const result=await runPilot({...f.deps,pilot:who});
+    assert.equal(result.accepted,true,result.errors?.join('\n'));
+    const journal=readJournal(f.runtime);
+    const burned=journal.filter(entry=>entry.event==='fuel_cell');
+    assert.deepEqual(burned.map(entry=>[entry.burned,entry.fuel_before,entry.fuel_after,entry.cells_left]),[[2,2,12,0]]);
+    assert.equal(f.account.server.location.docked_at,'sol_base');
+    assert.equal(who().mood,'Focused');
+  } finally {f.close();}
+});
+
 test('a run past its wall-clock cap is asked to stop, then cut off, and the record is closed',async()=>{
   const f=harness();
   try {

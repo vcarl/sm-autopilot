@@ -749,7 +749,15 @@ export function bridgeWorld(options:WorldOptions={}) {
     'spacemolt/get_base':()=>({delta:{details:{services,
       ...services.includes('refuel')?{fuel_price_all_in:options.fuelPrice??1}:{},
       base:{poi_id:'station',...services.includes('repair')?{repair_price_per_hull:1}:{}}}}}),
-    'spacemolt/refuel':()=>{
+    // Undocked, `refuel` burns fuel cells from the hold (lib: "Number of fuel cells to burn");
+    // this world's cell is worth 5 fuel. Docked, the counter fills the tank for credits.
+    'spacemolt/refuel':params=>{
+      if(!account.server.location.docked_at) {
+        const burned=take(String(params.id??'fuel_cell'),Number(params.quantity??1));
+        if(!burned)throw new Error('No fuel cells in cargo');
+        account.server.ship.fuel=Math.min(account.server.ship.max_fuel,account.server.ship.fuel+burned*5);
+        return {delta:{details:{action:'refuel',source:'fuel_cell',cells_used:burned,fuel:account.server.ship.fuel}}};
+      }
       const cost=account.server.ship.max_fuel-account.server.ship.fuel;
       account.server.ship.fuel=account.server.ship.max_fuel;
       account.server.player.credits-=cost;
