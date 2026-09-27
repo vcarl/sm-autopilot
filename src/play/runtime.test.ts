@@ -7,7 +7,7 @@ import test from 'node:test';
 import type {ReadinessAccount} from '../readiness.ts';
 import {bridgeWorld,type WorldOptions} from '../test-support/bridge-world.ts';
 import {distressPlan,goTo} from './travel.ts';
-import {bind,command,job,outcome,pilot,progress,stop,unbind,type Pilot} from './runtime.ts';
+import {admit,bind,command,job,outcome,pilot,progress,stop,unbind,type Pilot} from './runtime.ts';
 import {service} from './service.ts';
 import {buy,sell,prices} from './market.ts';
 import {buyShip,refit,shipsForSale} from './hangar.ts';
@@ -538,5 +538,19 @@ test('a yard listing whose class the catalogue cannot answer for is skipped, not
     const ids=(board.detail.for_sale??[]).map(row=>row.kind==='listing'?row.listing.class_id:'commission');
     assert.ok(!ids.includes('rubble'),`a hull nothing can be read about was offered: ${JSON.stringify(ids)}`);
     assert.ok(ids.includes('hauler_ii'),`the readable listing was lost with the unreadable one: ${JSON.stringify(ids)}`);
+  } finally {unbind();}
+});
+
+// Credits are a spend limit on buys, not a margin: resupply spends credits, so a Tired that only
+// earning could clear, with earning refused under Tired, strands the pilot by construction.
+test('credits under the standing reserve are not Tired, and work is admitted',async()=>{
+  const f=world({});
+  bind({account:f.account as unknown as ReadinessAccount,command:f.command,emit:()=>{},
+    pilot:()=>flying({stance:'Prospector',permissions:{credit_reserve:500}},f.account.state as never)});
+  try {
+    f.account.server.player.credits=10;
+    await f.account.refresh();
+    assert.equal(pilot().mood,'Focused');
+    assert.equal(await admit('gatherUntil'),null);
   } finally {unbind();}
 });

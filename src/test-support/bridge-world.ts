@@ -23,7 +23,7 @@ import {FakeLibGoalAccount} from './fake-lib-account.ts';
  * and Tired is derived from the live ship on every read, as `flying` does in production. */
 export function derived(who:()=>Pilot,account:{state:any}):()=>Pilot {
   return ()=>{const w=who();
-    return {...w,...moodNow(w.mood??'Cautious',account.state.ship,account.state.player?.credits??0,w.permissions?.credit_reserve??0)};};
+    return {...w,...moodNow(w.mood??'Cautious',account.state.ship)};};
 }
 
 export function journalTrap() {

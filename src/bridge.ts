@@ -195,7 +195,7 @@ const stored=(record:Record<string,unknown>):Pilot=>
 /** The record as the play runtime reads it: the stored fields and the mood the ship is in now. */
 export function flying(record:Pilot,state:ReadinessAccount['state']):Flying {
   const ship=state.ship as {fuel:number;hull:number;max_hull:number}|undefined;
-  return {...record,...moodNow(stanceMood(record.stance),ship,state.player?.credits??0,record.permissions?.credit_reserve??0)};
+  return {...record,...moodNow(stanceMood(record.stance),ship)};
 }
 export interface ServeOptions {
   pilot?:()=>Pilot;
