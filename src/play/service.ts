@@ -176,7 +176,14 @@ export async function resupply(opts:{travel?:boolean}={}):Promise<'cleared'|'bro
   };
   const docked=acct().state.location?.docked_at??undefined;
   if(docked&&await at(docked))return 'cleared';
-  const failed=()=>broke?'broke':'stranded';
+  const failed=():'broke'|'stranded'=>{
+    if(broke)return 'broke';
+    // Its own event, beside the `resupply` lines: the one outcome that leaves the ship stuck.
+    const {ship,location}=acct().state;
+    if(runtime)journalRun(runtime,{tired_by,fuel:ship?.fuel??null,hull:ship?.hull??null,system:location?.system_id??null,
+      poi:location?.poi_id??null,docked_at:location?.docked_at??null},'stranded');
+    return 'stranded';
+  };
   if(opts.travel===false) {
     log({cleared:false,why:'the run is stopping: no flight to another counter'});
     return failed();

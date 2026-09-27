@@ -4,6 +4,7 @@ import {details} from './response-details.ts';
 import {resolveServiceSpend,type Mood} from './mood-policy.ts';
 import {FUEL_CELL,cellReserve} from './mining-inventory.ts';
 import {knownBooks,rememberBook} from './play/market.ts';
+import {quoteNext} from './run-record.ts';
 
 /** `decided` carried the deleted rules engine's Decision; it is typed loose here only
  * so the first-attempt consumers (industry, recovery) keep compiling unchanged.
@@ -107,6 +108,7 @@ async function topUpCells(account:ReadinessAccount,command:ReadinessCommand,opti
     const n=Math.min(want,Number(quote.available??want));
     if(!(n>0))return skip(`${base} has none available`);
     if(!Number.isFinite(cost)||credits-cost<floor)return skip(`${n} cost ${cost}; credits ${credits} would fall under the reserve ${floor}`);
+    quoteNext('spacemolt/buy',FUEL_CELL,{ask,estimate_total:cost,estimate_available:quote.available??null});
     await command('spacemolt/buy',{id:FUEL_CELL,quantity:n});
     await account.refresh();
     const after=cellReserve(account.state);
@@ -194,6 +196,8 @@ async function fill(account:ReadinessAccount,command:ReadinessCommand,options:Se
   let spent=0;
   for(const service of admitted) {
     verify();
+    quoteNext(service.action,undefined,{posted_unit:service.action==='spacemolt/refuel'?unitFuel??null:perHull??null,
+      need:service.need,estimate:service.estimate??null});
     const reply=details(await command(service.action,{}));
     issued.push(service.action);
     await account.refresh();

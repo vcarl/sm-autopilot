@@ -7,6 +7,7 @@ import {disposable,miningInventory} from '../mining-inventory.ts';
 import {markPlace} from './places.ts';
 import {details} from '../response-details.ts';
 import {fileIntel} from '../trade-intel.ts';
+import {quoteNext} from '../run-record.ts';
 import {bench,moduleSpec,room,whyNotFit} from './hangar.ts';
 import {acct,admit,checkStop,command,job,pilot,runtimeDir,step,wanted} from './runtime.ts';
 import {withdraw} from './storage.ts';
@@ -149,7 +150,7 @@ export function sell(items:Want[],opts:{from?:'hold'|'store';floor?:Record<strin
     if('refused' in want)return {status:'refused',did:'sold nothing',why:want.refused,detail:empty()};
     const asked=want.rows;
     if(!asked.length)return {status:'refused',did:'sold nothing',why:'no rows named; pass [{item_id, quantity}]',detail:empty()};
-    const listed=await book();
+    const listed=await book(),read_at=Date.now(),read_tick=marketTick();
     const fills:SellResponse[]=[],short:Sold['short']=[];
     let total=0;
     /** One row out of the hold, bounded by what is aboard; returns what the book took. */
@@ -163,6 +164,8 @@ export function sell(items:Want[],opts:{from?:'hold'|'store';floor?:Record<strin
       if(!quote||!(quote.best_buy>0)){short.push({item_id:row.item_id,requested:row.quantity,sold:0,why:'no buyer'});return 0;}
       if(floor!==undefined&&quote.best_buy<floor){short.push({item_id:row.item_id,requested:row.quantity,sold:0,why:`under floor: best buy ${quote.best_buy} < ${floor}`});return 0;}
       try {
+        quoteNext('spacemolt/sell',row.item_id,{bid:quote.best_buy,ask:quote.best_sell,book_tick:read_tick,
+          age_s:Math.round((Date.now()-read_at)/100)/10});
         const fill=details(await command('spacemolt/sell',{id:row.item_id,quantity})) as SellResponse;
         const took=Number(fill.quantity_sold??quantity);
         fills.push(fill);total+=Number(fill.total_earned??0);
@@ -250,6 +253,7 @@ export function buy(itemId:string,quantity:number,opts:{deliverTo?:'cargo'|'stor
     if(!(estimate.available>0))return {status:'refused',did:`did not buy ${itemId}`,why:`not on this market: ${estimate.message??'0 available'}`,detail:{estimate}};
     if(credits-cost<reserve)return {status:'refused',did:`did not buy ${itemId}`,why:`costs ${cost}; credits ${credits} less reserve ${reserve} leaves ${credits-reserve}`,detail:{estimate}};
     if(opts.maxEach!==undefined&&cost>opts.maxEach*quantity)return {status:'refused',did:`did not buy ${itemId}`,why:`costs ${cost}, over maxEach ${opts.maxEach} × ${quantity}`,detail:{estimate}};
+    quoteNext('spacemolt/buy',itemId,{estimate_quantity:quantity,estimate_total:cost,estimate_available:estimate.available});
     const bought=details(await command('spacemolt/buy',{id:itemId,quantity:Math.min(quantity,estimate.available),
       ...opts.deliverTo?{deliver_to:opts.deliverTo}:{}})) as BuyResponse;
     // The reply's `total_cost` is the subtotal; the tax on it is charged on top, floored.

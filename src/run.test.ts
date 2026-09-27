@@ -5,7 +5,7 @@ import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import type {ReadinessAccount} from './readiness.ts';
 import {check,runPilot} from './run.ts';
-import {closeInterrupted,readJournal,readRun,writeRun} from './run-record.ts';
+import {closeInterrupted,journalCommand,readJournal,readRun,writeRun} from './run-record.ts';
 import {bridgeWorld,type WorldOptions} from './test-support/bridge-world.ts';
 import {flying} from './bridge.ts';
 import {pace} from './play/combat/hunting.ts';
@@ -235,5 +235,29 @@ test('a run a dead bridge left open is closed as interrupted at boot, and nothin
     assert.equal(ended.outcome,'interrupted');
     assert.equal(f.sent.length,0,'nothing was sent to the game');
     assert.equal(closeInterrupted(f.runtime),null,'an ended record is left alone');
+  } finally {f.close();}
+});
+
+test('telemetry: a run stamps its id on its command lines, and journals its states and its calls with costs',async()=>{
+  const f=harness();
+  try {
+    const deps={...f.deps,juncture:{juncture_id:'j1',at:new Date(Date.now()-5000).toISOString()},
+      command:async(action:string,params:Record<string,unknown>)=>{
+        const reply=await f.command(action,params);journalCommand(f.runtime,action,params,true,reply);return reply;}};
+    f.write("import {goTo} from 'play';\nexport default async function main(){ return goTo('belt'); }\n");
+    await runPilot(deps);
+    const journal=readJournal(f.runtime);
+    const started=journal.find(entry=>entry.phase==='started')!,ended=journal.find(entry=>entry.phase==='ended')!;
+    const commands=journal.filter(entry=>entry.event==='command');
+    assert.ok(commands.length&&commands.every(entry=>entry.run_id===started.run_id),JSON.stringify(commands[0]));
+    assert.equal(started.juncture_id,'j1');
+    assert.ok(started.since_juncture_s>=5);
+    for(const state of [started.start_state,ended.end_state])
+      for(const key of ['credits','fuel','max_fuel','hull','max_hull','cargo_used','cargo_capacity','cargo','skills','system','poi','docked_at'])
+        assert.ok(key in state,`${key} in ${JSON.stringify(state)}`);
+    assert.equal(ended.run_id,started.run_id);
+    const call=ended.calls[0];
+    assert.equal(call.fn,'goTo');
+    assert.ok('credits' in call.cost&&'fuel' in call.cost&&'items' in call.gained&&call.started_at&&call.seconds>=0,JSON.stringify(call));
   } finally {f.close();}
 });

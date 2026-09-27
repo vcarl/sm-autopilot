@@ -229,10 +229,10 @@ export function start(runtime:string,name:string):string|null {
     const [tool,verb]=action.split('/');
     try {
       const reply=await account.send(tool!,verb!,params);
-      journalCommand(runtime,`${name}:${action}`,params,true,reply);
+      journalCommand(runtime,`${name}:${action}`,params,true,reply,name);
       return reply;
     } catch(error) {
-      journalCommand(runtime,`${name}:${action}`,params,false,error);
+      journalCommand(runtime,`${name}:${action}`,params,false,error,name);
       throw error;
     }
   };

@@ -87,6 +87,28 @@ optional — a profile with no record is a pilot with no goal and no stance, and
 only by the bridge's `pilot` request, which `spacemolt_reflect` and `spacemolt_direct` send. An
 instruction stands until a run starts after it was given.
 
+### Telemetry
+
+`runtime/gameplay.jsonl` is also the analysis record: raw, joinable facts, no verdicts, never in
+the pilot's context. Every line has `at` (UTC ISO, `Z`) and `event`.
+
+- `gate`: `gate_id` (the gate runs in its own process, before any juncture exists).
+- `juncture`: `juncture_id`, `gate_id`/`gate_at` of the latest gate, `job_id` (parsed from cron's
+  `cron_<job_id>_<ts>` session id) and `session_id`, `model`, `provider`, `code_sha` (git HEAD),
+  `sources` (the TypeScript fingerprint), `skills_sha`, `context_sha`, `build_s`. The id is kept in
+  `runtime/juncture.json`; `spacemolt_run` sends it as the run request's `juncture` param.
+- `run` `started`: `run_id`, `juncture_id`, `since_juncture_s`, `code_sha`, `sources`, `start_state`
+  (credits, fuel, hull, cargo, skills, place, active missions — account memory only, no storage).
+- `run` `ended`: `end_state`, `calls` (each top-level call's `cost`, `gained`, `started_at`,
+  `seconds`; first 40, `calls_total`).
+- Every line written while a run is bound carries its `run_id`; a freighter's lines carry
+  `freighter` instead. Python-written lines (`gate`, `juncture`, `reflection`) never carry `run_id`.
+- `trade` (buy/sell/refuel/repair: `unit_price`, `fills`, and `quote` — the book or posted price the
+  caller held), `mission` (accepted/completed/abandoned), `stranded`, `death`, and `pilot` with `prev`.
+
+Joins: `juncture_id` juncture → run; `run_id` run → everything in it; `job_id` + `at` juncture →
+Hermes' `cron/usage_audit.jsonl` (tokens, LLM time, model).
+
 ## Tests
 
 | | |

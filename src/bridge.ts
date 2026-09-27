@@ -160,6 +160,8 @@ export function pushJournal(account:{on:(type:string,handler:(payload:Record<str
     // refusal stands until one of them arrives (or a confirmed `disengage` clears it), so a
     // battle that ends between junctures does not leave the ship refusing to move.
     if(type==='battle_ended'||type==='player_died')battleEnded();
+    // Its own event, ahead of the rate cap: a death is the one push an analysis cannot lose.
+    if(type==='player_died')journalRun(runtime,pushScalars(body),'death');
     // The combat fold, before the rate cap and before the journal: losing shots to a 20-a-minute
     // ceiling would bias measured accuracy silently, which is worse than not measuring it.
     if(type==='battle_update')foldBattleUpdate(body);
@@ -260,7 +262,7 @@ export function serve(account:ReadinessAccount,command:ReadinessCommand,options:
    * or early with the question when the program asks one. Called again while the program is
    * paused, it starts nothing and hands the question back: that is how a later session picks
    * up a question the one that started the run left unanswered. */
-  const run=async(_params:Record<string,unknown>,attach?:()=>void)=>{
+  const run=async(params:Record<string,unknown>,attach?:()=>void)=>{
     if(!runtime)throw new Error('This runner has no runtime directory to run a pilot from');
     if(running) {
       const now=paused();
@@ -273,7 +275,8 @@ export function serve(account:ReadinessAccount,command:ReadinessCommand,options:
     flight=(async()=>{
       try {
         const result=await runner({account,command,pilot,runtime,
-          emit:options.emit??(()=>{}),onAsk:()=>asked?.()});
+          emit:options.emit??(()=>{}),onAsk:()=>asked?.(),
+          ...params.juncture&&typeof params.juncture==='object'?{juncture:params.juncture as {juncture_id?:string;at?:string}}:{}});
         if(!result.accepted)return result as unknown as Record<string,unknown>;
         last=brief(result);
         if(result.abandoned)options.onAbandoned?.();
@@ -352,11 +355,13 @@ export function serve(account:ReadinessAccount,command:ReadinessCommand,options:
     const write=options.setPilot;
     if(!write)throw new Error('this runner cannot write the pilot record');
     const set=(params.set??{}) as Record<string,unknown>;
-    const next:Record<string,unknown>={...record()};
+    const prev:Record<string,unknown>={...record()};
+    const next:Record<string,unknown>={...prev};
     for(const [key,value] of Object.entries(set))if(value===null)delete next[key];else next[key]=value;
     write(next as Pilot);
     const written=record();
-    if(runtime)journalRun(runtime,{set:Object.keys(set),record:written},'pilot');
+    if(runtime)journalRun(runtime,{set:Object.keys(set),
+      prev:Object.fromEntries(Object.keys(set).map(key=>[key,prev[key]??null])),record:written},'pilot');
     return {record:written};
   };
 

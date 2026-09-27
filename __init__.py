@@ -27,6 +27,7 @@ from .juncture import (
     ensure_juncture_job,
     journal_event,
     juncture_context,
+    last_juncture,
     question_text,
     read_pilot,
     use_dispatch,
@@ -120,7 +121,8 @@ def _run(arguments: dict[str, Any] | None = None, **_: Any) -> str:
         _write_pilot_file(str(args["source"]))
     lines: list[str] = []
     try:
-        result = call("run", {}, on_line=lines.append)
+        juncture = last_juncture()
+        result = call("run", {"juncture": juncture} if juncture else {}, on_line=lines.append)
     except Exception as error:  # noqa: BLE001 - any bridge failure becomes the tool's refusal, not a crash
         return json.dumps({"accepted": False, "reason": str(error)}, separators=(",", ":"))
     if not result.get("accepted"):

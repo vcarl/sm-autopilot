@@ -437,3 +437,23 @@ def test_a_failed_job_write_on_load_is_written_down(monkeypatch):
     events = [json.loads(line) for line in
               (service.runtime_dir() / juncture.JOURNAL_FILE).read_text().splitlines()]
     assert events[-1]["event"] == "wake_failed" and "Unknown tool" in events[-1]["error"]
+
+
+def test_the_juncture_journals_its_join_keys_and_its_id_reaches_the_run_request(monkeypatch):
+    """Telemetry: the juncture line carries the ids a later analysis joins on — its own, the gate
+    before it, cron's job — and the run the fire starts is asked for under the same juncture id."""
+    _seed({"name": "kvothe", "stance": "Trader"})
+    juncture.gate_main()
+    monkeypatch.setattr(service, "call", lambda action, params=None: copy.deepcopy(_menu(12)))
+    juncture.juncture_context({"platform": "cron", "session_id": "cron_abc123_20260927_101500",
+                               "model": "claude-test"})
+    gate, = _journal_rows("gate")
+    row, = _journal_rows("juncture")
+    assert re.fullmatch(r"[0-9a-f]{32}", row["juncture_id"])
+    assert row["gate_id"] == gate["gate_id"] and row["job_id"] == "abc123" and row["model"] == "claude-test"
+    assert row["at"].endswith("Z") and row["build_s"] >= 0 and row["skills_sha"] and row["context_sha"]
+    sent: list[tuple[str, dict]] = []
+    monkeypatch.setattr(spacemolt, "call",
+                        lambda action, params=None, on_line=None: sent.append((action, params)) or {"accepted": True})
+    spacemolt._run({})
+    assert sent == [("run", {"juncture": {"juncture_id": row["juncture_id"], "at": row["at"]}})]

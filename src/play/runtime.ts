@@ -12,7 +12,7 @@
 import type {Account,SkillProgress,V2CargoItem,V2Location,V2Ship} from '@spacemolt/lib';
 import type {ReadinessAccount,ReadinessCommand} from '../readiness.ts';
 import {FUEL_CELL} from '../mining-inventory.ts';
-import {journalRun,readRun,writeRun} from '../run-record.ts';
+import {journalRun,readRun,stampRun,writeRun} from '../run-record.ts';
 import {TravelBlocked} from '../travel.ts';
 import {resupply} from './service.ts';
 import type {Outcome,Present,Row,Status,Want} from './types.ts';
@@ -47,6 +47,8 @@ export interface Binding {
   emit:(text:string)=>void;
   /** Told when the program pauses on `ask()`, so the request waiting on the run can answer. */
   onAsk?:(question:Question)=>void;
+  /** A run's id, stamped on every journal line while it is bound. Absent for the menu's reads. */
+  run_id?:string;
 }
 
 let bound:Binding|null=null;
@@ -65,7 +67,9 @@ export interface Call {fn:string;arg:string;status:Status;did:string;
   /** The Outcome's own `why`, so the report of a call that did not end `done` carries the
    * reason (the suggested ids of a refused destination) and not only the `did`. */
   why?:string;
-  credits:number;items:number;xp:number;cost:Outcome['cost']}
+  credits:number;items:number;xp:number;cost:Outcome['cost'];
+  /** Telemetry, journalled on run/ended: the whole of what the call gained, and when it ran. */
+  gained?:Outcome['gained'];started_at?:string;seconds?:number}
 let calls:Call[]=[];
 export const runCalls=()=>calls;
 
@@ -89,12 +93,13 @@ export function bind(binding:Binding):void {
   bound=binding;stopFlag=false;commands=0;asking=null;depth=0;started=Date.now();last={fn:'pilot'};calls=[];
   lastCommandAt=0;pending=null;lastTick=undefined;burning=false;burnFailed=false;broke=false;
   mark=snapshot();
+  stampRun(binding.run_id?{run_id:binding.run_id}:null);
   lastMood=binding.pilot().mood;
   // A lib Account pushes state between commands (a tick, a fight); the fake in tests does not.
   const live=binding.account as unknown as {onStateChange?:(fn:()=>void)=>()=>void};
   unwatch=typeof live.onStateChange==='function'?live.onStateChange(()=>{try {watchMood();} catch {/* a push is not the place to fail */}}):undefined;
 }
-export function unbind():void {unwatch?.();unwatch=undefined;asking=null;bound=null;}
+export function unbind():void {unwatch?.();unwatch=undefined;asking=null;bound=null;stampRun(null);}
 export const isBound=()=>bound!==null;
 
 /** The pilot record as it is right now. Cheap; call it, do not cache it. */
@@ -326,6 +331,22 @@ function skillMap(skills:unknown):Record<string,SkillProgress> {
   return raw&&typeof raw==='object'&&!Array.isArray(raw)?raw as Record<string,SkillProgress>:{};
 }
 
+/** The ship, wallet, hold, place, skills and active missions as the account already holds them:
+ * the run's `start_state`/`end_state`. Reads memory only. Storage is not in account state, so it
+ * is not here — it would cost a `storage/view` per run.
+ * ponytail: cargo and missions capped at 40 rows, as the storage and market reads are. */
+export function stateSnapshot():Record<string,unknown> {
+  const state=need().account.state,{ship,location}=state;
+  const missions=(state as {missions?:{active?:any[]}}).missions?.active;
+  return {credits:state.player?.credits??null,fuel:ship?.fuel??null,max_fuel:ship?.max_fuel??null,
+    hull:ship?.hull??null,max_hull:ship?.max_hull??null,cargo_used:ship?.cargo_used??null,cargo_capacity:ship?.cargo_capacity??null,
+    cargo:(state.cargo??[]).slice(0,40).map(row=>({item_id:row.item_id,quantity:row.quantity})),
+    skills:Object.fromEntries(Object.entries(skillMap(state.skills)).map(([id,row])=>[id,{level:row.level,xp:row.xp}])),
+    system:location?.system_id??null,poi:location?.poi_id??null,docked_at:location?.docked_at??null,
+    ...Array.isArray(missions)?{missions:missions.slice(0,40).map(m=>({mission_id:m.mission_id,title:m.title,type:m.type,
+      percent_complete:m.percent_complete,rewards:m.rewards}))}:{}};
+}
+
 export function present():Present {
   const state=need().account.state,who=pilot();
   return {ship:state.ship as V2Ship,location:state.location as V2Location,cargo:(state.cargo??[]) as V2CargoItem[],
@@ -381,7 +402,8 @@ export async function job<Detail>(fn:string,args:string,body:()=>Promise<Said<De
   if(outer.fn==='pilot')calls.push({fn,arg:args.split(' ')[0]??'',status:built.status,did:built.did,
     ...built.why===undefined?{}:{why:built.why},
     credits:built.gained.credits,cost:built.cost,
-    items:built.gained.items.reduce((n,row)=>n+row.quantity,0),xp:Object.values(built.gained.xp).reduce((n,x)=>n+x,0)});
+    items:built.gained.items.reduce((n,row)=>n+row.quantity,0),xp:Object.values(built.gained.xp).reduce((n,x)=>n+x,0),
+    gained:built.gained,started_at:new Date(before.at).toISOString(),seconds:Math.round((Date.now()-before.at)/100)/10});
   last=outer;jobMark=outerMark;depth--;
   return built;
 }

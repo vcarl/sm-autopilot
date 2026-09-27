@@ -119,6 +119,7 @@ class Bridge:
         #: The sources this process booted on, so "is the bridge running the latest code?" is
         #: answered by reading rather than by dating a pid against a reflog.
         self.sources = source_fingerprint()
+        env["SPACEMOLT_SOURCES"] = self.sources  # stamped on run/started (telemetry)
         self.deferred = ""
         self.inbox: queue.Queue = queue.Queue()
         #: One queue per request in flight, keyed by id: a `run` blocks for minutes while

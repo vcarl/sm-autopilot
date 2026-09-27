@@ -14,6 +14,10 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
+import subprocess
+import time
+import uuid
 from collections.abc import Mapping
 from datetime import datetime, timezone
 from pathlib import Path
@@ -134,18 +138,73 @@ def juncture_context(session_info: Mapping[str, Any] | None = None) -> str:
     """
     if (session_info or {}).get("platform") != JUNCTURE_PLATFORM:
         return ""
-    from .service import call
+    from .service import call, source_fingerprint
 
+    began = time.monotonic()
     menu = call("menu")
     record = read_pilot()
     context = _busy(menu) if menu.get("busy") else _situation(menu, _pending_instruction(record))
     skills = job_fields(record, gate=False)["skills"]
-    sizes = {name: path.stat().st_size for name, path in readme_skills(Path(__file__).parent).items()}
-    journal_event("juncture", stance=record.get("stance"),
+    readmes = readme_skills(Path(__file__).parent)
+    sizes = {name: path.stat().st_size for name, path in readmes.items()}
+    carried = hashlib.sha256()
+    for name in skills:
+        if (path := readmes.get(name.split(":", 1)[-1])) is not None:
+            carried.update(path.read_bytes())
+    info = session_info or {}
+    session_id = str(info.get("session_id") or "")
+    # Cron names a fire's session ``cron_<job_id>_<YYYYmmdd_HHMMSS>``: the join to
+    # cron/usage_audit.jsonl (job_id + ts), which is where the fire's tokens and LLM time live.
+    job = re.fullmatch(r"cron_(.+)_\d{8}_\d{6}", session_id)
+    gate = next(reversed(_journal_tail(("gate",))), {})
+    juncture_id = uuid.uuid4().hex
+    at = _now_iso()
+    _write_juncture({"juncture_id": juncture_id, "at": at})
+    journal_event("juncture", at=at, juncture_id=juncture_id, gate_id=gate.get("gate_id"), gate_at=gate.get("at"),
+                  job_id=job.group(1) if job else None, session_id=session_id or None,
+                  model=info.get("model") or None, provider=info.get("provider") or None,
+                  code_sha=code_sha(), sources=source_fingerprint(), skills_sha=carried.hexdigest()[:12],
+                  build_s=round(time.monotonic() - began, 3), stance=record.get("stance"),
                   skills=[{"name": name, "bytes": sizes.get(name.split(":", 1)[-1])} for name in skills],
                   busy=bool(menu.get("busy")), context_chars=len(context),
                   context_sha=hashlib.sha256(context.encode()).hexdigest()[:12], context=context)
     return context
+
+
+#: The last juncture rendered, for the ``spacemolt_run`` handler to stamp on its run request.
+JUNCTURE_FILE = "juncture.json"
+
+
+def _write_juncture(record: dict[str, Any]) -> None:
+    path = runtime_dir() / JUNCTURE_FILE
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temp = path.with_suffix(".tmp")
+    temp.write_text(json.dumps(record))
+    temp.replace(path)
+
+
+def last_juncture() -> dict[str, Any] | None:
+    """The juncture record the latest render left, or None. A run started outside a fire (a
+    chat window, ``play.py``) still carries the last one; ``since_juncture_s`` says how stale."""
+    try:
+        record = json.loads((runtime_dir() / JUNCTURE_FILE).read_text())
+    except (OSError, ValueError):
+        return None
+    return record if isinstance(record, dict) and record.get("juncture_id") else None
+
+
+def code_sha() -> str | None:
+    """The plugin checkout's HEAD, or None outside one. A subprocess per juncture, not per request."""
+    try:
+        done = subprocess.run(["git", "rev-parse", "HEAD"], cwd=Path(__file__).resolve().parent,
+                              capture_output=True, text=True, timeout=5, check=True)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return done.stdout.strip() or None
+
+
+def _now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
 def _pending_instruction(record: dict[str, Any]) -> dict[str, Any] | None:
@@ -364,8 +423,7 @@ def journal_event(event: str, **fields: Any) -> None:
     decision, a juncture rendered, a reflection, an instruction carried in (S45)."""
     path = runtime_dir() / JOURNAL_FILE
     path.parent.mkdir(parents=True, exist_ok=True)
-    entry = {"at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
-             "event": event, **fields}
+    entry = {"at": _now_iso(), "event": event, **fields}
     with path.open("a", encoding="utf-8") as journal:
         journal.write(json.dumps(entry, separators=(",", ":")) + "\n")
 
@@ -440,7 +498,9 @@ def gate_main() -> int:
     flying = run_in_flight() and not question
     try:
         endings = _run_endings()
-        journal_event("gate", wake=not flying,
+        # Its own id: the gate runs in its own process before the juncture exists. The juncture
+        # line names the latest gate's id, which is the link between the two.
+        journal_event("gate", gate_id=uuid.uuid4().hex, wake=not flying,
                       reason=("a run is paused on a question" if question
                               else "a run is in flight (run.json not ended)" if flying
                               else "no run in flight"),

@@ -10,8 +10,8 @@
  * own request timeout, so the bridge ends its run itself and the kill in `service.py` is only a
  * backstop.
  */
-import {execFile} from 'node:child_process';
-import {createHash} from 'node:crypto';
+import {execFile,execFileSync} from 'node:child_process';
+import {createHash,randomUUID} from 'node:crypto';
 import {copyFileSync,existsSync,mkdirSync,readFileSync,statSync,symlinkSync,writeFileSync} from 'node:fs';
 import {dirname,join,resolve} from 'node:path';
 import {fileURLToPath,pathToFileURL} from 'node:url';
@@ -21,7 +21,7 @@ import {prose} from './play/prose.ts';
 import {runSummary} from './play/menu.ts';
 import {disengage} from './play/combat/hunting.ts';
 import {battleNow} from './travel.ts';
-import {bind,command,line,outcome as build,progress,runCalls,stop,stopped,Stopped,unbind,type Binding} from './play/runtime.ts';
+import {bind,command,line,outcome as build,progress,runCalls,stateSnapshot,stop,stopped,Stopped,unbind,type Binding} from './play/runtime.ts';
 import {resupply} from './play/service.ts';
 import type {Outcome} from './play/types.ts';
 import {journalRun,writeRun,type RunRecord} from './run-record.ts';
@@ -29,6 +29,9 @@ import {journalRun,writeRun,type RunRecord} from './run-record.ts';
 const PLUGIN=fileURLToPath(new URL('..',import.meta.url));
 const PLAY=join(PLUGIN,'src','play');
 const EXAMPLE=join(PLAY,'pilot','index.ts.example');
+/** The plugin's git HEAD as this bridge loaded it: with the TypeScript fingerprint `service.py`
+ * booted it on (`SPACEMOLT_SOURCES`), the code a run's lines were written by. Null outside a checkout. */
+const CODE_SHA=(()=>{try {return execFileSync('git',['rev-parse','HEAD'],{cwd:PLUGIN,encoding:'utf8',stdio:['ignore','pipe','ignore']}).trim();} catch {return null;}})();
 
 /** 24 minutes, then the stop flag; 2 more for the script to honour it. Both inside the 30 of
  * `service.REQUEST_TIMEOUT`, leaving room for the battle check and the record after. */
@@ -118,6 +121,8 @@ export interface RunDeps extends Omit<Binding,'runtime'> {
   /** The wall-clock cap and the grace after it; tests shorten them. */
   capMs?:number;
   graceMs?:number;
+  /** The juncture that asked for this run (`runtime/juncture.json` as the Python handler read it). */
+  juncture?:{juncture_id?:string;at?:string};
 }
 /** What a run answers with: the sentence, the reason and the rendered report — never the
  * Outcome itself, which is kilobytes of ship, location and skills. That stays in `run.json`
@@ -177,19 +182,22 @@ const message=(error:unknown)=>error instanceof Error?error.message:String(error
  * writes the record and unbinds the runtime. */
 export async function runPilot(deps:RunDeps):Promise<RunResult> {
   const {runtime}=deps;
-  const started=new Date().toISOString();
+  const started=new Date().toISOString(),run_id=randomUUID();
+  const juncture=deps.juncture?.juncture_id?{juncture_id:deps.juncture.juncture_id,
+    since_juncture_s:deps.juncture.at?Math.round((Date.parse(started)-Date.parse(deps.juncture.at))/100)/10:null}:{juncture_id:null};
   const gate=await check(runtime);
   keepProgram(runtime,gate.entry,gate.sha);
   if(!gate.ok) {
-    journalRun(runtime,{phase:'refused',script:'index.ts',sha:gate.sha,started,errors:gate.errors.slice(0,5)});
+    journalRun(runtime,{phase:'refused',script:'index.ts',sha:gate.sha,started,run_id,...juncture,errors:gate.errors.slice(0,5)});
     return {accepted:false,reason:`pilot/index.ts is not admissible`,errors:gate.errors,started};
   }
   const record:RunRecord={script:'index.ts',source:gate.sha,started,ended:false};
   const save=()=>writeRun(runtime,record);
   save();
   const who=deps.pilot();
-  journalRun(runtime,{phase:'started',script:'index.ts',sha:gate.sha,started,stance:who.stance??null,mood:who.mood??null});
-  bind({...deps});
+  bind({...deps,run_id});
+  journalRun(runtime,{phase:'started',script:'index.ts',sha:gate.sha,started,stance:who.stance??null,mood:who.mood??null,
+    ...juncture,code_sha:CODE_SHA,sources:process.env.SPACEMOLT_SOURCES??null,start_state:stateSnapshot()});
   line(`run started ${started}  index.ts sha ${gate.sha}  mood ${who.mood??'-'}  stance ${who.stance??'none'}`);
   const cap=deps.capMs??RUN_CAP_MS,grace=deps.graceMs??RUN_GRACE_MS;
   const timers:ReturnType<typeof setTimeout>[]=[];
@@ -248,7 +256,9 @@ export async function runPilot(deps:RunDeps):Promise<RunResult> {
   const {commands}=progress();
   const work=runSummary(result.status);
   journalRun(runtime,{phase:'ended',script:'index.ts',sha:gate.sha,started,outcome:result.status,reason:result.did,
-    ...result.why?{why:result.why}:{},commands,...work?{work}:{},...abandoned?{abandoned:true}:{}});
+    ...result.why?{why:result.why}:{},commands,...work?{work}:{},...abandoned?{abandoned:true}:{},
+    // ponytail: the first 40 top-level calls; `calls_total` says how many there were.
+    end_state:stateSnapshot(),calls:runCalls().slice(0,40),calls_total:runCalls().length});
   line(`run ended  ${result.status}  ${commands} commands`);
   unbind();
   record.ended=true;
