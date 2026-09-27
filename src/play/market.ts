@@ -232,7 +232,7 @@ export interface Bought {
 export function buy(itemId:string,quantity:number,opts:{deliverTo?:'cargo'|'storage';maxEach?:number;force?:boolean}={}):Promise<Outcome<Bought>> {
   return job<Bought>('buy',`${quantity} ${itemId}`,async()=>{
     const none={estimate:{} as EstimatePurchaseResponse};
-    const stop=admit('buy');
+    const stop=await admit('buy');
     if(stop)return {status:'refused',did:`did not buy ${itemId}`,why:stop,detail:none};
     if(!acct().state.location?.docked_at)return {status:'refused',did:`did not buy ${itemId}`,why:'not docked',detail:none};
     // A module that cannot be fitted is a dead 2,080 cr: the grid is checked before the buy.

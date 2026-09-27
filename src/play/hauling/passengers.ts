@@ -54,7 +54,7 @@ export function carryPassengers(destination?:string):Promise<Outcome<Carried>> {
 
     result.aboard=(await readAboard()).passengers??[];
     // Tired may not start work, but it may finish a trip someone is already aboard for.
-    const blocked=admit('carryPassengers');
+    const blocked=await admit('carryPassengers');
     const carrying=destination?result.aboard.filter(row=>row.destination===destination):[];
     if(blocked&&!carrying.length)return {status:'refused',did:'carried nobody',why:blocked,detail:result};
 

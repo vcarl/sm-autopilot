@@ -436,7 +436,7 @@ export function tradeRun(opts:{stops:RunStop[]}):Promise<Outcome<Traded>> {
     let elsewhere:Book[]=[];
     const detail=():Traded=>({stops,unsold:unsoldWhy(Object.entries(miningInventory(acct().state)).filter(([,quantity])=>quantity>0)
       .map(([item_id,quantity])=>({item_id,quantity})),elsewhere),fuel,net:Math.round(earned-spent-fuel*(fuelPrice??0))});
-    const blocked=admit('tradeRun');
+    const blocked=await admit('tradeRun');
     if(blocked)return {status:'refused',did:'ran no trade',why:blocked,detail:detail()};
     if(!route.length)return {status:'refused',did:'ran no trade',why:'no stops: pass {stops:[{at, buy?}, …]}',detail:detail()};
     const said=()=>stops.map(visit=>`${visit.at}: ${[...visit.sold.map(fill=>`sold ${fill.quantity_sold} ${fill.item_id}`),

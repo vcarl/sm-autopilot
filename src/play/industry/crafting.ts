@@ -226,7 +226,7 @@ export function craft(recipeId:string,quantity=1,opts:{preset?:'fast'|'cheap'|'p
   return job<Crafted>('craft',`${quantity} × ${recipeId}${opts.preset?` ${opts.preset}`:''}`,async()=>{
     const none={job:{} as CraftJobResponse,made:[]};
     const refuse=(why:string,next:string[]=[])=>({status:'refused' as const,did:`crafted no ${recipeId}`,why,detail:none,next});
-    const blocked=admit('craft');
+    const blocked=await admit('craft');
     if(blocked)return refuse(blocked);
     if(!Number.isInteger(quantity)||quantity<1)
       return refuse('quantity must be a whole number of output units, at least one');

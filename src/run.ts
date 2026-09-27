@@ -21,7 +21,8 @@ import {prose} from './play/prose.ts';
 import {runSummary} from './play/menu.ts';
 import {disengage} from './play/combat/hunting.ts';
 import {battleNow} from './travel.ts';
-import {bind,command,line,outcome as build,progress,runCalls,stop,Stopped,unbind,type Binding} from './play/runtime.ts';
+import {bind,command,line,outcome as build,progress,runCalls,stop,stopped,Stopped,unbind,type Binding} from './play/runtime.ts';
+import {resupply} from './play/service.ts';
 import type {Outcome} from './play/types.ts';
 import {journalRun,writeRun,type RunRecord} from './run-record.ts';
 
@@ -229,6 +230,18 @@ export async function runPilot(deps:RunDeps):Promise<RunResult> {
       :`the run ended mid-fight against ${held.opponent} and could not break off; the battle is still live`;
     line(why);
     result={...result,...held.ended?{}:{status:'partial'},why:result.why?`${why}; ${result.why}`:why};
+  }
+  // Tired is the guarantee the ship gets resupplied, whatever the script did: one that ended Tired
+  // (it broke, forgot, or made no work call the runtime could resupply at) is brought up here,
+  // docked or not. Never while an abandoned script may still be sending, nor with a battle live.
+  // A stopped run only services where it stands; otherwise the flight is stopped at the cap plus
+  // its grace, so the run still ends inside the transport's timeout.
+  if(!abandoned&&!(held&&!held.ended)&&deps.pilot().mood==='Tired') {
+    const timer=setTimeout(stop,Math.max(0,Date.parse(started)+cap+grace-Date.now()));
+    timer.unref?.();
+    try {await resupply({travel:!stopped()});}
+    catch(error){line(`the resupply at the run's end broke: ${message(error)}`);}
+    finally {clearTimeout(timer);}
   }
   const text=prose(result,runCalls());
   for(const said of text.split('\n'))line(said);

@@ -25,7 +25,9 @@ export interface ServiceOptions {
 /** The fuel-cell top-up that follows a fill: cells aboard against the reserve, what was bought
  * for what, and `skipped` saying why nothing was when the reserve was due. */
 export interface CellTopUp {held:number;target:number;bought:number;spent:number;skipped?:string}
-export interface ServiceOutcome {satisfied:true;issued:string[];spent:number;fuel:number;hull:number;cells?:CellTopUp}
+export interface ServiceOutcome {satisfied:true;issued:string[];spent:number;fuel:number;hull:number;cells?:CellTopUp;
+  /** Present when the wallet (or the margin) covered only part of the bill: what was not bought, and why. */
+  short?:string[]}
 
 /** Carries the units still missing, so a caller can never mistake it for readiness. */
 export class ServiceBlocked extends Error {
@@ -43,8 +45,12 @@ const shortfall=(name:string,have:number,need:number,unit:string)=>
 /** Servicing is script-owned: the mood resolves the spend margin and D3 resolves the
  * targets. The margin meters the repair only: fuel is resupply, and a mood never strands a ship,
  * so a refuel is bounded by the wallet and `creditReserve` alone. A serviced dock restores the full tank and full hull; the mood's retreat
- * fraction is the away-from-dock line, not a service target. A partial fill is never
- * success — the post-state is read authoritatively and decides.
+ * fraction is the away-from-dock line, not a service target. The post-state is read
+ * authoritatively and decides.
+ *
+ * Where the bill does not fit whole, it buys what fits: the refuel first (resupply), then the
+ * repair if what is left above the reserve still covers it. What was not bought comes back in
+ * `short`; only a counter where nothing fits throws `ServiceBlocked`.
  *
  * A docked counter bills on credits and reports the charge afterwards, so a posted price is an
  * estimate and never a precondition: `fuel_price_all_in` and `repair_price_per_hull` are
@@ -163,20 +169,30 @@ async function fill(account:ReadinessAccount,command:ReadinessCommand,options:Se
       reached:()=>ship().hull>=ship().max_hull},
   ].filter(service=>service.need>0);
   const blockers:string[]=[];
-  const estimated=services.reduce((sum,service)=>sum+(service.estimate??0),0);
-  const repair=services.find(service=>service.action==='spacemolt/repair')?.estimate??0;
   const opening=account.state.player!.credits;
-  if(repair>margin)blockers.push(`quoted ${repair} credits of repair exceeds the ${options.mood} service spend margin ${margin}`);
-  // An unpriced service needs room above the reserve to spend at all; a priced one may fit exactly.
-  const spendable=opening-estimated-reserve;
-  if(spendable<0||(!estimated&&!spendable))blockers.push(estimated
-    ?`credits ${opening} less reserve ${reserve} cannot cover the quoted ${estimated} credits`
-    :`credits ${opening} leave nothing above the reserve ${reserve}, and this counter posts no price to quote against`);
-  if(blockers.length)throw new ServiceBlocked([...blockers,...gaps()]);
+  let budget=opening-reserve;
+  // In order, fuel first: each service is bought if what is left above the reserve covers it.
+  const admitted=services.filter(service=>{
+    const {estimate}=service,name=service.action.split('/')[1];
+    if(service.action==='spacemolt/repair'&&(estimate??0)>margin) {
+      blockers.push(`quoted ${estimate} credits of repair exceeds the ${options.mood} service spend margin ${margin}`);
+      return false;
+    }
+    // An unpriced service needs room above the reserve to spend at all; a priced one may fit exactly.
+    if(estimate===undefined?budget<=0:budget<estimate) {
+      blockers.push(estimate===undefined
+        ?`credits ${opening} leave nothing above the reserve ${reserve}, and this counter posts no ${name} price to quote against`
+        :`credits ${opening} less reserve ${reserve} cannot cover the quoted ${estimate} credits of ${name}`);
+      return false;
+    }
+    budget-=estimate??0;
+    return true;
+  });
+  if(!admitted.length)throw new ServiceBlocked([...blockers,...gaps()]);
 
   const issued:string[]=[];
   let spent=0;
-  for(const service of services) {
+  for(const service of admitted) {
     verify();
     const reply=details(await command(service.action,{}));
     issued.push(service.action);
@@ -200,6 +216,7 @@ async function fill(account:ReadinessAccount,command:ReadinessCommand,options:Se
   await account.refresh();
   verify();
   const remaining=gaps();
+  if(blockers.length)return {...satisfied(issued,spent),short:[...blockers,...remaining]};
   if(remaining.length)throw new ServiceBlocked(['servicing did not hold the serviced-dock targets',...remaining]);
   return satisfied(issued,spent);
 }

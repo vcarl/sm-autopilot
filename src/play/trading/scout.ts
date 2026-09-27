@@ -105,7 +105,7 @@ export function scoutMarkets(opts:{jumps?:number;max?:number}={}):Promise<Outcom
   const jumps=opts.jumps??SCOUT_JUMPS,max=opts.max??3;
   return job<Scouted>('scoutMarkets',`${max} within ${jumps} jumps`,async()=>{
     const detail:Scouted={filed:[],explored:[],left:0},short:string[]=[],tried=new Set<string>();
-    const blocked=admit('scoutMarkets');
+    const blocked=await admit('scoutMarkets');
     if(blocked)return {status:'refused',did:'scouted nothing',why:blocked,detail};
     if(!acct().state.location?.docked_at)return {status:'refused',did:'scouted nothing',why:'not docked; book ages are read against a counter\'s tick',detail,
       next:['goTo a base, then scoutMarkets()']};

@@ -250,7 +250,7 @@ export function buyShip(id:string,opts:{commission?:boolean;switchTo?:boolean}={
     const previous={ship_id:flying().id??'',base_id:acct().state.location?.docked_at??''};
     const nothing=():Purchase=>({ship:flying(),price:0,switched:false,previous});
     const no=(why:string)=>({status:'refused' as const,did:`did not buy ${id}`,why,detail:nothing()});
-    const blocked=admit('buyShip');
+    const blocked=await admit('buyShip');
     if(blocked)return no(blocked);
     if(!previous.base_id)return no('not docked; a hull changes hands at a station');
 

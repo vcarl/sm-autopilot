@@ -146,7 +146,7 @@ export function missions():Promise<Outcome<{board:Offer[];active:Active[];max:nu
 export function acceptMission(id:string):Promise<Outcome<AcceptMissionResponse>> {
   return job<AcceptMissionResponse>('acceptMission',id,async()=>{
     const none={} as AcceptMissionResponse;
-    const stop=admit('acceptMission');
+    const stop=await admit('acceptMission');
     if(stop)return {status:'refused',did:`did not accept ${id}`,why:stop,detail:none};
     if(!acct().state.location?.docked_at)return {status:'refused',did:`did not accept ${id}`,why:'not docked',detail:none};
     const mine=await active();
