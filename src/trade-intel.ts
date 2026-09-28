@@ -8,9 +8,20 @@ import type {ReadinessCommand} from './readiness.ts';
 const filed=new WeakMap<object,Map<string,number>>();
 /** Accounts already told once why a filing failed. */
 const told=new WeakSet<object>();
-/** Accounts the game has said are in no faction: there is no ledger to file to, so nothing is sent
- * again for the bridge's life (live 2026-09-28: 152 refusals, one per base per tick). */
-const factionless=new WeakSet<object>();
+let saidNoFaction=false;
+
+/** Whether the account's player is in a faction, read off the state the account already holds.
+ * Every faction intel call — filing a book, reading the trade ledger, reading the intel map — is
+ * made only when this holds: without a faction the game refuses each one (live 2026-09-28: 152
+ * refused filings in nine hours). `say` hears once per process that they are skipped. */
+export function inFaction(account:object,say?:(text:string)=>void):boolean {
+  if((account as {state?:{player?:{faction_id?:string}|null}}).state?.player?.faction_id)return true;
+  if(say&&!saidNoFaction) {
+    saidNoFaction=true;
+    say('no faction: faction intel (trade ledger, intel map) is neither filed nor read');
+  }
+  return false;
+}
 
 /** ponytail: the rows of one station report, as JSON, are kept under this many bytes. Live, a
  * 542-row book (~55 KB) filed and a 716-row one (~73 KB) dropped the connection every time, and a
@@ -34,7 +45,7 @@ export function fileRows(items:readonly MarketListingItem[]) {
  * process why one failed. */
 export async function fileIntel(account:object,command:ReadinessCommand,base_id:string,items:readonly MarketListingItem[],
   tick:number,say:(text:string)=>void=()=>{}):Promise<void> {
-  if(!base_id||factionless.has(account))return;
+  if(!base_id||!inFaction(account,say))return;
   const seen=filed.get(account)??new Map<string,number>();
   filed.set(account,seen);
   if(seen.get(base_id)===tick)return;
@@ -43,7 +54,6 @@ export async function fileIntel(account:object,command:ReadinessCommand,base_id:
   if(!rows.length)return;
   try {await command('spacemolt_intel/submit_trade_intel',{stations:[{base_id,items:rows}]});}
   catch(error) {
-    if(/not_in_faction/.test(error instanceof Error?error.message:String(error)))factionless.add(account);
     if(told.has(account))return;
     told.add(account);
     say(`trade intel not filed at ${base_id}: ${error instanceof Error?error.message:String(error)}`);

@@ -58,9 +58,8 @@ test('a lap sells only the listed items at their floors, buys within the cap, an
   assert.equal(deposits[0]!.credits,deposits[0]!.wallet-f.float);
   assert.ok(world.account.server.player.credits<=f.float);
   assert.equal(reports.filter(r=>r.lapped!==undefined).length,1);
-  assert.equal(world.count('spacemolt_intel/submit_trade_intel'),2,'no faction: filing is tried at each stop, one failure disables nothing');
-  assert.deepEqual(reports.filter(r=>r.why?.startsWith('trade intel')).map(r=>r.why),
-    ['trade intel not filed at sol_base: You are not in a faction'],'said once');
+  assert.equal(world.count('spacemolt_intel/submit_trade_intel'),0,'no faction in the player state: nothing is filed');
+  assert.equal(reports.filter(r=>r.why?.startsWith('trade intel')).length,0);
 });
 
 test('a lap sells at a bid over the floor',async()=>{
@@ -697,7 +696,7 @@ const DEEP:Circuit={...GEMS,hold:100,stops:[{...GEMS.stops[0]!,buy:{item:'gem',q
 /** A freighter flown with a host's market over `options`, in a runtime of its own. */
 function marketed(options:WorldOptions,name='hauler',runtime=mkdtempSync(join(tmpdir(),'freighter-market-'))) {
   const h=freighter(130,[],options);
-  h.f.market=market(runtime,name,h.f.command);
+  h.f.market=market(runtime,name,h.f.account,h.f.command);
   return {...h,runtime,bought:()=>h.world.sent.filter(c=>c.action==='spacemolt/buy').map(c=>c.params.quantity)};
 }
 
@@ -772,7 +771,8 @@ test('one ledger fetch serves every freighter of the host within BOOK_TTL_MS',as
   };
   mock.timers.enable({apis:['Date'],now:1_000_000});
   try {
-    const a=market(runtime,'a',command),b=market(runtime,'b',command);
+    const member={state:{player:{faction_id:'guild'}}};
+    const a=market(runtime,'a',member,command),b=market(runtime,'b',member,command);
     const [x,y]=await Promise.all([a.book('range_base'),b.book('range_base')]);
     await b.book('range_base');
     assert.equal(asked,1);

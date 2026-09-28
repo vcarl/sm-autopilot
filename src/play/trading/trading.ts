@@ -14,6 +14,8 @@ import {miningInventory} from '../../mining-inventory.ts';
 import type {ReadinessAccount,ReadinessCommand} from '../../readiness.ts';
 import {walkBook} from '../../order-book.ts';
 import {details} from '../../response-details.ts';
+import {journalRun} from '../../run-record.ts';
+import {inFaction} from '../../trade-intel.ts';
 import {book,buy,knownBooks,marketTick,sell,ticksOld} from '../market.ts';
 import {readDrained,ring} from '../freighter/drained.ts';
 import {markPlace,readMobile,readPlaces} from '../places.ts';
@@ -25,6 +27,8 @@ import type {Outcome,Row} from '../types.ts';
 
 /** Whose connection and files a search reads through: the pilot's for `routes()`, or a freighter's
  * own when its host re-plans it, so a host loop never touches the play runtime. */
+/** `inFaction` for a seat, the skip journalled to the seat's runtime. */
+export const seatInFaction=(seat:Seat)=>inFaction(seat.account,text=>{if(seat.runtime)journalRun(seat.runtime,{text},'faction_skipped');});
 export interface Seat {account:ReadinessAccount;command:ReadinessCommand;runtime:string|undefined;
   /** The live book where the ship is docked, and the tick it was read on. */
   book():Promise<{items:Map<string,MarketListingItem>;tick:number}>;
@@ -155,6 +159,7 @@ const LEDGER_PAGE=20,LEDGER_PAGES=4;
  * no trade-intel facility, no such command — is the same answer: no more of the cross-station feed. */
 async function ledger(seat:Seat):Promise<FactionQueryTradeIntelResponse['entries']> {
   const entries:FactionQueryTradeIntelResponse['entries']=[];
+  if(!seatInFaction(seat))return entries;
   for(let page=0;page<LEDGER_PAGES;page++) {
     seat.stop();
     try {

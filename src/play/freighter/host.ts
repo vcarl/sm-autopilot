@@ -22,6 +22,7 @@ import {pilotHome} from '../../run.ts';
 import {checkBoundary,specifiers} from '../boundary.ts';
 import {checkPolicy} from '../policy.ts';
 import {knownBooks,rememberBook} from '../market.ts';
+import {inFaction} from '../../trade-intel.ts';
 import {buysOf,ledgerItems,REST_TICKS,search,type Circuit,type Seat} from '../trading/trading.ts';
 import {markMobile,markPlace,readPlaces} from '../places.ts';
 import {candidates,explore,target,type Candidate} from '../trading/scout.ts';
@@ -174,10 +175,10 @@ const claimed=new Map<string,Claim[]>();
 const fresher=(a:Known|undefined,b:Known|undefined)=>!a||b&&b.tick>=a.tick?b:a;
 /** One base's book off the faction ledger (`query_trade_intel` by `base_id`: its whole book in one
  * call), or the owner's memory, whichever is fresher. Undefined when neither has it. */
-async function fetchBook(runtime:string,command:ReadinessCommand,base_id:string):Promise<Known|undefined> {
+async function fetchBook(runtime:string,account:object,command:ReadinessCommand,base_id:string):Promise<Known|undefined> {
   const memory=knownBooks(runtime).find(book=>book.base_id===base_id);
   let filed:Known|undefined;
-  try {
+  if(inFaction(account,text=>journalRun(runtime,{text},'faction_skipped')))try {
     const entry=(details(await command('spacemolt_intel/query_trade_intel',{base_id})) as FactionQueryTradeIntelResponse).entries?.find(row=>row.base_id===base_id);
     if(entry)filed={tick:entry.submitted_at_tick,items:ledgerItems(entry)};
   } catch {/* no faction, or no ledger: the memory stands */}
@@ -185,13 +186,13 @@ async function fetchBook(runtime:string,command:ReadinessCommand,base_id:string)
   return fresher(filed,memory&&{tick:memory.tick??0,items:memory.items});
 }
 /** The books and claims `name`'s loop shares with every other freighter this process flies. */
-export function market(runtime:string,name:string,command:ReadinessCommand):Market {
+export function market(runtime:string,name:string,account:object,command:ReadinessCommand):Market {
   const key=join(runtime,name);
   return {
     book:async base_id=>{
       const at=join(runtime,base_id);
       let hit=fetched.get(at);
-      if(!hit||Date.now()-hit.at>=BOOK_TTL_MS)fetched.set(at,hit={at:Date.now(),book:fetchBook(runtime,command,base_id)});
+      if(!hit||Date.now()-hit.at>=BOOK_TTL_MS)fetched.set(at,hit={at:Date.now(),book:fetchBook(runtime,account,command,base_id)});
       return fresher(await hit.book,seen.get(at));
     },
     saw:(base_id,known)=>{seen.set(join(runtime,base_id),known);latest=Math.max(latest,known.tick);},
@@ -324,7 +325,7 @@ export function launch(runtime:string,name:string,account:ReadinessAccount,comma
   account={get state(){return raw.state;},refresh:()=>mended(()=>raw.refresh())};
   command=(action,params)=>mended(()=>send(action,params));
   // Claims rebuilt from the entry as it resumes: its holding, to the stop that sells each item from the lap's start.
-  if(entry)market(runtime,name,command).claim(carried(entry.circuit,0,Object.fromEntries(Object.entries(entry.holding??{}).map(([item,lot])=>[item,lot.quantity]))));
+  if(entry)market(runtime,name,account,command).claim(carried(entry.circuit,0,Object.fromEntries(Object.entries(entry.holding??{}).map(([item,lot])=>[item,lot.quantity]))));
   pilotHome(runtime);
   return (async()=>{
     await opts.login?.(loop);
@@ -390,7 +391,7 @@ async function run(runtime:string,name:string,account:ReadinessAccount,command:R
   if(!entry)return false;
   let again=false;
   const f:Freighter={name,account,command,owner:entry.owner,float:entry.float,...entry.holding?{holding:entry.holding}:{},
-    market:market(runtime,name,command),
+    market:market(runtime,name,account,command),
     recalled:()=>loop.recall||loop.stopping||loop.lapDone,
     // A bridge shutting down stops every loop; the entry stays as it is so the next one resumes it.
     park:(why,drained,blocked)=>{
@@ -433,7 +434,7 @@ async function replan(runtime:string,name:string,account:ReadinessAccount,comman
       return {items:new Map<string,MarketListingItem>((reply.items??[]).map(row=>[row.item_id,row])),tick:Number(reply.current_tick??0)};
     }};
   // Candidates flown to this wait: each once, so a wait scouts a finite list and then sits docked.
-  const tried=new Set<string>(),shared=market(runtime,name,command);
+  const tried=new Set<string>(),shared=market(runtime,name,account,command);
   for(;;) {
     const entry=readFleet(runtime)[name];
     if(!entry||loop.stopping)return false;

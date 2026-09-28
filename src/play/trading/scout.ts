@@ -12,7 +12,7 @@ import {markExplored,markPlace,readExplored,readPlaces} from '../places.ts';
 import {acct,admit,checkStop,command,job,runtimeDir} from '../runtime.ts';
 import {goTo} from '../travel.ts';
 import type {Outcome} from '../types.ts';
-import {farBooks,pilotSeat,type Seat} from './trading.ts';
+import {farBooks,pilotSeat,seatInFaction,type Seat} from './trading.ts';
 
 /** ponytail: how far scouting looks, in jumps from where the ship is. Tunable. */
 export const SCOUT_JUMPS=4;
@@ -35,7 +35,8 @@ export async function candidates(seat:Seat,now:number,jumps=SCOUT_JUMPS):Promise
   const here=seat.account.state.location?.system_id,dir=seat.runtime;
   if(!here)return [];
   const places=new Map(Object.entries(dir?readPlaces(dir):{})),mapped=new Set<string>();
-  for(let page=0;page<INTEL_PAGES;page++) {
+  const pages=seatInFaction(seat)?INTEL_PAGES:0;
+  for(let page=0;page<pages;page++) {
     seat.stop();
     try {
       const reply=details(await seat.command('spacemolt_intel/query_intel',{limit:INTEL_PAGE,offset:page*INTEL_PAGE})) as FactionQueryIntelResponse;

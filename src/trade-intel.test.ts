@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import type {MarketListingItem} from '@spacemolt/lib';
-import {FILE_BYTES,fileIntel,fileRows} from './trade-intel.ts';
+import {FILE_BYTES,fileIntel,fileRows,inFaction} from './trade-intel.ts';
 
 const row=(item_id:string,best_buy:number,best_sell:number,qty=100)=>
   ({item_id,best_buy,best_buy_qty:qty,best_sell,best_sell_qty:qty}) as MarketListingItem;
@@ -23,7 +23,7 @@ test('a filing that fails at one base does not stop the next, and is said once',
     sent.push(station!.base_id);
     if(station!.base_id!=='ok_base')throw new Error('connection dropped');
   };
-  const account={},book=[row('ore',10,12)];
+  const account={state:{player:{faction_id:'guild'}}},book=[row('ore',10,12)];
   await fileIntel(account,command,'big_base',book,1,text=>said.push(text));
   await fileIntel(account,command,'big_base',book,1,text=>said.push(text));
   await fileIntel(account,command,'ok_base',book,1,text=>said.push(text));
@@ -32,17 +32,16 @@ test('a filing that fails at one base does not stop the next, and is said once',
   assert.deepEqual(said,['trade intel not filed at big_base: connection dropped']);
 });
 
-// Live 2026-09-28 (kvothe): 152 filings refused `not_in_faction`, one per base per tick.
-test('a pilot with no faction is refused once, and never filed for again',async()=>{
+// Live 2026-09-28 (kvothe): 152 filings refused `not_in_faction`, one per base per tick. Membership
+// is in the account's state; with none there, nothing is sent, and the skip is said once.
+test('a pilot in no faction files nothing, and is told once',async()=>{
   const sent:string[]=[],said:string[]=[];
-  const command=async(_action:string,params:Record<string,unknown>)=>{
-    sent.push((params.stations as {base_id:string}[])[0]!.base_id);
-    throw new Error('not_in_faction: You must be in a faction to submit trade intel.');
-  };
-  const account={},book=[row('ore',10,12)];
-  await fileIntel(account,command,'a_base',book,1,text=>said.push(text));
-  await fileIntel(account,command,'b_base',book,1,text=>said.push(text));
-  await fileIntel(account,command,'a_base',book,2,text=>said.push(text));
-  assert.deepEqual(sent,['a_base']);
-  assert.equal(said.length,1);
+  const command=async(action:string)=>{sent.push(action);};
+  const book=[row('ore',10,12)];
+  for(const account of [{state:{player:{credits:1}}},{state:{player:{credits:1}}}])
+    for(const [base,tick] of [['a_base',1],['b_base',1],['a_base',2]] as const)
+      await fileIntel(account,command,base,book,tick,text=>said.push(text));
+  assert.deepEqual(sent,[]);
+  assert.equal(said.length,1,said.join('\n'));
+  assert.equal(inFaction({state:{player:{faction_id:'guild'}}}),true);
 });

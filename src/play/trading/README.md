@@ -31,7 +31,7 @@ every buyer in them, not only the highest `best_buy`:
 | `faction ledger` | `spacemolt_intel/query_trade_intel` — other pilots' filed observations | `seen` is the age in ticks of `submitted_at_tick` |
 | `remembered` | a book **this pilot** read at that base on an earlier visit | `seen` is the age in ticks of the book |
 
-The ledger needs a faction with a trade-intel facility; without one the command throws and
+The ledger needs a faction with a trade-intel facility; with no faction it is not asked, without the facility the command throws, and
 `spreads()` carries on with the other two, saying so in `did` and in `detail.sources`. The
 ledger is read whole, by station, 20 stations a page and at most 4 pages a read; it is never
 asked by item, because live an `item_id` filter answers nothing even for a filed item. A ledger

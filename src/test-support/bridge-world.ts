@@ -298,7 +298,7 @@ export function bridgeWorld(options:WorldOptions={}) {
       cpu_used:0,cpu_capacity:12,power_used:0,power_capacity:24,
       utility_slots:2,weapon_slots:1,defense_slots:1,
       ...options.passengers?{berths:berthsView(options.passengers)}:{}},
-    player:{credits:1_000},
+    player:{credits:1_000,...options.tradeIntel?{faction_id:'guild'}:{}},
     cargo:(options.cargo??(cargoUsed?[{item_id:'ore',quantity:cargoUsed}]:[])) as {item_id:string;quantity:number}[],
     modules:[] as Record<string,any>[],
   });

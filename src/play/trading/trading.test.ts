@@ -71,15 +71,15 @@ test('every book read files the faction ledger once per tick, and the next base 
   } finally {unbind();}
 });
 
-test('with no faction, a book read files nothing and says so once',async()=>{
+test('with no faction, a book read files nothing',async()=>{
   const f=world({mood:'Focused'},{cargo:[],cargoUsed:0,store:[]});
   try {
     assert.equal((await prices(['ore'])).status,'done');
     assert.equal((await prices(['ore'])).status,'done');
     assert.equal((await goTo('range_base')).status,'done');
     assert.equal((await prices(['ore'])).status,'done');
-    assert.equal(f.count('spacemolt_intel/submit_trade_intel'),2,'a failure costs that base this tick only; the next base tries again');
-    assert.equal(f.lines.filter(line=>line.includes('trade intel not filed')).length,1);
+    assert.equal(f.count('spacemolt_intel/submit_trade_intel'),0,'no faction in the player state: nothing is sent to be refused');
+    assert.equal(f.lines.filter(line=>line.includes('trade intel not filed')).length,0);
   } finally {unbind();}
 });
 
@@ -109,7 +109,7 @@ test('with no faction ledger, a book read on an earlier visit survives a new run
     assert.equal(row.net,600-7);
     assert.deepEqual(out.detail.sources,['here','remembered'],'no faction, so no ledger');
     assert.match(out.did,/the best buyer for 1 of them is not sol_base/);
-    assert.equal(second.count('spacemolt_intel/query_trade_intel'),1,'asked once, refused, not asked again');
+    assert.equal(second.count('spacemolt_intel/query_trade_intel'),0,'no faction in the player state: never asked');
   } finally {unbind();}
   rmSync(runtime,{recursive:true,force:true});
 });
