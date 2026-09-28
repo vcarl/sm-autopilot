@@ -139,14 +139,18 @@ const text=(value:unknown)=>value===undefined||value===null?'':String(value);
  * and quantities it named, whether it took, and one sentence off the reply. Never the reply
  * body — a `get_system` answer is kilobytes and the journal is read by a human. */
 export function journalCommand(runtime:string,action:string,params:Record<string,unknown>|undefined,
-  ok:boolean,reply:unknown,freighter?:string):void {
+  ok:boolean,reply:unknown,{freighter,ms}:{freighter?:string;ms?:number}={}):void {
   const [tool='',name='']=action.split('/');
   const scalars:Record<string,unknown>={};
   for(const [key,value] of Object.entries(params??{}))
     if(value!==null&&typeof value!=='object')
       scalars[key]=typeof value==='string'?value.slice(0,40):value;
   const who=freighter?{freighter}:{};
-  journalRun(runtime,{tool,action:name,params:scalars,ok,summary:summarise(ok,reply),...who},'command');
+  // `ms` is wall time around the lib's send, its own rate-limit retries included; `code` is the
+  // error's own code (the game's string, or a socket close number), the thing to count by.
+  const code=ok?undefined:(reply as {code?:unknown}|null)?.code;
+  journalRun(runtime,{tool,action:name,params:scalars,ok,summary:summarise(ok,reply),
+    ...ms===undefined?{}:{ms},...code===undefined?{}:{code},...who},'command');
   // A freighter's action is prefixed with its name, so it never takes the pilot's quote.
   const held=quoted?.action===action&&(quoted.id===undefined||quoted.id===params?.id)?quoted.quote:undefined;
   if(quoted?.action===action)quoted=null;
@@ -154,6 +158,17 @@ export function journalCommand(runtime:string,action:string,params:Record<string
   const body=details(reply);
   const fact=TELEMETRY[name]?.(body);
   if(fact)journalRun(runtime,{...fact,...held?{quote:held}:{},...who},fact.event as string);
+}
+
+/** The socket's own life on the journal: each reconnect attempt, its success, and a connection
+ * lost for good — what a command's `ms` cannot say about the time between commands. */
+export function journalConnection(runtime:string,account:{onReconnecting(fn:(attempt:number)=>void):unknown;
+  onReconnected(fn:()=>void):unknown;onDisconnected(fn:(error:{code?:number;reason?:string;message:string})=>void):unknown},
+freighter?:string):void {
+  const who=freighter?{freighter}:{};
+  account.onReconnecting(attempt=>journalRun(runtime,{attempt,...who},'reconnecting'));
+  account.onReconnected(()=>journalRun(runtime,{...who},'reconnected'));
+  account.onDisconnected(error=>journalRun(runtime,{code:error.code,reason:error.reason||error.message,...who},'disconnected'));
 }
 
 /** A book or posted price the caller had in hand as it sent `action`: attached to that command's
