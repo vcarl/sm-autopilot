@@ -8,7 +8,7 @@ import type {ReadinessAccount} from '../readiness.ts';
 import {readJournal} from '../run-record.ts';
 import {bridgeWorld,type WorldOptions} from '../test-support/bridge-world.ts';
 import {distressPlan,goTo} from './travel.ts';
-import {admit,bind,command,job,note,outcome,pilot,progress,stop,unbind,type Pilot} from './runtime.ts';
+import {account,admit,bind,command,job,note,outcome,pilot,progress,stop,unbind,type Pilot} from './runtime.ts';
 import {service} from './service.ts';
 import {buy,sell,prices} from './market.ts';
 import {buyShip,refit,shipsForSale} from './hangar.ts';
@@ -637,4 +637,15 @@ test('Tired and broke at a counter: the work goes on, journalled, and resupply i
     await job('work','',async()=>({status:'done' as const,did:String(await admit('gatherUntil')),detail:{}}));
     assert.equal(pilot().mood,'Focused');
   } finally {unbind();rmSync(runtime,{recursive:true,force:true});}
+});
+
+test('account().commands sends params as the payload, even to an action the lib binds bare',async()=>{
+  const sent:[string,unknown][]=[];
+  bind({account:{state:{}} as unknown as ReadinessAccount,emit:()=>{},pilot:()=>({}) as Pilot,
+    command:async(action,params)=>{sent.push([action,params]);return {};}});
+  try {
+    await account().commands.spacemolt_salvage.sell({id:'w1'} as never);
+    await account().commands.spacemolt_salvage.quote();
+    assert.deepEqual(sent,[['spacemolt_salvage/sell',{id:'w1'}],['spacemolt_salvage/quote',{}]]);
+  } finally {unbind();}
 });
