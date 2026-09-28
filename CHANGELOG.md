@@ -85,3 +85,14 @@ All notable changes to this plugin are recorded here. The format follows
 - `withdraw()` counts each item's cargo size, so a withdrawal the hold cannot take whole moves
   what fits, shares the room across rows in proportion to their footprint, and reports the rest
   short, where before the game refused it outright.
+- A run always ends and writes its record, whatever shape its program returns; a report that
+  cannot be rendered says why instead of leaving the run open.
+- Faction intel calls (filing trade intel, the ledger and intel-map reads) are made only when the
+  player is in a faction, instead of failing on every book.
+- A context compression mid-fire keeps the fire's juncture instead of starting a new one; the
+  re-render is journalled as `juncture_rerender`.
+- The menu reads a ship class from the catalogue once per process, not on every render.
+- A run is named for its first work call rather than a read such as `quote`; missions that expire
+  and accepts of an already-active mission are journalled.
+- Awaited sleeps and the run's time cap keep Node's event loop alive, so a program waiting on one
+  is never cut short; tests pass in any timezone and ruff accepts the package root.
