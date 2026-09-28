@@ -109,6 +109,16 @@ the pilot's context. Every line has `at` (UTC ISO, `Z`) and `event`.
 Joins: `juncture_id` juncture → run; `run_id` run → everything in it; `job_id` + `at` juncture →
 Hermes' `cron/usage_audit.jsonl` (tokens, LLM time, model).
 
+Rotation: each bridge boot (`bootJournal` in `run-record.ts`, right after the controller lock)
+renames a non-empty `gameplay.jsonl` to `gameplay.<UTC stamp>.jsonl` (`2026-09-28T04-53-54Z`;
+`_<pid>` on a same-second clash), then writes the interrupted-run close and the `boot` line into the
+fresh file; `boot` carries `rotated_from`, so the chain walks back. `service.py` rotates
+`bridge.stderr.log` the same way (`rotate_log`) before it opens it. Rotated files are never deleted.
+Python appends to `gameplay.jsonl` by name per line, so it follows the rename. Readers of the recent
+past go through one tail walker per language — `readJournal` (TS: reflection, the menu, the
+rendered window, `play/service.ts`) and `journal_tail` (Python: the gate, the recent-runs context)
+— which read the current file, then rotated ones newest first, until they have enough.
+
 ## Tests
 
 | | |

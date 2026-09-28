@@ -388,6 +388,20 @@ def test_a_changed_source_tree_recycles_the_bridge(reloadable):
     assert old.process.poll() is not None, "a stale bridge was left holding the game lock"
 
 
+def test_a_bridge_boot_rotates_the_stderr_log_it_opens(reloadable):
+    """Each boot starts a fresh ``bridge.stderr.log``; the last one is kept beside it, stamped."""
+    service.call("status")
+    first = service._bridge.sources
+    (reloadable / "job.ts").write_text("// added since it booted\n")
+    service.call("status")
+    runtime = service.runtime_dir()
+    rotated = sorted(runtime.glob("bridge.stderr.*.log"))
+    assert len(rotated) == 1
+    assert re.fullmatch(r"bridge\.stderr\.\d{4}-\d\d-\d\dT\d\d-\d\d-\d\dZ(_\d+)?\.log", rotated[0].name)
+    assert f"[bridge] booting on {first}" in rotated[0].read_text()
+    assert f"[bridge] booting on {first}" not in (runtime / service.BRIDGE_STDERR).read_text()
+
+
 def test_a_source_change_during_a_run_defers_the_reload(reloadable):
     """A juncture that arrives mid-run carries on with the bridge it has. Tearing down a
     working run to pick up an edit costs more than the wait, and the journal says so."""

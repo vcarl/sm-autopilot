@@ -4,7 +4,7 @@
  * A bridge that dies mid-run leaves the record un-ended; the next bridge closes it as
  * `interrupted` at boot (`closeInterrupted`) rather than re-running anything.
  */
-import {appendFileSync,mkdirSync,readFileSync,renameSync,writeFileSync} from 'node:fs';
+import {appendFileSync,existsSync,mkdirSync,readdirSync,readFileSync,renameSync,statSync,writeFileSync} from 'node:fs';
 import {join} from 'node:path';
 import type {Question} from './play/runtime.ts';
 import {details} from './response-details.ts';
@@ -56,18 +56,54 @@ export function closeInterrupted(runtime:string):RunRecord|null {
   return closed;
 }
 
-/** The tail of the journal as data: what the pilot has actually done, for the one reader
- * that needs history rather than the present (reflection, N7/N9).
+/** The journal files newest first: `gameplay.jsonl`, then each `gameplay.<UTC stamp>.jsonl` a
+ * boot rotated away. The stamps sort as time. */
+function journalFiles(runtime:string):string[] {
+  let rotated:string[]=[];
+  try {rotated=readdirSync(runtime).filter(name=>/^gameplay\..+\.jsonl$/.test(name)).sort().reverse();} catch {/* no runtime yet */}
+  return ['gameplay.jsonl',...rotated].map(name=>join(runtime,name));
+}
+
+/** The tail of the journal as data: what the pilot has actually done, for the readers that need
+ * history rather than the present (reflection, the menu, the rendered window). Walks from the
+ * current file back through the rotated ones until it has `limit` entries, so a fresh boot's
+ * nearly empty journal does not cost them their past.
  *
- * ponytail: the file is read whole and the tail kept. Rest happens once an evening, so a
+ * ponytail: each file is read whole and the tail kept. Rest happens once an evening, so a
  * few MB costs nothing; seek from the end if a journal ever outgrows that. */
 export function readJournal(runtime:string,limit=400):Record<string,any>[] {
-  try {
-    const lines=readFileSync(join(runtime,'gameplay.jsonl'),'utf8').split('\n').filter(line=>line.trim());
-    return lines.slice(-limit).flatMap(line=>{
-      try {return [JSON.parse(line) as Record<string,any>];} catch {return [];}
-    });
-  } catch {return [];}
+  let lines:string[]=[];
+  for(const path of journalFiles(runtime)) {
+    if(lines.length>=limit)break;
+    try {lines=[...readFileSync(path,'utf8').split('\n').filter(line=>line.trim()),...lines];} catch {/* absent */}
+  }
+  return lines.slice(-limit).flatMap(line=>{
+    try {return [JSON.parse(line) as Record<string,any>];} catch {return [];}
+  });
+}
+
+/** A bridge's boot, in the journal: a non-empty `gameplay.jsonl` is renamed to
+ * `gameplay.<UTC stamp>.jsonl`, then the interrupted-run close and the `boot` line (naming the
+ * rotated file as `rotated_from`, so the chain walks back) open the fresh one. Called once the
+ * controller lock is held, so no live bridge is writing the file being moved. Python writers
+ * open the journal by name per line, so they follow the rename.
+ *
+ * ponytail: rotated journals are kept forever, for post hoc analysis; no pruning. Add it here
+ * (drop the oldest of `journalFiles`) if disk becomes a concern. */
+export function bootJournal(runtime:string,now=new Date()):RunRecord|null {
+  mkdirSync(runtime,{recursive:true});
+  const current=join(runtime,'gameplay.jsonl');
+  let rotated_from:string|undefined;
+  if(existsSync(current)&&statSync(current).size>0) {
+    const stamp=now.toISOString().replace(/\.\d+Z$/,'Z').replaceAll(':','-');
+    // Two boots inside one second must not overwrite the first one's file; `_` sorts after `.`,
+    // so the second still reads as the newer.
+    rotated_from=existsSync(join(runtime,`gameplay.${stamp}.jsonl`))?`gameplay.${stamp}_${process.pid}.jsonl`:`gameplay.${stamp}.jsonl`;
+    renameSync(current,join(runtime,rotated_from));
+  }
+  const interrupted=closeInterrupted(runtime);
+  journalRun(runtime,{pid:process.pid,...interrupted?{interrupted:interrupted.started}:{},...rotated_from?{rotated_from}:{}},'boot');
+  return interrupted;
 }
 
 /** The one reader of the journal as it is being written: the webhook drain, which renders

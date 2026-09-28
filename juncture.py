@@ -87,17 +87,38 @@ RECENT = 5
 _TAIL_BYTES = 2 << 20
 
 
+def journal_tail(max_bytes: int = _TAIL_BYTES) -> list[str]:
+    """The journal's last ``max_bytes`` as whole lines, oldest first. Walks from ``gameplay.jsonl``
+    back through the ``gameplay.<UTC stamp>.jsonl`` files a bridge boot rotated away (the stamps
+    sort as time), so a restart's nearly empty journal does not cost a reader its recent past."""
+    runtime = runtime_dir()
+    rotated = sorted((p for p in runtime.glob("gameplay.*.jsonl") if p.name != JOURNAL_FILE), reverse=True)
+    lines: list[str] = []
+    left = max_bytes
+    for path in [runtime / JOURNAL_FILE, *rotated]:
+        if left <= 0:
+            break
+        try:
+            with path.open("rb") as handle:
+                size = path.stat().st_size
+                start = max(0, size - left)
+                # One byte early, then drop through the first newline: a line the budget cuts
+                # in half is left out rather than returned torn.
+                handle.seek(max(0, start - 1))
+                raw = handle.read()
+        except OSError:
+            continue
+        if start:
+            raw = raw[raw.find(b"\n") + 1:] if b"\n" in raw else b""
+        left -= size - start
+        lines = raw.decode("utf-8", errors="replace").splitlines() + lines
+    return lines
+
+
 def _journal_tail(events: tuple[str, ...]) -> list[dict[str, Any]]:
     """The journal's last few MB, as the entries whose event is one of ``events``."""
-    path = runtime_dir() / JOURNAL_FILE
-    try:
-        with path.open("rb") as handle:
-            handle.seek(max(0, path.stat().st_size - _TAIL_BYTES))
-            raw = handle.read().decode("utf-8", errors="replace")
-    except OSError:
-        return []
     rows = []
-    for line in raw.splitlines():
+    for line in journal_tail():
         if not any(f'"{event}"' in line for event in events):
             continue
         try:

@@ -16,7 +16,7 @@ import type {ReadinessAccount,ReadinessCommand} from './readiness.ts';
 import {details} from './response-details.ts';
 import {moodNow,resolveWalkAway} from './mood-policy.ts';
 import {stanceMood,type Facts,type StanceName} from './rules-table.ts';
-import {closeInterrupted,journalCommand,journalRun,readRun} from './run-record.ts';
+import {bootJournal,journalCommand,journalRun,readRun} from './run-record.ts';
 import {startHeartbeat} from './heartbeat.ts';
 import {flushJournalDrain,startJournalDrain} from './journal-webhook.ts';
 import {check as checkPilot,runPilot as defaultRunPilot,type RunResult} from './run.ts';
@@ -420,6 +420,11 @@ async function main() {
   mkdirSync(runtime,{recursive:true});
   const unlock=controllerLock(`${runtime}/controller-${createHash('sha256').update(username).digest('hex').slice(0,16)}.lock`);
   process.on('exit',unlock);
+  // Rotate the journal before anything else in this process writes it, then open the fresh one
+  // with the boot line. A run a dead bridge left un-ended is closed there, never re-run: the next
+  // juncture reads it as interrupted and decides for itself. The lock above means no live bridge
+  // owns it.
+  const interrupted=bootJournal(runtime);
   // The lib bounds a mutation in two phases: the ack by `queryTimeoutMs` (15s default, kept),
   // then the outcome by `mutationTimeoutMs` for jump/travel (600s default, kept — a transit
   // legitimately spans many ticks) and by `fastMutationTimeoutMs` for everything else. `mine`
@@ -467,10 +472,6 @@ async function main() {
         journalRun(runtime,{message:'exiting: a run was abandoned at the wall-clock cap'},'boot');
         setTimeout(triggerShutdown,1000).unref?.();
       }});
-  // A run a dead bridge left un-ended is closed, never re-run: the next juncture reads it as
-  // interrupted and decides for itself. The lock above means no live bridge owns it.
-  const interrupted=closeInterrupted(runtime);
-  journalRun(runtime,{pid:process.pid,...interrupted?{interrupted:interrupted.started}:{}},'boot');
   // The freighters fly from this process, each on its own account; the pilot's run is not theirs.
   resumeFreighters(runtime);
   console.log(JSON.stringify({event:'ready',...interrupted?{interrupted:interrupted.outcome}:{}}));

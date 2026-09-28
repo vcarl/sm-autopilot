@@ -12,6 +12,7 @@ import queue
 import shutil
 import subprocess
 import threading
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -99,6 +100,23 @@ def render_journal(limit: int) -> str:
     return done.stdout.strip()
 
 
+def rotate_log(path: Path) -> None:
+    """A non-empty log moved aside as ``<stem>.<UTC stamp>.<ext>`` before a fresh one is opened
+    (the bridge's own journal rotates the same way, in ``bootJournal``). ``_n`` on a clash sorts
+    after the plain stamp, so the newer still reads as newer.
+
+    ponytail: rotated logs are kept forever, for post hoc analysis; prune here if disk matters.
+    """
+    if not path.is_file() or not path.stat().st_size:
+        return
+    stem = f"{path.stem}.{datetime.now(timezone.utc):%Y-%m-%dT%H-%M-%SZ}"
+    target, n = path.with_name(f"{stem}{path.suffix}"), 1
+    while target.exists():
+        n += 1
+        target = path.with_name(f"{stem}_{n}{path.suffix}")
+    path.rename(target)
+
+
 def available() -> bool:
     return credentials_file() is not None and shutil.which("node") is not None
 
@@ -131,7 +149,7 @@ class Bridge:
         # the supervisor wrapper's read pipe, and a bridge holding it open keeps the wrapper
         # alive after the gateway exits, so launchd never restarts the gateway.
         self.stderr_path = runtime / BRIDGE_STDERR
-        self._stderr_from = self.stderr_path.stat().st_size if self.stderr_path.exists() else 0
+        rotate_log(self.stderr_path)  # so the log holds this bridge's complaints and no earlier one's
         with self.stderr_path.open("a", encoding="utf-8") as log:
             log.write(f"[bridge] booting on {self.sources}\n")
             log.flush()
@@ -155,9 +173,7 @@ class Bridge:
     def _stderr_tail(self, limit: int = 2000) -> str:
         """What this bridge wrote before it gave up — never an earlier run's complaint."""
         try:
-            with self.stderr_path.open("r", encoding="utf-8", errors="replace") as log:
-                log.seek(self._stderr_from)
-                text = log.read()[-limit:].strip()
+            text = self.stderr_path.read_text(encoding="utf-8", errors="replace")[-limit:].strip()
         except OSError:
             return ""
         return f"\n--- {self.stderr_path} ---\n{text}" if text else ""

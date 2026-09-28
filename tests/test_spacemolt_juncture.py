@@ -31,6 +31,29 @@ def _journal_rows(event: str) -> list[dict]:
     return [row for row in rows if row.get("event") == event]
 
 
+def test_the_journal_tail_walks_back_into_rotated_journals():
+    """A bridge boot renames ``gameplay.jsonl`` to ``gameplay.<stamp>.jsonl`` and starts afresh,
+    so a tail read that stopped at the current file would forget every run before the restart."""
+    runtime = service.runtime_dir()
+    runtime.mkdir(parents=True, exist_ok=True)
+
+    def rows(name: str, numbers: range) -> None:
+        (runtime / name).write_text("".join(json.dumps({"event": "x", "n": n}) + "\n" for n in numbers))
+
+    rows("gameplay.2026-09-27T00-00-00Z.jsonl", range(5))
+    rows("gameplay.2026-09-28T00-00-00Z.jsonl", range(5, 10))
+    rows(juncture.JOURNAL_FILE, range(10, 12))
+    line = len(json.dumps({"event": "x", "n": 10}) + "\n")
+    assert [json.loads(row)["n"] for row in juncture.journal_tail(8 * line)] == list(range(4, 12))
+    assert [json.loads(row)["n"] for row in juncture.journal_tail(2 * line)] == [10, 11]
+    assert len(juncture.journal_tail()) == 12
+    # The gate's streak reads through it: runs before the restart still count.
+    (runtime / "gameplay.2026-09-28T00-00-00Z.jsonl").write_text(
+        "".join(json.dumps({"event": "run", "phase": "refused"}) + "\n" for _ in range(2)))
+    (runtime / juncture.JOURNAL_FILE).write_text(json.dumps({"event": "boot", "rotated_from": "x"}) + "\n")
+    assert juncture.unproductive_streak() == 2
+
+
 def _write_journal(rows: list[dict]) -> None:
     runtime = service.runtime_dir()
     runtime.mkdir(parents=True, exist_ok=True)
