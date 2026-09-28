@@ -18,6 +18,7 @@ import {book,buy,knownBooks,marketTick,sell,ticksOld} from '../market.ts';
 import {readDrained,ring} from '../freighter/drained.ts';
 import {markPlace,readMobile,readPlaces} from '../places.ts';
 import {acct,admit,checkStop,command,job,runtimeDir,step,type Said} from '../runtime.ts';
+import {counter} from '../counter.ts';
 import {withdraw} from '../storage.ts';
 import {goTo} from '../travel.ts';
 import type {Outcome,Row} from '../types.ts';
@@ -73,9 +74,10 @@ export const BUYERS=3;
 export function spreads(items?:string[]):Promise<Outcome<{spreads:Spread[];sources:string[]}>> {
   return job<{spreads:Spread[];sources:string[]}>('spreads',(items??[]).join(' '),async()=>{
     const none={spreads:[] as Spread[],sources:[] as string[]};
-    const here=acct().state.location?.docked_at;
-    if(!here)return {status:'refused',did:'read no spreads',why:'not docked; a market is a station counter',detail:none,
+    const at=await counter();
+    if('refused' in at)return {status:'refused',did:'read no spreads',why:at.refused,detail:none,
       next:['goTo a base, then spreads()']};
+    const here=at.docked;
 
     // What a sale is worth is what you can put on the counter: hold plus the store here.
     const stock:Record<string,number>={...miningInventory(acct().state)};

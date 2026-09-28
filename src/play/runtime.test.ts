@@ -8,7 +8,7 @@ import type {ReadinessAccount} from '../readiness.ts';
 import {readJournal} from '../run-record.ts';
 import {bridgeWorld,type WorldOptions} from '../test-support/bridge-world.ts';
 import {distressPlan,goTo} from './travel.ts';
-import {admit,bind,command,job,outcome,pilot,progress,stop,unbind,type Pilot} from './runtime.ts';
+import {admit,bind,command,job,note,outcome,pilot,progress,stop,unbind,type Pilot} from './runtime.ts';
 import {service} from './service.ts';
 import {buy,sell,prices} from './market.ts';
 import {buyShip,refit,shipsForSale} from './hangar.ts';
@@ -98,6 +98,39 @@ test('goTo resolves a base id to the POI it sits at, docks there, and refuses a 
     assert.equal(halted.status,'partial');
     assert.match(halted.why!,/stopped by pilot/);
   } finally {unbind();}
+});
+
+test('goTo to a POI with no base says it ended undocked, and why',async()=>{
+  const f=world({mood:'Focused'});
+  try {
+    const trip=await goTo('belt');
+    assert.equal(trip.status,'done',trip.why);
+    assert.equal(trip.detail.docked_at,null);
+    assert.match(trip.did,/arrived at belt after 0 jump\(s\); at belt \(Inner Belt\), not docked: no base at this POI; bases in this system: sol_base/);
+  } finally {unbind();}
+});
+
+test('a counter helper docks itself at a POI with a base, and says where the ship is when there is none',async()=>{
+  const f=world({mood:'Focused'});
+  try {
+    f.account.server.location={system_id:'sol',poi_id:'station',docked_at:null,in_transit:false};
+    await f.account.refresh();
+    const quotes=await prices();
+    assert.equal(quotes.status,'done',quotes.why);
+    assert.equal(f.account.server.location.docked_at,'sol_base');
+    f.account.server.location={system_id:'sol',poi_id:'belt',docked_at:null,in_transit:false};
+    await f.account.refresh();
+    const none=await prices();
+    assert.equal(none.status,'refused');
+    assert.match(none.why!,/not docked: at belt \(Inner Belt\) in sol, no station here; bases in this system: sol_base/);
+    assert.equal(f.sent.filter(c=>c.action==='spacemolt/dock').length,1,'no dock sent where there is no base');
+  } finally {unbind();}
+});
+
+test('note() lines are marked as the pilot\'s own words',async()=>{
+  const f=world({mood:'Focused'});
+  try {note('docked at frostpeak');assert.ok(f.lines.includes('✎ docked at frostpeak'),f.lines.join('\n'));}
+  finally {unbind();}
 });
 
 test('goTo takes a POI id, a display name, or a word that names nothing and says what does',async()=>{
@@ -271,12 +304,12 @@ test('a row that is not there is done with nothing to do, and a real preconditio
     const none=await withdraw([{item_id:'aluminum_ore'}]);
     assert.equal(none.status,'done',none.why);
     assert.match(none.did,/nothing to withdraw: aluminum_ore not in store/);
-    // A real precondition failure is still a refusal.
-    f.account.server.location.docked_at=null;
+    // A real precondition failure is still a refusal: out at a POI with no base.
+    f.account.server.location={system_id:'sol',poi_id:'belt',docked_at:null,in_transit:false};
     await f.account.refresh();
     const adrift=await stow([{item_id:'ore',quantity:1}]);
     assert.equal(adrift.status,'refused');
-    assert.match(adrift.why!,/needs a docked ship/);
+    assert.match(adrift.why!,/not docked: at belt \(Inner Belt\) in sol, no station here/);
   } finally {unbind();}
 });
 

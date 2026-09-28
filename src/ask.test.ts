@@ -62,7 +62,7 @@ test('a program that asks pauses: the run answers early with the question, and t
     assert.equal(ended.paused,undefined);
     assert.equal(ended.status,'done');
     assert.equal(ended.did,'went south','the answer is the choice as written, whatever its case');
-    assert.ok(f.lines.includes('picked south'),f.lines.join('\n'));
+    assert.ok(f.lines.includes('✎ picked south'),f.lines.join('\n'));
     const after=readRun(f.runtime)!;
     assert.equal(after.ended,true);
     assert.equal(after.question,undefined,'the question is cleared once answered');
@@ -122,7 +122,7 @@ test('a stop while paused rejects the ask with the stop error; the run unwinds p
     assert.equal(stopped.stopping,true);
     assert.equal(stopped.withdrawn.question,'Sell here?');
     assert.equal(stopped.status,'partial','a stop is a stop, however the program was waiting');
-    assert.ok(f.lines.includes('ask threw stopped by pilot'),f.lines.join('\n'));
+    assert.ok(f.lines.includes('✎ ask threw stopped by pilot'),f.lines.join('\n'));
     const record=readRun(f.runtime)!;
     assert.equal(record.ended,true);
     assert.equal(record.question,undefined);

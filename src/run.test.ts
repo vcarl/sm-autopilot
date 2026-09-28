@@ -88,7 +88,7 @@ test('a run streams a line per move (journalled first), ends with the prose and 
     assert.equal(result.accepted,true);
     assert.equal(result.status,'done',result.reason);
     assert.match(f.lines[0]!,/^run started .* index\.ts sha [0-9a-f]{12}  mood Focused  stance Prospector$/);
-    assert.ok(f.lines.includes('off to the belt'),'note() streams');
+    assert.ok(f.lines.includes('✎ off to the belt'),'note() streams');
     assert.ok(f.lines.some(line=>line.startsWith('▶ goTo belt')),f.lines.join('\n'));
     assert.ok(f.lines.some(line=>/^✓ goTo  done/.test(line)));
     assert.ok(f.lines.some(line=>line.startsWith('Done: ')),'the prose report is streamed last');

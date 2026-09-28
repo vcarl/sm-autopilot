@@ -8,6 +8,7 @@ import {markPlace} from './places.ts';
 import {details} from '../response-details.ts';
 import {fileIntel} from '../trade-intel.ts';
 import {quoteNext} from '../run-record.ts';
+import {counter} from './counter.ts';
 import {bench,moduleSpec,room,whyNotFit} from './hangar.ts';
 import {acct,admit,checkStop,command,job,pilot,runtimeDir,step,wanted} from './runtime.ts';
 import {withdraw} from './storage.ts';
@@ -100,7 +101,8 @@ export async function book():Promise<Map<string,MarketListingItem>> {
  * names the best thing to sell here by `best_buy × min(best_buy_qty, held)`. */
 export function prices(items?:string[]):Promise<Outcome<{quotes:Quote[]}>> {
   return job<{quotes:Quote[]}>('prices',(items??[]).join(' '),async()=>{
-    if(!acct().state.location?.docked_at)return {status:'refused',did:'read no prices',why:'not docked; a market is a station counter',detail:{quotes:[]}};
+    const at=await counter();
+    if('refused' in at)return {status:'refused',did:'read no prices',why:at.refused,detail:{quotes:[]}};
     const held=miningInventory(acct().state);
     let stored:Record<string,number>={};
     try {
@@ -142,10 +144,12 @@ export interface Sold {
  * Trains trading (xp scales with credit volume). Not docked or no market here: `refused`. */
 export function sell(items:Want[],opts:{from?:'hold'|'store';floor?:Record<string,number>}={}):Promise<Outcome<Sold>> {
   return job<Sold>('sell',items.map(row=>`${row.quantity??'all'} ${row.item_id}`).join(', ')+(opts.from==='store'?' from store':''),async()=>{
-    const docked=acct().state.location?.docked_at??'';
+    let docked=acct().state.location?.docked_at??'';
     const empty=():Sold=>({base_id:docked,fills:[],short:[],total:0});
     if(!items.length)return {status:'refused',did:'sold nothing',why:'no rows named; pass [{item_id, quantity}]',detail:empty()};
-    if(!docked)return {status:'refused',did:'sold nothing',why:'not docked; a market is a station counter',detail:empty()};
+    const at=await counter();
+    if('refused' in at)return {status:'refused',did:'sold nothing',why:at.refused,detail:empty()};
+    docked=at.docked;
     const want=wanted(items);
     if('refused' in want)return {status:'refused',did:'sold nothing',why:want.refused,detail:empty()};
     const asked=want.rows;
@@ -237,7 +241,8 @@ export function buy(itemId:string,quantity:number,opts:{deliverTo?:'cargo'|'stor
     const none={estimate:{} as EstimatePurchaseResponse};
     const stop=await admit('buy');
     if(stop)return {status:'refused',did:`did not buy ${itemId}`,why:stop,detail:none};
-    if(!acct().state.location?.docked_at)return {status:'refused',did:`did not buy ${itemId}`,why:'not docked',detail:none};
+    const at=await counter();
+    if('refused' in at)return {status:'refused',did:`did not buy ${itemId}`,why:at.refused,detail:none};
     // A module that cannot be fitted is a dead 2,080 cr: the grid is checked before the buy.
     if(!opts.force) {
       const spec=await moduleSpec(itemId).catch(()=>null);

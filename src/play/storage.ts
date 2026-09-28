@@ -3,6 +3,7 @@
 import type {V2CargoItem,ViewStorageResponse} from '@spacemolt/lib';
 import {disposable,miningInventory} from '../mining-inventory.ts';
 import {details} from '../response-details.ts';
+import {counter as dockedHere} from './counter.ts';
 import {acct,checkStop,command,job,step,wanted} from './runtime.ts';
 import type {Outcome,Row,Want} from './types.ts';
 
@@ -41,9 +42,10 @@ export function share(room:number,wants:number[],sizes:number[]):number[] {
 const held=(rows:{item_id:string;quantity:number}[],item:string)=>rows.filter(row=>row.item_id===item).reduce((sum,row)=>sum+row.quantity,0);
 
 /** The counter a deposit or withdraw needs: docked, at a base with `storage`. */
-async function counter(fn:string):Promise<{docked:string}|{refused:string}> {
-  const docked=acct().state.location?.docked_at;
-  if(!docked)return {refused:`${fn} needs a docked ship: no station store is reachable from space`};
+async function counter():Promise<{docked:string}|{refused:string}> {
+  const at=await dockedHere();
+  if('refused' in at)return at;
+  const docked=at.docked;
   const base=details(await command('spacemolt/get_base',{}));
   const services=(Array.isArray(base.services)?base.services:[]).map(String);
   if(!services.includes('storage'))return {refused:`${docked} has no storage counter`};
@@ -61,7 +63,7 @@ async function move(fn:'stow'|'withdraw',items:Want[]):Promise<Outcome<Moved>> {
     if('refused' in want)return {status:'refused',did:`${fn} nothing`,why:want.refused,detail:empty()};
     const asked=want.rows;
     if(!asked.length)return {status:'refused',did:`${fn} nothing`,why:'no rows named; pass [{item_id, quantity}]',detail:empty()};
-    const at=await counter(fn);
+    const at=await counter();
     if('refused' in at)return {status:'refused',did:`${fn} nothing`,why:at.refused,detail:empty()};
     let store=await view();
     let carried=miningInventory(acct().state);

@@ -32,7 +32,8 @@ test('rest brings the ship up at the counter and leaves the record alone',async(
 test('rest away from a counter says so rather than pretending',async()=>{
   const f=world({});
   try {
-    f.account.server.location.docked_at=null;
+    // Out at a POI with no base: undocked at a station, service() would dock itself.
+    f.account.server.location={...f.account.server.location,poi_id:'belt',docked_at:null};
     await f.account.refresh();
     const out=await rest();
     assert.equal(out.status,'refused');

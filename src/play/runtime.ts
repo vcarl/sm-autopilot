@@ -115,7 +115,7 @@ export function account():Account {return need().account as unknown as Account;}
 
 /** Write one line to the journal and to the run's stream, under your own words. Use it to
  * say what you decided and why, so the record shows the reasoning, not only the moves. */
-export function note(text:string):void {line(text);}
+export function note(text:string):void {line(`✎ ${text}`);}
 
 /** True once the pilot (or the observer) asked the run to stop. Every library function checks it
  * between commands and returns `partial`; a loop of your own should check it too. */

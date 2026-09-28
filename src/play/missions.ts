@@ -4,6 +4,7 @@
 import type {AbandonMissionResponse,AcceptMissionResponse,ActiveMissionInfo,CompleteMissionResponse,GetMissionsResponse,MissionInfo,ObjectiveProgressInfo,V2Missions} from '@spacemolt/lib';
 import {details} from '../response-details.ts';
 import {acct,admit,checkStop,command,job,pilot,step} from './runtime.ts';
+import {counter} from './counter.ts';
 import {withdraw} from './storage.ts';
 import type {Outcome,Want} from './types.ts';
 
@@ -120,7 +121,8 @@ function census(mine:V2Missions) {
  * `fits` guess per offer. Reads only. `next` names the offers that fit the intro loops. */
 export function missions():Promise<Outcome<{board:Offer[];active:Active[];max:number;slots_free:number}>> {
   return job('missions','',async()=>{
-    if(!acct().state.location?.docked_at)return {status:'refused' as const,did:'read no board',why:'not docked; the board is a station counter',detail:{board:[],active:[],max:0,slots_free:0}};
+    const at=await counter();
+    if('refused' in at)return {status:'refused' as const,did:'read no board',why:at.refused,detail:{board:[],active:[],max:0,slots_free:0}};
     const board=(details(await command('spacemolt/get_missions',{})) as GetMissionsResponse).missions??[];
     const mine=await active();
     const offers=board.map(offer);
@@ -148,7 +150,8 @@ export function acceptMission(id:string):Promise<Outcome<AcceptMissionResponse>>
     const none={} as AcceptMissionResponse;
     const stop=await admit('acceptMission');
     if(stop)return {status:'refused',did:`did not accept ${id}`,why:stop,detail:none};
-    if(!acct().state.location?.docked_at)return {status:'refused',did:`did not accept ${id}`,why:'not docked',detail:none};
+    const at=await counter();
+    if('refused' in at)return {status:'refused',did:`did not accept ${id}`,why:at.refused,detail:none};
     const mine=await active();
     if(mine.active.some(m=>m.mission_id===id))return {status:'done',did:`${id} is already active`,detail:none};
     // Refused here, with nothing sent: the game's own refusal costs a round trip to learn

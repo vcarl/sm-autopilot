@@ -5,6 +5,7 @@ import {resolveFuelReserve,type Mood} from '../mood-policy.ts';
 import {details} from '../response-details.ts';
 import {serviceShip} from '../servicing.ts';
 import {FuelRouteShortfall,InBattle,TravelBlocked,travelTo} from '../travel.ts';
+import {here,named as poiName,others} from './counter.ts';
 import {knownBooks} from './market.ts';
 import {active} from './missions.ts';
 import {acct,checkStop,command,job,pilot,runtimeDir,step} from './runtime.ts';
@@ -24,6 +25,8 @@ export interface Trip {
   jumps:number;
   /** True when the trip ended docked at the base the id named, or at the one base in the system it named. */
   docked:boolean;
+  /** The base the ship is docked at when the trip ends, or null: `did` then says why not. */
+  docked_at:string|null;
 }
 
 /** A place the pilot can name: a system, a POI, or a base docked at one. */
@@ -215,6 +218,16 @@ async function distressStops(quote:FindRouteResponse,reserve:number):Promise<Sto
   return distressPlan(quote,mine.active,legs,reserve);
 }
 
+/** `; not docked: ...` for a trip that ended out at a POI — said, so no script believes it is at
+ * a counter. A read that fails still says not docked, just not why. */
+async function undocked():Promise<string> {
+  try {
+    const {row,bases}=await here();
+    const poi=acct().state.location?.poi_id;
+    return `; at ${poiName(poi,row)}, not docked: `+(row?.base_id?`${row.base_id} is here, and prices(), sell() and the other counter helpers dock at it`:`no base at this POI${others(bases)}`);
+  } catch {return '; not docked';}
+}
+
 /** Fly to a POI, a base, or a system, jumping as many times as the route needs, and dock
  * when the target is a base — or a system with exactly one base, whose base is the only place in
  * it a pilot can trade, service or read a market. A system with several bases (or none) ends
@@ -234,13 +247,13 @@ export function goTo(id:string):Promise<Outcome<Trip>> {
   return job<Trip>('goTo',id,async()=>{
     const who=pilot();
     const target=id;
-    const none={route:{} as FindRouteResponse,location:acct().state.location as V2Location,jumps:0,docked:false};
+    const none={route:{} as FindRouteResponse,location:acct().state.location as V2Location,jumps:0,docked:false,docked_at:acct().state.location?.docked_at??null};
     // What the pilot wrote may be an id or a display name; `named` is the id it turned out
     // to be, and every comparison below is made against that, never against the word.
     let quote:FindRouteResponse,named:string;
     try {({id:named,quote}=await destination(target));}
     catch(error){return {status:'refused',did:`could not route to ${target}`,why:(error as Error).message,detail:none};}
-    const detail=():Trip=>({route:quote,location:acct().state.location as V2Location,jumps:0,docked:false});
+    const detail=():Trip=>({route:quote,location:acct().state.location as V2Location,jumps:0,docked:false,docked_at:acct().state.location?.docked_at??null});
     // A name was accepted; say which id it was, so the next script can write the id.
     if(named!==target)step(`${target} is ${named}`);
     // A system id answers with a system and no POI of its own. Passing it on as a `poi_id`
@@ -263,7 +276,7 @@ export function goTo(id:string):Promise<Outcome<Trip>> {
     // which only answer for the system the ship is in, which this branch has established.
     if(location?.system_id===quote.target_system&&(!poi||location.poi_id===poi)
       &&(!poi||!await baseAt(quote.target_system,poi,named)||location.docked_at===named))
-      return {status:'done',did:`already at ${target}${poi?'':` (${location.poi_id})`}`,detail:{...detail(),docked:Boolean(location.docked_at)}};
+      return {status:'done',did:`already at ${target}${poi?'':` (${location.poi_id})`}${location.docked_at?'':await undocked()}`,detail:{...detail(),docked:Boolean(location.docked_at)}};
     const mood=who.mood??'Cautious';
     // Tired flies straight to the base it is being serviced at; nothing is answered on the way.
     const stops=mood==='Tired'?[]:await distressStops(quote,resolveFuelReserve(mood));
@@ -320,7 +333,8 @@ export function goTo(id:string):Promise<Outcome<Trip>> {
     // The dock is decided by the system's own listing, not the route heuristic: a system id
     // may also answer with a POI, and docking "at a system" would wedge here.
     if(poi&&await baseAt(quote.target_system,poi,named)){await dockAt(acct(),command,named);docked=true;step(`docked at ${named}`);}
-    return {status:'done',did:`arrived at ${target}${poi?'':` (${acct().state.location?.poi_id})`}${docked?named===target?' and docked':` and docked at ${named}`:''} after ${jumps} jump(s)`
-      +(answered.length?`; ${answered.join('; ')}`:''),detail:{...detail(),jumps,docked}};
+    const at=acct().state.location;
+    return {status:'done',did:`arrived at ${target}${poi?'':` (${at?.poi_id})`}${docked?named===target?' and docked':` and docked at ${named}`:''} after ${jumps} jump(s)`
+      +(at?.docked_at?'':await undocked())+(answered.length?`; ${answered.join('; ')}`:''),detail:{...detail(),jumps,docked}};
   });
 }

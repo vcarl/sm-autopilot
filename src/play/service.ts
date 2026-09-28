@@ -4,6 +4,7 @@ import {details} from '../response-details.ts';
 import {journalRun,readJournal} from '../run-record.ts';
 import {ServiceBlocked,serviceShip} from '../servicing.ts';
 import {acct,burnCells,command,job,line,pilot,runtimeDir,stopped} from './runtime.ts';
+import {counter} from './counter.ts';
 import {goTo} from './travel.ts';
 import type {Outcome} from './types.ts';
 
@@ -115,9 +116,10 @@ export function service(opts:{fuel?:number;hull?:number;insure?:boolean;dues?:bo
     if(opts.insure)short.push('insure: not implemented yet; account().commands.spacemolt_salvage.quote/insure');
     if(opts.dues)short.push('dues: not implemented yet; account().commands.spacemolt.prepay_tax / pay_bounty');
     if(opts.fuel!==undefined||opts.hull!==undefined)short.push('partial targets: not implemented yet; a service is a full fill');
-    const docked=acct().state.location?.docked_at;
     const empty={base:{} as GetBaseResponse,issued:[],spent:0,short,cleared_tired:false};
-    if(!docked)return {status:'refused',did:'serviced nothing',why:'not docked; goTo a base first',detail:empty};
+    const at=await counter();
+    if('refused' in at)return {status:'refused',did:'serviced nothing',why:at.refused,detail:empty};
+    const docked=at.docked;
     let base:GetBaseResponse;
     try {base=details(await command('spacemolt/get_base',{})) as GetBaseResponse;}
     catch(error){return {status:'failed',did:`${docked} would not quote`,why:(error as Error).message,detail:empty};}
