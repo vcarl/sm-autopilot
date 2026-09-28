@@ -1,0 +1,4 @@
+[lint.per-file-ignores]
+# The repository root is the plugin package (Hermes imports it as `spacemolt`), so N999
+# judges the checkout directory's name, e.g. `sm-autopilot`, which is not ours to choose.
+"__init__.py" = ["N999"]
