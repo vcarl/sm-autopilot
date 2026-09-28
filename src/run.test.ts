@@ -79,6 +79,38 @@ test('the run summary says how the run ended, not how its first call did',async(
   } finally {f.close();}
 });
 
+// Live 2026-09-28 (kvothe L5277): a program returned a hand-built Outcome with `gained: {}` and
+// `now: null`; rendering it threw, and the run never journalled its end.
+test('a hand-built, malformed Outcome still ends the run, journalled and recorded',async()=>{
+  const f=harness();
+  try {
+    f.write("export default async function main(){ return {status:'done',did:'catalog probe complete',why:'',cost:{},gained:{},now:null,next:['look again'],detail:{probed:true}} as any; }\n");
+    const result=await runPilot(f.deps);
+    assert.equal(result.accepted,true);
+    assert.equal(result.status,'done',result.why);
+    assert.equal(result.reason,'catalog probe complete');
+    assert.match(result.prose!,/look again/);
+    const ended=readJournal(f.runtime).find(entry=>entry.phase==='ended');
+    assert.ok(ended,'run/ended is journalled');
+    assert.equal(ended.outcome,'done');
+    assert.equal(readRun(f.runtime)!.ended,true);
+  } finally {f.close();}
+});
+
+test('a run whose report cannot be rendered still journals its end, with the error as the reason',async()=>{
+  const f=harness();
+  try {
+    // A getter that throws: no normalisation can make every shape safe to render.
+    f.write("import {outcome} from 'play';\nexport default async function main(){ const o=outcome('probed'); Object.defineProperty(o.now,'location',{get(){ throw new Error('boom'); }}); return o; }\n");
+    const result=await runPilot(f.deps);
+    assert.equal(result.accepted,true);
+    const ended=readJournal(f.runtime).find(entry=>entry.phase==='ended');
+    assert.ok(ended,'run/ended is journalled');
+    assert.match(ended.why,/report.*boom/);
+    assert.equal(readRun(f.runtime)!.ended,true);
+  } finally {f.close();}
+});
+
 test('a run streams a line per move (journalled first), ends with the prose and writes the record',async()=>{
   const f=harness();
   try {

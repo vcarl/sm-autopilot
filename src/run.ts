@@ -174,8 +174,20 @@ async function closeBattle():Promise<{opponent:string;ended:boolean}|null> {
   return {opponent:fight.opponent,ended};
 }
 
-const isOutcome=(value:unknown):value is Outcome<unknown>=>
-  Boolean(value)&&typeof value==='object'&&typeof (value as Outcome).status==='string'&&typeof (value as Outcome).did==='string';
+const STATUSES=new Set(['done','partial','refused','failed']);
+const isObject=(value:unknown):value is Record<string,any>=>Boolean(value)&&typeof value==='object';
+/** What `main()` returned, as an Outcome the report can trust. One the play library built is kept
+ * as is; a hand-built one (live 2026-09-28: `gained:{}`, `now:null`) keeps its words — status,
+ * did, why, next, detail — and takes the measured cost, gains and present from the runtime. */
+function settle(returned:unknown):Outcome<unknown> {
+  if(!isObject(returned)||!STATUSES.has(returned.status)||typeof returned.did!=='string')
+    return build('main returned nothing to report','done',{returned:returned??null});
+  const {gained,now,cost,next}=returned;
+  if(isObject(gained)&&Array.isArray(gained.items)&&isObject(gained.xp)&&isObject(now)&&isObject(now.skills)
+    &&isObject(cost)&&Array.isArray(next))return returned as Outcome<unknown>;
+  const built=build(returned.did,returned.status,returned.detail??{},typeof returned.why==='string'&&returned.why?returned.why:undefined);
+  return Array.isArray(next)?{...built,next:next.filter(text=>typeof text==='string').slice(0,3)}:built;
+}
 const message=(error:unknown)=>error instanceof Error?error.message:String(error);
 
 /** Validate, bind, import fresh, run `main()`, report. Every exit path journals the end,
@@ -223,7 +235,7 @@ export async function runPilot(deps:RunDeps):Promise<RunResult> {
       const loaded=await import(`${url.href}?v=${statSync(gate.entry).mtimeMs}-${gate.sha}`) as {default?:()=>Promise<unknown>};
       if(typeof loaded.default!=='function')throw new Error('pilot/index.ts exports no default function');
       const returned=await loaded.default();
-      return isOutcome(returned)?returned:build('main returned nothing to report','done',{returned:returned??null});
+      return settle(returned);
     })(),cutOff]);
   } catch(error) {
     // A stop that reached the program's own code (a paused `ask()` rejects with it) is a stop,
@@ -251,7 +263,15 @@ export async function runPilot(deps:RunDeps):Promise<RunResult> {
     catch(error){line(`the resupply at the run's end broke: ${message(error)}`);}
     finally {clearTimeout(timer);}
   }
-  const text=prose(result,runCalls());
+  // The report is words for the pilot; the end of the run is the record. A report that cannot be
+  // rendered says so in the record's reason and the run still ends (live 2026-09-28, L5277).
+  let text:string;
+  try {text=prose(result,runCalls());}
+  catch(error) {
+    const why=`the report could not be rendered: ${message(error)}`;
+    result={...result,why:result.why?`${result.why}; ${why}`:why};
+    text=`${result.status}: ${result.did}: ${why}.`;
+  }
   for(const said of text.split('\n'))line(said);
   const {commands}=progress();
   const work=runSummary(result.status);
