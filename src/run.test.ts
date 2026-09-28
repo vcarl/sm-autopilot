@@ -79,6 +79,18 @@ test('the run summary says how the run ended, not how its first call did',async(
   } finally {f.close();}
 });
 
+// Live 2026-09-28 (kvothe L6045): a buy/craft/sell run was labelled `quote`, its first call.
+test('the run summary names the first work call, past the reads that planned it',async()=>{
+  const f=harness();
+  try {
+    f.write("import {goTo, quote, recipes} from 'play';\n"+
+      "export default async function main(){ await recipes(); await quote('refine_ore'); return goTo('belt'); }\n");
+    await runPilot(f.deps);
+    const work=readJournal(f.runtime).find(entry=>entry.phase==='ended')!.work;
+    assert.equal(work.fn,'goTo',JSON.stringify(work));
+  } finally {f.close();}
+});
+
 // Live 2026-09-28 (kvothe L5277): a program returned a hand-built Outcome with `gained: {}` and
 // `now: null`; rendering it threw, and the run never journalled its end.
 test('a hand-built, malformed Outcome still ends the run, journalled and recorded',async()=>{

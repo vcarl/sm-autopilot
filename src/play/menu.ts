@@ -31,7 +31,10 @@ export interface Menu {stagnation?:string;moves:Move[];not_now:{move:string;why:
  * the whole run gained, and where the ship ended up. Written by `run` into the journal. */
 export interface RunSummary {fn:string;arg:string;status:Status;credits:number;items:number;xp:number;at:string}
 
-const READS=new Set(['orient','scout','missions','prices','storage','shipsForSale']);
+/** The calls that only read: a run is named for the first call that is not one of these (live
+ * 2026-09-28, a buy/craft/sell run was labelled `quote`). */
+const READS=new Set(['orient','scout','missions','prices','storage','shipsForSale','quote','recipes','routes','spreads',
+  'reflection','freighters','freightBoard']);
 /** The run that just ended, from the runtime's record of top-level calls. `status` is how the
  * run itself ended, not how its first work call did: a run that went on to end `partial` or
  * `refused` read as `done` here, and the stagnation checks below take their answer from it. */
