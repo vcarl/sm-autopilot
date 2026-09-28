@@ -13,7 +13,7 @@ import {cellReserve} from '../mining-inventory.ts';
 import {readJournal} from '../run-record.ts';
 import {readFleet} from './freighter/host.ts';
 import {PACKAGE_CARGO} from './hauling/freight.ts';
-import {bench,moduleSpec,whyNotFit} from './hangar.ts';
+import {bench,catalogClass,moduleSpec,whyNotFit} from './hangar.ts';
 import {readSightings,recall} from '../sighting-memory.ts';
 import {knownBooks,ticksOld} from './market.ts';
 import {stuck} from './missions.ts';
@@ -521,7 +521,7 @@ export async function menu(runtime?:string):Promise<Menu> {
     const listings=(await attempt(async()=>(details(await command('spacemolt_ship/browse_ships',{max_price:budget})) as {listings?:ShipListing[]}).listings))??[];
     let best:{listing:ShipListing;klass:ShipClass}|undefined;
     for(const listing of listings.filter(row=>row.price<=budget).slice(0,3)) {
-      const klass=await attempt(async()=>(details(await command('spacemolt/inspect',{id:listing.class_id})).catalog?.items?.[0]) as ShipClass|undefined);
+      const klass=await attempt(()=>catalogClass(listing.class_id));
       if(klass&&(klass.cargo_capacity??0)>(ship?.cargo_capacity??0)&&(!best||(klass.cargo_capacity??0)>(best.klass.cargo_capacity??0)))best={listing,klass};
     }
     if(best)work({call:`buyShip('${best.listing.listing_id}', {switchTo:true})`,

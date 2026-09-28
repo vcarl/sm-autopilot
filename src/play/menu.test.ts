@@ -690,3 +690,16 @@ test('goods with no bid here and a remembered far bid are a pasteable tradeRun i
     assert.ok(built.not_now.some(row=>row.move==='sell'&&/no remembered book bids for 12 ore/.test(row.why)),renderMenu(built));
   } finally {blind.close();}
 });
+
+// Live 2026-09-28 (kvothe): `inspect rubble` answered "Ship class not found" on every menu render.
+test('a ship class the catalogue cannot answer for is asked about once, not on every menu',async()=>{
+  const f=world({mood:'Focused',objective:'obtain credits'},{cargoUsed:0,
+    hangar:{unknownClasses:['rubble'],listings:[{listing_id:'l1',ship_id:'s2',class_id:'rubble',price:100}]}});
+  try {
+    const inspects=()=>f.sent.filter(call=>call.action==='spacemolt/inspect'&&call.params.id==='rubble').length;
+    await menu(f.runtime);
+    assert.equal(inspects(),1,'the menu reads the listing\'s class');
+    await menu(f.runtime);
+    assert.equal(inspects(),1,'and does not ask again');
+  } finally {f.close();}
+});

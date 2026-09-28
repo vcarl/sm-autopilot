@@ -145,6 +145,23 @@ export type ForSale=
   |{kind:'listing';listing:ShipListing;class:ShipClass;versus:string}
   |{kind:'commission';quote:CommissionQuoteResponse;class:ShipClass;versus:string};
 
+/** Ship classes are catalogue data, so each is read once per process — a class the catalogue says
+ * it has no entry for included (live 2026-09-28: `inspect rubble` on every menu render). Any other
+ * failure is thrown and not remembered. */
+const classes=new Map<string,ShipClass|undefined>();
+export async function catalogClass(id:string):Promise<ShipClass|undefined> {
+  if(classes.has(id))return classes.get(id);
+  try {
+    const entry=(details(await command('spacemolt/inspect',{id})) as InspectResponse).catalog?.items?.[0];
+    const klass=entry&&'class' in entry?entry as ShipClass:undefined;
+    classes.set(id,klass);
+    return klass;
+  } catch(error) {
+    if(/not found/i.test(error instanceof Error?error.message:String(error)))classes.set(id,undefined);
+    throw error;
+  }
+}
+
 /** The catalog entry for a ship class (`spacemolt/inspect`), or nothing when the catalogue cannot
  * answer for it.
  *
@@ -155,10 +172,8 @@ export type ForSale=
  * a hull we cannot compare, so it is left off the board; the listings we CAN read are still worth
  * having, which is why this skips rather than propagates. */
 async function shipClass(id:string):Promise<ShipClass|undefined> {
-  try {
-    const entry=(details(await command('spacemolt/inspect',{id})) as InspectResponse).catalog?.items?.[0];
-    return entry&&'class' in entry?entry as ShipClass:undefined;
-  } catch(error) {
+  try {return await catalogClass(id);}
+  catch(error) {
     step(`${id}: no catalogue entry (${error instanceof Error?error.message:String(error)}); listing skipped`);
     return undefined;
   }
