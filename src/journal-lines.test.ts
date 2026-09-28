@@ -72,7 +72,8 @@ test('a step with many rows names three and counts the rest', () => {
 });
 
 test('a move or a counter act that took gets a line; a read that took does not', () => {
-  assert.equal(renderLine({at:'2026-09-15T22:00:00Z',event:'command',tool:'spacemolt',action:'travel',params:{id:'frontier_station'},ok:true,summary:'travel'}),'18:00 travel → frontier_station');
+  assert.equal(renderLine({at:'2026-09-15T22:00:00Z',event:'command',tool:'spacemolt',action:'travel',params:{id:'frontier_station'},ok:true,summary:'travel'})?.replace(/^\d\d:\d\d /,''),'travel → frontier_station',
+    'the stamp is local time, so the machine\'s zone decides it; the first test pins its shape');
   assert.equal(renderLine({at:'2026-09-15T22:00:00Z',event:'command',tool:'spacemolt',action:'get_system',params:{},ok:true,summary:'get_system'}),null);
   assert.equal(renderLine({at:'2026-09-15T22:00:00Z',event:'command',tool:'spacemolt',action:'mine',params:{},ok:true,summary:'mine'}),null);
 });

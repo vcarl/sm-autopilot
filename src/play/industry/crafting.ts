@@ -39,7 +39,8 @@ const DONE=new Set(['done','complete','completed','finished','delivered']);
 const message=(error:unknown)=>error instanceof Error?error.message:String(error);
 const held=(rows:{item_id:string;quantity:number}[],item:string)=>
   rows.filter(row=>row.item_id===item).reduce((sum,row)=>sum+row.quantity,0);
-const sleep=(ms:number)=>new Promise<void>(resolve=>{const timer=setTimeout(resolve,ms);timer.unref?.();});
+// Ref'd: the awaited sleep IS the work in flight (see hunting.ts).
+const sleep=(ms:number)=>new Promise<void>(resolve=>{setTimeout(resolve,ms);});
 
 /** Docked, at a base whose services include crafting. Both halves are the pilot's answer:
  * "there is no bench here" is what it needs to hear, not a failure. */

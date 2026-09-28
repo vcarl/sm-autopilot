@@ -214,7 +214,8 @@ export async function runPilot(deps:RunDeps):Promise<RunResult> {
         `it did not stop within ${Math.round(grace/1000)}s of being asked`));
     },cap+grace));
   });
-  for(const timer of timers)timer.unref?.();
+  // Left ref'd: a program stuck on a promise has nothing else keeping the process up, and the cap
+  // is what ends that run. They are always cleared in the `finally` below.
   let result:Outcome<unknown>;
   try {
     result=await Promise.race([(async()=>{
@@ -246,7 +247,6 @@ export async function runPilot(deps:RunDeps):Promise<RunResult> {
   // its grace, so the run still ends inside the transport's timeout.
   if(!abandoned&&!(held&&!held.ended)&&deps.pilot().mood==='Tired') {
     const timer=setTimeout(stop,Math.max(0,Date.parse(started)+cap+grace-Date.now()));
-    timer.unref?.();
     try {await resupply({travel:!stopped()});}
     catch(error){line(`the resupply at the run's end broke: ${message(error)}`);}
     finally {clearTimeout(timer);}

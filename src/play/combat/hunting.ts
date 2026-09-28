@@ -114,7 +114,9 @@ const FIGHT_CEILING_MS=5*60_000;
 const isCreature=(target:CreatureInfo|PirateInfo):target is CreatureInfo=>'creature_id' in target;
 const idOf=(target:CreatureInfo|PirateInfo)=>isCreature(target)?target.creature_id:target.pirate_id;
 const nameOf=(target:CreatureInfo|PirateInfo)=>target.name;
-const sleep=(ms:number)=>new Promise<void>(resolve=>{const timer=setTimeout(resolve,ms);timer.unref?.();});
+// Ref'd: the awaited sleep IS the work in flight. Unref'd, the process may exit under it with the
+// promise pending (Node 22.18's test runner did exactly that).
+const sleep=(ms:number)=>new Promise<void>(resolve=>{setTimeout(resolve,ms);});
 
 /** The loadout floor, in the one form the state can answer: a fitted module whose `type` is
  * `weapon`, holding rounds for its `ammo_type`. An empty magazine with its ammunition in the
