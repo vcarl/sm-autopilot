@@ -111,7 +111,20 @@ export function pilot():Pilot {return need().pilot();}
  * conveniences for bulk actions, common failures and precondition checks. Mutations you send
  * yourself are journalled and margin-checked like any other, but they are NOT idempotent and
  * NOT rules-checked: read the reply before sending the same one again. */
-export function account():Account {return need().account as unknown as Account;}
+export function account():Account {
+  const live=need().account as unknown as Account;
+  return new Proxy(live,{get:(target,key)=>{
+    if(key==='commands')return commandsProxy;
+    const value=Reflect.get(target,key);
+    return typeof value==='function'?value.bind(target):value;
+  }});
+}
+// The lib binds a no-param action as `(requestId)`, so `commands.spacemolt_salvage.sell({id})`
+// sent the params as the request id and timed out ("No response to mutation [object Object]").
+// Every `commands.<tool>.<action>(params)` goes through `command()` instead: params are the payload.
+const commandsProxy=new Proxy({},{get:(_,tool)=>new Proxy({},{get:(__,action)=>
+  (params?:unknown)=>command(`${String(tool)}/${String(action)}`,
+    params&&typeof params==='object'?params as Record<string,unknown>:{})})}) as Account['commands'];
 
 /** Write one line to the journal and to the run's stream, under your own words. Use it to
  * say what you decided and why, so the record shows the reasoning, not only the moves. */
