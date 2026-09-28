@@ -480,3 +480,23 @@ def test_the_juncture_journals_its_join_keys_and_its_id_reaches_the_run_request(
                         lambda action, params=None, on_line=None: sent.append((action, params)) or {"accepted": True})
     spacemolt._run({})
     assert sent == [("run", {"juncture": {"juncture_id": row["juncture_id"], "at": row["at"]}})]
+
+
+def test_a_rerender_within_the_same_fire_keeps_its_juncture(monkeypatch):
+    """Live 2026-09-28 13:37Z: Hermes' context compression re-rendered the juncture context four
+    hours into a fire and minted a second juncture on the stale gate. Same session, same
+    juncture: the fresh context is kept, and the re-render is its own event."""
+    _seed({"name": "kvothe", "stance": "Trader"})
+    juncture.gate_main()
+    monkeypatch.setattr(service, "call", lambda action, params=None: copy.deepcopy(_menu(12)))
+    fire = {"platform": "cron", "session_id": "cron_abc123_20260927_101500"}
+    first = juncture.juncture_context(fire)
+    again = juncture.juncture_context(fire)
+    assert again == first and again
+    row, = _journal_rows("juncture")
+    rerender, = _journal_rows("juncture_rerender")
+    assert rerender["juncture_id"] == row["juncture_id"] and rerender["session_id"] == fire["session_id"]
+    assert rerender["reason"] and rerender["context_sha"]
+    assert juncture.last_juncture() == {"juncture_id": row["juncture_id"], "at": row["at"]}
+    juncture.juncture_context({**fire, "session_id": "cron_abc123_20260927_111500"})
+    assert len(_journal_rows("juncture")) == 2

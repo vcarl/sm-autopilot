@@ -154,7 +154,7 @@ def juncture_context(session_info: Mapping[str, Any] | None = None) -> str:
     """The present, the menu, and the pilot's own recent runs — delivered, never fetched (N15).
 
     Core renders this once per new session and freezes the bytes into that conversation's
-    system prompt. Rendering reads the game and the record and writes neither; it journals what
+    system prompt, and again when it rebuilds that prompt (compression) — the same juncture. Rendering reads the game and the record and writes neither; it journals what
     it rendered and which skills the fire carries, for whoever reviews the fire later.
     """
     if (session_info or {}).get("platform") != JUNCTURE_PLATFORM:
@@ -177,18 +177,25 @@ def juncture_context(session_info: Mapping[str, Any] | None = None) -> str:
     # Cron names a fire's session ``cron_<job_id>_<YYYYmmdd_HHMMSS>``: the join to
     # cron/usage_audit.jsonl (job_id + ts), which is where the fire's tokens and LLM time live.
     job = re.fullmatch(r"cron_(.+)_\d{8}_\d{6}", session_id)
+    facts = {"session_id": session_id or None, "code_sha": code_sha(), "sources": source_fingerprint(),
+             "skills_sha": carried.hexdigest()[:12], "build_s": round(time.monotonic() - began, 3),
+             "stance": record.get("stance"), "busy": bool(menu.get("busy")), "context_chars": len(context),
+             "context_sha": hashlib.sha256(context.encode()).hexdigest()[:12], "context": context}
+    # Hermes re-renders this when it rebuilds a session's system prompt (context compression,
+    # live 2026-09-28 13:37Z). That is the same fire: same juncture, fresh facts, its own event.
+    prior = _read_juncture()
+    if session_id and prior and prior.get("session_id") == session_id:
+        journal_event("juncture_rerender", juncture_id=prior["juncture_id"],
+                      reason="the session's system prompt was rebuilt mid-fire", **facts)
+        return context
     gate = next(reversed(_journal_tail(("gate",))), {})
     juncture_id = uuid.uuid4().hex
     at = _now_iso()
-    _write_juncture({"juncture_id": juncture_id, "at": at})
+    _write_juncture({"juncture_id": juncture_id, "at": at, "session_id": session_id or None})
     journal_event("juncture", at=at, juncture_id=juncture_id, gate_id=gate.get("gate_id"), gate_at=gate.get("at"),
-                  job_id=job.group(1) if job else None, session_id=session_id or None,
-                  model=info.get("model") or None, provider=info.get("provider") or None,
-                  code_sha=code_sha(), sources=source_fingerprint(), skills_sha=carried.hexdigest()[:12],
-                  build_s=round(time.monotonic() - began, 3), stance=record.get("stance"),
-                  skills=[{"name": name, "bytes": sizes.get(name.split(":", 1)[-1])} for name in skills],
-                  busy=bool(menu.get("busy")), context_chars=len(context),
-                  context_sha=hashlib.sha256(context.encode()).hexdigest()[:12], context=context)
+                  job_id=job.group(1) if job else None, model=info.get("model") or None,
+                  provider=info.get("provider") or None,
+                  skills=[{"name": name, "bytes": sizes.get(name.split(":", 1)[-1])} for name in skills], **facts)
     return context
 
 
@@ -204,14 +211,20 @@ def _write_juncture(record: dict[str, Any]) -> None:
     temp.replace(path)
 
 
-def last_juncture() -> dict[str, Any] | None:
-    """The juncture record the latest render left, or None. A run started outside a fire (a
-    chat window, ``play.py``) still carries the last one; ``since_juncture_s`` says how stale."""
+def _read_juncture() -> dict[str, Any] | None:
     try:
         record = json.loads((runtime_dir() / JUNCTURE_FILE).read_text())
     except (OSError, ValueError):
         return None
     return record if isinstance(record, dict) and record.get("juncture_id") else None
+
+
+def last_juncture() -> dict[str, Any] | None:
+    """The juncture the latest render left, as a run request carries it, or None. A run started
+    outside a fire (a chat window, ``play.py``) still carries the last one; ``since_juncture_s``
+    says how stale."""
+    record = _read_juncture()
+    return {"juncture_id": record["juncture_id"], "at": record.get("at")} if record else None
 
 
 def code_sha() -> str | None:

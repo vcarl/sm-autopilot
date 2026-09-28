@@ -97,6 +97,8 @@ the pilot's context. Every line has `at` (UTC ISO, `Z`) and `event`.
   `cron_<job_id>_<ts>` session id) and `session_id`, `model`, `provider`, `code_sha` (git HEAD),
   `sources` (the TypeScript fingerprint), `skills_sha`, `context_sha`, `build_s`. The id is kept in
   `runtime/juncture.json`; `spacemolt_run` sends it as the run request's `juncture` param.
+- `juncture_rerender`: the same session rendered the context again (Hermes rebuilt the system
+  prompt on compression). Same `juncture_id`, the fresh `context_sha`/`context`, and a `reason`.
 - `run` `started`: `run_id`, `juncture_id`, `since_juncture_s`, `code_sha`, `sources`, `start_state`
   (credits, fuel, hull, cargo, skills, place, active missions — account memory only, no storage).
 - `run` `ended`: `end_state`, `calls` (each top-level call's `cost`, `gained`, `started_at`,
