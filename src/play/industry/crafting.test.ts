@@ -1,10 +1,13 @@
 import assert from 'node:assert/strict';
+import {mkdtempSync,readFileSync} from 'node:fs';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
 import test from 'node:test';
 import type {Catalog} from '@spacemolt/lib';
 import type {ReadinessAccount} from '../../readiness.ts';
 import {bridgeWorld,type WorldOptions} from '../../test-support/bridge-world.ts';
 import {bind,unbind,type Pilot} from '../runtime.ts';
-import {craft,recipes,useCatalog} from './crafting.ts';
+import {craft,recipes,revalidated,useCatalog} from './crafting.ts';
 
 /** The catalog behind the fake bench's one recipe: 5 iron ore into 2 steel plate. */
 const CATALOG={version:'test',recipes:[{id:'refine_steel',name:'Refine Steel',category:'Refining',
@@ -110,4 +113,17 @@ test('craft re-enters the wait for a job already queued here, escrowing nothing 
     assert.equal(f.account.server.player.credits,credits,'no second escrow left the wallet');
     assert.equal(f.store.find(row=>row.item_id==='iron_ore')?.quantity,20,'nothing was escrowed twice');
   } finally {unbind();}
+});
+
+test('the catalog is kept on disk: a 304 answers from it, a failed fetch falls back to it', async()=>{
+  const dir=mkdtempSync(join(tmpdir(),'catalog-'));
+  const asked:(string|undefined)[]=[];
+  assert.equal((await revalidated(dir,async(_,etag)=>{asked.push(etag);return {notModified:false,catalog:CATALOG,etag:'"v1"'};})).version,'test');
+  assert.equal((await revalidated(dir,async(_,etag)=>{asked.push(etag);return {notModified:true,etag};})).version,'test');
+  assert.equal((await revalidated(dir,async()=>{throw new Error('GET -> 429 Too Many Requests');})).version,'test');
+  assert.deepEqual(asked,[undefined,'"v1"']);
+  const fetches=readFileSync(join(dir,'gameplay.jsonl'),'utf8').trim().split('\n').map(row=>JSON.parse(row));
+  assert.deepEqual(fetches.map(row=>[row.event,row.status,row.from_disk]),
+    [['fetch',200,undefined],['fetch',304,true],['fetch',undefined,true]]);
+  await assert.rejects(revalidated(join(dir,'empty'),async()=>{throw new Error('down');}),/down/);
 });

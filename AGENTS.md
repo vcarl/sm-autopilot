@@ -107,6 +107,11 @@ the pilot's context. Every line has `at` (UTC ISO, `Z`) and `event`.
   `freighter` instead. Python-written lines (`gate`, `juncture`, `reflection`) never carry `run_id`.
 - `trade` (buy/sell/refuel/repair: `unit_price`, `fills`, and `quote` — the book or posted price the
   caller held), `mission` (accepted/completed/abandoned), `stranded`, `death`, and `pilot` with `prev`.
+- `command`: `tool`, `action`, scalar `params`, `ok`, `summary`, `ms` (wall time around the lib's
+  send, its rate-limit retries included), and on failure `code` (the game's error code or a socket
+  close number). `reconnecting` (`attempt`), `reconnected`, `disconnected` (`code`, `reason`).
+- `fetch`: an HTTP read outside the socket — `url`, `ms`, `ok`, `status` (200/304), `bytes` stored,
+  `from_disk` when `runtime/catalog.json` answered (a 304, or a failed fetch), `error` on failure.
 
 Joins: `juncture_id` juncture → run; `run_id` run → everything in it; `job_id` + `at` juncture →
 Hermes' `cron/usage_audit.jsonl` (tokens, LLM time, model).

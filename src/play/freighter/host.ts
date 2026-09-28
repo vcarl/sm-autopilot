@@ -17,7 +17,7 @@ import {GAME_WS_URL,readCredentials} from '../../credentials.ts';
 import {miningInventory} from '../../mining-inventory.ts';
 import type {ReadinessAccount,ReadinessCommand} from '../../readiness.ts';
 import {details} from '../../response-details.ts';
-import {journalCommand,journalRun} from '../../run-record.ts';
+import {journalCommand,journalConnection,journalRun} from '../../run-record.ts';
 import {pilotHome} from '../../run.ts';
 import {checkBoundary,specifiers} from '../boundary.ts';
 import {checkPolicy} from '../policy.ts';
@@ -222,17 +222,19 @@ export function start(runtime:string,name:string):string|null {
   const credentials=()=>({kind:'login' as const,...who});
   const account=new Account({url:GAME_WS_URL,reconnect:true,credentials,fastMutationTimeoutMs:60_000});
   const {reconnect,gone}=mender(account);
+  journalConnection(runtime,account,name);
   const live:ReadinessAccount={get state(){return account.state as GameState;},
     refresh:async()=>{const error=gone();if(error)throw error;return account.refresh();}};
   const command:ReadinessCommand=async(action,params)=>{
     const error=gone();if(error)throw error;
     const [tool,verb]=action.split('/');
+    const since=Date.now();
     try {
       const reply=await account.send(tool!,verb!,params);
-      journalCommand(runtime,`${name}:${action}`,params,true,reply,name);
+      journalCommand(runtime,`${name}:${action}`,params,true,reply,{freighter:name,ms:Date.now()-since});
       return reply;
     } catch(error) {
-      journalCommand(runtime,`${name}:${action}`,params,false,error,name);
+      journalCommand(runtime,`${name}:${action}`,params,false,error,{freighter:name,ms:Date.now()-since});
       throw error;
     }
   };

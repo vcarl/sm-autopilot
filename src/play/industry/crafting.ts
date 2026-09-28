@@ -5,13 +5,16 @@
  * the output back into it, so the store — not the hold — is what has to be stocked, and the
  * store's own delta before and after is the only evidence the output arrived.
  */
-import {fetchCatalog,type Catalog,type CraftJobResponse,type CraftQuoteResponse,type ItemQuantity,
+import {fetchCatalogConditional,type Catalog,type CraftJobResponse,type CraftQuoteResponse,type ItemQuantity,
   type JobView,type MarketListingItem,type Recipe,type RecipeInput,type ViewStorageResponse} from '@spacemolt/lib';
+import {mkdirSync,readFileSync,renameSync,writeFileSync} from 'node:fs';
+import {join} from 'node:path';
 import {miningInventory} from '../../mining-inventory.ts';
 import {RecipeGraph} from '../../recipe-graph.ts';
 import {details} from '../../response-details.ts';
+import {journalRun} from '../../run-record.ts';
 import {book} from '../market.ts';
-import {acct,admit,command,job,pilot,step} from '../runtime.ts';
+import {acct,admit,command,job,pilot,runtimeDir,step} from '../runtime.ts';
 import {stow} from '../storage.ts';
 import type {Outcome,Row} from '../types.ts';
 
@@ -26,13 +29,42 @@ export type Craftable=Recipe&{
 };
 
 /** The public catalog (`GET /api/catalog.json`), which carries the recipes; this lib version
- * publishes no `get_recipes` command, so it is an HTTP read, fetched once per process. */
-const CATALOG_URL='https://game.spacemolt.com';
-let source:()=>Promise<Catalog>=()=>fetchCatalog(CATALOG_URL);
+ * publishes no `get_recipes` command, so it is an HTTP read, revalidated once per process. */
+const CATALOG_URL='https://game.spacemolt.com',CATALOG_FILE='catalog.json';
+let source:()=>Promise<Catalog>=()=>revalidated(runtimeDir());
 let cached:Promise<Catalog>|undefined;
 /** Where the recipe catalog comes from. The tests pass a fixture; nothing else calls it. */
 export function useCatalog(load:()=>Promise<Catalog>):void {source=load;cached=undefined;}
 const catalog=()=>(cached??=source().catch(error=>{cached=undefined;throw error;}));
+
+/** The catalog kept in `dir` beside its ETag, so a fresh process pays a ~0-byte 304 rather than
+ * the multi-MB body when nothing changed, and a failed fetch falls back to the copy on disk.
+ * One `fetch` line each time: status, ms, bytes stored, whether the disk copy answered. */
+export async function revalidated(dir:string|undefined,
+  load:typeof fetchCatalogConditional=fetchCatalogConditional):Promise<Catalog> {
+  const path=dir?join(dir,CATALOG_FILE):undefined,since=Date.now();
+  let kept:{etag?:string;catalog?:Catalog}={};
+  try {if(path)kept=JSON.parse(readFileSync(path,'utf8'));} catch {/* no copy yet, or a torn one: fetch whole */}
+  const note=(entry:Record<string,unknown>)=>{if(dir)journalRun(dir,{url:'/api/catalog.json',ms:Date.now()-since,...entry},'fetch');};
+  let got:Awaited<ReturnType<typeof fetchCatalogConditional>>;
+  try {got=await load(CATALOG_URL,kept.catalog?kept.etag:undefined);}
+  catch(error) {
+    note({ok:false,error:message(error).slice(0,200),...kept.catalog?{from_disk:true}:{}});
+    if(kept.catalog)return kept.catalog;
+    throw error;
+  }
+  if(got.notModified&&kept.catalog) {note({ok:true,status:304,from_disk:true});return kept.catalog;}
+  if(!got.catalog)throw new Error('catalog fetch returned no catalog');
+  const body=JSON.stringify({etag:got.etag,catalog:got.catalog});
+  if(path)try {
+    mkdirSync(dir!,{recursive:true});
+    const temp=`${path}.${process.pid}.tmp`;
+    writeFileSync(temp,body,{mode:0o600});
+    renameSync(temp,path);
+  } catch {/* unwritten: the next process fetches whole again */}
+  note({ok:true,status:200,bytes:body.length,etag:got.etag??null});
+  return got.catalog;
+}
 
 const CAP=20,TICK_MS=10_000,WAIT_CEILING_MS=10*60_000,WAIT_LINE_MS=90_000;
 const DONE=new Set(['done','complete','completed','finished','delivered']);
