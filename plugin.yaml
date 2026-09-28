@@ -1,5 +1,5 @@
 name: spacemolt
-version: 0.1.0
+version: 2026.9.0
 description: "SpaceMolt pilot: play by editing pilot/index.ts; junctures and the observer window."
 author: Carl Vitullo
 kind: standalone

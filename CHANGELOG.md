@@ -1,15 +1,27 @@
 # Changelog
 
 All notable changes to this plugin are recorded here. The format follows
-[Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the plugin uses
-[Semantic Versioning](https://semver.org/spec/v2.0.0.html). A release is cut by tagging
-`vX.Y.Z`; the tag must match `version` in `plugin.yaml` and `package.json`, and the
-`## [X.Y.Z]` section below becomes the GitHub Release's notes.
+[Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions are CalVer,
+`YYYY.M.patch`. A release is cut by tagging `vYYYY.M.patch`; the tag must match `version` in
+`plugin.yaml` and `package.json`, and the `## [YYYY.M.patch]` section below becomes the GitHub Release's notes.
 
 ## [Unreleased]
 
+## [2026.9.0] - 2026-09-28
+
 ### Added
 
+- Telemetry for later analysis, all in `gameplay.jsonl`: `gate_id`, `juncture_id` and `run_id`
+  join a fire to the run it launched and every event inside it; `run/started` and `run/ended`
+  carry the ship's start and end state, every helper call with its full cost and gain, and the
+  code, context and skills versions; trades record the unit price and the quote in hand;
+  `mission`, `stranded` and `death` events; the `pilot` event records the previous value. See
+  the Telemetry section of AGENTS.md.
+- The runtime logs rotate when the bridge boots: `gameplay.jsonl` becomes
+  `gameplay.<boot time>.jsonl` and `bridge.stderr.log` likewise. Nothing is pruned, and readers
+  of recent history walk back into the rotated files.
+- Fuel cells aboard are burned automatically in space when fuel drops under the reserve, before
+  the ship is ever Tired, and first when resupply cannot reach or afford a base.
 - `ask({question, choices?})` in the play library: the program pauses and hands the
   question back to the model that started it, and resumes with the answer. `spacemolt_run`
   returns early with the question; the new `spacemolt_answer` tool resumes the program and waits
@@ -24,7 +36,7 @@ All notable changes to this plugin are recorded here. The format follows
   (monthly).
 - This changelog.
 - Fuel cells are part of resupply. Wherever the ship is serviced (`service()`, the automatic
-  service in `rest`, a refuel stop on a `goTo`, a gather trip; not a freighter, whose hold is its circuit's), it tops
+  resupply when Tired, a refuel stop on a `goTo`, a gather trip; not a freighter, whose hold is its circuit's), it tops
   `fuel_cell`s up to about 5% of the hold once they fall under 1%, bounded by
   `permissions.credit_reserve` like the fuel. A live ask over 1.5× the median ask in the market
   memory is skipped and the reason reported. Selling, stowing and settling leave that reserve
@@ -32,6 +44,24 @@ All notable changes to this plugin are recorded here. The format follows
 
 ### Changed
 
+- The juncture cycle is simpler. There is no shift or rest state: the mood is derived from the
+  ship on every read and never stored (a `mood` left in `pilot.json` is ignored); the stance is
+  optional and only chooses the one career skill a fire carries, and a missing stance refuses
+  nothing; `spacemolt_reflect` sets goal, stance or objective at any time. The juncture runs
+  every 5 minutes, and its gate holds a fire back only while a run is in flight and not paused
+  on a question. The in-fire wakes that cron discarded are gone (`wake_juncture.py` with them).
+  A run is asked to stop at 24 minutes and cut off at 26 inside the bridge; a bridge that boots
+  on an unfinished run closes it as interrupted and re-runs nothing. Only the bridge writes
+  `pilot.json`. Existing juncture jobs are rewritten on the next gateway load.
+- Tired always ends in resupply, without the program asking: the next work call, and the end of
+  every run, service here or fly to the nearest base that services. `service()` buys what the
+  wallet covers, fuel first, rather than refusing the whole bill. Credits under the reserve no
+  longer make the ship Tired, and a Tired ship that cannot afford resupply keeps working to pay
+  for it.
+- Helpers that need a station counter (market, missions, spreads, storage, service) dock
+  themselves when a base is at the ship's POI, and otherwise say where the ship is and which
+  bases the system has. `goTo` says when it ends undocked and why. Lines a program writes with
+  `note()` are marked `✎` in the stream.
 - A trip needs only the fuel its route costs. The mood's fuel reserve (Focused 24, Relaxed and
   Cautious 30, Opportunistic 20, Aggressive 12, Tired 0) is no longer added to travel admission,
   before departure or before the return leg; it is the line under which the runtime imposes
@@ -49,3 +79,9 @@ All notable changes to this plugin are recorded here. The format follows
   longer lists the removed `spacemolt_rest`.
 - Development notes moved out of the root: `VISION.md` and `GAMEPLAY.md` to `docs/`; `TODO.md`,
   `worklog/` and `ported/` to `dev/`.
+
+### Fixed
+
+- `withdraw()` counts each item's cargo size, so a withdrawal the hold cannot take whole moves
+  what fits, shares the room across rows in proportion to their footprint, and reports the rest
+  short, where before the game refused it outright.
