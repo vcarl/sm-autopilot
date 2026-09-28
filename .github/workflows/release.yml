@@ -48,8 +48,24 @@ jobs:
             /^## \[/ { if (found) exit; found = index($0, head) == 1; next }
             found && /^\[[^]]+\]: / { exit }
             found
-          ' CHANGELOG.md > notes.md
-          if ! grep -q '[^[:space:]]' notes.md; then
+          ' CHANGELOG.md > changes.md
+          if ! grep -q '[^[:space:]]' changes.md; then
             echo "::error file=CHANGELOG.md::the '## [$version]' section is missing or empty"; exit 1
           fi
+          # Hermes' --ref takes only a full commit SHA; on a tag push GITHUB_SHA is the tagged commit.
+          {
+            echo '## Install'
+            echo
+            echo 'This release installs as a Hermes plugin, pinned to its commit:'
+            echo
+            echo '```bash'
+            echo "hermes plugins install ${GITHUB_REPOSITORY} --ref ${GITHUB_SHA} --enable"
+            echo '```'
+            echo
+            echo "Then continue with [Setup](${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/blob/${GITHUB_REF_NAME}/README.md#setup) from step 3: the Node dependencies, the game account, and starting the gateway. To upgrade an existing install, add \`--force\` to the command above, run \`npm ci\` in the plugin directory, and restart the gateway."
+            echo
+            echo '## Changes'
+            echo
+            cat changes.md
+          } > notes.md
           gh release create "$GITHUB_REF_NAME" --verify-tag --title "$GITHUB_REF_NAME" --notes-file notes.md
