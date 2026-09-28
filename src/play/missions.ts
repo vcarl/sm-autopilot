@@ -3,7 +3,9 @@
  * anyway, and pay 1,000–3,500 cr plus 20–50 xp. Max 5 active at once (`V2Missions.max_missions`). */
 import type {AbandonMissionResponse,AcceptMissionResponse,ActiveMissionInfo,CompleteMissionResponse,GetMissionsResponse,MissionInfo,ObjectiveProgressInfo,V2Missions} from '@spacemolt/lib';
 import {details} from '../response-details.ts';
-import {acct,admit,checkStop,command,job,pilot,step} from './runtime.ts';
+import {journalRun} from '../run-record.ts';
+import {TICK_MS} from '../sighting-memory.ts';
+import {acct,admit,checkStop,command,job,pilot,runtimeDir,step} from './runtime.ts';
 import {counter} from './counter.ts';
 import {withdraw} from './storage.ts';
 import type {Outcome,Want} from './types.ts';
@@ -29,6 +31,22 @@ function offer(mission:MissionInfo):Offer {
  * the account never had. ponytail: process memory, not account history — after a restart a
  * forgotten id reads as unknown, which is the safe direction. */
 const known=new Set<string>();
+/** Each personal mission last seen active and unexpired, with when its deadline falls. */
+const running=new Map<string,{title:string;due:number}>();
+
+/** A `mission` `expired` line for each mission seen running that is now expired: listed at zero
+ * ticks, or gone once its deadline has passed. Observed on reads the code makes anyway; nothing
+ * is polled. A mission gone before its deadline was turned in or dropped, and says so itself. */
+function noteExpiries(now:ActiveMissionInfo[]):void {
+  const at=Date.now(),runtime=runtimeDir();
+  for(const [id,{title,due}] of running) {
+    const row=now.find(m=>m.mission_id===id);
+    if(row&&!expired(row))continue;
+    running.delete(id);
+    if((row||at>=due)&&runtime)journalRun(runtime,{verb:'expired',mission_id:id,title},'mission');
+  }
+  for(const m of now)if(!m.community&&!expired(m))running.set(m.mission_id,{title:m.title,due:at+m.expires_in_ticks*TICK_MS});
+}
 
 /** Active missions from the state section `get_active_missions` refreshes. */
 export async function active():Promise<V2Missions> {
@@ -38,6 +56,7 @@ export async function active():Promise<V2Missions> {
   const section=reply.missions??(Array.isArray(reply.active)?reply as V2Missions:acct().state.missions as V2Missions|undefined);
   const mine={active:section?.active??[],max_missions:section?.max_missions??5};
   for(const m of mine.active)known.add(m.mission_id);
+  noteExpiries(mine.active);
   return mine;
 }
 
@@ -153,7 +172,11 @@ export function acceptMission(id:string):Promise<Outcome<AcceptMissionResponse>>
     const at=await counter();
     if('refused' in at)return {status:'refused',did:`did not accept ${id}`,why:at.refused,detail:none};
     const mine=await active();
-    if(mine.active.some(m=>m.mission_id===id))return {status:'done',did:`${id} is already active`,detail:none};
+    if(mine.active.some(m=>m.mission_id===id)) {
+      const runtime=runtimeDir();
+      if(runtime)journalRun(runtime,{verb:'already_active',mission_id:id},'mission');
+      return {status:'done',did:`${id} is already active`,detail:none};
+    }
     // Refused here, with nothing sent: the game's own refusal costs a round trip to learn
     // what `missions().detail.slots_free` already said.
     if(!census(mine).free)return {status:'refused',did:`did not accept ${id}`,why:`no slot free: ${mine.active.length} of ${mine.max_missions} missions already active`,detail:none};

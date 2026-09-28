@@ -106,7 +106,7 @@ the pilot's context. Every line has `at` (UTC ISO, `Z`) and `event`.
 - Every line written while a run is bound carries its `run_id`; a freighter's lines carry
   `freighter` instead. Python-written lines (`gate`, `juncture`, `reflection`) never carry `run_id`.
 - `trade` (buy/sell/refuel/repair: `unit_price`, `fills`, and `quote` — the book or posted price the
-  caller held), `mission` (accepted/completed/abandoned), `stranded`, `death`, and `pilot` with `prev`.
+  caller held), `mission` (accepted/completed/abandoned; `already_active` for an accept that sent nothing; `expired` when a mission seen running is next read expired or gone past its deadline), `stranded`, `death`, and `pilot` with `prev`.
 
 Joins: `juncture_id` juncture → run; `run_id` run → everything in it; `job_id` + `at` juncture →
 Hermes' `cron/usage_audit.jsonl` (tokens, LLM time, model).

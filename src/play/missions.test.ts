@@ -2,7 +2,11 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import type {ReadinessAccount} from '../readiness.ts';
 import {bridgeWorld,type WorldOptions} from '../test-support/bridge-world.ts';
-import {abandonMission,completeMissions,missions} from './missions.ts';
+import {mkdtempSync,rmSync} from 'node:fs';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
+import {readJournal} from '../run-record.ts';
+import {abandonMission,acceptMission,completeMissions,missions} from './missions.ts';
 import {bind,unbind,type Pilot} from './runtime.ts';
 
 function world(options:WorldOptions={}) {
@@ -111,4 +115,24 @@ test('abandonMission refuses an id the account never had, and stays idempotent f
     assert.match(out.why!,/never active on this account/);
     assert.equal(f.count('spacemolt/abandon_mission'),1,'nothing was sent for the unknown id');
   } finally {unbind();}
+});
+
+// Live 2026-09-28 (kvothe): an accept of a mission already held read as a plain `done` in the
+// journal, and the Trade Run that expired at 09:47Z left no line at all.
+test('the journal says when an accept found the mission already active, and when one seen active expires',async()=>{
+  const runtime=mkdtempSync(join(tmpdir(),'spacemolt-missions-'));
+  const game=bridgeWorld({services:['refuel','repair','storage'],cargoUsed:0,cargo:[]});
+  bind({account:game.account as unknown as ReadinessAccount,command:game.command,pilot:()=>({mood:'Focused'}),runtime,emit:()=>{}});
+  const events=()=>readJournal(runtime).filter(e=>e.event==='mission').map(e=>[e.verb,e.mission_id]);
+  try {
+    game.taken.push(row({mission_id:'held',title:'Held run'}),row({mission_id:'late',title:'Trade Run',expires_in_ticks:100}));
+    const again=await acceptMission('held');
+    assert.equal(again.status,'done','an accept that already holds is not a refusal');
+    assert.deepEqual(events(),[['already_active','held']]);
+    // Seen active above; now past its deadline, the way `get_active_missions` shows it.
+    game.taken.splice(1,1,row({mission_id:'late',title:'Trade Run',expires_in_ticks:0}));
+    await missions();
+    await missions();
+    assert.deepEqual(events(),[['already_active','held'],['expired','late']],'said once');
+  } finally {unbind();rmSync(runtime,{recursive:true,force:true});}
 });
