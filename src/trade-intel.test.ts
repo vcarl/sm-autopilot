@@ -31,3 +31,18 @@ test('a filing that fails at one base does not stop the next, and is said once',
   assert.deepEqual(sent,['big_base','ok_base','big_base'],'the failed base waits for the next tick, no longer');
   assert.deepEqual(said,['trade intel not filed at big_base: connection dropped']);
 });
+
+// Live 2026-09-28 (kvothe): 152 filings refused `not_in_faction`, one per base per tick.
+test('a pilot with no faction is refused once, and never filed for again',async()=>{
+  const sent:string[]=[],said:string[]=[];
+  const command=async(_action:string,params:Record<string,unknown>)=>{
+    sent.push((params.stations as {base_id:string}[])[0]!.base_id);
+    throw new Error('not_in_faction: You must be in a faction to submit trade intel.');
+  };
+  const account={},book=[row('ore',10,12)];
+  await fileIntel(account,command,'a_base',book,1,text=>said.push(text));
+  await fileIntel(account,command,'b_base',book,1,text=>said.push(text));
+  await fileIntel(account,command,'a_base',book,2,text=>said.push(text));
+  assert.deepEqual(sent,['a_base']);
+  assert.equal(said.length,1);
+});
