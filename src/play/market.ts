@@ -216,7 +216,22 @@ export function sell(items:Want[],opts:{from?:'hold'|'store';floor?:Record<strin
     const said=[...kept.length?[`left in the store: ${kept.map(row=>`${row.item_id} ${row.why}`).join(', ')}`]:[],
       ...already.length?[`nothing to sell: ${already.map(row=>`${row.item_id} not held`).join(', ')}`]:[]].join('; ');
     const why=blocked.map(row=>`${row.item_id}: ${row.why}`).join('; ');
-    const sold=fills.length?`sold ${fills.map(f=>`${f.quantity_sold} ${f.item_id}`).join(', ')} at ${docked} for ${total} cr`
+    // A store sell yields one fill per item per hold-load, so summing by item_id before
+    // joining is what keeps "sold 36 copper_ore, 8 iron_ore, 36 copper_ore, …" from repeating.
+    const byItem=new Map<string,{quantity:number;earned:number}>();
+    for(const f of fills) {
+      const row=byItem.get(f.item_id)??{quantity:0,earned:0};
+      row.quantity+=Number(f.quantity_sold??0);row.earned+=Number(f.total_earned??0);
+      byItem.set(f.item_id,row);
+    }
+    // ponytail: flag a fill under half this book's live best_sell — a simple threshold, not a
+    // ledger; raise it if a real underpriced sale slips past it unflagged.
+    const UNDERPRICE=0.5;
+    const sold=fills.length?`sold ${[...byItem].map(([item_id,{quantity,earned}])=>{
+      const unit=quantity?Math.round(earned/quantity):0;
+      const ask=listed.get(item_id)?.best_sell;
+      return `${quantity} ${item_id}`+(ask&&ask>0&&unit<ask*UNDERPRICE?` at ${unit} (asks ${ask} here)`:'');
+    }).join(', ')} at ${docked} for ${total} cr`
       :blocked.length?`sold nothing at ${docked}`:`nothing to sell at ${docked}`;
     return {status:blocked.length?(fills.length?'partial':'refused'):'done',
       did:said?`${sold}; ${said}`:sold,...why?{why}:{},detail};

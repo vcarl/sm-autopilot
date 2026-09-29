@@ -1,5 +1,6 @@
 /** Mining: out to a belt, ice field or gas cloud, fill the hold, come back, stow, service. */
 import type {SurveySystemResponse,SurveyedPoi,V2CargoItem,ViewStorageResponse} from '@spacemolt/lib';
+import {TravelBlocked} from '../../travel.ts';
 import {gatherJob,type GatherStep} from '../../gather-job.ts';
 import type {MineYieldRow} from '../../mine.ts';
 import {details} from '../../response-details.ts';
@@ -58,14 +59,13 @@ async function storeCount(base:string,item:string):Promise<number> {
  *
  * Mining while docked is refused by the game, so a station POI as `poi` is `refused`.
  * Trains mining (+ deep_core_mining with a power-3+ laser), piloting, navigation. */
-/** How a trip is named in the journal and the run record. `maxTrips` is named only when it is in
- * force, which is only with an `until` target: without one this is a single trip by design (see
- * the note above), so advertising "≤3 trips" on a run that makes exactly one tells a pilot reading
- * its own record that it asked for something it did not get. The live pilot's own index.ts passes
- * `maxTrips` with no `until`, so this was being printed on every gather it ran. */
+/** How a trip is named in the journal and the run record. `maxTrips` bounds trips whether or
+ * not `until` is given (default: 6 with `until`, 1 without), so it is named whenever it was
+ * actually passed — not naming it left a pilot reading its own record unable to see that
+ * `maxTrips:2` with no `until` was honored, not silently dropped to one trip. */
 export const tripLabel=(opts:{poi:string;base?:string;until?:{item:string;quantity:number};
   maxTrips?:number;then?:'stow'|'sell'}):string=>
-  `${opts.poi}${opts.base?` → ${opts.base}`:''}${opts.until?` until ${opts.until.item} ≥ ${opts.until.quantity}`:''}${opts.until&&opts.maxTrips?` ≤${opts.maxTrips} trips`:''}${opts.then==='sell'?' then sell':''}`;
+  `${opts.poi}${opts.base?` → ${opts.base}`:''}${opts.until?` until ${opts.until.item} ≥ ${opts.until.quantity}`:''}${opts.maxTrips?` ≤${opts.maxTrips} trips`:''}${opts.then==='sell'?' then sell':''}`;
 
 export function gatherUntil(opts:{poi:string;base?:string;until?:{item:string;quantity:number};
   maxTrips?:number;then?:'stow'|'sell'}):Promise<Outcome<Gathered>> {
@@ -81,13 +81,18 @@ export function gatherUntil(opts:{poi:string;base?:string;until?:{item:string;qu
     result.base_id=baseId;
     let site,home;
     try {site=await route(opts.poi);home=await route(baseId);}
-    catch(error){return {status:'refused',did:'gathered nothing',why:(error as Error).message,detail:result};}
+    catch(error) {
+      // `route` throws `TravelBlocked` for "not a place"; anything else (a dropped socket, a
+      // real server error) is a failed run, not a refusal the pilot could have avoided.
+      if(!(error instanceof TravelBlocked))throw error;
+      return {status:'refused',did:'gathered nothing',why:error.message,detail:result};
+    }
     if(site.target_poi&&site.target_poi!==opts.poi)return {status:'refused',did:'gathered nothing',why:`${opts.poi} is a base, not a mining site; pass its belt's POI id`,detail:result};
     const ship=acct().state.ship;
     if(ship&&ship.cargo_used>=ship.cargo_capacity)return {status:'refused',did:'gathered nothing',why:'the hold is full; sell(rows) or stow(rows) first',detail:result};
     const plan={home:{system_id:String(home.target_system),poi_id:String(home.target_poi??baseId),base_id:baseId},
       site:{system_id:String(site.target_system),poi_id:opts.poi},mood:who.mood??'Cautious'};
-    const maxTrips=opts.until?opts.maxTrips??6:1;
+    const maxTrips=opts.maxTrips??(opts.until?6:1);
     let lastLine=0,depleted=false;
     const onStep=(done:GatherStep,moved:{yield:MineYieldRow[];deposited?:MineYieldRow[]})=>{
       const extra=done.name==='mine'?`  ${say(moved.yield)}`:done.name==='settle'?`  ${say(moved.deposited??[])}`:'';

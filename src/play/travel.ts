@@ -252,7 +252,12 @@ export function goTo(id:string):Promise<Outcome<Trip>> {
     // to be, and every comparison below is made against that, never against the word.
     let quote:FindRouteResponse,named:string;
     try {({id:named,quote}=await destination(target));}
-    catch(error){return {status:'refused',did:`could not route to ${target}`,why:(error as Error).message,detail:none};}
+    catch(error) {
+      // `destination` throws `TravelBlocked` for "not a place"; anything else is a failed
+      // trip, not a refusal — rethrown so the job wrapper reports it as `failed`, not `refused`.
+      if(!(error instanceof TravelBlocked))throw error;
+      return {status:'refused',did:`could not route to ${target}`,why:error.message,detail:none};
+    }
     const detail=():Trip=>({route:quote,location:acct().state.location as V2Location,jumps:0,docked:false,docked_at:acct().state.location?.docked_at??null});
     // A name was accepted; say which id it was, so the next script can write the id.
     if(named!==target)step(`${target} is ${named}`);
