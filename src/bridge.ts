@@ -16,7 +16,7 @@ import type {ReadinessAccount,ReadinessCommand} from './readiness.ts';
 import {details} from './response-details.ts';
 import {moodNow,resolveWalkAway} from './mood-policy.ts';
 import {stanceMood,type Facts,type StanceName} from './rules-table.ts';
-import {bootJournal,journalCommand,journalRun,readRun} from './run-record.ts';
+import {bootJournal,journalCommand,journalConnection,journalRun,readRun} from './run-record.ts';
 import {startHeartbeat} from './heartbeat.ts';
 import {flushJournalDrain,startJournalDrain} from './journal-webhook.ts';
 import {check as checkPilot,runPilot as defaultRunPilot,type RunResult} from './run.ts';
@@ -448,17 +448,19 @@ async function main() {
   // Every game command goes through here: journalled compactly, whether it took or not.
   const command:ReadinessCommand=async(action,params)=>{
     const [tool,name]=action.split('/');
+    const since=Date.now();
     try {
       const reply=await account.send(tool!,name!,params);
-      journalCommand(runtime,action,params,true,reply);
+      journalCommand(runtime,action,params,true,reply,{ms:Date.now()-since});
       return reply;
     } catch(error) {
-      journalCommand(runtime,action,params,false,error);
+      journalCommand(runtime,action,params,false,error,{ms:Date.now()-since});
       throw error;
     }
   };
   // The pushes, on the one account that outlives every run and every juncture.
   pushJournal(account,runtime);
+  journalConnection(runtime,account);
   const pilotFile=resolve(runtime,'..','pilot.json');
   // The request whose run is in flight gets the stream.
   let streamTo:string|undefined;
