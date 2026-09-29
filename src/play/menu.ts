@@ -34,7 +34,7 @@ export interface RunSummary {fn:string;arg:string;status:Status;credits:number;i
 /** The calls that only read: a run is named for the first call that is not one of these (live
  * 2026-09-28, a buy/craft/sell run was labelled `quote`). */
 const READS=new Set(['orient','scout','missions','prices','storage','shipsForSale','quote','recipes','routes','spreads',
-  'reflection','freighters','freightBoard']);
+  'reflection','freighters','freightBoard','jobs','materials','facilities']);
 /** Worse is bigger: `done` is fine, `failed` is worst. Ranks the four `Status` values so two
  * of them can be compared. */
 const STATUS_RANK:Record<Status,number>={done:0,partial:1,refused:2,failed:3};
@@ -343,7 +343,7 @@ export async function menu(runtime?:string):Promise<Menu> {
   /** The best remembered bid for an item at a base other than here, with its age. Hoisted above
    * the sell rows so a lower local bid can say a better one was seen elsewhere, and reused below
    * for the strand search, which is where this was first written. */
-  const books=knownBooks(runtime);
+  const books=docked&&book?knownBooks(runtime):[];
   const far=(item_id:string)=>bestFarBid(books,item_id,docked,tick);
   /** One sell row's line: the local bid, the local ask when the counter posts one (it is
    * information, not an offer to buy), and a remembered bid elsewhere when it beats the local

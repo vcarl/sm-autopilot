@@ -298,6 +298,21 @@ test('materials walks a two-level tree to its raw leaves, net of what is held',a
   } finally {unbind();}
 });
 
+test('materials lists a shared intermediate before every step that consumes it',async()=>{
+  world({mood:'Focused'});
+  // frame takes plate and a panel; the panel takes plate too. Walk order is frame, plate, panel.
+  useCatalog(async()=>({...CATALOG,recipes:[...CATALOG.recipes,
+    {id:'assemble_hull',name:'Assemble Hull',category:'Components',description:'',crafting_time:1,
+      inputs:[{item_id:'steel_plate',quantity:3}],outputs:[{item_id:'hull_panel',quantity:1}]},
+    {id:'assemble_frame',name:'Assemble Frame',category:'Components',description:'',crafting_time:1,
+      inputs:[{item_id:'steel_plate',quantity:1},{item_id:'hull_panel',quantity:1}],outputs:[{item_id:'frame',quantity:1}]}]}) as unknown as Catalog);
+  try {
+    const out=await materials('frame',1);
+    assert.equal(out.status,'done',out.why);
+    assert.deepEqual(out.detail.steps.map(row=>row.recipe),['refine_steel','assemble_hull','assemble_frame']);
+  } finally {unbind();}
+});
+
 test('the catalog is kept on disk: a 304 answers from it, a failed fetch falls back to it', async()=>{
   const dir=mkdtempSync(join(tmpdir(),'catalog-'));
   const asked:(string|undefined)[]=[];

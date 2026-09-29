@@ -347,7 +347,7 @@ export function supply(recipeId:string,quantity=1,opts:{at?:'workshop'|string;ma
     const bill=offers.reduce((sum,row)=>sum+row.cost,0);
     if(opts.maxSpend!==undefined&&bill>opts.maxSpend)
       return refuse(`buying ${list(offers)} for ${name} costs ${bill} cr, over maxSpend ${opts.maxSpend}`,
-        [`quote('${recipeId}', ${quantity}) prices each input to buy and to sell`]);
+        [`quote('${recipeId}', ${quantity}${opts.at?`, {at:'${opts.at}'}`:''}) prices each input to buy and to sell`]);
 
     let stowed:Row[]=[];
     if(bring.length) {
@@ -420,7 +420,7 @@ export function craft(recipeId:string,quantity=1,opts:{at?:'workshop'|string}={}
     // The escrow this run may already have made is the job sitting in the queue: same recipe,
     // same runs, this base. A different run count is a different order.
     const mine=(await queue()).filter(row=>String(row.base_id??at.base)===at.base),runs=Number(quoted.runs);
-    let running=mine.find(row=>row.recipe===name&&Number(row.runs_total)===runs);
+    let running=mine.find(row=>row.recipe===name&&(row.runs_total===undefined||Number(row.runs_total)===runs));
     let before=await storeRows();
 
     if(!running) {
@@ -564,7 +564,7 @@ export function materials(itemId:string,quantity:number):Promise<Outcome<Materia
     const have:Record<string,number>={...miningInventory(acct().state)};
     if(acct().state.location?.docked_at)for(const row of await storeRows())have[row.item_id]=(have[row.item_id]??0)+row.quantity;
     const pool={...have};
-    const steps=new Map<string,Materials['steps'][number]>(),leaves=new Map<string,Materials['leaves'][number]>();
+    const steps=new Map<string,Materials['steps'][number]>(),depth=new Map<string,number>(),leaves=new Map<string,Materials['leaves'][number]>();
     // ponytail: the first hand-craftable recipe per item (else the first facility one), no
     // cost optimisation; a recipe reached twice rounds its runs up twice. Choose by margin
     // the day a pilot has two real routes to one item.
@@ -580,12 +580,12 @@ export function materials(itemId:string,quantity:number):Promise<Outcome<Materia
       if(need-used<=0)return;
       const runs=Math.ceil((need-used)/(recipe.outputs?.find(out=>out.item_id===item)?.quantity||1));
       const row=steps.get(recipe.id)??{recipe:recipe.id,runs:0,facility_only:!graph.isCraftable(recipe)};
-      row.runs+=runs;steps.set(recipe.id,row);
+      row.runs+=runs;steps.set(recipe.id,row);depth.set(recipe.id,Math.max(depth.get(recipe.id)??0,path.size));
       const deeper=new Set([...path,item]);
       for(const inp of recipe.inputs??[])walk(inp.item_id,(inp.quantity??1)*runs,deeper);
     };
     walk(itemId,quantity,new Set());
-    const detail={steps:[...steps.values()].reverse(),leaves:[...leaves.values()]};
+    const detail={steps:[...steps.values()].sort((a,b)=>depth.get(b.recipe)!-depth.get(a.recipe)!),leaves:[...leaves.values()]};
     const lacking=detail.leaves.filter(row=>row.have<row.need);
     return {status:'done',
       did:`${quantity} ${itemId}: ${detail.steps.length} recipe${detail.steps.length===1?'':'s'}`
