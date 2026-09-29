@@ -249,10 +249,15 @@ def _pending_instruction(record: dict[str, Any]) -> dict[str, Any] | None:
     if not isinstance(said, dict) or not said.get("text"):
         return None
     try:
-        started = json.loads((runtime_dir() / "run.json").read_text()).get("started")
+        run = json.loads((runtime_dir() / "run.json").read_text())
     except (OSError, ValueError):
-        started = None
-    given, ran = _when(said.get("at")), _when(started)
+        run = {}
+    # The juncture's render time, not when the run started: a run can start seconds after an
+    # instruction is written but from a context rendered before it, so the model never saw it
+    # (live 2026-09-29: rendered 13:01:42.83Z, instruction 13:01:43.74Z, run 13:01:51Z). Runs
+    # from before this field existed have none, so `started` stands in for them.
+    rendered = run.get("juncture_at") or run.get("started")
+    given, ran = _when(said.get("at")), _when(rendered)
     return said if not (given and ran and ran >= given) else None
 
 
@@ -348,15 +353,23 @@ def _recent_line(row: dict[str, Any]) -> str:
     if row.get("phase") == "refused":
         first = str((row.get("errors") or ["no reason recorded"])[0]).splitlines()[0][:160]
         return f"{at} run refused at the check, nothing ran: {first}"
-    head = f"{at} run {row.get('outcome')}: {str(row.get('reason') or '')[:120]}"
-    if row.get("why"):
-        head += f": {str(row['why'])[:160]}"
+    # Lead with the work done — the top-level calls and what they gained — and put the
+    # return value after: a run whose gatherUntil made 2,626 cr should say so before it says
+    # how the run ended (live 2026-09-29 mislabelled this, gains buried in the tail).
+    calls = [c for c in (row.get("calls") or []) if isinstance(c, dict) and c.get("fn")]
+    names = ", ".join(dict.fromkeys(str(c["fn"]) for c in calls)) or "no calls"
     work = row.get("work") if isinstance(row.get("work"), dict) else {}
     gained = [f"+{work['credits']:,} cr" if work.get("credits") else "",
               f"{work['items']} items" if work.get("items") else "",
               f"{work['xp']} xp" if work.get("xp") else ""]
-    tail = [f"{row.get('commands') or 0} commands"] + [bit for bit in gained if bit]
-    return f"{head} ({', '.join(tail)})" if row.get("outcome") != "interrupted" else head
+    gained_text = ", ".join(bit for bit in gained if bit) or "nothing gained"
+    ret = f"returned {row.get('outcome')}"
+    if row.get("reason"):
+        ret += f": {str(row['reason'])[:120]}"
+    if row.get("why"):
+        ret += f": {str(row['why'])[:160]}"
+    head = f"{at} {names}: {gained_text}; {ret}"
+    return f"{head} ({row.get('commands') or 0} commands)" if row.get("outcome") != "interrupted" else head
 
 
 def _busy(menu: dict[str, Any]) -> str:
@@ -366,6 +379,17 @@ def _busy(menu: dict[str, Any]) -> str:
                 + question_text(menu["question"]))
     return (f"SpaceMolt juncture. Run in flight: yes — started {_stamp(started)}, in "
             f"{menu.get('fn') or 'pilot'}, {menu.get('commands') or 0} commands so far.")
+
+
+def _skill_text(name: str, value: Any) -> str:
+    """One skill as a fact: ``piloting 9 (1744/2000 xp)`` when the level, xp and next-level xp
+    are all there, else the old bare-number/level rendering unchanged."""
+    if isinstance(value, dict) and isinstance(value.get("level"), (int, float)):
+        xp, need = value.get("xp"), value.get("next_level_xp")
+        if isinstance(xp, (int, float)) and isinstance(need, (int, float)):
+            return f"{name} {value['level']} ({xp}/{need} xp)"
+        return f"{name} {value['level']} (.level)"
+    return f"{name} {value} (.level)"
 
 
 def _situation(menu: dict[str, Any], said: dict[str, Any] | None) -> str:
@@ -406,8 +430,10 @@ def _situation(menu: dict[str, Any], said: dict[str, Any] | None) -> str:
     free = p.get("cargo_free")
     weapons = ", ".join(f"{w.get('id')}" + (f" ({w['loaded']} loaded)" if "loaded" in w else "")
                         for w in p.get("weapons") or []) or "none"
-    # A skill is an object in the library, not a number (playtest 2026-09-22).
-    skills = ", ".join(f"{k} {v} (.level)" for k, v in (p.get("skills") or {}).items()) or "none known"
+    # A skill is an object in the library, not a number (playtest 2026-09-22). The bridge is
+    # moving skills from a bare level to {level, xp, next_level_xp}; render the progress when
+    # it's there and stay correct for the older bare-number/level shape either way.
+    skills = ", ".join(_skill_text(k, v) for k, v in (p.get("skills") or {}).items()) or "none known"
     facts_after = []
     if menu.get("threats"):
         facts_after.append(f"  Fighting here: {', '.join(map(str, menu['threats']))}.")

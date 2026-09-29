@@ -212,7 +212,8 @@ def test_the_recent_runs_are_facts_and_include_a_run_refused_at_the_check(monkey
     earlier report told the pilot to do."""
     _write_journal([
         {"event": "run", "phase": "ended", "outcome": "done", "reason": "sold 276 osmium_ore",
-         "commands": 14, "work": {"credits": 3000, "items": 0, "xp": 5}},
+         "commands": 14, "work": {"credits": 3000, "items": 0, "xp": 5},
+         "calls": [{"fn": "sellAt"}]},
         {"event": "reflection", "stance": "Trader", "goal": "walk a price circuit"},
         {"event": "run", "phase": "refused", "errors": ["tsc: pilot/index.ts(2,5): error TS2339: 'fule'\n    2 | x"]},
         {"event": "run", "phase": "ended", "outcome": "interrupted",
@@ -222,10 +223,11 @@ def test_the_recent_runs_are_facts_and_include_a_run_refused_at_the_check(monkey
     context = _rendered(monkeypatch, _menu(12))
     recent = context.split("Your recent runs (newest last):\n")[1].split("\nSuggested")[0].splitlines()
     assert len(recent) == 4, recent
-    assert recent[0].endswith("run done: sold 276 osmium_ore (14 commands, +3,000 cr, 5 xp)"), recent[0]
+    # The work done leads, ahead of the return value (live 2026-09-29 buried the gains at the tail).
+    assert recent[0].endswith("sellAt: +3,000 cr, 5 xp; returned done: sold 276 osmium_ore (14 commands)"), recent[0]
     assert "reflect: stance Trader, goal 'walk a price circuit'" in recent[1]
     assert "run refused at the check, nothing ran: tsc: pilot/index.ts(2,5): error TS2339: 'fule'" in recent[2]
-    assert "run interrupted" in recent[3]
+    assert "no calls: nothing gained; returned interrupted" in recent[3]
     assert recent[3].endswith(": SpacemoltError: No response to spacemolt/get_active_missions within 15000ms"), recent[3]
 
 
@@ -281,6 +283,16 @@ def test_skills_and_the_walk_away_line_read_as_what_they_are(monkeypatch):
     assert "  Walk-away: break off a fight below hull 94." in _rendered(monkeypatch, menu)
 
 
+def test_a_skill_with_xp_and_next_level_shows_progress_and_a_bare_level_stays_old_style(monkeypatch):
+    """The bridge is moving skills from a bare level to {level, xp, next_level_xp}; the old
+    bare-number shape (and a dict missing the xp fields) must still read as before."""
+    menu = _menu(12)
+    menu["present"]["skills"] = {"piloting": {"level": 9, "xp": 1744, "next_level_xp": 2000},
+                                 "gunnery": {"level": 4}, "weapons": 3}
+    context = _rendered(monkeypatch, menu)
+    assert "Skills: piloting 9 (1744/2000 xp), gunnery 4 (.level), weapons 3 (.level)." in context
+
+
 def test_an_instruction_stands_until_a_run_starts_after_it_and_rendering_writes_nothing(monkeypatch):
     """Delivered once meant moved aside as it rendered, so a fire that failed before running lost
     it (and rendering wrote the record). Now it stands until a run starts after it was given."""
@@ -292,6 +304,28 @@ def test_an_instruction_stands_until_a_run_starts_after_it_and_rendering_writes_
     assert service.pilot_path().read_bytes() == before
     (service.runtime_dir() / "run.json").write_text(
         json.dumps({"script": "index.ts", "started": "2026-09-23T04:00:00Z", "ended": True}))
+    assert "stay in Sol tonight" not in _rendered(monkeypatch, _menu(12))
+
+
+def test_a_run_from_a_context_rendered_before_the_instruction_never_consumes_it(monkeypatch):
+    """Live 2026-09-29: context rendered 13:01:42.83Z, the instruction written 13:01:43.74Z, a
+    run from that same juncture started 13:01:51Z — the model never saw it, but the old check
+    (run started after the instruction) called it consumed. ``juncture_at`` is the run's
+    context render time, and that is what must be after the instruction to consume it."""
+    _seed({"name": "kvothe", "instruction": {"text": "stay in Sol tonight", "at": "2026-09-23T13:01:43.74Z"}})
+    service.runtime_dir().mkdir(parents=True, exist_ok=True)
+    (service.runtime_dir() / "run.json").write_text(json.dumps(
+        {"script": "index.ts", "juncture_at": "2026-09-23T13:01:42.83Z",
+         "started": "2026-09-23T13:01:51Z", "ended": True}))
+    assert "stay in Sol tonight" in _rendered(monkeypatch, _menu(12)), \
+        "the run's juncture render time is before the instruction, so it was never seen"
+    (service.runtime_dir() / "run.json").write_text(json.dumps(
+        {"script": "index.ts", "juncture_at": "2026-09-23T13:01:44.00Z",
+         "started": "2026-09-23T13:01:51Z", "ended": True}))
+    assert "stay in Sol tonight" not in _rendered(monkeypatch, _menu(12))
+    # A run written before this field existed falls back to `started`.
+    (service.runtime_dir() / "run.json").write_text(json.dumps(
+        {"script": "index.ts", "started": "2026-09-23T13:01:44.00Z", "ended": True}))
     assert "stay in Sol tonight" not in _rendered(monkeypatch, _menu(12))
 
 

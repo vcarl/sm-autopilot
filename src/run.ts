@@ -195,15 +195,20 @@ const message=(error:unknown)=>error instanceof Error?error.message:String(error
 export async function runPilot(deps:RunDeps):Promise<RunResult> {
   const {runtime}=deps;
   const started=new Date().toISOString(),run_id=randomUUID();
-  const juncture=deps.juncture?.juncture_id?{juncture_id:deps.juncture.juncture_id,
-    since_juncture_s:deps.juncture.at?Math.round((Date.parse(started)-Date.parse(deps.juncture.at))/100)/10:null}:{juncture_id:null};
+  const juncture=deps.juncture?.juncture_id?{juncture_id:deps.juncture.juncture_id,juncture_at:deps.juncture.at??null,
+    since_juncture_s:deps.juncture.at?Math.round((Date.parse(started)-Date.parse(deps.juncture.at))/100)/10:null}:{juncture_id:null,juncture_at:null};
   const gate=await check(runtime);
   keepProgram(runtime,gate.entry,gate.sha);
   if(!gate.ok) {
     journalRun(runtime,{phase:'refused',script:'index.ts',sha:gate.sha,started,run_id,...juncture,errors:gate.errors.slice(0,5)});
     return {accepted:false,reason:`pilot/index.ts is not admissible`,errors:gate.errors,started};
   }
-  const record:RunRecord={script:'index.ts',source:gate.sha,started,ended:false};
+  // `juncture_at` rides along on run.json (not just the journal) so the gate/juncture reader —
+  // a separate process that only ever reads run.json — can tell a run's context render time
+  // from when it started, which is what closes the instruction race (juncture.py's
+  // `_pending_instruction`). Not in `RunRecord`'s own shape; spread so the excess property
+  // check doesn't reject it.
+  const record:RunRecord={script:'index.ts',source:gate.sha,started,ended:false,...deps.juncture?.at?{juncture_at:deps.juncture.at}:{}};
   const save=()=>writeRun(runtime,record);
   save();
   const who=deps.pilot();
