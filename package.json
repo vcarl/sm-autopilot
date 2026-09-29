@@ -3,8 +3,8 @@
     "@spacemolt/lib": "15.1.0"
   },
   "devDependencies": {
-    "@types/node": "24.13.3",
-    "typescript": "5.9.3"
+    "@types/node": "26.6.3",
+    "typescript": "7.0.2"
   },
   "type": "module",
   "scripts": {
