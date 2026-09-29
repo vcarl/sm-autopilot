@@ -234,6 +234,23 @@ test('supply refuses a bill over maxSpend before anything moves',async()=>{
   } finally {unbind();}
 });
 
+test('supply is partial, with a short row and a did rewrite, when this market does not sell an input',async()=>{
+  const f=world({mood:'Focused'},{store:[]});
+  bind({account:f.account as unknown as ReadinessAccount,pilot:()=>f.record(),emit:()=>{},
+    command:async(action,params)=>action==='spacemolt_market/estimate_purchase'
+      ?{structuredContent:{item_id:params.item_id,available:0,total_cost:0,unfilled:Number(params.quantity)}}
+      :f.command(action,params)});
+  try {
+    const out=await supply('refine_steel',2);
+    assert.equal(out.status,'partial');
+    assert.deepEqual(out.detail.short,[{item_id:'iron_ore',have:0,need:5,source:'mining'}]);
+    assert.deepEqual(out.detail.bought,[],'nothing was on offer to buy');
+    assert.match(out.did,/Refine Steel: nothing moved/);
+    assert.match(out.why!,/still short iron_ore 0 of 5 \(mining\)/);
+    assert.equal(mutations(f),0,'no buy, no stow');
+  } finally {unbind();}
+});
+
 test('jobs reads the queue undocked and flags a workshop job away from the ship as paused',async()=>{
   const f=world({mood:'Focused'},{craft:{polls:5}});
   const row={mode:'craft',deliver_to:'storage',runs_total:2,runs_done:1,status:'active',eta_ticks:3};
@@ -247,6 +264,21 @@ test('jobs reads the queue undocked and flags a workshop job away from the ship 
     assert.deepEqual(out.detail.jobs[0],{job_id:'w',recipe:'Refine Steel',base_id:'sol_base',status:'active',
       runs_done:1,runs_total:2,paused:true});
     assert.match(out.did,/1 paused until you dock at sol_base/);
+  } finally {unbind();}
+});
+
+test('jobs reads the typed venue field when a row carries no venue_type',async()=>{
+  // `JobView` types `venue`, not `venue_type`; a live queue row may carry only the former, and
+  // `facility_id` is required (never absent) — so neither of the other two signals can be relied
+  // on alone. A workshop row here still has to read as paused when undocked.
+  const f=world({mood:'Focused'},{craft:{polls:5}});
+  f.queued.push({mode:'craft',deliver_to:'storage',runs_total:1,runs_done:0,status:'active',eta_ticks:3,
+    job_id:'w2',base_id:'sol_base',recipe:'Refine Steel',facility_id:'sol_base_workshop',venue:'Sol Base Workshop'});
+  f.account.server.location.docked_at=null;
+  try {
+    const out=await jobs();
+    assert.equal(out.status,'done',out.why);
+    assert.deepEqual(out.detail.jobs.map(job=>[job.job_id,job.paused]),[['w2',true]]);
   } finally {unbind();}
 });
 

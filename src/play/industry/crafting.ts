@@ -523,7 +523,9 @@ export function jobs():Promise<Outcome<{jobs:Queued[]}>> {
     const docked=acct().state.location?.docked_at??null;
     const rows:Queued[]=(await queue()).map(row=>{
       const venue_type=(row as JobView&{venue_type?:string}).venue_type;
-      const workshop=venue_type?venue_type==='workshop':!row.facility_id;
+      // `JobView` types `venue`, not `venue_type`; a live queue row may carry either (or
+      // neither, if it's stale). Try both spellings before falling back to `facility_id`.
+      const workshop=venue_type?venue_type==='workshop':row.venue?/workshop/i.test(row.venue):!row.facility_id;
       return {job_id:String(row.job_id),recipe:String(row.recipe),...row.base_id?{base_id:row.base_id}:{},
         ...venue_type?{venue_type}:{},status:String(row.status),runs_done:Number(row.runs_done??0),
         runs_total:Number(row.runs_total??0),paused:workshop&&(row.base_id?row.base_id!==docked:!docked)};
