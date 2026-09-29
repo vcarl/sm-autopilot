@@ -35,14 +35,21 @@ export interface RunSummary {fn:string;arg:string;status:Status;credits:number;i
  * 2026-09-28, a buy/craft/sell run was labelled `quote`). */
 const READS=new Set(['orient','scout','missions','prices','storage','shipsForSale','quote','recipes','routes','spreads',
   'reflection','freighters','freightBoard']);
-/** The run that just ended, from the runtime's record of top-level calls. `status` is how the
- * run itself ended, not how its first work call did: a run that went on to end `partial` or
- * `refused` read as `done` here, and the stagnation checks below take their answer from it. */
+/** The run that just ended, from the runtime's record of top-level calls. `status` is the run's
+ * own final status — trusted, UNLESS it is only there because some later top-level call read
+ * that way itself, which is a different call's outcome, not this one's. Live: a `gatherUntil`
+ * that finished `done` was reported `refused`, because the program went on to call
+ * `completeMissions()`, the server refused it, and that refusal became the run's own status —
+ * the work call's own record (`calls`, kept per top-level call) said `done` all along.
+ * An explicit final `outcome()` the program composes itself is not a later call — nothing pushes
+ * one to `calls` — so its verdict still stands over the first work call's mechanical status. */
 export function runSummary(status:Status):RunSummary|null {
   const calls=runCalls(),work=calls.find(c=>!READS.has(c.fn))??calls[0];
   if(!work)return null;
+  const explainedByLater=calls.slice(calls.indexOf(work)+1).some(c=>c.status===status);
   const {location}=acct().state;
-  return {fn:work.fn,arg:work.arg,status,credits:calls.reduce((n,c)=>n+c.credits,0),
+  return {fn:work.fn,arg:work.arg,status:explainedByLater?work.status:status,
+    credits:calls.reduce((n,c)=>n+c.credits,0),
     items:calls.reduce((n,c)=>n+c.items,0),xp:calls.reduce((n,c)=>n+c.xp,0),at:location?.docked_at??location?.poi_id??'?'};
 }
 /** The last `limit` runs, oldest first. */
@@ -74,6 +81,17 @@ export function menuDue(runs:RunSummary[]):string|null {
 }
 
 const attempt=async<T>(read:()=>Promise<T>):Promise<T|undefined>=>{try {return await read();} catch {return undefined;}};
+
+/** Whether Piloting clears a hull class's `piloting_required`, and by how much when it does
+ * not: the line `not_now` names, or null when the class asks nothing this pilot's skill has
+ * not already cleared (including a class that asks nothing at all). */
+export function pilotingGap(required:number|undefined,piloting?:{level:number;xp:number;next_level_xp?:number}):string|null {
+  const need=required??0;
+  if(!need)return null;
+  const have=piloting?.level??0;
+  if(have>=need)return null;
+  return `needs Piloting ${need}, you have ${have}${piloting?` (xp ${piloting.xp}/${piloting.next_level_xp})`:''}`;
+}
 
 /** A trade-run spread, which is the only kind J6 means: buy here at the ask, sell at the best
  * bid a book read on an earlier visit shows, with depth on both ends. The game publishes no
@@ -310,28 +328,43 @@ export async function menu(runtime?:string):Promise<Menu> {
   // Sell what you hold where there is a bid.
   const market=docked?await attempt(async()=>details(await command('spacemolt_market/view_market',{})) as ViewMarketResponse):undefined;
   const book=market&&new Map((market.items??[]).map((row:MarketListingItem)=>[row.item_id,row]));
+  const tick=Number(market?.current_tick??0);
+  /** The best remembered bid for an item at a base other than here, with its age. Hoisted above
+   * the sell rows so a lower local bid can say a better one was seen elsewhere, and reused below
+   * for the strand search, which is where this was first written. */
+  const far=(item_id:string)=>knownBooks(runtime).filter(row=>row.base_id!==docked)
+    .flatMap(row=>row.items.filter(i=>i.item_id===item_id&&i.best_buy>0&&i.best_buy_qty>0)
+      .map(i=>({base_id:row.base_id,best_buy:i.best_buy,best_buy_qty:i.best_buy_qty,age:ticksOld(row.tick,tick)})))
+    .sort((a,b)=>b.best_buy-a.best_buy)[0];
+  /** One sell row's line: the local bid, the local ask when the counter posts one (it is
+   * information, not an offer to buy), and a remembered bid elsewhere when it beats the local
+   * one. Live: the menu named only "bids 1" and never said the counter itself was asking 180 for
+   * the same item, or that another base remembered a better bid. */
+  const sellLine=(item_id:string,quantity:number)=>{
+    const local=book!.get(item_id)!;
+    const ask=local.best_sell>0?`, asks ${local.best_sell} here`:'';
+    const elsewhere=far(item_id);
+    const beats=elsewhere&&elsewhere.best_buy>local.best_buy
+      ?`; ${elsewhere.base_id} bid ${elsewhere.best_buy} ${elsewhere.age} ticks ago`:'';
+    return `${quantity} ${item_id} bids ${local.best_buy}${ask}${beats}`;
+  };
   const hold=(acct().state.cargo??[]).filter(row=>row.quantity>0);
   const bids=hold.filter(row=>(book?.get(row.item_id)?.best_buy??0)>0);
   if(bids.length) {
     const call=`sell(${lit(bids.map(row=>({item_id:row.item_id,quantity:row.quantity})))})`;
-    moves.push({call,why:`${bids.map(row=>`${row.quantity} ${row.item_id} bids ${book!.get(row.item_id)!.best_buy}`).join(', ')} at ${docked}`,advances:'credits'});
+    moves.push({call,why:`${bids.map(row=>sellLine(row.item_id,row.quantity)).join(', ')} at ${docked}`,advances:'credits'});
     if(full)unblocks.add(call);
   }
   const store=docked?await attempt(async()=>details(await command('spacemolt_storage/view',{})) as ViewStorageResponse):undefined;
   const stored=(store?.items??[]).filter(row=>row.quantity>0&&(book?.get(row.item_id)?.best_buy??0)>0);
   if(stored.length)moves.push({call:`sell(${lit(stored.map(row=>({item_id:row.item_id})))}, {from:'store'})`,
-    why:`the store here holds ${stored.map(row=>`${row.quantity} ${row.item_id}`).join(', ')} with a bid`,advances:'credits'});
+    why:`the store here holds ${stored.map(row=>sellLine(row.item_id,row.quantity)).join(', ')}`,advances:'credits'});
   // Goods with no bid here, aboard or in the store here, and a remembered book elsewhere that bids
   // for them: every stance strands ore this way. Live 2026-09-24: 63 units stowed at
   // sirius_observatory_station, which bids for none of them, and no move ever pointed further.
   // `tradeRun({stops:[{at}]})` delivers what is aboard there; a stored row is taken out of the store
   // here first, as the first stop's `buy` with `from:'store'`.
   if(docked&&book) {
-    const tick=Number(market?.current_tick??0);
-    const far=(item_id:string)=>knownBooks(runtime).filter(row=>row.base_id!==docked)
-      .flatMap(row=>row.items.filter(i=>i.item_id===item_id&&i.best_buy>0&&i.best_buy_qty>0)
-        .map(i=>({base_id:row.base_id,best_buy:i.best_buy,best_buy_qty:i.best_buy_qty,age:ticksOld(row.tick,tick)})))
-      .sort((a,b)=>b.best_buy-a.best_buy)[0];
     const strand=[...hold.filter(row=>!bids.includes(row)).map(row=>({...row,from:'hold' as const})),
       ...(store?.items??[]).filter(row=>row.quantity>0&&!((book.get(row.item_id)?.best_buy??0)>0)).map(row=>({...row,from:'store' as const}))];
     const priced=strand.map(row=>({row,buyer:far(row.item_id)})).filter(({row},i,all)=>
@@ -375,9 +408,14 @@ export async function menu(runtime?:string):Promise<Menu> {
   if(ready.length)moves.push({call:'completeMissions()',why:`${ready.length} mission(s) at 100%: ${ready.map(m=>m.title).join(', ')}`,advances:'credits'});
   const free=(mine?.max_missions??5)-active.filter(m=>!m.community&&m.expires_in_ticks>0).length;
   // A full board with nothing completable is a dead end until a slot is freed: name the
-  // mission that cannot be finished from here and the call that drops it.
-  if(free<=0)for(const m of active.filter(row=>!row.community).map(row=>({row,why:stuck(row)})).filter(row=>row.why).slice(0,2))
-    work({call:`abandonMission('${m.row.mission_id}')`,why:`${m.row.title}: ${m.why}; ${active.length} of ${mine?.max_missions??5} active, no slot free`,advances:'objective'});
+  // mission that cannot be finished from here and the call that drops it. It unblocks
+  // acceptMission the way stow unblocks sell, so it ranks first rather than being the row the
+  // 5-row cap cuts.
+  if(free<=0)for(const m of active.filter(row=>!row.community).map(row=>({row,why:stuck(row)})).filter(row=>row.why).slice(0,2)) {
+    const call=`abandonMission('${m.row.mission_id}')`;
+    work({call,why:`${m.row.title}: ${m.why}; ${active.length} of ${mine?.max_missions??5} active, no slot free`,advances:'objective'});
+    unblocks.add(call);
+  }
   if(docked) {
     const board=(await attempt(async()=>(details(await command('spacemolt/get_missions',{})) as GetMissionsResponse).missions))??[];
     const fits=FITS[who.stance??'']??['gatherUntil','goTo'];
@@ -387,11 +425,11 @@ export async function menu(runtime?:string):Promise<Menu> {
         :/kill|hunt|creature|destroy/.test(text)?'hunt':/visit|explore|survey|travel|scout/.test(text)?'goTo':/shipment|package|haul|courier/.test(text)?'haul':/\b(?:trade|sell|buy|market)/.test(text)?'tradeRun':'';
       return {m,fit};
     }).filter(row=>fits.includes(row.fit)).slice(0,2);
-    for(const {m,fit} of fitting) {
-      const move:Move={call:`acceptMission('${m.mission_id}')`,why:`${m.title}, ${m.rewards?.credits??0} cr, fits ${fit}`,advances:'credits'};
-      if(free<=0)not_now.push({move:'acceptMission',why:`no slot free: ${active.length} of ${mine?.max_missions??5} active${ready.length?'':', none completable'}`});
-      else work(move);
-    }
+    // Said once, whatever the board holds: a full board is one fact, not one per fitting mission.
+    if(fitting.length&&free<=0)
+      not_now.push({move:'acceptMission',why:`no slot free: ${active.length} of ${mine?.max_missions??5} active${ready.length?'':', none completable'}`});
+    for(const {m,fit} of fitting)if(free>0)
+      work({call:`acceptMission('${m.mission_id}')`,why:`${m.title}, ${m.rewards?.credits??0} cr, fits ${fit}`,advances:'credits'});
   }
 
   // A Trader's run: buy here at the ask, sell at the far bid the J6 spread names. J6 is the gate;
@@ -522,24 +560,44 @@ export async function menu(runtime?:string):Promise<Menu> {
   const budget=credits-creditReserve;
   if(docked&&facts.place.counters?.includes('Hangar / refit')&&budget>0) {
     const listings=(await attempt(async()=>(details(await command('spacemolt_ship/browse_ships',{max_price:budget})) as {listings?:ShipListing[]}).listings))??[];
-    let best:{listing:ShipListing;klass:ShipClass}|undefined;
+    // What Piloting the pilot has, however the game keys the skill (the map is not necessarily
+    // `piloting`). Live: a Tier 2 listing was offered every juncture and the server refused it
+    // outright — `skill_required: Flying a Tier 2 ship requires Piloting level 10 (you have 9)` —
+    // which `catalogClass.piloting_required` says in advance and costs nothing extra to read.
+    const piloting=Object.entries(now.skills).find(([id,row])=>/pilot/i.test(`${id} ${row.name??''}`))?.[1];
+    let best:{listing:ShipListing;klass:ShipClass}|undefined,gapped:{listing:ShipListing;klass:ShipClass;gap:string}|undefined;
     for(const listing of listings.filter(row=>row.price<=budget).slice(0,3)) {
       const klass=await attempt(()=>catalogClass(listing.class_id));
-      if(klass&&(klass.cargo_capacity??0)>(ship?.cargo_capacity??0)&&(!best||(klass.cargo_capacity??0)>(best.klass.cargo_capacity??0)))best={listing,klass};
+      if(!klass||(klass.cargo_capacity??0)<=(ship?.cargo_capacity??0))continue;
+      const gap=pilotingGap(klass.piloting_required,piloting);
+      if(gap) {
+        if(!gapped||(klass.cargo_capacity??0)>(gapped.klass.cargo_capacity??0))gapped={listing,klass,gap};
+        continue;
+      }
+      if(!best||(klass.cargo_capacity??0)>(best.klass.cargo_capacity??0))best={listing,klass};
     }
     if(best)work({call:`buyShip('${best.listing.listing_id}', {switchTo:true})`,
       why:`${best.klass.name} ${best.listing.price} cr, cargo ${ship?.cargo_capacity}→${best.klass.cargo_capacity}; ${credits} cr less reserve ${creditReserve} covers it`,advances:'ship'});
+    else if(gapped)not_now.push({move:`buyShip('${gapped.listing.listing_id}')`,
+      why:`${gapped.klass.name} ${gapped.listing.price} cr, cargo ${ship?.cargo_capacity}→${gapped.klass.cargo_capacity}; ${gapped.gap}`});
   }
 
-  // Refit: a module in the hold that is not fitted.
+  // Refit: a module in the hold or this base's store that is not fitted. `refit` withdraws a
+  // stored id itself (hangar.ts), so the store's own row is offered directly rather than a
+  // withdraw the pilot would have to paste first. Live: 5 cargo_expander_i sat in the store and
+  // the menu only ever scanned the hold, so the sell move took them instead.
   if(docked) {
     const fitted=(acct().state.modules??[]) as V2Module[];
-    for(const row of hold.filter(r=>!fitted.some(m=>m.type_id===r.item_id)).slice(0,6)) {
+    const candidates=[...hold.filter(r=>!fitted.some(m=>m.type_id===r.item_id)).map(row=>({row,from:'hold' as const})),
+      ...(store?.items??[]).filter(row=>row.quantity>0&&!fitted.some(m=>m.type_id===row.item_id)&&!hold.some(h=>h.item_id===row.item_id))
+        .map(row=>({row,from:'store' as const}))].slice(0,6);
+    for(const {row,from} of candidates) {
       const spec=await attempt(()=>moduleSpec(row.item_id));
       if(!spec)continue;
       const why=whyNotFit(spec,bench());
       if(why)not_now.push({move:`refit({install:['${row.item_id}']})`,why});
-      else moves.push({call:`refit({install:['${row.item_id}']})`,why:`${spec.name} is in the hold and unfitted (${spec.slot} slot free)`,advances:'ship'});
+      else moves.push({call:`refit({install:['${row.item_id}']})`,
+        why:`${spec.name} is ${from==='store'?'in the store here':'in the hold'} and unfitted (${spec.slot} slot free)`,advances:'ship'});
       break;
     }
   }

@@ -9,7 +9,7 @@ import {ABSENCE_STALE,TICK_MS,writeLook} from '../sighting-memory.ts';
 import {journalRun} from '../run-record.ts';
 import {evaluateMenu,jobStop,type Facts} from '../rules-table.ts';
 import {bridgeWorld,TICK,type WorldOptions} from '../test-support/bridge-world.ts';
-import {factsNow,leadCall,menu,menuDue,renderMenu,type RunSummary} from './menu.ts';
+import {factsNow,leadCall,menu,menuDue,pilotingGap,renderMenu,type RunSummary} from './menu.ts';
 import {orient} from './orient.ts';
 import {bind,unbind,type Pilot} from './runtime.ts';
 
@@ -719,5 +719,54 @@ test('a wreck-sale mission is not offered as fitting tradeRun',async()=>{
     const text=JSON.stringify((await menu(f.runtime)).moves);
     assert.ok(!text.includes("acceptMission('w1')"),text);
     assert.ok(text.includes("acceptMission('t1')"),text);
+  } finally {f.close();}
+});
+
+test('pilotingGap names the class asks nothing this pilot has not cleared, and the gap when it has not',()=>{
+  // Live: a Tier 2 listing was offered every juncture and the server refused it outright —
+  // `skill_required: Flying a Tier 2 ship requires Piloting level 10 (you have 9)`.
+  assert.equal(pilotingGap(10,{level:9,xp:1744,next_level_xp:2000}),'needs Piloting 10, you have 9 (xp 1744/2000)');
+  assert.equal(pilotingGap(10,{level:10,xp:0,next_level_xp:5000}),null);
+  assert.equal(pilotingGap(0,{level:0,xp:0,next_level_xp:100}),null,'no requirement is never a gap');
+  assert.equal(pilotingGap(5,undefined),'needs Piloting 5, you have 0');
+});
+
+test('an unfitted module in the store, not the hold, is offered as a refit, not left to be sold',async()=>{
+  // Live 2026-09-28: 5 cargo_expander_i sat in the store here and the menu only ever scanned the
+  // hold, so the sell move took them instead of a refit ever being offered.
+  const record:Pilot={mood:'Focused',stance:'Prospector'};
+  const f=world(record,{cargoUsed:0,store:[{item_id:'cargo_expander_ii',quantity:1}]});
+  try {
+    // An empty board and an already-visited neighbour, so the refit is not crowded off the
+    // five-row cap by the two other generic moves every stance gets.
+    const command:typeof f.command=async(action,params)=>{
+      const res=await f.command(action,params);
+      if(action==='spacemolt/get_missions')(res as any).structuredContent.missions=[];
+      if(action==='spacemolt/get_map'&&params?.system_id==='deep_range')(res as any).structuredContent.visited=true;
+      return res;
+    };
+    bind({account:f.account as unknown as ReadinessAccount,command,pilot:()=>record,runtime:f.runtime,emit:()=>{}});
+    const built=await menu(f.runtime);
+    const refit=built.moves.find(m=>m.call==="refit({install:['cargo_expander_ii']})");
+    assert.ok(refit,`no refit from the store: ${JSON.stringify(built.moves)}`);
+    assert.match(refit!.why,/in the store here/);
+  } finally {f.close();}
+});
+
+test('a stuck abandonMission unblocks acceptMission and ranks onto the menu, and a full board says "no slot free" once',async()=>{
+  const f=world({mood:'Focused',stance:'Prospector',goal:'obtain credits'},{cargoUsed:0});
+  try {
+    // Five active missions, each short of an item nobody is carrying: every slot is stuck, none
+    // completable, none expired.
+    for(let i=0;i<5;i++)f.taken.push({mission_id:`x${i}`,title:`Stuck ${i}`,type:'delivery',difficulty:1,
+      percent_complete:0,expires_in_ticks:500,rewards:{credits:1},
+      objectives:[{item_id:'iron_ore',required:10,current:0,completed:false,description:'iron'}]});
+    const built=await menu(f.runtime);
+    // Ranked onto the menu (not cut by the 5-row cap) because it unblocks acceptMission.
+    assert.ok(built.moves.some(m=>m.call.startsWith('abandonMission(')),JSON.stringify(built.moves));
+    // The default board (m1, m2) both fit a Prospector and neither is active: one "no slot
+    // free" line, not one per fitting mission.
+    const noSlot=built.not_now.filter(row=>row.move==='acceptMission');
+    assert.equal(noSlot.length,1,JSON.stringify(built.not_now));
   } finally {f.close();}
 });
