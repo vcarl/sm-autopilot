@@ -224,13 +224,19 @@ export function sell(items:Want[],opts:{from?:'hold'|'store';floor?:Record<strin
       row.quantity+=Number(f.quantity_sold??0);row.earned+=Number(f.total_earned??0);
       byItem.set(f.item_id,row);
     }
-    // ponytail: flag a fill under half this book's live best_sell — a simple threshold, not a
-    // ledger; raise it if a real underpriced sale slips past it unflagged.
-    const UNDERPRICE=0.5;
+    // The yardstick is a bid, not this book's ask: a sale at the bid is normally well under the
+    // ask, so comparing to the ask fires on ordinary sells in any wide-spread book. A remembered
+    // book elsewhere bidding materially more is the real tell.
+    const MATERIAL=1.5;
+    const farBid=(item_id:string)=>knownBooks().filter(row=>row.base_id!==docked)
+      .flatMap(row=>row.items.filter(i=>i.item_id===item_id&&i.best_buy>0&&i.best_buy_qty>0)
+        .map(i=>({base_id:row.base_id,best_buy:i.best_buy,age:ticksOld(row.tick,read_tick)})))
+      .sort((a,b)=>b.best_buy-a.best_buy)[0];
     const sold=fills.length?`sold ${[...byItem].map(([item_id,{quantity,earned}])=>{
       const unit=quantity?Math.round(earned/quantity):0;
-      const ask=listed.get(item_id)?.best_sell;
-      return `${quantity} ${item_id}`+(ask&&ask>0&&unit<ask*UNDERPRICE?` at ${unit} (asks ${ask} here)`:'');
+      const better=farBid(item_id);
+      return `${quantity} ${item_id}`+(better&&better.best_buy>unit*MATERIAL
+        ?` at ${unit} (${better.base_id} bid ${better.best_buy}, ${better.age} ticks ago)`:'');
     }).join(', ')} at ${docked} for ${total} cr`
       :blocked.length?`sold nothing at ${docked}`:`nothing to sell at ${docked}`;
     return {status:blocked.length?(fills.length?'partial':'refused'):'done',

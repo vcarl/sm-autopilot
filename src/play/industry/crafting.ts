@@ -299,7 +299,8 @@ export interface Supplied {
   bought:Row[];
   /** Inputs the store is still short of after all that, read from the store. */
   short:{item_id:string;have:number;need:number;source:string}[];
-  /** Credits the buys cost, from their `total_cost`. */
+  /** Credits the buys actually cost, wallet before vs after (fee-inclusive; `total_cost` alone
+   * is the pre-tax subtotal). */
   spent:number;
 }
 
@@ -359,7 +360,9 @@ export function supply(recipeId:string,quantity=1,opts:{at?:'workshop'|string;ma
       const got=await buy(row.item_id,row.quantity,{deliverTo:'storage'});
       if(got.detail.bought) {
         bought.push({item_id:row.item_id,quantity:Number(got.detail.bought.quantity??row.quantity)});
-        spent+=Number(got.detail.bought.total_cost??0);
+        // The wallet, not `total_cost`: the reply's cost is the subtotal, and the tax is on top
+        // (see market.ts's `buy`); `cost.credits` is what the runtime measured actually left.
+        spent+=got.cost.credits;
       }
       if(got.status!=='done')whys.push(`${row.item_id}: ${got.why}`);
     }

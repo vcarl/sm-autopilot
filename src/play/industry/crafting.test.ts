@@ -207,13 +207,15 @@ test('supply is done with nothing sent when the store already holds the inputs',
 });
 
 test('supply stows what the hold carries and buys the rest into the store',async()=>{
-  const f=world({mood:'Focused'},{cargoUsed:2,cargo:[{item_id:'iron_ore',quantity:2}],store:[]});
+  const f=world({mood:'Focused'},{cargoUsed:2,cargo:[{item_id:'iron_ore',quantity:2}],store:[],taxBps:500});
   try {
     const out=await supply('refine_steel',2);
     assert.equal(out.status,'done',out.why);
     assert.deepEqual(out.detail.stowed,[{item_id:'iron_ore',quantity:2}]);
     assert.deepEqual(out.detail.bought,[{item_id:'iron_ore',quantity:3}]);
-    assert.equal(out.detail.spent,36,'3 at 12, from the buy');
+    // 3 at 12 = 36 subtotal, +5% tax (floored) = 37: the fee-inclusive wallet delta, not the
+    // reply's pre-tax `total_cost`.
+    assert.equal(out.detail.spent,37,'3 at 12 plus tax, from the wallet');
     assert.equal(f.store.find(row=>row.item_id==='iron_ore')?.quantity,5);
     assert.equal(f.sent.find(call=>call.action==='spacemolt/buy')?.params.deliver_to,'storage');
     const again=await supply('refine_steel',2);
