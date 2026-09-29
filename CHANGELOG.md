@@ -7,6 +7,34 @@ All notable changes to this plugin are recorded here. The format follows
 
 ## [Unreleased]
 
+## [2026.9.2] - 2026-09-29
+
+### Added
+
+- The industry career: `recipes`, `quote`, `supply`, `craft`, `jobs`, `materials`, `facilities`
+  and `buildFacility`. A craft quotes the whole order at the bench it names, stocks the store,
+  escrows once, waits out the queue and settles on the store delta. `materials` walks a recipe
+  to its raw inputs, `jobs` reads the queue from anywhere, and a pilot can build a facility of
+  its own. The base README names these calls, so a pilot that does not carry the industry skill
+  uses them instead of raw commands.
+- The juncture's Present line shows each skill's xp toward its next level.
+
+### Fixed
+
+- An operator instruction given after the juncture rendered was consumed by a run from that
+  same juncture, so the model never saw it. A run now records when its context was rendered
+  (`juncture_at`), and only a run from a context shown after the instruction consumes it.
+- Recent runs lead with the work done and what it earned; the program's return value comes
+  after. A paying run that returned a refusal no longer reads as a failure.
+- The menu no longer offers a ship the pilot's Piloting cannot fly; it names the gap under
+  "not now". It offers to refit modules sitting in the store, shows the ask and any better
+  remembered bid on sell rows, and ranks `abandonMission` first when every slot is stuck.
+- A sell summarises its fills by item and names a better bid remembered elsewhere.
+- `gatherUntil({maxTrips})` makes that many trips without `until`.
+- A dropped connection during `goTo`, `gatherUntil`, `hunt` or `freightBoard` is reported as
+  `failed`, not as a refusal or a skipped stop.
+- A run summary keeps a working call's own status when a later call's refusal ended the run.
+
 ## [2026.9.1] - 2026-09-29
 
 ### Fixed
