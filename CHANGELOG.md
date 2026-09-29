@@ -7,6 +7,26 @@ All notable changes to this plugin are recorded here. The format follows
 
 ## [Unreleased]
 
+## [2026.9.1] - 2026-09-29
+
+### Fixed
+
+- `account().commands.<tool>.<action>(params)` sends its params as the payload. The lib binds a
+  no-param action (salvage `quote`/`sell`/`scrap`/`insure`, market `analyze_market`, …) as
+  `(requestId)`, so a pilot's params became the request id and the call timed out. Every raw
+  command now goes through the runtime: journalled, and ridden through a reconnect.
+- An unawaited promise or a throw in the pilot's program fails its run with the error as `why`,
+  instead of taking the bridge down. A run the bridge died under is closed `interrupted` with the
+  dead bridge's last error, and the juncture's recent runs show it.
+- Tired resupply names the bases in `places.json`, nearest by route first, where it once looked
+  only for docks in the journal and found none. When resupply still finds no base, the work goes
+  on and is journalled, as it already did when resupply was unaffordable: Tired no longer gates
+  work.
+- The juncture's `walk_away` is the stance's line, not Tired's.
+- A mission to sell a wreck at a salvage yard is no longer offered as fitting `tradeRun`; the
+  combat README names the way to sell one.
+- `hunt` hints name this system's real POI ids instead of `<poi id>` placeholders.
+
 ## [2026.9.0] - 2026-09-28
 
 ### Added
