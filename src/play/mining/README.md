@@ -8,7 +8,7 @@ early. It is also the easiest evening to stagnate in: the same belt, the same tr
 
 | Function | Promise |
 |---|---|
-| `gatherUntil({poi, base?, until?, maxTrips?, then?})` | one trip by default: out, hold full, back, stow, service; `until` loops trips until the store holds enough; `then: 'sell'` sells each take |
+| `gatherUntil({poi, base?, until?, maxTrips?, then?})` | one trip by default: out, hold full, back, stow, service; `maxTrips` alone makes that many trips; `until` loops trips (up to `maxTrips`, 6 by default) until the store holds enough; `then: 'sell'` sells each take |
 | `survey()` | reveal hidden deep-core deposits (not built yet: `account().commands.spacemolt.survey_system()`) |
 
 Use `scout()` from the root to find belts: a POI with `type: asteroid_belt` (or `ice_field`,
@@ -60,7 +60,8 @@ out is: first 2,500–10,000 credits, skills 1–3 in mining, trading and naviga
 4. `gatherUntil({poi})`: out, mine until full, back to the base you left, stow, service. One call
    is one trip of ~15 minutes. `gatherUntil({poi, until: {item, quantity}})` loops trips.
 5. `prices()` then `sell(rows)`. Trading xp scales with credit volume; ore sells for little, refined
-   for 2–40× more (that is the industry career).
+   for 2–40× more: docked where the ore sits, `recipes()` lists what hold + store can make, best
+   margin first, and `craft(id, qty)` with an `id` from its `detail.recipes` makes it.
 6. First purchase at ~2,000 cr: a cargo expander (`buy`, then `refit({install:['cargo_expander_ii']})`),
    named by every guide as the correct first buy — it is only correct if a utility
    slot is free (the play README's "Getting a better ship").
@@ -81,7 +82,7 @@ every two minutes: ticks so far, hold used, what came aboard. A silent run is a 
 
 ## When to reconsider
 
-- A trip yields the same ore your store already has 400 of. Sell it, refine it (industry), or
+- A trip yields the same ore your store already has 400 of. Sell it, refine it (`recipes()`, then `craft()`), or
   change belts.
 - Yield per trip drops: the site is depleting (`ended: 'depleted'`). Move on.
 - The mining skill has passed 5 and the credits per hour are flat: the ceiling is the hull's
