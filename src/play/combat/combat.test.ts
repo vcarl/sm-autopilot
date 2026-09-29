@@ -201,6 +201,23 @@ test('nothing to hunt at a POI is done, not blocked',async()=>{
   } finally {unbind();}
 });
 
+test('hunt fails (does not silently skip the stop) on a real find_route error, e.g. a dropped connection',async()=>{
+  // The per-stop fuel quote in `hunt`'s search loop swallows `TravelBlocked` ("not a place")
+  // and skips that stop; anything else — a socket drop, a real server error — must surface as
+  // `failed` instead of being treated as an unplaceable POI.
+  const game=bridgeWorld({services:['refuel','repair'],wildlife:{creatures:[grazer]}});
+  const command:typeof game.command=async(action,params)=>{
+    if(action==='spacemolt/find_route')throw new Error('cannot send on a closed socket');
+    return game.command(action,params);
+  };
+  bind({account:game.account as unknown as ReadinessAccount,command,pilot:():Pilot=>({mood:'Focused'}),emit:()=>{}});
+  try {
+    const out=await hunt({poi:'belt'});
+    assert.equal(out.status,'failed',JSON.stringify(out));
+    assert.match(out.why!,/cannot send on a closed socket/);
+  } finally {unbind();}
+});
+
 test('a hunt with no species named prefers the quarry an active mission names',async()=>{
   const beltGrazer={creature_id:'c2',species:'belt_grazer',name:'Belt Grazer'};
   // The Molt Grazer is first in the habitat; the mission's own words point at the other one.

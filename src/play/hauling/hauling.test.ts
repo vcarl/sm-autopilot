@@ -36,6 +36,23 @@ test('freightBoard drops the listing the tier will not insure and ranks the rest
   } finally {unbind();}
 });
 
+test('freightBoard fails (does not silently mark unroutable) on a real find_route error, e.g. a dropped connection',async()=>{
+  // `route`'s per-listing fuel quote swallows `TravelBlocked` ("not a place") and marks the
+  // listing unroutable; anything else — a socket drop, a real server error — must surface as
+  // `failed` instead of quietly ranking the listing last.
+  const game=bridgeWorld({services:['refuel','repair','storage'],...hold,shipping:{listings:[cheap]}});
+  const command:typeof game.command=async(action,params)=>{
+    if(action==='spacemolt/find_route')throw new Error('cannot send on a closed socket');
+    return game.command(action,params);
+  };
+  bind({account:game.account as unknown as ReadinessAccount,command,pilot:():Pilot=>({mood:'Focused'}),emit:()=>{}});
+  try {
+    const out=await freightBoard();
+    assert.equal(out.status,'failed',JSON.stringify(out));
+    assert.match(out.why!,/cannot send on a closed socket/);
+  } finally {unbind();}
+});
+
 test('haul refuses on cargo before anything is sent, naming the numbers',async()=>{
   const f=world({mood:'Focused'},{cargoUsed:0,shipping:{listings:[cheap]}});
   try {

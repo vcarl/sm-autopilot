@@ -6,6 +6,7 @@ import {details} from '../../response-details.ts';
 import {acct,admit,checkStop,command,job,pilot,step} from '../runtime.ts';
 import {withdraw} from '../storage.ts';
 import {goTo,route} from '../travel.ts';
+import {TravelBlocked} from '../../travel.ts';
 import type {Outcome} from '../types.ts';
 
 /** The board here, filtered to what you may take and can carry, beside your carrier record. */
@@ -79,7 +80,10 @@ export function freightBoard(opts:{destination?:string;limit?:number}={}):Promis
     for(const row of offered.slice(0,opts.limit??10)) {
       checkStop();
       let fuel=Infinity;
-      try {fuel=Number((await route(row.contract.destination_base_id)).estimated_fuel??0);} catch {/* unroutable: left at Infinity */}
+      // `route` throws `TravelBlocked` for "not a place"; anything else (a dropped socket, a
+      // real server error) is a failed board read, not a listing to quietly mark unroutable.
+      try {fuel=Number((await route(row.contract.destination_base_id)).estimated_fuel??0);}
+      catch(error) {if(!(error instanceof TravelBlocked))throw error;/* unroutable: left at Infinity */}
       rows.push({...row,fuel,reachable:Number.isFinite(fuel)&&fuel<=(ship?.fuel??0),
         fits:PACKAGE_CARGO<=free,liability:liabilityOf(row.contract),
         net:row.contract.base_reward-(Number.isFinite(fuel)?fuel*fuelPrice:0)});

@@ -7,6 +7,7 @@ import {battleEnded} from '../../travel.ts';
 import {active as activeMissions} from '../missions.ts';
 import {acct,admit,checkStop,command,job,pilot,runtimeDir,step,stopped} from '../runtime.ts';
 import {goTo,route} from '../travel.ts';
+import {TravelBlocked} from '../../travel.ts';
 import type {Outcome,Row} from '../types.ts';
 import {readCombat,statsFor,type CombatStats} from '../../combat-memory.ts';
 import {writeLook} from '../../sighting-memory.ts';
@@ -493,7 +494,10 @@ export function hunt(opts:{poi?:string;look?:string[];fights?:number;species?:st
         // search ends there, before a look can start a fight a Tired pilot may not.
         const fuel=Number(acct().state.ship?.fuel??0);
         let quoted=NaN;
-        try {quoted=Number((await route(where)).estimated_fuel);} catch {/* unplaceable below */}
+        // `route` throws `TravelBlocked` for "not a place"; anything else (a dropped socket, a
+        // real server error) is a failed hunt, not a stop to skip past.
+        try {quoted=Number((await route(where)).estimated_fuel);}
+        catch(error) {if(!(error instanceof TravelBlocked))throw error;/* unplaceable below */}
         if(!Number.isFinite(quoted)) {
           // A POI the server cannot place is skipped, not fatal: the rest of the list may be
           // real, and a typo in one id should not end a search that had four good ones.
