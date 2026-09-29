@@ -67,6 +67,7 @@ test('the menu derives the mood from the ship after its reads, writes nothing, a
   const tired=await serveIt()('menu') as any;
   assert.equal(tired.mood,'Tired');
   assert.match(tired.tired_by,/fuel 3 under the Focused reserve 24/);
+  assert.equal(tired.present.walk_away,90,'Tired does not move the line: it is the working mood\'s');
   assert.equal(writes.length,0,'building the menu wrote the record');
 });
 

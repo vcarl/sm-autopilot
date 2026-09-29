@@ -331,8 +331,9 @@ finishes, the fight breaks off, no new fight starts, and the Outcome is `partial
    row by row, checking the hold's room before each send and the hold's contents after it.
 3. What does not fit stays in the wreck and is reported in `detail.left` (`salvage`) — it is
    still there for a second trip until the wreck expires.
-4. Selling and scrapping are the market's. `salvage` never sells, never scraps, and only tows
-   the wreck you name.
+4. `salvage` never sells or scraps, and only tows the wreck you name. To sell one: `salvage({tow})`,
+   go to a base with a salvage yard, then `account().commands.spacemolt_salvage.sell({})` (no params;
+   it sells the wreck in tow).
 
 ## When to reconsider
 

@@ -196,6 +196,8 @@ test('nothing to hunt at a POI is done, not blocked',async()=>{
     assert.deepEqual(out.detail.fights,[]);
     assert.equal(out.detail.ended,'nothing here');
     assert.equal(f.count('spacemolt/hunt'),0,'nothing was engaged');
+    assert.doesNotMatch(out.next.join(),/<another poi id>/,'names real POIs');
+    assert.match(out.next.join(),/look:\['/);
   } finally {unbind();}
 });
 

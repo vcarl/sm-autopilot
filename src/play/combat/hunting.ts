@@ -595,6 +595,10 @@ export function hunt(opts:{poi?:string;look?:string[];fights?:number;species?:st
     /** Every place looked at and what was in it, which is what the search is worth when it
      * found nothing: the pilot can read it and not be sent back to the same rock. */
     const trailSaid=result.looked.map(row=>`${row.poi_id} (${row.saw?`${row.saw} seen, ${row.legal} legal`:'none'})`).join(', ');
+    const seen=new Set([result.poi_id,...result.looked.map(row=>row.poi_id)]);
+    let others:string[]=[];
+    try {others=((details(await command('spacemolt/get_system',{})).system?.pois??[]) as {id:string}[]).map(row=>row.id).filter(id=>!seen.has(id)).slice(0,3);} catch {/* the placeholder wording stands */}
+    const ids=others.length?others.map(id=>`'${id}'`).join(','):`'<poi id>','<and another>'`;
     const prey=species.length?species.join(' or '):(wantPirates?'pirates':'anything huntable');
     // Nothing anywhere, having fought nothing: a fact learned, and `done`, because the looking
     // is the job when the prey's whereabouts are not knowable in advance. One place looked at
@@ -610,13 +614,13 @@ export function hunt(opts:{poi?:string;look?:string[];fights?:number;species?:st
           // NOT `scout()`: with no argument it reports the system the ship is already in — the one
           // just looked at — and it counts creatures only where the ship stands, so it can say
           // nothing about a neighbour's fauna and spends the next juncture saying it.
-          ?[`hunt({look:['<another poi id>','<and another>']}) — scout() already listed this system's POIs, and fauna is not confined to belts`]
+          ?[`hunt({look:[${ids}]}) — scout() already listed this system's POIs, and fauna is not confined to belts`]
           // `{species, look}` was shorthand for two undefined identifiers and did not compile. And
           // only a creature look is written to sighting memory — a pirate sweep writes none — so
           // "remembered" is a claim that only holds for wildlife.
           : [wantPirates
-            ?`hunt({target:'pirate',look:['<poi id>','<poi id>']}) on a different list`
-            :`every one of those is remembered as empty; hunt({look:['<poi id>','<poi id>']}) on a different list, or scout('<neighbour system id>') first`]};
+            ?`hunt({target:'pirate',look:[${ids}]}) on a different list`
+            :`every one of those is remembered as empty; hunt({look:[${ids}]}) on a different list, or scout('<neighbour system id>') first`]};
     }
     if(result.ended==='fuel')
       return {status:result.fights.length?'partial':'refused',
