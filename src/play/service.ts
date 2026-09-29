@@ -1,10 +1,11 @@
 /** The service counter: fuel and hull. Insurance and dues wait for a later slice. */
 import type {GetBaseResponse,SystemPoi} from '@spacemolt/lib';
 import {details} from '../response-details.ts';
-import {journalRun,readJournal} from '../run-record.ts';
+import {journalRun} from '../run-record.ts';
 import {ServiceBlocked,serviceShip} from '../servicing.ts';
 import {acct,burnCells,command,job,line,pilot,runtimeDir,stopped} from './runtime.ts';
 import {counter} from './counter.ts';
+import {readPlaces} from './places.ts';
 import {goTo} from './travel.ts';
 import type {Outcome} from './types.ts';
 
@@ -42,11 +43,9 @@ export interface Elsewhere {call:string;why:string;base:string}
  * not asked at all for a base the journal remembers in another system, whose row says plainly
  * that no price is readable from here. It may also decline in-system, so it is still guarded.
  *
- * ponytail: the candidates are this system's bases plus the ones the journal has docked at. Lib
- * 14.2.0's `get_system()`, `get_poi()` and `get_base()` all take no id (COMMANDS.md 61, 73, 79),
- * so no far system's station list is readable and a base the pilot has never stood at in one is
- * unnameable. Widen it when a read lists a far system's counters — the same reach limit
- * `systemBases` in travel.ts lives with. */
+ * The candidates are this system's bases, else the far ones `places.json` has placed. The journal
+ * was the far list once, read for docks in `response.result`: on the live journal (2026-09-28) that
+ * shape matched nothing, and a Tired pilot one jump from a placed base resupplied "stranded". */
 export async function serviceElsewhere(docked?:string):Promise<Elsewhere[]> {
   const trip=async(id:string):Promise<string>=>{
     try {
@@ -73,25 +72,30 @@ export async function serviceElsewhere(docked?:string):Promise<Elsewhere[]> {
     rows.push({call:`goTo('${row.base_id}')`,base:row.base_id!,
       why:`${row.base_name??row.base_id} in ${system}: ${await trip(row.base_id!)}; ${await posted(row.base_id!,row.fuel_price)}`});
   if(rows.length)return rows;
-  // Nothing else in this system. A base the pilot has stood at is the only far one it can
-  // name at all, so it is named as what it is: seen, with whatever a quote from here says.
-  const runtime=runtimeDir(),seen=new Set<string>();
-  for(const entry of runtime?readJournal(runtime,6_000):[]) {
-    const result=entry.response?.result;
-    const dock=result?.docked_at?.base_id??result?.location?.docked_at??result?.docked_at;
-    if(typeof dock==='string'&&dock&&dock!==docked)seen.add(dock);
+  // Nothing else in this system. A base `places.json` has placed is a far one it can name, so it
+  // is named as what it is — placed, with whatever a route quote from here says — nearest first.
+  // ponytail: one find_route per placed base; cap the quotes if places.json grows large.
+  const runtime=runtimeDir(),far:{base:string;jumps:number;quote:string}[]=[];
+  for(const base of Object.keys(runtime?readPlaces(runtime):{}).filter(base=>base!==docked)) {
+    let quote='no route quote',jumps=Number.MAX_SAFE_INTEGER;
+    try {
+      const route=details(await command('spacemolt/find_route',{id:base}));
+      quote=route.found?`${route.estimated_fuel} fuel, ${route.total_jumps} jump(s)`:'no route from here';
+      if(route.found)jumps=Number(route.total_jumps);
+    } catch {/* unquoted is still nameable */}
+    far.push({base,jumps,quote});
   }
-  for(const base of [...seen].slice(-3))
+  for(const {base,quote} of far.sort((a,b)=>a.jumps-b.jumps).slice(0,3))
     rows.push({call:`goTo('${base}')`,base,
       // No inspect: it is current-system only, so the call could only fail and break nothing usefully.
-      why:`a base this pilot has docked at before: ${await trip(base)}; no price readable from here; unknown until docked`});
+      why:`a base this pilot has placed: ${quote}; no price readable from here; unknown until docked`});
   return rows;
 }
 
 /** The same advice as one line per row, which is the shape an Outcome's `next` takes. */
 const asNext=(rows:Elsewhere[],system:string):string[]=>rows.length
   ?rows.map(row=>`${row.call} — ${row.why}`)
-  :[`no other base in ${system}, and none in the journal: no station's service counter can be read from where you are`];
+  :[`no other base in ${system}, and none placed: no station's service counter can be read from where you are`];
 
 /** Bring the ship up at the counter you are docked at: full tank and full hull.
  *
