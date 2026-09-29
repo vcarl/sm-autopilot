@@ -566,3 +566,26 @@ def test_a_rerender_updates_the_render_time_so_a_run_from_it_consumes_a_late_ins
          "started": "2026-09-23T13:02:00Z", "ended": True}))
     assert "stay in Sol tonight" not in _rendered(monkeypatch, _menu(12)), \
         "a run from the rerendered context consumed the instruction"
+
+
+def test_a_busy_rerender_does_not_advance_the_render_time(monkeypatch):
+    """A rerender while a run is in flight renders ``_busy(menu)``, which carries no instruction
+    (only the non-busy branch builds one). Advancing ``at`` to that rerender anyway would let a
+    later run judge the instruction as already seen, though it was never actually shown."""
+    _seed({"name": "kvothe", "stance": "Trader",
+           "instruction": {"text": "stay in Sol tonight", "at": "2026-09-23T13:01:43.00Z"}})
+    juncture.gate_main()
+    fire = {"platform": "cron", "session_id": "cron_abc123_20260927_101500"}
+    monkeypatch.setattr(service, "call", lambda action, params=None: copy.deepcopy(_menu(12)))
+    first = juncture.juncture_context(fire)
+    assert "stay in Sol tonight" in first
+    first_at = juncture.last_juncture()["at"]
+    busy_menu = {"busy": True, "running": True, "started": "2026-09-27T10:20:00Z",
+                 "fn": "pilot", "commands": 3}
+    monkeypatch.setattr(service, "call", lambda action, params=None: copy.deepcopy(busy_menu))
+    again = juncture.juncture_context(fire)
+    assert "stay in Sol tonight" not in again, "the busy render carries no instruction"
+    rerender, = _journal_rows("juncture_rerender")
+    assert rerender["at"] != first_at, "the journal still logs the rerender's own time"
+    last = juncture.last_juncture()
+    assert last["at"] == first_at, "but the render time on file does not advance"

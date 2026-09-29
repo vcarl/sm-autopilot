@@ -85,8 +85,9 @@ prompt.
 `runtime/../pilot.json`: objective, goal, stance, permissions, instruction. Every field is
 optional — a profile with no record is a pilot with no goal and no stance, and it flies. Written
 only by the bridge's `pilot` request, which `spacemolt_reflect` and `spacemolt_direct` send. An
-instruction stands until a run whose context was rendered after it was given (a rerender counts —
-see `juncture_rerender` below).
+instruction stands until a run whose context was rendered after it was given (a non-busy rerender
+counts — see `juncture_rerender` below; a busy rerender carries no instruction, so it does not
+advance the render time a run is judged against).
 
 ### Telemetry
 

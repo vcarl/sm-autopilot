@@ -191,9 +191,14 @@ def juncture_context(session_info: Mapping[str, Any] | None = None) -> str:
         # rerender already carried it (live 2026-09-29). `since_juncture_s` (src/run.ts) is
         # derived from the same field and so becomes "since the context was last rendered" too,
         # which is the more useful staleness number for a rerendered fire; the first render time
-        # isn't otherwise consumed, so no second field is kept for it.
+        # isn't otherwise consumed, so no second field is kept for it. A busy rerender renders
+        # `_busy(menu)`, which carries no instruction (only the non-busy branch builds one via
+        # `_situation`), so advancing `at` here would let a run started right after silently
+        # drop an instruction written before the rerender but never actually shown (live
+        # 2026-09-29). `at` only advances when this render could have carried it.
         at = _now_iso()
-        _write_juncture({"juncture_id": prior["juncture_id"], "at": at, "session_id": session_id or None})
+        new_at = at if not menu.get("busy") else prior.get("at")
+        _write_juncture({"juncture_id": prior["juncture_id"], "at": new_at, "session_id": session_id or None})
         journal_event("juncture_rerender", at=at, juncture_id=prior["juncture_id"],
                       reason="the session's system prompt was rebuilt mid-fire", **facts)
         return context
