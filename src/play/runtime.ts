@@ -91,7 +91,7 @@ const need=()=>{if(!bound)throw new Error('the play runtime is not bound: only `
 /** Bind the runtime for one run. Resets the stop flag and the counters. */
 export function bind(binding:Binding):void {
   bound=binding;stopFlag=false;commands=0;asking=null;depth=0;started=Date.now();last={fn:'pilot'};calls=[];
-  lastCommandAt=0;pending=null;lastTick=undefined;burning=false;burnFailed=false;broke=false;
+  lastCommandAt=0;pending=null;lastTick=undefined;burning=false;burnFailed=false;short=undefined;
   mark=snapshot();
   stampRun(binding.run_id?{run_id:binding.run_id}:null);
   lastMood=binding.pilot().mood;
@@ -313,15 +313,16 @@ export const progress=()=>({fn:last.fn,step:last.step,commands,elapsed_s:Math.ro
  * (service, stow, sell, going to a base) do not.
  *
  * Tired is not advice: at a call `main()` made itself, the runtime resupplies first (`resupply`)
- * and the work goes on when that cleared it. Inside another helper it only refuses — flying off
- * mid-trade would leave the outer helper at the wrong counter — and the resupply waits for the
- * next top-level call or the run's end. */
+ * and the work goes on: cleared, or journalled when it could not be. Inside another helper it
+ * only refuses — flying off mid-trade would leave the outer helper at the wrong counter — and the
+ * resupply waits for the next top-level call or the run's end. */
 export async function admit(fn:string):Promise<string|null> {
-  if(pilot().mood==='Tired'&&depth===1)broke=await resupply()==='broke';
+  if(pilot().mood==='Tired'&&depth===1){const out=await resupply();short=out==='cleared'?undefined:out;}
   const {mood,tired_by}=pilot();
-  // Credits are what resupply spends: refusing the work that earns them would strand the ship.
-  if(mood==='Tired'&&broke) {
-    line(`${fn}: Tired (${tired_by}), resupply unaffordable: working to pay for it`);
+  // Tired is only the resupply guarantee: when resupply could not keep it, refusing the work
+  // (which earns the credits, or flies where a base may be learned) would strand the ship.
+  if(mood==='Tired'&&short) {
+    line(`${fn}: Tired (${tired_by}), ${short==='broke'?'resupply unaffordable: working to pay for it':'resupply found no base: working on'}`);
     return null;
   }
   if(mood==='Tired')return `${fn} not started: Tired (${tired_by??'a margin crossed'}) and the runtime's resupply did not clear it`;
@@ -463,8 +464,8 @@ export function watchMood():void {
 
 // ---- fuel cells: the reserve aboard, burned before Tired is declared --------------------
 
-/** The last resupply ended short for the wallet, not the route: `admit` lets work earn. */
-let broke=false;
+/** How the last resupply ended short, if it did: `admit` lets the work go on either way. */
+let short:'broke'|'stranded'|undefined;
 let burning=false,burnFailed=false;
 const cellsHeld=()=>(need().account.state.cargo??[]).filter(row=>row.item_id===FUEL_CELL).reduce((n,row)=>n+row.quantity,0);
 /** Tired on fuel, away from a counter, with a cell aboard. Docked, the counter is the refill:

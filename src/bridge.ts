@@ -341,8 +341,8 @@ export function serve(account:ReadinessAccount,command:ReadinessCommand,options:
             .map(row=>({id:row.type_id,...row.current_ammo!==undefined?{loaded:row.current_ammo}:{}})),
           skills:Object.fromEntries(Object.entries(present().skills).map(([id,row])=>[id,row.level])),
           // The hull this mood breaks off a fight at, as `moodNow` computes it: the juncture
-          // cannot reach the D2 table, and a pilot left to guess the line guesses it low.
-          ...ship?.max_hull===undefined?{}:{walk_away:Math.floor(resolveWalkAway(who.mood??'Cautious')*ship.max_hull)}},
+          // cannot reach the D2 table (the stance's working mood, so Tired does not move it), and a pilot left to guess the line guesses it low.
+          ...ship?.max_hull===undefined?{}:{walk_away:Math.floor(resolveWalkAway(stanceMood(who.stance))*ship.max_hull)}},
         ...built,text:renderMenu(built),...runtime?fleetBrief(runtime):{},last:lastOutcome(),
         ...waiting.length?{alerts:waiting.map(({type,key,at,first_at,n,body})=>({type,key,at,first_at,n,body}))}:{},
       };

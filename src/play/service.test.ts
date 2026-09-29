@@ -1,9 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import {mkdtempSync} from 'node:fs';
+import {mkdtempSync,writeFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
-import {journalRun} from '../run-record.ts';
 import type {ReadinessAccount} from '../readiness.ts';
 import {bridgeWorld,derived} from '../test-support/bridge-world.ts';
 import {bind,unbind,type Pilot} from './runtime.ts';
@@ -86,14 +85,14 @@ test('an unpriced repair that eats into the standing reserve is refused by name'
 });
 
 // Nothing above the reserve and no price to quote against: the call is never sent, and the refusal
-// still names somewhere to go — a base the journal remembers, when this system lists no other.
+// still names somewhere to go — a base places.json placed, when this system lists no other.
 test('an unpriced counter is not tried at all with nothing above the reserve',async()=>{
   const game=bridgeWorld({services:['refuel'],cargoUsed:0});
   game.account.server.ship.fuel=game.account.server.ship.max_fuel;
   game.account.server.ship.hull=52;
   game.account.server.player.credits=90;
   const runtime=mkdtempSync(join(tmpdir(),'spacemolt-service-'));
-  journalRun(runtime,{response:{result:{docked_at:{base_id:'range_base'}}}},'request');
+  writeFileSync(join(runtime,'places.json'),JSON.stringify({range_base:'deep_range'}));
   let who:Pilot={mood:'Tired',permissions:{credit_reserve:90}};
   bind({account:game.account as unknown as ReadinessAccount,command:game.command,
     pilot:()=>who,emit:()=>{},runtime});

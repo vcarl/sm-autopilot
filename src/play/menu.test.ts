@@ -703,3 +703,21 @@ test('a ship class the catalogue cannot answer for is asked about once, not on e
     assert.equal(inspects(),1,'and does not ask again');
   } finally {f.close();}
 });
+
+test('a wreck-sale mission is not offered as fitting tradeRun',async()=>{
+  const record:Pilot={mood:'Cautious',stance:'Trader',goal:'obtain credits'};
+  const f=world(record);
+  try {
+    const command:typeof f.command=async(action,params)=>{
+      const res=await f.command(action,params);
+      if(action==='spacemolt/get_missions')(res as any).structuredContent.missions=[
+        {mission_id:'w1',title:'Wreck sale',type:'sell',difficulty:1,objectives:[{description:'Sell 1 wreck at a salvage yard'}],rewards:{credits:9}},
+        {mission_id:'t1',title:'Sell ore',type:'sell',difficulty:1,objectives:[{description:'Sell 5 ore'}],rewards:{credits:9}}];
+      return res;
+    };
+    bind({account:f.account as unknown as ReadinessAccount,command,pilot:()=>record,runtime:f.runtime,emit:()=>{}});
+    const text=JSON.stringify((await menu(f.runtime)).moves);
+    assert.ok(!text.includes("acceptMission('w1')"),text);
+    assert.ok(text.includes("acceptMission('t1')"),text);
+  } finally {f.close();}
+});

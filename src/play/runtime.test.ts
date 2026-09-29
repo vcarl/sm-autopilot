@@ -639,6 +639,47 @@ test('Tired and broke at a counter: the work goes on, journalled, and resupply i
   } finally {unbind();rmSync(runtime,{recursive:true,force:true});}
 });
 
+// Live, 2026-09-28: Tired in Horizon (no base), one jump from a base places.json had placed. The far
+// fallback read only journalled docks, found none, and resupply journalled "stranded".
+test('Tired in a system with no base: resupply flies to a base places.json placed, and the work goes on',async()=>{
+  const f=world({},['refuel','repair','storage'],{systems:[{id:'drift',connections:['sol'],pois:[{id:'void'}]}]});
+  const runtime=mkdtempSync(join(tmpdir(),'spacemolt-placed-'));
+  writeFileSync(join(runtime,'places.json'),JSON.stringify({sol_base:'sol'}));
+  bind({account:f.account as unknown as ReadinessAccount,command:f.command,runtime,emit:()=>{},
+    pilot:()=>flying({stance:'Prospector',permissions:{credit_reserve:0}},f.account.state as never)});
+  try {
+    f.account.server.location={system_id:'drift',poi_id:'void',docked_at:null,in_transit:false};
+    f.account.server.ship.fuel=20;
+    await f.account.refresh();
+    const out=await job('work','',async()=>({status:'done' as const,did:String(await admit('gatherUntil')),detail:{}}));
+    assert.equal(out.did,'null','the work was admitted');
+    assert.equal(pilot().mood,'Focused');
+    assert.equal(f.account.server.location.docked_at,'sol_base');
+    assert.ok(!readJournal(runtime).some(entry=>entry.event==='stranded'),'resupply named the placed base');
+  } finally {unbind();rmSync(runtime,{recursive:true,force:true});}
+});
+
+// Tired exists to guarantee resupply, not to gate work: a resupply with no base to name is
+// journalled, and the work goes on as it does when the wallet is short.
+test('Tired with no base resupply can name: the work goes on, journalled stranded',async()=>{
+  const f=world({},['refuel','repair','storage'],{systems:[{id:'drift',connections:['sol'],pois:[{id:'void'}]}]});
+  const runtime=mkdtempSync(join(tmpdir(),'spacemolt-stranded-'));
+  bind({account:f.account as unknown as ReadinessAccount,command:f.command,runtime,emit:()=>{},
+    pilot:()=>flying({stance:'Prospector',permissions:{credit_reserve:0}},f.account.state as never)});
+  try {
+    f.account.server.location={system_id:'drift',poi_id:'void',docked_at:null,in_transit:false};
+    f.account.server.ship.fuel=20;
+    await f.account.refresh();
+    const out=await job('work','',async()=>({status:'done' as const,did:String(await admit('gatherUntil')),detail:{}}));
+    assert.equal(out.did,'null','the work was admitted');
+    assert.equal(pilot().mood,'Tired');
+    const journal=readJournal(runtime);
+    assert.ok(journal.some(entry=>entry.event==='stranded'));
+    const said=journal.filter(entry=>entry.event==='line').map(entry=>String(entry.text));
+    assert.ok(said.some(text=>/resupply found no base: working on/.test(text)),said.join('\n'));
+  } finally {unbind();rmSync(runtime,{recursive:true,force:true});}
+});
+
 test('account().commands sends params as the payload, even to an action the lib binds bare',async()=>{
   const sent:[string,unknown][]=[];
   bind({account:{state:{}} as unknown as ReadinessAccount,emit:()=>{},pilot:()=>({}) as Pilot,

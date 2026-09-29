@@ -383,7 +383,7 @@ export async function menu(runtime?:string):Promise<Menu> {
     const fits=FITS[who.stance??'']??['gatherUntil','goTo'];
     const fitting=board.filter(m=>!active.some(a=>a.mission_id===m.mission_id)).map(m=>{
       const text=`${m.type} ${(m.objectives??[]).map(o=>o.description??'').join(' ')}`.toLowerCase();
-      const fit=/mine|ore|gather|deliver/.test(text)&&(m.objectives??[]).some(o=>o.item_id)?'gatherUntil'
+      const fit=/wreck|salvage yard/.test(text)?'':/mine|ore|gather|deliver/.test(text)&&(m.objectives??[]).some(o=>o.item_id)?'gatherUntil'
         :/kill|hunt|creature|destroy/.test(text)?'hunt':/visit|explore|survey|travel|scout/.test(text)?'goTo':/shipment|package|haul|courier/.test(text)?'haul':/\b(?:trade|sell|buy|market)/.test(text)?'tradeRun':'';
       return {m,fit};
     }).filter(row=>fits.includes(row.fit)).slice(0,2);
