@@ -276,7 +276,7 @@ def test_the_situation_renders_only_the_permissions_the_code_knows(monkeypatch):
 
 def test_skills_and_the_walk_away_line_read_as_what_they_are(monkeypatch):
     context = _rendered(monkeypatch, _menu(12))
-    assert "Skills: weapons 3 (.level), gunnery 1 (.level), tactics 2 (.level)." in context
+    assert "Skills: weapons 3, gunnery 1, tactics 2." in context, context
     assert "Walk-away" not in context
     menu = _menu(12)
     menu["present"]["walk_away"] = 94
@@ -285,12 +285,15 @@ def test_skills_and_the_walk_away_line_read_as_what_they_are(monkeypatch):
 
 def test_a_skill_with_xp_and_next_level_shows_progress_and_a_bare_level_stays_old_style(monkeypatch):
     """The bridge is moving skills from a bare level to {level, xp, next_level_xp}; the old
-    bare-number shape (and a dict missing the xp fields) must still read as before."""
+    bare-number shape (and a dict missing the xp fields) must still read as before. Playtest
+    2026-09-22: the pilot treated skills as bare numbers in its programs, so the object shape
+    carries one trailing hint on the line (not per skill) saying to read `.level`."""
     menu = _menu(12)
     menu["present"]["skills"] = {"piloting": {"level": 9, "xp": 1744, "next_level_xp": 2000},
                                  "gunnery": {"level": 4}, "weapons": 3}
     context = _rendered(monkeypatch, menu)
-    assert "Skills: piloting 9 (1744/2000 xp), gunnery 4 (.level), weapons 3 (.level)." in context
+    assert ("Skills: piloting 9 (1744/2000 xp), gunnery 4, weapons 3 "
+            "(each is {level, xp, next_level_xp}; read .level)." in context), context
 
 
 def test_an_instruction_stands_until_a_run_starts_after_it_and_rendering_writes_nothing(monkeypatch):
@@ -533,6 +536,33 @@ def test_a_rerender_within_the_same_fire_keeps_its_juncture(monkeypatch):
     rerender, = _journal_rows("juncture_rerender")
     assert rerender["juncture_id"] == row["juncture_id"] and rerender["session_id"] == fire["session_id"]
     assert rerender["reason"] and rerender["context_sha"]
-    assert juncture.last_juncture() == {"juncture_id": row["juncture_id"], "at": row["at"]}
+    # The juncture id is unchanged, but the recorded render time moves to this rerender: an
+    # instruction the pilot only saw because of the rerender must count as seen by the next run.
+    last = juncture.last_juncture()
+    assert last["juncture_id"] == row["juncture_id"]
+    assert last["at"] == rerender["at"] and last["at"] != row["at"]
     juncture.juncture_context({**fire, "session_id": "cron_abc123_20260927_111500"})
     assert len(_journal_rows("juncture")) == 2
+
+
+def test_a_rerender_updates_the_render_time_so_a_run_from_it_consumes_a_late_instruction(monkeypatch):
+    """Live 2026-09-29: an instruction written after the first render but before a mid-fire
+    rerender reaches the model in the rerendered context, but ``juncture.json``'s ``at`` used to
+    stay at the first render time, so a run from that rerendered context still failed the
+    "rendered after the instruction" check in ``_pending_instruction`` and the instruction was
+    shown again next fire even though the pilot had already seen it."""
+    _seed({"name": "kvothe", "stance": "Trader",
+           "instruction": {"text": "stay in Sol tonight", "at": "2026-09-23T13:01:43.00Z"}})
+    juncture.gate_main()
+    monkeypatch.setattr(service, "call", lambda action, params=None: copy.deepcopy(_menu(12)))
+    fire = {"platform": "cron", "session_id": "cron_abc123_20260927_101500"}
+    first = juncture.juncture_context(fire)
+    assert "stay in Sol tonight" in first, "the instruction predates the first render"
+    again = juncture.juncture_context(fire)
+    assert "stay in Sol tonight" in again, "and the rerender, so the model saw it twice"
+    rendered_at = juncture.last_juncture()["at"]
+    (service.runtime_dir() / "run.json").write_text(json.dumps(
+        {"script": "index.ts", "juncture_at": rendered_at,
+         "started": "2026-09-23T13:02:00Z", "ended": True}))
+    assert "stay in Sol tonight" not in _rendered(monkeypatch, _menu(12)), \
+        "a run from the rerendered context consumed the instruction"

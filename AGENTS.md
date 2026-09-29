@@ -85,7 +85,8 @@ prompt.
 `runtime/../pilot.json`: objective, goal, stance, permissions, instruction. Every field is
 optional — a profile with no record is a pilot with no goal and no stance, and it flies. Written
 only by the bridge's `pilot` request, which `spacemolt_reflect` and `spacemolt_direct` send. An
-instruction stands until a run starts after it was given.
+instruction stands until a run whose context was rendered after it was given (a rerender counts —
+see `juncture_rerender` below).
 
 ### Telemetry
 
@@ -99,6 +100,9 @@ the pilot's context. Every line has `at` (UTC ISO, `Z`) and `event`.
   `runtime/juncture.json`; `spacemolt_run` sends it as the run request's `juncture` param.
 - `juncture_rerender`: the same session rendered the context again (Hermes rebuilt the system
   prompt on compression). Same `juncture_id`, the fresh `context_sha`/`context`, and a `reason`.
+  `runtime/juncture.json`'s `at` moves to this render's time (an instruction the pilot sees only
+  because of the rerender must count as seen), which also shifts `since_juncture_s` on the next
+  run to mean "since this render," not the fire's first one.
 - `run` `started`: `run_id`, `juncture_id`, `juncture_at` (when that context was rendered; also on `run.json`), `since_juncture_s`, `code_sha`, `sources`, `start_state`
   (credits, fuel, hull, cargo, skills, place, active missions — account memory only, no storage).
 - `run` `ended`: `end_state`, `calls` (each top-level call's `cost`, `gained`, `started_at`,

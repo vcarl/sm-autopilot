@@ -185,7 +185,16 @@ def juncture_context(session_info: Mapping[str, Any] | None = None) -> str:
     # live 2026-09-28 13:37Z). That is the same fire: same juncture, fresh facts, its own event.
     prior = _read_juncture()
     if session_id and prior and prior.get("session_id") == session_id:
-        journal_event("juncture_rerender", juncture_id=prior["juncture_id"],
+        # The model sees the fresh context from here on, so a run started after this rerender
+        # must be judged against *this* render time, not the fire's first one — otherwise an
+        # instruction written between the two renders is shown again next fire even though this
+        # rerender already carried it (live 2026-09-29). `since_juncture_s` (src/run.ts) is
+        # derived from the same field and so becomes "since the context was last rendered" too,
+        # which is the more useful staleness number for a rerendered fire; the first render time
+        # isn't otherwise consumed, so no second field is kept for it.
+        at = _now_iso()
+        _write_juncture({"juncture_id": prior["juncture_id"], "at": at, "session_id": session_id or None})
+        journal_event("juncture_rerender", at=at, juncture_id=prior["juncture_id"],
                       reason="the session's system prompt was rebuilt mid-fire", **facts)
         return context
     gate = next(reversed(_journal_tail(("gate",))), {})
@@ -388,8 +397,8 @@ def _skill_text(name: str, value: Any) -> str:
         xp, need = value.get("xp"), value.get("next_level_xp")
         if isinstance(xp, (int, float)) and isinstance(need, (int, float)):
             return f"{name} {value['level']} ({xp}/{need} xp)"
-        return f"{name} {value['level']} (.level)"
-    return f"{name} {value} (.level)"
+        return f"{name} {value['level']}"
+    return f"{name} {value}"
 
 
 def _situation(menu: dict[str, Any], said: dict[str, Any] | None) -> str:
@@ -433,11 +442,16 @@ def _situation(menu: dict[str, Any], said: dict[str, Any] | None) -> str:
     # A skill is an object in the library, not a number (playtest 2026-09-22). The bridge is
     # moving skills from a bare level to {level, xp, next_level_xp}; render the progress when
     # it's there and stay correct for the older bare-number/level shape either way.
-    skills = ", ".join(_skill_text(k, v) for k, v in (p.get("skills") or {}).items()) or "none known"
+    skills_map = p.get("skills") or {}
+    skills = ", ".join(_skill_text(k, v) for k, v in skills_map.items()) or "none known"
+    # Playtest 2026-09-22: the pilot treated skills as bare numbers in its programs. Each is an
+    # object ({level, xp, next_level_xp}); say so once here rather than after every skill.
+    skills_hint = " (each is {level, xp, next_level_xp}; read .level)" if any(
+        isinstance(v, dict) for v in skills_map.values()) else ""
     facts_after = []
     if menu.get("threats"):
         facts_after.append(f"  Fighting here: {', '.join(map(str, menu['threats']))}.")
-    facts_after.append(f"  Fitted weapons: {weapons}. Skills: {skills}.")
+    facts_after.append(f"  Fitted weapons: {weapons}. Skills: {skills}{skills_hint}.")
     if p.get("walk_away") is not None:
         facts_after.append(f"  Walk-away: break off a fight below hull {p['walk_away']}.")
 
