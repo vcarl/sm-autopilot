@@ -94,6 +94,22 @@ test('a later call that refused does not stamp its refusal on the work call',asy
   } finally {f.close();}
 });
 
+// A work call that refused (hold full) followed by one that paid off: the run's real ending
+// (`done`) is not worse than the work call's own `refused`, so the run's status wins and the
+// stale refusal is not stamped on a run that actually earned credits.
+test('a paying call after a refused one lifts the summary off the stale refusal',async()=>{
+  const f=harness({cargoUsed:5});
+  try {
+    f.write("import {sell} from 'play';\n"+
+      "export default async function main(){ await sell([]); return sell([{item_id:'ore',quantity:5}]); }\n");
+    const result=await runPilot(f.deps);
+    assert.equal(result.status,'done');
+    const work=readJournal(f.runtime).find(entry=>entry.phase==='ended')!.work;
+    assert.equal(work.fn,'sell');
+    assert.equal(work.status,'done',JSON.stringify(work));
+  } finally {f.close();}
+});
+
 // Live 2026-09-28 (kvothe L6045): a buy/craft/sell run was labelled `quote`, its first call.
 test('the run summary names the first work call, past the reads that planned it',async()=>{
   const f=harness();

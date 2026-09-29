@@ -728,7 +728,8 @@ test('pilotingGap names the class asks nothing this pilot has not cleared, and t
   assert.equal(pilotingGap(10,{level:9,xp:1744,next_level_xp:2000}),'needs Piloting 10, you have 9 (xp 1744/2000)');
   assert.equal(pilotingGap(10,{level:10,xp:0,next_level_xp:5000}),null);
   assert.equal(pilotingGap(0,{level:0,xp:0,next_level_xp:100}),null,'no requirement is never a gap');
-  assert.equal(pilotingGap(5,undefined),'needs Piloting 5, you have 0');
+  // The skill unread (get_skills failed, attempt() swallowed it) is unknown, not 0: no gap.
+  assert.equal(pilotingGap(5,undefined),null,'an unread skill is not a gap');
 });
 
 test('an unfitted module in the store, not the hold, is offered as a refit, not left to be sold',async()=>{

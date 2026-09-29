@@ -35,20 +35,29 @@ export interface RunSummary {fn:string;arg:string;status:Status;credits:number;i
  * 2026-09-28, a buy/craft/sell run was labelled `quote`). */
 const READS=new Set(['orient','scout','missions','prices','storage','shipsForSale','quote','recipes','routes','spreads',
   'reflection','freighters','freightBoard']);
+/** Worse is bigger: `done` is fine, `failed` is worst. Ranks the four `Status` values so two
+ * of them can be compared. */
+const STATUS_RANK:Record<Status,number>={done:0,partial:1,refused:2,failed:3};
+
 /** The run that just ended, from the runtime's record of top-level calls. `status` is the run's
  * own final status — trusted, UNLESS it is only there because some later top-level call read
- * that way itself, which is a different call's outcome, not this one's. Live: a `gatherUntil`
- * that finished `done` was reported `refused`, because the program went on to call
- * `completeMissions()`, the server refused it, and that refusal became the run's own status —
- * the work call's own record (`calls`, kept per top-level call) said `done` all along.
+ * that way itself, which is a different call's outcome, not this one's, AND that later call's
+ * status is worse than the work call's own. Live: a `gatherUntil` that finished `done` was
+ * reported `refused`, because the program went on to call `completeMissions()`, the server
+ * refused it, and that refusal (worse than `done`) became the run's own status — the work call's
+ * own record (`calls`, kept per top-level call) said `done` all along. The reverse also happens:
+ * a `gatherUntil` that came back `refused` (hold full) followed by a `sell` that finished `done`
+ * — the run's `done` is not worse than the work call's `refused`, so the run's status (the real
+ * outcome) wins and the work call is not stamped with its own stale refusal.
  * An explicit final `outcome()` the program composes itself is not a later call — nothing pushes
  * one to `calls` — so its verdict still stands over the first work call's mechanical status. */
 export function runSummary(status:Status):RunSummary|null {
   const calls=runCalls(),work=calls.find(c=>!READS.has(c.fn))??calls[0];
   if(!work)return null;
   const explainedByLater=calls.slice(calls.indexOf(work)+1).some(c=>c.status===status);
+  const keepWork=explainedByLater&&STATUS_RANK[status]>STATUS_RANK[work.status];
   const {location}=acct().state;
-  return {fn:work.fn,arg:work.arg,status:explainedByLater?work.status:status,
+  return {fn:work.fn,arg:work.arg,status:keepWork?work.status:status,
     credits:calls.reduce((n,c)=>n+c.credits,0),
     items:calls.reduce((n,c)=>n+c.items,0),xp:calls.reduce((n,c)=>n+c.xp,0),at:location?.docked_at??location?.poi_id??'?'};
 }
@@ -84,13 +93,15 @@ const attempt=async<T>(read:()=>Promise<T>):Promise<T|undefined>=>{try {return a
 
 /** Whether Piloting clears a hull class's `piloting_required`, and by how much when it does
  * not: the line `not_now` names, or null when the class asks nothing this pilot's skill has
- * not already cleared (including a class that asks nothing at all). */
+ * not already cleared (including a class that asks nothing at all), or when the Piloting skill
+ * itself is unread — `get_skills` failed and `attempt()` swallowed it, so `piloting` is
+ * `undefined` here, not 0; an unknown level is not a gap, it is offered as before. */
 export function pilotingGap(required:number|undefined,piloting?:{level:number;xp:number;next_level_xp?:number}):string|null {
   const need=required??0;
-  if(!need)return null;
-  const have=piloting?.level??0;
+  if(!need||!piloting)return null;
+  const have=piloting.level;
   if(have>=need)return null;
-  return `needs Piloting ${need}, you have ${have}${piloting?.next_level_xp?` (xp ${piloting.xp}/${piloting.next_level_xp})`:''}`;
+  return `needs Piloting ${need}, you have ${have}${piloting.next_level_xp?` (xp ${piloting.xp}/${piloting.next_level_xp})`:''}`;
 }
 
 /** A trade-run spread, which is the only kind J6 means: buy here at the ask, sell at the best
@@ -560,9 +571,9 @@ export async function menu(runtime?:string):Promise<Menu> {
   const budget=credits-creditReserve;
   if(docked&&facts.place.counters?.includes('Hangar / refit')&&budget>0) {
     const listings=(await attempt(async()=>(details(await command('spacemolt_ship/browse_ships',{max_price:budget})) as {listings?:ShipListing[]}).listings))??[];
-    // What Piloting the pilot has, however the game keys the skill (the map is not necessarily
-    // `piloting`). Live: a Tier 2 listing was offered every juncture and the server refused it
-    // outright — `skill_required: Flying a Tier 2 ship requires Piloting level 10 (you have 9)` —
+    // What Piloting the pilot has — the live journal keys the skill `piloting`. Live: a Tier 2
+    // listing was offered every juncture and the server refused it outright —
+    // `skill_required: Flying a Tier 2 ship requires Piloting level 10 (you have 9)` —
     // which `catalogClass.piloting_required` says in advance and costs nothing extra to read.
     const piloting=now.skills.piloting;
     let best:{listing:ShipListing;klass:ShipClass}|undefined,gapped:{listing:ShipListing;klass:ShipClass;gap:string}|undefined;
