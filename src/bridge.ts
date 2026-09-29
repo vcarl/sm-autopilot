@@ -339,7 +339,10 @@ export function serve(account:ReadinessAccount,command:ReadinessCommand,options:
           hold:(account.state.cargo??[]).map(row=>({item_id:String(row.item_id),quantity:row.quantity})),
           weapons:(modules??[]).filter(row=>row.slot==='weapon')
             .map(row=>({id:row.type_id,...row.current_ammo!==undefined?{loaded:row.current_ammo}:{}})),
-          skills:Object.fromEntries(Object.entries(present().skills).map(([id,row])=>[id,row.level])),
+          // The full progress, not just the level: the juncture renders how close a skill is to
+          // its next one, which `level` alone cannot say.
+          skills:Object.fromEntries(Object.entries(present().skills)
+            .map(([id,row])=>[id,{level:row.level,xp:row.xp,next_level_xp:row.next_level_xp}])),
           // The hull this mood breaks off a fight at, as `moodNow` computes it: the juncture
           // cannot reach the D2 table (the stance's working mood, so Tired does not move it), and a pilot left to guess the line guesses it low.
           ...ship?.max_hull===undefined?{}:{walk_away:Math.floor(resolveWalkAway(stanceMood(who.stance))*ship.max_hull)}},
