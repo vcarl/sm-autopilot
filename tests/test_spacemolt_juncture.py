@@ -216,7 +216,8 @@ def test_the_recent_runs_are_facts_and_include_a_run_refused_at_the_check(monkey
         {"event": "reflection", "stance": "Trader", "goal": "walk a price circuit"},
         {"event": "run", "phase": "refused", "errors": ["tsc: pilot/index.ts(2,5): error TS2339: 'fule'\n    2 | x"]},
         {"event": "run", "phase": "ended", "outcome": "interrupted",
-         "reason": "the bridge ended while this run was in flight; nothing was re-run"},
+         "reason": "the bridge ended while this run was in flight; nothing was re-run",
+         "why": "SpacemoltError: No response to spacemolt/get_active_missions within 15000ms"},
     ])
     context = _rendered(monkeypatch, _menu(12))
     recent = context.split("Your recent runs (newest last):\n")[1].split("\nSuggested")[0].splitlines()
@@ -225,6 +226,7 @@ def test_the_recent_runs_are_facts_and_include_a_run_refused_at_the_check(monkey
     assert "reflect: stance Trader, goal 'walk a price circuit'" in recent[1]
     assert "run refused at the check, nothing ran: tsc: pilot/index.ts(2,5): error TS2339: 'fule'" in recent[2]
     assert "run interrupted" in recent[3]
+    assert recent[3].endswith(": SpacemoltError: No response to spacemolt/get_active_missions within 15000ms"), recent[3]
 
 
 def test_a_full_hold_out_in_the_open_is_offered_the_move_that_works(monkeypatch):

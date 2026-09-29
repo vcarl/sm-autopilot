@@ -226,11 +226,20 @@ export async function runPilot(deps:RunDeps):Promise<RunResult> {
         `it did not stop within ${Math.round(grace/1000)}s of being asked`));
     },cap+grace));
   });
+  // A promise the program left unawaited, or a throw from one of its callbacks, would otherwise
+  // take the whole bridge down and the run's cause with it: it ends this run `failed` instead.
+  // Listened only while the program runs, so outside a run the process behaves as it always has.
+  let crashed=(_error:unknown)=>{};
+  const broke=new Promise<never>((_,reject)=>{crashed=reject;});
+  const onRejection=(error:unknown)=>{stop();crashed(new Error(`unhandled rejection: ${message(error)}`));};
+  const onException=(error:unknown)=>{stop();crashed(new Error(`uncaught exception: ${message(error)}`));};
+  process.on('unhandledRejection',onRejection);
+  process.on('uncaughtException',onException);
   // Left ref'd: a program stuck on a promise has nothing else keeping the process up, and the cap
   // is what ends that run. They are always cleared in the `finally` below.
   let result:Outcome<unknown>;
   try {
-    result=await Promise.race([(async()=>{
+    result=await Promise.race([broke,(async()=>{
       const url=pathToFileURL(gate.entry);
       const loaded=await import(`${url.href}?v=${statSync(gate.entry).mtimeMs}-${gate.sha}`) as {default?:()=>Promise<unknown>};
       if(typeof loaded.default!=='function')throw new Error('pilot/index.ts exports no default function');
@@ -242,7 +251,11 @@ export async function runPilot(deps:RunDeps):Promise<RunResult> {
     // as it is inside any library call: `partial`, not a broken script.
     result=error instanceof Stopped?build('the run was stopped','partial',{},message(error))
       :build('the run broke','failed',{},message(error));
-  } finally {for(const timer of timers)clearTimeout(timer);}
+  } finally {
+    for(const timer of timers)clearTimeout(timer);
+    process.off('unhandledRejection',onRejection);
+    process.off('uncaughtException',onException);
+  }
   // Before the report is rendered, so the fact is in the report rather than after it.
   const held=await closeBattle();
   if(held) {

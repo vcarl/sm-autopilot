@@ -268,15 +268,42 @@ test('a run past its wall-clock cap is asked to stop, then cut off, and the reco
   } finally {f.close();}
 });
 
+test('a promise the program left unawaited ends the run failed with its error, and the process lives',async()=>{
+  const f=harness();
+  // The test runner's own listener would claim the rejection; the bridge has none, so neither may this.
+  const runner=process.listeners('unhandledRejection');
+  process.removeAllListeners('unhandledRejection');
+  try {
+    f.write("export default async function main(){ void Promise.reject(new Error('No response to spacemolt/get_active_missions')); await new Promise(()=>{}); }\n");
+    const result=await runPilot({...f.deps,capMs:5000,graceMs:100});
+    assert.equal(process.listenerCount('unhandledRejection'),0,'outside a run the process is left as it was');
+    for(const fn of runner)process.on('unhandledRejection',fn);
+    assert.equal(result.status,'failed');
+    assert.match(result.why!,/unhandled rejection: No response to spacemolt\/get_active_missions/);
+    const ended=readJournal(f.runtime).find(entry=>entry.phase==='ended')!;
+    assert.equal(ended.outcome,'failed');
+    assert.match(ended.why,/get_active_missions/);
+  } finally {
+    if(!process.listenerCount('unhandledRejection'))for(const fn of runner)process.on('unhandledRejection',fn);
+    f.close();
+  }
+});
+
 test('a run a dead bridge left open is closed as interrupted at boot, and nothing is re-run',()=>{
   const f=harness();
   try {
     writeRun(f.runtime,{script:'index.ts',source:'abc123abc123',started:'2026-09-26T18:00:00.000Z',ended:false});
+    // The dead bridge's log, rotated aside at this boot: its last error line is the cause.
+    writeFileSync(join(f.runtime,'bridge.stderr.2026-09-26T18-05-00Z.log'),
+      "[bridge] booting\n    const timer = setTimeout(() => reject(new SpacemoltError('x')), ms);\n"+
+      "SpacemoltError: No response to spacemolt/get_active_missions within 15000ms\n    at Timeout._onTimeout (lib.js:1:1)\n");
+    writeFileSync(join(f.runtime,'bridge.stderr.log'),'[bridge] booting\n');
     const closed=closeInterrupted(f.runtime);
     assert.equal(closed?.ended,true);
     assert.equal((readRun(f.runtime)!.outcome as any).status,'interrupted');
     const ended=readJournal(f.runtime).find(entry=>entry.phase==='ended')!;
     assert.equal(ended.outcome,'interrupted');
+    assert.equal(ended.why,'SpacemoltError: No response to spacemolt/get_active_missions within 15000ms');
     assert.equal(f.sent.length,0,'nothing was sent to the game');
     assert.equal(closeInterrupted(f.runtime),null,'an ended record is left alone');
   } finally {f.close();}

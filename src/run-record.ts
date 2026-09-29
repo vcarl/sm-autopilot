@@ -41,18 +41,35 @@ export function readRun(runtime:string):RunRecord|null {
   } catch {return null;}
 }
 
-/** A record a dead bridge left un-ended, closed as `interrupted` and journalled; null when there
- * was none. Called at boot, after the controller lock is held, so no live bridge owns the run. */
+/** The last error line the previous bridge wrote to its stderr log: the one the gateway rotated
+ * aside at this boot (`bridge.stderr.<UTC stamp>.log`, newest), then the live log, which a
+ * playtest appends to without rotating.
+ *
+ * ponytail: an appended log spans every boot, so its last error may be an older bridge's; read
+ * from the last boot marker if that ever misleads. */
+export function lastBridgeError(runtime:string):string|undefined {
+  let rotated:string[]=[];
+  try {rotated=readdirSync(runtime).filter(name=>/^bridge\.stderr\..+\.log$/.test(name)).sort().slice(-1);} catch {/* no runtime yet */}
+  const lines=[...rotated,'bridge.stderr.log'].flatMap(name=>{
+    try {return readFileSync(join(runtime,name),'utf8').split('\n');} catch {return [];}
+  });
+  return lines.findLast(line=>/^[A-Za-z]*(Error|Exception)\b/.test(line))?.trim().slice(0,300);
+}
+
+/** A record a dead bridge left un-ended, closed as `interrupted` and journalled, with the dead
+ * bridge's last error as `why` when its log has one; null when there was none. Called at boot,
+ * after the controller lock is held, so no live bridge owns the run. */
 export function closeInterrupted(runtime:string):RunRecord|null {
   const kept=readRun(runtime);
   if(!kept||kept.ended)return null;
   const ended_at=new Date().toISOString();
   const did='the bridge ended while this run was in flight; nothing was re-run';
+  const why=lastBridgeError(runtime);
   const closed:RunRecord={...kept,ended:true,outcome:{...kept.source?{sha:kept.source}:{},started:kept.started,
-    ended:true,ended_at,status:'interrupted',did}};
+    ended:true,ended_at,status:'interrupted',did,...why?{why}:{}}};
   writeRun(runtime,closed);
   journalRun(runtime,{phase:'ended',script:kept.script,...kept.source?{sha:kept.source}:{},started:kept.started,
-    outcome:'interrupted',reason:did});
+    outcome:'interrupted',reason:did,...why?{why}:{}});
   return closed;
 }
 
