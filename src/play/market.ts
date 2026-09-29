@@ -45,6 +45,17 @@ export const LEGACY_AGE=20;
 export const ticksOld=(tick:number|undefined,now:number):number=>
   tick===undefined?LEGACY_AGE:Math.max(0,now-tick);
 
+/** The best remembered bid for an item at a base other than `here`, with its age — the query
+ * `sell`'s did and the menu's sell rows both ran per item against a fresh `knownBooks()` read
+ * (an 8 MB parse each). Callers read `knownBooks()` once and pass the result in. */
+export interface FarBid {base_id:string;best_buy:number;best_buy_qty:number;age:number}
+export function bestFarBid(books:RememberedBook[],item_id:string,here:string|null|undefined,tick:number):FarBid|undefined {
+  return books.filter(row=>row.base_id!==here)
+    .flatMap(row=>row.items.filter(i=>i.item_id===item_id&&i.best_buy>0&&i.best_buy_qty>0)
+      .map(i=>({base_id:row.base_id,best_buy:i.best_buy,best_buy_qty:i.best_buy_qty,age:ticksOld(row.tick,tick)})))
+    .sort((a,b)=>b.best_buy-a.best_buy)[0];
+}
+
 /** The global tick from the last `view_market` reply this process read.
  * ponytail: process-local, and only sound read straight after a `book()` in the same job —
  * which is every consumer. Widen `book()`'s return if that stops being true. */
@@ -228,10 +239,8 @@ export function sell(items:Want[],opts:{from?:'hold'|'store';floor?:Record<strin
     // ask, so comparing to the ask fires on ordinary sells in any wide-spread book. A remembered
     // book elsewhere bidding materially more is the real tell.
     const MATERIAL=1.5;
-    const farBid=(item_id:string)=>knownBooks().filter(row=>row.base_id!==docked)
-      .flatMap(row=>row.items.filter(i=>i.item_id===item_id&&i.best_buy>0&&i.best_buy_qty>0)
-        .map(i=>({base_id:row.base_id,best_buy:i.best_buy,age:ticksOld(row.tick,read_tick)})))
-      .sort((a,b)=>b.best_buy-a.best_buy)[0];
+    const books=knownBooks();
+    const farBid=(item_id:string)=>bestFarBid(books,item_id,docked,read_tick);
     const sold=fills.length?`sold ${[...byItem].map(([item_id,{quantity,earned}])=>{
       const unit=quantity?Math.round(earned/quantity):0;
       const better=farBid(item_id);

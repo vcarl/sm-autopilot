@@ -15,7 +15,7 @@ import {readFleet} from './freighter/host.ts';
 import {PACKAGE_CARGO} from './hauling/freight.ts';
 import {bench,catalogClass,moduleSpec,whyNotFit} from './hangar.ts';
 import {readSightings,recall} from '../sighting-memory.ts';
-import {knownBooks,ticksOld} from './market.ts';
+import {bestFarBid,knownBooks,ticksOld} from './market.ts';
 import {stuck} from './missions.ts';
 import {acct,command,pilot,present,runCalls,type Pilot} from './runtime.ts';
 import {serviceElsewhere} from './service.ts';
@@ -343,10 +343,8 @@ export async function menu(runtime?:string):Promise<Menu> {
   /** The best remembered bid for an item at a base other than here, with its age. Hoisted above
    * the sell rows so a lower local bid can say a better one was seen elsewhere, and reused below
    * for the strand search, which is where this was first written. */
-  const far=(item_id:string)=>knownBooks(runtime).filter(row=>row.base_id!==docked)
-    .flatMap(row=>row.items.filter(i=>i.item_id===item_id&&i.best_buy>0&&i.best_buy_qty>0)
-      .map(i=>({base_id:row.base_id,best_buy:i.best_buy,best_buy_qty:i.best_buy_qty,age:ticksOld(row.tick,tick)})))
-    .sort((a,b)=>b.best_buy-a.best_buy)[0];
+  const books=knownBooks(runtime);
+  const far=(item_id:string)=>bestFarBid(books,item_id,docked,tick);
   /** One sell row's line: the local bid, the local ask when the counter posts one (it is
    * information, not an offer to buy), and a remembered bid elsewhere when it beats the local
    * one. Live: the menu named only "bids 1" and never said the counter itself was asking 180 for
