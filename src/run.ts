@@ -203,12 +203,7 @@ export async function runPilot(deps:RunDeps):Promise<RunResult> {
     journalRun(runtime,{phase:'refused',script:'index.ts',sha:gate.sha,started,run_id,...juncture,errors:gate.errors.slice(0,5)});
     return {accepted:false,reason:`pilot/index.ts is not admissible`,errors:gate.errors,started};
   }
-  // `juncture_at` rides along on run.json (not just the journal) so the gate/juncture reader —
-  // a separate process that only ever reads run.json — can tell a run's context render time
-  // from when it started, which is what closes the instruction race (juncture.py's
-  // `_pending_instruction`). Not in `RunRecord`'s own shape; spread so the excess property
-  // check doesn't reject it.
-  const record:RunRecord={script:'index.ts',source:gate.sha,started,ended:false,...deps.juncture?.at?{juncture_at:deps.juncture.at}:{}};
+  const record:RunRecord={script:'index.ts',source:gate.sha,started,ended:false,juncture_at:deps.juncture?.at};
   const save=()=>writeRun(runtime,record);
   save();
   const who=deps.pilot();

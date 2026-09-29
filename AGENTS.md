@@ -99,7 +99,7 @@ the pilot's context. Every line has `at` (UTC ISO, `Z`) and `event`.
   `runtime/juncture.json`; `spacemolt_run` sends it as the run request's `juncture` param.
 - `juncture_rerender`: the same session rendered the context again (Hermes rebuilt the system
   prompt on compression). Same `juncture_id`, the fresh `context_sha`/`context`, and a `reason`.
-- `run` `started`: `run_id`, `juncture_id`, `since_juncture_s`, `code_sha`, `sources`, `start_state`
+- `run` `started`: `run_id`, `juncture_id`, `juncture_at` (when that context was rendered; also on `run.json`), `since_juncture_s`, `code_sha`, `sources`, `start_state`
   (credits, fuel, hull, cargo, skills, place, active missions — account memory only, no storage).
 - `run` `ended`: `end_state`, `calls` (each top-level call's `cost`, `gained`, `started_at`,
   `seconds`; first 40, `calls_total`).

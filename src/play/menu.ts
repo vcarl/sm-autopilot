@@ -90,7 +90,7 @@ export function pilotingGap(required:number|undefined,piloting?:{level:number;xp
   if(!need)return null;
   const have=piloting?.level??0;
   if(have>=need)return null;
-  return `needs Piloting ${need}, you have ${have}${piloting?` (xp ${piloting.xp}/${piloting.next_level_xp})`:''}`;
+  return `needs Piloting ${need}, you have ${have}${piloting?.next_level_xp?` (xp ${piloting.xp}/${piloting.next_level_xp})`:''}`;
 }
 
 /** A trade-run spread, which is the only kind J6 means: buy here at the ask, sell at the best
@@ -564,7 +564,7 @@ export async function menu(runtime?:string):Promise<Menu> {
     // `piloting`). Live: a Tier 2 listing was offered every juncture and the server refused it
     // outright — `skill_required: Flying a Tier 2 ship requires Piloting level 10 (you have 9)` —
     // which `catalogClass.piloting_required` says in advance and costs nothing extra to read.
-    const piloting=Object.entries(now.skills).find(([id,row])=>/pilot/i.test(`${id} ${row.name??''}`))?.[1];
+    const piloting=now.skills.piloting;
     let best:{listing:ShipListing;klass:ShipClass}|undefined,gapped:{listing:ShipListing;klass:ShipClass;gap:string}|undefined;
     for(const listing of listings.filter(row=>row.price<=budget).slice(0,3)) {
       const klass=await attempt(()=>catalogClass(listing.class_id));

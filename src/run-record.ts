@@ -16,6 +16,9 @@ export interface RunRecord {
   params?:Record<string,unknown>;
   /** The run's identity: no counter, no ids to keep unique across restarts. */
   started:string;
+  /** When the context this run was written from was rendered. An instruction given after it
+   * was never seen, so this run does not consume it (juncture.py's `_pending_instruction`). */
+  juncture_at?:string;
   last_job?:string;
   last_step?:string;
   ended:boolean;

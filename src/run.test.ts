@@ -79,6 +79,21 @@ test('the run summary says how the run ended, not how its first call did',async(
   } finally {f.close();}
 });
 
+// Live 2026-09-29 (kvothe 17:38Z): a paying trip returned completeMissions()'s refusal, and
+// the trip itself was journalled `refused`.
+test('a later call that refused does not stamp its refusal on the work call',async()=>{
+  const f=harness();
+  try {
+    f.write("import {goTo, completeMissions} from 'play';\n"+
+      "export default async function main(){ await goTo('belt'); return completeMissions(); }\n");
+    const result=await runPilot(f.deps);
+    assert.equal(result.status,'refused');
+    const work=readJournal(f.runtime).find(entry=>entry.phase==='ended')!.work;
+    assert.equal(work.fn,'goTo');
+    assert.equal(work.status,'done',JSON.stringify(work));
+  } finally {f.close();}
+});
+
 // Live 2026-09-28 (kvothe L6045): a buy/craft/sell run was labelled `quote`, its first call.
 test('the run summary names the first work call, past the reads that planned it',async()=>{
   const f=harness();
