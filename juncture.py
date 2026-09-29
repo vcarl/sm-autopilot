@@ -371,8 +371,10 @@ def _recent_line(row: dict[str, Any]) -> str:
     # return value after: a run whose gatherUntil made 2,626 cr should say so before it says
     # how the run ended (live 2026-09-29 mislabelled this, gains buried in the tail).
     calls = [c for c in (row.get("calls") or []) if isinstance(c, dict) and c.get("fn")]
-    names = ", ".join(dict.fromkeys(str(c["fn"]) for c in calls)) or "no calls"
     work = row.get("work") if isinstance(row.get("work"), dict) else {}
+    # A row journalled before `calls` existed still names its work call, or just "run".
+    names = ", ".join(dict.fromkeys(str(c["fn"]) for c in calls)) or (
+        "no calls" if "calls" in row else str(work.get("fn") or "run"))
     gained = [f"+{work['credits']:,} cr" if work.get("credits") else "",
               f"{work['items']} items" if work.get("items") else "",
               f"{work['xp']} xp" if work.get("xp") else ""]

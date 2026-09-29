@@ -219,16 +219,20 @@ def test_the_recent_runs_are_facts_and_include_a_run_refused_at_the_check(monkey
         {"event": "run", "phase": "ended", "outcome": "interrupted",
          "reason": "the bridge ended while this run was in flight; nothing was re-run",
          "why": "SpacemoltError: No response to spacemolt/get_active_missions within 15000ms"},
+        # Journalled before runs carried `calls`: its work call still leads.
+        {"event": "run", "phase": "ended", "outcome": "done", "reason": "mined",
+         "work": {"fn": "gatherUntil", "credits": 2626}},
     ])
     context = _rendered(monkeypatch, _menu(12))
     recent = context.split("Your recent runs (newest last):\n")[1].split("\nSuggested")[0].splitlines()
-    assert len(recent) == 4, recent
+    assert len(recent) == 5, recent
     # The work done leads, ahead of the return value (live 2026-09-29 buried the gains at the tail).
     assert recent[0].endswith("sellAt: +3,000 cr, 5 xp; returned done: sold 276 osmium_ore (14 commands)"), recent[0]
     assert "reflect: stance Trader, goal 'walk a price circuit'" in recent[1]
     assert "run refused at the check, nothing ran: tsc: pilot/index.ts(2,5): error TS2339: 'fule'" in recent[2]
-    assert "no calls: nothing gained; returned interrupted" in recent[3]
+    assert "run: nothing gained; returned interrupted" in recent[3]
     assert recent[3].endswith(": SpacemoltError: No response to spacemolt/get_active_missions within 15000ms"), recent[3]
+    assert "gatherUntil: +2,626 cr; returned done: mined" in recent[4], recent[4]
 
 
 def test_a_full_hold_out_in_the_open_is_offered_the_move_that_works(monkeypatch):
