@@ -19,8 +19,7 @@ function world(handlers:FakeCommandHandlers,pilot:Pilot={mood:'Focused'},credits
     return game.send(tool!,name!,params);
   };
   const lines:string[]=[];
-  let who=pilot;
-  bind({account:game as unknown as ReadinessAccount,command,pilot:()=>who,setPilot:next=>{who=next;},emit:text=>lines.push(text)});
+  bind({account:game as unknown as ReadinessAccount,command,pilot:()=>pilot,emit:text=>lines.push(text)});
   return {game,lines};
 }
 

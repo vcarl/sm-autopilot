@@ -106,7 +106,7 @@ export function buildFacility(type:string):Promise<Outcome<Built>> {
   return job<Built>('buildFacility',type,async()=>{
     const none={facility_id:'',rent_per_cycle:0};
     const refuse=(why:string,next:string[]=[])=>({status:'refused' as const,did:`did not build ${type}`,why,detail:none,next});
-    const blocked=admit('buildFacility');
+    const blocked=await admit('buildFacility');
     if(blocked)return refuse(blocked);
 
     const docked=acct().state.location?.docked_at;

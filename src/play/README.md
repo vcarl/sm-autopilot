@@ -148,8 +148,7 @@ no `quantity` for all of it — a non-finite `quantity` is refused) and never de
 (`{item_id, quantity?}`); `Row` — what `gained.items` and `detail.settled` hand back — requires
 `quantity`. Annotate a list you build yourself `Want[]`, or nothing at all: a `Row[]` annotation
 is what makes `{item_id: 'carbon_ore'}` an error. Some career functions are not built yet and throw
-`unimplemented`: `survey`, `exploreNearby`, `patrol`, `facilities`, `buildFacility`, `queueJob`,
-`ships`, `switchShip`. `account()` reaches those commands.
+`unimplemented`: `survey`, `exploreNearby`, `patrol`, `ships`, `switchShip`. `account()` reaches those commands.
 
 Everything game-shaped in a `detail` is the lib's own type (`SystemPoi`, `MissionInfo`,
 `SellResponse`, `V2Module` …); `tsc` knows the field names.
