@@ -148,14 +148,14 @@ no `quantity` for all of it — a non-finite `quantity` is refused) and never de
 (`{item_id, quantity?}`); `Row` — what `gained.items` and `detail.settled` hand back — requires
 `quantity`. Annotate a list you build yourself `Want[]`, or nothing at all: a `Row[]` annotation
 is what makes `{item_id: 'carbon_ore'}` an error. Some career functions are not built yet and throw
-`unimplemented`: `survey`, `exploreNearby`, `patrol`, `ships`, `switchShip`. `account()` reaches those commands.
+`unimplemented`: `survey`, `patrol`, `ships`, `switchShip`. `account()` reaches those commands.
 
 Everything game-shaped in a `detail` is the lib's own type (`SystemPoi`, `MissionInfo`,
 `SellResponse`, `V2Module` …); `tsc` knows the field names.
 
 Careers add more: [`mining/`](mining/README.md) (`gatherUntil`),
 [`hauling/`](hauling/README.md), [`industry/`](industry/README.md) (`recipes`, `quote`, `supply`, `craft`, `jobs`, `materials`, `facilities`, `buildFacility`), [`combat/`](combat/README.md) (`hunt`, `salvage`),
-[`trading/`](trading/README.md) (`spreads`, `routes`, `tradeRun`, `scoutMarkets`), [`exploration/`](exploration/README.md), [`fleet/`](fleet/README.md) (`assign`, `recall`, `freighters`).
+[`trading/`](trading/README.md) (`spreads`, `routes`, `tradeRun`, `scoutMarkets`), [`exploration/`](exploration/README.md) (`exploreNearby`), [`fleet/`](fleet/README.md) (`assign`, `recall`, `freighters`).
 Each folder's README is the skill for that career; the one for your stance is loaded beside this.
 Every career's functions import from `'play'` whatever your stance. Crafting goes through them,
 never a raw `craft` command: `recipes(search?)` lists what this base can make from hold + store,

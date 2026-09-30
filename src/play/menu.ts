@@ -3,7 +3,7 @@
  * the helper applies (`jobStop`, the mood's margins, permissions, Tired); a move the rules
  * refuse is under `not_now` with the reason. The juncture delivers it once, headed by the
  * stagnation `menuDue` names. Reads only; writes nothing (DESIGN §4). */
-import type {ActiveMissionInfo,GetNearbyResponse,GetMissionsResponse,MapSystemInfo,MarketListingItem,ShipClass,ShipListing,
+import type {ActiveMissionInfo,GetNearbyResponse,GetMissionsResponse,MarketListingItem,ShipClass,ShipListing,
   ShippingListResponse,StationPassengersResponse,SystemInfo,SystemPoi,V2Module,ViewMarketResponse,ViewStorageResponse} from '@spacemolt/lib';
 import type {ReadinessAccount,ReadinessCommand} from '../readiness.ts';
 import {details} from '../response-details.ts';
@@ -20,13 +20,16 @@ import {stuck} from './missions.ts';
 import {acct,command,pilot,present,runCalls,type Pilot} from './runtime.ts';
 import {serviceElsewhere} from './service.ts';
 import {IGNORE_TICKS} from './freighter/index.ts';
+import {around,nearFacts,readMap,readSeen,type Near} from './exploration/exploration.ts';
 import {candidates,SCOUT_JUMPS,target,type Candidate} from './trading/scout.ts';
 import {pilotSeat} from './trading/trading.ts';
 import type {Status} from './types.ts';
 
 export type Advances='knowledge'|'skill'|'credits'|'influence'|'ship'|'objective';
 export interface Move {call:string;why:string;advances:Advances}
-export interface Menu {stagnation?:string;moves:Move[];not_now:{move:string;why:string}[]}
+/** `neighbours` are the systems one jump out, for the juncture's Present line: a pilot that can
+ * read them there need not spend a run looking. */
+export interface Menu {stagnation?:string;moves:Move[];not_now:{move:string;why:string}[];neighbours?:Near[]}
 /** One run as the menu remembers it: the first work call `main()` made, how it ended, what
  * the whole run gained, and where the ship ended up. Written by `run` into the journal. */
 export interface RunSummary {fn:string;arg:string;status:Status;credits:number;items:number;xp:number;at:string}
@@ -279,6 +282,9 @@ export const leadCall=(who:Pilot):string=>{
     .sort((a,b)=>a.at-b.at)[0];
   return hit?.call??LEADS[who.stance??'']??'';
 };
+/** ponytail: how far the menu offers an unvisited system as a goTo; beyond it the nearest is
+ * named under not_now. Tunable. */
+const EXPLORE_JUMPS=5;
 const FITS:Record<string,string[]>={Prospector:['gatherUntil','goTo'],Hunter:['hunt','goTo'],Scout:['goTo'],Carrier:['haul','goTo'],
   Trader:['tradeRun','goTo','haul'],Industrialist:['gatherUntil','goTo']};
 
@@ -298,6 +304,11 @@ export async function menu(runtime?:string):Promise<Menu> {
   const verdicts=evaluateMenu(facts);
   const system=(await attempt(async()=>(details(await command('spacemolt/get_system',{})) as {system:SystemInfo}).system));
   const pois:SystemPoi[]=system?.pois??[];
+  // The whole map in one read, walked from here: the neighbours for the Present line, and the
+  // nearest unvisited systems for the explore row below.
+  const nearby=location?.system_id?around(await attempt(()=>readMap(command))??[],location.system_id,Infinity,readSeen(runtime)):[];
+  const neighbours=nearby.filter(row=>row.jumps===1);
+  const shown=neighbours.length?{neighbours}:{};
 
   if(who.mood==='Tired') {
     const why=`Tired (${now.tired_by||'margin crossed'})`;
@@ -308,7 +319,7 @@ export async function menu(runtime?:string):Promise<Menu> {
     // unreadable until docked is still a move the pilot may take.
     if(docked)moves.push({call:'service()',why:`${why}: resupply here clears it`,advances:'ship'});
     else for(const row of await serviceElsewhere())moves.push({call:row.call,why:`${why}: ${row.why}`,advances:'ship'});
-    return {...stagnation?{stagnation}:{},moves,not_now};
+    return {...stagnation?{stagnation}:{},moves,not_now,...shown};
   }
 
   const fuel=ship?.fuel??0;
@@ -335,6 +346,8 @@ export async function menu(runtime?:string):Promise<Menu> {
   /** Calls that clear a blocker the menu also states under `not_now`; ranked above everything
    * else, because a move that unblocks three jobs is worth more than the best of the three. */
   const unblocks=new Set<string>();
+  /** Calls that cannot be a repeat of any run: a goTo to a system never visited. */
+  const fresh=new Set<string>();
 
   // Sell what you hold where there is a bid.
   const market=docked?await attempt(async()=>details(await command('spacemolt_market/view_market',{})) as ViewMarketResponse):undefined;
@@ -554,14 +567,24 @@ export async function menu(runtime?:string):Promise<Menu> {
     }
   }
 
-  // Explore an unvisited neighbour.
-  for(const link of (system?.connections??[]).slice(0,3)) {
-    const map=await attempt(async()=>details(await command('spacemolt/get_map',{system_id:link.system_id})) as MapSystemInfo);
-    if(!map||map.visited)continue;
-    const blocked=await flies(link.system_id);
-    if(blocked)not_now.push({move:`goTo('${link.system_id}')`,why:blocked});
-    else work({call:`goTo('${link.system_id}')`,why:`${map.name} is one jump away and never visited; scout() there`,advances:'knowledge'});
-    break;
+  // Explore: the nearest unvisited system, however far. Live 2026-09-30 (kvothe): told to explore,
+  // it made 41 jumps between systems it had already visited, because this row looked only at the
+  // first three neighbours and said nothing when they were all visited. Danger is the pilot's call:
+  // every candidate carries its facts, and none is dropped for them.
+  const unvisited=nearby.filter(row=>!row.visited);
+  const first=unvisited[0];
+  if(!first)not_now.push({move:'goTo',why:nearby.length?`every system on the map is visited (${nearby.length} reachable)`:'the map was not read'});
+  else if(first.jumps>EXPLORE_JUMPS)not_now.push({move:`goTo('${first.system_id}')`,
+    why:`nothing unvisited within ${EXPLORE_JUMPS} jumps; the nearest is ${first.name} (${nearFacts(first)})`});
+  else {
+    const call=`goTo('${first.system_id}')`,blocked=await flies(first.system_id);
+    const also=unvisited.slice(1,3).map(row=>`${row.name} '${row.system_id}' (${nearFacts(row)})`);
+    if(blocked)not_now.push({move:call,why:blocked});
+    else {
+      work({call,advances:'knowledge',why:`${first.name} (${nearFacts(first)}); scout() there. `
+        +`${also.length?`Next nearest: ${also.join('; ')}. `:''}exploreNearby() visits and scouts them in one run`});
+      fresh.add(call);
+    }
   }
 
   // Upgrade the hull when the budget covers a listing plus the reserve.
@@ -692,8 +715,8 @@ export async function menu(runtime?:string):Promise<Menu> {
   // budget is still five rows — so the counters fill the space work leaves rather than competing
   // for it. A read that unblocks something still leads, which is why that term stays first.
   const key=(m:Move)=>{const fn=m.call.split('(')[0]!;
-    return [unblocks.has(m.call)?1:0,READ_CALLS.has(fn)?0:1,repeated&&fn!==repeated?1:0,
-      stanceWork.has(m.call)?1:0,wants[m.advances].test(goal)?1:0,
+    return [unblocks.has(m.call)?1:0,READ_CALLS.has(fn)?0:1,repeated&&(fn!==repeated||fresh.has(m.call))?1:0,
+      stanceWork.has(m.call)||fresh.has(m.call)&&lead===fn?1:0,wants[m.advances].test(goal)?1:0,
       LEADS[who.stance??'']===fn?2:who.stance==='Trader'&&fn==='routes'?1:0,gain(fn)];};
   const seen=new Set<string>();
   const ranked=moves.filter(m=>!seen.has(m.call)&&seen.add(m.call)).map(m=>({m,k:key(m)}))
@@ -703,7 +726,7 @@ export async function menu(runtime?:string):Promise<Menu> {
   // The tag says what a move serves, and what the objective names serves the objective: the
   // ranking is already settled, so this only corrects the label the pilot reads.
   const tagged=ranked.map(m=>lead&&m.call.split('(')[0]===lead?{...m,advances:'objective' as const}:m);
-  return {...stagnation?{stagnation}:{},moves:tagged,not_now};
+  return {...stagnation?{stagnation}:{},moves:tagged,not_now,...shown};
 }
 
 /** The menu as text: one line per move with the call in backticks, then what is not on it. */

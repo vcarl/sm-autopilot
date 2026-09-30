@@ -8,24 +8,32 @@ the evening to have when the menu keeps offering the same belt.
 
 | Function | Promise |
 |---|---|
-| `exploreNearby({systems?, jumps?, survey?})` | **not built yet — it throws `unimplemented`.** Walk the circuit by hand with `goTo` and `scout`, as the worked example below does |
+| `exploreNearby({systems?, jumps?, survey?, avoid?})` | Visit up to `systems` (default 2) unvisited systems, each the nearest one left within `jumps` (default 3) of where the ship now is, and `scout()` each on arrival. `detail.visited` says per system what it found: stations, belts, POI count, police level, security status, pirates at the arrival point. `survey:true` also runs `survey_system` in each. `avoid` is system ids you will not go to or through. `detail.unvisited` is what is left in range, nearest first. Does not come home |
 
-Until `exploreNearby` is built, this career is `goTo` and `scout` in a loop — both real, both in
-the root barrel. `scout(id)` reads a system's POIs, stations and resources; `goTo(id)` flies there
-and docks if it is a base. (`survey()` in mining is also not built yet, so hidden deposits are out
-of reach for now.)
+`exploreNearby` flies with `goTo`: a hop the tank will not cover is refused and ends the circuit
+(`ended:'refused'`), and a hop that leaves you Tired ends it there (`ended:'tired'`). `ended:'none'`
+is nothing unvisited within `jumps` — widen it.
+
+**Danger is your call.** The map publishes no police level for a system you have never stood in;
+what it does name is the empire that claims it (or none), whether it is a stronghold, and how many
+pilots are online there. Police, security and pirates are learned on arrival, kept in the runtime,
+and shown by the menu and the juncture's Present line from then on. `exploreNearby` skips nothing
+you do not name in `avoid`: read the menu's facts and choose.
+
+`scout(id)` reads one system; `goTo(id)` flies there and docks if it is a base (or a system with
+one base). A circuit of your own is those two in a loop, as below. (`survey()` in mining is not
+built yet; `exploreNearby({survey:true})` is the way to a `survey_system` for now.)
 
 **This is not `hunt({look})`, and the two are deliberately apart.** `exploreNearby` visits
-**systems** you have never been to, docks at each and reads it, and trains exploration by the
+**systems** you have never been to and reads each, and trains exploration by the
 first visit. `hunt({look})` walks **POIs inside the system you are already in** and fights what it
-finds. They share only a fuel-bounded loop over destinations, which is `goTo` plus a re-quote and
-is already in both. Reach for `exploreNearby` to learn the neighbourhood; reach for `hunt({look})`
+finds. Reach for `exploreNearby` to learn the neighbourhood; reach for `hunt({look})`
 when you know the neighbourhood and want the prey in it.
 
 ## Worked example
 
 ```ts
-import {orient, scout, goTo, missions, acceptMission, prices, note, pilot} from 'play';
+import {orient, exploreNearby, goTo, missions, acceptMission, note} from 'play';
 
 export default async function main() {
   const start = await orient();
@@ -35,22 +43,14 @@ export default async function main() {
   for (const m of board.detail.board.filter(m => m.fits === 'goTo').slice(0, board.detail.slots_free))
     await acceptMission(m.mission_id);                    // "visit N stations" pays for the trip
 
-  // The neighbours, from the map the orient already read. `goTo` refuses a hop the tank will not
-  // cover; a hop that takes fuel under the mood's reserve makes you Tired, so the circuit ends
-  // there and goes to be serviced.
-  const here = await scout();
-  for (const link of here.detail.connections.slice(0, 2)) {
-    const hop = await goTo(link.system_id);
-    if (hop.status !== 'done') { note(`stopped at ${link.system_id}: ${hop.why ?? ''}`); break; }
-    if (pilot().mood === 'Tired') { note(`Tired at ${link.system_id}; going to service`); break; }
-    const seen = await scout();                           // first visit is what trains exploration
-    note(`${seen.detail.system.name}: ${seen.detail.pois.length} POIs`);
-    const station = seen.detail.pois.find(p => p.base_id);
-    if (station) { await goTo(station.base_id!); await prices(); }  // dock and remember the book
-  }
+  // Three first visits, skipping a system you already know you do not want to fly through.
+  const trip = await exploreNearby({systems: 3, avoid: ['the_badlands']});
+  for (const row of trip.detail.visited)
+    note(`${row.name}: ${row.stations.length} station(s), police ${row.police ?? '?'}, ${row.pirates ?? 0} pirates`);
+  if (trip.detail.ended === 'tired') return trip;         // the circuit turned back; service next
 
   if (home) return goTo(home);
-  return here;
+  return trip;
 }
 ```
 
@@ -58,11 +58,11 @@ export default async function main() {
 
 - Three unvisited systems on a loop that ends where it started, the whole loop above the mood's fuel reserve (under it is Tired, and the circuit ends).
 - At least one station on the loop: a market to read, a board to accept from, fuel to buy.
-- `police_level` above 0 on every leg, or an Opportunistic/Aggressive mood that accepts it.
+- Police above 0 on the legs you already know (the menu names what was seen), and for the legs you do not, a mood that accepts not knowing.
 
 ## When to reconsider
 
-- `unvisited` within two jumps is empty: the neighbourhood is known; widen `jumps` or work from a station further out.
+- `ended` is `'none'`: nothing unvisited within `jumps`; widen it (the menu names the nearest unvisited system and how far), or work from a station further out.
 - A visited system had a rich belt and a station with storage: that is a base worth working from.
 
 ## Pitfalls

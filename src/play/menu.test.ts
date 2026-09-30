@@ -743,7 +743,7 @@ test('an unfitted module in the store, not the hold, is offered as a refit, not 
     const command:typeof f.command=async(action,params)=>{
       const res=await f.command(action,params);
       if(action==='spacemolt/get_missions')(res as any).structuredContent.missions=[];
-      if(action==='spacemolt/get_map'&&params?.system_id==='deep_range')(res as any).structuredContent.visited=true;
+      if(action==='spacemolt/get_map')for(const row of (res as any).structuredContent.systems??[])row.visited=true;
       return res;
     };
     bind({account:f.account as unknown as ReadinessAccount,command,pilot:()=>record,runtime:f.runtime,emit:()=>{}});

@@ -3,9 +3,10 @@
  * systems but not their bases, so a base is learned from a book, a `find_route`, the faction's
  * intel map (`query_intel`), or a `get_system` in its own system. `candidates` is the one choice
  * of where to go next, read by the pilot's `scoutMarkets` and by a waiting freighter's host alike. */
-import type {FactionQueryIntelResponse,MapSystemInfo,SystemPoi} from '@spacemolt/lib';
+import type {FactionQueryIntelResponse,SystemPoi} from '@spacemolt/lib';
 import type {ReadinessCommand} from '../../readiness.ts';
 import {details} from '../../response-details.ts';
+import {jumpsFrom,readMap} from '../exploration/exploration.ts';
 import {IGNORE_TICKS} from '../freighter/index.ts';
 import {book,marketTick} from '../market.ts';
 import {markExplored,markPlace,readExplored,readPlaces} from '../places.ts';
@@ -52,12 +53,8 @@ export async function candidates(seat:Seat,now:number,jumps=SCOUT_JUMPS):Promise
   }
   const far=await farBooks('',now,seat);
   for(const known of far)if(known.system_id&&!places.has(known.base_id))places.set(known.base_id,known.system_id);
-  const map=(details(await seat.command('spacemolt/get_map',{})) as {systems?:MapSystemInfo[]}).systems??[];
-  const links=new Map(map.map(row=>[row.system_id,row.connections??[]]));
-  // Jumps to every system within range: one breadth-first walk over the map's links.
-  const dist=new Map([[here,0]]);
-  let frontier=[here];
-  for(let n=1;n<=jumps&&frontier.length;n++)frontier=frontier.flatMap(system=>links.get(system)??[]).filter(system=>!dist.has(system)&&!!dist.set(system,n));
+  const map=await readMap(seat.command);
+  const dist=jumpsFrom(map,here,jumps);
   const books=new Map(far.map(known=>[known.base_id,known])),out:Candidate[]=[];
   for(const [base_id,system_id] of places) {
     const n=dist.get(system_id),known=books.get(base_id);
