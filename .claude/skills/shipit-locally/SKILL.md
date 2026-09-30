@@ -1,6 +1,6 @@
 ---
 name: shipit-locally
-description: Upgrade a local Hermes profile's installed spacemolt plugin to a released commit, restart its gateway, and verify the pilot is flying it. Carl invokes this; invoking it is his approval for this one profile and this one ref.
+description: Upgrade a local Hermes profile's installed spacemolt plugin to a released commit, restart its gateway, and verify the pilot is flying it. A human invokes this; invoking it is the approval for this one profile and this one ref.
 argument-hint: "[profile, default kvothe] [tag or full SHA, default the latest release]"
 disable-model-invocation: true
 allowed-tools: Bash(hermes --profile * plugins install *), Bash(hermes --profile * gateway restart), Bash(npm ci --prefix *)
@@ -39,7 +39,7 @@ of a deploy. If a step below would need any of those, stop and ask.
    closes it `interrupted`, so:
    - `ended: true` (or no file): go on.
    - `ended: false` with a `question`: the run is paused on `ask()` and waits for a juncture, not
-     for time. Stop and tell Carl; he decides whether to interrupt it.
+     for time. Stop and tell the user, who decides whether to interrupt it.
    - `ended: false` otherwise: wait for it with Monitor (an until-loop on `"ended":true`). Runs
      are capped at 26 minutes from `started`; if it is still open 30 minutes after `started`,
      stop and report rather than restart under it.
@@ -60,10 +60,10 @@ of a deploy. If a step below would need any of those, stop and ask.
      15 minutes. No juncture in that time is a failure to report, not to paper over.
 8. **Report.** Profile, old → new revision, the release it came from, whether a run was waited
    out, and each check in step 7. If anything failed, say which step, with the log lines, and
-   leave the profile as it is: do not reinstall the old revision unless Carl asks.
+   leave the profile as it is: do not reinstall the old revision unless the user asks.
 
 ## If this session cannot run a step
 
 A worktree-isolated session may refuse commands that reach outside its worktree. Do not work
-around the refusal. Hand Carl the remaining steps as one fish-safe line
-(`cmd1; and cmd2; and cmd3`), then do the verification in step 7 once he says it ran.
+around the refusal. Hand the user the remaining steps as one fish-safe line
+(`cmd1; and cmd2; and cmd3`), then do the verification in step 7 once they say it ran.
