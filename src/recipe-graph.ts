@@ -1,4 +1,4 @@
-/** Ported from spacemolt-lib PR #53 (Carl's); to be replaced by the lib export once it ships.
+/** Ported from spacemolt-lib PR #53; to be replaced by the lib export once it ships.
  *
  * Recipe graph over the catalog: what produces an item, what consumes it, and
  * what you can craft with what you hold.

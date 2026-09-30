@@ -1,4 +1,4 @@
-/** Ported from spacemolt-lib PR #53 (Carl's); to be replaced by the lib export once it ships.
+/** Ported from spacemolt-lib PR #53; to be replaced by the lib export once it ships.
  *
  * Order-book arithmetic — pure, no `Account`, no I/O.
  *

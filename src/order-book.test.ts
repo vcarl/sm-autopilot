@@ -1,4 +1,4 @@
-/** Ported from spacemolt-lib PR #53 (Carl's) `tests/order-book.test.ts`, adapted to
+/** Ported from spacemolt-lib PR #53 `tests/order-book.test.ts`, adapted to
  * node:test; to be replaced by the lib export once it ships. */
 import assert from 'node:assert/strict';
 import test from 'node:test';

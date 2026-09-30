@@ -296,7 +296,7 @@ def _direct(arguments: dict[str, Any] | None = None, **_: Any) -> str:
     Nothing else in the record moves: goal and stance are the pilot's, and the mood is derived
     from the ship.
 
-    RISK (Carl, 2026-09-15): `instruction` is model-generated text conveying a user's
+    RISK (2026-09-15): `instruction` is model-generated text conveying a user's
     intention, and the pilot parses it as outside instruction that outranks the objective until
     its next run starts. A window that paraphrases badly steers the pilot. What bounds it: the 80
     characters cap how much a sentence can ask for; the lint bounds what any script it leads
