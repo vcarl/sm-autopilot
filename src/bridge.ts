@@ -353,12 +353,18 @@ export function serve(account:ReadinessAccount,command:ReadinessCommand,options:
   };
 
   /** Set fields of `pilot.json`; a null removes one. The only writer of the record: Python's
-   * reflect and direct send this rather than editing the file, so nothing races a read-modify-write. */
+   * reflect and direct send this rather than editing the file, so nothing races a read-modify-write.
+   * A cleared field shows in the `pilot` journal line's `prev` like any other. */
   const setRecord=async(params:Record<string,unknown>={})=>{
     const write=options.setPilot;
     if(!write)throw new Error('this runner cannot write the pilot record');
-    const set=(params.set??{}) as Record<string,unknown>;
     const prev:Record<string,unknown>={...record()};
+    const set={...(params.set??{}) as Record<string,unknown>};
+    // A new objective retires the plan made for the old one: the goal and the stance (which
+    // picks the career skill a juncture carries) go with it, unless this same write sets them.
+    // The same text again is not new; retiring the objective (null) leaves the plan standing.
+    if(typeof set.objective==='string'&&set.objective!==prev.objective)
+      for(const key of ['goal','stance'])if(!(key in set)&&key in prev)set[key]=null;
     const next:Record<string,unknown>={...prev};
     for(const [key,value] of Object.entries(set))if(value===null)delete next[key];else next[key]=value;
     write(next as Pilot);
