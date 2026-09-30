@@ -32,9 +32,14 @@ for line in sys.stdin:
                   "fuel": 88, "max_fuel": 100, "hull": 96, "max_hull": 100,
                   "pois": [{"id": "belt", "name": "Belt", "type": "asteroid_belt"}]}
     elif action == "pilot":
-        # The record's one writer: set fields, a null removes one.
+        # The record's one writer: set fields, a null removes one, and a new objective clears
+        # the goal and stance the same write does not set (as src/bridge.ts does).
         pilot = json.load(open(pilot_file)) if os.path.exists(pilot_file) else {}
-        for key, value in request["params"]["set"].items():
+        patch = dict(request["params"]["set"])
+        if isinstance(patch.get("objective"), str) and patch["objective"] != pilot.get("objective"):
+            for key in ("goal", "stance"):
+                patch.setdefault(key, None)
+        for key, value in patch.items():
             if value is None:
                 pilot.pop(key, None)
             else:
@@ -49,6 +54,9 @@ for line in sys.stdin:
                   "moves": [], "not_now": [],
                   "text": "Menu:\\n  - `gatherUntil('belt')` — belt quoted [credits]",
                   "last": None}
+    elif action == "stop":
+        running = os.path.exists(os.path.join(runtime, "run.running"))
+        result = {"stopping": running} if running else {"stopping": False, "reason": "nothing is running"}
     elif action == "status":
         # A script is running exactly while this marker file exists, read per request.
         result = {"running": os.path.exists(os.path.join(runtime, "run.running")), "last": None}
@@ -127,8 +135,15 @@ def test_direction_sets_objective_and_permissions_and_lands_at_the_next_juncture
     assert record["objective"] == "buy a hauler"
     # A standing permission left unnamed keeps its bound; the asking widens nothing else (T11).
     assert record["permissions"] == {"wildlife": False, "credit_reserve": 2000}
-    assert {key: record[key] for key in ("name", "stance", "home")} == \
-        {"name": "kvothe", "stance": "Prospector", "home": "sol_base"}
+    # A new objective retires the old plan: the stance (and with it the career skill a fire
+    # carries) and any goal go, and the job is rewritten to carry the base skill only.
+    assert {key: record.get(key) for key in ("name", "stance", "goal", "home")} == \
+        {"name": "kvothe", "stance": None, "goal": None, "home": "sol_base"}
+    from cron import jobs as cron_jobs
+    [job] = cron_jobs.load_jobs()
+    assert job["skills"] == [juncture.qualified(juncture.SHARED_SKILL)]
+    # Nothing was flying, so nothing was stopped.
+    assert "runs to its outcome first" in answer
     # Written by the bridge, the record's one writer.
     assert "pilot" in (bridged / "actions.log").read_text().split()
 
@@ -144,9 +159,25 @@ def test_direction_marks_nothing_due_the_interval_brings_the_juncture(bridged):
     marks nothing: the interval is minutes, and the answer says so."""
     from cron import jobs as cron_jobs
     _seed(dict(PILOT))
+    from datetime import datetime
     answer = spacemolt._direct({"objective": "buy a hauler"})
-    assert cron_jobs.load_jobs() == []
+    [job] = cron_jobs.load_jobs()
+    assert datetime.fromisoformat(job["next_run_at"]) > datetime.now().astimezone(), \
+        "the rewrite re-anchors the interval; it never makes the job due"
     assert "within 5m" in answer, answer
+
+
+def test_a_new_objective_stops_the_run_in_flight_and_the_same_one_does_not(bridged):
+    _seed({**PILOT, "goal": "mine the belt"})
+    (bridged / "run.running").touch()
+    same = spacemolt._direct({"objective": "fill the hold"})
+    assert juncture.read_pilot()["goal"] == "mine the belt", "the same text is not a new objective"
+    assert "stop" not in (bridged / "actions.log").read_text().split()
+    assert "runs to its outcome first" in same
+    answer = spacemolt._direct({"objective": "explore new areas"})
+    assert "stop" in (bridged / "actions.log").read_text().split()
+    assert "asked to stop at its next safe point" in answer, answer
+    assert "goal" not in juncture.read_pilot()
 
 
 def test_the_window_carries_no_job_tools_and_the_juncture_no_direction_tool():

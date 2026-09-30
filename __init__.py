@@ -120,6 +120,7 @@ def _run(arguments: dict[str, Any] | None = None, **_: Any) -> str:
                                "started": flying.get("started")}, separators=(",", ":"))
         _write_pilot_file(str(args["source"]))
     lines: list[str] = []
+    objective = read_pilot().get("objective")
     try:
         juncture = last_juncture()
         result = call("run", {"juncture": juncture} if juncture else {}, on_line=lines.append)
@@ -128,6 +129,12 @@ def _run(arguments: dict[str, Any] | None = None, **_: Any) -> str:
     if not result.get("accepted"):
         return json.dumps({"accepted": False, "reason": result.get("reason"),
                            "errors": result.get("errors") or []}, separators=(",", ":"))
+    now = read_pilot().get("objective")
+    if now and now != objective:
+        # The context this juncture began with names the old objective; the report says what
+        # the record holds now, so a reflection after it plans for the new one.
+        lines.append(f"While this ran, the objective became {now!r}; the goal and stance set "
+                     "for the old one were cleared.")
     return _report(result, lines)
 
 
@@ -293,8 +300,10 @@ def _direct(arguments: dict[str, Any] | None = None, **_: Any) -> str:
 
     The observer's tool: it carries in what the human and the player agreed.
 
-    Nothing else in the record moves: goal and stance are the pilot's, and the mood is derived
-    from the ship.
+    A new objective (different text) clears the goal and stance, which were the plan for the
+    old one — the bridge's pilot request does that — rewrites the juncture job so the next fire
+    carries no stale career skill, and stops a run in flight at its next safe point, so the
+    next juncture plans under the new objective. The mood is derived from the ship.
 
     RISK (2026-09-15): `instruction` is model-generated text conveying a user's
     intention, and the pilot parses it as outside instruction that outranks the objective until
@@ -316,6 +325,7 @@ def _direct(arguments: dict[str, Any] | None = None, **_: Any) -> str:
                 f"reads at most {_INSTRUCTION_LIMIT}. Say it again in fewer words, keeping the "
                 "human's.")
     patch: dict[str, Any] = {}
+    new_objective = bool(objective) and objective != read_pilot().get("objective")
     if instruction:
         journal_event("instruction", text=instruction)
         patch["instruction"] = {"text": instruction,
@@ -327,14 +337,27 @@ def _direct(arguments: dict[str, Any] | None = None, **_: Any) -> str:
         # A bound this call does not name keeps the value it had: asking widens nothing else.
         patch["permissions"] = {**(read_pilot().get("permissions") or {}), **permissions}
     record = call("pilot", {"set": patch})["record"]
+    stopped = False
+    if new_objective:
+        ensure_juncture_job()
+        # The same stop spacemolt_stop sends: the program ends at its next checkpoint, never
+        # mid-command, and a question it is paused on is withdrawn. The reason rides in the
+        # request's params, which the request journal line keeps with the run's id.
+        try:
+            stopped = bool(call("stop", {"reason": "objective"}).get("stopping"))
+        except Exception as error:  # noqa: BLE001 - the record is written; a run left flying ends on its own
+            logger.warning("spacemolt: stop on a new objective failed: %s", error)
     set_what = ", ".join(name for name, given in
                          (("objective", objective), ("permissions", permissions),
                           ("instruction", instruction)) if given)
     said = (f" The sentence {instruction!r} outranks the objective for that one juncture."
             if instruction else "")
-    return (f"Recorded: {set_what}. The pilot takes it up at the next juncture — within "
-            f"{IDLE_SCHEDULE} of the last one ending — and a run already under way runs to its "
-            "outcome first."
+    after = ("the run in flight was asked to stop at its next safe point" if stopped
+             else "a run already under way runs to its outcome first")
+    return (f"Recorded: {set_what}."
+            + (" Any goal and stance set for the old one were cleared." if new_objective else "")
+            + f" The pilot takes it up at the next juncture — within {IDLE_SCHEDULE} of the last "
+            f"one ending — and {after}."
             + said
             + " Standing now: "
             + json.dumps({"objective": record.get("objective"),
