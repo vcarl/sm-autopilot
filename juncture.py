@@ -408,6 +408,20 @@ def _skill_text(name: str, value: Any) -> str:
     return f"{name} {value}"
 
 
+def _neighbour(row: dict[str, Any]) -> str:
+    """A system one jump out, as the menu's map walk carries it: visited or not, and the law the
+    map names (its empire) or this pilot saw there (police, security, pirates), so a juncture
+    need not spend a run just looking at the neighbours (live 2026-09-30)."""
+    seen = row.get("seen") or {}
+    bits = ([f"police {seen['police']}"] if "police" in seen else []) + (
+        [str(seen["security"])] if seen.get("security") else []) + (
+        [f"{seen['pirates']} pirates seen"] if seen.get("pirates") else [])
+    bits.append(f"empire {row['empire']}" if row.get("empire") else "no empire")
+    if row.get("stronghold"):
+        bits.append("stronghold")
+    return f"{row.get('system_id')} {'visited' if row.get('visited') else 'never visited'} ({', '.join(bits)})"
+
+
 def _situation(menu: dict[str, Any], said: dict[str, Any] | None) -> str:
     """The juncture as labelled lines, each fact once, budgeted on the final string.
 
@@ -439,7 +453,8 @@ def _situation(menu: dict[str, Any], said: dict[str, Any] | None) -> str:
     where = (f"docked at {p['docked_at']} ({system})" if p.get("docked_at")
              else f"in transit ({system})" if p.get("in_transit")
              else f"at {p.get('poi') or 'an unknown point'} ({system})")
-    facts.append(f"Present: {where}.")
+    neighbours = "; ".join(_neighbour(row) for row in menu.get("neighbours") or [])
+    facts.append(f"Present: {where}." + (f" One jump out: {neighbours}." if neighbours else ""))
     ship = (f"  Fuel {p.get('fuel')}/{p.get('max_fuel')}, hull {p.get('hull')}/{p.get('max_hull')}, "
             f"credits {p.get('credits') or 0:,}.")
     hold = [f"{row.get('item_id')} {row.get('quantity')}" for row in p.get("hold") or []]

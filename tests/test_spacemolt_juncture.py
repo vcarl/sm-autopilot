@@ -278,6 +278,20 @@ def test_the_situation_renders_only_the_permissions_the_code_knows(monkeypatch):
         assert gone not in context, gone
 
 
+def test_the_present_line_names_the_neighbours_and_what_is_known_of_them(monkeypatch):
+    """Live 2026-09-30: every juncture opened with a read-only run just to see the neighbours."""
+    menu = _menu(12)
+    menu["neighbours"] = [
+        {"system_id": "deep_range", "name": "Deep Range", "jumps": 1, "visited": True, "empire": "solarian",
+         "seen": {"police": 3, "pirates": 2, "at": "2026-09-23T13:00:00Z"}},
+        {"system_id": "the_drift", "name": "The Drift", "jumps": 1, "visited": False, "stronghold": True}]
+    context = _rendered(monkeypatch, menu)
+    assert ("Present: docked at first_step_station (first_step). One jump out: "
+            "deep_range visited (police 3, 2 pirates seen, empire solarian); "
+            "the_drift never visited (no empire, stronghold).") in context, context
+    assert "One jump out" not in _rendered(monkeypatch, _menu(12))
+
+
 def test_skills_and_the_walk_away_line_read_as_what_they_are(monkeypatch):
     context = _rendered(monkeypatch, _menu(12))
     assert "Skills: weapons 3, gunnery 1, tactics 2." in context, context
