@@ -7,6 +7,33 @@ All notable changes to this plugin are recorded here. The format follows
 
 ## [Unreleased]
 
+## [2026.10.0] - 2026-10-01
+
+### Added
+
+- `exploreNearby({systems?, jumps?, survey?, avoid?})` visits the nearest systems this pilot has
+  never been to, scouting each, and reports what it found and what is left in range. `avoid`
+  skips a system as a stop or on the route; which systems are safe enough is the pilot's call.
+  What it learns of each system (police, security, pirates seen) is kept in `systems.json`.
+- The juncture's Present line names the systems one jump out, each visited or not, with what is
+  known about it.
+
+### Changed
+
+- Setting a new objective through `spacemolt_direct` clears the goal and stance set for the old
+  one (unless the same call sets them), rewrites the juncture job so the old career skill is no
+  longer carried, and stops a run in flight at its next safe point. Every run report in a fire
+  planned for the old objective says the objective changed.
+
+### Fixed
+
+- The menu finds the nearest unvisited system anywhere within five jumps from one map read,
+  where it once checked three neighbours one jump out and said nothing past them. Its row
+  states what is known (empire, stronghold, pirates seen) and never drops a system for danger;
+  when nothing is in range it says where the nearest unvisited system is.
+- A reflection or direction whose juncture-job rewrite fails is logged and journalled, not
+  raised after the record was already written.
+
 ## [2026.9.2] - 2026-09-29
 
 ### Added
