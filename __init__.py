@@ -138,7 +138,7 @@ def _run(arguments: dict[str, Any] | None = None, **_: Any) -> str:
     if now and now != objective:
         # The context this juncture began with names the old objective; the report says what
         # the record holds now, so a reflection after it plans for the new one.
-        lines.append(f"Since this juncture's context was written, the objective became {now!r}; "
+        lines.append(f"Since the last juncture's context was written, the objective became {now!r}; "
                      "the goal and stance set for the old one were cleared.")
     return _report(result, lines)
 
@@ -253,6 +253,17 @@ def _status(arguments: dict[str, Any] | None = None, **_: Any) -> str:
                       separators=(",", ":"))
 
 
+def _rewrite_job() -> None:
+    """Rewrite the juncture job after the record changed. The record is already written, so a
+    failed cron write must not turn the answer into a traceback: it is logged and journalled,
+    and the next plugin load rewrites the job."""
+    try:
+        ensure_juncture_job()
+    except Exception as exc:
+        logger.warning("spacemolt: the juncture job could not be rewritten: %s", exc, exc_info=True)
+        journal_event("wake_failed", error=f"{type(exc).__name__}: {exc}")
+
+
 def _reflect(arguments: dict[str, Any] | None = None, **_: Any) -> str:
     """Set the goal, the stance, or retire a finished objective — any of them, none required.
 
@@ -279,7 +290,7 @@ def _reflect(arguments: dict[str, Any] | None = None, **_: Any) -> str:
     call("pilot", {"set": patch})
     journal_event("reflection", **({"goal": goal} if goal else {}), **({"stance": stance} if stance else {}),
                   **({"objective_done": True, "objective": retired} if done else {}))
-    ensure_juncture_job()
+    _rewrite_job()
     said = [f"goal {goal!r}" if goal else "", f"stance {stance}" if stance else "",
             f"objective {retired!r} retired" if retired else ("objective retired" if done else "")]
     return ("Recorded: " + ", ".join(bit for bit in said if bit) + "."
@@ -344,11 +355,7 @@ def _direct(arguments: dict[str, Any] | None = None, **_: Any) -> str:
     record = call("pilot", {"set": patch})["record"]
     stopped = False
     if new_objective:
-        try:
-            ensure_juncture_job()
-        except Exception as exc:  # the record is written; the next load rewrites the job
-            logger.warning("spacemolt: the juncture job could not be rewritten: %s", exc, exc_info=True)
-            journal_event("wake_failed", error=f"{type(exc).__name__}: {exc}")
+        _rewrite_job()
         # The same stop spacemolt_stop sends: the program ends at its next checkpoint, never
         # mid-command, and a question it is paused on is withdrawn. The reason rides in the
         # request's params, which the request journal line keeps with the run's id.
