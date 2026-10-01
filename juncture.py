@@ -82,6 +82,8 @@ STANCE_FOLDER = {"Prospector": "mining", "Industrialist": "industry", "Trader": 
 SECTION_LIMIT = 4_000
 #: How many of the pilot's own recent runs and reflections the context lists.
 RECENT = 5
+#: How many systems one jump out the Present line names before "+N more".
+NEIGHBOURS = 6
 #: ponytail: the journal tail read for the recent list and the gate log, not the whole file
 #: (tens of MB). Entries older than this window are simply not recent.
 _TAIL_BYTES = 2 << 20
@@ -198,14 +200,18 @@ def juncture_context(session_info: Mapping[str, Any] | None = None) -> str:
         # 2026-09-29). `at` only advances when this render could have carried it.
         at = _now_iso()
         new_at = at if not menu.get("busy") else prior.get("at")
-        _write_juncture({"juncture_id": prior["juncture_id"], "at": new_at, "session_id": session_id or None})
+        # The objective follows the same rule: a busy render names none.
+        objective = record.get("objective") if not menu.get("busy") else prior.get("objective")
+        _write_juncture({"juncture_id": prior["juncture_id"], "at": new_at, "session_id": session_id or None,
+                         "objective": objective})
         journal_event("juncture_rerender", at=at, juncture_id=prior["juncture_id"],
                       reason="the session's system prompt was rebuilt mid-fire", **facts)
         return context
     gate = next(reversed(_journal_tail(("gate",))), {})
     juncture_id = uuid.uuid4().hex
     at = _now_iso()
-    _write_juncture({"juncture_id": juncture_id, "at": at, "session_id": session_id or None})
+    _write_juncture({"juncture_id": juncture_id, "at": at, "session_id": session_id or None,
+                     "objective": record.get("objective")})
     journal_event("juncture", at=at, juncture_id=juncture_id, gate_id=gate.get("gate_id"), gate_at=gate.get("at"),
                   job_id=job.group(1) if job else None, model=info.get("model") or None,
                   provider=info.get("provider") or None,
@@ -239,6 +245,13 @@ def last_juncture() -> dict[str, Any] | None:
     says how stale."""
     record = _read_juncture()
     return {"juncture_id": record["juncture_id"], "at": record.get("at")} if record else None
+
+
+def rendered_objective() -> tuple[bool, str | None]:
+    """Whether the latest juncture recorded the objective its context named, and that objective.
+    A record written before the field existed says nothing either way."""
+    record = _read_juncture() or {}
+    return "objective" in record, record.get("objective")
 
 
 def code_sha() -> str | None:
@@ -453,7 +466,10 @@ def _situation(menu: dict[str, Any], said: dict[str, Any] | None) -> str:
     where = (f"docked at {p['docked_at']} ({system})" if p.get("docked_at")
              else f"in transit ({system})" if p.get("in_transit")
              else f"at {p.get('poi') or 'an unknown point'} ({system})")
-    neighbours = "; ".join(_neighbour(row) for row in menu.get("neighbours") or [])
+    # Capped like the hold: at a hub the list would crowd the suggested moves out of the budget.
+    near = menu.get("neighbours") or []
+    neighbours = "; ".join([_neighbour(row) for row in near[:NEIGHBOURS]]
+                           + ([f"+{len(near) - NEIGHBOURS} more"] if len(near) > NEIGHBOURS else []))
     facts.append(f"Present: {where}." + (f" One jump out: {neighbours}." if neighbours else ""))
     ship = (f"  Fuel {p.get('fuel')}/{p.get('max_fuel')}, hull {p.get('hull')}/{p.get('max_hull')}, "
             f"credits {p.get('credits') or 0:,}.")

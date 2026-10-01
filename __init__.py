@@ -30,6 +30,7 @@ from .juncture import (
     last_juncture,
     question_text,
     read_pilot,
+    rendered_objective,
     use_dispatch,
 )
 from .service import available, call, close_bridge, render_journal, runtime_dir
@@ -120,7 +121,11 @@ def _run(arguments: dict[str, Any] | None = None, **_: Any) -> str:
                                "started": flying.get("started")}, separators=(",", ":"))
         _write_pilot_file(str(args["source"]))
     lines: list[str] = []
-    objective = read_pilot().get("objective")
+    # The objective this fire's context named: a run started on it after the objective changed
+    # is the old plan, and the report says so (the stop reaches only the run already flying).
+    recorded, objective = rendered_objective()
+    if not recorded:
+        objective = read_pilot().get("objective")
     try:
         juncture = last_juncture()
         result = call("run", {"juncture": juncture} if juncture else {}, on_line=lines.append)
@@ -133,8 +138,8 @@ def _run(arguments: dict[str, Any] | None = None, **_: Any) -> str:
     if now and now != objective:
         # The context this juncture began with names the old objective; the report says what
         # the record holds now, so a reflection after it plans for the new one.
-        lines.append(f"While this ran, the objective became {now!r}; the goal and stance set "
-                     "for the old one were cleared.")
+        lines.append(f"Since this juncture's context was written, the objective became {now!r}; "
+                     "the goal and stance set for the old one were cleared.")
     return _report(result, lines)
 
 
@@ -339,7 +344,11 @@ def _direct(arguments: dict[str, Any] | None = None, **_: Any) -> str:
     record = call("pilot", {"set": patch})["record"]
     stopped = False
     if new_objective:
-        ensure_juncture_job()
+        try:
+            ensure_juncture_job()
+        except Exception as exc:  # the record is written; the next load rewrites the job
+            logger.warning("spacemolt: the juncture job could not be rewritten: %s", exc, exc_info=True)
+            journal_event("wake_failed", error=f"{type(exc).__name__}: {exc}")
         # The same stop spacemolt_stop sends: the program ends at its next checkpoint, never
         # mid-command, and a question it is paused on is withdrawn. The reason rides in the
         # request's params, which the request journal line keeps with the run's id.

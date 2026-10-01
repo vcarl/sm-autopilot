@@ -292,6 +292,14 @@ def test_the_present_line_names_the_neighbours_and_what_is_known_of_them(monkeyp
     assert "One jump out" not in _rendered(monkeypatch, _menu(12))
 
 
+def test_the_present_line_caps_the_neighbours_at_a_hub(monkeypatch):
+    menu = _menu(12)
+    menu["neighbours"] = [{"system_id": f"s{n}", "jumps": 1, "visited": True} for n in range(10)]
+    present = next(line for line in _rendered(monkeypatch, menu).splitlines() if line.startswith("Present:"))
+    assert "s5 visited" in present and "s6" not in present, present
+    assert present.endswith("; +4 more."), present
+
+
 def test_skills_and_the_walk_away_line_read_as_what_they_are(monkeypatch):
     context = _rendered(monkeypatch, _menu(12))
     assert "Skills: weapons 3, gunnery 1, tactics 2." in context, context

@@ -26,6 +26,8 @@ for line in sys.stdin:
     action = request["action"]
     with open(os.path.join(runtime, "actions.log"), "a") as log:
         log.write(action + "\\n")
+    with open(os.path.join(runtime, "requests.jsonl"), "a") as log:
+        log.write(json.dumps(request) + "\\n")
     if action == "where":
         result = {"system": {"id": "sol", "name": "Sol"},
                   "docked_at": {"base_id": "sol_base", "name": "Sol Station"},
@@ -57,6 +59,9 @@ for line in sys.stdin:
     elif action == "stop":
         running = os.path.exists(os.path.join(runtime, "run.running"))
         result = {"stopping": running} if running else {"stopping": False, "reason": "nothing is running"}
+    elif action == "run":
+        # A run that ends at once; nothing streams.
+        result = {"accepted": True, "outcome": "done"}
     elif action == "status":
         # A script is running exactly while this marker file exists, read per request.
         result = {"running": os.path.exists(os.path.join(runtime, "run.running")), "last": None}
@@ -223,3 +228,42 @@ def test_a_cron_fire_cannot_reach_status_while_the_window_can():
     # Both can stop a run: the window as the human's brake, the fire to drop a question.
     assert "spacemolt_stop" in fire and "spacemolt_stop" in window
     assert "spacemolt_answer" in fire and "spacemolt_answer" not in window
+
+
+def test_a_run_in_a_fire_rendered_for_an_old_objective_says_the_objective_changed(bridged):
+    """The stop reaches only the run already flying: a fire whose context named the old objective
+    may start another run for the old plan, and every report in it says what the record holds."""
+    _seed(dict(PILOT))
+    juncture.juncture_context({"platform": "cron", "session_id": "cron_abc_20261001_101500"})
+    assert "objective became" not in spacemolt._run({})
+    spacemolt._direct({"objective": "explore new areas"})
+    for _ in range(2):
+        report = spacemolt._run({})
+        assert "the objective became 'explore new areas'" in report, report
+    # The next fire is rendered with the new objective, and its runs say nothing.
+    juncture.juncture_context({"platform": "cron", "session_id": "cron_abc_20261001_103000"})
+    assert "objective became" not in spacemolt._run({})
+
+
+def test_the_stop_on_a_new_objective_carries_its_reason(bridged):
+    _seed(dict(PILOT))
+    (bridged / "run.running").touch()
+    spacemolt._direct({"objective": "explore new areas"})
+    requests = [json.loads(line) for line in (bridged / "requests.jsonl").read_text().splitlines()]
+    [stop] = [row for row in requests if row["action"] == "stop"]
+    assert stop["params"] == {"reason": "objective"}
+
+
+def test_a_failed_job_rewrite_still_stops_the_run_and_answers(bridged, monkeypatch):
+    _seed(dict(PILOT))
+    (bridged / "run.running").touch()
+
+    def broken():
+        raise RuntimeError("cron is down")
+
+    monkeypatch.setattr(spacemolt, "ensure_juncture_job", broken)
+    answer = spacemolt._direct({"objective": "explore new areas"})
+    assert "asked to stop at its next safe point" in answer, answer
+    assert juncture.read_pilot()["objective"] == "explore new areas"
+    rows = [json.loads(line) for line in (bridged / "gameplay.jsonl").read_text().splitlines()]
+    assert any(row["event"] == "wake_failed" and "cron is down" in row["error"] for row in rows), rows

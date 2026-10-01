@@ -117,10 +117,12 @@ the pilot's context. Every line has `at` (UTC ISO, `Z`) and `event`.
   `cron_<job_id>_<ts>` session id) and `session_id`, `model`, `provider`, `code_sha` (git HEAD),
   `sources` (the TypeScript fingerprint), `skills_sha`, `context_sha`, `build_s`. The id is kept in
   `runtime/juncture.json`; `spacemolt_run` sends it as the run request's `juncture` param.
+  `juncture.json` also keeps the `objective` the context was rendered with; every `spacemolt_run`
+  report while it differs from the record's says the objective changed.
 - `juncture_rerender`: the same session rendered the context again (Hermes rebuilt the system
   prompt on compression). Same `juncture_id`, the fresh `context_sha`/`context`, and a `reason`.
   A non-busy rerender also moves `juncture.json`'s `at` to its own time, because its context can
-  carry an instruction; a busy one cannot, so it leaves `at` alone.
+  carry an instruction; a busy one cannot, so it leaves `at` (and `objective`) alone.
 - `run` `started`: `run_id`, `juncture_id`, `juncture_at` (the `at` of the render the run came
   from; also written to `run.json`), `since_juncture_s` (from that render), `code_sha`, `sources`,
   `start_state` (credits, fuel, hull, cargo, skills, place, active missions — account memory only,
