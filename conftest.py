@@ -14,6 +14,7 @@ which ``--import-mode=importlib`` (see pytest.ini) does not arrange itself.
 from __future__ import annotations
 
 import atexit
+import hashlib
 import importlib.util
 import os
 import shutil
@@ -78,3 +79,10 @@ def _isolated_hermes_home(tmp_path, monkeypatch):
     # does not run. A context-local home override in Hermes would bypass the env var above.
     from spacemolt import service
     assert service.runtime_dir().is_relative_to(home), service.runtime_dir()
+    # A stub bridge never installs into the checkout: its deps dir is a scratch one whose stamp
+    # already matches, so every bridge a test starts takes the no-npm path.
+    deps = tmp_path / "deps"
+    (deps / "node_modules").mkdir(parents=True)
+    (deps / "package-lock.json").write_text("{}")
+    (deps / service.DEPS_STAMP).write_text(hashlib.sha256(b"{}").hexdigest())
+    monkeypatch.setattr(service, "DEPS_ROOT", deps)

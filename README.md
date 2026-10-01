@@ -24,7 +24,7 @@ that keeps the pilot alive.
 | A SpaceMolt account | Its credentials in a file on disk. The plugin never holds them itself. |
 | Hermes | Installed, with a working model configured (`hermes model`). The gateway is what fires junctures, so a pilot only plays while a gateway is running. |
 | Node **22.18.0 or newer** | The bridge runs `node src/bridge.ts` **with no build step**, relying on Node's native TypeScript type stripping being on by default — 22.18.0 (LTS) or 23.6.0 is where that happens. `@spacemolt/lib` itself asks only for Node 22, but an unflagged `node foo.ts` needs the newer floor. The code uses only erasable syntax (no enums, namespaces or parameter properties), so plain stripping is enough; no `--experimental-transform-types`. |
-| `npm ci` in this directory | **Not just for development.** At runtime the bridge symlinks `node_modules/@spacemolt` into the pilot's working directory and shells out to `node_modules/typescript/bin/tsc` to typecheck the pilot's program before running it. Without `node_modules` nothing flies. |
+| `npm` on the gateway's `PATH` | The plugin's Node dependencies are needed at runtime, not just for development: the bridge symlinks `node_modules/@spacemolt` into the pilot's working directory and shells out to `node_modules/typescript/bin/tsc` to typecheck the pilot's program before running it. The first bridge start after an install or upgrade runs `npm ci` itself (a stamp in `node_modules` records which `package-lock.json` it installed), so that start takes a minute longer. |
 
 ## Setup
 
@@ -57,12 +57,15 @@ Confirm it landed:
 hermes plugins list        # spacemolt, enabled
 ```
 
-### 3. Install the Node dependencies
+### 3. The Node dependencies (optional)
+
+The first bridge start installs them (`npm ci` in the plugin directory), and again after any
+upgrade that replaced `node_modules`. To do it ahead of time, or to prove the toolchain works:
 
 ```bash
 cd ~/.hermes/profiles/spacemolt/plugins/spacemolt
 npm ci
-npm run typecheck && npm test   # optional, but it proves the toolchain works
+npm run typecheck && npm test
 ```
 
 ### 4. Give it the game account

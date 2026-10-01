@@ -62,7 +62,7 @@ jobs:
             echo "hermes plugins install ${GITHUB_REPOSITORY} --ref ${GITHUB_SHA} --enable"
             echo '```'
             echo
-            echo "Then continue with [Setup](${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/blob/${GITHUB_REF_NAME}/README.md#setup) from step 3: the Node dependencies, the game account, and starting the gateway. To upgrade an existing install, add \`--force\` to the command above, run \`npm ci\` in the plugin directory, and restart the gateway."
+            echo "Then continue with [Setup](${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/blob/${GITHUB_REF_NAME}/README.md#setup) from step 4: the game account, and starting the gateway (the first bridge start installs the Node dependencies itself). To upgrade an existing install, add \`--force\` to the command above and restart the gateway."
             echo
             echo '## Changes'
             echo

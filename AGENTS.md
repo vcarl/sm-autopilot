@@ -137,6 +137,8 @@ the pilot's context. Every line has `at` (UTC ISO, `Z`) and `event`.
   caller held), `mission` (`accepted`/`completed`/`abandoned`; `already_active` for an accept that
   sent nothing; `expired` when a mission seen running is next read expired or past its deadline),
   `stranded`, `death`, and `pilot` with `prev`.
+- `deps_installed` (`lock_sha256`, `seconds`) when a bridge start ran `npm ci`; `deps_failed`
+  (`lock_sha256`, `error`, and `seconds`/`output` when npm ran). Nothing when the stamp matched.
 
 Joins: `juncture_id` juncture → run; `run_id` run → everything in it; `job_id` + `at` juncture →
 Hermes' `cron/usage_audit.jsonl` (tokens, LLM time, model).
@@ -186,7 +188,7 @@ profile's `plugins/spacemolt` is one of two things, and they upgrade differently
 - **An install** (a directory, with `plugins/.install-metadata.json` naming a pinned `revision`):
   what a user has. It flies released commits only, upgraded with
   `hermes --profile <profile> plugins install vcarl/sm-autopilot --ref <full sha> --enable --force`,
-  `npm ci` in the plugin directory, and a gateway restart. `/shipit-locally` does exactly that,
+  and a gateway restart; the first bridge start then runs `npm ci` itself. `/shipit-locally` does exactly that,
   waits out a run in flight, and checks it landed; a human invoking it is the approval for that
   one profile and ref.
 - **A dev symlink** to a worktree of this repo that is never worked in, only pointed. It flies any
@@ -316,3 +318,8 @@ releases and sets versions; an agent never does unless asked for that release. T
 - **Python changes do not reach a running pilot.** `service.py` fingerprints the TypeScript so a
   stale bridge is visible, but the plugin's Python is imported once. A change there needs a
   gateway restart, and a broken juncture means the pilot never wakes again.
+- **An upgrade left the plugin with no `node_modules`** (09-29): `plugins install --force`
+  replaces the directory, Hermes never installs a plugin's dependencies, and every bridge died
+  on `ERR_MODULE_NOT_FOUND` until someone ran `npm ci`. `ensure_node_deps` now runs it before
+  every spawn whose stamp (the lockfile's hash, written after a successful install) is missing
+  or stale, under a `flock` on `package-lock.json` so two spawners never install at once.

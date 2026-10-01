@@ -6,12 +6,14 @@ handlers are clients of it and hold no connection state of their own.
 from __future__ import annotations
 
 import contextlib
+import hashlib
 import json
 import os
 import queue
 import shutil
 import subprocess
 import threading
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -30,6 +32,12 @@ READY_TIMEOUT = 120.0
 #: A backstop only: the bridge caps a run itself (``RUN_CAP_MS`` + grace in run.ts, 26 min).
 REQUEST_TIMEOUT = 1800.0
 CLOSE_TIMEOUT = 5.0  # per stage of the EOF → SIGTERM → SIGKILL escalation
+#: Where the bridge's Node dependencies are installed (tests point this at a scratch dir).
+DEPS_ROOT = HERE
+#: Inside node_modules, so whatever removes node_modules removes the stamp with it.
+DEPS_STAMP = "node_modules/.spacemolt-lock-sha256"
+#: Its own clock, apart from READY_TIMEOUT: the install finishes before the bridge is spawned.
+DEPS_TIMEOUT = 900.0
 
 _lock = threading.RLock()
 _bridge: Bridge | None = None
@@ -117,6 +125,56 @@ def rotate_log(path: Path) -> None:
     path.rename(target)
 
 
+def ensure_node_deps(root: Path) -> None:
+    """Make ``root/node_modules`` match ``root/package-lock.json`` before Node is asked to run.
+
+    Hermes never installs a plugin's dependencies, and ``hermes plugins install --force``
+    replaces the whole directory, node_modules included. The stamp is the lockfile's hash,
+    written only after ``npm ci`` succeeds, so an install cut short is redone; a matching
+    stamp costs one hash and no npm. The lock is ``flock`` on the lockfile itself (``npm ci``
+    never writes it), so a gateway and any other spawner never install into one dir at once.
+
+    Full ``npm ci``, never ``--omit=dev``: the "dev" deps are runtime deps here. ``run.ts``
+    typechecks the pilot's program with ``node_modules/typescript/bin/tsc`` against
+    ``node_modules/@types`` before it runs it.
+
+    ponytail: ``fcntl`` is POSIX only; a Windows host needs ``msvcrt.locking`` here.
+    """
+    import fcntl
+
+    lockfile, stamp = root / "package-lock.json", root / DEPS_STAMP
+    with lockfile.open("rb") as held:
+        digest = hashlib.sha256(held.read()).hexdigest()
+        if stamp.is_file() and stamp.read_text().strip() == digest:
+            return
+        fcntl.flock(held.fileno(), fcntl.LOCK_EX)  # released when ``held`` closes
+        if stamp.is_file() and stamp.read_text().strip() == digest:
+            return  # another process installed while this one waited
+        from .juncture import journal_event
+        missing = [name for name in ("node", "npm") if shutil.which(name) is None]
+        if missing:
+            error = f"{' and '.join(missing)} not found on PATH; install Node.js (>=22.18) for the gateway's user"
+            journal_event("deps_failed", lock_sha256=digest, error=error)
+            raise RuntimeError(f"SpaceMolt cannot install its Node dependencies: {error}")
+        started = time.monotonic()
+        try:
+            done = subprocess.run(["npm", "ci", "--no-audit", "--no-fund"], cwd=root, capture_output=True,
+                                  text=True, timeout=DEPS_TIMEOUT, check=False)
+            failure = "" if done.returncode == 0 else f"npm ci exited {done.returncode}"
+            output = (done.stdout + done.stderr).strip()
+        except subprocess.TimeoutExpired as expired:
+            failure = f"npm ci did not finish in {DEPS_TIMEOUT:.0f}s"
+            output = str(expired.stderr or expired.stdout or "").strip()
+        seconds = round(time.monotonic() - started, 1)
+        if failure:
+            tail = output[-2000:]
+            journal_event("deps_failed", lock_sha256=digest, seconds=seconds, error=failure, output=tail)
+            raise RuntimeError(f"SpaceMolt could not install its Node dependencies ({failure}). "
+                               f"Run `npm ci` in {root} to see why.\n--- npm ---\n{tail}")
+        stamp.write_text(digest + "\n")
+        journal_event("deps_installed", lock_sha256=digest, seconds=seconds)
+
+
 def available() -> bool:
     return credentials_file() is not None and shutil.which("node") is not None
 
@@ -130,6 +188,10 @@ class Bridge:
             raise RuntimeError("SPACEMOLT_CREDENTIALS_FILE must point at a readable credentials file")
         runtime = runtime_dir()
         runtime.mkdir(parents=True, exist_ok=True)
+        try:
+            ensure_node_deps(DEPS_ROOT)  # before Popen, so READY_TIMEOUT never times an install
+        except RuntimeError as error:
+            raise RuntimeError(f"SpaceMolt bridge failed to start: {error}") from error
         webhook = journal_webhook()
         env = {**os.environ, "SPACEMOLT_CREDENTIALS_FILE": str(credentials), "SPACEMOLT_RUNTIME_DIR": str(runtime),
                **({"SPACEMOLT_JOURNAL_WEBHOOK": webhook} if webhook else {})}
