@@ -27,10 +27,11 @@ test('the walk: jumps to every system, nearest first, with what the map and memo
 // sol – deep_range – a – b – c, and every system up to `a` already visited.
 const CHAIN:WorldOptions={systems:[{id:'a',connections:['deep_range'],pois:[{id:'a_rock'}]},
   {id:'b',connections:['a'],pois:[{id:'b_rock'}]},{id:'c',connections:['b'],pois:[{id:'c_rock'}]}]};
-function world(record:Pilot,options:WorldOptions,map:(row:Record<string,any>)=>void=()=>{}) {
+function world(record:Pilot,options:WorldOptions,map:(row:Record<string,any>)=>void=()=>{},before:(action:string)=>void=()=>{}) {
   const runtime=mkdtempSync(join(tmpdir(),'spacemolt-explore-'));
   const game=bridgeWorld({services:['refuel','repair','storage'],...options});
   const command:typeof game.command=async(action,params)=>{
+    before(action);
     const res=await game.command(action,params);
     if(action==='spacemolt/get_map'&&params?.system_id===undefined)for(const row of (res as any).structuredContent.systems)map(row);
     return res;
@@ -53,6 +54,8 @@ test('the menu finds an unvisited system several jumps out, keeps a dangerous on
     const built=await menu(f.runtime);
     const row=built.moves.find(m=>m.call==="goTo('b')");
     assert.ok(row,JSON.stringify(built.moves));
+    // Fresh, so goTo's repetition does not sink it: it ranks over the other work the menu holds.
+    assert.ok(built.moves.indexOf(row!)<built.moves.findIndex(m=>m.call==='service()'),JSON.stringify(built.moves));
     assert.match(row!.why,/^b \(3 jumps, never visited, no empire listed, a stronghold\)/);
     assert.match(row!.why,/Next nearest: c 'c' \(4 jumps, never visited, empire solarian\)/);
     assert.deepEqual(built.neighbours?.map(n=>[n.system_id,n.visited]),[['deep_range',true]]);
@@ -92,7 +95,36 @@ test('exploreNearby visits and scouts the nearest unvisited systems, keeps what 
     const out=await exploreNearby({systems:3,avoid:['deep_range']});
     assert.deepEqual(out.detail.visited.map(row=>row.system_id),['side']);
     assert.ok(!Object.keys(readSeen(g.runtime)).includes('deep_range'));
+    // Skipped for its route is not visited: `a` is still what is left in range.
+    assert.deepEqual(out.detail.unvisited.map(row=>row.system_id),['a']);
+    assert.match(out.did,/1 more unvisited within 3 jumps, nearest a/);
   } finally {g.close();}
+});
+
+test('exploreNearby ends Tired, refused for fuel, and surveys when asked',async()=>{
+  // Tired from the first arrival on: the hop that left it so ends the circuit there.
+  let game:any;
+  const tired=world({stance:'Scout',get mood(){return game?.location.system_id==='deep_range'?'Tired':'Focused';}} as Pilot,CHAIN);
+  try {
+    game=(tired.account as any).server;
+    const out=await exploreNearby({systems:3});
+    assert.equal(out.detail.ended,'tired',JSON.stringify(out));
+    assert.deepEqual(out.detail.visited.map(row=>row.system_id),['deep_range']);
+    assert.ok(out.next?.includes('service() at the nearest base'),JSON.stringify(out.next));
+  } finally {tired.close();}
+  const dry=world({mood:'Focused'},CHAIN,undefined,action=>{if(action==='spacemolt/jump')throw new Error('Not enough fuel to jump');});
+  try {
+    const out=await exploreNearby();
+    assert.equal(out.status,'refused',JSON.stringify(out));
+    assert.equal(out.detail.ended,'refused');
+    assert.match(out.why??'',/^deep_range: /);
+    assert.equal(out.detail.unvisited[0]?.system_id,'deep_range','refused for fuel is still unvisited');
+  } finally {dry.close();}
+  const survey=world({mood:'Focused'},CHAIN);
+  try {
+    const out=await exploreNearby({systems:1,survey:true});
+    assert.ok(out.detail.visited[0]?.survey,JSON.stringify(out.detail.visited));
+  } finally {survey.close();}
 });
 
 test('systems.json keeps the newest look per system',()=>{

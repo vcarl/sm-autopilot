@@ -306,7 +306,8 @@ export async function menu(runtime?:string):Promise<Menu> {
   const pois:SystemPoi[]=system?.pois??[];
   // The whole map in one read, walked from here: the neighbours for the Present line, and the
   // nearest unvisited systems for the explore row below.
-  const nearby=location?.system_id?around(await attempt(()=>readMap(command))??[],location.system_id,Infinity,readSeen(runtime)):[];
+  const map=location?.system_id?await attempt(()=>readMap(command)):undefined;
+  const nearby=map&&location?.system_id?around(map,location.system_id,Infinity,readSeen(runtime)):[];
   const neighbours=nearby.filter(row=>row.jumps===1);
   const shown=neighbours.length?{neighbours}:{};
 
@@ -573,7 +574,10 @@ export async function menu(runtime?:string):Promise<Menu> {
   // every candidate carries its facts, and none is dropped for them.
   const unvisited=nearby.filter(row=>!row.visited);
   const first=unvisited[0];
-  if(!first)not_now.push({move:'goTo',why:nearby.length?`every system on the map is visited (${nearby.length} reachable)`:'the map was not read'});
+  if(!first)not_now.push({move:'goTo',why:nearby.length?`every system on the map is visited (${nearby.length} reachable)`
+    :!map?'the map was not read'
+    :map.some(row=>row.system_id===location?.system_id)?`no system on the map is reachable from ${location?.system_id}`
+    :`${location?.system_id??'this system'} is not on the map (${map.length} systems read)`});
   else if(first.jumps>EXPLORE_JUMPS)not_now.push({move:`goTo('${first.system_id}')`,
     why:`nothing unvisited within ${EXPLORE_JUMPS} jumps; the nearest is ${first.name} (${nearFacts(first)})`});
   else {

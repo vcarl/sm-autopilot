@@ -4,13 +4,14 @@
  *
  * The map walk lives here and is shared: `candidates` (trading/scout.ts) walks it for books, the
  * menu for unvisited systems and the neighbours the juncture names, `exploreNearby` to pick its hops. */
-import {mkdirSync,readFileSync,renameSync,writeFileSync} from 'node:fs';
+import {readFileSync} from 'node:fs';
 import {join} from 'node:path';
 import type {MapSystemInfo} from '@spacemolt/lib';
 import type {ReadinessCommand} from '../../readiness.ts';
 import {details} from '../../response-details.ts';
 import {sightingTicksOld} from '../../sighting-memory.ts';
 import {scout} from '../orient.ts';
+import {keepJson} from '../places.ts';
 import {acct,admit,checkStop,command,job,pilot,runtimeDir,step} from '../runtime.ts';
 import {goTo} from '../travel.ts';
 import type {Outcome} from '../types.ts';
@@ -25,14 +26,8 @@ export function readSeen(dir:string|undefined):Record<string,SystemSeen> {
   try {const rows=JSON.parse(readFileSync(join(dir,SEEN),'utf8'));return rows&&typeof rows==='object'?rows:{};}
   catch {return {};}
 }
-/** Temp file then rename, as `places.json` is written. */
 export function markSeen(dir:string,system_id:string,row:SystemSeen):void {
-  try {
-    mkdirSync(dir,{recursive:true});
-    const path=join(dir,SEEN),temp=`${path}.${process.pid}.tmp`;
-    writeFileSync(temp,JSON.stringify({...readSeen(dir),[system_id]:row},null,2),{mode:0o600});
-    renameSync(temp,path);
-  } catch {/* unkept: seen again next visit */}
+  keepJson(dir,SEEN,{...readSeen(dir),[system_id]:row});
 }
 
 /** One system as the walk reaches it: the map's own facts, and what this runtime saw there. */
@@ -97,13 +92,14 @@ export function exploreNearby(opts:{systems?:number;jumps?:number;survey?:boolea
     const blocked=await admit('exploreNearby');
     if(blocked)return {status:'refused',did:'explored nothing',why:blocked,detail};
     const map=await readMap(command),tried=new Set<string>();
-    const left=()=>{
+    // The map was read before the first hop, so a system flown to this run still reads unvisited.
+    const left=(skip:Set<string>)=>{
       const here=acct().state.location?.system_id;
-      return here?around(map,here,jumps,readSeen(runtimeDir())).filter(row=>!row.visited&&!tried.has(row.system_id)&&!avoid.has(row.system_id)):[];
+      return here?around(map,here,jumps,readSeen(runtimeDir())).filter(row=>!row.visited&&!skip.has(row.system_id)&&!avoid.has(row.system_id)):[];
     };
     while(detail.visited.length<count) {
       checkStop();
-      const next=left()[0];
+      const next=left(tried)[0];
       if(!next){if(!detail.visited.length)detail.ended='none';break;}
       tried.add(next.system_id);
       if(avoid.size) {
@@ -135,7 +131,8 @@ export function exploreNearby(opts:{systems?:number;jumps?:number;survey?:boolea
         pois:pois.length,...survey?{survey}:{}});
       if(pilot().mood==='Tired'){detail.ended='tired';break;}
     }
-    detail.unvisited=left();
+    // What is left in range: a target skipped for its route or refused for fuel is still unvisited.
+    detail.unvisited=left(new Set(detail.visited.map(row=>row.system_id)));
     const did=(detail.visited.length?`visited ${detail.visited.map(row=>`${row.name} (${row.system_id}: ${row.pois} POIs, ${row.stations.length} station(s)`
       +`${row.police!==undefined?`, police ${row.police}`:''}${row.security?`, ${row.security}`:''}${row.pirates?`, ${row.pirates} pirate(s) at arrival`:''})`).join('; ')}`
       :`visited nothing${detail.ended==='none'?`: no unvisited system within ${jumps} jumps${avoid.size?' outside avoid':''}`:''}`)

@@ -11,16 +11,22 @@ export function readPlaces(runtime:string):Record<string,string> {
   try {const places=JSON.parse(readFileSync(join(runtime,FILE),'utf8'));return places&&typeof places==='object'?places:{};}
   catch {return {};}
 }
-/** Temp file then rename; a no-op when the place is already kept or either id is empty. */
+/** Write `file` in `dir` as JSON, temp file then rename, so a reader never sees half of it. A
+ * failed write is dropped: everything kept this way is only looked up or seen again. */
+export function keepJson(dir:string,file:string,value:unknown):void {
+  try {
+    mkdirSync(dir,{recursive:true});
+    const path=join(dir,file),temp=`${path}.${process.pid}.tmp`;
+    writeFileSync(temp,JSON.stringify(value,null,2),{mode:0o600});
+    renameSync(temp,path);
+  } catch {/* unkept */}
+}
+
+/** A no-op when the place is already kept or either id is empty. */
 export function markPlace(runtime:string,base_id:string,system_id:string):void {
   const places=readPlaces(runtime);
   if(!base_id||!system_id||places[base_id]===system_id)return;
-  try {
-    mkdirSync(runtime,{recursive:true});
-    const path=join(runtime,FILE),temp=`${path}.${process.pid}.tmp`;
-    writeFileSync(temp,JSON.stringify({...places,[base_id]:system_id},null,2),{mode:0o600});
-    renameSync(temp,path);
-  } catch {/* a place not kept is only looked up again */}
+  keepJson(runtime,FILE,{...places,[base_id]:system_id});
 }
 
 /** Bases seen away from their kept place: mobile stations, which move between systems. `mobile.json`
@@ -41,14 +47,9 @@ function readList(runtime:string,file:string):Set<string> {
   try {const ids=JSON.parse(readFileSync(join(runtime,file),'utf8'));return new Set(Array.isArray(ids)?ids.filter(id=>typeof id==='string'):[]);}
   catch {return new Set();}
 }
-/** Temp file then rename; a no-op when the id is already listed or empty. */
+/** A no-op when the id is already listed or empty. */
 function addToList(runtime:string,file:string,id:string):void {
   const ids=readList(runtime,file);
   if(!id||ids.has(id))return;
-  try {
-    mkdirSync(runtime,{recursive:true});
-    const path=join(runtime,file),temp=`${path}.${process.pid}.tmp`;
-    writeFileSync(temp,JSON.stringify([...ids,id],null,2),{mode:0o600});
-    renameSync(temp,path);
-  } catch {/* unkept: seen again next time */}
+  keepJson(runtime,file,[...ids,id]);
 }
