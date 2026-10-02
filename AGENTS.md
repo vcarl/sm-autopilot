@@ -186,37 +186,39 @@ Prefer asserting `job_fields()` output as data over driving cron's internals.
 ## Flying a change in a real profile
 
 The tests prove the plugin against Hermes; only a real profile proves it against the game. A
-profile's `plugins/spacemolt` is one of two things, and they upgrade differently:
-
-- **An install** (a directory, with `plugins/.install-metadata.json` naming a pinned `revision`):
-  what a user has. It flies released commits only, upgraded with
-  `hermes --profile <profile> plugins install vcarl/sm-autopilot --ref <full sha> --enable --force`,
-  and a gateway restart; the first bridge start then runs `npm ci` itself. `/shipit-locally` does exactly that,
-  waits out a run in flight, and checks it landed; a human invoking it is the approval for that
-  one profile and ref.
-- **A dev symlink** to a worktree of this repo that is never worked in, only pointed. It flies any
-  branch:
+profile flies an **install**: `plugins/spacemolt` is a directory, and
+`plugins/.install-metadata.json` names the one `revision` it is pinned to and its `source`. A
+release and an unreleased candidate are installed the same way; only the source differs:
 
 ```
-~/.hermes/profiles/<profile>/plugins/spacemolt -> ~/workspace/sm-autopilot-live   (detached HEAD)
+# a release, from GitHub, as a user gets it
+hermes --profile <profile> plugins install vcarl/sm-autopilot --ref <full sha> --enable --force
+# a candidate: any commit in this repo, unpushed, from the main checkout (every worktree's
+# commits are in its object store); Hermes warns that file:// is insecure, which is expected
+hermes --profile <profile> plugins install file:///Users/<you>/workspace/sm-autopilot --ref <full sha> --enable --force
+hermes --profile <profile> gateway restart    # Python is imported once per gateway process
 ```
 
-To fly a branch:
+`--ref` takes a full 40-character SHA (`git rev-parse <branch>`), never a branch name, so what
+flies is exactly the commit you tested. The first bridge start after the restart runs `npm ci`
+itself. Installing a release afterwards puts the profile back on GitHub; the pilot's state lives
+in the profile (`spacemolt/runtime/`, `spacemolt/pilot.json`), not the plugin, so neither
+install touches it. Restarting under a run in flight closes that run `interrupted`: check
+`spacemolt/runtime/run.json` first. `/shipit-locally` does all of this for a release or a
+candidate, waits out a run, and checks it landed; a human invoking it is the approval for that one
+profile and ref.
 
-```
-git -C ~/workspace/sm-autopilot-live switch --detach <branch>
-npm --prefix ~/workspace/sm-autopilot-live ci            # only if package-lock.json changed
-hermes --profile <profile> gateway restart               # Python is imported once; see below
-```
+Then check it landed:
 
-Then check it landed: the juncture job in `~/.hermes/profiles/<profile>/cron/jobs.json` lists
-`spacemolt:play` and the stance's skill, and `logs/errors.log` has no `skill not found` or
-`Plugin spacemolt:` warning since the restart. The pilot's state lives in the profile
-(`spacemolt/runtime/`, `spacemolt/pilot.json`), not the checkout, so switching branches never
-touches it. Detached, so any branch can be flown while it stays checked out where it is worked on.
+- `.install-metadata.json` has the SHA as `revision`, and the source you meant.
+- The juncture job in `cron/jobs.json` lists `spacemolt:play` and the stance's skill.
+- `logs/errors.log` has no `skill not found` or `Plugin spacemolt:` warning since the restart.
+- The next `juncture` line in the journal carries that SHA as `code_sha` (junctures are ~5 minutes
+  apart). From then on, read the pilot's day (below) for what the change was meant to move.
 
 Which profile is which is machine-local, so check rather than assume:
-`ls -l ~/.hermes/profiles/*/plugins/` shows symlinks, and an install has `.install-metadata.json`.
+`cat ~/.hermes/profiles/*/plugins/.install-metadata.json`. A profile whose `plugins/spacemolt` is
+a symlink is a leftover of an older dev loop; reinstall it as above.
 
 ## Reading a pilot's day
 
@@ -239,7 +241,7 @@ Clocks: the journal is UTC. `gateway.log` and the `cron/output` filenames are **
 calls but not the model's reasoning: its words are only in `cron/output`.
 
 To see what code a pilot was flying, read `code_sha` on `juncture` and `run started` lines, not
-the checkout: an install and a symlink both report their own HEAD.
+the checkout: an install reports its own HEAD, a release or a candidate alike.
 
 ```
 # How each run ended, and what its work call earned

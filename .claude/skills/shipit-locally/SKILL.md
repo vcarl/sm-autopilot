@@ -1,18 +1,22 @@
 ---
 name: shipit-locally
-description: Upgrade a local Hermes profile's installed spacemolt plugin to a released commit, restart its gateway, and verify the pilot is flying it. A human invokes this; invoking it is the approval for this one profile and this one ref.
-argument-hint: "[profile, default kvothe] [tag or full SHA, default the latest release]"
+description: Install a released commit, or a local candidate commit not yet released, as a local Hermes profile's spacemolt plugin, restart its gateway, and verify the pilot is flying it. A human invokes this; invoking it is the approval for this one profile and this one ref.
+argument-hint: "[profile, default kvothe] [tag, full SHA or local branch, default the latest release]"
 disable-model-invocation: true
 allowed-tools: Bash(hermes --profile * plugins install *), Bash(hermes --profile * gateway restart)
 ---
 
 # Ship it locally
 
-Put a local pilot on released code the way a user upgrades: `hermes plugins install --ref <sha>
+Put a local pilot on one commit the way a user upgrades: `hermes plugins install --ref <sha>
 --force`, gateway restart. The first bridge start after the restart reinstalls the Node
-dependencies itself (`--force` replaced `node_modules`). This is not the dev loop in AGENTS.md ("Flying a change in a
-real profile", a symlink to `sm-autopilot-live`); a profile whose `plugins/spacemolt` is a symlink
-is not an install, so stop and say so.
+dependencies itself (`--force` replaced `node_modules`).
+
+The ref is either a **release** (a tag, or a SHA on origin), installed from GitHub as users get
+it, or a **candidate**: a local branch or SHA not yet released, installed from this repo's own
+checkout over `file://` so it needs no push. Both are real installs, pinned to one SHA; a candidate
+differs only in its metadata `source`. Installing a release afterwards puts the profile back on
+GitHub. A profile whose `plugins/spacemolt` is a symlink is not an install, so stop and say so.
 
 ## What invoking this approves, and what it does not
 
@@ -30,9 +34,13 @@ of a deploy. If a step below would need any of those, stop and ask.
 1. **Resolve the ref to one full SHA.** Default: the latest GitHub release
    (`gh release view --json tagName -q .tagName`). A tag resolves with
    `git ls-remote origin "refs/tags/<tag>^{}"`; a SHA must be 40 hex characters and reachable on
-   origin (`git ls-remote origin` / `git branch -r --contains`). Only pushed code ships: the
-   install fetches from GitHub, not this checkout. For a tag, confirm its Release workflow passed
-   (`gh run list --workflow Release --branch <tag>`); if it did not, stop.
+   origin (`git ls-remote origin` / `git branch -r --contains`). For a tag, confirm its Release
+   workflow passed (`gh run list --workflow Release --branch <tag>`); if it did not, stop. A
+   release's `SRC` is `vcarl/sm-autopilot`. Any other ref is a candidate: resolve it with
+   `git rev-parse --verify '<ref>^{commit}'`, and set `SRC=file://<the main checkout>` (the
+   parent of `git rev-parse --path-format=absolute --git-common-dir`; every worktree's commits
+   are in its object store). Say it is a candidate, and name its branch and whether
+   `npm run typecheck`, `npm test` and pytest were green on it.
 2. **Preflight.** `$H/plugins/spacemolt` exists and is not a symlink.
    `$H/plugins/.install-metadata.json` gives the current `revision`; if it already equals the
    SHA, report that and stop.
@@ -45,11 +53,12 @@ of a deploy. If a step below would need any of those, stop and ask.
      are capped at 26 minutes from `started`; if it is still open 30 minutes after `started`,
      stop and report rather than restart under it.
    Re-read `run.json` immediately before step 4: a juncture may have started a new run.
-4. **Install.** `hermes --profile $P plugins install vcarl/sm-autopilot --ref <sha> --enable --force`.
+4. **Install.** `hermes --profile $P plugins install $SRC --ref <sha> --enable --force`. A
+   `file://` source prints an insecure-scheme warning; that is expected for a candidate.
 5. **Restart.** `hermes --profile $P gateway restart`. Python is imported once per gateway
    process; without this the pilot keeps the old plugin.
 6. **Verify it landed.** Each of these, with what you saw:
-   - `.install-metadata.json` `revision` is the SHA.
+   - `.install-metadata.json` `revision` is the SHA and `source` is `$SRC`.
    - `$H/cron/jobs.json`: the juncture job's skills include `spacemolt:play` and the stance's
      skill.
    - `$H/logs/errors.log` and `gateway.log` since the restart: no `skill not found`, no
@@ -57,7 +66,7 @@ of a deploy. If a step below would need any of those, stop and ask.
    - The next `juncture` line in `$H/spacemolt/runtime/gameplay.jsonl` carries `code_sha` equal
      to the SHA. Junctures are about 5 minutes apart (`IDLE_SCHEDULE`); wait with Monitor, up to
      15 minutes. No juncture in that time is a failure to report, not to paper over.
-7. **Report.** Profile, old → new revision, the release it came from, whether a run was waited
+7. **Report.** Profile, old → new revision, the release or candidate branch it came from, whether a run was waited
    out, and each check in step 6. If anything failed, say which step, with the log lines, and
    leave the profile as it is: do not reinstall the old revision unless the user asks.
 
