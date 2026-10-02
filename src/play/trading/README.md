@@ -256,6 +256,10 @@ It answers `detail: Traded` = `{stops, unsold, fuel, net}`:
 Each stop's `did` names what it took and the later bid it was taken for, with that book's age:
 `took 2 dark_matter_residue for sirius_observatory_station's 1020 bid (remembered, 85 ticks old)`.
 That bid is a memory until the run stands in front of it; an old one is the likeliest to have moved.
+A `buy` item the live book no longer offers as the book the route was planned on did is said
+against that book: `no ask for circuit_board here now (was 330 for 5, 12 ticks ago)`, or, when the
+buy took every unit left, `circuit_board: 2 on the asks here now (was 330 for 5, 12 ticks ago)`.
+The same words are in the stop's `why`.
 
 A thin book is walked down its levels, so a sale can fetch less than the top bid you saw: when a
 stop's sale averages more than 3% under the top bid read there, `did` says so with that bid's depth

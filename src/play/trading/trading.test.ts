@@ -776,6 +776,22 @@ test('routes and tradeRun name the age of each far book a leg was planned on',as
   } finally {unbind();rmSync(runtime,{recursive:true,force:true});}
 });
 
+test('a planned buy that finds no ask, or fewer units than remembered, says so with the remembered price and age',async()=>{
+  // Live 2026-10-01 (kvothe 15:25Z): tradeRun at confederacy_central_command reported only "nothing".
+  const planned={base_id:'sol_base',age:12,items:[{item_id:'gem',best_sell:100,best_sell_qty:50}]};
+  for(const [ask,said] of [[0,/^sol_base: no ask for gem here now \(was 100 for 50, 12 ticks ago\) → range_base: /],
+    [5,/^sol_base: took 5 gem for range_base's 110 bid \(remembered, 0 ticks old\), gem: 5 on the asks here now \(was 100 for 50, 12 ticks ago\) → /]] as const) {
+    const runtime=remembered([planned,RANGE]);
+    world({mood:'Focused'},{cargo:[],cargoUsed:0,cargoCapacity:20,store:[],
+      markets:{sol_base:[{item_id:'gem',best_buy:90,best_buy_qty:50,best_sell:ask?100:0,best_sell_qty:ask}]}},runtime);
+    try {
+      const run=await tradeRun({stops:[{at:'sol_base',buy:'gem'},{at:'range_base'}]});
+      assert.match(run.did,said);
+      assert.match(run.detail.stops[0]!.why!,ask?/gem: 5 on the asks here now/:/no ask for gem here now/);
+    } finally {unbind();rmSync(runtime,{recursive:true,force:true});}
+  }
+});
+
 test('a sale filled at the top bid says nothing more',async()=>{
   world({mood:'Focused'},{cargo:[{item_id:'ore',quantity:3}],cargoUsed:3,store:[],
     markets:{sol_base:[{item_id:'ore',best_buy:10,best_buy_qty:3,best_sell:0,best_sell_qty:0}]}});

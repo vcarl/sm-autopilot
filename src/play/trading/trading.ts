@@ -16,7 +16,7 @@ import {walkBook} from '../../order-book.ts';
 import {details} from '../../response-details.ts';
 import {journalRun} from '../../run-record.ts';
 import {inFaction} from '../../trade-intel.ts';
-import {book,buy,knownBooks,marketTick,sell,slipped,ticksOld} from '../market.ts';
+import {book,buy,knownBooks,marketTick,sell,slipped,ticksOld,type RememberedBook} from '../market.ts';
 import {readDrained,ring} from '../freighter/drained.ts';
 import {markPlace,readMobile,readPlaces} from '../places.ts';
 import {acct,admit,checkStop,command,job,runtimeDir,step,type Said} from '../runtime.ts';
@@ -472,6 +472,17 @@ export interface Traded {
   net:number;
 }
 
+/** Units on a row's asks. */
+const depth=(row:Listing|undefined)=>row?levels(row,'asks').reduce((sum,level)=>sum+level.quantity,0):0;
+/** An item a stop was to take that the live book no longer offers as the remembered one did: no ask
+ * at all, or fewer units than were remembered when the buy took every one there is. */
+function dryness(item:string,now:Listing|undefined,before:RememberedBook|undefined,tick:number,bought:number):string[] {
+  const then=before?.items.find(row=>row.item_id===item),was=depth(then),left=depth(now);
+  const ago=then&&was?`was ${then.best_sell} for ${was}, ${ticksOld(before!.tick,tick)} ticks ago`:'';
+  if(!left)return [`no ask for ${item} here now${ago?` (${ago})`:''}`];
+  return ago&&left<was&&bought>=left?[`${item}: ${left} on the asks here now (${ago})`]:[];
+}
+
 /** What a stop took, and the later bid each item was taken for with that book's age:
  * `took 2 dark_matter_residue for sirius_observatory_station's 1020 bid (remembered, 85 ticks old)`.
  * Grouped by the later base; past two kinds a group is `N of K kinds`. A later stop with no known
@@ -531,6 +542,8 @@ export function tradeRun(opts:{stops:RunStop[]}):Promise<Outcome<Traded>> {
       const visit:Visit={at:here,sold:[],bought:0,spent:0};
       stops.push(visit);
       const notes:string[]=[];
+      // The book this base was last read at, before this read replaces it: what the route was planned on.
+      const before=knownBooks().find(row=>row.base_id===here);
       let listed:Map<string,MarketListingItem>;
       try {listed=await book();}
       catch(error) {short.push(`${here}: no market (${error instanceof Error?error.message:String(error)})`);visit.why=short.at(-1);told.push(`${here}: nothing`);continue;}
@@ -552,7 +565,13 @@ export function tradeRun(opts:{stops:RunStop[]}):Promise<Outcome<Traded>> {
         visit.sold=sold.detail?.fills??[];earned+=sold.detail?.total??0;
         if(sold.status!=='done')short.push(`${here}: ${sold.why??sold.did}`);
       }
-      if(wanted.length&&!leg!.buys.length)notes.push(`took no ${wanted.join(', ')}: nothing ${stop.from==='store'?'in the store':'on the asks'} here beats the best known bid later on the route`);
+      // A source that dried up says so, against the book the route was planned on.
+      // Live 2026-10-01 (kvothe 15:25Z): tradeRun at confederacy_central_command reported only "nothing".
+      const dried=stop.from==='store'?[]:wanted.flatMap(item=>dryness(item,listed.get(item),before,marketTick(),
+        leg!.buys.find(row=>row.item_id===item)?.quantity??0));
+      notes.push(...dried);
+      const asked=stop.from==='store'?wanted:wanted.filter(item=>depth(listed.get(item))>0);
+      if(asked.length&&!leg!.buys.length)notes.push(`took no ${asked.join(', ')}: nothing ${stop.from==='store'?'in the store':'on the asks'} here beats the best known bid later on the route`);
       const loaded:{item_id:string;quantity:number}[]=[];
       for(const {item_id,quantity} of leg!.buys) {
         const want=Math.min(quantity,cargo());
@@ -573,7 +592,7 @@ export function tradeRun(opts:{stops:RunStop[]}):Promise<Outcome<Traded>> {
       const why=[...short.filter(line=>line.startsWith(`${here}:`)),...notes].join('; ');
       if(why)visit.why=why;
       told.push(`${here}: ${[...visit.sold.map(fill=>`sold ${fill.quantity_sold} ${fill.item_id}${slipped(listed.get(fill.item_id),Number(fill.quantity_sold),Number(fill.total_earned))}`),
-        ...carried(loaded,later.map(base=>known.get(base)))].join(', ')||'nothing'}`);
+        ...carried(loaded,later.map(base=>known.get(base))),...notes].join(', ')||'nothing'}`);
     }
     const end=detail();
     const did=`${said()} — net ${end.net} cr after ${fuel} fuel at ${fuelPrice??0} cr`
