@@ -144,6 +144,8 @@ export function refit(change:{install?:string[];remove?:string[]}):Promise<Outco
 export type ForSale=
   |{kind:'listing';listing:ShipListing;class:ShipClass;versus:string}
   |{kind:'commission';quote:CommissionQuoteResponse;class:ShipClass;versus:string};
+/** A class the yard would not quote you, with the game's reason ("requires Piloting level 20"). */
+export interface Locked {class_id:string;why:string}
 
 /** Ship classes are catalogue data, so each is read once per process — a class the catalogue says
  * it has no entry for included (live 2026-09-28: `inspect rubble` on every menu render). Any other
@@ -205,13 +207,18 @@ const QUOTES=5;
  * `cargo_capacity`, then price, because cargo multiplies every loop. Reads only. Flags crew
  * traps: a class whose `minimum_crew` exceeds your crew capacity is listed with a warning in
  * `versus`, not hidden. */
-export function shipsForSale(opts:{budget?:number;baseId?:string;classId?:string}={}):Promise<Outcome<{for_sale:ForSale[]}>> {
-  return job<{for_sale:ForSale[]}>('shipsForSale',[opts.classId,opts.baseId].filter(Boolean).join(' '),async()=>{
+export function shipsForSale(opts:{budget?:number;baseId?:string;classId?:string}={}):Promise<Outcome<{for_sale:ForSale[];locked:Locked[]}>> {
+  return job<{for_sale:ForSale[];locked:Locked[]}>('shipsForSale',[opts.classId,opts.baseId].filter(Boolean).join(' '),async()=>{
     const ship=acct().state.ship as V2Ship,who=pilot();
     const credits=acct().state.player?.credits??0,reserve=who.permissions?.credit_reserve??0;
     const budget=opts.budget??credits-reserve;
+    const locked:Locked[]=[];
     if(!(budget>0))return {status:'refused',did:'listed no hulls',
-      why:`budget ${budget}: credits ${credits} less reserve ${reserve}`,detail:{for_sale:[]}};
+      why:`budget ${budget}: credits ${credits} less reserve ${reserve}`,detail:{for_sale:[],locked}};
+    // Live 2026-09-30 (kvothe 13:06Z): undocked, browse_ships answered "Specify a base_id or dock at a
+    // station" and the whole read broke.
+    if(!opts.baseId&&!acct().state.location?.docked_at)return {status:'refused',did:'listed no hulls',
+      why:'not docked: listings are read at a base; dock, or name one with shipsForSale({baseId})',detail:{for_sale:[],locked}};
     const browsed=details(await command('spacemolt_ship/browse_ships',
       {...opts.baseId?{base_id:opts.baseId}:{},...opts.classId?{class_id:opts.classId}:{},max_price:budget})) as BrowseShipsResponse;
     const classes=new Map<string,ShipClass>();
@@ -227,7 +234,12 @@ export function shipsForSale(opts:{budget?:number;baseId?:string;classId?:string
     // A yard quote is only answerable at the yard you are docked at.
     if(!opts.baseId&&await serves('shipyard'))
       for(const id of [...new Set([opts.classId,...classes.keys()].filter(Boolean) as string[])].slice(0,QUOTES)) {
-        const quote=details(await command('spacemolt_ship/commission_quote',{id})) as CommissionQuoteResponse;
+        // Live 2026-09-30 (kvothe 13:10Z): one quote answered "Flying a Tier 3 ship requires Piloting
+        // level 20 (you have 10)" and the throw took every listing with it. A class the game will not
+        // quote is a row that says why.
+        let quote:CommissionQuoteResponse;
+        try {quote=details(await command('spacemolt_ship/commission_quote',{id})) as CommissionQuoteResponse;}
+        catch(error){locked.push({class_id:id,why:error instanceof Error?error.message:String(error)});continue;}
         if(!quote.can_commission||quote.credits_only_total>budget)continue;
         const klass=await load(id);
         if(klass)for_sale.push({kind:'commission',quote,class:klass,versus:versus(klass,ship)});
@@ -237,8 +249,9 @@ export function shipsForSale(opts:{budget?:number;baseId?:string;classId?:string
     for_sale.sort((a,b)=>cargo(b)-cargo(a)||price(a)-price(b));
     const best=for_sale[0];
     return {status:'done',
-      did:`${for_sale.length} hull(s) at or under ${budget} cr; you fly a ${ship?.class_name} with ${ship?.cargo_capacity} cargo`,
-      detail:{for_sale},
+      did:`${for_sale.length} hull(s) at or under ${budget} cr; you fly a ${ship?.class_name} with ${ship?.cargo_capacity} cargo`
+        +(locked.length?`; not offered to you: ${locked.map(row=>`${row.class_id} (${row.why})`).join(', ')}`:''),
+      detail:{for_sale,locked},
       next:best?[`${best.kind==='listing'?best.listing.listing_id:best.class.id}: ${best.class.name} ${price(best)} cr, ${best.versus}`,
         best.kind==='commission'?'a commission is buyShip(classId, {commission:true})':'buyShip(listingId)']:[]};
   });

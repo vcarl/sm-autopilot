@@ -155,6 +155,8 @@ export interface HangarOptions {
    * found.` A yard that lists a class its own catalogue cannot answer for is the game being
    * inconsistent with itself, and the library has to survive it. */
   unknownClasses?:string[];
+  /** Class ids `commission_quote` refuses, with the game's words (live 2026-09-30: `skill_required`). */
+  locked?:Record<string,string>;
 }
 
 /** What `inspect` answers for a module id: the slot it takes and its draw on the grid. */
@@ -733,6 +735,11 @@ export function bridgeWorld(options:WorldOptions={}) {
         is_active:true,location_base_id:'sol_base'});
       return {delta:{details:{message:'Bought.',class_id:row.class_id,price:row.price,
         ship_id:row.ship_id,credits_left:account.server.player.credits}}};
+    },
+    'spacemolt_ship/commission_quote':params=>{
+      const why=options.hangar?.locked?.[String(params.id)];
+      if(why)throw new SpacemoltError('skill_required',why);
+      return {structuredContent:{class_id:String(params.id),can_commission:false,blockers:['no materials'],credits_only_total:0}};
     },
     'spacemolt_ship/switch_ship':params=>{
       const row=fleet.find(ship=>ship.ship_id===String(params.id));

@@ -199,7 +199,9 @@ export default async function main() {
 ## Getting a better ship
 
 - `shipsForSale()` lists the hulls at or under credits minus your `credit_reserve`, biggest
-  hold first, each with one line of difference against what you fly.
+  hold first, each with one line of difference against what you fly. A class the yard will not
+  quote you is in `detail.locked` with the game's reason (a Piloting level, a faction).
+  Undocked, name the base: `shipsForSale({baseId})`.
 - `buyShip(listingId, {switchTo:true})` buys it and, at a shipyard, flies it; over the
   reserve it is `refused` with the numbers and nothing is sent.
 - `refit({remove, install})` moves modules across. Check first: a module needs a free slot of

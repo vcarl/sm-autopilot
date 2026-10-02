@@ -511,6 +511,29 @@ test('buyShip refuses a hull that would take the wallet under the reserve, with 
   } finally {unbind();}
 });
 
+test('shipsForSale names a class the yard will not quote you, and undocked says why instead of breaking',async()=>{
+  // Live 2026-09-30 (kvothe 13:10Z): one commission_quote answered "Flying a Tier 3 ship requires
+  // Piloting level 20 (you have 10)" and the whole listing broke; 13:06Z, undocked, browse_ships
+  // answered "Specify a base_id or dock at a station".
+  const why='Flying a Tier 3 ship requires Piloting level 20 (you have 10).';
+  const f=world({mood:'Focused',permissions:{credit_reserve:0}},['refuel','repair','storage','shipyard'],
+    {cargoUsed:0,hangar:{locked:{hauler_ii:why},listings:[{listing_id:'l1',ship_id:'s2',class_id:'hauler_ii',price:800},
+      {listing_id:'l2',ship_id:'s3',class_id:'cobble',price:300}]}});
+  try {
+    const board=await shipsForSale();
+    assert.equal(board.status,'done',board.why);
+    assert.equal(board.detail.for_sale.length,2,'the listings stand');
+    assert.deepEqual(board.detail.locked,[{class_id:'hauler_ii',why}]);
+    assert.match(board.did,/not offered to you: hauler_ii \(Flying a Tier 3 ship requires Piloting level 20/);
+    f.account.server.location.docked_at=null;
+    await f.account.refresh();
+    const away=await shipsForSale();
+    assert.equal(away.status,'refused');
+    assert.match(away.why!,/not docked.*shipsForSale\(\{baseId\}\)/);
+    assert.equal(f.count('spacemolt_ship/browse_ships'),1,'undocked sent nothing');
+  } finally {unbind();}
+});
+
 test('buyShip with switchTo reports the purchase done when the game already made the hull active',async()=>{
   // Live 2026-09-30 (kvothe 13:34Z, 19:08Z): switch_ship answered `already_active` after the buy, and
   // the call read "buyShip broke, nothing gained" over 21k and 18k spent.
