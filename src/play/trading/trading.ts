@@ -566,6 +566,12 @@ export function tradeRun(opts:{stops:RunStop[]}):Promise<Outcome<Traded>> {
       elsewhere=[...known.values()].filter(book=>book.base_id!==here&&!later.includes(book.base_id));
       const wanted=items(stop),store=stop.from==='store'?await storeRows():[];
       const stored=(item:string)=>store.filter(row=>row.item_id===item).reduce((sum,row)=>sum+row.quantity,0);
+      // The asks each planned item had at this visit, bought or not, so a loop capped by restock shows.
+      // Live 2026-10-02 (kvothe 18:01Z, run d364ca05): 6 of 66 planned sunspindle bought; no line said what was on offer.
+      const dir=runtimeDir();
+      if(dir&&wanted.length&&stop.from!=='store')journalRun(dir,{base_id:here,book_tick:marketTick(),items:wanted.map(item_id=>{
+        const asks=listed.get(item_id);return {item_id,ask_depth:depth(asks),
+          levels:asks?levels(asks,'asks').slice(0,10).map(({price_each,quantity})=>({price_each,quantity})):[]};})},'asks');
       // ponytail: one tax read for the stop, on its first item: every rate read live is the station's.
       const [leg]=plan(hold,cargo(),[
         {book:known.get(here)!,buy:wanted,...stop.quantity===undefined?{}:{quantity:stop.quantity},

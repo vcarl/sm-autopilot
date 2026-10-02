@@ -822,6 +822,9 @@ test('tradeRun does not fly the rest of a route that cannot pay: nothing aboard 
     assert.equal(run.did,'sol_base: no ask for gem here now (was 135 for 66, 12 ticks ago); nothing aboard sells at range_base, and no stop ahead has a known ask to buy at — range_base not flown — net 0 cr after 0 fuel at 1 cr');
     assert.deepEqual(run.next,['routes()']);
     assert.equal(f.count('spacemolt/jump'),0,'range_base not flown to');
+    const [asks]=readJournal(runtime).filter(entry=>entry.event==='asks');
+    assert.deepEqual({...asks,at:undefined,run_id:undefined},{at:undefined,run_id:undefined,event:'asks',base_id:'sol_base',book_tick:TICK,
+      items:[{item_id:'gem',ask_depth:0,levels:[]}]},'the dry visit journals the asks it found: none');
   } finally {unbind();rmSync(runtime,{recursive:true,force:true});}
   // Ore aboard that range_base bids for: the route is flown as before.
   const kept=remembered([RANGE]);
@@ -837,14 +840,17 @@ test('a buy journals the book it was sent against, as a sell does: bid, ask, boo
   // Live 2026-10-01 (kvothe): all 37 tradeRun buys journalled a quote with no ask, bid or book tick.
   const runtime=mkdtempSync(join(tmpdir(),'spacemolt-quote-'));
   const game=bridgeWorld({services:['refuel','repair','storage'],cargo:[],cargoUsed:0,store:[],
-    markets:{sol_base:[{item_id:'gem',best_buy:90,best_buy_qty:50,best_sell:100,best_sell_qty:50}]}});
+    markets:{sol_base:[{item_id:'gem',best_buy:90,best_buy_qty:50,best_sell:100,best_sell_qty:20,
+      sell_orders:[{price_each:100,quantity:20},{price_each:105,quantity:30}]}]}});
   bind({account:game.account as unknown as ReadinessAccount,pilot:()=>({mood:'Focused'}),emit:()=>{},runtime,
     command:async(action,params)=>{const reply=await game.command(action,params);journalCommand(runtime,action,params,true,reply);return reply;}});
   try {
     assert.equal((await prices(['gem'])).status,'done');
     assert.equal((await buy('gem',3)).status,'done');
     const [quote]=readJournal(runtime).filter(entry=>entry.event==='trade'&&entry.side==='buy').map(entry=>entry.quote);
-    assert.deepEqual({...quote,age_s:undefined},{bid:90,ask:100,book_tick:TICK,age_s:undefined,estimate_quantity:3,estimate_total:36,estimate_available:99});
+    // Live 2026-10-02 (kvothe 18:01Z, run d364ca05): 6 of 66 planned sunspindle bought; no line said what was on offer.
+    assert.deepEqual({...quote,age_s:undefined},{bid:90,ask:100,ask_qty:20,asks:[{price_each:100,quantity:20},{price_each:105,quantity:30}],
+      book_tick:TICK,age_s:undefined,estimate_quantity:3,estimate_total:36,estimate_available:99});
     assert.ok(quote.age_s>=0&&quote.age_s<5,JSON.stringify(quote));
   } finally {unbind();rmSync(runtime,{recursive:true,force:true});}
 });

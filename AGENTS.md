@@ -135,7 +135,9 @@ the pilot's context. Every line has `at` (UTC ISO, `Z`) and `event`.
 - Every line written while a run is bound carries its `run_id`; a freighter's lines carry
   `freighter` instead. Python-written lines (`gate`, `juncture`, `reflection`) never carry `run_id`.
 - `trade` (buy/sell/refuel/repair: `unit_price`, `fills`, and `quote`, the book or posted price the
-  caller held), `mission` (`accepted`/`completed`/`abandoned`; `already_active` for an accept that
+  caller held; a buy's quote adds `ask_qty` and `asks`, the first 10 ask levels), `asks` (one per
+  `tradeRun` stop with a market `buy`, bought from or not: `base_id`, `book_tick`, and per planned
+  item its `ask_depth` and first 10 `levels` as read there), `mission` (`accepted`/`completed`/`abandoned`; `already_active` for an accept that
   sent nothing; `expired` when a mission seen running is next read expired or past its deadline),
   `stranded`, `death`, and `pilot` with `prev`.
 - `deps_installed` (`lock_sha256`, `seconds`) when a bridge start ran `npm ci`; `deps_failed`

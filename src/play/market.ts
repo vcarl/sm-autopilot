@@ -306,7 +306,9 @@ export function buy(itemId:string,quantity:number,opts:{deliverTo?:'cargo'|'stor
     // The book this buy was sent against, as a sell quotes its own: the last read at this counter.
     // Live 2026-10-01 (kvothe): all 37 tradeRun buys journalled a quote with no ask, bid or book tick.
     const seen=lastRead?.base===at.docked?lastRead:undefined,row=seen?.listed.get(itemId);
-    quoteNext('spacemolt/buy',itemId,{bid:row?.best_buy??null,ask:row?.best_sell??null,book_tick:seen?.tick??null,
+    // ponytail: the first 10 ask levels; a deeper book is summarised by `estimate_available`.
+    quoteNext('spacemolt/buy',itemId,{bid:row?.best_buy??null,ask:row?.best_sell??null,ask_qty:row?.best_sell_qty??null,
+      asks:row?.sell_orders?.slice(0,10).map(({price_each,quantity})=>({price_each,quantity}))??null,book_tick:seen?.tick??null,
       age_s:seen?Math.round((Date.now()-seen.at)/100)/10:null,estimate_quantity:quantity,estimate_total:cost,estimate_available:estimate.available});
     const bought=details(await command('spacemolt/buy',{id:itemId,quantity:Math.min(quantity,estimate.available),
       ...opts.deliverTo?{deliver_to:opts.deliverTo}:{}})) as BuyResponse;
