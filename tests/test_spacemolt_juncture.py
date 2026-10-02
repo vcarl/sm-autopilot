@@ -206,6 +206,19 @@ def test_a_fresh_pilot_with_no_stance_gets_the_same_context(monkeypatch):
     assert not service.pilot_path().exists(), "rendering the juncture wrote a pilot record"
 
 
+def test_a_veteran_with_no_goal_is_not_told_to_learn_the_ship(monkeypatch):
+    """Live 2026-10-02 (kvothe 16:55Z): an objective reset cleared the goal, and a 270k-credit
+    pilot with days of play was handed the first goal. A pilot whose journal has an earning run
+    is not new: the context says only that no goal is set."""
+    menu = _menu(12)
+    menu.pop("goal")
+    _write_journal([{"event": "run", "phase": "ended", "at": "2026-10-02T15:00:00Z", "outcome": "done",
+                     "commands": 9, "work": {"fn": "tradeRun", "credits": 6045}}])
+    context = _rendered(monkeypatch, menu)
+    assert "Goal: none set." in context.splitlines()
+    assert juncture.FIRST_GOAL not in context
+
+
 def test_the_recent_runs_are_facts_and_include_a_run_refused_at_the_check(monkeypatch):
     """A refusal at tsc never reached run.json, so a juncture used to open as if it had not
     happened. And a run's report is not replayed: the context says how it ended, never what an

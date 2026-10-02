@@ -644,8 +644,15 @@ def _situation(menu: dict[str, Any], said: dict[str, Any] | None) -> str:
     if said:
         facts.append(f"Instruction (carried in {_stamp(_when(said.get('at')))}): {said.get('text')}")
     facts += _alerts(menu)
+    # One read serves both: the loops look further back than the recent runs.
+    rows = _journal_tail(("run", "reflection"), _LOOP_BYTES)
+    earned = earning_loops(rows)
+    # The first goal is for a pilot that has never earned. Live 2026-10-02 (kvothe 16:55Z): an
+    # objective reset cleared the goal, and a 270k-credit pilot with days of play was told to
+    # "learn the ship". New = no run in the journal took in credits. ponytail: that reads the
+    # _LOOP_BYTES window, so a veteran idle for longer than it reads as new again.
     facts.append(f"Goal: {menu['goal']}" if menu.get("goal")
-                 else f"Goal: none set yet; a first one: {FIRST_GOAL}")
+                 else "Goal: none set." if earned else f"Goal: none set yet; a first one: {FIRST_GOAL}")
     if menu.get("steps"):
         facts.append("Steps: " + "; ".join(f"{n}) {step}" for n, step in enumerate(menu["steps"], 1)))
     mood = str(menu.get("mood") or "Cautious")
@@ -691,12 +698,10 @@ def _situation(menu: dict[str, Any], said: dict[str, Any] | None) -> str:
     if p.get("walk_away") is not None:
         facts_after.append(f"  Walk-away: break off a fight below hull {p['walk_away']}.")
 
-    # One read serves both: the loops look further back than the recent runs.
-    rows = _journal_tail(("run", "reflection"), _LOOP_BYTES)
     recent = [_recent_line(row) for row in
               [row for row in rows
                if row.get("event") == "reflection" or row.get("phase") in ("ended", "refused")][-RECENT:]]
-    loops = [_loop_line(loop) for loop in earning_loops(rows)[:LOOPS]]
+    loops = [_loop_line(loop) for loop in earned[:LOOPS]]
     shape = {"moves": menu.get("text"), "kept": len(hold), "loops": len(loops), "named": True, "recent": len(recent)}
 
     def render() -> str:
