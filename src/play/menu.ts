@@ -673,7 +673,10 @@ export async function menu(runtime?:string):Promise<Menu> {
       // `already serviced` is not a refusal worth a line: it is the ship being fine.
       // A refused J6 is said once, by the Trader row above, as the tradeRun it refuses.
       if(!/already at the serviced-dock targets/.test(verdict.reason)&&!(verdict.job.startsWith('J6')&&docked))
-        refused.push({move:fn||verdict.job,why:verdict.reason,rank:REFUSAL_RANK[verdict.tag]??9});
+        // The job's J-number is the rules table's own key, not a word the game uses: live
+        // 2026-09-30 (kvothe), "J9 Price circuit walked" stood in 122 contexts. The pilot reads
+        // the name; the number stays in the table and the tests.
+        refused.push({move:fn||verdict.job.replace(/^J\d+\s+/,''),why:verdict.reason,rank:REFUSAL_RANK[verdict.tag]??9});
       continue;
     }
     if(!verdict.play||MENU_OWNS.has(fn))continue;
