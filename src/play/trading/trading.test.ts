@@ -10,7 +10,7 @@ import {bind,unbind,type Pilot} from '../runtime.ts';
 import {goTo} from '../travel.ts';
 import {check} from '../../run.ts';
 import {readPlaces} from '../places.ts';
-import {routes,runCall,spreads,tradeRun} from './trading.ts';
+import {buyers,routes,runCall,spreads,tradeRun} from './trading.ts';
 import {scoutMarkets} from './scout.ts';
 
 function world(record:Pilot,options:WorldOptions={},runtime?:string) {
@@ -725,5 +725,23 @@ test('scoutMarkets reads the nearest unread books, one hop at a time, files them
     const third=await scoutMarkets();
     assert.equal(third.status,'done');
     assert.match(third.did,/filed no book; nothing to scout within 4 jumps/);
+  } finally {unbind();rmSync(runtime,{recursive:true,force:true});}
+});
+
+test('buyers answers who bids for an item, held or not, docked or not: price, depth, book age and jumps',async()=>{
+  // Live 2026-09-30 (kvothe): hours flown system to system, prices(['aluminum_ore']) at each, hunting a buyer.
+  const runtime=remembered([{base_id:'range_base',age:40,items:[{item_id:'aluminum_ore',best_buy:12,best_buy_qty:300}]},
+    {base_id:'twin_base',age:0,system_id:'sol',items:[{item_id:'aluminum_ore',best_buy:8,best_buy_qty:50}]}]);
+  const f=world({mood:'Focused'},{cargo:[{item_id:'aluminum_ore',quantity:5}],cargoUsed:5,store:[],markets:{sol_base:[]},
+    pois:[{id:'twin',base_id:'twin_base'}]},runtime);
+  try {
+    await f.command('spacemolt/undock',{});
+    const out=await buyers(['aluminum_ore','osmium_ore']);
+    assert.equal(out.status,'done',out.why);
+    assert.deepEqual(out.detail.buyers.map(row=>[row.base_id,row.best_buy,row.best_buy_qty,row.source,row.age,row.jumps]),
+      [['range_base',12,300,'remembered',40,1],['twin_base',8,50,'remembered',0,0]],'highest bid first, aged against the newest book known');
+    assert.equal(out.did,'aluminum_ore: range_base bids 12 for 300 (remembered, 40 ticks old, 1 jumps); twin_base bids 8 for 50 (remembered, 0 ticks old, 0 jumps) | osmium_ore: no buyer known');
+    assert.deepEqual(out.next,["tradeRun({stops:[{at:'range_base'}]})"]);
+    assert.equal(f.count('spacemolt_market/view_market'),0,'undocked: memory only');
   } finally {unbind();rmSync(runtime,{recursive:true,force:true});}
 });

@@ -36,7 +36,7 @@ export interface RunSummary {fn:string;arg:string;status:Status;credits:number;i
 
 /** The calls that only read: a run is named for the first call that is not one of these (live
  * 2026-09-28, a buy/craft/sell run was labelled `quote`). */
-const READS=new Set(['orient','scout','missions','prices','storage','shipsForSale','quote','recipes','routes','spreads',
+const READS=new Set(['orient','scout','missions','prices','storage','shipsForSale','quote','recipes','routes','spreads','buyers',
   'reflection','freighters','freightBoard','jobs','materials','facilities']);
 /** Worse is bigger: `done` is fine, `failed` is worst. Ranks the four `Status` values so two
  * of them can be compared. */

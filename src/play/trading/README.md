@@ -9,6 +9,7 @@ assembled from everything this pilot is allowed to know.
 
 | Function | Promise |
 |---|---|
+| `buyers(items)` | who bids for each item named, held or not: the highest bids known anywhere (up to `BUYERS`, 3, an item) with `{base_id, best_buy, best_buy_qty, source, age, jumps}`. Works undocked, from memory, ages then counted from the newest book you hold at ten seconds a tick; docked it adds the live book here. No trip priced, nothing netted: `spreads()` does that for what you hold |
 | `spreads(items?)` | the best buyers known for each thing you hold (up to `BUYERS`, 3, an item), anywhere, with the trip priced and netted, ranked as `routes()` ranks a one-stop route |
 | `routes({items?, circuit?, maxStops?, maxLegJumps?, maxJumps?})` | every route known within the scope (by default up to 4 stops, 3 jumps a leg), planned from the hold you have, fuelled, and ranked by trust-weighted net per jump; each row carries the call to paste. With `circuit: {hold}`, every row is a closed lap for a freighter instead, past the rings a freighter drained within `REST_TICKS` |
 | `tradeRun({stops})` | fly the stops in order; at each, sell what pays best there and fill the hold from the stop's `buy` items, re-planned against the live book. The realised net from the wallet |

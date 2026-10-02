@@ -142,6 +142,50 @@ export function spreads(items?:string[]):Promise<Outcome<{spreads:Spread[];sourc
   });
 }
 
+/** One bid known for an item: where, how much, how deep, how old, and how far. */
+export interface Buyer {item_id:string;base_id:string;best_buy:number;best_buy_qty:number;source:Spread['source'];
+  /** Ticks since the book was read; 0 for this counter's live book. */
+  age:number;
+  /** Jumps from where you are, on the map; null when the base could not be placed. */
+  jumps:number|null}
+
+/** Who buys `items`: the highest bids known for each, anywhere — this counter's live book when
+ * docked, the faction ledger, the books remembered — up to `BUYERS` an item, with each book's age and
+ * the jumps there. Held or not, docked or not. Reads only.
+ * Live 2026-09-30 (kvothe): hours flown system to system, `prices(['aluminum_ore'])` at each, hunting
+ * a buyer the market memory already held. */
+export function buyers(items:string|readonly string[]):Promise<Outcome<{buyers:Buyer[]}>> {
+  const wanted=[...new Set(typeof items==='string'?[items]:items)];
+  return job<{buyers:Buyer[]}>('buyers',wanted.join(' '),async()=>{
+    if(!wanted.length)return {status:'refused',did:'named no item',why:"pass an item id or a list: buyers('aluminum_ore')",detail:{buyers:[]}};
+    const here=acct().state.location?.docked_at??'',live=here?await book():undefined;
+    const now=live?marketTick():tickNow();
+    const seat=pilotSeat(),far=await farBooks(here,now,seat);
+    const bids=[...live?wanted.flatMap(id=>{const row=live.get(id);return row?[{...row,base_id:here,source:'here' as const,age:0}]:[];}):[],
+      ...far.flatMap(known=>known.items.filter(row=>wanted.includes(row.item_id)).map(row=>({...row,base_id:known.base_id,source:known.source,age:known.age})))]
+      .filter(row=>row.best_buy>0&&row.best_buy_qty>0).sort((a,b)=>b.best_buy-a.best_buy);
+    const top=wanted.flatMap(id=>bids.filter(row=>row.item_id===id).slice(0,BUYERS));
+    const {hop}=await chart(here,[...new Set(top.map(row=>row.base_id))],far,seat);
+    const rows:Buyer[]=top.map(row=>({item_id:row.item_id,base_id:row.base_id,best_buy:row.best_buy,best_buy_qty:row.best_buy_qty,
+      source:row.source,age:row.age,jumps:hop(here,row.base_id)}));
+    const said=wanted.map(id=>{
+      const mine=rows.filter(row=>row.item_id===id);
+      return `${id}: ${mine.map(row=>`${row.base_id} bids ${row.best_buy} for ${row.best_buy_qty} (${row.source==='here'?'live':`${row.source}, ${row.age} ticks old`}, ${row.jumps??'?'} jumps)`).join('; ')||'no buyer known'}`;
+    });
+    const held=miningInventory(acct().state);
+    return {status:'done',did:said.join(' | '),detail:{buyers:rows},
+      next:wanted.flatMap(id=>{const best=rows.find(row=>row.item_id===id);return best&&held[id]
+        ?[best.base_id===here?`sell([{item_id:'${id}'}])`:runCall([{at:best.base_id}])]:[];}).slice(0,3)};
+  });
+}
+/** ponytail: undocked there is no live tick to age a book against; the newest book known, advanced
+ * at ten seconds a tick since it was read, stands in. A docked call measures it from the live book. */
+function tickNow():number {
+  const newest=knownBooks().filter(row=>row.tick!==undefined).sort((a,b)=>b.tick!-a.tick!)[0];
+  const since=newest?Math.floor((Date.now()-Date.parse(newest.at))/10_000):0;
+  return Math.max(marketTick(),newest?newest.tick!+(Number.isFinite(since)?Math.max(0,since):0):0);
+}
+
 /** This base's store, item rows only. Absent storage is an empty store, not a failure. */
 async function storeRows():Promise<{item_id:string;quantity:number}[]> {
   try {
