@@ -1,11 +1,10 @@
 /** Getting somewhere and docking. One function; the id decides what it does. */
 import type {ActiveMissionInfo,CompleteMissionResponse,FindRouteResponse,RouteStep,SystemPoi,V2Location} from '@spacemolt/lib';
-import {dockAt} from '../dock.ts';
 import {resolveFuelReserve,type Mood} from '../mood-policy.ts';
 import {details} from '../response-details.ts';
 import {serviceShip} from '../servicing.ts';
 import {FuelRouteShortfall,InBattle,TravelBlocked,travelTo} from '../travel.ts';
-import {here,named as poiName,others} from './counter.ts';
+import {dock,here,named as poiName,others} from './counter.ts';
 import {knownBooks} from './market.ts';
 import {active} from './missions.ts';
 import {acct,checkStop,command,job,pilot,runtimeDir,step} from './runtime.ts';
@@ -337,7 +336,14 @@ export function goTo(id:string):Promise<Outcome<Trip>> {
     let docked=false;
     // The dock is decided by the system's own listing, not the route heuristic: a system id
     // may also answer with a POI, and docking "at a system" would wedge here.
-    if(poi&&await baseAt(quote.target_system,poi,named)){await dockAt(acct(),command,named);docked=true;step(`docked at ${named}`);}
+    if(poi&&await baseAt(quote.target_system,poi,named)) {
+      const done=await dock(named);
+      // Live 2026-10-02 (kvothe 16:37Z): an `Access denied` dock broke the whole run after the
+      // flight had landed. The ship arrived; the base said no. That is a partial, in its words.
+      if('refused' in done)return {status:'partial',did:`arrived at ${target} after ${jumps} jump(s); docking refused: ${done.refused}`,
+        why:done.refused,detail:{...detail(),jumps}};
+      docked=true;step(`docked at ${named}`);
+    }
     const at=acct().state.location;
     return {status:'done',did:`arrived at ${target}${poi?'':` (${at?.poi_id})`}${docked?named===target?' and docked':` and docked at ${named}`:''} after ${jumps} jump(s)`
       +(at?.docked_at?'':await undocked())+(answered.length?`; ${answered.join('; ')}`:''),detail:{...detail(),jumps,docked}};

@@ -501,6 +501,37 @@ def _neighbour(row: dict[str, Any]) -> str:
     return f"{row.get('system_id')} {'visited' if row.get('visited') else 'never visited'} ({', '.join(bits)})"
 
 
+#: ponytail: the Places line names the last eight systems found with no base and five refused
+#: bases, the rest a count. Raise it if a pilot keeps flying back to one it cannot see.
+_PLACES_SHOWN = (8, 5)
+
+
+def _places(menu: dict[str, Any]) -> str | None:
+    """What the pilot knows of the map, from the bridge's memory: how much it has flown, the
+    systems a look found no base in, and the bases that refused a dock. Live 2026-09-30 (kvothe):
+    with nowhere else to keep it, the goal became a lossy list of visited systems, ~341 of 462
+    jumps were repeats, and refused bases were retried hours apart."""
+    places = menu.get("places")
+    if not isinstance(places, dict):
+        return None
+    bits = []
+    if places.get("systems"):
+        bits.append(f"visited {places.get('visited') or 0} of {places['systems']} systems on the map")
+    bare, refused = list(places.get("stationless") or []), list(places.get("refused") or [])
+    stationless, refusals = _PLACES_SHOWN
+    if bare:
+        shown = bare[-stationless:]
+        bits.append("no base found in " + ", ".join(map(str, shown))
+                    + (f" (+{len(bare) - len(shown)} more)" if len(bare) > len(shown) else ""))
+    if refused:
+        rows = sorted((row for row in refused if isinstance(row, dict)), key=lambda row: str(row.get("at")))
+        shown = [f"{row.get('base_id')}" + (f" in {row['system_id']}" if row.get("system_id") else "")
+                 + f" ({_clock(row.get('at'))}: {row.get('message')})" for row in rows[-refusals:]]
+        bits.append("docking refused at " + "; ".join(shown)
+                    + (f" (+{len(rows) - len(shown)} more)" if len(rows) > len(shown) else ""))
+    return f"Places: {'; '.join(bits)}." if bits else None
+
+
 def _situation(menu: dict[str, Any], said: dict[str, Any] | None) -> str:
     """The juncture as labelled lines, each fact once, budgeted on the final string.
 
@@ -537,6 +568,7 @@ def _situation(menu: dict[str, Any], said: dict[str, Any] | None) -> str:
     neighbours = "; ".join([_neighbour(row) for row in near[:NEIGHBOURS]]
                            + ([f"+{len(near) - NEIGHBOURS} more"] if len(near) > NEIGHBOURS else []))
     facts.append(f"Present: {where}." + (f" One jump out: {neighbours}." if neighbours else ""))
+    facts += [line for line in (_places(menu),) if line]
     ship = (f"  Fuel {p.get('fuel')}/{p.get('max_fuel')}, hull {p.get('hull')}/{p.get('max_hull')}, "
             f"credits {p.get('credits') or 0:,}.")
     hold = [f"{row.get('item_id')} {row.get('quantity')}" for row in p.get("hold") or []]

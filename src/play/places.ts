@@ -53,3 +53,24 @@ function addToList(runtime:string,file:string,id:string):void {
   if(!id||ids.has(id))return;
   keepJson(runtime,file,[...ids,id]);
 }
+
+/** Bases whose dock the game refused: `docking.json` beside `places.json`, base id to the game's
+ * own words and when. Live 2026-09-30..10-02 (kvothe): 18 `Access denied` docks, the same bases
+ * retried hours apart, because nothing remembered the refusal. Information only: nothing refuses
+ * to try again, and a dock that takes clears the entry. */
+const DOCKING='docking.json';
+export interface DockRefusal {system_id?:string;message:string;at:string}
+export function readDockRefusals(runtime:string|undefined):Record<string,DockRefusal> {
+  if(!runtime)return {};
+  try {const kept=JSON.parse(readFileSync(join(runtime,DOCKING),'utf8'));return kept&&typeof kept==='object'&&!Array.isArray(kept)?kept:{};}
+  catch {return {};}
+}
+export function markDockRefused(runtime:string,base_id:string,row:DockRefusal):void {
+  keepJson(runtime,DOCKING,{...readDockRefusals(runtime),[base_id]:row});
+}
+export function clearDockRefused(runtime:string,base_id:string):void {
+  const kept=readDockRefusals(runtime);
+  if(!(base_id in kept))return;
+  delete kept[base_id];
+  keepJson(runtime,DOCKING,kept);
+}

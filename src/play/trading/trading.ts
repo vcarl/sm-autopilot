@@ -520,8 +520,10 @@ export function tradeRun(opts:{stops:RunStop[]}):Promise<Outcome<Traded>> {
         const trip=await goTo(stop.at);
         // ponytail: the tank's drop; a refuel inside goTo hides the burn it covered.
         fuel+=trip.cost.fuel;
+        // A partial trip arrived and the base refused the dock (travel.ts): partial here too, in its words.
         if(trip.status!=='done'||!acct().state.location?.docked_at)
-          return {status:i?'partial':trip.status==='refused'?'refused':'failed',did:`${said()||'nothing done'}; did not reach ${stop.at}`,
+          return {status:i||trip.status==='partial'?'partial':trip.status==='refused'?'refused':'failed',
+            did:`${said()||'nothing done'}; ${trip.status==='partial'?trip.did:`did not reach ${stop.at}`}`,
             why:[...short,`${stop.at}: ${trip.why??trip.did}`].join('; '),detail:detail(),next:[runCall(route.slice(i))]};
       }
       const here=acct().state.location!.docked_at!;

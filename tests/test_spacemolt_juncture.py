@@ -266,6 +266,21 @@ def test_the_earning_loops_outlive_the_recent_runs(monkeypatch):
     assert not re.search(r"best|worst|productive|should", block)
 
 
+def test_the_places_line_carries_what_the_goal_used_to(monkeypatch):
+    """Live 2026-09-30 (kvothe): the goal doubled as a lossy visited-systems list, ~341 of 462
+    jumps were repeats, and bases that refused docking were retried hours apart."""
+    menu = _menu(12)
+    menu["places"] = {"visited": 47, "systems": 120,
+                      "stationless": [f"sys_{i}" for i in range(10)],
+                      "refused": [{"base_id": "db90abb6", "system_id": "proxima_centauri",
+                                   "message": "Access denied", "at": "2026-10-02T16:37:17Z"}]}
+    context = _rendered(monkeypatch, menu)
+    assert ("Places: visited 47 of 120 systems on the map; no base found in sys_2, sys_3, sys_4, sys_5, "
+            "sys_6, sys_7, sys_8, sys_9 (+2 more); docking refused at db90abb6 in proxima_centauri "
+            "(10-02 16:37Z: Access denied).") in context.splitlines(), context
+    assert not any(line.startswith("Places:") for line in _rendered(monkeypatch, _menu(12)).splitlines())
+
+
 def test_a_full_hold_out_in_the_open_is_offered_the_move_that_works(monkeypatch):
     """`sell` and `stow` are station counters, and a belt is not a station."""
     undocked = _menu(0)

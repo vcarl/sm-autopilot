@@ -3,6 +3,7 @@ import {mkdirSync,mkdtempSync,rmSync,writeFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import test from 'node:test';
+import {SpacemoltError} from '@spacemolt/lib';
 import type {ReadinessAccount} from '../../readiness.ts';
 import {bridgeWorld,TICK,type WorldOptions} from '../../test-support/bridge-world.ts';
 import {buy,knownBooks,prices,sell} from '../market.ts';
@@ -780,4 +781,22 @@ test('a sale filled at the top bid says nothing more',async()=>{
     markets:{sol_base:[{item_id:'ore',best_buy:10,best_buy_qty:3,best_sell:0,best_sell_qty:0}]}});
   try {assert.equal((await sell([{item_id:'ore'}])).did,'sold 3 ore at sol_base for 30 cr');}
   finally {unbind();}
+});
+
+test('a first stop that refuses the dock leaves tradeRun partial in the trip\'s words, not failed',async()=>{
+  // Live 2026-10-02 (kvothe 16:37Z): goTo arrived and the base said `Access denied`; the trip is a
+  // partial now, and a tradeRun at its first stop turned that into `failed`.
+  const runtime=mkdtempSync(join(tmpdir(),'spacemolt-trade-dock-'));
+  const game=bridgeWorld({services:['refuel','repair','storage'],cargoUsed:0,cargo:[],store:[],markets:HERE});
+  const command:typeof game.command=async(action,params)=>{
+    if(action==='spacemolt/dock')throw new SpacemoltError('access_denied','Access denied');
+    return game.command(action,params);
+  };
+  bind({account:game.account as unknown as ReadinessAccount,command,pilot:():Pilot=>({mood:'Focused'}),runtime,emit:()=>{}});
+  try {
+    const out=await tradeRun({stops:[{at:'range_base'}]});
+    assert.equal(out.status,'partial',JSON.stringify(out));
+    assert.match(out.did,/^nothing done; arrived at range_base after 1 jump\(s\); docking refused: Access denied$/);
+    assert.match(out.why!,/range_base: Access denied/);
+  } finally {unbind();rmSync(runtime,{recursive:true,force:true});}
 });
