@@ -18,7 +18,7 @@ import {fileURLToPath,pathToFileURL} from 'node:url';
 import * as play from './play/index.ts';
 import {checkTree,specifiers} from './play/boundary.ts';
 import {checkPolicy} from './play/policy.ts';
-import {prose} from './play/prose.ts';
+import {ofTheRun,prose} from './play/prose.ts';
 import {runSummary} from './play/menu.ts';
 import {disengage} from './play/combat/hunting.ts';
 import {battleNow} from './travel.ts';
@@ -268,6 +268,7 @@ export async function runPilot(deps:RunDeps):Promise<RunResult> {
     process.off('unhandledRejection',onRejection);
     process.off('uncaughtException',onException);
   }
+  result=ofTheRun(result,runCalls());
   // Before the report is rendered, so the fact is in the report rather than after it.
   const held=await closeBattle();
   if(held) {

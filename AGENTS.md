@@ -127,7 +127,8 @@ the pilot's context. Every line has `at` (UTC ISO, `Z`) and `event`.
   from; also written to `run.json`), `since_juncture_s` (from that render), `code_sha`, `sources`,
   `start_state` (credits, fuel, hull, cargo, skills, place, active missions — account memory only,
   no storage).
-- `run` `ended`: `outcome`, `reason`, `work` (the run summary: the first work call's `fn` and
+- `run` `ended`: `outcome`, `reason` (the run's, from its top earning call when the returned
+  call is not it: `ofTheRun` in `prose.ts`; each call's own status is in `calls`), `work` (the run summary: the first work call's `fn` and
   `status`, total `credits`/`items`/`xp`), `end_state`, and `calls` (each top-level call's `fn`,
   `status`, `cost`, `gained`, `started_at`, `seconds`; first 40, `calls_total`). No `start_state`:
   pair it with its `started` line by `run_id`.
