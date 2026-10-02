@@ -726,13 +726,26 @@ export function bridgeWorld(options:WorldOptions={}) {
       if(!row)throw new Error(`No listing ${params.id}`);
       account.server.player.credits-=row.price;
       listings.splice(listings.indexOf(row),1);
+      // Live 2026-09-30 (kvothe 13:34Z): "Purchased Overhead … Your old ship is stored at this
+      // station." The bought hull is the active one from the purchase on.
+      for(const ship of fleet)ship.is_active=false;
       fleet.push({ship_id:row.ship_id,class_id:row.class_id,class_name:CLASSES[row.class_id]?.name??row.class_id,
-        is_active:false,location_base_id:'sol_base'});
+        is_active:true,location_base_id:'sol_base'});
       return {delta:{details:{message:'Bought.',class_id:row.class_id,price:row.price,
         ship_id:row.ship_id,credits_left:account.server.player.credits}}};
     },
-    'spacemolt_ship/list_ships':()=>({structuredContent:{count:fleet.length,
-      active_ship_id:'ship',active_ship_class:'cobble',ships:structuredClone(fleet)}}),
+    'spacemolt_ship/switch_ship':params=>{
+      const row=fleet.find(ship=>ship.ship_id===String(params.id));
+      if(!row)throw new Error(`No ship ${params.id}`);
+      if(row.is_active)throw new SpacemoltError('already_active','That is already your active ship.');
+      for(const ship of fleet)ship.is_active=ship===row;
+      return {delta:{details:{active_ship_id:row.ship_id,active_ship_class:row.class_id}}};
+    },
+    'spacemolt_ship/list_ships':()=>{
+      const active=fleet.find(ship=>ship.is_active);
+      return {structuredContent:{count:fleet.length,active_ship_id:active?.ship_id,active_ship_class:active?.class_id,
+        ships:structuredClone(fleet)}};
+    },
     'spacemolt_market/estimate_purchase':params=>{
       const subtotal=Number(params.quantity)*12,sales_tax=tax(subtotal);
       return {structuredContent:{item_id:params.item_id,available:99,quantity:Number(params.quantity),subtotal,

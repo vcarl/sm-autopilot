@@ -500,16 +500,28 @@ test('buyShip refuses a hull that would take the wallet under the reserve, with 
     await f.account.refresh();
     const bought=await buyShip('l1');
     assert.equal(bought.status,'done',bought.why);
-    assert.deepEqual([bought.detail.price,bought.detail.switched],[800,false]);
+    // Live 2026-09-30 (kvothe 13:34Z, 19:08Z): the purchase makes the new hull active.
+    assert.deepEqual([bought.detail.price,bought.detail.switched],[800,true]);
     assert.deepEqual(f.fleet.map(row=>row.ship_id),['ship','s2']);
-    // NOT `switchShip('s2')`: `fleet/fleet.ts` throws `unimplemented`, so the hint that named it
-    // handed the pilot the one call it most wanted to make and could not. The runnable command is
-    // what a hint owes, and this test used to pin the dead one.
-    assert.match(bought.next.join(' '),/spacemolt_ship\.switch_ship\(\{id:'s2'\}\)/);
-    assert.doesNotMatch(bought.next.join(' '),/(?<!\.)\bswitchShip\('/);
+    // NOT `switchShip('s2')`: `fleet/fleet.ts` throws `unimplemented`.
+    assert.doesNotMatch(bought.next.join(' '),/(?<!\.)\bswitchShip\('|switch_ship/);
     const board=await shipsForSale();
     assert.equal(board.status,'done',board.why);
     assert.equal(board.detail.for_sale.length,0,'the only listing was bought');
+  } finally {unbind();}
+});
+
+test('buyShip with switchTo reports the purchase done when the game already made the hull active',async()=>{
+  // Live 2026-09-30 (kvothe 13:34Z, 19:08Z): switch_ship answered `already_active` after the buy, and
+  // the call read "buyShip broke, nothing gained" over 21k and 18k spent.
+  const f=world({mood:'Focused',permissions:{credit_reserve:0}},['refuel','repair','storage','shipyard'],
+    {cargoUsed:0,hangar:{listings:[{listing_id:'l1',ship_id:'s2',class_id:'hauler_ii',price:800}]}});
+  try {
+    const bought=await buyShip('l1',{switchTo:true});
+    assert.equal(bought.status,'done',bought.why);
+    assert.match(bought.did,/^bought .* for 800 cr and switched to it$/);
+    assert.equal(bought.detail.switched,true);
+    assert.equal(f.count('spacemolt_ship/switch_ship'),0,'the active hull is not switched to again');
   } finally {unbind();}
 });
 

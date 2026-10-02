@@ -310,13 +310,16 @@ export function buyShip(id:string,opts:{commission?:boolean;switchTo?:boolean}={
     // The fleet list is the evidence the hull is ours, whatever the reply claimed.
     await acct().refresh();
     const fleet=details(await command('spacemolt_ship/list_ships',{})) as ListShipsResponse;
-    const mine=(fleet.ships??[]).find(row=>row.ship_id===bought)
-      ??(fleet.ships??[]).find(row=>row.ship_id!==previous.ship_id&&!row.is_active);
+    const others=(fleet.ships??[]).filter(row=>row.ship_id!==previous.ship_id);
+    const mine=others.find(row=>row.ship_id===bought)??others.find(row=>row.is_active)??others.find(row=>!row.is_active);
     if(!mine)return {status:'failed',did:`paid ${price} cr for ${id}`,
       why:'list_ships does not show the new hull; re-observe before buying again',detail:{...nothing(),price}};
 
-    let switched=false;
-    if(opts.switchTo) {
+    // Live 2026-09-30 (kvothe 13:34Z, 19:08Z): buy_listed_ship makes the new hull the active one, so
+    // switch_ship answered `already_active` and the call read "buyShip broke, nothing gained" over
+    // 21k and 18k spent. The fleet list says which hull is flown; only one not yet flown is switched to.
+    let switched=Boolean(mine.is_active);
+    if(opts.switchTo&&!switched) {
       if(!await serves('shipyard'))
         return {status:'partial',did:`bought ${mine.class_id} for ${price} cr`,
           why:`${previous.base_id} has no shipyard: the switch needs one`,
