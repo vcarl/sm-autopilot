@@ -69,7 +69,11 @@ export interface Call {fn:string;arg:string;status:Status;did:string;
   why?:string;
   credits:number;items:number;xp:number;cost:Outcome['cost'];
   /** Telemetry, journalled on run/ended: the whole of what the call gained, and when it ran. */
-  gained?:Outcome['gained'];started_at?:string;seconds?:number}
+  gained?:Outcome['gained'];started_at?:string;seconds?:number;
+  /** The bases a route call docked at, in order, from its detail's `stops` (tradeRun's): the
+   * juncture groups earning laps by them (live 2026-10-01, kvothe: the loop that made +39.6k fell
+   * out of view, and its stops lived only in `did` prose). */
+  stops?:string[]}
 let calls:Call[]=[];
 export const runCalls=()=>calls;
 
@@ -417,7 +421,9 @@ export async function job<Detail>(fn:string,args:string,body:()=>Promise<Said<De
     ...built.why===undefined?{}:{why:built.why},
     credits:built.gained.credits,cost:built.cost,
     items:built.gained.items.reduce((n,row)=>n+row.quantity,0),xp:Object.values(built.gained.xp).reduce((n,x)=>n+x,0),
-    gained:built.gained,started_at:new Date(before.at).toISOString(),seconds:Math.round((Date.now()-before.at)/100)/10});
+    gained:built.gained,started_at:new Date(before.at).toISOString(),seconds:Math.round((Date.now()-before.at)/100)/10,
+    ...Array.isArray((built.detail as {stops?:unknown})?.stops)
+      ?{stops:((built.detail as {stops:{at?:unknown}[]}).stops).map(stop=>String(stop?.at))}:{}});
   last=outer;jobMark=outerMark;depth--;
   return built;
 }

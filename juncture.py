@@ -87,6 +87,11 @@ NEIGHBOURS = 6
 #: ponytail: the journal tail read for the recent list and the gate log, not the whole file
 #: (tens of MB). Entries older than this window are simply not recent.
 _TAIL_BYTES = 2 << 20
+#: How many of the pilot's own earning loops the context lists.
+LOOPS = 3
+#: ponytail: the loops look 8 MB back, about two days of live play (kvothe, 10-01), not the
+#: whole journal. A loop older than that is not listed; widen it if one is missed.
+_LOOP_BYTES = 8 << 20
 
 
 def journal_tail(max_bytes: int = _TAIL_BYTES) -> list[str]:
@@ -130,6 +135,67 @@ def _journal_tail(events: tuple[str, ...]) -> list[dict[str, Any]]:
         if isinstance(row, dict) and row.get("event") in events:
             rows.append(row)
     return rows
+
+
+def _call_stops(call: dict[str, Any]) -> list[str]:
+    """The bases a route call docked at, in order. A call journalled before ``stops`` was kept
+    names them only in its ``did`` (``a: sold … → b: took …``), which is read for them."""
+    if isinstance(call.get("stops"), list):
+        return [str(stop) for stop in call["stops"]]
+    if call.get("fn") == "tradeRun":
+        return re.findall(r"(?:^|→ )(\w+):", str(call.get("did") or ""))
+    return []
+
+
+def earning_loops(rows: list[dict[str, Any]] | None = None) -> list[dict[str, Any]]:
+    """The pilot's own top-level calls from ended runs, grouped by what they were — the function
+    and, for a route, the set of bases it docked at, else its first argument — and ranked by the
+    credits they took in. Live 2026-10-01 (kvothe): four tradeRuns made +39.6k between 14:13 and
+    15:25Z; once they left the recent runs, every fire said no loop had earned anything."""
+    if rows is None:
+        rows = []
+        for line in journal_tail(_LOOP_BYTES):
+            if '"ended"' not in line or '"calls"' not in line:
+                continue
+            try:
+                row = json.loads(line)
+            except ValueError:
+                continue
+            if isinstance(row, dict) and row.get("event") == "run" and row.get("phase") == "ended":
+                rows.append(row)
+    loops: dict[tuple, dict[str, Any]] = {}
+    for row in rows:
+        for call in row.get("calls") or []:
+            if not isinstance(call, dict) or not call.get("fn"):
+                continue
+            stops = _call_stops(call)
+            places = list(dict.fromkeys(stops)) if stops else [str(call.get("arg") or "")]
+            loop = loops.setdefault((call["fn"], tuple(sorted(places))), {
+                "fn": call["fn"], "places": places, "laps": 0, "runs": set(), "credits": 0, "seconds": 0.0, "last": None})
+            loop["laps"] += 1
+            loop["runs"].add(row.get("run_id") or row.get("at"))
+            loop["credits"] += int(call.get("credits") or 0)
+            loop["seconds"] += float(call.get("seconds") or 0)
+            loop["last"] = max(filter(None, (loop["last"], row.get("at"))), default=None)
+    earned = sorted((loop for loop in loops.values() if loop["credits"] > 0), key=lambda loop: -loop["credits"])
+    return [{**loop, "runs": len(loop["runs"])} for loop in earned]
+
+
+def _span(seconds: float) -> str:
+    minutes = round(seconds / 60)
+    return f"{minutes // 60}h{minutes % 60:02d}m" if minutes >= 60 else f"{minutes}m" if minutes else f"{round(seconds)}s"
+
+
+def _loop_line(loop: dict[str, Any]) -> str:
+    """One earning loop as facts: what, how often, how much, how fast, how lately."""
+    places = [place for place in loop["places"] if place]
+    where = (" " + " ↔ ".join(places) if len(places) == 2 and loop["fn"] == "tradeRun"
+             else f" {', '.join(places)}" if places else "")
+    rate = (f", {round(loop['credits'] * 3600 / loop['seconds']):,} cr/h over {_span(loop['seconds'])}"
+            if loop["seconds"] else "")
+    laps = (f"{loop['laps']} lap{'s' if loop['laps'] != 1 else ''} in "
+            f"{loop['runs']} run{'s' if loop['runs'] != 1 else ''}")
+    return f"{loop['fn']}{where}: {laps}, +{loop['credits']:,} cr{rate}, last {_clock(loop['last'])}"
 
 
 def _run_endings() -> list[dict[str, Any]]:
@@ -496,6 +562,7 @@ def _situation(menu: dict[str, Any], said: dict[str, Any] | None) -> str:
     recent = [_recent_line(row) for row in
               [row for row in _journal_tail(("run", "reflection"))
                if row.get("event") == "reflection" or row.get("phase") in ("ended", "refused")][-RECENT:]]
+    loops = [_loop_line(loop) for loop in earning_loops()[:LOOPS]]
     moves = menu.get("text")
 
     def render(moves: str | None, kept: int, shown_recent: list[str]) -> str:
@@ -504,6 +571,8 @@ def _situation(menu: dict[str, Any], said: dict[str, Any] | None) -> str:
                      + (f" {_HOLD_FULL_DOCKED if p.get('docked_at') else _HOLD_FULL_OUT}."
                         if free == 0 else ""))
         lines = facts + [ship + hold_line] + facts_after
+        if loops:
+            lines.append("Your earning loops (from your journal, most credits first):\n  " + "\n  ".join(loops))
         lines.append("Your recent runs (newest last):\n  " + "\n  ".join(shown_recent)
                      if shown_recent else "Your recent runs: none yet.")
         if moves:

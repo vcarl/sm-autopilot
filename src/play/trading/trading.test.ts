@@ -6,7 +6,7 @@ import test from 'node:test';
 import type {ReadinessAccount} from '../../readiness.ts';
 import {bridgeWorld,TICK,type WorldOptions} from '../../test-support/bridge-world.ts';
 import {buy,knownBooks,prices,sell} from '../market.ts';
-import {bind,unbind,type Pilot} from '../runtime.ts';
+import {bind,runCalls,unbind,type Pilot} from '../runtime.ts';
 import {goTo} from '../travel.ts';
 import {check} from '../../run.ts';
 import {readPlaces} from '../places.ts';
@@ -364,6 +364,8 @@ test('a three-stop route: the middle stop sells what it was bought for and buys 
     assert.deepEqual(fills(run.detail.stops[1]!),[['gem',10]]);
     assert.equal(run.detail.stops[1]!.bought,10);
     assert.deepEqual(fills(run.detail.stops[2]!),[['ore',10]]);
+    // Live 2026-10-01 (kvothe): the stops are a raw fact on the call, for the juncture's loops.
+    assert.deepEqual(runCalls().at(-1)!.stops,['sol_base','range_base','twin_base']);
   } finally {unbind();rmSync(runtime,{recursive:true,force:true});}
 });
 

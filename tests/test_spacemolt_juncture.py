@@ -235,6 +235,37 @@ def test_the_recent_runs_are_facts_and_include_a_run_refused_at_the_check(monkey
     assert "gatherUntil: +2,626 cr; returned done: mined" in recent[4], recent[4]
 
 
+def test_the_earning_loops_outlive_the_recent_runs(monkeypatch):
+    """Live 2026-10-01 (kvothe): four tradeRuns made +39.6k between 14:13 and 15:25Z; once they
+    left the recent runs, every fire said no loop had earned anything. The loops are read from the
+    journal, rotated files included, grouped by route, and ranked by credits."""
+    runtime = service.runtime_dir()
+    runtime.mkdir(parents=True, exist_ok=True)
+
+    def lap(at: str, run: str, stops: list[str], credits: int, seconds: float, *, did: bool = False) -> str:
+        # A call journalled before `stops` was kept names them only in its `did`.
+        call = ({"did": " → ".join(f"{stop}: sold 3 circuit_board" for stop in stops) + " — net 9 cr"} if did
+                else {"stops": stops})
+        return json.dumps({"at": at, "event": "run", "phase": "ended", "run_id": run, "outcome": "done",
+                           "calls": [{"fn": "orient", "arg": "", "credits": 0, "seconds": 1},
+                                     {"fn": "tradeRun", "arg": stops[0], "credits": credits, "seconds": seconds,
+                                      **call}]}) + "\n"
+    (runtime / "gameplay.2026-10-01T20-00-00Z.jsonl").write_text(
+        lap("2026-10-01T14:28:00Z", "r1", ["nova_terra_central", "confederacy_central_command"], 11212, 574, did=True)
+        + lap("2026-10-01T15:10:00Z", "r2", ["confederacy_central_command", "nova_terra_central"], 5071, 512))
+    _write_journal([json.loads(lap("2026-10-01T16:00:00Z", "r3", ["sirius_observatory_station"], 88, 5))]
+                   + [{"event": "run", "phase": "ended", "outcome": "done", "commands": 3,
+                       "calls": [{"fn": "orient", "credits": 0}]}] * 6)
+    context = _rendered(monkeypatch, _menu(12))
+    block = context.split("Your earning loops (from your journal, most credits first):\n")[1].split("\nYour recent")[0]
+    assert block.splitlines() == [
+        ("  tradeRun nova_terra_central ↔ confederacy_central_command: 2 laps in 2 runs, +16,283 cr, "
+         "53,977 cr/h over 18m, last 10-01 15:10Z"),
+        "  tradeRun sirius_observatory_station: 1 lap in 1 run, +88 cr, 63,360 cr/h over 5s, last 10-01 16:00Z"], block
+    # Facts only: no verdict on which loop is good.
+    assert not re.search(r"best|worst|productive|should", block)
+
+
 def test_a_full_hold_out_in_the_open_is_offered_the_move_that_works(monkeypatch):
     """`sell` and `stow` are station counters, and a belt is not a station."""
     undocked = _menu(0)
