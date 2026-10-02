@@ -366,6 +366,33 @@ def test_the_present_line_names_the_neighbours_and_what_is_known_of_them(monkeyp
     assert "One jump out" not in _rendered(monkeypatch, _menu(12))
 
 
+def test_opaque_place_ids_are_named_from_the_menu(monkeypatch):
+    """Live 2026-10-02 (kvothe): the Present line, the loops and so the pilot's own replies read
+    "b495c6003fc83e18f6d8cecbe6929133". The menu carries the names the bridge learned; a bare id
+    reads ``Name (id)``, a quoted one is code and stays as it is."""
+    base, poi = "b495c6003fc83e18f6d8cecbe6929133", "98eba8b1a7ad0520d6a7c8ea44b2d6aa"
+    runtime = service.runtime_dir()
+    runtime.mkdir(parents=True, exist_ok=True)
+    _write_journal([{"at": "2026-10-02T15:10:00Z", "event": "run", "phase": "ended", "run_id": "r1",
+                     "outcome": "done", "started": "2026-10-02T15:00:00Z",
+                     "work": {"fn": "tradeRun", "arg": base, "credits": 900},
+                     "calls": [{"fn": "tradeRun", "arg": base, "credits": 900, "seconds": 600,
+                                "stops": [base, "nova_terra_central"]}]}])
+    menu = _menu(12)
+    menu["present"].update({"system": "dheneb", "docked_at": base})
+    menu["places"] = {"refused": [{"base_id": poi, "system_id": "dheneb", "at": "2026-10-02T15:00:00Z",
+                                   "message": "Access denied"}]}
+    menu["text"] = f"Menu:\n  - `goTo('{base}')` — sell at {base}"
+    menu["names"] = {base: "Kestrel Yard", poi: "Hex Star"}
+    context = _rendered(monkeypatch, menu)
+    assert f"Present: docked at Kestrel Yard ({base}) (dheneb)." in context, context
+    assert f"docking refused at Hex Star ({poi}) in dheneb" in context, context
+    assert f"tradeRun Kestrel Yard ({base}) ↔ nova_terra_central:" in context, context
+    assert f"`goTo('{base}')` — sell at Kestrel Yard ({base})" in context, context
+    del menu["names"]
+    assert f"Present: docked at {base} (dheneb)." in _rendered(monkeypatch, menu)
+
+
 def test_the_present_line_caps_the_neighbours_at_a_hub(monkeypatch):
     menu = _menu(12)
     menu["neighbours"] = [{"system_id": f"s{n}", "jumps": 1, "visited": True} for n in range(10)]

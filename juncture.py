@@ -623,6 +623,24 @@ def _since_objective(menu: dict[str, Any], now: datetime) -> str | None:
     return f"Since the objective was set{ago} ({_stamp(began)}): " + ("; ".join(bits) or "no change in credits, skills, ship or place") + "."
 
 
+_OPAQUE_ID = re.compile(r"(?<![\w'\"])[0-9a-f]{16,}(?![\w'\"])")
+
+
+def _name_ids(text: str, names: dict[str, str]) -> str:
+    """Every bare opaque id in ``text`` as ``Name (id)``, from the names the bridge's menu carries
+    (``nameIds`` in src/play/places.ts, the same rule). Quoted ids are code and stay as they are.
+    Live 2026-10-02 (kvothe): the Present line and the loops read "b495c6003fc83e18f6d8cecbe6929133",
+    and so did the pilot's replies."""
+    def name(match: re.Match[str]) -> str:
+        place, at = match.group(0), match.start()
+        known = names.get(place)
+        if not known or text[max(0, at - len(known) - 2):at] == f"{known} (":
+            return place
+        after = re.match(r" \(([^)]*)\)", text[match.end():])
+        return place if after and known in after.group(1) else f"{known} ({place})"
+    return _OPAQUE_ID.sub(name, text) if names else text
+
+
 def _situation(menu: dict[str, Any], said: dict[str, Any] | None) -> str:
     """The juncture as labelled lines, each fact once, budgeted on the final string.
 
@@ -702,6 +720,7 @@ def _situation(menu: dict[str, Any], said: dict[str, Any] | None) -> str:
               [row for row in rows
                if row.get("event") == "reflection" or row.get("phase") in ("ended", "refused")][-RECENT:]]
     loops = [_loop_line(loop) for loop in earned[:LOOPS]]
+    names = menu.get("names") if isinstance(menu.get("names"), dict) else {}
     shape = {"moves": menu.get("text"), "kept": len(hold), "loops": len(loops), "named": True, "recent": len(recent)}
 
     def render() -> str:
@@ -721,7 +740,7 @@ def _situation(menu: dict[str, Any], said: dict[str, Any] | None) -> str:
         if shape["moves"]:
             lines.append("Suggested moves (advice, pasteable into main()):\n  "
                          + shape["moves"].replace("\n", "\n  "))
-        return "\n".join(lines)
+        return _name_ids("\n".join(lines), names)
 
     # Over the limit, give way in this order: the moves, the hold list, the loops to one, the
     # Places names to counts, the older recent runs to one, the last loop.
