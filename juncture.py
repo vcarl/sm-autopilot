@@ -122,10 +122,10 @@ def journal_tail(max_bytes: int = _TAIL_BYTES) -> list[str]:
     return lines
 
 
-def _journal_tail(events: tuple[str, ...]) -> list[dict[str, Any]]:
-    """The journal's last few MB, as the entries whose event is one of ``events``."""
+def _journal_tail(events: tuple[str, ...], max_bytes: int = _TAIL_BYTES) -> list[dict[str, Any]]:
+    """The journal's last ``max_bytes``, as the entries whose event is one of ``events``."""
     rows = []
-    for line in journal_tail():
+    for line in journal_tail(max_bytes):
         if not any(f'"{event}"' in line for event in events):
             continue
         try:
@@ -147,42 +147,57 @@ def _call_stops(call: dict[str, Any]) -> list[str]:
     return []
 
 
-def earning_loops(rows: list[dict[str, Any]] | None = None) -> list[dict[str, Any]]:
-    """The pilot's own top-level calls from ended runs, grouped by what they were — the function
-    and, for a route, the set of bases it docked at, else its first argument — and ranked by the
-    credits they took in. Live 2026-10-01 (kvothe): four tradeRuns made +39.6k between 14:13 and
-    15:25Z; once they left the recent runs, every fire said no loop had earned anything."""
-    if rows is None:
-        rows = []
-        for line in journal_tail(_LOOP_BYTES):
-            if '"ended"' not in line or '"calls"' not in line:
-                continue
-            try:
-                row = json.loads(line)
-            except ValueError:
-                continue
-            if isinstance(row, dict) and row.get("event") == "run" and row.get("phase") == "ended":
-                rows.append(row)
+def _run_seconds(row: dict[str, Any]) -> float:
+    """A run's wall time, ``started`` to its ended line; the sum of its calls' seconds for a line
+    that has no ``started``."""
+    began, ended = _when(row.get("started")), _when(row.get("at"))
+    if began and ended:
+        return max(0.0, (ended - began).total_seconds())
+    return sum(float(c.get("seconds") or 0) for c in row.get("calls") or [] if isinstance(c, dict))
+
+
+#: The calls a loop is not named for: the reads (``READS`` in src/play/menu.ts) and the errands
+#: around the work. ``work.fn`` is the first non-read call, so a run that flew to the route's
+#: first base read as ``goTo`` (kvothe 10-01 14:13Z: goTo, then a tradeRun that made +6,045).
+_ERRANDS = frozenset({"orient", "scout", "missions", "prices", "storage", "shipsForSale", "quote", "recipes",
+                      "routes", "spreads", "buyers", "reflection", "freighters", "freightBoard", "jobs",
+                      "materials", "facilities", "goTo", "sell", "buy", "service", "stow", "withdraw"})
+
+
+def earning_loops(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """The pilot's own ended runs that took in credits, grouped by their work — the first call that
+    is not an errand (else ``work.fn``) and, for a route, the set of bases those calls docked at,
+    else the call's argument — and ranked by credits. A run's credits are its ``work.credits`` and
+    its time is its wall time, so a mining run's sell counts toward its gatherUntil, not as a loop
+    of its own (review 10-02: grouped by call, kvothe's liquidating ``sell all`` read as
+    87,125 cr/h over 1m). Live 2026-10-01
+    (kvothe): four tradeRuns made +39.6k between 14:13 and 15:25Z; once they left the recent
+    runs, every fire said no loop had earned anything."""
     loops: dict[tuple, dict[str, Any]] = {}
     for row in rows:
-        for call in row.get("calls") or []:
-            if not isinstance(call, dict) or not call.get("fn"):
-                continue
-            stops = _call_stops(call)
-            places = list(dict.fromkeys(stops)) if stops else [str(call.get("arg") or "")]
-            loop = loops.setdefault((call["fn"], tuple(sorted(places))), {
-                "fn": call["fn"], "places": places, "laps": 0, "runs": set(), "credits": 0, "seconds": 0.0, "last": None})
-            loop["laps"] += 1
-            loop["runs"].add(row.get("run_id") or row.get("at"))
-            loop["credits"] += int(call.get("credits") or 0)
-            loop["seconds"] += float(call.get("seconds") or 0)
-            loop["last"] = max(filter(None, (loop["last"], row.get("at"))), default=None)
-    earned = sorted((loop for loop in loops.values() if loop["credits"] > 0), key=lambda loop: -loop["credits"])
-    return [{**loop, "runs": len(loop["runs"])} for loop in earned]
+        work = row.get("work") if isinstance(row.get("work"), dict) else {}
+        credits = int(work.get("credits") or 0)
+        if row.get("phase") != "ended" or not work.get("fn") or credits <= 0:
+            continue
+        calls = [c for c in row.get("calls") or [] if isinstance(c, dict) and c.get("fn")]
+        head = next((c for c in calls if c["fn"] not in _ERRANDS), None) or {"fn": work["fn"], "arg": work.get("arg")}
+        laps = [c for c in calls if c["fn"] == head["fn"]]
+        stops = [stop for call in laps for stop in _call_stops(call)]
+        places = list(dict.fromkeys(stops)) if stops else [str(head.get("arg") or "")]
+        loop = loops.setdefault((head["fn"], tuple(sorted(places))), {
+            "fn": head["fn"], "places": places, "laps": 0, "runs": 0, "credits": 0, "seconds": 0.0, "last": None})
+        loop["laps"] += max(1, len(laps))
+        loop["runs"] += 1
+        loop["credits"] += credits
+        loop["seconds"] += _run_seconds(row)
+        loop["last"] = max(filter(None, (loop["last"], row.get("at"))), default=None)
+    return sorted(loops.values(), key=lambda loop: -loop["credits"])
 
 
 def _span(seconds: float) -> str:
     minutes = round(seconds / 60)
+    if minutes >= 24 * 60:
+        return f"{minutes // 1440}d{minutes % 1440 // 60}h"
     return f"{minutes // 60}h{minutes % 60:02d}m" if minutes >= 60 else f"{minutes}m" if minutes else f"{round(seconds)}s"
 
 
@@ -506,11 +521,12 @@ def _neighbour(row: dict[str, Any]) -> str:
 _PLACES_SHOWN = (8, 5)
 
 
-def _places(menu: dict[str, Any]) -> str | None:
+def _places(menu: dict[str, Any], named: bool = True) -> str | None:
     """What the pilot knows of the map, from the bridge's memory: how much it has flown, the
-    systems a look found no base in, and the bases that refused a dock. Live 2026-09-30 (kvothe):
-    with nowhere else to keep it, the goal became a lossy list of visited systems, ~341 of 462
-    jumps were repeats, and refused bases were retried hours apart."""
+    systems a look found no base in, and the bases that refused a dock — named, or only counted
+    when the section is short of room. Live 2026-09-30 (kvothe): with nowhere else to keep it, the
+    goal became a lossy list of visited systems, ~341 of 462 jumps were repeats, and refused bases
+    were retried hours apart."""
     places = menu.get("places")
     if not isinstance(places, dict):
         return None
@@ -518,6 +534,10 @@ def _places(menu: dict[str, Any]) -> str | None:
     if places.get("systems"):
         bits.append(f"visited {places.get('visited') or 0} of {places['systems']} systems on the map")
     bare, refused = list(places.get("stationless") or []), list(places.get("refused") or [])
+    if not named:
+        bits += ([f"no base found in {len(bare)} systems"] if bare else []) + (
+            [f"docking refused at {len(refused)} bases"] if refused else [])
+        return f"Places: {'; '.join(bits)}." if bits else None
     stationless, refusals = _PLACES_SHOWN
     if bare:
         shown = bare[-stationless:]
@@ -532,11 +552,38 @@ def _places(menu: dict[str, Any]) -> str | None:
     return f"Places: {'; '.join(bits)}." if bits else None
 
 
+def _since_objective(menu: dict[str, Any], now: datetime) -> str | None:
+    """What has moved since the objective was set, as start → now: credits, each skill whose level
+    changed, the hull and the place. Facts, no verdict on whether the objective is met. Live
+    2026-09-30 (kvothe): "train an offensive skill" was met (tactics 4→5) while the pilot kept
+    saying no skill rose; it had nothing to compare against."""
+    start = menu.get("objective_start")
+    if not isinstance(start, dict) or not menu.get("objective"):
+        return None
+    p = menu.get("present") or {}
+    bits = []
+    if isinstance(start.get("credits"), (int, float)) and isinstance(p.get("credits"), (int, float)):
+        bits.append(f"credits {start['credits']:,} → {p['credits']:,}")
+    levels = {k: (v.get("level") if isinstance(v, dict) else v) for k, v in (p.get("skills") or {}).items()}
+    # A skill missing from the start was not trained yet: level 0 then.
+    was = start.get("skills") or {}
+    bits += [f"{name} {was.get(name, 0)}→{level}" for name, level in levels.items()
+             if level is not None and level != was.get(name, 0)]
+    if start.get("ship_class") and p.get("ship_class") and start["ship_class"] != p["ship_class"]:
+        bits.append(f"ship {start['ship_class']} → {p['ship_class']}")
+    here = p.get("docked_at") or p.get("poi") or p.get("system")
+    if start.get("place") and here and start["place"] != here:
+        bits.append(f"place {start['place']} → {here}")
+    began = _when(start.get("at"))
+    ago = f" {_span((now - began).total_seconds())} ago" if began else ""
+    return f"Since the objective was set{ago} ({_stamp(began)}): " + ("; ".join(bits) or "no change in credits, skills, ship or place") + "."
+
+
 def _situation(menu: dict[str, Any], said: dict[str, Any] | None) -> str:
     """The juncture as labelled lines, each fact once, budgeted on the final string.
 
     Over ``SECTION_LIMIT`` core drops the section whole, so the suggested moves go first, then
-    the hold list, then the older recent lines — never a fact line.
+    the hold list, the loops, the Places names and the older recent lines — never a fact line.
     """
     now = _when(menu.get("now")) or datetime.now(timezone.utc)
     p = menu.get("present") or {}
@@ -544,6 +591,7 @@ def _situation(menu: dict[str, Any], said: dict[str, Any] | None) -> str:
     facts.append(f"SpaceMolt juncture — {now.strftime('%Y-%m-%d %H:%MZ')}. Run in flight: no.")
     if menu.get("objective"):
         facts.append(f"Objective (carried in): {menu['objective']}")
+        facts += [line for line in (_since_objective(menu, now),) if line]
     if said:
         facts.append(f"Instruction (carried in {_stamp(_when(said.get('at')))}): {said.get('text')}")
     facts += _alerts(menu)
@@ -570,7 +618,6 @@ def _situation(menu: dict[str, Any], said: dict[str, Any] | None) -> str:
     neighbours = "; ".join([_neighbour(row) for row in near[:NEIGHBOURS]]
                            + ([f"+{len(near) - NEIGHBOURS} more"] if len(near) > NEIGHBOURS else []))
     facts.append(f"Present: {where}." + (f" One jump out: {neighbours}." if neighbours else ""))
-    facts += [line for line in (_places(menu),) if line]
     ship = (f"  Fuel {p.get('fuel')}/{p.get('max_fuel')}, hull {p.get('hull')}/{p.get('max_hull')}, "
             f"credits {p.get('credits') or 0:,}.")
     hold = [f"{row.get('item_id')} {row.get('quantity')}" for row in p.get("hold") or []]
@@ -593,38 +640,42 @@ def _situation(menu: dict[str, Any], said: dict[str, Any] | None) -> str:
     if p.get("walk_away") is not None:
         facts_after.append(f"  Walk-away: break off a fight below hull {p['walk_away']}.")
 
+    # One read serves both: the loops look further back than the recent runs.
+    rows = _journal_tail(("run", "reflection"), _LOOP_BYTES)
     recent = [_recent_line(row) for row in
-              [row for row in _journal_tail(("run", "reflection"))
+              [row for row in rows
                if row.get("event") == "reflection" or row.get("phase") in ("ended", "refused")][-RECENT:]]
-    loops = [_loop_line(loop) for loop in earning_loops()[:LOOPS]]
-    moves = menu.get("text")
+    loops = [_loop_line(loop) for loop in earning_loops(rows)[:LOOPS]]
+    shape = {"moves": menu.get("text"), "kept": len(hold), "loops": len(loops), "named": True, "recent": len(recent)}
 
-    def render(moves: str | None, kept: int, shown_recent: list[str]) -> str:
+    def render() -> str:
+        kept = shape["kept"]
         shown = hold[:kept] + ([f"+{len(hold) - kept} more"] if kept < len(hold) else [])
         hold_line = (f" Hold: {', '.join(shown) or 'empty'} ({free} free)."
                      + (f" {_HOLD_FULL_DOCKED if p.get('docked_at') else _HOLD_FULL_OUT}."
                         if free == 0 else ""))
-        lines = facts + [ship + hold_line] + facts_after
-        if loops:
-            lines.append("Your earning loops (from your journal, most credits first):\n  " + "\n  ".join(loops))
+        lines = facts + [line for line in (_places(menu, shape["named"]),) if line] + [ship + hold_line] + facts_after
+        if shape["loops"]:
+            lines.append("Your earning loops (from your journal, most credits first):\n  "
+                         + "\n  ".join(loops[:shape["loops"]]))
+        shown_recent = recent[len(recent) - shape["recent"]:]
         lines.append("Your recent runs (newest last):\n  " + "\n  ".join(shown_recent)
                      if shown_recent else "Your recent runs: none yet.")
-        if moves:
+        if shape["moves"]:
             lines.append("Suggested moves (advice, pasteable into main()):\n  "
-                         + moves.replace("\n", "\n  "))
+                         + shape["moves"].replace("\n", "\n  "))
         return "\n".join(lines)
 
-    kept = len(hold)
-    text = render(moves, kept, recent)
-    if len(text) > SECTION_LIMIT:
-        text = render(None, kept, recent)
-    while len(text) > SECTION_LIMIT and kept:
-        kept = max(0, kept - max(1, (len(text) - SECTION_LIMIT) // 12))
-        text = render(None, kept, recent)
-    while len(text) > SECTION_LIMIT and len(recent) > 1:
-        recent = recent[1:]
-        text = render(None, kept, recent)
-    return text[:SECTION_LIMIT]
+    # Over the limit, give way in this order: the moves, the hold list, the loops to one, the
+    # Places names to counts, the older recent runs to one, the last loop.
+    text = render()
+    for key, floor in (("moves", None), ("kept", 0), ("loops", 1), ("named", False), ("recent", 1), ("loops", 0)):
+        while len(text) > SECTION_LIMIT and shape[key] != floor:
+            over = max(1, (len(text) - SECTION_LIMIT) // 12) if key == "kept" else 1
+            shape[key] = floor if key in ("moves", "named") else max(floor, shape[key] - over)
+            text = render()
+    # Still over (fact lines alone): cut at a line end, not mid-line.
+    return text if len(text) <= SECTION_LIMIT else text[:SECTION_LIMIT].rsplit("\n", 1)[0]
 
 
 def read_pilot() -> dict[str, Any]:

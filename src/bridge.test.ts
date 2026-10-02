@@ -86,14 +86,23 @@ test('a new objective clears the goal and stance unless the same write sets them
   await f.dispatch('pilot',{set:{objective:'fill the hold'}});
   assert.equal(record.goal,'mine the belt','the same text again is not a new objective');
   await f.dispatch('pilot',{set:{objective:'explore new areas'}});
-  assert.deepEqual(record,{name:'kvothe',objective:'explore new areas'});
+  const {objective_start:start,...rest}=record;
+  assert.deepEqual(rest,{name:'kvothe',objective:'explore new areas'});
+  // Live 2026-09-30 (kvothe): "train an offensive skill" was met (tactics 4→5) while the pilot kept
+  // saying no skill rose. A new objective keeps the facts it started from.
+  assert.equal(start?.credits,f.account.server.player.credits);
+  assert.equal(start?.place,'sol_base');
+  assert.equal(start?.ship_class,f.account.server.ship.class_id);
+  assert.ok(start?.at&&typeof start.skills==='object',JSON.stringify(start));
   const line=readFileSync(join(runtime,'gameplay.jsonl'),'utf8').trim().split('\n').map(row=>JSON.parse(row))
     .filter(row=>row.event==='pilot').at(-1);
-  assert.deepEqual(line.prev,{objective:'fill the hold',goal:'mine the belt',steps:['price an upgrade'],stance:'Prospector'});
+  assert.deepEqual(line.prev,{objective:'fill the hold',goal:'mine the belt',steps:['price an upgrade'],stance:'Prospector',objective_start:null});
   await f.dispatch('pilot',{set:{objective:'trade',stance:'Trader'}});
-  assert.deepEqual(record,{name:'kvothe',objective:'trade',stance:'Trader'},'a stance set with it stands');
+  assert.equal(record.stance,'Trader','a stance set with it stands');
+  assert.notEqual(record.objective_start?.at,undefined);
   await f.dispatch('pilot',{set:{objective:null}});
   assert.equal(record.stance,'Trader','retiring the objective leaves the plan');
+  assert.equal(record.objective_start,undefined,'a retired objective takes its start with it');
 });
 
 test('run blocks until the pilot file ends; status, stop and menu answer meanwhile', async () => {

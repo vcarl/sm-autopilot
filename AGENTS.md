@@ -99,7 +99,7 @@ prompt.
 
 ### The pilot record
 
-`runtime/../pilot.json`: objective, goal, steps, stance, permissions, instruction. Every field is
+`runtime/../pilot.json`: objective (and `objective_start`, the facts when it was set), goal, steps, stance, permissions, instruction. Every field is
 optional — a profile with no record is a pilot with no goal and no stance, and it flies. Written
 only by the bridge's `pilot` request, which `spacemolt_reflect` and `spacemolt_direct` send.
 

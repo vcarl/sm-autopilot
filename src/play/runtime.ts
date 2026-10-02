@@ -344,7 +344,7 @@ function snapshot():Snapshot {
   return {at:Date.now(),credits:state.player?.credits??0,fuel:state.ship?.fuel??0,hull:state.ship?.hull??0,cargo,xp};
 }
 /** `get_skills` answers a map keyed by skill id (live, C23 replay); some shapes nest it. */
-function skillMap(skills:unknown):Record<string,SkillProgress> {
+export function skillMap(skills:unknown):Record<string,SkillProgress> {
   const raw=(skills as any)?.skills??skills;
   return raw&&typeof raw==='object'&&!Array.isArray(raw)?raw as Record<string,SkillProgress>:{};
 }

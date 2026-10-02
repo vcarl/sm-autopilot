@@ -22,7 +22,7 @@ import {flushJournalDrain,startJournalDrain} from './journal-webhook.ts';
 import {check as checkPilot,runPilot as defaultRunPilot,type RunResult} from './run.ts';
 import {menu as buildMenu,renderMenu,threatsHere} from './play/menu.ts';
 import {fleetBrief,resumeFreighters,stopFreighters} from './play/freighter/host.ts';
-import {answer as answerQuestion,bind,isBound,pendingQuestion,present,progress,stop as stopRun,unbind,
+import {answer as answerQuestion,bind,isBound,pendingQuestion,present,progress,skillMap,stop as stopRun,unbind,
   type Pilot as Flying} from './play/runtime.ts';
 
 /** `attach` is how a request takes the run's stream: the loop routes streamed lines to the
@@ -190,10 +190,22 @@ export interface Pilot {name?:string;objective?:string;objective_done?:boolean;o
   goal?:string;
   /** The pilot's own checklist toward the objective: short lines, set whole by reflect. */
   steps?:string[];
-  stance?:StanceName;permissions?:Facts['permissions'];instruction?:{text:string;at:string}}
+  stance?:StanceName;permissions?:Facts['permissions'];instruction?:{text:string;at:string};
+  /** Where the ship stood when this objective was set, for the juncture's deltas. */
+  objective_start?:ObjectiveStart}
+/** Facts at the moment an objective was set: the wallet, each skill's level, the hull and the
+ * place. Live 2026-09-30 (kvothe): objective "train an offensive skill" was met (tactics 4→5) while
+ * the pilot kept saying no skill rose; it had nothing to compare against. */
+export interface ObjectiveStart {at:string;credits?:number;skills:Record<string,number>;ship_class?:string;place?:string}
+export function objectiveStart(state:ReadinessAccount['state']):ObjectiveStart {
+  const {ship,location,player}=state,place=location?.docked_at??location?.poi_id??location?.system_id;
+  return {at:new Date().toISOString(),...player?.credits===undefined?{}:{credits:player.credits},
+    skills:Object.fromEntries(Object.entries(skillMap(state.skills)).map(([id,row])=>[id,row.level])),
+    ...ship?.class_id?{ship_class:ship.class_id}:{},...place?{place}:{}};
+}
 /** The keys the record keeps. Anything else — a stored mood from an older runner included — is
  * dropped on read and never written. */
-export const PILOT_KEYS=['name','objective','objective_done','objective_completed','goal','steps','stance','permissions','instruction'] as const;
+export const PILOT_KEYS=['name','objective','objective_done','objective_completed','objective_start','goal','steps','stance','permissions','instruction'] as const;
 const stored=(record:Record<string,unknown>):Pilot=>
   Object.fromEntries(PILOT_KEYS.filter(key=>record[key]!==undefined&&record[key]!==null).map(key=>[key,record[key]])) as Pilot;
 
@@ -332,12 +344,13 @@ export function serve(account:ReadinessAccount,command:ReadinessCommand,options:
         ...who.stance?{stance:who.stance}:{},mood:who.mood,...who.tired_by?{tired_by:who.tired_by}:{},
         ...who.goal?{goal:who.goal}:{},
         ...record().steps?.length?{steps:record().steps}:{},
+        ...record().objective_start?{objective_start:record().objective_start}:{},
         ...who.permissions?{permissions:who.permissions}:{},
         ...who.objective?{objective:who.objective}:{},
         ...who.instruction?{instruction:who.instruction}:{},
         ...threats.length?{threats}:{},
         present:{system:location?.system_id,poi:location?.poi_id,docked_at:location?.docked_at??null,
-          in_transit:Boolean(location?.in_transit),fuel:ship?.fuel,max_fuel:ship?.max_fuel,
+          in_transit:Boolean(location?.in_transit),ship_class:ship?.class_id,fuel:ship?.fuel,max_fuel:ship?.max_fuel,
           hull:ship?.hull,max_hull:ship?.max_hull,
           cargo_free:(ship?.cargo_capacity??0)-(ship?.cargo_used??0),credits:player?.credits,
           hold:(account.state.cargo??[]).map(row=>({item_id:String(row.item_id),quantity:row.quantity})),
@@ -367,8 +380,14 @@ export function serve(account:ReadinessAccount,command:ReadinessCommand,options:
     // A new objective retires the plan made for the old one: the goal, its steps and the stance (which
     // picks the career skill a juncture carries) go with it, unless this same write sets them.
     // The same text again is not new; retiring the objective (null) leaves the plan standing.
-    if(typeof set.objective==='string'&&set.objective!==prev.objective)
+    if(typeof set.objective==='string'&&set.objective!==prev.objective) {
       for(const key of ['goal','steps','stance'])if(!(key in set)&&key in prev)set[key]=null;
+      // The start facts, read fresh where the game answers and from memory where it does not.
+      await account.refresh().catch(()=>{});
+      set.objective_start=objectiveStart(account.state);
+    }
+    // A retired objective takes its start with it.
+    if(set.objective===null&&'objective_start' in prev)set.objective_start=null;
     const next:Record<string,unknown>={...prev};
     for(const [key,value] of Object.entries(set))if(value===null)delete next[key];else next[key]=value;
     write(next as Pilot);
