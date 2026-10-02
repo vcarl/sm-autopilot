@@ -747,3 +747,54 @@ def test_a_busy_rerender_does_not_advance_the_render_time(monkeypatch):
     assert rerender["at"] != first_at, "the journal still logs the rerender's own time"
     last = juncture.last_juncture()
     assert last["at"] == first_at, "but the render time on file does not advance"
+
+
+def test_a_failed_game_read_still_renders_the_record_and_the_journal(monkeypatch):
+    """Live 2026-10-02 (kvothe): 20 fires lost the whole juncture section to a failed menu read
+    ("WebSocket connection closed", "No response to spacemolt/get_status within 15000ms"). They
+    flew with no objective and no instruction, and wrote no juncture, so their runs carried the
+    previous juncture's id (09-30 16:32Z). The record and the journal need no game."""
+    _seed({"name": "kvothe", "stance": "Trader", "objective": "reach 1,000,000 cr",
+           "goal": "work the ore route", "steps": ["buy at alpha", "sell at beta"],
+           "instruction": {"text": "scan markets for cheap materials", "at": "2026-10-02T16:34:58Z"}})
+    _write_journal([{"event": "run", "phase": "ended", "at": "2026-10-02T15:00:00Z",
+                     "started": "2026-10-02T14:50:00Z", "outcome": "done", "commands": 9,
+                     "work": {"fn": "tradeRun", "credits": 6045},
+                     "calls": [{"fn": "tradeRun", "stops": ["alpha", "beta"], "seconds": 600}]}])
+    juncture._write_juncture({"juncture_id": "old", "at": "2026-10-02T14:00:00Z"})
+
+    def closed(action, params=None):
+        raise RuntimeError("WebSocket connection closed")
+
+    monkeypatch.setattr(service, "call", closed)
+    context = juncture.juncture_context({"platform": "cron", "session_id": "cron_abc123_20261002_104212"})
+    for text in ("The game did not answer this time", "Objective (carried in): reach 1,000,000 cr",
+                 "Instruction (carried in 10-02 16:34Z): scan markets for cheap materials",
+                 "Goal: work the ore route", "Steps: 1) buy at alpha; 2) sell at beta", "Stance: Trader.",
+                 "tradeRun alpha ↔ beta: 1 lap in 1 run, +6,045 cr", "Your recent runs (newest last):"):
+        assert text in context, (text, context)
+    for absent in ("Present:", "Mood:", "  Fuel ", "Since the objective"):
+        assert absent not in context, (absent, context)
+    row, = _journal_rows("juncture")
+    assert row["menu_error"] == "RuntimeError: WebSocket connection closed" and row["context"] == context
+    assert juncture.last_juncture() == {"juncture_id": row["juncture_id"], "at": row["at"]}
+    # The render carried the instruction, so a run from it consumes it, as any other render.
+    (service.runtime_dir() / "run.json").write_text(json.dumps(
+        {"script": "index.ts", "juncture_at": row["at"], "started": row["at"], "ended": True}))
+    assert "scan markets" not in juncture.juncture_context({"platform": "cron"})
+
+
+def test_a_failed_game_read_during_a_run_says_the_run_is_in_flight(monkeypatch):
+    """Without the game, run.json still says whether a run is flying: the context must not say
+    "Run in flight: no" over one that is."""
+    service.runtime_dir().mkdir(parents=True, exist_ok=True)
+    (service.runtime_dir() / "run.json").write_text(json.dumps(
+        {"script": "index.ts", "started": "2026-10-02T16:40:00Z", "ended": False, "last_job": "tradeRun"}))
+
+    def timed_out(action, params=None):
+        raise TimeoutError("No response to spacemolt/get_status within 15000ms")
+
+    monkeypatch.setattr(service, "call", timed_out)
+    context = juncture.juncture_context({"platform": "cron"})
+    assert context == "SpaceMolt juncture. Run in flight: yes — started 10-02 16:40Z, in tradeRun."
+    assert _journal_rows("juncture")[0]["busy"] is True

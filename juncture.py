@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import re
 import subprocess
 import time
@@ -27,6 +28,8 @@ from hermes_constants import get_hermes_home
 
 from .service import pilot_path, runtime_dir
 from .skills_register import SHARED_SKILL, qualified, readme_skills
+
+logger = logging.getLogger(__name__)
 
 #: What a fire carries: the job tools plus the reads every client of the runner may make.
 #: ``spacemolt_observer`` is deliberately absent — the pilot does not set its own objective.
@@ -242,12 +245,52 @@ def juncture_context(session_info: Mapping[str, Any] | None = None) -> str:
     """
     if (session_info or {}).get("platform") != JUNCTURE_PLATFORM:
         return ""
-    from .service import call, source_fingerprint
+    from .service import call
 
     began = time.monotonic()
-    menu = call("menu")
-    record = read_pilot()
-    context = _busy(menu) if menu.get("busy") else _situation(menu, _pending_instruction(record))
+    try:
+        record = read_pilot()
+    except (OSError, ValueError):
+        record = {}
+    said = _pending_instruction(record)
+    # Live 2026-10-02 (kvothe): 20 fires lost the whole section to a failed menu read ("WebSocket
+    # connection closed", "No response to spacemolt/get_status within 15000ms", "bridge failed to
+    # start"). Those fires flew blind of the objective and the instruction, and wrote no juncture,
+    # so their runs carried the previous juncture's id (09-30 16:32Z). The record and the journal
+    # need no game: render them, and say the game was not read.
+    menu_error = None
+    try:
+        menu = call("menu")
+        context = _busy(menu) if menu.get("busy") else _situation(menu, said)
+    except Exception as error:  # noqa: BLE001 - any failure here would cost the fire its whole context
+        menu_error = f"{type(error).__name__}: {error}"
+        menu = _record_menu(record)
+        context = _busy(menu) if menu.get("busy") else _situation(menu, said)
+    try:
+        _journal_render(context, record, menu, menu_error, session_info or {}, began)
+    except Exception:  # the bookkeeping is never worth the fire's context
+        logger.exception("spacemolt juncture: the render was not journalled")
+    return context
+
+
+def _record_menu(record: dict[str, Any]) -> dict[str, Any]:
+    """What a menu can say without the game: the pilot record's own fields under the menu's
+    names, and the run ``run.json`` keeps. Marked ``unread`` so nothing reads it as the ship."""
+    menu = {key: record[key] for key in ("objective", "goal", "steps", "stance", "permissions") if record.get(key)}
+    if run_in_flight():
+        try:
+            run = json.loads((runtime_dir() / "run.json").read_text())
+        except (OSError, ValueError):
+            run = {}
+        menu.update(busy=True, started=run.get("started"), fn=run.get("last_job"), question=pending_question())
+    return {**menu, "unread": True}
+
+
+def _journal_render(context: str, record: dict[str, Any], menu: dict[str, Any], menu_error: str | None,
+                    info: Mapping[str, Any], began: float) -> None:
+    """Journal what was rendered, and keep ``juncture.json`` for the runs that follow."""
+    from .service import source_fingerprint
+
     skills = job_fields(record, gate=False)["skills"]
     readmes = readme_skills(Path(__file__).parent)
     sizes = {name: path.stat().st_size for name, path in readmes.items()}
@@ -255,7 +298,6 @@ def juncture_context(session_info: Mapping[str, Any] | None = None) -> str:
     for name in skills:
         if (path := readmes.get(name.split(":", 1)[-1])) is not None:
             carried.update(path.read_bytes())
-    info = session_info or {}
     session_id = str(info.get("session_id") or "")
     # Cron names a fire's session ``cron_<job_id>_<YYYYmmdd_HHMMSS>``: the join to
     # cron/usage_audit.jsonl (job_id + ts), which is where the fire's tokens and LLM time live.
@@ -263,7 +305,8 @@ def juncture_context(session_info: Mapping[str, Any] | None = None) -> str:
     facts = {"session_id": session_id or None, "code_sha": code_sha(), "sources": source_fingerprint(),
              "skills_sha": carried.hexdigest()[:12], "build_s": round(time.monotonic() - began, 3),
              "stance": record.get("stance"), "busy": bool(menu.get("busy")), "context_chars": len(context),
-             "context_sha": hashlib.sha256(context.encode()).hexdigest()[:12], "context": context}
+             "context_sha": hashlib.sha256(context.encode()).hexdigest()[:12], "context": context,
+             **({"menu_error": menu_error} if menu_error else {})}
     # Hermes re-renders this when it rebuilds a session's system prompt (context compression,
     # live 2026-09-28 13:37Z). That is the same fire: same juncture, fresh facts, its own event.
     prior = _read_juncture()
@@ -287,7 +330,7 @@ def juncture_context(session_info: Mapping[str, Any] | None = None) -> str:
                          "objective": objective})
         journal_event("juncture_rerender", at=at, juncture_id=prior["juncture_id"],
                       reason="the session's system prompt was rebuilt mid-fire", **facts)
-        return context
+        return
     gate = next(reversed(_journal_tail(("gate",))), {})
     juncture_id = uuid.uuid4().hex
     at = _now_iso()
@@ -297,7 +340,6 @@ def juncture_context(session_info: Mapping[str, Any] | None = None) -> str:
                   job_id=job.group(1) if job else None, model=info.get("model") or None,
                   provider=info.get("provider") or None,
                   skills=[{"name": name, "bytes": sizes.get(name.split(":", 1)[-1])} for name in skills], **facts)
-    return context
 
 
 #: The last juncture rendered, for the ``spacemolt_run`` handler to stamp on its run request.
@@ -487,8 +529,10 @@ def _busy(menu: dict[str, Any]) -> str:
     if isinstance(menu.get("question"), dict):
         return ("SpaceMolt juncture — the run in flight is paused on a question for you.\n"
                 + question_text(menu["question"]))
+    # Without the game (``unread``) the command count is unknown, not zero.
     return (f"SpaceMolt juncture. Run in flight: yes — started {_stamp(started)}, in "
-            f"{menu.get('fn') or 'pilot'}, {menu.get('commands') or 0} commands so far.")
+            f"{menu.get('fn') or 'pilot'}"
+            + ("." if menu.get("unread") else f", {menu.get('commands') or 0} commands so far."))
 
 
 def _skill_text(name: str, value: Any) -> str:
@@ -587,11 +631,16 @@ def _situation(menu: dict[str, Any], said: dict[str, Any] | None) -> str:
     """
     now = _when(menu.get("now")) or datetime.now(timezone.utc)
     p = menu.get("present") or {}
+    # A menu made from the record alone (``_record_menu``): no ship, no place, no market.
+    unread = bool(menu.get("unread"))
     facts = [line for line in (_battle(menu),) if line]
     facts.append(f"SpaceMolt juncture — {now.strftime('%Y-%m-%d %H:%MZ')}. Run in flight: no.")
+    if unread:
+        facts.append("The game did not answer this time: the ship, its hold and where it is are "
+                     "unknown here. A run's orient() reads them.")
     if menu.get("objective"):
         facts.append(f"Objective (carried in): {menu['objective']}")
-        facts += [line for line in (_since_objective(menu, now),) if line]
+        facts += [line for line in (_since_objective(menu, now),) if line and not unread]
     if said:
         facts.append(f"Instruction (carried in {_stamp(_when(said.get('at')))}): {said.get('text')}")
     facts += _alerts(menu)
@@ -602,7 +651,8 @@ def _situation(menu: dict[str, Any], said: dict[str, Any] | None) -> str:
     mood = str(menu.get("mood") or "Cautious")
     if menu.get("tired_by"):
         mood += f" ({menu['tired_by']})"
-    facts.append(f"Stance: {menu.get('stance') or 'none'}. Mood: {mood}.")
+    # The mood is derived from the ship, so without the game there is none to name.
+    facts.append(f"Stance: {menu.get('stance') or 'none'}." + ("" if unread else f" Mood: {mood}."))
     # Only the keys rendered here: a permission the code no longer knows is one the pilot
     # cannot act on (playtest 2026-09-22: a stale ``wildlife: false`` read as "wildlife False").
     permits = [_PERMISSION[k].format(v) for k, v in (menu.get("permissions") or {}).items()
@@ -617,7 +667,8 @@ def _situation(menu: dict[str, Any], said: dict[str, Any] | None) -> str:
     near = menu.get("neighbours") or []
     neighbours = "; ".join([_neighbour(row) for row in near[:NEIGHBOURS]]
                            + ([f"+{len(near) - NEIGHBOURS} more"] if len(near) > NEIGHBOURS else []))
-    facts.append(f"Present: {where}." + (f" One jump out: {neighbours}." if neighbours else ""))
+    if not unread:
+        facts.append(f"Present: {where}." + (f" One jump out: {neighbours}." if neighbours else ""))
     ship = (f"  Fuel {p.get('fuel')}/{p.get('max_fuel')}, hull {p.get('hull')}/{p.get('max_hull')}, "
             f"credits {p.get('credits') or 0:,}.")
     hold = [f"{row.get('item_id')} {row.get('quantity')}" for row in p.get("hold") or []]
@@ -654,7 +705,8 @@ def _situation(menu: dict[str, Any], said: dict[str, Any] | None) -> str:
         hold_line = (f" Hold: {', '.join(shown) or 'empty'} ({free} free)."
                      + (f" {_HOLD_FULL_DOCKED if p.get('docked_at') else _HOLD_FULL_OUT}."
                         if free == 0 else ""))
-        lines = facts + [line for line in (_places(menu, shape["named"]),) if line] + [ship + hold_line] + facts_after
+        lines = facts + [line for line in (_places(menu, shape["named"]),) if line] + (
+            [] if unread else [ship + hold_line] + facts_after)
         if shape["loops"]:
             lines.append("Your earning loops (from your journal, most credits first):\n  "
                          + "\n  ".join(loops[:shape["loops"]]))
