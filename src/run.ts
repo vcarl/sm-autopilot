@@ -15,6 +15,7 @@ import {createHash,randomUUID} from 'node:crypto';
 import {copyFileSync,existsSync,mkdirSync,readFileSync,statSync,symlinkSync,writeFileSync} from 'node:fs';
 import {dirname,join,resolve} from 'node:path';
 import {fileURLToPath,pathToFileURL} from 'node:url';
+import * as play from './play/index.ts';
 import {checkTree,specifiers} from './play/boundary.ts';
 import {checkPolicy} from './play/policy.ts';
 import {prose} from './play/prose.ts';
@@ -77,6 +78,14 @@ function tsc(tsconfig:string):Promise<string[]> {
 
 export interface Check {ok:boolean;entry:string;sha:string;errors:string[]}
 
+/** Live 2026-09-30/10-01 (11 refusals): `Cannot find name 'stopped'` where `stopped` is a `play`
+ * export the program never imported. tsc says only that the name is unknown. */
+const MISSING=/error TS2304: Cannot find name '([^']+)'/;
+function hinted(text:string):string {
+  const name=MISSING.exec(text)?.[1];
+  return name&&Object.hasOwn(play,name)?`${text} (${name} is exported by 'play': add it to your import)`:text;
+}
+
 const FRAME=/^(.+?)\((\d+),(\d+)\)/;
 /** A tsc error with the offending line under it. A line and a column alone send the pilot
  * back to re-read the file it has just written, which is what the whole-file echo used to
@@ -85,6 +94,7 @@ function framed(dir:string,errors:string[]):string[] {
   const cache=new Map<string,string[]>();
   return errors.map(text=>{
     const hit=FRAME.exec(text);
+    text=hinted(text);
     if(!hit)return text;
     const [,file,at]=hit;
     if(!cache.has(file!)) {

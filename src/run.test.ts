@@ -63,6 +63,17 @@ test('a type imported as a value is a typecheck refusal, not a crash at load',as
   } finally {f.close();}
 });
 
+// Live 2026-09-30/10-01: 11 refusals were `Cannot find name 'stopped'`, an unimported `play` export.
+test('a name that is a play export but not imported says so; one that is not, does not',async()=>{
+  const f=harness();
+  try {
+    f.write("export default async function main(){ while(!stopped()){ nothere(); } }\n");
+    const errors=(await check(f.runtime)).errors.join('\n');
+    assert.match(errors,/Cannot find name 'stopped'.*stopped is exported by 'play': add it to your import/);
+    assert.doesNotMatch(errors,/nothere is exported/);
+  } finally {f.close();}
+});
+
 test('a tsc error carries the offending line, so the pilot need not be sent its own file back',async()=>{
   const f=harness();
   try {
