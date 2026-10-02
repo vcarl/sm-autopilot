@@ -244,9 +244,11 @@ it. A wallet short of the whole bill buys what fits — the fuel first, then the
 
 ## Goal and stance
 
-`spacemolt_reflect` sets your `goal`, your `stance`, or retires a finished objective
-(`objective_done`); each is optional, and none of them is needed to run. The stance picks which
-career's README the next juncture carries: with none, you have this README alone.
+`spacemolt_reflect` sets your `goal`, your `steps`, your `stance`, or retires a finished objective
+(`objective_done`); each is optional, and none of them is needed to run. The goal is one short
+line: the next step. `steps` is a checklist toward the objective, passed whole each time; a new
+objective clears both. The stance picks which career's README the next juncture carries: with
+none, you have this README alone.
 
 `reflection()` is the read a script takes to branch on how its runs have gone: what is repeating,
 which skills would move, what you hold and owe.

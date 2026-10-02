@@ -81,7 +81,7 @@ test('the pilot request is the one writer of the record, and a null removes a fi
 
 test('a new objective clears the goal and stance unless the same write sets them', async () => {
   const runtime=mkdtempSync(join(tmpdir(),'spacemolt-bridge-'));
-  let record:Pilot={name:'kvothe',objective:'fill the hold',goal:'mine the belt',stance:'Prospector'};
+  let record:Pilot={name:'kvothe',objective:'fill the hold',goal:'mine the belt',steps:['price an upgrade'],stance:'Prospector'};
   const f=fixture({pilot:()=>record,setPilot:next=>{record=next;},runtime});
   await f.dispatch('pilot',{set:{objective:'fill the hold'}});
   assert.equal(record.goal,'mine the belt','the same text again is not a new objective');
@@ -89,7 +89,7 @@ test('a new objective clears the goal and stance unless the same write sets them
   assert.deepEqual(record,{name:'kvothe',objective:'explore new areas'});
   const line=readFileSync(join(runtime,'gameplay.jsonl'),'utf8').trim().split('\n').map(row=>JSON.parse(row))
     .filter(row=>row.event==='pilot').at(-1);
-  assert.deepEqual(line.prev,{objective:'fill the hold',goal:'mine the belt',stance:'Prospector'});
+  assert.deepEqual(line.prev,{objective:'fill the hold',goal:'mine the belt',steps:['price an upgrade'],stance:'Prospector'});
   await f.dispatch('pilot',{set:{objective:'trade',stance:'Trader'}});
   assert.deepEqual(record,{name:'kvothe',objective:'trade',stance:'Trader'},'a stance set with it stands');
   await f.dispatch('pilot',{set:{objective:null}});

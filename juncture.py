@@ -549,6 +549,8 @@ def _situation(menu: dict[str, Any], said: dict[str, Any] | None) -> str:
     facts += _alerts(menu)
     facts.append(f"Goal: {menu['goal']}" if menu.get("goal")
                  else f"Goal: none set yet; a first one: {FIRST_GOAL}")
+    if menu.get("steps"):
+        facts.append("Steps: " + "; ".join(f"{n}) {step}" for n, step in enumerate(menu["steps"], 1)))
     mood = str(menu.get("mood") or "Cautious")
     if menu.get("tired_by"):
         mood += f" ({menu['tired_by']})"

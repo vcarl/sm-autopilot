@@ -35,11 +35,11 @@ for line in sys.stdin:
                   "pois": [{"id": "belt", "name": "Belt", "type": "asteroid_belt"}]}
     elif action == "pilot":
         # The record's one writer: set fields, a null removes one, and a new objective clears
-        # the goal and stance the same write does not set (as src/bridge.ts does).
+        # the goal, steps and stance the same write does not set (as src/bridge.ts does).
         pilot = json.load(open(pilot_file)) if os.path.exists(pilot_file) else {}
         patch = dict(request["params"]["set"])
         if isinstance(patch.get("objective"), str) and patch["objective"] != pilot.get("objective"):
-            for key in ("goal", "stance"):
+            for key in ("goal", "steps", "stance"):
                 patch.setdefault(key, None)
         for key, value in patch.items():
             if value is None:

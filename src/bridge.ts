@@ -187,10 +187,13 @@ export function pushJournal(account:{on:(type:string,handler:(payload:Record<str
 /** `pilot.json` as stored. The bridge is its only writer (the `pilot` request); the mood is never
  * in it — it is derived from the ship on every read (`flying`). */
 export interface Pilot {name?:string;objective?:string;objective_done?:boolean;objective_completed?:string;
-  goal?:string;stance?:StanceName;permissions?:Facts['permissions'];instruction?:{text:string;at:string}}
+  goal?:string;
+  /** The pilot's own checklist toward the objective: short lines, set whole by reflect. */
+  steps?:string[];
+  stance?:StanceName;permissions?:Facts['permissions'];instruction?:{text:string;at:string}}
 /** The keys the record keeps. Anything else — a stored mood from an older runner included — is
  * dropped on read and never written. */
-export const PILOT_KEYS=['name','objective','objective_done','objective_completed','goal','stance','permissions','instruction'] as const;
+export const PILOT_KEYS=['name','objective','objective_done','objective_completed','goal','steps','stance','permissions','instruction'] as const;
 const stored=(record:Record<string,unknown>):Pilot=>
   Object.fromEntries(PILOT_KEYS.filter(key=>record[key]!==undefined&&record[key]!==null).map(key=>[key,record[key]])) as Pilot;
 
@@ -328,6 +331,7 @@ export function serve(account:ReadinessAccount,command:ReadinessCommand,options:
         now:new Date().toISOString(),
         ...who.stance?{stance:who.stance}:{},mood:who.mood,...who.tired_by?{tired_by:who.tired_by}:{},
         ...who.goal?{goal:who.goal}:{},
+        ...record().steps?.length?{steps:record().steps}:{},
         ...who.permissions?{permissions:who.permissions}:{},
         ...who.objective?{objective:who.objective}:{},
         ...who.instruction?{instruction:who.instruction}:{},
@@ -360,11 +364,11 @@ export function serve(account:ReadinessAccount,command:ReadinessCommand,options:
     if(!write)throw new Error('this runner cannot write the pilot record');
     const prev:Record<string,unknown>={...record()};
     const set={...(params.set??{}) as Record<string,unknown>};
-    // A new objective retires the plan made for the old one: the goal and the stance (which
+    // A new objective retires the plan made for the old one: the goal, its steps and the stance (which
     // picks the career skill a juncture carries) go with it, unless this same write sets them.
     // The same text again is not new; retiring the objective (null) leaves the plan standing.
     if(typeof set.objective==='string'&&set.objective!==prev.objective)
-      for(const key of ['goal','stance'])if(!(key in set)&&key in prev)set[key]=null;
+      for(const key of ['goal','steps','stance'])if(!(key in set)&&key in prev)set[key]=null;
     const next:Record<string,unknown>={...prev};
     for(const [key,value] of Object.entries(set))if(value===null)delete next[key];else next[key]=value;
     write(next as Pilot);

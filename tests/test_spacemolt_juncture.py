@@ -523,6 +523,24 @@ def test_reflect_sets_goal_and_stance_through_the_bridge_whatever_the_pilot_is_d
     bad = spacemolt._reflect({"stance": "Cowboy"})
     assert "Cowboy" in bad and "Prospector" in bad and sent == []
     assert "Nothing to write" in spacemolt._reflect({})
+    assert "Nothing written" in spacemolt._reflect({"steps": "price an upgrade"}) and sent == []
+
+    # Live 2026-09-30 (kvothe): subtasks ("price an upgrade") were dropped every fire. The
+    # checklist is its own field, stored whole, and an empty list clears it.
+    spacemolt._reflect({"steps": [" price an upgrade ", "", "fly the circuit_board loop"]})
+    assert sent[-1] == ("pilot", {"set": {"steps": ["price an upgrade", "fly the circuit_board loop"]}})
+    assert _journal_rows("reflection")[-1]["steps"] == ["price an upgrade", "fly the circuit_board loop"]
+    spacemolt._reflect({"steps": []})
+    assert sent[-1] == ("pilot", {"set": {"steps": None}}) and "steps" not in juncture.read_pilot()
+
+
+def test_the_steps_reach_the_context_under_the_goal(monkeypatch):
+    menu = _menu(12)
+    menu["steps"] = ["price an upgrade", "fly the circuit_board loop"]
+    lines = _rendered(monkeypatch, menu).splitlines()
+    goal = next(i for i, line in enumerate(lines) if line.startswith("Goal:"))
+    assert lines[goal + 1] == "Steps: 1) price an upgrade; 2) fly the circuit_board loop", lines
+    assert not any(line.startswith("Steps:") for line in _rendered(monkeypatch, _menu(12)).splitlines())
 
 
 _GATEWAY_LOAD = """
