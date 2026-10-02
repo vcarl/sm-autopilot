@@ -251,6 +251,12 @@ It answers `detail: Traded` = `{stops, unsold, fuel, net}`:
 | `fuel` | fuel units the flights burned, measured from the tank |
 | `net` | sales, less `spent` (tax included), less `fuel × fuel_price_all_in` at the first base the run was docked at. Fuel comes from the tank, not the wallet, so it is priced exactly as `Route.net` prices it: realised `net` against the `routes()` row's `net` is like against like |
 
+A thin book is walked down its levels, so a sale can fetch less than the top bid you saw: when a
+stop's sale averages more than 3% under the top bid read there, `did` says so with that bid's depth
+(`sold 10 plasma_injector at 6633 each, under the 7153 top bid (2 deep)`); `sell()` says it the same
+way. `routes()` already prices a remembered book level by level; a ledger book carries only its top
+level and the depth there, so its rows count no more than that.
+
 It never throws. A flight that does not arrive is `partial`, with the stops done so far, and
 `next` is the rest of the route. A `done` run's `next` is pasteable calls only: the same
 `tradeRun(...)` again when the route bought something and netted a profit, and `routes()`, which

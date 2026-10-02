@@ -745,3 +745,23 @@ test('buyers answers who bids for an item, held or not, docked or not: price, de
     assert.equal(f.count('spacemolt_market/view_market'),0,'undocked: memory only');
   } finally {unbind();rmSync(runtime,{recursive:true,force:true});}
 });
+
+test('a sale filled under the top bid says so, in sell and in tradeRun, with the depth that bid had',async()=>{
+  // Live 2026-10-01 (kvothe 14:45Z): 10 plasma_injector filled at 6,633 against a 7,153 bid 2 deep, −5.2k unsaid.
+  // This world fills every sale at 10 each.
+  world({mood:'Focused'},{cargo:[{item_id:'ore',quantity:6}],cargoUsed:6,store:[],
+    markets:{sol_base:[{item_id:'ore',best_buy:12,best_buy_qty:3,best_sell:0,best_sell_qty:0}]}});
+  try {
+    const sold=await sell([{item_id:'ore',quantity:3}]);
+    assert.equal(sold.did,'sold 3 ore at 10 each, under the 12 top bid (3 deep) at sol_base for 30 cr');
+    const run=await tradeRun({stops:[{at:'sol_base'}]});
+    assert.match(run.did,/^sol_base: sold 3 ore at 10 each, under the 12 top bid \(3 deep\) — net 30 cr/);
+  } finally {unbind();}
+});
+
+test('a sale filled at the top bid says nothing more',async()=>{
+  world({mood:'Focused'},{cargo:[{item_id:'ore',quantity:3}],cargoUsed:3,store:[],
+    markets:{sol_base:[{item_id:'ore',best_buy:10,best_buy_qty:3,best_sell:0,best_sell_qty:0}]}});
+  try {assert.equal((await sell([{item_id:'ore'}])).did,'sold 3 ore at sol_base for 30 cr');}
+  finally {unbind();}
+});

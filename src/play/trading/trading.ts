@@ -16,7 +16,7 @@ import {walkBook} from '../../order-book.ts';
 import {details} from '../../response-details.ts';
 import {journalRun} from '../../run-record.ts';
 import {inFaction} from '../../trade-intel.ts';
-import {book,buy,knownBooks,marketTick,sell,ticksOld} from '../market.ts';
+import {book,buy,knownBooks,marketTick,sell,slipped,ticksOld} from '../market.ts';
 import {readDrained,ring} from '../freighter/drained.ts';
 import {markPlace,readMobile,readPlaces} from '../places.ts';
 import {acct,admit,checkStop,command,job,runtimeDir,step,type Said} from '../runtime.ts';
@@ -490,8 +490,9 @@ export function tradeRun(opts:{stops:RunStop[]}):Promise<Outcome<Traded>> {
     const blocked=await admit('tradeRun');
     if(blocked)return {status:'refused',did:'ran no trade',why:blocked,detail:detail()};
     if(!route.length)return {status:'refused',did:'ran no trade',why:'no stops: pass {stops:[{at, buy?}, …]}',detail:detail()};
-    const said=()=>stops.map(visit=>`${visit.at}: ${[...visit.sold.map(fill=>`sold ${fill.quantity_sold} ${fill.item_id}`),
-      ...visit.bought?[`took ${visit.bought}`]:[]].join(', ')||'nothing'}`).join(' → ');
+    // What each stop reached did, as the did says it: rendered at the stop, against the book read there.
+    const told:string[]=[];
+    const said=()=>told.join(' → ');
     const short:string[]=[];
     if(acct().state.location?.docked_at)await priced();
     for(const [i,stop] of route.entries()) {
@@ -511,7 +512,7 @@ export function tradeRun(opts:{stops:RunStop[]}):Promise<Outcome<Traded>> {
       const notes:string[]=[];
       let listed:Map<string,MarketListingItem>;
       try {listed=await book();}
-      catch(error) {short.push(`${here}: no market (${error instanceof Error?error.message:String(error)})`);visit.why=short.at(-1);continue;}
+      catch(error) {short.push(`${here}: no market (${error instanceof Error?error.message:String(error)})`);visit.why=short.at(-1);told.push(`${here}: nothing`);continue;}
       const later=route.slice(i+1).map(next=>next.at);
       const hold=miningInventory(acct().state);
       const known=byBase({base_id:here,source:'here',age:0,items:listed},
@@ -548,6 +549,8 @@ export function tradeRun(opts:{stops:RunStop[]}):Promise<Outcome<Traded>> {
       }
       const why=[...short.filter(line=>line.startsWith(`${here}:`)),...notes].join('; ');
       if(why)visit.why=why;
+      told.push(`${here}: ${[...visit.sold.map(fill=>`sold ${fill.quantity_sold} ${fill.item_id}${slipped(listed.get(fill.item_id),Number(fill.quantity_sold),Number(fill.total_earned))}`),
+        ...visit.bought?[`took ${visit.bought}`]:[]].join(', ')||'nothing'}`);
     }
     const end=detail();
     const did=`${said()} — net ${end.net} cr after ${fuel} fuel at ${fuelPrice??0} cr`

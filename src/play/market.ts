@@ -56,6 +56,17 @@ export function bestFarBid(books:RememberedBook[],item_id:string,here:string|nul
     .sort((a,b)=>b.best_buy-a.best_buy)[0];
 }
 
+/** ponytail: a fill averaging this far under the top bid it was sent against is worth saying; a
+ * smaller gap is a level or two of rounding. Tunable. */
+const SLIP=0.03;
+/** ` at 6633 each, under the 7153 top bid (2 deep)` when `quantity` fetched `earned` materially under
+ * the top of the book read before the sale; '' otherwise. A thin book is walked down its levels.
+ * Live 2026-10-01 (kvothe 14:45Z): 10 plasma_injector filled at 6,633 against a 7,153 bid 2 deep, −5.2k unsaid. */
+export function slipped(top:{best_buy:number;best_buy_qty:number}|undefined,quantity:number,earned:number):string {
+  const each=quantity?Math.round(earned/quantity):0;
+  return top&&top.best_buy>0&&each<top.best_buy*(1-SLIP)?` at ${each} each, under the ${top.best_buy} top bid (${top.best_buy_qty} deep)`:'';
+}
+
 /** The global tick from the last `view_market` reply this process read.
  * ponytail: process-local, and only sound read straight after a `book()` in the same job —
  * which is every consumer. Widen `book()`'s return if that stops being true. */
@@ -245,7 +256,7 @@ export function sell(items:Want[],opts:{from?:'hold'|'store';floor?:Record<strin
       const unit=quantity?Math.round(earned/quantity):0;
       const better=farBid(item_id);
       return `${quantity} ${item_id}`+(better&&better.best_buy>unit*MATERIAL
-        ?` at ${unit} (${better.base_id} bid ${better.best_buy}, ${better.age} ticks ago)`:'');
+        ?` at ${unit} (${better.base_id} bid ${better.best_buy}, ${better.age} ticks ago)`:slipped(listed.get(item_id),quantity,earned));
     }).join(', ')} at ${docked} for ${total} cr`
       :blocked.length?`sold nothing at ${docked}`:`nothing to sell at ${docked}`;
     return {status:blocked.length?(fills.length?'partial':'refused'):'done',
