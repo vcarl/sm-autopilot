@@ -483,6 +483,18 @@ function dryness(item:string,now:Listing|undefined,before:RememberedBook|undefin
   return ago&&left<was&&bought>=left?[`${item}: ${left} on the asks here now (${ago})`]:[];
 }
 
+/** Whether the rest of a route can still pay: something aboard that a stop ahead bids for, or a stop
+ * ahead with a `buy` it has a known ask for (`from:'store'` counts). A stop with no known book may do
+ * either. False means the flights ahead are provably empty, as far as the books go. */
+function ahead(hold:Record<string,number>,stops:readonly RunStop[],known:ReadonlyMap<string,Book>):boolean {
+  return stops.some(stop=>{
+    const book=known.get(stop.at)?.items;
+    if(!book)return true;
+    return Object.entries(hold).some(([id,n])=>n>0&&(book.get(id)?.best_buy??0)>0)
+      ||items(stop).some(id=>stop.from==='store'||depth(book.get(id))>0);
+  });
+}
+
 /** What a stop took, and the later bid each item was taken for with that book's age:
  * `took 2 dark_matter_residue for sirius_observatory_station's 1020 bid (remembered, 85 ticks old)`.
  * Grouped by the later base; past two kinds a group is `N of K kinds`. A later stop with no known
@@ -593,6 +605,14 @@ export function tradeRun(opts:{stops:RunStop[]}):Promise<Outcome<Traded>> {
       if(why)visit.why=why;
       told.push(`${here}: ${[...visit.sold.map(fill=>`sold ${fill.quantity_sold} ${fill.item_id}${slipped(listed.get(fill.item_id),Number(fill.quantity_sold),Number(fill.total_earned))}`),
         ...carried(loaded,later.map(base=>known.get(base))),...notes].join(', ')||'nothing'}`);
+      // Live 2026-10-02 (kvothe 19:36Z, run e4ca9b3f): nova_terra_central's sunspindle asks drained by
+      // the run's own laps, nothing bought, then 6 jumps flown for "nothing → nothing — net −64 cr".
+      const idle=route.slice(i+1);
+      if(idle.length&&!ahead(miningInventory(acct().state),idle,known)) {
+        const end=detail(),why=`nothing aboard sells at ${later.join(', ')}, and no stop ahead has a known ask to buy at — ${idle.map(next=>next.at).join(' → ')} not flown`;
+        return {status:'partial',did:`${said()}; ${why} — net ${end.net} cr after ${fuel} fuel at ${fuelPrice??0} cr`,
+          why:[...short,why].join('; '),detail:end,next:['routes()']};
+      }
     }
     const end=detail();
     const did=`${said()} — net ${end.net} cr after ${fuel} fuel at ${fuelPrice??0} cr`

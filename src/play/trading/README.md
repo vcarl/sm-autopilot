@@ -274,6 +274,13 @@ is all it offers after a route that only sold the hold. Re-running the same call
 re-plans from the hold you have. A load already aboard is carried on and is not bought twice. A
 sale or buy the game refuses is `partial` too, and the run carries on to the next stop.
 
+After each stop it looks at the rest of the route against the books it knows: when nothing aboard
+has a bid at any stop ahead, and no stop ahead has a known ask for its `buy` (a `from: 'store'` stop
+and a stop with no known book count as maybe), the flights ahead cannot pay, so it ends there,
+`partial`: `nothing aboard sells at range_base, and no stop ahead has a known ask to buy at —
+range_base not flown`, with `next: ['routes()']`. A run that loops one source until its asks are gone
+ends this way at the dry stop instead of flying the empty legs.
+
 The menu offers `tradeRun({stops: [{at}]})` in every stance when something aboard has no bid here
 and a remembered book elsewhere bids for it. For goods in the store here, it offers
 `tradeRun({stops: [{at: here, buy, from: 'store'}, {at}]})`. The fuel to get there is not priced

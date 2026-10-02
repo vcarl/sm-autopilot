@@ -780,7 +780,7 @@ test('routes and tradeRun name the age of each far book a leg was planned on',as
 test('a planned buy that finds no ask, or fewer units than remembered, says so with the remembered price and age',async()=>{
   // Live 2026-10-01 (kvothe 15:25Z): tradeRun at confederacy_central_command reported only "nothing".
   const planned={base_id:'sol_base',age:12,items:[{item_id:'gem',best_sell:100,best_sell_qty:50}]};
-  for(const [ask,said] of [[0,/^sol_base: no ask for gem here now \(was 100 for 50, 12 ticks ago\) → range_base: /],
+  for(const [ask,said] of [[0,/^sol_base: no ask for gem here now \(was 100 for 50, 12 ticks ago\); nothing aboard sells at range_base/],
     [5,/^sol_base: took 5 gem for range_base's 110 bid \(remembered, 0 ticks old\), gem: 5 on the asks here now \(was 100 for 50, 12 ticks ago\) → /]] as const) {
     const runtime=remembered([planned,RANGE]);
     world({mood:'Focused'},{cargo:[],cargoUsed:0,cargoCapacity:20,store:[],
@@ -791,6 +791,29 @@ test('a planned buy that finds no ask, or fewer units than remembered, says so w
       assert.match(run.detail.stops[0]!.why!,ask?/gem: 5 on the asks here now/:/no ask for gem here now/);
     } finally {unbind();rmSync(runtime,{recursive:true,force:true});}
   }
+});
+
+test('tradeRun does not fly the rest of a route that cannot pay: nothing aboard sells ahead, no known ask ahead',async()=>{
+  // Live 2026-10-02 (kvothe 19:36Z, run e4ca9b3f): nova_terra_central's sunspindle asks drained by the
+  // run's own laps, nothing bought, then 6 jumps flown for "nothing → nothing — net −64 cr".
+  const runtime=remembered([{base_id:'sol_base',age:12,items:[{item_id:'gem',best_sell:135,best_sell_qty:66}]},RANGE]);
+  const f=world({mood:'Focused'},{cargo:[],cargoUsed:0,cargoCapacity:20,store:[],
+    markets:{sol_base:[{item_id:'gem',best_buy:90,best_buy_qty:50,best_sell:0,best_sell_qty:0}]}},runtime);
+  try {
+    const run=await tradeRun({stops:[{at:'sol_base',buy:'gem'},{at:'range_base'}]});
+    assert.equal(run.status,'partial');
+    assert.equal(run.did,'sol_base: no ask for gem here now (was 135 for 66, 12 ticks ago); nothing aboard sells at range_base, and no stop ahead has a known ask to buy at — range_base not flown — net 0 cr after 0 fuel at 1 cr');
+    assert.deepEqual(run.next,['routes()']);
+    assert.equal(f.count('spacemolt/jump'),0,'range_base not flown to');
+  } finally {unbind();rmSync(runtime,{recursive:true,force:true});}
+  // Ore aboard that range_base bids for: the route is flown as before.
+  const kept=remembered([RANGE]);
+  world({mood:'Focused'},{cargo:[{item_id:'ore',quantity:4}],cargoUsed:4,cargoCapacity:20,store:[],
+    markets:{sol_base:[{item_id:'gem',best_buy:90,best_buy_qty:50,best_sell:0,best_sell_qty:0}]}},kept);
+  try {
+    const run=await tradeRun({stops:[{at:'sol_base',buy:'gem'},{at:'range_base'}]});
+    assert.match(run.did,/ → range_base: sold 4 ore/);
+  } finally {unbind();rmSync(kept,{recursive:true,force:true});}
 });
 
 test('a buy journals the book it was sent against, as a sell does: bid, ask, book tick and age',async()=>{
