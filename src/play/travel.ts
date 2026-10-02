@@ -6,6 +6,7 @@ import {serviceShip} from '../servicing.ts';
 import {FuelRouteShortfall,InBattle,TravelBlocked,travelTo} from '../travel.ts';
 import {dock,here,named as poiName,others} from './counter.ts';
 import {knownBooks} from './market.ts';
+import {readNames} from './places.ts';
 import {active} from './missions.ts';
 import {acct,checkStop,command,job,pilot,runtimeDir,step} from './runtime.ts';
 import type {Outcome} from './types.ts';
@@ -99,10 +100,12 @@ export async function destination(id:string):Promise<{id:string;quote:FindRouteR
   if(first.found)return {id,quote:first};
   const local=await nameable();
   // The bases in the market memory are nameable from anywhere: the one read that knows a far
-  // base's id. It keeps no display name, so `Node Alpha Processing Station` lands on
-  // `node_alpha_processing_station` by the same word match, and a miss lists them as ids.
-  const places=[...local,...knownBooks().filter(book=>!local.some(place=>place.id===book.base_id))
-    .map(book=>({id:book.base_id,name:book.base_id,what:'base' as const}))];
+  // base's id. `Node Alpha Processing Station` lands on `node_alpha_processing_station` by the
+  // same word match; an opaque id answers to the name kept for it (`names.json`), as does a POI
+  // the pilot was shown named.
+  const names=readNames(runtimeDir()),far=new Set(knownBooks().map(book=>book.base_id));
+  const places=[...local,...[...new Set([...far,...Object.keys(names)])].filter(id=>!local.some(place=>place.id===id))
+    .map(id=>({id,name:names[id]??id,what:far.has(id)?'base' as const:'POI' as const}))];
   const want=key(id);
   const hit=places.find(place=>place.id!==id&&(key(place.id)===want||key(place.name)===want));
   if(hit) {

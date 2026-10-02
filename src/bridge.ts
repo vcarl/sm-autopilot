@@ -22,6 +22,7 @@ import {flushJournalDrain,startJournalDrain} from './journal-webhook.ts';
 import {check as checkPilot,runPilot as defaultRunPilot,type RunResult} from './run.ts';
 import {menu as buildMenu,renderMenu,threatsHere} from './play/menu.ts';
 import {fleetBrief,resumeFreighters,stopFreighters} from './play/freighter/host.ts';
+import {learnNames,nameIds,readNames} from './play/places.ts';
 import {answer as answerQuestion,bind,isBound,pendingQuestion,present,progress,skillMap,stop as stopRun,unbind,
   type Pilot as Flying} from './play/runtime.ts';
 
@@ -227,6 +228,20 @@ export interface ServeOptions {
   onAbandoned?:()=>void;
 }
 
+/** A reply as the pilot reads it: the prose of a run's report (and of `status`'s last one) names
+ * each opaque base or POI id it carries (`nameIds`). Applied at stdout, after the request line is
+ * journalled, so the journal keeps every id raw. */
+export function forPilot(result:unknown,names:Record<string,string>):unknown {
+  const prose=(row:unknown):unknown=>{
+    if(!row||typeof row!=='object'||Array.isArray(row))return row;
+    const named:Record<string,unknown>={...row};
+    for(const key of ['did','why','prose'])if(typeof named[key]==='string')named[key]=nameIds(named[key] as string,names);
+    return named;
+  };
+  const named=prose(result) as Record<string,unknown>;
+  return named&&typeof named==='object'&&'last' in named?{...named,last:prose(named.last)}:named;
+}
+
 export function readPilot(path:string):Pilot {
   if(!existsSync(path))return {};
   try {return stored(JSON.parse(readFileSync(path,'utf8')));}
@@ -363,7 +378,7 @@ export function serve(account:ReadinessAccount,command:ReadinessCommand,options:
           // The hull this mood breaks off a fight at, as `moodNow` computes it: the juncture
           // cannot reach the D2 table (the stance's working mood, so Tired does not move it), and a pilot left to guess the line guesses it low.
           ...ship?.max_hull===undefined?{}:{walk_away:Math.floor(resolveWalkAway(stanceMood(who.stance))*ship.max_hull)}},
-        ...built,text:renderMenu(built),...runtime?fleetBrief(runtime):{},last:lastOutcome(),
+        ...built,text:renderMenu(built),...runtime?{names:readNames(runtime)}:{},...runtime?fleetBrief(runtime):{},last:lastOutcome(),
         ...waiting.length?{alerts:waiting.map(({type,key,at,first_at,n,body})=>({type,key,at,first_at,n,body}))}:{},
       };
     } finally {unbind();}
@@ -484,6 +499,7 @@ async function main() {
     try {
       const reply=await account.send(tool!,name!,params);
       journalCommand(runtime,action,params,true,reply,{ms:Date.now()-since});
+      learnNames(runtime,action,params,reply);
       return reply;
     } catch(error) {
       journalCommand(runtime,action,params,false,error,{ms:Date.now()-since});
@@ -496,7 +512,7 @@ async function main() {
   const pilotFile=resolve(runtime,'..','pilot.json');
   // The request whose run is in flight gets the stream.
   let streamTo:string|undefined;
-  const emit=(text:string)=>console.log(JSON.stringify({id:streamTo,event:'line',text}));
+  const emit=(text:string)=>console.log(JSON.stringify({id:streamTo,event:'line',text:nameIds(text,readNames(runtime))}));
   const dispatch=serve(account,command,
     {pilot:()=>readPilot(pilotFile),setPilot:next=>writePilot(pilotFile,next),runtime,emit,
       // A script cut off at the cap may still be running inside this process; ending the process
@@ -522,7 +538,7 @@ async function main() {
     journalRun(runtime,{request,
       response:{...response,...'result' in response
         ?{result:journalResult(String(request?.action??''),response.result)}:{}}},'request');
-    console.log(JSON.stringify(response));
+    console.log(JSON.stringify('result' in response?{...response,result:forPilot(response.result,readNames(runtime))}:response));
   };
   for await(const line of createInterface({input:process.stdin,terminal:false})) {
     if(stopped)break;

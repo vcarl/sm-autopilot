@@ -24,7 +24,7 @@ import {checkPolicy} from '../policy.ts';
 import {knownBooks,rememberBook} from '../market.ts';
 import {inFaction} from '../../trade-intel.ts';
 import {buysOf,ledgerItems,REST_TICKS,search,type Circuit,type Seat} from '../trading/trading.ts';
-import {markMobile,markPlace,readPlaces} from '../places.ts';
+import {learnNames,markMobile,markPlace,readPlaces} from '../places.ts';
 import {candidates,explore,target,type Candidate} from '../trading/scout.ts';
 import {markDrained,ring} from './drained.ts';
 import {claims as carried,dropped,freeTarget,scoutHop,type Approach,type Claim,type Freighter,type Holding,type Known,type Market} from './index.ts';
@@ -233,6 +233,7 @@ export function start(runtime:string,name:string):string|null {
     try {
       const reply=await account.send(tool!,verb!,params);
       journalCommand(runtime,`${name}:${action}`,params,true,reply,{freighter:name,ms:Date.now()-since});
+      learnNames(runtime,action,params,reply);
       return reply;
     } catch(error) {
       journalCommand(runtime,`${name}:${action}`,params,false,error,{freighter:name,ms:Date.now()-since});

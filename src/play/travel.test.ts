@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import {mkdtempSync,rmSync} from 'node:fs';
+import {mkdtempSync,rmSync,writeFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import test from 'node:test';
@@ -10,7 +10,7 @@ import {menu} from './menu.ts';
 import {readDockRefusals} from './places.ts';
 import {bridgeWorld} from '../test-support/bridge-world.ts';
 import {bind,unbind,type Pilot} from './runtime.ts';
-import {goTo} from './travel.ts';
+import {destination,goTo} from './travel.ts';
 
 test('goTo refuses a name that is not a place',async()=>{
   const game=bridgeWorld({services:['refuel','repair']});
@@ -65,4 +65,17 @@ test('a base that denies the dock: goTo is partial in the game\'s words, and the
     assert.equal((await goTo('range_base')).status,'done');
     assert.deepEqual(readDockRefusals(runtime),{});
   } finally {unbind();rmSync(runtime,{recursive:true,force:true});}
+});
+
+// Live 2026-10-02 (kvothe): a hex-id base reads `Kestrel Yard (b495…)` to the pilot now, so the
+// name is what it may write back; goTo resolves it through the kept names, from anywhere.
+test('goTo resolves a far opaque base by the name kept for it',async()=>{
+  const base='b495c6003fc83e18f6d8cecbe6929133',game=bridgeWorld({services:['refuel','repair']});
+  const runtime=mkdtempSync(join(tmpdir(),'spacemolt-names-'));
+  writeFileSync(join(runtime,'names.json'),JSON.stringify({[base]:'Kestrel Yard'}));
+  const command:typeof game.command=async(action,params)=>action==='spacemolt/find_route'&&params?.id===base
+    ?{found:true,target_system:'dheneb',target_poi:base,total_jumps:2,estimated_fuel:14,route:[]}:game.command(action,params);
+  bind({account:game.account as unknown as ReadinessAccount,command,pilot:():Pilot=>({mood:'Focused'}),runtime,emit:()=>{}});
+  try {assert.equal((await destination('Kestrel Yard')).id,base);}
+  finally {unbind();rmSync(runtime,{recursive:true,force:true});}
 });

@@ -4,6 +4,7 @@
  * entry carries no system, so without this every `routes()` would place the same bases again. */
 import {mkdirSync,readFileSync,renameSync,writeFileSync} from 'node:fs';
 import {join} from 'node:path';
+import {details} from '../response-details.ts';
 
 const FILE='places.json';
 
@@ -73,4 +74,58 @@ export function clearDockRefused(runtime:string,base_id:string):void {
   if(!(base_id in kept))return;
   delete kept[base_id];
   keepJson(runtime,DOCKING,kept);
+}
+
+/** Display names for opaque ids: `names.json` beside `places.json`, id to the name the game gave
+ * it. Live 2026-10-02 (kvothe): player bases and POIs have hex ids (`b495c6003fc83e18f6d8cecbe6929133`
+ * at Dheneb), and the pilot's replies carried them raw ("between nova_terra_central and b495c600…").
+ * Learned from replies already being read, at the command seam (the bridge's and each freighter's),
+ * so it costs no game call. Only opaque ids are kept: `nova_terra_central` is its own name. */
+const NAMES='names.json';
+const OPAQUE=/^[0-9a-f]{16,}$/;
+export function readNames(runtime:string|undefined):Record<string,string> {
+  if(!runtime)return {};
+  try {const kept=JSON.parse(readFileSync(join(runtime,NAMES),'utf8'));return kept&&typeof kept==='object'&&!Array.isArray(kept)?kept:{};}
+  catch {return {};}
+}
+/** Every id/name pair a reply carries: `base_id`/`base_name` and `poi_id`/`poi_name` anywhere in it,
+ * `get_system`'s POI rows, `get_base`'s base, and `find_route`'s target POI. A routed base with no
+ * name of its own yet is named for the POI it sits at (`find_route` says "travel to Hex Star"),
+ * until a read that names the base itself replaces it. */
+export function learnNames(runtime:string,action:string,params:Record<string,unknown>|undefined,reply:unknown):void {
+  const body=details(reply) as Record<string,any>,named:Record<string,string>={},fallback:Record<string,string>={};
+  const put=(to:Record<string,string>,id:unknown,name:unknown)=>{
+    if(typeof id==='string'&&OPAQUE.test(id)&&typeof name==='string'&&name.trim()&&name!==id)to[id]=name.trim();};
+  const walk=(value:unknown,depth:number):void=>{
+    if(!value||typeof value!=='object'||depth>6)return;
+    if(Array.isArray(value)){for(const row of value)walk(row,depth+1);return;}
+    const row=value as Record<string,unknown>;
+    put(named,row.base_id,row.base_name);put(named,row.poi_id,row.poi_name);
+    for(const child of Object.values(row))walk(child,depth+1);
+  };
+  // A base's id can be its POI's (report 02), so the POI's name goes in first and the base's
+  // own, from the walk, lands over it.
+  const verb=action.split('/')[1];
+  if(verb==='get_system')for(const poi of (body.system?.pois??[]) as Record<string,unknown>[])put(named,poi.id,poi.name);
+  if(verb==='get_base')put(named,body.base?.id,body.base?.name);
+  walk(body,0);
+  if(verb==='find_route'&&body.found!==false){put(fallback,body.target_poi,body.target_poi_name);put(fallback,params?.id,body.target_poi_name);}
+  if(!Object.keys(named).length&&!Object.keys(fallback).length)return;
+  // A base's own name beats the POI name it was routed by; a kept name beats a fallback.
+  const kept=readNames(runtime),next={...fallback,...kept,...named};
+  if(Object.keys(next).some(id=>next[id]!==kept[id]))keepJson(runtime,NAMES,next);
+}
+/** An opaque id as the pilot reads it, `Name (id)`; the id stays whole so it can be passed back
+ * to `goTo`. An id with no known name, or a readable one, is itself. */
+export const placeName=(id:string,names:Record<string,string>):string=>names[id]?`${names[id]} (${id})`:id;
+/** `placeName` over prose: every bare opaque id in `text` gains its name. An id in quotes is code
+ * (`goTo('…')`, `{at:'…'}`) and is left alone, as is one whose name already stands beside it. */
+export function nameIds(text:string,names:Record<string,string>):string {
+  if(!text||!Object.keys(names).length)return text;
+  return text.replace(/(?<![\w'"])[0-9a-f]{16,}(?![\w'"])/g,(id:string,at:number)=>{
+    const name=names[id];
+    if(!name||text.slice(Math.max(0,at-name.length-2),at)===`${name} (`)return id;
+    const after=/^ \(([^)]*)\)/.exec(text.slice(at+id.length));
+    return after?.[1]!.includes(name)?id:placeName(id,names);
+  });
 }

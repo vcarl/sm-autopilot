@@ -4,7 +4,7 @@ import {spawnSync} from 'node:child_process';
 import {existsSync,mkdtempSync,readFileSync,writeFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
-import {createShutdown,journalResult,MENU_CHARS,MENU_ROWS,serve,type Pilot,type ServeOptions} from './bridge.ts';
+import {createShutdown,forPilot,journalResult,MENU_CHARS,MENU_ROWS,serve,type Pilot,type ServeOptions} from './bridge.ts';
 import {controllerLock} from './controller-lock.ts';
 import type {ReadinessAccount} from './readiness.ts';
 import type {RunResult} from './run.ts';
@@ -224,4 +224,20 @@ test('the menu says whether a battle holds the ship, before any other fact',asyn
   assert.equal(fighting.battle?.opponent,'Molt Grazer');
   assert.ok(Number(fighting.battle?.tick)>=1,JSON.stringify(fighting.battle));
   assert.equal(Object.keys(fighting).indexOf('battle'),0,'first key: the juncture renders it first');
+});
+
+// Live 2026-10-02 (kvothe): the run reports read "b495c6003fc83e18f6d8cecbe6929133", and so did
+// the pilot's replies. What reaches the pilot names it; the journal keeps the raw id.
+test('a reply names opaque place ids in its prose for the pilot, and the menu carries the names', async () => {
+  const base='b495c6003fc83e18f6d8cecbe6929133',names={[base]:'Kestrel Yard'};
+  const result={accepted:true,status:'done',did:`sold at ${base}`,why:`${base} bids 40`,
+    prose:`Done: tradeRun({stops:[{at:'${base}'}]}) at ${base}.`,commands:3};
+  assert.deepEqual(forPilot(result,names),{...result,did:`sold at Kestrel Yard (${base})`,why:`Kestrel Yard (${base}) bids 40`,
+    prose:`Done: tradeRun({stops:[{at:'${base}'}]}) at Kestrel Yard (${base}).`});
+  assert.equal((forPilot({running:false,last:result},names) as any).last.did,`sold at Kestrel Yard (${base})`);
+  assert.equal((journalResult('run',result) as any).did,`sold at ${base}`,'the journal is handed the raw reply');
+  const runtime=mkdtempSync(join(tmpdir(),'spacemolt-bridge-'));
+  writeFileSync(join(runtime,'names.json'),JSON.stringify(names));
+  const menu=await fixture({pilot:()=>PILOT,runtime}).dispatch('menu') as any;
+  assert.deepEqual(menu.names,names);
 });
