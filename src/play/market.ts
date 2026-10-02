@@ -114,8 +114,12 @@ export async function book():Promise<Map<string,MarketListingItem>> {
   const base=acct().state.location?.docked_at??'';
   remember(base,items,lastTick);
   await fileIntel(acct(),command,base,items,lastTick,step);
-  return new Map(items.map(item=>[item.item_id,item]));
+  const listed=new Map(items.map(item=>[item.item_id,item]));
+  lastRead={base,listed,tick:lastTick,at:Date.now()};
+  return listed;
 }
+/** The last book `book()` read, for a `buy` to quote the ask it was sent against. */
+let lastRead:{base:string;listed:Map<string,MarketListingItem>;tick:number;at:number}|undefined;
 
 /** What things are worth here. Default: every item in the hold and in this base's store.
  * Pass item ids for others. Capped at 40 rows. Over `view_market` it adds: the filter to
@@ -299,7 +303,11 @@ export function buy(itemId:string,quantity:number,opts:{deliverTo?:'cargo'|'stor
     if(!(estimate.available>0))return {status:'refused',did:`did not buy ${itemId}`,why:`not on this market: ${estimate.message??'0 available'}`,detail:{estimate}};
     if(credits-cost<reserve)return {status:'refused',did:`did not buy ${itemId}`,why:`costs ${cost}; credits ${credits} less reserve ${reserve} leaves ${credits-reserve}`,detail:{estimate}};
     if(opts.maxEach!==undefined&&cost>opts.maxEach*quantity)return {status:'refused',did:`did not buy ${itemId}`,why:`costs ${cost}, over maxEach ${opts.maxEach} × ${quantity}`,detail:{estimate}};
-    quoteNext('spacemolt/buy',itemId,{estimate_quantity:quantity,estimate_total:cost,estimate_available:estimate.available});
+    // The book this buy was sent against, as a sell quotes its own: the last read at this counter.
+    // Live 2026-10-01 (kvothe): all 37 tradeRun buys journalled a quote with no ask, bid or book tick.
+    const seen=lastRead?.base===at.docked?lastRead:undefined,row=seen?.listed.get(itemId);
+    quoteNext('spacemolt/buy',itemId,{bid:row?.best_buy??null,ask:row?.best_sell??null,book_tick:seen?.tick??null,
+      age_s:seen?Math.round((Date.now()-seen.at)/100)/10:null,estimate_quantity:quantity,estimate_total:cost,estimate_available:estimate.available});
     const bought=details(await command('spacemolt/buy',{id:itemId,quantity:Math.min(quantity,estimate.available),
       ...opts.deliverTo?{deliver_to:opts.deliverTo}:{}})) as BuyResponse;
     // The reply's `total_cost` is the subtotal; the tax on it is charged on top, floored.

@@ -11,6 +11,7 @@ import {bind,runCalls,unbind,type Pilot} from '../runtime.ts';
 import {goTo} from '../travel.ts';
 import {check} from '../../run.ts';
 import {readPlaces} from '../places.ts';
+import {journalCommand,readJournal} from '../../run-record.ts';
 import {buyers,routes,runCall,spreads,tradeRun} from './trading.ts';
 import {scoutMarkets} from './scout.ts';
 
@@ -790,6 +791,22 @@ test('a planned buy that finds no ask, or fewer units than remembered, says so w
       assert.match(run.detail.stops[0]!.why!,ask?/gem: 5 on the asks here now/:/no ask for gem here now/);
     } finally {unbind();rmSync(runtime,{recursive:true,force:true});}
   }
+});
+
+test('a buy journals the book it was sent against, as a sell does: bid, ask, book tick and age',async()=>{
+  // Live 2026-10-01 (kvothe): all 37 tradeRun buys journalled a quote with no ask, bid or book tick.
+  const runtime=mkdtempSync(join(tmpdir(),'spacemolt-quote-'));
+  const game=bridgeWorld({services:['refuel','repair','storage'],cargo:[],cargoUsed:0,store:[],
+    markets:{sol_base:[{item_id:'gem',best_buy:90,best_buy_qty:50,best_sell:100,best_sell_qty:50}]}});
+  bind({account:game.account as unknown as ReadinessAccount,pilot:()=>({mood:'Focused'}),emit:()=>{},runtime,
+    command:async(action,params)=>{const reply=await game.command(action,params);journalCommand(runtime,action,params,true,reply);return reply;}});
+  try {
+    assert.equal((await prices(['gem'])).status,'done');
+    assert.equal((await buy('gem',3)).status,'done');
+    const [quote]=readJournal(runtime).filter(entry=>entry.event==='trade'&&entry.side==='buy').map(entry=>entry.quote);
+    assert.deepEqual({...quote,age_s:undefined},{bid:90,ask:100,book_tick:TICK,age_s:undefined,estimate_quantity:3,estimate_total:36,estimate_available:99});
+    assert.ok(quote.age_s>=0&&quote.age_s<5,JSON.stringify(quote));
+  } finally {unbind();rmSync(runtime,{recursive:true,force:true});}
 });
 
 test('a sale filled at the top bid says nothing more',async()=>{
