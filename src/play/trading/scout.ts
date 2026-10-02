@@ -9,7 +9,7 @@ import {details} from '../../response-details.ts';
 import {jumpsFrom,readMap} from '../exploration/exploration.ts';
 import {IGNORE_TICKS} from '../freighter/index.ts';
 import {book,marketTick} from '../market.ts';
-import {markExplored,markPlace,readExplored,readPlaces} from '../places.ts';
+import {markExplored,markPlace,readDockRefusals,readExplored,readPlaces} from '../places.ts';
 import {acct,admit,checkStop,command,job,runtimeDir} from '../runtime.ts';
 import {goTo} from '../travel.ts';
 import type {Outcome} from '../types.ts';
@@ -20,14 +20,16 @@ export const SCOUT_JUMPS=4;
 /** Where scouting may go: a base known by id with no book (`unknown`), a system on the map within
  * range whose bases were never listed (`unexplored`, no `base_id`), or a base whose freshest book,
  * ledger or memory, is older than `IGNORE_TICKS` (`stale`, `age` in ticks). */
-export interface Candidate {kind:'unknown'|'unexplored'|'stale';system_id:string;base_id?:string;jumps:number;age?:number}
+export interface Candidate {kind:'unknown'|'unexplored'|'stale';system_id:string;base_id?:string;jumps:number;age?:number;
+  /** The game's words when this base last refused the dock (`docking.json`): it ranks last. */
+  refused?:string}
 /** The id a candidate is flown to by. */
 export const target=(row:Candidate)=>row.base_id??row.system_id;
 /** ponytail: the faction intel map read a page of 50 systems at a time, at most 4 pages a read. */
 const INTEL_PAGE=50,INTEL_PAGES=4;
 
-/** Every candidate within `jumps` of the ship's system, unknown and unexplored first, then stale;
- * nearer first, a base before a system. Books are aged against `now`. Reads only, through `seat`:
+/** Every candidate within `jumps` of the ship's system, unknown and unexplored first, then stale,
+ * then bases that refused the dock (`docking.json`); nearer first, a base before a system. Books are aged against `now`. Reads only, through `seat`:
  * `get_map` once, the faction ledger (`farBooks`) and intel map (`query_intel`, each base it names
  * kept in `places.json`), and the runtime's `places.json`, `explored.json` and market memory. A
  * system with a base already placed counts as explored; its other bases are listed by the
@@ -55,19 +57,21 @@ export async function candidates(seat:Seat,now:number,jumps=SCOUT_JUMPS):Promise
   for(const known of far)if(known.system_id&&!places.has(known.base_id))places.set(known.base_id,known.system_id);
   const map=await readMap(seat.command);
   const dist=jumpsFrom(map,here,jumps);
-  const books=new Map(far.map(known=>[known.base_id,known])),out:Candidate[]=[];
+  const books=new Map(far.map(known=>[known.base_id,known])),out:Candidate[]=[],refusals=readDockRefusals(dir);
   for(const [base_id,system_id] of places) {
-    const n=dist.get(system_id),known=books.get(base_id);
+    const n=dist.get(system_id),known=books.get(base_id),refused=refusals[base_id]?{refused:refusals[base_id].message}:{};
     if(n===undefined)continue;
-    if(!known)out.push({kind:'unknown',system_id,base_id,jumps:n});
-    else if(known.age>IGNORE_TICKS)out.push({kind:'stale',system_id,base_id,jumps:n,age:known.age});
+    if(!known)out.push({kind:'unknown',system_id,base_id,jumps:n,...refused});
+    else if(known.age>IGNORE_TICKS)out.push({kind:'stale',system_id,base_id,jumps:n,age:known.age,...refused});
   }
   const explored=new Set([...dir?readExplored(dir):[],...mapped,...places.values()]);
   for(const row of map) {
     const n=dist.get(row.system_id);
     if(n!==undefined&&row.poi_count>0&&!explored.has(row.system_id))out.push({kind:'unexplored',system_id:row.system_id,jumps:n});
   }
-  const rank=(row:Candidate)=>row.kind==='stale'?1:0;
+  // Live 2026-10-02 (kvothe 16:37Z): scoutMarkets flew straight back to Proxima's only base a minute
+  // after it said `Access denied`. Ranked last, not dropped: a refusal may lift.
+  const rank=(row:Candidate)=>row.refused!==undefined?2:row.kind==='stale'?1:0;
   return out.sort((a,b)=>rank(a)-rank(b)||a.jumps-b.jumps||Number(!a.base_id)-Number(!b.base_id));
 }
 
@@ -98,11 +102,12 @@ export interface Scouted {
  * is flown to with `goTo` and its book read (remembered and filed, as `prices()` does); a system is
  * flown to and its bases listed and kept, so the next hop can dock at one. Never buys or sells.
  * Refused when not docked (ages are read against a counter's tick) or in a mood that may not start
- * a job. A hop that fails is said and skipped; `partial` when one did. Trains navigation. */
+ * a job. A hop that fails is said and skipped; `partial` when one did. A base that refused the dock
+ * is ranked last and `did` says so, and flown to only when nothing else is left. Trains navigation. */
 export function scoutMarkets(opts:{jumps?:number;max?:number}={}):Promise<Outcome<Scouted>> {
   const jumps=opts.jumps??SCOUT_JUMPS,max=opts.max??3;
   return job<Scouted>('scoutMarkets',`${max} within ${jumps} jumps`,async()=>{
-    const detail:Scouted={filed:[],explored:[],left:0},short:string[]=[],tried=new Set<string>();
+    const detail:Scouted={filed:[],explored:[],left:0},short:string[]=[],tried=new Set<string>(),refused=new Map<string,string>(),anyway:string[]=[];
     const blocked=await admit('scoutMarkets');
     if(blocked)return {status:'refused',did:'scouted nothing',why:blocked,detail};
     if(!acct().state.location?.docked_at)return {status:'refused',did:'scouted nothing',why:'not docked; book ages are read against a counter\'s tick',detail,
@@ -113,9 +118,11 @@ export function scoutMarkets(opts:{jumps?:number;max?:number}={}):Promise<Outcom
     for(;;) {
       checkStop();
       list=(await candidates(seat,marketTick(),jumps)).filter(row=>!tried.has(target(row)));
+      for(const row of list)if(row.refused!==undefined)refused.set(target(row),row.refused);
       const next=list[0];
       if(!next||tried.size>=max)break;
       tried.add(target(next));
+      if(next.refused!==undefined)anyway.push(`${target(next)} (${next.refused})`);
       const trip=await goTo(target(next));
       if(trip.status!=='done'){short.push(`${target(next)}: ${trip.why??trip.did}`);continue;}
       const bases=await explore(command,runtimeDir());
@@ -124,10 +131,13 @@ export function scoutMarkets(opts:{jumps?:number;max?:number}={}):Promise<Outcom
       if(docked){await book();detail.filed.push(docked);}
     }
     detail.left=list.length;
+    const passed=[...refused.keys()].filter(id=>!tried.has(id));
     const did=`${detail.filed.length?`read and filed ${detail.filed.length} book(s): ${detail.filed.join(', ')}`:'filed no book'}`
       +(detail.explored.length?`; listed the bases of ${detail.explored.map(row=>`${row.system_id} (${row.bases.length})`).join(', ')}`:'')
       +(tried.size?'':`; nothing to scout within ${jumps} jumps: every base known there has a book younger than ${IGNORE_TICKS} ticks`)
-      +(detail.left?`; ${detail.left} more within ${jumps} jumps`:'');
+      +(detail.left?`; ${detail.left} more within ${jumps} jumps`:'')
+      +(anyway.length?`; flew to ${anyway.join(', ')} though it refused docking before: nothing else was left to scout`:'')
+      +(passed.length?`; ranked ${passed.length} base(s) that refused docking last: ${passed.join(', ')}`:'');
     const status=short.length?(detail.filed.length||detail.explored.length?'partial':'refused'):'done';
     return {status,did,...short.length?{why:short.join('; ')}:{},detail,
       next:[...detail.left?['scoutMarkets() again for the next ones']:[],'routes() over the books just read']};

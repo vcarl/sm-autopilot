@@ -309,7 +309,10 @@ Each hop goes to the first candidate within `jumps`, chosen afresh after every h
    placed, and some POI in it);
 3. a base whose freshest book, ledger or memory, is older than `IGNORE_TICKS` (1080 ticks, three hours).
 
-The first two rank together, nearer first and a base before a system; stale books come after. A base
+The first two rank together, nearer first and a base before a system; stale books come after, and
+a base that refused your dock (the same record the Places line reads) comes last of all: `did` says
+`ranked 1 base(s) that refused docking last: …`, and when one is flown to anyway because nothing else
+is left, `flew to … (Access denied) though it refused docking before`. A
 is flown to with `goTo` and its book read as `prices()` reads one: remembered in `markets.json` and
 filed to the ledger. After every hop the system's bases are listed (`get_system`) and kept in
 `places.json`, and the system in `explored.json`, so a system flown to for its bases makes them the

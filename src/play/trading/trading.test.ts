@@ -732,6 +732,23 @@ test('scoutMarkets reads the nearest unread books, one hop at a time, files them
   } finally {unbind();rmSync(runtime,{recursive:true,force:true});}
 });
 
+test('scoutMarkets ranks a base that refused the dock last, says so, and flies there only when nothing else is left',async()=>{
+  // Live 2026-10-02 (kvothe 16:37Z): scoutMarkets flew straight back to Proxima's only base a minute
+  // after it said `Access denied`.
+  const runtime=mkdtempSync(join(tmpdir(),'spacemolt-scout-refused-'));
+  writeFileSync(join(runtime,'places.json'),JSON.stringify({range_base:'deep_range',reach_base:'far_reach'}));
+  writeFileSync(join(runtime,'docking.json'),JSON.stringify({range_base:{message:'Access denied',at:'2026-10-02T16:36:00Z'}}));
+  world({mood:'Focused'},{tradeIntel:[],systems:[{id:'far_reach',connections:['deep_range'],pois:[{id:'reach_dock',base_id:'reach_base'}]}]},runtime);
+  try {
+    const first=await scoutMarkets({max:1});
+    assert.deepEqual(first.detail.filed,['reach_base'],first.did);
+    assert.match(first.did,/; ranked 1 base\(s\) that refused docking last: range_base$/);
+    const second=await scoutMarkets({max:1});
+    assert.deepEqual(second.detail.filed,['range_base'],second.did);
+    assert.match(second.did,/; flew to range_base \(Access denied\) though it refused docking before: nothing else was left to scout$/);
+  } finally {unbind();rmSync(runtime,{recursive:true,force:true});}
+});
+
 test('buyers answers who bids for an item, held or not, docked or not: price, depth, book age and jumps',async()=>{
   // Live 2026-09-30 (kvothe): hours flown system to system, prices(['aluminum_ore']) at each, hunting a buyer.
   const runtime=remembered([{base_id:'range_base',age:40,items:[{item_id:'aluminum_ore',best_buy:12,best_buy_qty:300}]},
