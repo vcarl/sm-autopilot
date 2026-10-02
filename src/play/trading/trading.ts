@@ -258,6 +258,9 @@ const TRUST_FLOOR=1/64;
 /** What a row ranks by: `max(confidence, TRUST_FLOOR) × net / max(1, jumps)`; 0 for an unpriced trip. */
 const rank=(confidence:number,net:number,jumps:number|null)=>jumps===null?0:Math.max(confidence,TRUST_FLOOR)*net/Math.max(1,jumps);
 
+/** A book's provenance as a pilot reads it: `live`, or `remembered, 85 ticks old`. */
+const aged=(book:{source:Spread['source'];age:number})=>book.source==='here'?'live':`${book.source}, ${book.age} ticks old`;
+
 /** A stop's book as the planner reads it. No `items`: nothing is known of that base's book. */
 export interface Book {base_id:string;source:Spread['source'];age:number;items?:Map<string,Listing>}
 /** Units sold at one stop and what they fetch there, level by level. */
@@ -469,6 +472,22 @@ export interface Traded {
   net:number;
 }
 
+/** What a stop took, and the later bid each item was taken for with that book's age:
+ * `took 2 dark_matter_residue for sirius_observatory_station's 1020 bid (remembered, 85 ticks old)`.
+ * Grouped by the later base; past two kinds a group is `N of K kinds`. A later stop with no known
+ * book names no bid. */
+function carried(took:readonly {item_id:string;quantity:number}[],later:readonly (Book|undefined)[]):string[] {
+  const groups=new Map<Book|undefined,{item_id:string;quantity:number}[]>();
+  for(const row of took) {
+    const bid=(book:Book|undefined)=>book?.items?.get(row.item_id)?.best_buy??0;
+    const target=later.filter(book=>bid(book)>0).sort((a,b)=>bid(b)-bid(a))[0];
+    groups.set(target,[...groups.get(target)??[],row]);
+  }
+  return [...groups].map(([book,rows])=>`took ${rows.length>2?`${rows.reduce((sum,row)=>sum+row.quantity,0)} of ${rows.length} kinds`
+    :rows.map(row=>`${row.quantity} ${row.item_id}`).join(', ')}${!book?'':rows.length===1
+    ?` for ${book.base_id}'s ${book.items!.get(rows[0]!.item_id)!.best_buy} bid (${aged(book)})`:` for ${book.base_id}'s bids (${aged(book)})`}`);
+}
+
 /** Fly `stops` in order, and at each one sell and buy what the plan says, from the hold you have.
  * At each stop the live book is read and the rest of the route re-planned against it — the later
  * stops at their best known books — by the same rule `routes()` ranks with; so a full hold, an
@@ -532,25 +551,27 @@ export function tradeRun(opts:{stops:RunStop[]}):Promise<Outcome<Traded>> {
         if(sold.status!=='done')short.push(`${here}: ${sold.why??sold.did}`);
       }
       if(wanted.length&&!leg!.buys.length)notes.push(`took no ${wanted.join(', ')}: nothing ${stop.from==='store'?'in the store':'on the asks'} here beats the best known bid later on the route`);
+      const loaded:{item_id:string;quantity:number}[]=[];
       for(const {item_id,quantity} of leg!.buys) {
         const want=Math.min(quantity,cargo());
         if(!want)notes.push(`took no ${item_id}: no room left after the sales`);
         else if(stop.from==='store') {
           const took=await withdraw([{item_id,quantity:want}]);
           const moved=took.detail?.moved.reduce((sum,row)=>sum+row.quantity,0)??0;
-          visit.bought+=moved;
+          visit.bought+=moved;if(moved)loaded.push({item_id,quantity:moved});
           if(!moved)short.push(`${here}: withdrew no ${item_id}: ${took.why??took.did}`);
         } else {
           const got=await buy(item_id,want);
           // The wallet, not `total_cost`: the reply's cost is the subtotal, and the tax is on top.
-          visit.bought+=Number(got.detail?.bought?.quantity??0);visit.spent+=got.cost.credits;spent+=got.cost.credits;
+          const n=Number(got.detail?.bought?.quantity??0);
+          visit.bought+=n;visit.spent+=got.cost.credits;spent+=got.cost.credits;if(n)loaded.push({item_id,quantity:n});
           if(got.status!=='done')short.push(`${here}: ${got.why??got.did}`);
         }
       }
       const why=[...short.filter(line=>line.startsWith(`${here}:`)),...notes].join('; ');
       if(why)visit.why=why;
       told.push(`${here}: ${[...visit.sold.map(fill=>`sold ${fill.quantity_sold} ${fill.item_id}${slipped(listed.get(fill.item_id),Number(fill.quantity_sold),Number(fill.total_earned))}`),
-        ...visit.bought?[`took ${visit.bought}`]:[]].join(', ')||'nothing'}`);
+        ...carried(loaded,later.map(base=>known.get(base)))].join(', ')||'nothing'}`);
     }
     const end=detail();
     const did=`${said()} — net ${end.net} cr after ${fuel} fuel at ${fuelPrice??0} cr`
@@ -875,7 +896,9 @@ export async function search(seat:Seat,opts:RouteOpts={}):Promise<Said<{routes:R
   // Short: a hold of ten kinds is `sell 499 of 10 kinds`; the legs in `detail` carry the rest.
   const kinds=(verb:string,rows:readonly {item_id:string;quantity:number}[])=>rows.length>2
     ?[`${verb} ${rows.reduce((sum,row)=>sum+row.quantity,0)} of ${rows.length} kinds`]:rows.map(row=>`${verb} ${row.quantity} ${row.item_id}`);
-  const says=(row:Route)=>row.legs.map(leg=>[leg.at,...kinds('sell',leg.sold),...kinds('buy',leg.buys)].join(' ')).join(' → ');
+  // Each far stop's book age, in the words: a route planned on a book that has since moved is
+  // bought on a memory (live 2026-10-01, kvothe 16:10Z: 2 dark_matter_residue at 690 for a bid gone by arrival).
+  const says=(row:Route)=>row.legs.map(leg=>[leg.source==='here'?leg.at:`${leg.at} (${aged(leg)})`,...kinds('sell',leg.sold),...kinds('buy',leg.buys)].join(' ')).join(' → ');
   return {status:failed.length?'partial':'done',
     did:`ranked ${rows.length} route(s) over ${known.size} book(s) (${sources.join(' + ')}); best: ${says(rows[0]!)}, net ${rows[0]!.net} cr${rested}${unknown}`,
     ...failed.length?{why:failed.map(row=>`${says(row)}: ${row.why}`).join('; ')}:{},

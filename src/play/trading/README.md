@@ -160,7 +160,9 @@ Each leg is:
 | `sales_tax` | tax on those buys, each floored as the game does, at this base's rate when the stop is far; `null` when no rate is known |
 
 At most 5 rows come back, priced ones first. The Outcome's `did` names the best row in short —
-a stop selling more than two kinds says `sell 499 of 10 kinds` — and its legs carry each sale. A stop that could not be placed leaves its row in
+a stop selling more than two kinds says `sell 499 of 10 kinds`, and a far stop names its book's
+source and age, `sirius_observatory_station (remembered, 85 ticks old) sell 2 dark_matter_residue`
+— and its legs carry each sale. A stop that could not be placed leaves its row in
 the list with a `why`, a `score` of 0 and the Outcome `partial`.
 
 ## Circuits: a lap a freighter repeats
@@ -250,6 +252,10 @@ It answers `detail: Traded` = `{stops, unsold, fuel, net}`:
 | `unsold` | `{item_id, quantity, why?}` rows aboard when the run ended. After the last stop, what no stop bought, or what a base off the route bids twice as much for (named in `why`) |
 | `fuel` | fuel units the flights burned, measured from the tank |
 | `net` | sales, less `spent` (tax included), less `fuel × fuel_price_all_in` at the first base the run was docked at. Fuel comes from the tank, not the wallet, so it is priced exactly as `Route.net` prices it: realised `net` against the `routes()` row's `net` is like against like |
+
+Each stop's `did` names what it took and the later bid it was taken for, with that book's age:
+`took 2 dark_matter_residue for sirius_observatory_station's 1020 bid (remembered, 85 ticks old)`.
+That bid is a memory until the run stands in front of it; an old one is the likeliest to have moved.
 
 A thin book is walked down its levels, so a sale can fetch less than the top bid you saw: when a
 stop's sale averages more than 3% under the top bid read there, `did` says so with that bid's depth

@@ -417,7 +417,7 @@ test('a failed route lookup is a row with a why and a partial, not a throw',asyn
     assert.equal(row.total_jumps,null);
     assert.equal(row.score,0);
     assert.match(row.why!,/no route to ghost_base: .*fuel not priced/);
-    assert.match(out.why!,/sol_base buy 20 gem → ghost_base sell 20 gem: no route to ghost_base/);
+    assert.match(out.why!,/sol_base buy 20 gem → ghost_base \(remembered, 0 ticks old\) sell 20 gem: no route to ghost_base/);
   } finally {unbind();rmSync(runtime,{recursive:true,force:true});}
 });
 
@@ -757,6 +757,20 @@ test('a sale filled under the top bid says so, in sell and in tradeRun, with the
     const run=await tradeRun({stops:[{at:'sol_base'}]});
     assert.match(run.did,/^sol_base: sold 3 ore at 10 each, under the 12 top bid \(3 deep\) — net 30 cr/);
   } finally {unbind();}
+});
+
+test('routes and tradeRun name the age of each far book a leg was planned on',async()=>{
+  // Live 2026-10-01 (kvothe 16:10Z): 2 dark_matter_residue bought at 690 for a remembered bid that had
+  // moved; "unsold … nova_terra_central bids 40", net −967, and nothing said the book was old.
+  const runtime=remembered([{...RANGE,age:40}]);
+  world({mood:'Focused'},{cargo:[],cargoUsed:0,cargoCapacity:20,store:[],markets:HERE},runtime);
+  try {
+    const out=await routes({items:['gem'],maxStops:2});
+    assert.match(out.did,/best: sol_base buy 20 gem → range_base \(remembered, 40 ticks old\) sell 20 gem,/);
+    assert.deepEqual(out.detail.routes[0]!.legs.map(leg=>[leg.source,leg.age]),[['here',0],['remembered',40]]);
+    const run=await tradeRun({stops:[{at:'sol_base',buy:'gem'},{at:'range_base'}]});
+    assert.match(run.did,/^sol_base: took 20 gem for range_base's 110 bid \(remembered, 40 ticks old\) → range_base: /);
+  } finally {unbind();rmSync(runtime,{recursive:true,force:true});}
 });
 
 test('a sale filled at the top bid says nothing more',async()=>{
