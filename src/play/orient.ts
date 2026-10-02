@@ -4,6 +4,7 @@ import type {ActiveMissionInfo,CarrierProfile,GetNearbyResponse,GetWrecksRespons
   TaxEstimateResponse,V2Missions,ViewStorageResponse} from '@spacemolt/lib';
 import {battleNow,type BattleNow} from '../travel.ts';
 import {details} from '../response-details.ts';
+import {readMap} from './exploration/exploration.ts';
 import {acct,command,job,pilot,present,type Pilot} from './runtime.ts';
 import type {Outcome,Present} from './types.ts';
 
@@ -69,15 +70,17 @@ export function orient():Promise<Outcome<Orientation>> {
 }
 
 export interface ScoutReport {
-  /** The live `get_system` answer when you are in it; the map entry when you are not. */
-  system:SystemInfo|MapSystemInfo;
+  /** The live `get_system` answer when you are in it; the map entry when you are not. Either way
+   * `id` and `name` are there (the map's own key is `system_id`). */
+  system:(SystemInfo|MapSystemInfo)&{id:string;name:string};
   /** Every POI: type, base id and services if it has a station. */
   pois:SystemPoi[];
   /** Resources at the POI you are standing at, from `location.resources`. Absent elsewhere:
    * the report is then guesswork until you go there. */
   resources:Record<string,ResourceInfo[]>;
-  /** Systems one jump away, each with the fuel `find_route` quotes for it. */
-  connections:(SystemConnection&{fuel:number})[];
+  /** Systems one jump away, each with the fuel `find_route` quotes for it, and whether you have
+   * been there (absent when the map could not be read). */
+  connections:(SystemConnection&{fuel:number;visited?:boolean})[];
   /** Only for the POI you are standing at. */
   here?:{nearby:GetNearbyResponse;wrecks:GetWrecksResponse;police:number};
 }
@@ -95,9 +98,13 @@ export function scout(target?:string):Promise<Outcome<ScoutReport>> {
     let system=target??location?.system_id??'';
     if(target&&target!==location?.system_id) {
       const found=details(await command('spacemolt/find_route',{id:target}));
-      if(!found.found)return {status:'refused',did:`could not find ${target}`,why:String(found.message??'no route'),detail:{system:{} as SystemInfo,pois:[],resources:{},connections:[]}};
+      if(!found.found)return {status:'refused',did:`could not find ${target}`,why:String(found.message??'no route'),detail:{system:{id:target,name:target} as ScoutReport['system'],pois:[],resources:{},connections:[]}};
       system=String(found.target_system);
     }
+    // Live 2026-10-01: hand-rolled exploration loops re-scouted visited systems for want of this.
+    const seen=new Map<string,boolean>();
+    try {for(const row of await readMap(command))seen.set(row.system_id,!!row.visited);} catch {/* unread */}
+    const visited=(id:string)=>seen.has(id)?{visited:seen.get(id)}:{};
     const here=system===location?.system_id&&!location?.in_transit;
     const resources:Record<string,ResourceInfo[]>={};
     if(here&&location?.poi_id&&Array.isArray(location.resources)&&location.resources.length)
@@ -106,15 +113,15 @@ export function scout(target?:string):Promise<Outcome<ScoutReport>> {
       const map=details(await command('spacemolt/get_map',{system_id:system})) as MapSystemInfo;
       const links=Array.isArray(map.connections)?map.connections:[];
       return {status:'done',did:`${map.name??system}: ${map.poi_count??'?'} POIs (not listed from afar), ${links.length} connections, ${map.visited?'visited before':'never visited'}`,
-        detail:{system:map,pois:[],resources,connections:links.map(system_id=>({system_id,name:system_id,fuel:NaN}))},
+        detail:{system:{...map,id:system,name:map.name??system},pois:[],resources,connections:links.map(system_id=>({system_id,name:system_id,fuel:NaN,...visited(system_id)}))},
         next:[`goTo('${system}') then scout() for its POIs`]};
     }
     const info=(details(await command('spacemolt/get_system',{})) as {system:SystemInfo}).system;
-    const connections:(SystemConnection&{fuel:number})[]=[];
+    const connections:ScoutReport['connections']=[];
     for(const link of info?.connections??[]) {
       let fuel=NaN;
       try {fuel=Number(details(await command('spacemolt/find_route',{id:link.system_id})).estimated_fuel);} catch {/* unquoted */}
-      connections.push({...link,fuel});
+      connections.push({...link,fuel,...visited(link.system_id)});
     }
     let nearbyHere:ScoutReport['here'];
     if(location?.poi_id&&!location.docked_at) {

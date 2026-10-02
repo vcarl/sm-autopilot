@@ -44,3 +44,18 @@ test('a system with no station gets no gather hint, because there is nowhere to 
         assert.match(hint,/base:'[^']+'/,`unrunnable hint for a system the ship is not in: ${hint}`);
   } finally {unbind();}
 });
+
+test("scout has system.id and name whether the system is near or far, and flags visited connections",async()=>{
+  // Live 2026-09-30/10-01: three refusals on `.system.id`, which the far path's map row (keyed
+  // `system_id`) did not have; and hand-rolled exploration loops could not skip visited systems.
+  const f=world({mood:'Focused',stance:'Prospector'});
+  try {
+    const far=(await scout('deep_range')).detail;
+    assert.equal(far.system.id,'deep_range');
+    assert.ok(far.system.name);
+    assert.ok(far.connections.length&&far.connections.every(row=>typeof row.visited==='boolean'),JSON.stringify(far.connections));
+    const near=(await scout()).detail;
+    assert.ok(near.system.id&&near.system.name);
+    assert.ok(near.connections.length&&near.connections.every(row=>typeof row.visited==='boolean'),JSON.stringify(near.connections));
+  } finally {unbind();}
+});
