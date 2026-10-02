@@ -55,9 +55,11 @@ export function pilotHome(runtime:string):{dir:string;entry:string;tsconfig:stri
   };
   link(PLAY,join(modules,'play'));
   link(join(PLUGIN,'node_modules','@spacemolt'),join(modules,'@spacemolt'));
+  // verbatimModuleSyntax judges a file by its package's `type`; the pilot's files are ES modules.
+  writeFileSync(join(runtime,'package.json'),'{"type":"module"}\n');
   const tsconfig=join(runtime,'tsconfig.json');
   writeFileSync(tsconfig,JSON.stringify({compilerOptions:{target:'ES2023',module:'NodeNext',moduleResolution:'NodeNext',
-    strict:true,noEmit:true,allowImportingTsExtensions:true,skipLibCheck:true,types:['node'],
+    strict:true,verbatimModuleSyntax:true,noEmit:true,allowImportingTsExtensions:true,skipLibCheck:true,types:['node'],
     typeRoots:[join(PLUGIN,'node_modules','@types')]},include:['pilot/**/*.ts']},null,2));
   return {dir,entry,tsconfig};
 }
