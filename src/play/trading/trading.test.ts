@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import {mkdirSync,mkdtempSync,rmSync,writeFileSync} from 'node:fs';
+import {mkdirSync,mkdtempSync,readFileSync,rmSync,writeFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import test from 'node:test';
@@ -806,6 +806,8 @@ test('a planned buy that finds no ask, or fewer units than remembered, says so w
       const run=await tradeRun({stops:[{at:'sol_base',buy:'gem'},{at:'range_base'}]});
       assert.match(run.did,said);
       assert.match(run.detail.stops[0]!.why!,ask?/gem: 5 on the asks here now/:/no ask for gem here now/);
+      const [stop]=readJournal(runtime).filter(entry=>entry.event==='stop');
+      assert.deepEqual(stop.items,[{item_id:'gem',ask_depth:ask,planned:ask,sent:ask,bought:ask,...ask?{}:{why:'no ask'}}]);
     } finally {unbind();rmSync(runtime,{recursive:true,force:true});}
   }
 });
@@ -822,9 +824,11 @@ test('tradeRun does not fly the rest of a route that cannot pay: nothing aboard 
     assert.equal(run.did,'sol_base: no ask for gem here now (was 135 for 66, 12 ticks ago); nothing aboard sells at range_base, and no stop ahead has a known ask to buy at — range_base not flown — net 0 cr after 0 fuel at 1 cr');
     assert.deepEqual(run.next,['routes()']);
     assert.equal(f.count('spacemolt/jump'),0,'range_base not flown to');
-    const [asks]=readJournal(runtime).filter(entry=>entry.event==='asks');
-    assert.deepEqual({...asks,at:undefined,run_id:undefined},{at:undefined,run_id:undefined,event:'asks',base_id:'sol_base',book_tick:TICK,
-      items:[{item_id:'gem',ask_depth:0,levels:[]}]},'the dry visit journals the asks it found: none');
+    // Live 2026-10-03 (kvothe): a planned buy not made, and the remembered books' ages, were only in prose.
+    const [stop]=readJournal(runtime).filter(entry=>entry.event==='stop');
+    assert.deepEqual({...stop,at:undefined,run_id:undefined},{at:undefined,run_id:undefined,event:'stop',base_id:'sol_base',book_tick:TICK,
+      before_tick:TICK-12,items:[{item_id:'gem',ask_depth:0,planned:0,sent:0,bought:0,why:'no ask'}],
+      later:[{base_id:'range_base',source:'remembered',age:0}],cargo_used:0,cargo_capacity:20},'the dry visit journals why it bought none');
   } finally {unbind();rmSync(runtime,{recursive:true,force:true});}
   // Ore aboard that range_base bids for: the route is flown as before.
   const kept=remembered([RANGE]);
@@ -841,7 +845,7 @@ test('a buy journals the book it was sent against, as a sell does: bid, ask, boo
   const runtime=mkdtempSync(join(tmpdir(),'spacemolt-quote-'));
   const game=bridgeWorld({services:['refuel','repair','storage'],cargo:[],cargoUsed:0,store:[],
     markets:{sol_base:[{item_id:'gem',best_buy:90,best_buy_qty:50,best_sell:100,best_sell_qty:20,
-      sell_orders:[{price_each:100,quantity:20},{price_each:105,quantity:30}]}]}});
+      buy_orders:[{price_each:90,quantity:50},{price_each:80,quantity:10}],sell_orders:[{price_each:100,quantity:20},{price_each:105,quantity:30}]}]}});
   bind({account:game.account as unknown as ReadinessAccount,pilot:()=>({mood:'Focused'}),emit:()=>{},runtime,
     command:async(action,params)=>{const reply=await game.command(action,params);journalCommand(runtime,action,params,true,reply);return reply;}});
   try {
@@ -852,6 +856,18 @@ test('a buy journals the book it was sent against, as a sell does: bid, ask, boo
     assert.deepEqual({...quote,age_s:undefined},{bid:90,ask:100,ask_qty:20,asks:[{price_each:100,quantity:20},{price_each:105,quantity:30}],
       book_tick:TICK,age_s:undefined,estimate_quantity:3,estimate_total:36,estimate_available:99});
     assert.ok(quote.age_s>=0&&quote.age_s<5,JSON.stringify(quote));
+    // Live 2026-10-03 (kvothe, run d6bc1a8d): 13 circuit_board sold at 250 with no bid depth on the journal.
+    assert.equal((await sell([{item_id:'gem',quantity:3}])).status,'done');
+    const journal=readJournal(runtime);
+    const [sold]=journal.filter(entry=>entry.event==='trade'&&entry.side==='sell').map(entry=>entry.quote);
+    assert.deepEqual({...sold,age_s:undefined},{bid:90,ask:100,bid_qty:50,bids:[{price_each:90,quantity:50},{price_each:80,quantity:10}],
+      book_tick:TICK,age_s:undefined});
+    assert.ok(!journal.some(entry=>entry.event==='book'),'books stay out of the journal the context tails');
+    const books=readFileSync(join(runtime,'books.jsonl'),'utf8').trim().split('\n').map(line=>JSON.parse(line));
+    assert.deepEqual(books.map(entry=>({...entry,at:undefined,run_id:undefined})),
+      [{at:undefined,run_id:undefined,event:'book',base_id:'sol_base',book_tick:TICK,
+        items:[{item_id:'gem',bid_depth:60,ask_depth:50,bids:[[90,50],[80,10]],asks:[[100,20],[105,30]]}]}],
+      'each read journals its book, both sides; the unchanged re-read before the sale is left out');
   } finally {unbind();rmSync(runtime,{recursive:true,force:true});}
 });
 

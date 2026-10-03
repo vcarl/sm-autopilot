@@ -135,9 +135,16 @@ the pilot's context. Every line has `at` (UTC ISO, `Z`) and `event`.
 - Every line written while a run is bound carries its `run_id`; a freighter's lines carry
   `freighter` instead. Python-written lines (`gate`, `juncture`, `reflection`) never carry `run_id`.
 - `trade` (buy/sell/refuel/repair: `unit_price`, `fills`, and `quote`, the book or posted price the
-  caller held; a buy's quote adds `ask_qty` and `asks`, the first 10 ask levels), `asks` (one per
-  `tradeRun` stop with a market `buy`, bought from or not: `base_id`, `book_tick`, and per planned
-  item its `ask_depth` and first 10 `levels` as read there), `mission` (`accepted`/`completed`/`abandoned`; `already_active` for an accept that
+  caller held; a buy's quote adds `ask_qty` and `asks`, the first 10 ask levels; a sell's adds `bid_qty`
+  and `bids`), `book` (in `books.jsonl` beside the journal, never rotated, so the journal's tail stays small: each `book()` read, unless it is the same as the last one journalled at that base:
+  `base_id`, `book_tick`, and per item with orders its `bid_depth`, `ask_depth`, and first 10 `bids`/`asks`
+  as `[price_each, quantity]`; join a quote to it by `base_id` + `book_tick`, or the latest line for that
+  base), `stop` (one per `tradeRun` stop that read a book: `base_id`, `book_tick`, `from:'store'` when it
+  was, `before_tick` of the remembered book the route was planned on here, per planned item its
+  `ask_depth` (or `stored`), the plan's `planned`, `sent`, `bought`, and `why` when it took none or the buy was not `done`
+  (`no ask`, `none stored`, `plan took none`, `no room`, or the buy's own refusal), `later` (each later
+  stop's `base_id`, `source`, `age`; null when no book was known), and `cargo_used`/`cargo_capacity`
+  after the stop), `mission` (`accepted`/`completed`/`abandoned`; `already_active` for an accept that
   sent nothing; `expired` when a mission seen running is next read expired or past its deadline),
   `stranded`, `death`, and `pilot` with `prev`.
 - `deps_installed` (`lock_sha256`, `seconds`) when a bridge start ran `npm ci`; `deps_failed`

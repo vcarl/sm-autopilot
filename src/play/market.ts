@@ -1,13 +1,13 @@
 /** The market counter at the base you are docked at. Prices are read live at the moment of
  * the act, never from a plan. */
-import type {BuyResponse,EstimatePurchaseResponse,MarketListingItem,SellResponse,ViewMarketResponse,ViewStorageResponse} from '@spacemolt/lib';
+import type {BuyResponse,EstimatePurchaseResponse,MarketListingItem,OrderLevel,SellResponse,ViewMarketResponse,ViewStorageResponse} from '@spacemolt/lib';
 import {mkdirSync,readFileSync,renameSync,writeFileSync} from 'node:fs';
 import {join} from 'node:path';
 import {disposable,miningInventory} from '../mining-inventory.ts';
 import {markPlace} from './places.ts';
 import {details} from '../response-details.ts';
 import {fileIntel} from '../trade-intel.ts';
-import {quoteNext} from '../run-record.ts';
+import {journalRun,quoteNext} from '../run-record.ts';
 import {counter} from './counter.ts';
 import {bench,moduleSpec,room,whyNotFit} from './hangar.ts';
 import {acct,admit,checkStop,command,job,pilot,runtimeDir,step,wanted} from './runtime.ts';
@@ -113,10 +113,31 @@ export async function book():Promise<Map<string,MarketListingItem>> {
   lastTick=Number(reply.current_tick??lastTick);
   const base=acct().state.location?.docked_at??'';
   remember(base,items,lastTick);
+  journalBook(base,items,lastTick);
   await fileIntel(acct(),command,base,items,lastTick,step);
   const listed=new Map(items.map(item=>[item.item_id,item]));
   lastRead={base,listed,tick:lastTick,at:Date.now()};
   return listed;
+}
+/** Each book read, as a `book` line in `books.jsonl` beside the journal (joined by `run_id`, `base_id`, `book_tick`): per item with orders, each side's whole depth and its
+ * first 10 levels as `[price_each, quantity]`. A re-read the same as the last one journalled at that base is
+ * left out: the latest `book` line for a base is the book there until the next.
+ * Live 2026-10-03 (kvothe): the journal held no book at all; `view_market` command lines carry only a summary.
+ * Its own file because a line is ~5–80 KB (726 items at confederacy_central_command): in the journal it
+ * would shrink the tail windows the juncture context reads, and reach the webhook drain.
+ * ponytail: books.jsonl is never rotated or pruned; rotate it with the journal if its size starts to matter. */
+const journalled=new Map<string,string>();
+function journalBook(base:string,items:MarketListingItem[],tick:number):void {
+  const dir=runtimeDir();
+  if(!dir||!base)return;
+  const sum=(side:OrderLevel[]=[])=>side.reduce((n,level)=>n+level.quantity,0);
+  const top=(side:OrderLevel[]=[])=>side.slice(0,10).map(level=>[level.price_each,level.quantity]);
+  const rows=items.filter(item=>item.buy_orders?.length||item.sell_orders?.length).map(item=>({item_id:item.item_id,
+    bid_depth:sum(item.buy_orders),ask_depth:sum(item.sell_orders),bids:top(item.buy_orders),asks:top(item.sell_orders)}));
+  const key=JSON.stringify(rows),at=`${dir}\0${base}`;
+  if(journalled.get(at)===key)return;
+  journalled.set(at,key);
+  journalRun(dir,{base_id:base,book_tick:tick,items:rows},'book','books.jsonl');
 }
 /** The last book `book()` read, for a `buy` to quote the ask it was sent against. */
 let lastRead:{base:string;listed:Map<string,MarketListingItem>;tick:number;at:number}|undefined;
@@ -194,7 +215,9 @@ export function sell(items:Want[],opts:{from?:'hold'|'store';floor?:Record<strin
       if(!quote||!(quote.best_buy>0)){short.push({item_id:row.item_id,requested:row.quantity,sold:0,why:'no buyer'});return 0;}
       if(floor!==undefined&&quote.best_buy<floor){short.push({item_id:row.item_id,requested:row.quantity,sold:0,why:`under floor: best buy ${quote.best_buy} < ${floor}`});return 0;}
       try {
-        quoteNext('spacemolt/sell',row.item_id,{bid:quote.best_buy,ask:quote.best_sell,book_tick:read_tick,
+        // Live 2026-10-03 (kvothe, run d6bc1a8d): 13 circuit_board sold at 250 with no bid depth on the journal.
+        quoteNext('spacemolt/sell',row.item_id,{bid:quote.best_buy,ask:quote.best_sell,bid_qty:quote.best_buy_qty,
+          bids:quote.buy_orders?.slice(0,10).map(({price_each,quantity})=>({price_each,quantity}))??null,book_tick:read_tick,
           age_s:Math.round((Date.now()-read_at)/100)/10});
         const fill=details(await command('spacemolt/sell',{id:row.item_id,quantity})) as SellResponse;
         const took=Number(fill.quantity_sold??quantity);

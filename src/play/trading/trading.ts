@@ -566,12 +566,6 @@ export function tradeRun(opts:{stops:RunStop[]}):Promise<Outcome<Traded>> {
       elsewhere=[...known.values()].filter(book=>book.base_id!==here&&!later.includes(book.base_id));
       const wanted=items(stop),store=stop.from==='store'?await storeRows():[];
       const stored=(item:string)=>store.filter(row=>row.item_id===item).reduce((sum,row)=>sum+row.quantity,0);
-      // The asks each planned item had at this visit, bought or not, so a loop capped by restock shows.
-      // Live 2026-10-02 (kvothe 18:01Z, run d364ca05): 6 of 66 planned sunspindle bought; no line said what was on offer.
-      const dir=runtimeDir();
-      if(dir&&wanted.length&&stop.from!=='store')journalRun(dir,{base_id:here,book_tick:marketTick(),items:wanted.map(item_id=>{
-        const asks=listed.get(item_id);return {item_id,ask_depth:depth(asks),
-          levels:asks?levels(asks,'asks').slice(0,10).map(({price_each,quantity})=>({price_each,quantity})):[]};})},'asks');
       // ponytail: one tax read for the stop, on its first item: every rate read live is the station's.
       const [leg]=plan(hold,cargo(),[
         {book:known.get(here)!,buy:wanted,...stop.quantity===undefined?{}:{quantity:stop.quantity},
@@ -591,22 +585,38 @@ export function tradeRun(opts:{stops:RunStop[]}):Promise<Outcome<Traded>> {
       const asked=stop.from==='store'?wanted:wanted.filter(item=>depth(listed.get(item))>0);
       if(asked.length&&!leg!.buys.length)notes.push(`took no ${asked.join(', ')}: nothing ${stop.from==='store'?'in the store':'on the asks'} here beats the best known bid later on the route`);
       const loaded:{item_id:string;quantity:number}[]=[];
+      // What each planned buy sent and got, and why not when it got none: the stop's journal line.
+      const sent=new Map<string,{sent:number;bought:number;why?:string}>();
       for(const {item_id,quantity} of leg!.buys) {
         const want=Math.min(quantity,cargo());
-        if(!want)notes.push(`took no ${item_id}: no room left after the sales`);
+        if(!want){notes.push(`took no ${item_id}: no room left after the sales`);sent.set(item_id,{sent:0,bought:0,why:'no room'});}
         else if(stop.from==='store') {
           const took=await withdraw([{item_id,quantity:want}]);
           const moved=took.detail?.moved.reduce((sum,row)=>sum+row.quantity,0)??0;
           visit.bought+=moved;if(moved)loaded.push({item_id,quantity:moved});
+          sent.set(item_id,{sent:want,bought:moved,...moved?{}:{why:took.why??took.did}});
           if(!moved)short.push(`${here}: withdrew no ${item_id}: ${took.why??took.did}`);
         } else {
           const got=await buy(item_id,want);
           // The wallet, not `total_cost`: the reply's cost is the subtotal, and the tax is on top.
           const n=Number(got.detail?.bought?.quantity??0);
           visit.bought+=n;visit.spent+=got.cost.credits;spent+=got.cost.credits;if(n)loaded.push({item_id,quantity:n});
+          sent.set(item_id,{sent:want,bought:n,...got.status==='done'?{}:{why:got.why??got.did}});
           if(got.status!=='done')short.push(`${here}: ${got.why??got.did}`);
         }
       }
+      // The stop as facts: each planned item's depth here, the plan's take, what was sent and bought (and why
+      // none), the books the plan read, and the hold after. The levels are on this read's `book` line.
+      // Live 2026-10-02 (kvothe 18:01Z, run d364ca05): 6 of 66 planned sunspindle bought; no line said what was on offer.
+      // Live 2026-10-03 (kvothe): a planned buy that was not made, and the remembered books' ages, were only in prose.
+      const dir=runtimeDir(),ship=acct().state.ship;
+      if(dir)journalRun(dir,{base_id:here,book_tick:marketTick(),...stop.from==='store'?{from:'store'}:{},
+        before_tick:before?.tick??null,items:wanted.map(item_id=>{
+          const have=stop.from==='store'?stored(item_id):depth(listed.get(item_id)),planned=leg!.buys.find(row=>row.item_id===item_id)?.quantity??0;
+          const did=sent.get(item_id)??{sent:0,bought:0,...!have?{why:stop.from==='store'?'none stored':'no ask'}:{why:'plan took none'}};
+          return {item_id,[stop.from==='store'?'stored':'ask_depth']:have,planned,...did};}),
+        later:later.map(base=>{const book=known.get(base);return {base_id:base,source:book?.items?book.source:null,age:book?.items?book.age:null};}),
+        cargo_used:ship?.cargo_used??null,cargo_capacity:ship?.cargo_capacity??null},'stop');
       const why=[...short.filter(line=>line.startsWith(`${here}:`)),...notes].join('; ');
       if(why)visit.why=why;
       told.push(`${here}: ${[...visit.sold.map(fill=>`sold ${fill.quantity_sold} ${fill.item_id}${slipped(listed.get(fill.item_id),Number(fill.quantity_sold),Number(fill.total_earned))}`),
