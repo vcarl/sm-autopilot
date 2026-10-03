@@ -141,7 +141,8 @@ the pilot's context. Every line has `at` (UTC ISO, `Z`) and `event`.
   as `[price_each, quantity]`; join a quote to it by `base_id` + `book_tick`, or the latest line for that
   base), `stop` (one per `tradeRun` stop that read a book: `base_id`, `book_tick`, `from:'store'` when it
   was, `before_tick` of the remembered book the route was planned on here, per planned item its
-  `ask_depth` (or `stored`), the plan's `planned`, `sent`, `bought`, and `why` when it took none or the buy was not `done`
+  `ask_depth` (or `stored`), `aboard` (held after the stop's sales, before its buys), `later_bid_depth`
+  (`{base_id: units}` on the bids of each later stop whose book has the item, as the plan read it), the plan's `planned`, `sent`, `bought`, and `why` when it took none or the buy was not `done`
   (`no ask`, `none stored`, `plan took none`, `no room`, or the buy's own refusal), `later` (each later
   stop's `base_id`, `source`, `age`; null when no book was known), and `cargo_used`/`cargo_capacity`
   after the stop), `mission` (`accepted`/`completed`/`abandoned`; `already_active` for an accept that

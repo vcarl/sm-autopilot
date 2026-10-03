@@ -240,9 +240,10 @@ export async function farBooks(here:string,now:number,seat:Seat=pilotSeat()):Pro
   });
   const remembered=memory.filter(known=>known.base_id!==here).map(known=>({base_id:known.base_id,
     source:'remembered' as const,age:ticksOld(known.tick,now),...systemOf.has(known.base_id)?{system_id:systemOf.get(known.base_id)!}:{},items:known.items}));
-  // One book per base: the fresher of the ledger's copy and the memory's, a tie to the ledger.
+  // One book per base: the fresher of the ledger's copy and the memory's, a tie to the memory — this
+  // pilot's own filing ties its own read, and only the memory has the levels and its own fills taken off.
   const fresher=new Map<string,FarBook>();
-  for(const book of [...filed,...remembered])if(!((fresher.get(book.base_id)?.age??Infinity)<=book.age))fresher.set(book.base_id,book);
+  for(const book of [...remembered,...filed])if(!((fresher.get(book.base_id)?.age??Infinity)<=book.age))fresher.set(book.base_id,book);
   return [...fresher.values()];
 }
 
@@ -472,8 +473,13 @@ export interface Traded {
   net:number;
 }
 
-/** Units on a row's asks. */
-const depth=(row:Listing|undefined)=>row?levels(row,'asks').reduce((sum,level)=>sum+level.quantity,0):0;
+/** Units on a row's asks, or its bids. */
+const depth=(row:Listing|undefined,side:'asks'|'bids'='asks')=>row?levels(row,side).reduce((sum,level)=>sum+level.quantity,0):0;
+/** The later book `carried` names for an item: the highest top bid among them. */
+const target=(item_id:string,later:readonly (Book|undefined)[])=>{
+  const bid=(book:Book|undefined)=>book?.items?.get(item_id)?.best_buy??0;
+  return later.filter(book=>bid(book)>0).sort((a,b)=>bid(b)-bid(a))[0];
+};
 /** An item a stop was to take that the live book no longer offers as the remembered one did: no ask
  * at all, or fewer units than were remembered when the buy took every one there is. */
 function dryness(item:string,now:Listing|undefined,before:RememberedBook|undefined,tick:number,bought:number):string[] {
@@ -501,11 +507,7 @@ function ahead(hold:Record<string,number>,stops:readonly RunStop[],known:Readonl
  * book names no bid. */
 function carried(took:readonly {item_id:string;quantity:number}[],later:readonly (Book|undefined)[]):string[] {
   const groups=new Map<Book|undefined,{item_id:string;quantity:number}[]>();
-  for(const row of took) {
-    const bid=(book:Book|undefined)=>book?.items?.get(row.item_id)?.best_buy??0;
-    const target=later.filter(book=>bid(book)>0).sort((a,b)=>bid(b)-bid(a))[0];
-    groups.set(target,[...groups.get(target)??[],row]);
-  }
+  for(const row of took){const book=target(row.item_id,later);groups.set(book,[...groups.get(book)??[],row]);}
   return [...groups].map(([book,rows])=>`took ${rows.length>2?`${rows.reduce((sum,row)=>sum+row.quantity,0)} of ${rows.length} kinds`
     :rows.map(row=>`${row.quantity} ${row.item_id}`).join(', ')}${!book?'':rows.length===1
     ?` for ${book.base_id}'s ${book.items!.get(rows[0]!.item_id)!.best_buy} bid (${aged(book)})`:` for ${book.base_id}'s bids (${aged(book)})`}`);
@@ -605,16 +607,27 @@ export function tradeRun(opts:{stops:RunStop[]}):Promise<Outcome<Traded>> {
           if(got.status!=='done')short.push(`${here}: ${got.why??got.did}`);
         }
       }
-      // The stop as facts: each planned item's depth here, the plan's take, what was sent and bought (and why
-      // none), the books the plan read, and the hold after. The levels are on this read's `book` line.
+      // A take the later bids bound, with more on offer here, names those bids' depth and what was already aboard for them.
+      // Live 2026-10-03 (kvothe, run bc564bea): 137 solarian_biotic bought for b495…'s bids, 16 deep on arrival.
+      const have=(item:string)=>stop.from==='store'?stored(item):depth(listed.get(item));
+      const aboard=(item:string)=>(hold[item]??0)-(leg!.sold.find(row=>row.item_id===item)?.quantity??0);
+      for(const {item_id,quantity} of loaded) {
+        const book=target(item_id,later.map(base=>known.get(base))),bids=depth(book?.items?.get(item_id),'bids');
+        if(book&&aboard(item_id)+quantity>=bids&&have(item_id)>quantity)
+          notes.push(`${item_id}: ${book.base_id}'s bids hold ${bids}${aboard(item_id)?`, ${aboard(item_id)} already aboard`:''}`);
+      }
+      // The stop as facts: each planned item's depth here, what was aboard for it, each later known book's bid
+      // depth for it, the plan's take, what was sent and bought (and why none), the books the plan read, and the
+      // hold after. The levels are on this read's `book` line.
       // Live 2026-10-02 (kvothe 18:01Z, run d364ca05): 6 of 66 planned sunspindle bought; no line said what was on offer.
       // Live 2026-10-03 (kvothe): a planned buy that was not made, and the remembered books' ages, were only in prose.
       const dir=runtimeDir(),ship=acct().state.ship;
       if(dir)journalRun(dir,{base_id:here,book_tick:marketTick(),...stop.from==='store'?{from:'store'}:{},
         before_tick:before?.tick??null,items:wanted.map(item_id=>{
-          const have=stop.from==='store'?stored(item_id):depth(listed.get(item_id)),planned=leg!.buys.find(row=>row.item_id===item_id)?.quantity??0;
-          const did=sent.get(item_id)??{sent:0,bought:0,...!have?{why:stop.from==='store'?'none stored':'no ask'}:{why:'plan took none'}};
-          return {item_id,[stop.from==='store'?'stored':'ask_depth']:have,planned,...did};}),
+          const planned=leg!.buys.find(row=>row.item_id===item_id)?.quantity??0;
+          const did=sent.get(item_id)??{sent:0,bought:0,...!have(item_id)?{why:stop.from==='store'?'none stored':'no ask'}:{why:'plan took none'}};
+          const bid_depth=Object.fromEntries(later.flatMap(base=>{const row=known.get(base)?.items?.get(item_id);return row?[[base,depth(row,'bids')]]:[];}));
+          return {item_id,[stop.from==='store'?'stored':'ask_depth']:have(item_id),aboard:aboard(item_id),later_bid_depth:bid_depth,planned,...did};}),
         later:later.map(base=>{const book=known.get(base);return {base_id:base,source:book?.items?book.source:null,age:book?.items?book.age:null};}),
         cargo_used:ship?.cargo_used??null,cargo_capacity:ship?.cargo_capacity??null},'stop');
       const why=[...short.filter(line=>line.startsWith(`${here}:`)),...notes].join('; ');

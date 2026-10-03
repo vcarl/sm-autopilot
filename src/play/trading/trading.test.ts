@@ -807,7 +807,7 @@ test('a planned buy that finds no ask, or fewer units than remembered, says so w
       assert.match(run.did,said);
       assert.match(run.detail.stops[0]!.why!,ask?/gem: 5 on the asks here now/:/no ask for gem here now/);
       const [stop]=readJournal(runtime).filter(entry=>entry.event==='stop');
-      assert.deepEqual(stop.items,[{item_id:'gem',ask_depth:ask,planned:ask,sent:ask,bought:ask,...ask?{}:{why:'no ask'}}]);
+      assert.deepEqual(stop.items,[{item_id:'gem',ask_depth:ask,aboard:0,later_bid_depth:{range_base:50},planned:ask,sent:ask,bought:ask,...ask?{}:{why:'no ask'}}]);
     } finally {unbind();rmSync(runtime,{recursive:true,force:true});}
   }
 });
@@ -827,7 +827,7 @@ test('tradeRun does not fly the rest of a route that cannot pay: nothing aboard 
     // Live 2026-10-03 (kvothe): a planned buy not made, and the remembered books' ages, were only in prose.
     const [stop]=readJournal(runtime).filter(entry=>entry.event==='stop');
     assert.deepEqual({...stop,at:undefined,run_id:undefined},{at:undefined,run_id:undefined,event:'stop',base_id:'sol_base',book_tick:TICK,
-      before_tick:TICK-12,items:[{item_id:'gem',ask_depth:0,planned:0,sent:0,bought:0,why:'no ask'}],
+      before_tick:TICK-12,items:[{item_id:'gem',ask_depth:0,aboard:0,later_bid_depth:{range_base:50},planned:0,sent:0,bought:0,why:'no ask'}],
       later:[{base_id:'range_base',source:'remembered',age:0}],cargo_used:0,cargo_capacity:20},'the dry visit journals why it bought none');
   } finally {unbind();rmSync(runtime,{recursive:true,force:true});}
   // Ore aboard that range_base bids for: the route is flown as before.
@@ -893,5 +893,40 @@ test('a first stop that refuses the dock leaves tradeRun partial in the trip\'s 
     assert.equal(out.status,'partial',JSON.stringify(out));
     assert.match(out.did,/^nothing done; arrived at range_base after 1 jump\(s\); docking refused: Access denied$/);
     assert.match(out.why!,/range_base: Access denied/);
+  } finally {unbind();rmSync(runtime,{recursive:true,force:true});}
+});
+
+test('a sale comes off the remembered bids, so the next run buys only what is left of them, and says so (live: bc564bea)',async()=>{
+  // Live 2026-10-03 (kvothe, run bc564bea): 137 solarian_biotic bought at 193 for b495…'s bids as remembered
+  // before run a803ae2b sold 128 into them; on arrival they held 16 (238×4, 233×12), and 121 rode on unsold.
+  const runtime=mkdtempSync(join(tmpdir(),'spacemolt-routes-'));
+  world({mood:'Focused'},{cargo:[{item_id:'gem',quantity:10}],cargoUsed:10,cargoCapacity:20,store:[],markets:{
+    sol_base:[{item_id:'gem',best_buy:0,best_buy_qty:0,best_sell:100,best_sell_qty:50}],
+    range_base:[{item_id:'gem',best_buy:110,best_buy_qty:4,best_sell:0,best_sell_qty:0,
+      buy_orders:[{price_each:110,quantity:4},{price_each:105,quantity:8}]}]}},runtime);
+  try {
+    const first=await tradeRun({stops:[{at:'range_base'}]});
+    assert.match(first.did,/^range_base: sold 10 gem/);
+    const gem=(base:string)=>knownBooks(runtime).find(book=>book.base_id===base)!.items.find(row=>row.item_id==='gem')!;
+    assert.deepEqual([gem('range_base').buy_orders,gem('range_base').best_buy,gem('range_base').best_buy_qty],[[{price_each:105,quantity:2}],105,2]);
+    const run=await tradeRun({stops:[{at:'sol_base',buy:'gem'},{at:'range_base'}]});
+    assert.match(run.did,/^sol_base: took 2 gem for range_base's 105 bid \(remembered, 0 ticks old\), gem: range_base's bids hold 2 → /);
+    const stop=readJournal(runtime).filter(entry=>entry.event==='stop').find(entry=>entry.base_id==='sol_base')!;
+    assert.deepEqual(stop.items,[{item_id:'gem',ask_depth:50,aboard:0,later_bid_depth:{range_base:2},planned:2,sent:2,bought:2}]);
+    // The buy comes off this base's remembered asks the same way, a book with no levels at its top.
+    assert.deepEqual([gem('sol_base').best_sell,gem('sol_base').best_sell_qty],[100,48]);
+  } finally {unbind();rmSync(runtime,{recursive:true,force:true});}
+});
+
+test('what is already aboard for a later bid counts against it: the buy tops it up to that bid\'s depth',async()=>{
+  // Live 2026-10-03 (kvothe, run bc564bea): the carry and the buy were sized against the same 16 bids.
+  const runtime=remembered([{base_id:'range_base',age:30,items:[{item_id:'gem',best_buy:110,best_buy_qty:8}]}]);
+  world({mood:'Focused'},{cargo:[{item_id:'gem',quantity:5}],cargoUsed:5,cargoCapacity:20,store:[],
+    markets:{sol_base:[{item_id:'gem',best_buy:0,best_buy_qty:0,best_sell:100,best_sell_qty:50}]}},runtime);
+  try {
+    const run=await tradeRun({stops:[{at:'sol_base',buy:'gem'},{at:'range_base'}]});
+    assert.match(run.did,/^sol_base: took 3 gem for range_base's 110 bid \(remembered, 30 ticks old\), gem: range_base's bids hold 8, 5 already aboard → /);
+    const [stop]=readJournal(runtime).filter(entry=>entry.event==='stop');
+    assert.deepEqual(stop.items,[{item_id:'gem',ask_depth:50,aboard:5,later_bid_depth:{range_base:8},planned:3,sent:3,bought:3}]);
   } finally {unbind();rmSync(runtime,{recursive:true,force:true});}
 });

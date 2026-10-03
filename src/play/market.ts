@@ -93,14 +93,30 @@ const remember=(base_id:string,items:MarketListingItem[],tick:number)=>
 export function rememberBook(dir:string|undefined,base_id:string,system_id:string|undefined,items:MarketListingItem[],tick:number):void {
   if(!dir||!base_id)return;
   markPlace(dir,base_id,system_id??'');
-  const kept=[{base_id,at:new Date().toISOString(),tick,system_id,items},
-    ...knownBooks(dir).filter(row=>row.base_id!==base_id&&ticksOld(row.tick,tick)<=MEMORY_TICKS)].slice(0,BASES);
+  writeBooks(dir,[{base_id,at:new Date().toISOString(),tick,system_id,items},
+    ...knownBooks(dir).filter(row=>row.base_id!==base_id&&ticksOld(row.tick,tick)<=MEMORY_TICKS)].slice(0,BASES));
+}
+function writeBooks(dir:string,kept:RememberedBook[]):void {
   try {
     mkdirSync(dir,{recursive:true});
     const path=join(dir,MEMORY),temp=`${path}.${process.pid}.tmp`;
     writeFileSync(temp,JSON.stringify(kept),{mode:0o600});
     renameSync(temp,path);
   } catch {/* a market this pilot cannot remember is still a market it can trade at */}
+}
+/** This pilot's own fill, taken off `base_id`'s remembered book: `n` units off the top of its bids (a
+ * sale) or asks (a buy), so the next plan does not count units it already sold into or bought off.
+ * Live 2026-10-03 (kvothe, run bc564bea): 137 solarian_biotic bought for b495…'s bids as remembered
+ * before run a803ae2b sold 128 into them; 16 were left, and 121 rode on with no known buyer. */
+export function debitBook(dir:string|undefined,base_id:string,item_id:string,side:'bids'|'asks',n:number):void {
+  if(!dir||!base_id||!(n>0))return;
+  const books=knownBooks(dir),row=books.find(book=>book.base_id===base_id)?.items.find(item=>item.item_id===item_id);
+  if(!row)return;
+  const [orders,price,qty]=side==='bids'?['buy_orders','best_buy','best_buy_qty'] as const:['sell_orders','best_sell','best_sell_qty'] as const;
+  const levels=row[orders]?.length?row[orders]:row[price]>0&&row[qty]>0?[{price_each:row[price],quantity:row[qty]}]:[];
+  const left=levels.flatMap(level=>{const take=Math.min(n,level.quantity);n-=take;return level.quantity>take?[{...level,quantity:level.quantity-take}]:[];});
+  Object.assign(row,{[orders]:left,[price]:left[0]?.price_each??0,[qty]:left[0]?.quantity??0});
+  writeBooks(dir,books);
 }
 
 /** The book here, whole, read once and filtered in memory: one 190 KB reply beats twenty
@@ -221,6 +237,7 @@ export function sell(items:Want[],opts:{from?:'hold'|'store';floor?:Record<strin
           age_s:Math.round((Date.now()-read_at)/100)/10});
         const fill=details(await command('spacemolt/sell',{id:row.item_id,quantity})) as SellResponse;
         const took=Number(fill.quantity_sold??quantity);
+        debitBook(runtimeDir(),docked,row.item_id,'bids',took);
         fills.push(fill);total+=Number(fill.total_earned??0);
         step(`sell ${took} ${row.item_id} +${fill.total_earned??'?'} cr`);
         if(took<quantity)short.push({item_id:row.item_id,requested:row.quantity,sold:took,why:`book took ${took}`});
@@ -336,6 +353,7 @@ export function buy(itemId:string,quantity:number,opts:{deliverTo?:'cargo'|'stor
     const bought=details(await command('spacemolt/buy',{id:itemId,quantity:Math.min(quantity,estimate.available),
       ...opts.deliverTo?{deliver_to:opts.deliverTo}:{}})) as BuyResponse;
     // The reply's `total_cost` is the subtotal; the tax on it is charged on top, floored.
+    debitBook(runtimeDir(),at.docked,itemId,'asks',Number(bought.quantity??0));
     const subtotal=Number(bought.total_cost??cost),tax=Math.floor(subtotal*(Number(estimate.sales_tax_rate_bps)||0)/10_000);
     return {status:(bought.unfilled??0)>0?'partial':'done',
       did:`bought ${bought.quantity??quantity} ${itemId} for ${subtotal+tax} cr${tax?` (${tax} of it tax)`:''}`,

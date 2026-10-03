@@ -38,10 +38,12 @@ ledger is read whole, by station, 20 stations a page and at most 4 pages a read;
 asked by item, because live an `item_id` filter answers nothing even for a filed item. A ledger
 entry carries no system (`system_id` comes back empty), so the memory's system for that base
 stands in. A base both remembered and on the ledger is read from the **fresher** copy only (a tie
-goes to the ledger), whichever copy pays more: `spreads()`, `routes()`, `tradeRun` and `assign`
+goes to the memory), whichever copy pays more: `spreads()`, `routes()`, `tradeRun` and `assign`
 all see that one book. The
 memory is free and always there: every `book()` read — by `prices()`, `sell()`, `recipes()`,
 `quote()` — writes that base's whole book to `markets.json` in the runtime dir, kept for a day of ticks.
+Your own fills come off it as they land: what `sell()` sold leaves that base's remembered bids, what
+`buy()` bought leaves its asks, so the next plan does not count on a bid you already filled.
 So the second visit knows what the first one saw, across runs and across restarts. It follows
 that the way to *learn* a price is to go and stand in front of it: `goTo(base)` then
 `prices()`, once, and that base is in the memory for good.
@@ -256,6 +258,8 @@ It answers `detail: Traded` = `{stops, unsold, fuel, net}`:
 Each stop's `did` names what it took and the later bid it was taken for, with that book's age:
 `took 2 dark_matter_residue for sirius_observatory_station's 1020 bid (remembered, 85 ticks old)`.
 That bid is a memory until the run stands in front of it; an old one is the likeliest to have moved.
+A take that bid's depth bounded, with more on the asks, says how deep it is and what was already
+aboard for it: `solarian_biotic: b495…'s bids hold 16, 4 already aboard`.
 A `buy` item the live book no longer offers as the book the route was planned on did is said
 against that book: `no ask for circuit_board here now (was 330 for 5, 12 ticks ago)`, or, when the
 buy took every unit left, `circuit_board: 2 on the asks here now (was 330 for 5, 12 ticks ago)`.
