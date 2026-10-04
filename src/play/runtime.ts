@@ -92,6 +92,8 @@ export class Run extends Context.Service<Run,{
   readonly binding:Binding;
   /** Set by `stop()`; every library function checks it between commands. */
   stopFlag:boolean;
+  /** Why the stop came when it was not the pilot's: the run's wall-clock cap (run.ts). */
+  stopWhy?:string;
   readonly started:number;
   /** How many jobs deep the program is: 1 is a call `main()` made itself. */
   depth:number;
@@ -207,10 +209,11 @@ export function note(text:string):void {line(`✎ ${text}`);}
 export function stopped():boolean {return current?.run.stopFlag??true;}
 /** Ask the run to stop. A program paused on `ask()` is not at a safe point, it is waiting: the
  * ask rejects with `Stopped` there and then, and the question is withdrawn. */
-export function stop():void {
+export function stop(why?:string):void {
   const run=current?.run;
   if(!run)return;
   run.stopFlag=true;
+  if(why)run.stopWhy=why;
   const waiting=run.asking;
   if(!waiting)return;
   run.asking=null;
@@ -220,7 +223,11 @@ export function stop():void {
 }
 
 /** Thrown from a travel checkpoint when the pilot asked to stop; the leg in flight finishes. */
-export class Stopped extends TravelBlocked {readonly _tag='Stopped';constructor(){super('stopped by pilot');}}
+export class Stopped extends TravelBlocked {readonly _tag='Stopped';constructor(){super(stopReason());}}
+const PILOT_STOP='stopped by pilot';
+/** The stop's own words: the pilot's, or the cap's. Live 2026-10-04 (kvothe 22:02Z): a run ended by
+ * the 24-minute cap read "tradeRun stopped by the pilot", and the pilot never stopped it. */
+export const stopReason=()=>current?.run.stopWhy?`stopped: ${current.run.stopWhy}`:PILOT_STOP;
 export const checkStop=()=>{if(stopped())throw new Stopped();};
 
 /** Pause the program and put a question to the model that is running it; resolves to its
@@ -524,7 +531,7 @@ function said<Detail>(fn:string,error:unknown):Said<Detail> {
   unsaid.add(none);
   // oxlint-disable-next-line typescript/consistent-type-assertions
   const detail=none as Detail; // cast: frozen surface (Outcome<Detail>)
-  if(error instanceof Stopped)return {status:'partial',did:`${fn} stopped by the pilot`,why:error.message,detail};
+  if(error instanceof Stopped)return {status:'partial',did:`${fn} ${error.message===PILOT_STOP?'stopped by the pilot':error.message}`,why:error.message,detail};
   if(error instanceof ReplyLost)return {status:'failed',did:`${fn} broke`,why:`reply lost on ${error.action}; state re-read`,detail};
   if(error instanceof Rejected||error instanceof InBattle||error instanceof HoldFull||error instanceof Depleted)
     return {status:'refused',did:`${fn} refused by the game`,why:`${error.action}: ${error.code} — ${error.message}`,detail};

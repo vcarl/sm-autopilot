@@ -6,7 +6,7 @@ import type {MineYieldRow} from '../../mine.ts';
 import * as Wire from '../../wire.gen.ts';
 import {Game,field,isGameError,type GameError} from '../game.ts';
 import {sellEffect} from '../market.ts';
-import {Stopped,acct,admit,edge,jobEffect,measured,pilot,reached,step,stopped} from '../runtime.ts';
+import {Stopped,acct,admit,edge,jobEffect,measured,pilot,reached,step,stopReason,stopped} from '../runtime.ts';
 import {routeEffect} from '../travel.ts';
 import type {Outcome,Row} from '../types.ts';
 import {replyBody} from '../../storage.ts';
@@ -128,7 +128,7 @@ const gatherUntilEffect=(opts:Parameters<typeof gatherUntil>[0])=>{
       step(`${done.name==='travel'?`goTo ${opts.poi}`:done.name==='return'?`goTo ${plan.home.poi_id}`:done.name}  ${done.outcome}${extra}${done.reason?`: ${done.reason}`:''}`);
     };
     const mine={
-      stop:()=>stopped()?'stopped by pilot':pilot().mood==='Tired'?'tired':null,
+      stop:()=>stopped()?stopReason():pilot().mood==='Tired'?'tired':null,
       onCycle:(rows:MineYieldRow[],cycles:number)=>{
         if(Date.now()-lastLine<YIELD_LINE_MS)return;
         lastLine=Date.now();
@@ -166,7 +166,7 @@ const gatherUntilEffect=(opts:Parameters<typeof gatherUntil>[0])=>{
       const mineStep=trek.steps.find(s=>s.name==='mine');
       depleted=Boolean(mineStep?.reason?.includes('depleted')||mineStep?.reason?.includes('no cargo change'));
       if(trek.outcome!=='done') {
-        result.ended=trek.reason?.includes('stopped by pilot')?'stopped':trek.outcome==='blocked'?'blocked':'failed';
+        result.ended=trek.reason?.includes(stopReason())?'stopped':trek.outcome==='blocked'?'blocked':'failed';
         result.cargo=cargo();
         if(opts.until){const n=yield* recount(baseId,opts.until.item);if(n!==undefined)result.held=n;}
         // The did is the measurement, never the tally: a leg that broke mid-mine still put

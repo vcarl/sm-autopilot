@@ -298,7 +298,7 @@ export async function runPilot(deps:RunDeps):Promise<RunResult> {
     timers.push(setTimeout(()=>{
       line(`the run reached its wall-clock cap of ${Math.round(cap/60_000)} min: asking it to stop`);
       journalRun(runtime,{job:'index.ts',message:'wall-clock cap: stop requested',cap_ms:cap},'log');
-      stop();
+      stop(`the run reached its ${Math.round(cap/60_000)}-minute time cap`);
     },cap));
     timers.push(setTimeout(()=>{
       abandoned=true;

@@ -8,7 +8,7 @@ import {battleEnded} from '../../travel.ts';
 import * as Wire from '../../wire.gen.ts';
 import {Game,field,reread,isGameError,type GameError} from '../game.ts';
 import {activeEffect} from '../missions.ts';
-import {acct,admit,checkStop,edge,jobEffect,pilot,reached,runtimeDir,step,stopped} from '../runtime.ts';
+import {acct,admit,checkStop,edge,jobEffect,pilot,reached,runtimeDir,step,stopReason,stopped} from '../runtime.ts';
 import {goToEffect,routeEffect} from '../travel.ts';
 import type {Outcome,Row} from '../types.ts';
 import {readCombat,statsFor,type CombatStats} from '../../combat-memory.ts';
@@ -731,7 +731,7 @@ export const huntEffect=(opts:{poi?:string;look?:string[];fights?:number;species
     const did=`${result.fights.length} fight(s) at ${result.poi_id}: ${say(loot)||'no loot'}, hull ${hull}/${acct().state.ship?.max_hull??'?'}`;
     if(result.ended==='tired')return {status:'partial',did,why:result.fights.length?'Tired: broke off after the round in flight':'Tired on arrival, so no fight was started',detail:result,
       next:['goTo a base and service(); that clears Tired']};
-    if(result.ended==='stopped')return {status:'partial',did,why:'stopped by the pilot',detail:result};
+    if(result.ended==='stopped')return {status:'partial',did,why:stopReason(),detail:result};
     // A fight that could not be broken off is the fact that outranks the hull number: nothing
     // the pilot does next will move the ship until that battle ends.
     const lastFight=result.fights.at(-1);

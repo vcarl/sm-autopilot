@@ -111,6 +111,8 @@ declare const Run_base: Context.ServiceClass<Run, "Run", {
     readonly binding: Binding;
     /** Set by `stop()`; every library function checks it between commands. */
     stopFlag: boolean;
+    /** Why the stop came when it was not the pilot's: the run's wall-clock cap (run.ts). */
+    stopWhy?: string;
     readonly started: number;
     /** How many jobs deep the program is: 1 is a call `main()` made itself. */
     depth: number;
@@ -173,12 +175,15 @@ export declare function note(text: string): void;
 export declare function stopped(): boolean;
 /** Ask the run to stop. A program paused on `ask()` is not at a safe point, it is waiting: the
  * ask rejects with `Stopped` there and then, and the question is withdrawn. */
-export declare function stop(): void;
+export declare function stop(why?: string): void;
 /** Thrown from a travel checkpoint when the pilot asked to stop; the leg in flight finishes. */
 export declare class Stopped extends TravelBlocked {
     readonly _tag = "Stopped";
     constructor();
 }
+/** The stop's own words: the pilot's, or the cap's. Live 2026-10-04 (kvothe 22:02Z): a run ended by
+ * the 24-minute cap read "tradeRun stopped by the pilot", and the pilot never stopped it. */
+export declare const stopReason: () => string;
 export declare const checkStop: () => void;
 /** Pause the program and put a question to the model that is running it; resolves to its
  * answer, which is always one of `choices` when they are given. It waits until the answer
