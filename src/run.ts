@@ -16,9 +16,10 @@ import {copyFileSync,existsSync,mkdirSync,readFileSync,readlinkSync,statSync,sym
 import {dirname,join,resolve} from 'node:path';
 import {fileURLToPath,pathToFileURL} from 'node:url';
 import {Cause,Effect,Exit} from 'effect';
+import * as play from './play/index.ts';
 import {checkTree,specifiers} from './play/boundary.ts';
 import {checkPolicy} from './play/policy.ts';
-import {prose} from './play/prose.ts';
+import {ofTheRun,prose} from './play/prose.ts';
 import {runSummary} from './play/menu.ts';
 import {disengage,FIGHT_CEILING_MS} from './play/combat/hunting.ts';
 import {battleAtCloseEffect} from './travel.ts';
@@ -69,9 +70,11 @@ export function pilotHome(runtime:string):{dir:string;entry:string;tsconfig:stri
   };
   link(PLAY,join(modules,'play'));
   link(join(PLUGIN,'node_modules','@spacemolt'),join(modules,'@spacemolt'));
+  // verbatimModuleSyntax judges a file by its package's `type`; the pilot's files are ES modules.
+  writeFileSync(join(runtime,'package.json'),'{"type":"module"}\n');
   const tsconfig=join(runtime,'tsconfig.json');
   writeFileSync(tsconfig,JSON.stringify({compilerOptions:{target:'ES2023',module:'NodeNext',moduleResolution:'NodeNext',
-    strict:true,noEmit:true,allowImportingTsExtensions:true,skipLibCheck:true,types:['node'],paths:PLAY_TYPES,
+    strict:true,verbatimModuleSyntax:true,noEmit:true,allowImportingTsExtensions:true,skipLibCheck:true,types:['node'],paths:PLAY_TYPES,
     typeRoots:[join(PLUGIN,'node_modules','@types')]},include:['pilot/**/*.ts']},null,2));
   return {dir,entry,tsconfig};
 }
@@ -102,6 +105,14 @@ async function typecheck(runtime:string,tsconfig:string,sha:string,warm:boolean)
 
 export interface Check {ok:boolean;entry:string;sha:string;errors:string[]}
 
+/** Live 2026-09-30/10-01 (11 refusals): `Cannot find name 'stopped'` where `stopped` is a `play`
+ * export the program never imported. tsc says only that the name is unknown. */
+const MISSING=/error TS2304: Cannot find name '([^']+)'/;
+function hinted(text:string):string {
+  const name=MISSING.exec(text)?.[1];
+  return name&&Object.hasOwn(play,name)?`${text} (${name} is exported by 'play': add it to your import)`:text;
+}
+
 const FRAME=/^(.+?)\((\d+),(\d+)\)/;
 /** A tsc error with the offending line under it. A line and a column alone send the pilot
  * back to re-read the file it has just written, which is what the whole-file echo used to
@@ -110,6 +121,7 @@ function framed(dir:string,errors:string[]):string[] {
   const cache=new Map<string,string[]>();
   return errors.map(text=>{
     const hit=FRAME.exec(text);
+    text=hinted(text);
     if(!hit)return text;
     const [,file,at]=hit;
     if(file===undefined)return text;
@@ -311,6 +323,7 @@ export async function runPilot(deps:RunDeps):Promise<RunResult> {
     process.off('unhandledRejection',onRejection);
     process.off('uncaughtException',onException);
   }
+  result=ofTheRun(result,runCalls());
   // Before the report is rendered, so the fact is in the report rather than after it.
   const held=await closeBattle(Date.parse(started)+cap+grace+(deps.closeMs??CLOSE_MS));
   if(held) {

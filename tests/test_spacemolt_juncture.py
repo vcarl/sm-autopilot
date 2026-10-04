@@ -206,6 +206,19 @@ def test_a_fresh_pilot_with_no_stance_gets_the_same_context(monkeypatch):
     assert not service.pilot_path().exists(), "rendering the juncture wrote a pilot record"
 
 
+def test_a_veteran_with_no_goal_is_not_told_to_learn_the_ship(monkeypatch):
+    """Live 2026-10-02 (kvothe 16:55Z): an objective reset cleared the goal, and a 270k-credit
+    pilot with days of play was handed the first goal. A pilot whose journal has an earning run
+    is not new: the context says only that no goal is set."""
+    menu = _menu(12)
+    menu.pop("goal")
+    _write_journal([{"event": "run", "phase": "ended", "at": "2026-10-02T15:00:00Z", "outcome": "done",
+                     "commands": 9, "work": {"fn": "tradeRun", "credits": 6045}}])
+    context = _rendered(monkeypatch, menu)
+    assert "Goal: none set." in context.splitlines()
+    assert juncture.FIRST_GOAL not in context
+
+
 def test_the_recent_runs_are_facts_and_include_a_run_refused_at_the_check(monkeypatch):
     """A refusal at tsc never reached run.json, so a juncture used to open as if it had not
     happened. And a run's report is not replayed: the context says how it ended, never what an
@@ -233,6 +246,67 @@ def test_the_recent_runs_are_facts_and_include_a_run_refused_at_the_check(monkey
     assert "run: nothing gained; returned interrupted" in recent[3]
     assert recent[3].endswith(": SpacemoltError: No response to spacemolt/get_active_missions within 15000ms"), recent[3]
     assert "gatherUntil: +2,626 cr; returned done: mined" in recent[4], recent[4]
+
+
+def test_the_earning_loops_outlive_the_recent_runs(monkeypatch):
+    """Live 2026-10-01 (kvothe): four tradeRuns made +39.6k between 14:13 and 15:25Z; once they
+    left the recent runs, every fire said no loop had earned anything. The loops are read from the
+    journal, rotated files included, grouped by run: what the run was for, its credits and its wall
+    time. Review 10-02: grouped by call, a mining run's sell was the loop and a liquidating
+    `sell all` read as 87,125 cr/h over 1m."""
+    runtime = service.runtime_dir()
+    runtime.mkdir(parents=True, exist_ok=True)
+
+    def run(at: str, rid: str, started: str | None, work: dict, calls: list[dict]) -> dict:
+        return {"at": at, "event": "run", "phase": "ended", "run_id": rid, "outcome": "done",
+                **({"started": started} if started else {}), "work": work, "calls": calls}
+    nova, confed = "nova_terra_central", "confederacy_central_command"
+    (runtime / "gameplay.2026-10-01T20-00-00Z.jsonl").write_text(json.dumps(run(
+        # Journalled before `started` and `stops`: the calls' seconds stand in for the wall time,
+        # and the bases are read from the tradeRun's `did`.
+        "2026-10-01T14:28:00Z", "r1", None, {"fn": "tradeRun", "arg": nova, "credits": 11212},
+        [{"fn": "orient", "credits": 0, "seconds": 1},
+         {"fn": "tradeRun", "arg": nova, "credits": 11212, "seconds": 599,
+          "did": f"{nova}: sold 3 circuit_board → {confed}: took 9 — net 9 cr"}])) + "\n")
+    _write_journal([
+        # work.fn is the first non-read call, here the flight to the route: still a tradeRun loop.
+        run("2026-10-01T15:10:00Z", "r2", "2026-10-01T15:01:00Z", {"fn": "goTo", "arg": confed, "credits": 5071},
+            [{"fn": "goTo", "arg": confed, "credits": 0, "seconds": 30},
+             {"fn": "tradeRun", "arg": confed, "credits": 5071, "seconds": 500, "stops": [confed, nova]}]),
+        # The gather earns nothing and the sell takes the credit: the loop is the gatherUntil.
+        run("2026-10-01T16:20:00Z", "r3", "2026-10-01T16:00:00Z",
+            {"fn": "gatherUntil", "arg": "deep_range_belt", "credits": 1450},
+            [{"fn": "gatherUntil", "arg": "deep_range_belt", "credits": 0, "seconds": 1100},
+             {"fn": "goTo", "arg": "frontier_station", "credits": 0, "seconds": 60},
+             {"fn": "sell", "arg": "all", "credits": 1450, "seconds": 40}]),
+        # A run that was only a sell is its own loop, at its own wall time.
+        run("2026-10-01T16:30:05Z", "r4", "2026-10-01T16:30:00Z", {"fn": "sell", "arg": "all", "credits": 88},
+            [{"fn": "sell", "arg": "all", "credits": 88, "seconds": 4}]),
+    ] + [{"event": "run", "phase": "ended", "outcome": "done", "commands": 3,
+          "calls": [{"fn": "orient", "credits": 0}]}] * 6)
+    context = _rendered(monkeypatch, _menu(12))
+    block = context.split("Your earning loops (from your journal, most credits first):\n")[1].split("\nYour recent")[0]
+    assert block.splitlines() == [
+        f"  tradeRun {nova} ↔ {confed}: 2 laps in 2 runs, +16,283 cr, 51,420 cr/h over 19m, last 10-01 15:10Z",
+        "  gatherUntil deep_range_belt: 1 lap in 1 run, +1,450 cr, 4,350 cr/h over 20m, last 10-01 16:20Z",
+        "  sell all: 1 lap in 1 run, +88 cr, 63,360 cr/h over 5s, last 10-01 16:30Z"], block
+    # Facts only: no verdict on which loop is good.
+    assert not re.search(r"best|worst|productive|should", block)
+
+
+def test_the_places_line_carries_what_the_goal_used_to(monkeypatch):
+    """Live 2026-09-30 (kvothe): the goal doubled as a lossy visited-systems list, ~341 of 462
+    jumps were repeats, and bases that refused docking were retried hours apart."""
+    menu = _menu(12)
+    menu["places"] = {"visited": 47, "systems": 120,
+                      "stationless": [f"sys_{i}" for i in range(10)],
+                      "refused": [{"base_id": "db90abb6", "system_id": "proxima_centauri",
+                                   "message": "Access denied", "at": "2026-10-02T16:37:17Z"}]}
+    context = _rendered(monkeypatch, menu)
+    assert ("Places: visited 47 of 120 systems on the map; no base found in sys_2, sys_3, sys_4, sys_5, "
+            "sys_6, sys_7, sys_8, sys_9 (+2 more); docking refused at db90abb6 in proxima_centauri "
+            "(10-02 16:37Z: Access denied).") in context.splitlines(), context
+    assert not any(line.startswith("Places:") for line in _rendered(monkeypatch, _menu(12)).splitlines())
 
 
 def test_a_full_hold_out_in_the_open_is_offered_the_move_that_works(monkeypatch):
@@ -290,6 +364,33 @@ def test_the_present_line_names_the_neighbours_and_what_is_known_of_them(monkeyp
             "deep_range visited (police 3, 2 pirates seen, empire solarian); "
             "the_drift never visited (no empire, stronghold).") in context, context
     assert "One jump out" not in _rendered(monkeypatch, _menu(12))
+
+
+def test_opaque_place_ids_are_named_from_the_menu(monkeypatch):
+    """Live 2026-10-02 (kvothe): the Present line, the loops and so the pilot's own replies read
+    "b495c6003fc83e18f6d8cecbe6929133". The menu carries the names the bridge learned; a bare id
+    reads ``Name (id)``, a quoted one is code and stays as it is."""
+    base, poi = "b495c6003fc83e18f6d8cecbe6929133", "98eba8b1a7ad0520d6a7c8ea44b2d6aa"
+    runtime = service.runtime_dir()
+    runtime.mkdir(parents=True, exist_ok=True)
+    _write_journal([{"at": "2026-10-02T15:10:00Z", "event": "run", "phase": "ended", "run_id": "r1",
+                     "outcome": "done", "started": "2026-10-02T15:00:00Z",
+                     "work": {"fn": "tradeRun", "arg": base, "credits": 900},
+                     "calls": [{"fn": "tradeRun", "arg": base, "credits": 900, "seconds": 600,
+                                "stops": [base, "nova_terra_central"]}]}])
+    menu = _menu(12)
+    menu["present"].update({"system": "dheneb", "docked_at": base})
+    menu["places"] = {"refused": [{"base_id": poi, "system_id": "dheneb", "at": "2026-10-02T15:00:00Z",
+                                   "message": "Access denied"}]}
+    menu["text"] = f"Menu:\n  - `goTo('{base}')` — sell at {base}"
+    menu["names"] = {base: "Kestrel Yard", poi: "Hex Star"}
+    context = _rendered(monkeypatch, menu)
+    assert f"Present: docked at Kestrel Yard ({base}) (dheneb)." in context, context
+    assert f"docking refused at Hex Star ({poi}) in dheneb" in context, context
+    assert f"tradeRun Kestrel Yard ({base}) ↔ nova_terra_central:" in context, context
+    assert f"`goTo('{base}')` — sell at Kestrel Yard ({base})" in context, context
+    del menu["names"]
+    assert f"Present: docked at {base} (dheneb)." in _rendered(monkeypatch, menu)
 
 
 def test_the_present_line_caps_the_neighbours_at_a_hub(monkeypatch):
@@ -394,6 +495,37 @@ def test_an_oversized_situation_fits_the_section_with_every_fact_line(monkeypatc
         assert any(line.startswith(label) for line in context.splitlines()), (label, context)
 
 
+def test_the_loops_and_places_give_way_before_the_recent_runs(monkeypatch):
+    """Review 10-02: kvothe's live contexts ran 3,992–4,000 chars, and the loops, Places, steps
+    and since-objective lines sat outside the drop order, so the recent runs were what shrank.
+    Now the loops go to one and Places to counts first; past that, the cut ends on a line."""
+    _write_journal([{"at": f"2026-10-01T1{n}:00:00Z", "started": f"2026-10-01T0{n}:00:00Z", "event": "run",
+                     "phase": "ended", "outcome": "done", "reason": "r" * 150, "commands": 1,
+                     "work": {"fn": "gatherUntil", "arg": f"belt_{n}", "credits": 100 * (n + 1)},
+                     "calls": [{"fn": "gatherUntil", "arg": f"belt_{n}", "credits": 100 * (n + 1), "seconds": 60}]}
+                    for n in range(5)])
+    menu = _menu(12, hold=[{"item_id": f"salvaged_component_{i}", "quantity": i} for i in range(400)])
+    menu["text"] = "Menu:\n" + "  - `hunt()` — trains gunnery [skill]\n" * 200
+    menu["steps"] = ["x" * 620] * 3
+    menu["places"] = {"visited": 47, "systems": 120, "stationless": [f"system_{i:03d}" for i in range(40)],
+                      "refused": [{"base_id": f"base_{i}", "message": "Access denied " + "z" * 60,
+                                   "at": "2026-10-01T10:00:00Z"} for i in range(9)]}
+    context = _rendered(monkeypatch, menu)
+    assert len(context) <= juncture.SECTION_LIMIT, len(context)
+    recent = context.split("Your recent runs (newest last):\n")[1].splitlines()
+    assert len(recent) >= 3, context
+    assert "Places: visited 47 of 120 systems on the map; no base found in 40 systems; docking refused at 9 bases." \
+        in context.splitlines(), context
+    assert len(context.split("most credits first):\n")[1].split("\nYour recent")[0].splitlines()) == 1, context
+    assert "Suggested moves" not in context and "+400 more" in context
+    # Fact lines alone over the limit: whole lines are kept, none is cut short.
+    menu["objective"] = "o" * 2500
+    menu["steps"] = ["s" * 1500]
+    lines = _rendered(monkeypatch, menu).splitlines()
+    assert sum(map(len, lines)) + len(lines) - 1 <= juncture.SECTION_LIMIT
+    assert lines[-1] == "Goal: hunt the grazers", lines[-1]
+
+
 def test_a_run_in_flight_is_said_in_one_line(monkeypatch):
     context = _rendered(monkeypatch, {"busy": True, "running": True, "started": "2026-09-23T14:00:00Z",
                                       "fn": "gatherUntil", "commands": 40})
@@ -477,6 +609,46 @@ def test_reflect_sets_goal_and_stance_through_the_bridge_whatever_the_pilot_is_d
     bad = spacemolt._reflect({"stance": "Cowboy"})
     assert "Cowboy" in bad and "Prospector" in bad and sent == []
     assert "Nothing to write" in spacemolt._reflect({})
+    assert "Nothing written" in spacemolt._reflect({"steps": "price an upgrade"}) and sent == []
+
+    # Live 2026-09-30 (kvothe): subtasks ("price an upgrade") were dropped every fire. The
+    # checklist is its own field, stored whole, and an empty list clears it.
+    spacemolt._reflect({"steps": [" price an upgrade ", "", "fly the circuit_board loop"]})
+    assert sent[-1] == ("pilot", {"set": {"steps": ["price an upgrade", "fly the circuit_board loop"]}})
+    assert _journal_rows("reflection")[-1]["steps"] == ["price an upgrade", "fly the circuit_board loop"]
+    spacemolt._reflect({"steps": []})
+    assert sent[-1] == ("pilot", {"set": {"steps": None}}) and "steps" not in juncture.read_pilot()
+
+
+def test_the_context_says_what_moved_since_the_objective_was_set(monkeypatch):
+    """Live 2026-09-30 (kvothe): "train an offensive skill" was met (tactics 4→5) while the pilot
+    kept saying no skill rose. The deltas are facts; nothing says done."""
+    menu = _menu(12)
+    menu["present"]["skills"] = {"weapons": {"level": 3}, "gunnery": {"level": 1}, "tactics": {"level": 5},
+                                 "salvaging": {"level": 1}}
+    menu["present"]["ship_class"] = "hauler"
+    menu["objective_start"] = {"at": "2026-09-23T12:25:00Z", "credits": 210958, "ship_class": "cobble",
+                               "place": "sol_base", "skills": {"weapons": 3, "gunnery": 1, "tactics": 4}}
+    lines = _rendered(monkeypatch, menu).splitlines()
+    objective = next(i for i, line in enumerate(lines) if line.startswith("Objective (carried in):"))
+    # A skill first trained after the start was level 0 then.
+    assert lines[objective + 1] == (
+        "Since the objective was set 1h40m ago (09-23 12:25Z): credits 210,958 → 236,373; tactics 4→5; "
+        "salvaging 0→1; ship cobble → hauler; place sol_base → first_step_station."), lines
+    assert not re.search(r"\b(done|met|complete)\b", lines[objective + 1])
+    # A day or more reads in days and hours, not 221h44m.
+    menu["now"] = "2026-10-02T17:44:00.000Z"
+    assert "set 9d5h ago (09-23 12:25Z)" in _rendered(monkeypatch, menu)
+    assert not any(line.startswith("Since the objective") for line in _rendered(monkeypatch, _menu(12)).splitlines())
+
+
+def test_the_steps_reach_the_context_under_the_goal(monkeypatch):
+    menu = _menu(12)
+    menu["steps"] = ["price an upgrade", "fly the circuit_board loop"]
+    lines = _rendered(monkeypatch, menu).splitlines()
+    goal = next(i for i, line in enumerate(lines) if line.startswith("Goal:"))
+    assert lines[goal + 1] == "Steps: 1) price an upgrade; 2) fly the circuit_board loop", lines
+    assert not any(line.startswith("Steps:") for line in _rendered(monkeypatch, _menu(12)).splitlines())
 
 
 _GATEWAY_LOAD = """
@@ -615,3 +787,54 @@ def test_a_busy_rerender_does_not_advance_the_render_time(monkeypatch):
     assert rerender["at"] != first_at, "the journal still logs the rerender's own time"
     last = juncture.last_juncture()
     assert last["at"] == first_at, "but the render time on file does not advance"
+
+
+def test_a_failed_game_read_still_renders_the_record_and_the_journal(monkeypatch):
+    """Live 2026-10-02 (kvothe): 20 fires lost the whole juncture section to a failed menu read
+    ("WebSocket connection closed", "No response to spacemolt/get_status within 15000ms"). They
+    flew with no objective and no instruction, and wrote no juncture, so their runs carried the
+    previous juncture's id (09-30 16:32Z). The record and the journal need no game."""
+    _seed({"name": "kvothe", "stance": "Trader", "objective": "reach 1,000,000 cr",
+           "goal": "work the ore route", "steps": ["buy at alpha", "sell at beta"],
+           "instruction": {"text": "scan markets for cheap materials", "at": "2026-10-02T16:34:58Z"}})
+    _write_journal([{"event": "run", "phase": "ended", "at": "2026-10-02T15:00:00Z",
+                     "started": "2026-10-02T14:50:00Z", "outcome": "done", "commands": 9,
+                     "work": {"fn": "tradeRun", "credits": 6045},
+                     "calls": [{"fn": "tradeRun", "stops": ["alpha", "beta"], "seconds": 600}]}])
+    juncture._write_juncture({"juncture_id": "old", "at": "2026-10-02T14:00:00Z"})
+
+    def closed(action, params=None):
+        raise RuntimeError("WebSocket connection closed")
+
+    monkeypatch.setattr(service, "call", closed)
+    context = juncture.juncture_context({"platform": "cron", "session_id": "cron_abc123_20261002_104212"})
+    for text in ("The game did not answer this time", "Objective (carried in): reach 1,000,000 cr",
+                 "Instruction (carried in 10-02 16:34Z): scan markets for cheap materials",
+                 "Goal: work the ore route", "Steps: 1) buy at alpha; 2) sell at beta", "Stance: Trader.",
+                 "tradeRun alpha ↔ beta: 1 lap in 1 run, +6,045 cr", "Your recent runs (newest last):"):
+        assert text in context, (text, context)
+    for absent in ("Present:", "Mood:", "  Fuel ", "Since the objective"):
+        assert absent not in context, (absent, context)
+    row, = _journal_rows("juncture")
+    assert row["menu_error"] == "RuntimeError: WebSocket connection closed" and row["context"] == context
+    assert juncture.last_juncture() == {"juncture_id": row["juncture_id"], "at": row["at"]}
+    # The render carried the instruction, so a run from it consumes it, as any other render.
+    (service.runtime_dir() / "run.json").write_text(json.dumps(
+        {"script": "index.ts", "juncture_at": row["at"], "started": row["at"], "ended": True}))
+    assert "scan markets" not in juncture.juncture_context({"platform": "cron"})
+
+
+def test_a_failed_game_read_during_a_run_says_the_run_is_in_flight(monkeypatch):
+    """Without the game, run.json still says whether a run is flying: the context must not say
+    "Run in flight: no" over one that is."""
+    service.runtime_dir().mkdir(parents=True, exist_ok=True)
+    (service.runtime_dir() / "run.json").write_text(json.dumps(
+        {"script": "index.ts", "started": "2026-10-02T16:40:00Z", "ended": False, "last_job": "tradeRun"}))
+
+    def timed_out(action, params=None):
+        raise TimeoutError("No response to spacemolt/get_status within 15000ms")
+
+    monkeypatch.setattr(service, "call", timed_out)
+    context = juncture.juncture_context({"platform": "cron"})
+    assert context == "SpaceMolt juncture. Run in flight: yes — started 10-02 16:40Z, in tradeRun."
+    assert _journal_rows("juncture")[0]["busy"] is True

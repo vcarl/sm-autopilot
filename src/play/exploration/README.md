@@ -20,7 +20,7 @@ pilots are online there. Police, security and pirates are learned on arrival, ke
 and shown by the menu and the juncture's Present line from then on. `exploreNearby` skips nothing
 you do not name in `avoid`: read the menu's facts and choose.
 
-`scout(id)` reads one system; `goTo(id)` flies there and docks if it is a base (or a system with
+`scout(id)` reads one system (`detail.system.id` and `.name` either way; each `detail.connections` row says `visited`, so a loop can skip systems you have been to); `goTo(id)` flies there and docks if it is a base (or a system with
 one base). A circuit of your own is those two in a loop, as below. (`survey()` in mining is not
 built yet; `exploreNearby({survey:true})` is the way to a `survey_system` for now.)
 

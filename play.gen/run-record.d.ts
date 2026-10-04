@@ -67,7 +67,7 @@ export declare function watchJournal(fn: ((entry: Record<string, unknown>) => vo
 export declare function stampRun(keys: Record<string, unknown> | null): void;
 /** The run's own lines in the pilot's journal, beside the request/response pairs. The
  * runner's other self-made changes take the same line under their own event name (S45). */
-export declare function journalRun(runtime: string, entry: Record<string, unknown>, event?: string): void;
+export declare function journalRun(runtime: string, entry: Record<string, unknown>, event?: string, file?: string): void;
 /** What one game command was, in the space a line can afford: the tool and action, the ids
  * and quantities it named, whether it took, and one sentence off the reply. Never the reply
  * body — a `get_system` answer is kilobytes and the journal is read by a human. */

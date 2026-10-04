@@ -12,6 +12,7 @@ import {combatLine,readCombat,statsFor} from '../combat-memory.ts';
 import {cellReserve} from '../mining-inventory.ts';
 import {readJournal} from '../run-record.ts';
 import {readFleet} from './freighter/host.ts';
+import {readDockRefusals,readExplored,readPlaces,type DockRefusal} from './places.ts';
 import {PACKAGE_CARGO} from './hauling/freight.ts';
 import {Game,field} from './game.ts';
 import {bench,catalogClassEffect,moduleSpecEffect,whyNotFit} from './hangar.ts';
@@ -31,7 +32,18 @@ export type Advances='knowledge'|'skill'|'credits'|'influence'|'ship'|'objective
 export interface Move {call:string;why:string;advances:Advances}
 /** `neighbours` are the systems one jump out, for the juncture's Present line: a pilot that can
  * read them there need not spend a run looking. */
-export interface Menu {stagnation?:string;moves:Move[];not_now:{move:string;why:string}[];neighbours?:Near[]}
+export interface Menu {stagnation?:string;moves:Move[];not_now:{move:string;why:string}[];neighbours?:Near[];places?:Places}
+/** What this pilot knows of the map, for the juncture's Places line: how much of it has been
+ * flown, the systems a look found no base in, and the bases that refused a dock. Live 2026-09-30
+ * (kvothe): with nowhere else to keep it, the goal became a lossy breadcrumb list, ~341 of 462
+ * jumps were repeats, and refused bases were retried hours apart. */
+export interface Places {visited?:number;systems?:number;stationless:string[];refused:({base_id:string}&DockRefusal)[]}
+export function placesKnown(runtime:string|undefined,map?:{visited?:boolean}[]):Places {
+  const based=new Set(Object.values(runtime?readPlaces(runtime):{}));
+  return {...map?{visited:map.filter(row=>row.visited).length,systems:map.length}:{},
+    stationless:runtime?[...readExplored(runtime)].filter(id=>!based.has(id)):[],
+    refused:Object.entries(readDockRefusals(runtime)).map(([base_id,row])=>({base_id,...row}))};
+}
 /** One run as the menu remembers it: the first work call `main()` made, how it ended, what
  * the whole run gained, and where the ship ended up. Written by `run` into the journal. */
 const Work=Schema.Struct({fn:Schema.String,arg:Schema.String,status:Schema.Literals(['done','partial','refused','failed']),
@@ -41,7 +53,7 @@ const decodeWork=Schema.decodeUnknownOption(Work);
 
 /** The calls that only read: a run is named for the first call that is not one of these (live
  * 2026-09-28, a buy/craft/sell run was labelled `quote`). */
-const READS=new Set(['orient','scout','missions','prices','storage','shipsForSale','quote','recipes','routes','spreads',
+const READS=new Set(['orient','scout','missions','prices','storage','shipsForSale','quote','recipes','routes','spreads','buyers',
   'reflection','freighters','freightBoard','jobs','materials','facilities']);
 /** Worse is bigger: `done` is fine, `failed` is worst. Ranks the four `Status` values so two
  * of them can be compared. */
@@ -367,7 +379,9 @@ export const menuEffect=(runtime?:string)=>Effect.gen(function*() {
   const map=location?.system_id?Option.getOrUndefined(yield* section('spacemolt/get_map',Effect.map(game.command('spacemolt/get_map',{}),reply=>mapOf(replyBody(reply))))):undefined;
   const nearby=map&&location?.system_id?around(map,location.system_id,Infinity,readSeen(runtime)):[];
   const neighbours=nearby.filter(row=>row.jumps===1);
-  const shown=neighbours.length?{neighbours}:{};
+  // Disk reads only, each lenient; a bug in them still drops only this section.
+  const places=Option.getOrUndefined(yield* section('placesKnown',Effect.sync(()=>placesKnown(runtime,map))));
+  const shown={...neighbours.length?{neighbours}:{},...places?{places}:{}};
 
   if(who.mood==='Tired') {
     const why=`Tired (${now.tired_by||'margin crossed'})`;
@@ -728,7 +742,10 @@ export const menuEffect=(runtime?:string)=>Effect.gen(function*() {
       // `already serviced` is not a refusal worth a line: it is the ship being fine.
       // A refused J6 is said once, by the Trader row above, as the tradeRun it refuses.
       if(!/already at the serviced-dock targets/.test(verdict.reason)&&!(verdict.job.startsWith('J6')&&docked))
-        refused.push({move:fn||verdict.job,why:verdict.reason,rank:REFUSAL_RANK[verdict.tag]??9});
+        // The job's J-number is the rules table's own key, not a word the game uses: live
+        // 2026-09-30 (kvothe), "J9 Price circuit walked" stood in 122 contexts. The pilot reads
+        // the name; the number stays in the table and the tests.
+        refused.push({move:fn||verdict.job.replace(/^J\d+\s+/,''),why:verdict.reason,rank:REFUSAL_RANK[verdict.tag]??9});
       continue;
     }
     if(!verdict.play||MENU_OWNS.has(fn))continue;

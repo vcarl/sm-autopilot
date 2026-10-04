@@ -1,13 +1,13 @@
 /** The market counter at the base you are docked at. Prices are read live at the moment of
  * the act, never from a plan. */
-import type {BuyResponse,EstimatePurchaseResponse,MarketListingItem,SellResponse,ViewMarketResponse,ViewStorageResponse} from '@spacemolt/lib';
+import type {BuyResponse,EstimatePurchaseResponse,MarketListingItem,OrderLevel,SellResponse,ViewMarketResponse,ViewStorageResponse} from '@spacemolt/lib';
 import {Effect,Result} from 'effect';
 import {mkdirSync,readFileSync,renameSync,writeFileSync} from 'node:fs';
 import {join} from 'node:path';
 import {disposable,miningInventory} from '../mining-inventory.ts';
 import {markPlace} from './places.ts';
 import {fileIntelEffect} from '../trade-intel.ts';
-import {quoteNext} from '../run-record.ts';
+import {journalRun,quoteNext} from '../run-record.ts';
 import {listing,words} from '../servicing.ts';
 import {replyBody,rows} from '../storage.ts';
 import {counterEffect} from './counter.ts';
@@ -69,6 +69,17 @@ export function bestFarBid(books:RememberedBook[],item_id:string,here:string|nul
     .sort((a,b)=>b.best_buy-a.best_buy)[0];
 }
 
+/** ponytail: a fill averaging this far under the top bid it was sent against is worth saying; a
+ * smaller gap is a level or two of rounding. Tunable. */
+const SLIP=0.03;
+/** ` at 6633 each, under the 7153 top bid (2 deep)` when `quantity` fetched `earned` materially under
+ * the top of the book read before the sale; '' otherwise. A thin book is walked down its levels.
+ * Live 2026-10-01 (kvothe 14:45Z): 10 plasma_injector filled at 6,633 against a 7,153 bid 2 deep, −5.2k unsaid. */
+export function slipped(top:{best_buy:number;best_buy_qty:number}|undefined,quantity:number,earned:number):string {
+  const each=quantity?Math.round(earned/quantity):0;
+  return top&&top.best_buy>0&&each<top.best_buy*(1-SLIP)?` at ${each} each, under the ${top.best_buy} top bid (${top.best_buy_qty} deep)`:'';
+}
+
 /** The global tick from the last `view_market` reply this process read.
  * ponytail: process-local, and only sound read straight after a `book()` in the same job —
  * which is every consumer. Widen `book()`'s return if that stops being true. */
@@ -101,14 +112,30 @@ const remember=(base_id:string,items:MarketListingItem[],tick:number)=>
 export function rememberBook(dir:string|undefined,base_id:string,system_id:string|undefined,items:MarketListingItem[],tick:number):void {
   if(!dir||!base_id)return;
   markPlace(dir,base_id,system_id??'');
-  const kept=[{base_id,at:new Date().toISOString(),tick,system_id,items},
-    ...knownBooks(dir).filter(row=>row.base_id!==base_id&&ticksOld(row.tick,tick)<=MEMORY_TICKS)].slice(0,BASES);
+  writeBooks(dir,[{base_id,at:new Date().toISOString(),tick,...system_id===undefined?{}:{system_id},items},
+    ...knownBooks(dir).filter(row=>row.base_id!==base_id&&ticksOld(row.tick,tick)<=MEMORY_TICKS)].slice(0,BASES));
+}
+function writeBooks(dir:string,kept:RememberedBook[]):void {
   try {
     mkdirSync(dir,{recursive:true});
     const path=join(dir,MEMORY),temp=`${path}.${process.pid}.tmp`;
     writeFileSync(temp,JSON.stringify(kept),{mode:0o600});
     renameSync(temp,path);
   } catch {/* a market this pilot cannot remember is still a market it can trade at */} // edge: memory is a convenience; the file may be unwritable
+}
+/** This pilot's own fill, taken off `base_id`'s remembered book: `n` units off the top of its bids (a
+ * sale) or asks (a buy), so the next plan does not count units it already sold into or bought off.
+ * Live 2026-10-03 (kvothe, run bc564bea): 137 solarian_biotic bought for b495…'s bids as remembered
+ * before run a803ae2b sold 128 into them; 16 were left, and 121 rode on with no known buyer. */
+export function debitBook(dir:string|undefined,base_id:string,item_id:string,side:'bids'|'asks',n:number):void {
+  if(!dir||!base_id||!(n>0))return;
+  const books=knownBooks(dir),row=books.find(book=>book.base_id===base_id)?.items.find(item=>item.item_id===item_id);
+  if(!row)return;
+  const [orders,price,qty]=side==='bids'?['buy_orders','best_buy','best_buy_qty'] as const:['sell_orders','best_sell','best_sell_qty'] as const;
+  const levels=row[orders]?.length?row[orders]:row[price]>0&&row[qty]>0?[{price_each:row[price],quantity:row[qty]}]:[];
+  const left=levels.flatMap(level=>{const take=Math.min(n,level.quantity);n-=take;return level.quantity>take?[{...level,quantity:level.quantity-take}]:[];});
+  Object.assign(row,{[orders]:left,[price]:left[0]?.price_each??0,[qty]:left[0]?.quantity??0});
+  writeBooks(dir,books);
 }
 
 /** The book here, whole, read once and filtered in memory: one 190 KB reply beats twenty
@@ -121,9 +148,36 @@ export const bookEffect=()=>Effect.gen(function*() {
   lastTick=num(reply,'current_tick')??lastTick;
   const base=acct().state.location?.docked_at??'';
   remember(base,items,lastTick);
+  journalBook(base,items,lastTick);
   yield* fileIntelEffect(acct(),base,items,lastTick,step);
-  return new Map(items.map(item=>[item.item_id,item]));
+  const listed=new Map(items.map(item=>[item.item_id,item]));
+  lastRead={base,listed,tick:lastTick,at:Date.now()};
+  return listed;
 });
+/** Each book read, as a `book` line in `books.jsonl` beside the journal (joined by `run_id`, `base_id`, `book_tick`): per item with orders, each side's whole depth and its
+ * first 10 levels as `[price_each, quantity]`. A re-read the same as the last one journalled at that base is
+ * left out: the latest `book` line for a base is the book there until the next.
+ * Live 2026-10-03 (kvothe): the journal held no book at all; `view_market` command lines carry only a summary.
+ * Its own file because a line is ~5–80 KB (726 items at confederacy_central_command): in the journal it
+ * would shrink the tail windows the juncture context reads, and reach the webhook drain.
+ * ponytail: books.jsonl is never rotated or pruned; rotate it with the journal if its size starts to matter. */
+// ponytail: process-local, so a fresh bridge journals each base's first read again; harmless (a repeat line).
+const journalled=new Map<string,string>();
+function journalBook(base:string,items:MarketListingItem[],tick:number):void {
+  const dir=runtimeDir();
+  if(!dir||!base)return;
+  const sum=(side:OrderLevel[]=[])=>side.reduce((n,level)=>n+level.quantity,0);
+  const top=(side:OrderLevel[]=[])=>side.slice(0,10).map(level=>[level.price_each,level.quantity]);
+  const rows=items.filter(item=>item.buy_orders?.length||item.sell_orders?.length).map(item=>({item_id:item.item_id,
+    bid_depth:sum(item.buy_orders),ask_depth:sum(item.sell_orders),bids:top(item.buy_orders),asks:top(item.sell_orders)}));
+  const key=JSON.stringify(rows),at=`${dir}\0${base}`;
+  if(journalled.get(at)===key)return;
+  journalled.set(at,key);
+  journalRun(dir,{base_id:base,book_tick:tick,items:rows},'book','books.jsonl');
+}
+/** The last book `bookEffect()` read, for a `buy` to quote the ask it was sent against.
+ * ponytail: process-local like `lastTick`; a buy checks the base, so a stale slot quotes nulls, never another counter's book. */
+let lastRead:{base:string;listed:Map<string,MarketListingItem>;tick:number;at:number}|undefined;
 
 /** What things are worth here. Default: every item in the hold and in this base's store.
  * Pass item ids for others. Capped at 40 rows. Over `view_market` it adds: the filter to
@@ -213,7 +267,9 @@ export const sellEffect=(items:Want[],opts:{from?:'hold'|'store';floor?:Record<s
       if(quantity<=0){short.push({item_id:row.item_id,requested:row.quantity,sold:0,why:'not held'});return 0;}
       if(!quote||!(quote.best_buy>0)){short.push({item_id:row.item_id,requested:row.quantity,sold:0,why:'no buyer'});return 0;}
       if(floor!==undefined&&quote.best_buy<floor){short.push({item_id:row.item_id,requested:row.quantity,sold:0,why:`under floor: best buy ${quote.best_buy} < ${floor}`});return 0;}
-      quoteNext('spacemolt/sell',row.item_id,{bid:quote.best_buy,ask:quote.best_sell,book_tick:read_tick,
+      // Live 2026-10-03 (kvothe, run d6bc1a8d): 13 circuit_board sold at 250 with no bid depth on the journal.
+      quoteNext('spacemolt/sell',row.item_id,{bid:quote.best_buy,ask:quote.best_sell,bid_qty:quote.best_buy_qty,
+        bids:quote.buy_orders.length?quote.buy_orders.slice(0,10).map(({price_each,quantity})=>({price_each,quantity})):null,book_tick:read_tick,
         age_s:Math.round((Date.now()-read_at)/100)/10});
       const sent=yield* Effect.result(game.command('spacemolt/sell',{id:row.item_id,quantity}));
       if(Result.isFailure(sent)) {
@@ -232,6 +288,8 @@ export const sellEffect=(items:Want[],opts:{from?:'hold'|'store';floor?:Record<s
         const took=Math.max(0,held-(disposable(acct().state)[row.item_id]??0));
         const earned=carried.credits===undefined||credits===undefined?undefined:Math.max(0,credits-carried.credits);
         anchor();
+        // What the re-read showed moved is what comes off the remembered bids, never the quantity sent.
+        debitBook(runtimeDir(),docked,row.item_id,'bids',took);
         if(took>0){landed.push({item_id:row.item_id,quantity:took,...earned===undefined?{}:{earned}});total+=earned??0;
           step(`sell ${took} ${row.item_id} ${earned===undefined?'credits unknown':`+${earned} cr`} (reply lost; hold re-read)`);}
         if(took<quantity)short.push({item_id:row.item_id,requested:row.quantity,sold:took,
@@ -239,6 +297,7 @@ export const sellEffect=(items:Want[],opts:{from?:'hold'|'store';floor?:Record<s
         return took;
       }
       const fill=replyBody(sent.success),earned=num(fill,'total_earned'),took=num(fill,'quantity_sold')??quantity;
+      debitBook(runtimeDir(),docked,row.item_id,'bids',took);
       fills.push(asSell(fill));total+=earned??0;landed.push({item_id:row.item_id,quantity:took,...earned===undefined?{}:{earned}});
       carried.held[row.item_id]=held-took;
       carried.credits=carried.credits===undefined||earned===undefined?undefined:carried.credits+earned;
@@ -311,7 +370,7 @@ export const sellEffect=(items:Want[],opts:{from?:'hold'|'store';floor?:Record<s
       const unit=quantity?Math.round(earned/quantity):0;
       const better=farBid(item_id);
       return `${quantity} ${item_id}`+(better&&better.best_buy>unit*MATERIAL
-        ?` at ${unit} (${better.base_id} bid ${better.best_buy}, ${better.age} ticks ago)`:'');
+        ?` at ${unit} (${better.base_id} bid ${better.best_buy}, ${better.age} ticks ago)`:slipped(listed.get(item_id),quantity,earned));
     }).join(', ')} at ${docked} for ${[...byItem.values()].some(row=>row.unknown)?'at least ':''}${total} cr`
       :blocked.length?`sold nothing at ${docked}`:`nothing to sell at ${docked}`;
     return {status:blocked.length?(landed.length?'partial':'refused'):'done',
@@ -363,10 +422,17 @@ export const buyEffect=(itemId:string,quantity:number,opts:{deliverTo?:'cargo'|'
     if(!(available>0))return {status:'refused',did:`did not buy ${itemId}`,why:`not on this market: ${typeof message==='string'?message:'0 available'}`,detail:{estimate}};
     if(credits-cost<reserve)return {status:'refused',did:`did not buy ${itemId}`,why:`costs ${cost}; credits ${credits} less reserve ${reserve} leaves ${credits-reserve}`,detail:{estimate}};
     if(opts.maxEach!==undefined&&cost>opts.maxEach*quantity)return {status:'refused',did:`did not buy ${itemId}`,why:`costs ${cost}, over maxEach ${opts.maxEach} × ${quantity}`,detail:{estimate}};
-    quoteNext('spacemolt/buy',itemId,{estimate_quantity:quantity,estimate_total:cost,estimate_available:available});
+    // The book this buy was sent against, as a sell quotes its own: the last read at this counter.
+    // Live 2026-10-01 (kvothe): all 37 tradeRun buys journalled a quote with no ask, bid or book tick.
+    const seen=lastRead?.base===at.docked?lastRead:undefined,row=seen?.listed.get(itemId);
+    // ponytail: the first 10 ask levels; a deeper book is summarised by `estimate_available`.
+    quoteNext('spacemolt/buy',itemId,{bid:row?.best_buy??null,ask:row?.best_sell??null,ask_qty:row?.best_sell_qty??null,
+      asks:row?.sell_orders.length?row.sell_orders.slice(0,10).map(({price_each,quantity})=>({price_each,quantity})):null,book_tick:seen?.tick??null,
+      age_s:seen?Math.round((Date.now()-seen.at)/100)/10:null,estimate_quantity:quantity,estimate_total:cost,estimate_available:available});
     // A refusal or a lost reply goes up to the job, named; the buy is never re-sent after a lost reply.
     const filled=replyBody(yield* game.command('spacemolt/buy',{id:itemId,quantity:Math.min(quantity,available),
       ...opts.deliverTo?{deliver_to:opts.deliverTo}:{}}));
+    debitBook(runtimeDir(),at.docked,itemId,'asks',num(filled,'quantity')??0);
     // The reply's `total_cost` is the subtotal; the tax on it is charged on top, floored.
     const subtotal=num(filled,'total_cost')??cost,tax=Math.floor(subtotal*(num(quote,'sales_tax_rate_bps')??0)/10_000);
     const unfilled=num(filled,'unfilled')??0;

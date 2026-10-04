@@ -120,8 +120,8 @@ export const words=(error:GameError)=>error._tag==='ReplyLost'?`reply lost on ${
 /** Fuel cells are resupply, bought with the fill: up to `CELL_TARGET` of the hold once they fall
  * under `CELL_FLOOR`. Bounded as the refuel is — by `creditReserve` alone, never the mood's
  * margin, so Tired's "service only" covers them. The live ask here is checked against the asks
- * this runtime remembers (`markets.json`): over `CELL_PRICE_BOUND`× their median it is skipped,
- * and with none remembered it is paid and remembered. Never fails: a counter without cells is
+ * this runtime remembers at other bases (`markets.json`): over `CELL_PRICE_BOUND`× their median
+ * it is skipped, and with none remembered one cell is bought at it. Never fails: a counter without cells is
  * still a serviced ship, and `skipped` says why nothing was bought (the game's refusal, or the
  * lost reply, by name). A lost reply on the buy is not re-sent; the hold is re-read and what it
  * shows is what was bought. A defect is a bug and goes up. */
@@ -135,24 +135,29 @@ const topUpCellsEffect=(account:ReadinessAccount,options:ServiceOptions)=>Effect
     const {ship,player}=account.state;
     if(!ship||!player)return skip('no ship or wallet state to buy against');
     const room=Math.floor((ship.cargo_capacity-ship.cargo_used)/reserve.size);
-    const want=Math.min(reserve.target-reserve.held,room);
-    if(want<=0)return skip('no room in the hold');
+    if(Math.min(reserve.target-reserve.held,room)<=0)return skip('no room in the hold');
     const market=replyBody(yield* game.command('spacemolt_market/view_market',{}));
     const items=rows(field(market,'items')).flatMap(listing);
     const ask=items.find(row=>row.item_id===FUEL_CELL)?.best_sell??0;
-    const seen=knownBooks(options.runtime??'').flatMap(book=>book.items)
-      .filter(row=>row.item_id===FUEL_CELL&&row.best_sell>0).map(row=>row.best_sell);
     const base=account.state.location?.docked_at??'';
+    // Live 2026-09-30 (kvothe 19:29Z): service() bought 9 cells at 3,000 each, 27,000 cr (300 each at
+    // 16:57Z), checked against a median that held this base's own earlier 3,000 ask. Only other
+    // bases' asks are a reference; with none, one cell is bought, not the whole target.
+    const seen=knownBooks(options.runtime??'').filter(book=>book.base_id!==base).flatMap(book=>book.items)
+      .filter(row=>row.item_id===FUEL_CELL&&row.best_sell>0).map(row=>row.best_sell);
+    const reference=seen.length?median(seen):null;
     rememberBook(options.runtime??'',base,account.state.location?.system_id,items,Number(field(market,'current_tick')??0));
     if(!(ask>0))return skip(`${base} sells none`);
-    if(seen.length&&ask>CELL_PRICE_BOUND*median(seen))
-      return skip(`${ask} cr is over ${CELL_PRICE_BOUND}x the remembered median ${median(seen)}`);
+    if(reference!==null&&ask>CELL_PRICE_BOUND*reference)
+      return skip(`${ask} cr is over ${CELL_PRICE_BOUND}x the median ${reference} other bases ask`);
+    const want=reference===null?1:Math.min(reserve.target-reserve.held,room);
     const quote=replyBody(yield* game.command('spacemolt_market/estimate_purchase',{item_id:FUEL_CELL,quantity:want}));
     const credits=player.credits,cost=Number(field(quote,'total_cost')),floor=options.creditReserve??0;
     const n=Math.min(want,Number(field(quote,'available')??want));
     if(!(n>0))return skip(`${base} has none available`);
     if(!Number.isFinite(cost)||credits-cost<floor)return skip(`${n} cost ${cost}; credits ${credits} would fall under the reserve ${floor}`);
-    if(options.quotes!==false)quoteNext('spacemolt/buy',FUEL_CELL,{ask,estimate_total:cost,estimate_available:field(quote,'available')??null});
+    if(options.quotes!==false)quoteNext('spacemolt/buy',FUEL_CELL,{ask,estimate_total:cost,estimate_available:field(quote,'available')??null,
+      reference,reference_asks:seen.length,want,target:reserve.target,held:reserve.held});
     const bought=yield* Effect.result(game.command('spacemolt/buy',{id:FUEL_CELL,quantity:n}));
     // Only a lost reply keeps going: the buy may have landed, so the hold is re-read, never the buy re-sent.
     if(Result.isFailure(bought)&&bought.failure._tag!=='ReplyLost')return yield* bought.failure;

@@ -40,6 +40,13 @@ export interface FarBid {
     age: number;
 }
 export declare function bestFarBid(books: RememberedBook[], item_id: string, here: string | null | undefined, tick: number): FarBid | undefined;
+/** ` at 6633 each, under the 7153 top bid (2 deep)` when `quantity` fetched `earned` materially under
+ * the top of the book read before the sale; '' otherwise. A thin book is walked down its levels.
+ * Live 2026-10-01 (kvothe 14:45Z): 10 plasma_injector filled at 6,633 against a 7,153 bid 2 deep, −5.2k unsaid. */
+export declare function slipped(top: {
+    best_buy: number;
+    best_buy_qty: number;
+} | undefined, quantity: number, earned: number): string;
 export declare const marketTick: () => number;
 /** Every book read in this runtime dir, newest base first. Empty without a runtime. The
  * directory is an argument so a caller outside a bound run (the juncture's `factsNow`) can
@@ -48,6 +55,11 @@ export declare function knownBooks(dir?: string | undefined): RememberedBook[];
 /** Keep `base_id`'s book, read at `tick` in `system_id`, in `dir`'s market memory, and its place.
  * What `book()` does for the pilot, and a freighter's host for a book it scouted. */
 export declare function rememberBook(dir: string | undefined, base_id: string, system_id: string | undefined, items: MarketListingItem[], tick: number): void;
+/** This pilot's own fill, taken off `base_id`'s remembered book: `n` units off the top of its bids (a
+ * sale) or asks (a buy), so the next plan does not count units it already sold into or bought off.
+ * Live 2026-10-03 (kvothe, run bc564bea): 137 solarian_biotic bought for b495…'s bids as remembered
+ * before run a803ae2b sold 128 into them; 16 were left, and 121 rode on with no known buyer. */
+export declare function debitBook(dir: string | undefined, base_id: string, item_id: string, side: 'bids' | 'asks', n: number): void;
 /** The book here, whole, read once and filtered in memory: one 190 KB reply beats twenty
  * filtered ones against the rate limit, and the pilot never sees it. Every read is also
  * written to this runtime's market memory, which is what `spreads()` reads, and filed to the

@@ -34,16 +34,22 @@ export declare function orient(): Promise<Outcome<Orientation>>;
 /** `orient` as an Effect, for `edge` and for converted callers; never in a barrel. */
 export declare const orientEffect: () => Effect.Effect<Outcome<Orientation>, never, Game | import("./runtime.ts").Run>;
 export interface ScoutReport {
-    /** The live `get_system` answer when you are in it; the map entry when you are not. */
-    system: SystemInfo | MapSystemInfo;
+    /** The live `get_system` answer when you are in it; the map entry when you are not. Either way
+     * `id` and `name` are there (the map's own key is `system_id`). */
+    system: (SystemInfo | MapSystemInfo) & {
+        id: string;
+        name: string;
+    };
     /** Every POI: type, base id and services if it has a station. */
     pois: SystemPoi[];
     /** Resources at the POI you are standing at, from `location.resources`. Absent elsewhere:
      * the report is then guesswork until you go there. */
     resources: Record<string, ResourceInfo[]>;
-    /** Systems one jump away, each with the fuel `find_route` quotes for it. */
+    /** Systems one jump away, each with the fuel `find_route` quotes for it, and whether you have
+     * been there (absent when the map could not be read). */
     connections: (SystemConnection & {
         fuel: number;
+        visited?: boolean;
     })[];
     /** Only for the POI you are standing at. */
     here?: {

@@ -3,7 +3,7 @@
  * a dock or said with where the ship actually is. */
 import type { SystemPoi } from '@spacemolt/lib';
 import { Effect } from 'effect';
-import { Game } from './game.ts';
+import { Game, Rejected } from './game.ts';
 /** The part of a `get_system` row the counter reads. A row is kept when it has an `id`, and takes
  * each other field when it is a string: a partial row costs nothing, a malformed one only its field. */
 export type PoiRow = Pick<SystemPoi, 'id' | 'base_id'> & Partial<Pick<SystemPoi, 'name'>>;
@@ -16,12 +16,19 @@ export declare const hereEffect: () => Effect.Effect<{
 /** `belt (Inner Belt)`: the id the pilot writes and the name prose gives it. */
 export declare const named: (id: string | undefined, row?: PoiRow) => string;
 export declare const others: (bases: string[]) => string;
+/** Dock at `base_id` where the ship stands, or the game's refusal in its own words when it denies
+ * access (`access_denied`, live 2026-09-30..10-02: 18 `Access denied` docks): remembered in
+ * `docking.json` and journalled (`dock_refused`), so the next juncture can see which bases turned it
+ * away. A dock that takes clears the entry. Every other failure stays in the error channel. */
+export declare const dockEffect: (base_id: string) => Effect.Effect<{
+    docked: string;
+} | {
+    refused: string;
+}, Rejected | import("./codes.ts").InBattle | import("./codes.ts").HoldFull | import("./codes.ts").Depleted | import("./codes.ts").ReplyLost | import("../travel.ts").TravelBlocked | import("../travel.ts").ArrivalUnresolved | import("../dock.ts").DockBlocked, Game>;
 /** Docked already, or docked now when a base sits at this POI; otherwise why not, naming the
  * POI, the system, and the bases in this system. */
 export declare const counterEffect: () => Effect.Effect<{
     docked: string;
-    refused?: never;
 } | {
     refused: string;
-    docked?: never;
 }, import("./codes.ts").GameError | import("../travel.ts").TravelBlocked | import("../travel.ts").ArrivalUnresolved | import("../dock.ts").DockBlocked, Game>;

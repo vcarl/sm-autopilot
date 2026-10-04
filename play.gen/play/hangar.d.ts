@@ -90,6 +90,11 @@ export type ForSale = {
     class: ShipClass;
     versus: string;
 };
+/** A class the yard would not quote you, with the game's reason ("requires Piloting level 20"). */
+export interface Locked {
+    class_id: string;
+    why: string;
+}
 export declare const catalogClassEffect: (id: string) => Effect.Effect<ShipClass | undefined, import("./codes.ts").Rejected | import("./codes.ts").InBattle | import("./codes.ts").HoldFull | import("./codes.ts").Depleted | import("./codes.ts").ReplyLost, Game>;
 /** Hulls for sale within a budget, here or at a named base: `ship/browse_ships` listings and
  * `ship/commission_quote` for the classes this yard can build (the ones a listing names,
@@ -104,6 +109,7 @@ export declare function shipsForSale(opts?: {
     classId?: string;
 }): Promise<Outcome<{
     for_sale: ForSale[];
+    locked: Locked[];
 }>>;
 /** `shipsForSale` as an Effect, for `edge` and for converted callers; never in a barrel. */
 export declare const shipsForSaleEffect: (opts?: {
@@ -112,6 +118,7 @@ export declare const shipsForSaleEffect: (opts?: {
     classId?: string;
 }) => Effect.Effect<Outcome<{
     for_sale: ForSale[];
+    locked: Locked[];
 }>, never, Game | import("./runtime.ts").Run>;
 export interface Purchase {
     /** The hull you now fly, when the switch happened; otherwise the one you still fly. */

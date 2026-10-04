@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import {prose} from './prose.ts';
+import {ofTheRun,prose} from './prose.ts';
 import type {Call} from './runtime.ts';
 import type {Outcome} from './types.ts';
 
@@ -65,4 +65,33 @@ test('a call that did not end done carries its why, so the reason is not dropped
   assert.match(text,/\n {2}- goTo refused could not route to node_alpha_station: no system, POI or base is named node_alpha_station; nearest: node_alpha \(system Node Alpha\)\n/);
   // A done line has nothing to explain and gains no colon.
   assert.match(text,/\n {2}- service done already serviced$/);
+});
+
+test('the run reads from its work, not its last call',()=>{
+  // Live 2026-10-01 (kvothe 15:25Z): two tradeRun calls earned 5,071 and 2,452 cr, the third lap was
+  // cut at the cap, and the run read "confederacy_central_command: nothing; did not reach nova_terra_central".
+  const zero={credits:0,fuel:0,hull:0,minutes:0};
+  const lap=(credits:number,items:number):Call=>({fn:'tradeRun',arg:'ccc',status:'done',did:`lap +${credits}`,credits,items,xp:0,cost:zero,
+    gained:{credits,items:[{item_id:'circuit_board',quantity:items}],xp:{trading:10}}});
+  const cut:Call={fn:'tradeRun',arg:'ccc',status:'partial',did:'ccc: nothing; did not reach ntc',why:'ntc: stopped by pilot',
+    credits:0,items:0,xp:0,cost:zero,gained:{credits:0,items:[],xp:{navigation:13}}};
+  const last={...base,fn:'tradeRun',status:'partial' as const,did:cut.did,why:'ntc: stopped by pilot',gained:cut.gained!};
+  const run=ofTheRun(last,[lap(5071,1),lap(2452,1),cut]);
+  assert.equal(run.status,'done');
+  assert.equal(run.did,'2 calls gained +7,523 cr, +2 items: lap +5071; last call tradeRun partial: ccc: nothing; did not reach ntc: ntc: stopped by pilot');
+  assert.equal(run.why,undefined);
+  assert.deepEqual(run.gained,{credits:7523,items:[{item_id:'circuit_board',quantity:2}],xp:{trading:20,navigation:13}});
+  assert.match(prose(run),/^Done: 2 calls gained \+7,523 cr/);
+  // 09-30 run 8e0abef8: 27 items mined, then service() refused off a station; the run read `refused`.
+  const trip:Call={fn:'gatherUntil',arg:'belt',status:'partial',did:'mined 27 units',why:'mine blocked: stopped by pilot',
+    credits:0,items:27,xp:68,cost:zero};
+  const refused:Call={fn:'service',arg:'',status:'refused',did:'serviced nothing',why:'not docked',credits:0,items:0,xp:0,cost:zero};
+  const mined=ofTheRun({...base,status:'refused',did:'serviced nothing',why:'not docked'},[trip,refused]);
+  assert.equal(mined.status,'partial');
+  assert.equal(mined.did,'gatherUntil gained +27 items: mined 27 units (mine blocked: stopped by pilot); last call service refused: serviced nothing: not docked');
+  // Left alone: an outcome main() composed, a run that earned nothing, the returned call as the only earner.
+  const own={...base,fn:'pilot'};
+  assert.equal(ofTheRun(own,[trip,refused]),own);
+  assert.equal(ofTheRun(base,[refused]),base);
+  assert.equal(ofTheRun(base,[refused,trip]),base);
 });

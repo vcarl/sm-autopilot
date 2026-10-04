@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import re
 import subprocess
 import time
@@ -27,6 +28,8 @@ from hermes_constants import get_hermes_home
 
 from .service import pilot_path, runtime_dir
 from .skills_register import SHARED_SKILL, qualified, readme_skills
+
+logger = logging.getLogger(__name__)
 
 #: What a fire carries: the job tools plus the reads every client of the runner may make.
 #: ``spacemolt_observer`` is deliberately absent — the pilot does not set its own objective.
@@ -87,6 +90,11 @@ NEIGHBOURS = 6
 #: ponytail: the journal tail read for the recent list and the gate log, not the whole file
 #: (tens of MB). Entries older than this window are simply not recent.
 _TAIL_BYTES = 2 << 20
+#: How many of the pilot's own earning loops the context lists.
+LOOPS = 3
+#: ponytail: the loops look 8 MB back, about two days of live play (kvothe, 10-01), not the
+#: whole journal. A loop older than that is not listed; widen it if one is missed.
+_LOOP_BYTES = 8 << 20
 
 
 def journal_tail(max_bytes: int = _TAIL_BYTES) -> list[str]:
@@ -117,10 +125,10 @@ def journal_tail(max_bytes: int = _TAIL_BYTES) -> list[str]:
     return lines
 
 
-def _journal_tail(events: tuple[str, ...]) -> list[dict[str, Any]]:
-    """The journal's last few MB, as the entries whose event is one of ``events``."""
+def _journal_tail(events: tuple[str, ...], max_bytes: int = _TAIL_BYTES) -> list[dict[str, Any]]:
+    """The journal's last ``max_bytes``, as the entries whose event is one of ``events``."""
     rows = []
-    for line in journal_tail():
+    for line in journal_tail(max_bytes):
         if not any(f'"{event}"' in line for event in events):
             continue
         try:
@@ -130,6 +138,82 @@ def _journal_tail(events: tuple[str, ...]) -> list[dict[str, Any]]:
         if isinstance(row, dict) and row.get("event") in events:
             rows.append(row)
     return rows
+
+
+def _call_stops(call: dict[str, Any]) -> list[str]:
+    """The bases a route call docked at, in order. A call journalled before ``stops`` was kept
+    names them only in its ``did`` (``a: sold … → b: took …``), which is read for them."""
+    if isinstance(call.get("stops"), list):
+        return [str(stop) for stop in call["stops"]]
+    if call.get("fn") == "tradeRun":
+        return re.findall(r"(?:^|→ )(\w+):", str(call.get("did") or ""))
+    return []
+
+
+def _run_seconds(row: dict[str, Any]) -> float:
+    """A run's wall time, ``started`` to its ended line; the sum of its calls' seconds for a line
+    that has no ``started``."""
+    began, ended = _when(row.get("started")), _when(row.get("at"))
+    if began and ended:
+        return max(0.0, (ended - began).total_seconds())
+    return sum(float(c.get("seconds") or 0) for c in row.get("calls") or [] if isinstance(c, dict))
+
+
+#: The calls a loop is not named for: the reads (``READS`` in src/play/menu.ts) and the errands
+#: around the work. ``work.fn`` is the first non-read call, so a run that flew to the route's
+#: first base read as ``goTo`` (kvothe 10-01 14:13Z: goTo, then a tradeRun that made +6,045).
+_ERRANDS = frozenset({"orient", "scout", "missions", "prices", "storage", "shipsForSale", "quote", "recipes",
+                      "routes", "spreads", "buyers", "reflection", "freighters", "freightBoard", "jobs",
+                      "materials", "facilities", "goTo", "sell", "buy", "service", "stow", "withdraw"})
+
+
+def earning_loops(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """The pilot's own ended runs that took in credits, grouped by their work — the first call that
+    is not an errand (else ``work.fn``) and, for a route, the set of bases those calls docked at,
+    else the call's argument — and ranked by credits. A run's credits are its ``work.credits`` and
+    its time is its wall time, so a mining run's sell counts toward its gatherUntil, not as a loop
+    of its own (review 10-02: grouped by call, kvothe's liquidating ``sell all`` read as
+    87,125 cr/h over 1m). Live 2026-10-01
+    (kvothe): four tradeRuns made +39.6k between 14:13 and 15:25Z; once they left the recent
+    runs, every fire said no loop had earned anything."""
+    loops: dict[tuple, dict[str, Any]] = {}
+    for row in rows:
+        work = row.get("work") if isinstance(row.get("work"), dict) else {}
+        credits = int(work.get("credits") or 0)
+        if row.get("phase") != "ended" or not work.get("fn") or credits <= 0:
+            continue
+        calls = [c for c in row.get("calls") or [] if isinstance(c, dict) and c.get("fn")]
+        head = next((c for c in calls if c["fn"] not in _ERRANDS), None) or {"fn": work["fn"], "arg": work.get("arg")}
+        laps = [c for c in calls if c["fn"] == head["fn"]]
+        stops = [stop for call in laps for stop in _call_stops(call)]
+        places = list(dict.fromkeys(stops)) if stops else [str(head.get("arg") or "")]
+        loop = loops.setdefault((head["fn"], tuple(sorted(places))), {
+            "fn": head["fn"], "places": places, "laps": 0, "runs": 0, "credits": 0, "seconds": 0.0, "last": None})
+        loop["laps"] += max(1, len(laps))
+        loop["runs"] += 1
+        loop["credits"] += credits
+        loop["seconds"] += _run_seconds(row)
+        loop["last"] = max(filter(None, (loop["last"], row.get("at"))), default=None)
+    return sorted(loops.values(), key=lambda loop: -loop["credits"])
+
+
+def _span(seconds: float) -> str:
+    minutes = round(seconds / 60)
+    if minutes >= 24 * 60:
+        return f"{minutes // 1440}d{minutes % 1440 // 60}h"
+    return f"{minutes // 60}h{minutes % 60:02d}m" if minutes >= 60 else f"{minutes}m" if minutes else f"{round(seconds)}s"
+
+
+def _loop_line(loop: dict[str, Any]) -> str:
+    """One earning loop as facts: what, how often, how much, how fast, how lately."""
+    places = [place for place in loop["places"] if place]
+    where = (" " + " ↔ ".join(places) if len(places) == 2 and loop["fn"] == "tradeRun"
+             else f" {', '.join(places)}" if places else "")
+    rate = (f", {round(loop['credits'] * 3600 / loop['seconds']):,} cr/h over {_span(loop['seconds'])}"
+            if loop["seconds"] else "")
+    laps = (f"{loop['laps']} lap{'s' if loop['laps'] != 1 else ''} in "
+            f"{loop['runs']} run{'s' if loop['runs'] != 1 else ''}")
+    return f"{loop['fn']}{where}: {laps}, +{loop['credits']:,} cr{rate}, last {_clock(loop['last'])}"
 
 
 def _run_endings() -> list[dict[str, Any]]:
@@ -161,12 +245,52 @@ def juncture_context(session_info: Mapping[str, Any] | None = None) -> str:
     """
     if (session_info or {}).get("platform") != JUNCTURE_PLATFORM:
         return ""
-    from .service import call, source_fingerprint
+    from .service import call
 
     began = time.monotonic()
-    menu = call("menu")
-    record = read_pilot()
-    context = _busy(menu) if menu.get("busy") else _situation(menu, _pending_instruction(record))
+    try:
+        record = read_pilot()
+    except (OSError, ValueError):
+        record = {}
+    said = _pending_instruction(record)
+    # Live 2026-10-02 (kvothe): 20 fires lost the whole section to a failed menu read ("WebSocket
+    # connection closed", "No response to spacemolt/get_status within 15000ms", "bridge failed to
+    # start"). Those fires flew blind of the objective and the instruction, and wrote no juncture,
+    # so their runs carried the previous juncture's id (09-30 16:32Z). The record and the journal
+    # need no game: render them, and say the game was not read.
+    menu_error = None
+    try:
+        menu = call("menu")
+        context = _busy(menu) if menu.get("busy") else _situation(menu, said)
+    except Exception as error:  # noqa: BLE001 - any failure here would cost the fire its whole context
+        menu_error = f"{type(error).__name__}: {error}"
+        menu = _record_menu(record)
+        context = _busy(menu) if menu.get("busy") else _situation(menu, said)
+    try:
+        _journal_render(context, record, menu, menu_error, session_info or {}, began)
+    except Exception:  # the bookkeeping is never worth the fire's context
+        logger.exception("spacemolt juncture: the render was not journalled")
+    return context
+
+
+def _record_menu(record: dict[str, Any]) -> dict[str, Any]:
+    """What a menu can say without the game: the pilot record's own fields under the menu's
+    names, and the run ``run.json`` keeps. Marked ``unread`` so nothing reads it as the ship."""
+    menu = {key: record[key] for key in ("objective", "goal", "steps", "stance", "permissions") if record.get(key)}
+    if run_in_flight():
+        try:
+            run = json.loads((runtime_dir() / "run.json").read_text())
+        except (OSError, ValueError):
+            run = {}
+        menu.update(busy=True, started=run.get("started"), fn=run.get("last_job"), question=pending_question())
+    return {**menu, "unread": True}
+
+
+def _journal_render(context: str, record: dict[str, Any], menu: dict[str, Any], menu_error: str | None,
+                    info: Mapping[str, Any], began: float) -> None:
+    """Journal what was rendered, and keep ``juncture.json`` for the runs that follow."""
+    from .service import source_fingerprint
+
     skills = job_fields(record, gate=False)["skills"]
     readmes = readme_skills(Path(__file__).parent)
     sizes = {name: path.stat().st_size for name, path in readmes.items()}
@@ -174,7 +298,6 @@ def juncture_context(session_info: Mapping[str, Any] | None = None) -> str:
     for name in skills:
         if (path := readmes.get(name.split(":", 1)[-1])) is not None:
             carried.update(path.read_bytes())
-    info = session_info or {}
     session_id = str(info.get("session_id") or "")
     # Cron names a fire's session ``cron_<job_id>_<YYYYmmdd_HHMMSS>``: the join to
     # cron/usage_audit.jsonl (job_id + ts), which is where the fire's tokens and LLM time live.
@@ -182,7 +305,8 @@ def juncture_context(session_info: Mapping[str, Any] | None = None) -> str:
     facts = {"session_id": session_id or None, "code_sha": code_sha(), "sources": source_fingerprint(),
              "skills_sha": carried.hexdigest()[:12], "build_s": round(time.monotonic() - began, 3),
              "stance": record.get("stance"), "busy": bool(menu.get("busy")), "context_chars": len(context),
-             "context_sha": hashlib.sha256(context.encode()).hexdigest()[:12], "context": context}
+             "context_sha": hashlib.sha256(context.encode()).hexdigest()[:12], "context": context,
+             **({"menu_error": menu_error} if menu_error else {})}
     # Hermes re-renders this when it rebuilds a session's system prompt (context compression,
     # live 2026-09-28 13:37Z). That is the same fire: same juncture, fresh facts, its own event.
     prior = _read_juncture()
@@ -206,7 +330,7 @@ def juncture_context(session_info: Mapping[str, Any] | None = None) -> str:
                          "objective": objective})
         journal_event("juncture_rerender", at=at, juncture_id=prior["juncture_id"],
                       reason="the session's system prompt was rebuilt mid-fire", **facts)
-        return context
+        return
     gate = next(reversed(_journal_tail(("gate",))), {})
     juncture_id = uuid.uuid4().hex
     at = _now_iso()
@@ -216,7 +340,6 @@ def juncture_context(session_info: Mapping[str, Any] | None = None) -> str:
                   job_id=job.group(1) if job else None, model=info.get("model") or None,
                   provider=info.get("provider") or None,
                   skills=[{"name": name, "bytes": sizes.get(name.split(":", 1)[-1])} for name in skills], **facts)
-    return context
 
 
 #: The last juncture rendered, for the ``spacemolt_run`` handler to stamp on its run request.
@@ -406,8 +529,10 @@ def _busy(menu: dict[str, Any]) -> str:
     if isinstance(menu.get("question"), dict):
         return ("SpaceMolt juncture — the run in flight is paused on a question for you.\n"
                 + question_text(menu["question"]))
+    # Without the game (``unread``) the command count is unknown, not zero.
     return (f"SpaceMolt juncture. Run in flight: yes — started {_stamp(started)}, in "
-            f"{menu.get('fn') or 'pilot'}, {menu.get('commands') or 0} commands so far.")
+            f"{menu.get('fn') or 'pilot'}"
+            + ("." if menu.get("unread") else f", {menu.get('commands') or 0} commands so far."))
 
 
 def _skill_text(name: str, value: Any) -> str:
@@ -435,27 +560,124 @@ def _neighbour(row: dict[str, Any]) -> str:
     return f"{row.get('system_id')} {'visited' if row.get('visited') else 'never visited'} ({', '.join(bits)})"
 
 
+#: ponytail: the Places line names the last eight systems found with no base and five refused
+#: bases, the rest a count. Raise it if a pilot keeps flying back to one it cannot see.
+_PLACES_SHOWN = (8, 5)
+
+
+def _places(menu: dict[str, Any], named: bool = True) -> str | None:
+    """What the pilot knows of the map, from the bridge's memory: how much it has flown, the
+    systems a look found no base in, and the bases that refused a dock — named, or only counted
+    when the section is short of room. Live 2026-09-30 (kvothe): with nowhere else to keep it, the
+    goal became a lossy list of visited systems, ~341 of 462 jumps were repeats, and refused bases
+    were retried hours apart."""
+    places = menu.get("places")
+    if not isinstance(places, dict):
+        return None
+    bits = []
+    if places.get("systems"):
+        bits.append(f"visited {places.get('visited') or 0} of {places['systems']} systems on the map")
+    bare, refused = list(places.get("stationless") or []), list(places.get("refused") or [])
+    if not named:
+        bits += ([f"no base found in {len(bare)} systems"] if bare else []) + (
+            [f"docking refused at {len(refused)} bases"] if refused else [])
+        return f"Places: {'; '.join(bits)}." if bits else None
+    stationless, refusals = _PLACES_SHOWN
+    if bare:
+        shown = bare[-stationless:]
+        bits.append("no base found in " + ", ".join(map(str, shown))
+                    + (f" (+{len(bare) - len(shown)} more)" if len(bare) > len(shown) else ""))
+    if refused:
+        rows = sorted((row for row in refused if isinstance(row, dict)), key=lambda row: str(row.get("at")))
+        shown = [f"{row.get('base_id')}" + (f" in {row['system_id']}" if row.get("system_id") else "")
+                 + f" ({_clock(row.get('at'))}: {row.get('message')})" for row in rows[-refusals:]]
+        bits.append("docking refused at " + "; ".join(shown)
+                    + (f" (+{len(rows) - len(shown)} more)" if len(rows) > len(shown) else ""))
+    return f"Places: {'; '.join(bits)}." if bits else None
+
+
+def _since_objective(menu: dict[str, Any], now: datetime) -> str | None:
+    """What has moved since the objective was set, as start → now: credits, each skill whose level
+    changed, the hull and the place. Facts, no verdict on whether the objective is met. Live
+    2026-09-30 (kvothe): "train an offensive skill" was met (tactics 4→5) while the pilot kept
+    saying no skill rose; it had nothing to compare against."""
+    start = menu.get("objective_start")
+    if not isinstance(start, dict) or not menu.get("objective"):
+        return None
+    p = menu.get("present") or {}
+    bits = []
+    if isinstance(start.get("credits"), (int, float)) and isinstance(p.get("credits"), (int, float)):
+        bits.append(f"credits {start['credits']:,} → {p['credits']:,}")
+    levels = {k: (v.get("level") if isinstance(v, dict) else v) for k, v in (p.get("skills") or {}).items()}
+    # A skill missing from the start was not trained yet: level 0 then.
+    was = start.get("skills") or {}
+    bits += [f"{name} {was.get(name, 0)}→{level}" for name, level in levels.items()
+             if level is not None and level != was.get(name, 0)]
+    if start.get("ship_class") and p.get("ship_class") and start["ship_class"] != p["ship_class"]:
+        bits.append(f"ship {start['ship_class']} → {p['ship_class']}")
+    here = p.get("docked_at") or p.get("poi") or p.get("system")
+    if start.get("place") and here and start["place"] != here:
+        bits.append(f"place {start['place']} → {here}")
+    began = _when(start.get("at"))
+    ago = f" {_span((now - began).total_seconds())} ago" if began else ""
+    return f"Since the objective was set{ago} ({_stamp(began)}): " + ("; ".join(bits) or "no change in credits, skills, ship or place") + "."
+
+
+_OPAQUE_ID = re.compile(r"(?<![\w'\"])[0-9a-f]{16,}(?![\w'\"])")
+
+
+def _name_ids(text: str, names: dict[str, str]) -> str:
+    """Every bare opaque id in ``text`` as ``Name (id)``, from the names the bridge's menu carries
+    (``nameIds`` in src/play/places.ts, the same rule). Quoted ids are code and stay as they are.
+    Live 2026-10-02 (kvothe): the Present line and the loops read "b495c6003fc83e18f6d8cecbe6929133",
+    and so did the pilot's replies."""
+    def name(match: re.Match[str]) -> str:
+        place, at = match.group(0), match.start()
+        known = names.get(place)
+        if not known or text[max(0, at - len(known) - 2):at] == f"{known} (":
+            return place
+        after = re.match(r" \(([^)]*)\)", text[match.end():])
+        return place if after and known in after.group(1) else f"{known} ({place})"
+    return _OPAQUE_ID.sub(name, text) if names else text
+
+
 def _situation(menu: dict[str, Any], said: dict[str, Any] | None) -> str:
     """The juncture as labelled lines, each fact once, budgeted on the final string.
 
     Over ``SECTION_LIMIT`` core drops the section whole, so the suggested moves go first, then
-    the hold list, then the older recent lines — never a fact line.
+    the hold list, the loops, the Places names and the older recent lines — never a fact line.
     """
     now = _when(menu.get("now")) or datetime.now(timezone.utc)
     p = menu.get("present") or {}
+    # A menu made from the record alone (``_record_menu``): no ship, no place, no market.
+    unread = bool(menu.get("unread"))
     facts = [line for line in (_battle(menu),) if line]
     facts.append(f"SpaceMolt juncture — {now.strftime('%Y-%m-%d %H:%MZ')}. Run in flight: no.")
+    if unread:
+        facts.append("The game did not answer this time: the ship, its hold and where it is are "
+                     "unknown here. A run's orient() reads them.")
     if menu.get("objective"):
         facts.append(f"Objective (carried in): {menu['objective']}")
+        facts += [line for line in (_since_objective(menu, now),) if line and not unread]
     if said:
         facts.append(f"Instruction (carried in {_stamp(_when(said.get('at')))}): {said.get('text')}")
     facts += _alerts(menu)
+    # One read serves both: the loops look further back than the recent runs.
+    rows = _journal_tail(("run", "reflection"), _LOOP_BYTES)
+    earned = earning_loops(rows)
+    # The first goal is for a pilot that has never earned. Live 2026-10-02 (kvothe 16:55Z): an
+    # objective reset cleared the goal, and a 270k-credit pilot with days of play was told to
+    # "learn the ship". New = no run in the journal took in credits. ponytail: that reads the
+    # _LOOP_BYTES window, so a veteran idle for longer than it reads as new again.
     facts.append(f"Goal: {menu['goal']}" if menu.get("goal")
-                 else f"Goal: none set yet; a first one: {FIRST_GOAL}")
+                 else "Goal: none set." if earned else f"Goal: none set yet; a first one: {FIRST_GOAL}")
+    if menu.get("steps"):
+        facts.append("Steps: " + "; ".join(f"{n}) {step}" for n, step in enumerate(menu["steps"], 1)))
     mood = str(menu.get("mood") or "Cautious")
     if menu.get("tired_by"):
         mood += f" ({menu['tired_by']})"
-    facts.append(f"Stance: {menu.get('stance') or 'none'}. Mood: {mood}.")
+    # The mood is derived from the ship, so without the game there is none to name.
+    facts.append(f"Stance: {menu.get('stance') or 'none'}." + ("" if unread else f" Mood: {mood}."))
     # Only the keys rendered here: a permission the code no longer knows is one the pilot
     # cannot act on (playtest 2026-09-22: a stale ``wildlife: false`` read as "wildlife False").
     permits = [_PERMISSION[k].format(v) for k, v in (menu.get("permissions") or {}).items()
@@ -470,7 +692,8 @@ def _situation(menu: dict[str, Any], said: dict[str, Any] | None) -> str:
     near = menu.get("neighbours") or []
     neighbours = "; ".join([_neighbour(row) for row in near[:NEIGHBOURS]]
                            + ([f"+{len(near) - NEIGHBOURS} more"] if len(near) > NEIGHBOURS else []))
-    facts.append(f"Present: {where}." + (f" One jump out: {neighbours}." if neighbours else ""))
+    if not unread:
+        facts.append(f"Present: {where}." + (f" One jump out: {neighbours}." if neighbours else ""))
     ship = (f"  Fuel {p.get('fuel')}/{p.get('max_fuel')}, hull {p.get('hull')}/{p.get('max_hull')}, "
             f"credits {p.get('credits') or 0:,}.")
     hold = [f"{row.get('item_id')} {row.get('quantity')}" for row in p.get("hold") or []]
@@ -494,34 +717,41 @@ def _situation(menu: dict[str, Any], said: dict[str, Any] | None) -> str:
         facts_after.append(f"  Walk-away: break off a fight below hull {p['walk_away']}.")
 
     recent = [_recent_line(row) for row in
-              [row for row in _journal_tail(("run", "reflection"))
+              [row for row in rows
                if row.get("event") == "reflection" or row.get("phase") in ("ended", "refused")][-RECENT:]]
-    moves = menu.get("text")
+    loops = [_loop_line(loop) for loop in earned[:LOOPS]]
+    names = menu.get("names") if isinstance(menu.get("names"), dict) else {}
+    shape = {"moves": menu.get("text"), "kept": len(hold), "loops": len(loops), "named": True, "recent": len(recent)}
 
-    def render(moves: str | None, kept: int, shown_recent: list[str]) -> str:
+    def render() -> str:
+        kept = shape["kept"]
         shown = hold[:kept] + ([f"+{len(hold) - kept} more"] if kept < len(hold) else [])
         hold_line = (f" Hold: {', '.join(shown) or 'empty'} ({free} free)."
                      + (f" {_HOLD_FULL_DOCKED if p.get('docked_at') else _HOLD_FULL_OUT}."
                         if free == 0 else ""))
-        lines = facts + [ship + hold_line] + facts_after
+        lines = facts + [line for line in (_places(menu, shape["named"]),) if line] + (
+            [] if unread else [ship + hold_line] + facts_after)
+        if shape["loops"]:
+            lines.append("Your earning loops (from your journal, most credits first):\n  "
+                         + "\n  ".join(loops[:shape["loops"]]))
+        shown_recent = recent[len(recent) - shape["recent"]:]
         lines.append("Your recent runs (newest last):\n  " + "\n  ".join(shown_recent)
                      if shown_recent else "Your recent runs: none yet.")
-        if moves:
+        if shape["moves"]:
             lines.append("Suggested moves (advice, pasteable into main()):\n  "
-                         + moves.replace("\n", "\n  "))
-        return "\n".join(lines)
+                         + shape["moves"].replace("\n", "\n  "))
+        return _name_ids("\n".join(lines), names)
 
-    kept = len(hold)
-    text = render(moves, kept, recent)
-    if len(text) > SECTION_LIMIT:
-        text = render(None, kept, recent)
-    while len(text) > SECTION_LIMIT and kept:
-        kept = max(0, kept - max(1, (len(text) - SECTION_LIMIT) // 12))
-        text = render(None, kept, recent)
-    while len(text) > SECTION_LIMIT and len(recent) > 1:
-        recent = recent[1:]
-        text = render(None, kept, recent)
-    return text[:SECTION_LIMIT]
+    # Over the limit, give way in this order: the moves, the hold list, the loops to one, the
+    # Places names to counts, the older recent runs to one, the last loop.
+    text = render()
+    for key, floor in (("moves", None), ("kept", 0), ("loops", 1), ("named", False), ("recent", 1), ("loops", 0)):
+        while len(text) > SECTION_LIMIT and shape[key] != floor:
+            over = max(1, (len(text) - SECTION_LIMIT) // 12) if key == "kept" else 1
+            shape[key] = floor if key in ("moves", "named") else max(floor, shape[key] - over)
+            text = render()
+    # Still over (fact lines alone): cut at a line end, not mid-line.
+    return text if len(text) <= SECTION_LIMIT else text[:SECTION_LIMIT].rsplit("\n", 1)[0]
 
 
 def read_pilot() -> dict[str, Any]:

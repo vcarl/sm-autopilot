@@ -9,6 +9,7 @@ assembled from everything this pilot is allowed to know.
 
 | Function | Promise |
 |---|---|
+| `buyers(items)` | who bids for each item named, held or not: the highest bids known anywhere (up to `BUYERS`, 3, an item) with `{base_id, best_buy, best_buy_qty, source, age, jumps}`. Works undocked, from memory, ages then counted from the newest book you hold at ten seconds a tick; docked it adds the live book here. No trip priced, nothing netted: `spreads()` does that for what you hold |
 | `spreads(items?)` | the best buyers known for each thing you hold (up to `BUYERS`, 3, an item), anywhere, with the trip priced and netted, ranked as `routes()` ranks a one-stop route |
 | `routes({items?, circuit?, maxStops?, maxLegJumps?, maxJumps?})` | every route known within the scope (by default up to 4 stops, 3 jumps a leg), planned from the hold you have, fuelled, and ranked by trust-weighted net per jump; each row carries the call to paste. With `circuit: {hold}`, every row is a closed lap for a freighter instead, past the rings a freighter drained within `REST_TICKS` |
 | `tradeRun({stops})` | fly the stops in order; at each, sell what pays best there and fill the hold from the stop's `buy` items, re-planned against the live book. The realised net from the wallet |
@@ -37,10 +38,12 @@ ledger is read whole, by station, 20 stations a page and at most 4 pages a read;
 asked by item, because live an `item_id` filter answers nothing even for a filed item. A ledger
 entry carries no system (`system_id` comes back empty), so the memory's system for that base
 stands in. A base both remembered and on the ledger is read from the **fresher** copy only (a tie
-goes to the ledger), whichever copy pays more: `spreads()`, `routes()`, `tradeRun` and `assign`
+goes to the memory), whichever copy pays more: `spreads()`, `routes()`, `tradeRun` and `assign`
 all see that one book. The
 memory is free and always there: every `book()` read — by `prices()`, `sell()`, `recipes()`,
 `quote()` — writes that base's whole book to `markets.json` in the runtime dir, kept for a day of ticks.
+Your own fills come off it as they land: what `sell()` sold leaves that base's remembered bids, what
+`buy()` bought leaves its asks, so the next plan does not count on a bid you already filled.
 So the second visit knows what the first one saw, across runs and across restarts. It follows
 that the way to *learn* a price is to go and stand in front of it: `goTo(base)` then
 `prices()`, once, and that base is in the memory for good.
@@ -159,7 +162,9 @@ Each leg is:
 | `sales_tax` | tax on those buys, each floored as the game does, at this base's rate when the stop is far; `null` when no rate is known |
 
 At most 5 rows come back, priced ones first. The Outcome's `did` names the best row in short —
-a stop selling more than two kinds says `sell 499 of 10 kinds` — and its legs carry each sale. A stop that could not be placed leaves its row in
+a stop selling more than two kinds says `sell 499 of 10 kinds`, and a far stop names its book's
+source and age, `sirius_observatory_station (remembered, 85 ticks old) sell 2 dark_matter_residue`
+— and its legs carry each sale. A stop that could not be placed leaves its row in
 the list with a `why`, a `score` of 0 and the Outcome `partial`.
 
 ## Circuits: a lap a freighter repeats
@@ -250,12 +255,35 @@ It answers `detail: Traded` = `{stops, unsold, fuel, net}`:
 | `fuel` | fuel units the flights burned, measured from the tank |
 | `net` | sales, less `spent` (tax included), less `fuel × fuel_price_all_in` at the first base the run was docked at. Fuel comes from the tank, not the wallet, so it is priced exactly as `Route.net` prices it: realised `net` against the `routes()` row's `net` is like against like |
 
+Each stop's `did` names what it took and the later bid it was taken for, with that book's age:
+`took 2 dark_matter_residue for sirius_observatory_station's 1020 bid (remembered, 85 ticks old)`.
+That bid is a memory until the run stands in front of it; an old one is the likeliest to have moved.
+A take that bid's depth bounded, with more on the asks, says how deep it is and what was already
+aboard for it: `solarian_biotic: b495…'s bids hold 16, 4 already aboard`.
+A `buy` item the live book no longer offers as the book the route was planned on did is said
+against that book: `no ask for circuit_board here now (was 330 for 5, 12 ticks ago)`, or, when the
+buy took every unit left, `circuit_board: 2 on the asks here now (was 330 for 5, 12 ticks ago)`.
+The same words are in the stop's `why`.
+
+A thin book is walked down its levels, so a sale can fetch less than the top bid you saw: when a
+stop's sale averages more than 3% under the top bid read there, `did` says so with that bid's depth
+(`sold 10 plasma_injector at 6633 each, under the 7153 top bid (2 deep)`); `sell()` says it the same
+way. `routes()` already prices a remembered book level by level; a ledger book carries only its top
+level and the depth there, so its rows count no more than that.
+
 It never throws. A flight that does not arrive is `partial`, with the stops done so far, and
 `next` is the rest of the route. A `done` run's `next` is pasteable calls only: the same
 `tradeRun(...)` again when the route bought something and netted a profit, and `routes()`, which
 is all it offers after a route that only sold the hold. Re-running the same call starts again at the first stop and
 re-plans from the hold you have. A load already aboard is carried on and is not bought twice. A
 sale or buy the game refuses is `partial` too, and the run carries on to the next stop.
+
+After each stop it looks at the rest of the route against the books it knows: when nothing aboard
+has a bid at any stop ahead, and no stop ahead has a known ask for its `buy` (a `from: 'store'` stop
+and a stop with no known book count as maybe), the flights ahead cannot pay, so it ends there,
+`partial`: `nothing aboard sells at range_base, and no stop ahead has a known ask to buy at —
+range_base not flown`, with `next: ['routes()']`. A run that loops one source until its asks are gone
+ends this way at the dry stop instead of flying the empty legs.
 
 The menu offers `tradeRun({stops: [{at}]})` in every stance when something aboard has no bid here
 and a remembered book elsewhere bids for it. For goods in the store here, it offers
@@ -285,7 +313,10 @@ Each hop goes to the first candidate within `jumps`, chosen afresh after every h
    placed, and some POI in it);
 3. a base whose freshest book, ledger or memory, is older than `IGNORE_TICKS` (1080 ticks, three hours).
 
-The first two rank together, nearer first and a base before a system; stale books come after. A base
+The first two rank together, nearer first and a base before a system; stale books come after, and
+a base that refused your dock (the same record the Places line reads) comes last of all: `did` says
+`ranked 1 base(s) that refused docking last: …`, and when one is flown to anyway because nothing else
+is left, `flew to … (Access denied) though it refused docking before`. A
 is flown to with `goTo` and its book read as `prices()` reads one: remembered in `markets.json` and
 filed to the ledger. After every hop the system's bases are listed (`get_system`) and kept in
 `places.json`, and the system in `explored.json`, so a system flown to for its bases makes them the

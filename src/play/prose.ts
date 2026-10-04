@@ -35,6 +35,35 @@ function thisRun(calls:Call[]):string {
     ...lines].join('\n');
 }
 
+/** The run's headline from its work, not its last call. Live 2026-10-01 (kvothe 15:25Z): two
+ * tradeRun calls earned 5,071 and 2,452 cr, the third lap was cut at the cap, and the run read
+ * "nothing; did not reach nova_terra_central"; 09-30 run 8e0abef8 mined 27 items and read `refused`
+ * "serviced nothing" from a trailing service() off a station. The pilot read both as the loop dying.
+ * The rule, mechanical: when `main()` returned a library call's Outcome (not one it composed with
+ * `outcome()`, nor the runtime's broke/stopped/cap) and some top-level call gained credits or items,
+ * the run takes the status of the call that gained the most credits (then items), its did leads
+ * with the run's totals and that call's did, and the last call follows as a clause. Every call
+ * keeps its own status in `calls`; a run whose returned call is its only earner is left as it is. */
+export function ofTheRun(result:Outcome<unknown>,calls:Call[]):Outcome<unknown> {
+  const earned=calls.filter(c=>c.credits>0||c.items>0),last=calls.at(-1);
+  if(result.fn==='pilot'||!earned.length||!last||(earned.length===1&&earned[0]===last))return result;
+  const best=earned.reduce((a,c)=>c.credits>a.credits||(c.credits===a.credits&&c.items>a.items)?c:a);
+  const total=(pick:(call:Call)=>number)=>calls.reduce((sum,call)=>sum+pick(call),0);
+  const credits=total(c=>c.credits),count=total(c=>c.items);
+  const got=[credits?`+${n(credits)} cr`:'',count?`+${n(count)} items`:''].filter(Boolean).join(', ');
+  const tail=best===last?'':`; last call ${last.fn} ${last.status}`
+    +(last.status==='done'?'':`: ${last.did}${last.why?`: ${last.why}`:''}`);
+  const items=new Map<string,number>(),xp:Record<string,number>={};
+  for(const call of calls) {
+    for(const row of call.gained?.items??[])items.set(row.item_id,(items.get(row.item_id)??0)+row.quantity);
+    for(const [id,value] of Object.entries(call.gained?.xp??{}))xp[id]=(xp[id]??0)+value;
+  }
+  const {why:_why,...rest}=result;
+  return {...rest,status:best.status,
+    did:`${earned.length>1?`${earned.length} calls`:best.fn} gained ${got}: ${best.did}${best.why?` (${best.why})`:''}${tail}`,
+    gained:{credits,items:[...items].map(([item_id,quantity])=>({item_id,quantity})),xp}};
+}
+
 export function prose(outcome:Outcome<unknown>,calls:Call[]=[]):string {
   const out:string[]=[];
   const head=outcome.status==='done'?'Done':outcome.status.charAt(0).toUpperCase()+outcome.status.slice(1);

@@ -8,12 +8,13 @@ import {Effect} from 'effect';
 import {GameLive} from '../game.ts';
 import type {ReadinessAccount,ReadinessCommand} from '../../readiness.ts';
 import {bridgeWorld,TICK,type WorldOptions} from '../../test-support/bridge-world.ts';
-import {buy,knownBooks,prices,sell} from '../market.ts';
-import {bind,stop,unbind,type Pilot} from '../runtime.ts';
+import {buy,knownBooks,prices,sell,slipped,debitBook,rememberBook} from '../market.ts';
+import {bind,runCalls,stop,unbind,type Pilot} from '../runtime.ts';
 import {goTo} from '../travel.ts';
 import {check} from '../../run.ts';
 import {readPlaces} from '../places.ts';
-import {farBooksEffect,pilotSeat,routes,runCall,spreads,tradeRun,type Seat} from './trading.ts';
+import {journalCommand,readJournal} from '../../run-record.ts';
+import {buyers,farBooksEffect,pilotSeat,routes,runCall,spreads,tradeRun,type Seat} from './trading.ts';
 import {candidatesEffect,exploreEffect,scoutMarkets} from './scout.ts';
 
 /** `lost` names the sends the world carries out and whose reply never arrives. */
@@ -375,6 +376,8 @@ test('a three-stop route: the middle stop sells what it was bought for and buys 
     assert.deepEqual(fills(run.detail.stops[1]!),[['gem',10]]);
     assert.equal(run.detail.stops[1]!.bought,10);
     assert.deepEqual(fills(run.detail.stops[2]!),[['ore',10]]);
+    // Live 2026-10-01 (kvothe): the stops are a raw fact on the call, for the juncture's loops.
+    assert.deepEqual(runCalls().at(-1)!.stops,['sol_base','range_base','twin_base']);
   } finally {unbind();rmSync(runtime,{recursive:true,force:true});}
 });
 
@@ -444,7 +447,7 @@ test('a failed route lookup is a row with a why and a partial, not a throw',asyn
     assert.equal(row.total_jumps,null);
     assert.equal(row.score,0);
     assert.match(row.why!,/no route to ghost_base: .*fuel not priced/);
-    assert.match(out.why!,/sol_base buy 20 gem → ghost_base sell 20 gem: no route to ghost_base/);
+    assert.match(out.why!,/sol_base buy 20 gem → ghost_base \(remembered, 0 ticks old\) sell 20 gem: no route to ghost_base/);
   } finally {unbind();rmSync(runtime,{recursive:true,force:true});}
 });
 
@@ -933,5 +936,266 @@ test('a stop before the first hop ends scoutMarkets at the loop, before any cand
     assert.match(out.why??'',/stopped/);
     assert.equal(f.count('spacemolt/get_map'),0,'no candidate is read after a stop');
     assert.equal(f.count('spacemolt/jump'),0);
+  } finally {unbind();rmSync(runtime,{recursive:true,force:true});}
+});
+
+test('scoutMarkets ranks a base that refused the dock last, says so, and flies there only when nothing else is left',async()=>{
+  // Live 2026-10-02 (kvothe 16:37Z): scoutMarkets flew straight back to Proxima's only base a minute
+  // after it said `Access denied`.
+  const runtime=mkdtempSync(join(tmpdir(),'spacemolt-scout-refused-'));
+  writeFileSync(join(runtime,'places.json'),JSON.stringify({range_base:'deep_range',reach_base:'far_reach'}));
+  writeFileSync(join(runtime,'docking.json'),JSON.stringify({range_base:{message:'Access denied',at:'2026-10-02T16:36:00Z'}}));
+  world({mood:'Focused'},{tradeIntel:[],systems:[{id:'far_reach',connections:['deep_range'],pois:[{id:'reach_dock',base_id:'reach_base'}]}]},runtime);
+  try {
+    const first=await scoutMarkets({max:1});
+    assert.deepEqual(first.detail.filed,['reach_base'],first.did);
+    assert.match(first.did,/; ranked 1 base\(s\) that refused docking last: range_base$/);
+    const second=await scoutMarkets({max:1});
+    assert.deepEqual(second.detail.filed,['range_base'],second.did);
+    assert.match(second.did,/; flew to range_base \(Access denied\) though it refused docking before: nothing else was left to scout$/);
+  } finally {unbind();rmSync(runtime,{recursive:true,force:true});}
+});
+
+test('buyers answers who bids for an item, held or not, docked or not: price, depth, book age and jumps',async()=>{
+  // Live 2026-09-30 (kvothe): hours flown system to system, prices(['aluminum_ore']) at each, hunting a buyer.
+  const runtime=remembered([{base_id:'range_base',age:40,items:[{item_id:'aluminum_ore',best_buy:12,best_buy_qty:300}]},
+    {base_id:'twin_base',age:0,system_id:'sol',items:[{item_id:'aluminum_ore',best_buy:8,best_buy_qty:50}]}]);
+  const f=world({mood:'Focused'},{cargo:[{item_id:'aluminum_ore',quantity:5}],cargoUsed:5,store:[],markets:{sol_base:[]},
+    pois:[{id:'twin',base_id:'twin_base'}]},runtime);
+  try {
+    await f.command('spacemolt/undock',{});
+    const out=await buyers(['aluminum_ore','osmium_ore']);
+    assert.equal(out.status,'done',out.why);
+    assert.deepEqual(out.detail.buyers.map(row=>[row.base_id,row.best_buy,row.best_buy_qty,row.source,row.age,row.jumps]),
+      [['range_base',12,300,'remembered',40,1],['twin_base',8,50,'remembered',0,0]],'highest bid first, aged against the newest book known');
+    assert.equal(out.did,'aluminum_ore: range_base bids 12 for 300 (remembered, 40 ticks old, 1 jumps); twin_base bids 8 for 50 (remembered, 0 ticks old, 0 jumps) | osmium_ore: no buyer known');
+    assert.deepEqual(out.next,["tradeRun({stops:[{at:'range_base'}]})"]);
+    assert.equal(f.count('spacemolt_market/view_market'),0,'undocked: memory only');
+  } finally {unbind();rmSync(runtime,{recursive:true,force:true});}
+});
+
+test('a sale filled under the top bid says so, in sell and in tradeRun, with the depth that bid had',async()=>{
+  // Live 2026-10-01 (kvothe 14:45Z): 10 plasma_injector filled at 6,633 against a 7,153 bid 2 deep, −5.2k unsaid.
+  // This world fills every sale at 10 each.
+  world({mood:'Focused'},{cargo:[{item_id:'ore',quantity:6}],cargoUsed:6,store:[],
+    markets:{sol_base:[{item_id:'ore',best_buy:12,best_buy_qty:3,best_sell:0,best_sell_qty:0}]}});
+  try {
+    const sold=await sell([{item_id:'ore',quantity:3}]);
+    assert.equal(sold.did,'sold 3 ore at 10 each, under the 12 top bid (3 deep) at sol_base for 30 cr');
+    const run=await tradeRun({stops:[{at:'sol_base'}]});
+    assert.match(run.did,/^sol_base: sold 3 ore at 10 each, under the 12 top bid \(3 deep\) — net 30 cr/);
+  } finally {unbind();}
+});
+
+test('routes and tradeRun name the age of each far book a leg was planned on',async()=>{
+  // Live 2026-10-01 (kvothe 16:10Z): 2 dark_matter_residue bought at 690 for a remembered bid that had
+  // moved; "unsold … nova_terra_central bids 40", net −967, and nothing said the book was old.
+  const runtime=remembered([{...RANGE,age:40}]);
+  world({mood:'Focused'},{cargo:[],cargoUsed:0,cargoCapacity:20,store:[],markets:HERE},runtime);
+  try {
+    const out=await routes({items:['gem'],maxStops:2});
+    assert.match(out.did,/best: sol_base buy 20 gem → range_base \(remembered, 40 ticks old\) sell 20 gem,/);
+    assert.deepEqual(out.detail.routes[0]!.legs.map(leg=>[leg.source,leg.age]),[['here',0],['remembered',40]]);
+    const run=await tradeRun({stops:[{at:'sol_base',buy:'gem'},{at:'range_base'}]});
+    assert.match(run.did,/^sol_base: took 20 gem for range_base's 110 bid \(remembered, 40 ticks old\) → range_base: /);
+  } finally {unbind();rmSync(runtime,{recursive:true,force:true});}
+});
+
+test('a planned buy that finds no ask, or fewer units than remembered, says so with the remembered price and age',async()=>{
+  // Live 2026-10-01 (kvothe 15:25Z): tradeRun at confederacy_central_command reported only "nothing".
+  const planned={base_id:'sol_base',age:12,items:[{item_id:'gem',best_sell:100,best_sell_qty:50}]};
+  for(const [ask,said] of [[0,/^sol_base: no ask for gem here now \(was 100 for 50, 12 ticks ago\); nothing aboard sells at range_base/],
+    [5,/^sol_base: took 5 gem for range_base's 110 bid \(remembered, 0 ticks old\), gem: 5 on the asks here now \(was 100 for 50, 12 ticks ago\) → /]] as const) {
+    const runtime=remembered([planned,RANGE]);
+    world({mood:'Focused'},{cargo:[],cargoUsed:0,cargoCapacity:20,store:[],
+      markets:{sol_base:[{item_id:'gem',best_buy:90,best_buy_qty:50,best_sell:ask?100:0,best_sell_qty:ask}]}},runtime);
+    try {
+      const run=await tradeRun({stops:[{at:'sol_base',buy:'gem'},{at:'range_base'}]});
+      assert.match(run.did,said);
+      assert.match(run.detail.stops[0]!.why!,ask?/gem: 5 on the asks here now/:/no ask for gem here now/);
+      const [stop]=readJournal(runtime).filter(entry=>entry.event==='stop');
+      assert.deepEqual(stop?.items,[{item_id:'gem',ask_depth:ask,aboard:0,later_bid_depth:{range_base:50},planned:ask,sent:ask,bought:ask,...ask?{}:{why:'no ask'}}]);
+    } finally {unbind();rmSync(runtime,{recursive:true,force:true});}
+  }
+});
+
+test('tradeRun does not fly the rest of a route that cannot pay: nothing aboard sells ahead, no known ask ahead',async()=>{
+  // Live 2026-10-02 (kvothe 19:36Z, run e4ca9b3f): nova_terra_central's sunspindle asks drained by the
+  // run's own laps, nothing bought, then 6 jumps flown for "nothing → nothing — net −64 cr".
+  const runtime=remembered([{base_id:'sol_base',age:12,items:[{item_id:'gem',best_sell:135,best_sell_qty:66}]},RANGE]);
+  const f=world({mood:'Focused'},{cargo:[],cargoUsed:0,cargoCapacity:20,store:[],
+    markets:{sol_base:[{item_id:'gem',best_buy:90,best_buy_qty:50,best_sell:0,best_sell_qty:0}]}},runtime);
+  try {
+    const run=await tradeRun({stops:[{at:'sol_base',buy:'gem'},{at:'range_base'}]});
+    assert.equal(run.status,'partial');
+    assert.equal(run.did,'sol_base: no ask for gem here now (was 135 for 66, 12 ticks ago); nothing aboard sells at range_base, and no stop ahead has a known ask to buy at — range_base not flown — net 0 cr after 0 fuel at 1 cr');
+    assert.deepEqual(run.next,['routes()']);
+    assert.equal(f.count('spacemolt/jump'),0,'range_base not flown to');
+    // Live 2026-10-03 (kvothe): a planned buy not made, and the remembered books' ages, were only in prose.
+    const [stop]=readJournal(runtime).filter(entry=>entry.event==='stop');
+    assert.deepEqual({...stop,at:undefined,run_id:undefined},{at:undefined,run_id:undefined,event:'stop',base_id:'sol_base',book_tick:TICK,
+      before_tick:TICK-12,items:[{item_id:'gem',ask_depth:0,aboard:0,later_bid_depth:{range_base:50},planned:0,sent:0,bought:0,why:'no ask'}],
+      later:[{base_id:'range_base',source:'remembered',age:0}],cargo_used:0,cargo_capacity:20},'the dry visit journals why it bought none');
+  } finally {unbind();rmSync(runtime,{recursive:true,force:true});}
+  // Ore aboard that range_base bids for: the route is flown as before.
+  const kept=remembered([RANGE]);
+  world({mood:'Focused'},{cargo:[{item_id:'ore',quantity:4}],cargoUsed:4,cargoCapacity:20,store:[],
+    markets:{sol_base:[{item_id:'gem',best_buy:90,best_buy_qty:50,best_sell:0,best_sell_qty:0}]}},kept);
+  try {
+    const run=await tradeRun({stops:[{at:'sol_base',buy:'gem'},{at:'range_base'}]});
+    assert.match(run.did,/ → range_base: sold 4 ore/);
+  } finally {unbind();rmSync(kept,{recursive:true,force:true});}
+});
+
+test('a buy journals the book it was sent against, as a sell does: bid, ask, book tick and age',async()=>{
+  // Live 2026-10-01 (kvothe): all 37 tradeRun buys journalled a quote with no ask, bid or book tick.
+  const runtime=mkdtempSync(join(tmpdir(),'spacemolt-quote-'));
+  const game=bridgeWorld({services:['refuel','repair','storage'],cargo:[],cargoUsed:0,store:[],
+    markets:{sol_base:[{item_id:'gem',best_buy:90,best_buy_qty:50,best_sell:100,best_sell_qty:20,
+      buy_orders:[{price_each:90,quantity:50},{price_each:80,quantity:10}],sell_orders:[{price_each:100,quantity:20},{price_each:105,quantity:30}]}]}});
+  bind({account:game.account as unknown as Account,pilot:()=>({mood:'Focused'}),emit:()=>{},runtime,
+    command:async(action,params)=>{const reply=await game.command(action,params);journalCommand(runtime,action,params,true,reply);return reply;}});
+  try {
+    assert.equal((await prices(['gem'])).status,'done');
+    assert.equal((await buy('gem',3)).status,'done');
+    const [quote]=readJournal(runtime).filter(entry=>entry.event==='trade'&&entry.side==='buy').map(entry=>entry.quote as Record<string,any>);
+    // Live 2026-10-02 (kvothe 18:01Z, run d364ca05): 6 of 66 planned sunspindle bought; no line said what was on offer.
+    assert.deepEqual({...quote,age_s:undefined},{bid:90,ask:100,ask_qty:20,asks:[{price_each:100,quantity:20},{price_each:105,quantity:30}],
+      book_tick:TICK,age_s:undefined,estimate_quantity:3,estimate_total:36,estimate_available:99});
+    assert.ok(quote?.age_s>=0&&quote?.age_s<5,JSON.stringify(quote));
+    // Live 2026-10-03 (kvothe, run d6bc1a8d): 13 circuit_board sold at 250 with no bid depth on the journal.
+    assert.equal((await sell([{item_id:'gem',quantity:3}])).status,'done');
+    const journal=readJournal(runtime);
+    const [sold]=journal.filter(entry=>entry.event==='trade'&&entry.side==='sell').map(entry=>entry.quote as Record<string,unknown>);
+    assert.deepEqual({...sold,age_s:undefined},{bid:90,ask:100,bid_qty:50,bids:[{price_each:90,quantity:50},{price_each:80,quantity:10}],
+      book_tick:TICK,age_s:undefined});
+    assert.ok(!journal.some(entry=>entry.event==='book'),'books stay out of the journal the context tails');
+    const books=readFileSync(join(runtime,'books.jsonl'),'utf8').trim().split('\n').map(line=>JSON.parse(line));
+    assert.deepEqual(books.map(entry=>({...entry,at:undefined,run_id:undefined})),
+      [{at:undefined,run_id:undefined,event:'book',base_id:'sol_base',book_tick:TICK,
+        items:[{item_id:'gem',bid_depth:60,ask_depth:50,bids:[[90,50],[80,10]],asks:[[100,20],[105,30]]}]}],
+      'each read journals its book, both sides; the unchanged re-read before the sale is left out');
+  } finally {unbind();rmSync(runtime,{recursive:true,force:true});}
+});
+
+test('a sale filled at the top bid says nothing more',async()=>{
+  world({mood:'Focused'},{cargo:[{item_id:'ore',quantity:3}],cargoUsed:3,store:[],
+    markets:{sol_base:[{item_id:'ore',best_buy:10,best_buy_qty:3,best_sell:0,best_sell_qty:0}]}});
+  try {assert.equal((await sell([{item_id:'ore'}])).did,'sold 3 ore at sol_base for 30 cr');}
+  finally {unbind();}
+});
+
+test('a first stop that refuses the dock leaves tradeRun partial in the trip\'s words, not failed',async()=>{
+  // Live 2026-10-02 (kvothe 16:37Z): goTo arrived and the base said `Access denied`; the trip is a
+  // partial now, and a tradeRun at its first stop turned that into `failed`.
+  const runtime=mkdtempSync(join(tmpdir(),'spacemolt-trade-dock-'));
+  const game=bridgeWorld({services:['refuel','repair','storage'],cargoUsed:0,cargo:[],store:[],markets:HERE});
+  const command:typeof game.command=async(action,params)=>{
+    if(action==='spacemolt/dock')throw new SpacemoltError('access_denied','Access denied');
+    return game.command(action,params);
+  };
+  bind({account:game.account as unknown as Account,command,pilot:():Pilot=>({mood:'Focused'}),runtime,emit:()=>{}});
+  try {
+    const out=await tradeRun({stops:[{at:'range_base'}]});
+    assert.equal(out.status,'partial',JSON.stringify(out));
+    assert.match(out.did,/^nothing done; arrived at range_base after 1 jump\(s\); docking refused: Access denied$/);
+    assert.match(out.why!,/range_base: Access denied/);
+  } finally {unbind();rmSync(runtime,{recursive:true,force:true});}
+});
+
+test('a sale comes off the remembered bids, so the next run buys only what is left of them, and says so (live: bc564bea)',async()=>{
+  // Live 2026-10-03 (kvothe, run bc564bea): 137 solarian_biotic bought at 193 for b495…'s bids as remembered
+  // before run a803ae2b sold 128 into them; on arrival they held 16 (238×4, 233×12), and 121 rode on unsold.
+  const runtime=mkdtempSync(join(tmpdir(),'spacemolt-routes-'));
+  world({mood:'Focused'},{cargo:[{item_id:'gem',quantity:10}],cargoUsed:10,cargoCapacity:20,store:[],markets:{
+    sol_base:[{item_id:'gem',best_buy:0,best_buy_qty:0,best_sell:100,best_sell_qty:50}],
+    range_base:[{item_id:'gem',best_buy:110,best_buy_qty:4,best_sell:0,best_sell_qty:0,
+      buy_orders:[{price_each:110,quantity:4},{price_each:105,quantity:8}]}]}},runtime);
+  try {
+    const first=await tradeRun({stops:[{at:'range_base'}]});
+    assert.match(first.did,/^range_base: sold 10 gem/);
+    const gem=(base:string)=>knownBooks(runtime).find(book=>book.base_id===base)!.items.find(row=>row.item_id==='gem')!;
+    assert.deepEqual([gem('range_base').buy_orders,gem('range_base').best_buy,gem('range_base').best_buy_qty],[[{price_each:105,quantity:2}],105,2]);
+    const run=await tradeRun({stops:[{at:'sol_base',buy:'gem'},{at:'range_base'}]});
+    assert.match(run.did,/^sol_base: took 2 gem for range_base's 105 bid \(remembered, 0 ticks old\), gem: range_base's bids hold 2 → /);
+    const stop=readJournal(runtime).filter(entry=>entry.event==='stop').find(entry=>entry.base_id==='sol_base')!;
+    assert.deepEqual(stop?.items,[{item_id:'gem',ask_depth:50,aboard:0,later_bid_depth:{range_base:2},planned:2,sent:2,bought:2}]);
+    // The buy comes off this base's remembered asks the same way, a book with no levels at its top.
+    assert.deepEqual([gem('sol_base').best_sell,gem('sol_base').best_sell_qty],[100,48]);
+  } finally {unbind();rmSync(runtime,{recursive:true,force:true});}
+});
+
+test('what is already aboard for a later bid counts against it: the buy tops it up to that bid\'s depth',async()=>{
+  // Live 2026-10-03 (kvothe, run bc564bea): the carry and the buy were sized against the same 16 bids.
+  const runtime=remembered([{base_id:'range_base',age:30,items:[{item_id:'gem',best_buy:110,best_buy_qty:8}]}]);
+  world({mood:'Focused'},{cargo:[{item_id:'gem',quantity:5}],cargoUsed:5,cargoCapacity:20,store:[],
+    markets:{sol_base:[{item_id:'gem',best_buy:0,best_buy_qty:0,best_sell:100,best_sell_qty:50}]}},runtime);
+  try {
+    const run=await tradeRun({stops:[{at:'sol_base',buy:'gem'},{at:'range_base'}]});
+    assert.match(run.did,/^sol_base: took 3 gem for range_base's 110 bid \(remembered, 30 ticks old\), gem: range_base's bids hold 8, 5 already aboard → /);
+    const [stop]=readJournal(runtime).filter(entry=>entry.event==='stop');
+    assert.deepEqual(stop?.items,[{item_id:'gem',ask_depth:50,aboard:5,later_bid_depth:{range_base:8},planned:3,sent:3,bought:3}]);
+  } finally {unbind();rmSync(runtime,{recursive:true,force:true});}
+});
+
+test('slipped names a fill materially under the top bid with its depth, and nothing within 3% of it',()=>{
+  // Live 2026-10-01 (kvothe 14:45Z): 10 plasma_injector filled at 6,633 against a 7,153 bid 2 deep, −5.2k unsaid.
+  assert.equal(slipped({best_buy:7153,best_buy_qty:2},10,66_330),' at 6633 each, under the 7153 top bid (2 deep)');
+  assert.equal(slipped({best_buy:100,best_buy_qty:5},10,980),'');
+  assert.equal(slipped(undefined,10,500),'');
+  assert.equal(slipped({best_buy:0,best_buy_qty:0},10,500),'');
+});
+
+test('debitBook takes a fill off the remembered levels, or off a top-only row, and leaves other books alone',()=>{
+  const runtime=mkdtempSync(join(tmpdir(),'spacemolt-debit-'));
+  try {
+    rememberBook(runtime,'range_base','deep_range',[{item_id:'gem',best_buy:110,best_buy_qty:4,best_sell:0,best_sell_qty:0,
+      buy_orders:[{price_each:110,quantity:4},{price_each:105,quantity:8}],sell_orders:[]} as never],TICK);
+    rememberBook(runtime,'sol_base','sol',[{item_id:'gem',best_buy:0,best_buy_qty:0,best_sell:100,best_sell_qty:50,buy_orders:[],sell_orders:[]} as never],TICK);
+    debitBook(runtime,'range_base','gem','bids',6);
+    debitBook(runtime,'sol_base','gem','asks',50);
+    debitBook(runtime,'nowhere','gem','asks',5);
+    const gem=(base:string)=>knownBooks(runtime).find(book=>book.base_id===base)?.items.find(row=>row.item_id==='gem');
+    assert.deepEqual([gem('range_base')?.buy_orders,gem('range_base')?.best_buy,gem('range_base')?.best_buy_qty],[[{price_each:105,quantity:6}],105,6]);
+    assert.deepEqual([gem('sol_base')?.sell_orders,gem('sol_base')?.best_sell,gem('sol_base')?.best_sell_qty],[[],0,0],'every unit taken: no ask left');
+    assert.deepEqual(knownBooks(runtime).map(book=>book.base_id).sort(),['range_base','sol_base']);
+  } finally {rmSync(runtime,{recursive:true,force:true});}
+});
+
+test('a sell whose reply is lost debits the remembered bids by what the re-read hold shows moved, and is sent once',async()=>{
+  const runtime=mkdtempSync(join(tmpdir(),'spacemolt-debit-lost-'));
+  const f=world({mood:'Focused'},{cargo:[{item_id:'ore',quantity:3}],cargoUsed:3,store:[],
+    markets:{sol_base:[{item_id:'ore',best_buy:12,best_buy_qty:5,best_sell:0,best_sell_qty:0}]}},runtime,()=>{},action=>action==='spacemolt/sell');
+  try {
+    const out=await sell([{item_id:'ore'}]);
+    assert.equal(f.count('spacemolt/sell'),1,'a mutation is never re-sent');
+    assert.match(out.did,/sold 3 ore/,out.did);
+    const ore=knownBooks(runtime).find(book=>book.base_id==='sol_base')?.items.find(row=>row.item_id==='ore');
+    assert.deepEqual([ore?.best_buy,ore?.best_buy_qty],[12,2]);
+  } finally {unbind();rmSync(runtime,{recursive:true,force:true});}
+});
+
+test('buyers docked adds the live book here beside the remembered ones, and names the trip for what is held',async()=>{
+  const runtime=remembered([RANGE]);
+  const f=world({mood:'Focused'},{cargo:[{item_id:'gem',quantity:5}],cargoUsed:5,store:[],markets:HERE},runtime);
+  try {
+    const out=await buyers('gem');
+    assert.equal(out.status,'done',out.why);
+    assert.equal(out.did,'gem: range_base bids 110 for 50 (remembered, 0 ticks old, 1 jumps); sol_base bids 90 for 50 (live, 0 jumps)');
+    assert.deepEqual(out.next,["tradeRun({stops:[{at:'range_base'}]})"]);
+    assert.equal(f.count('spacemolt_market/view_market'),1,'docked: the live book is read once');
+    assert.equal((await buyers([])).status,'refused');
+  } finally {unbind();rmSync(runtime,{recursive:true,force:true});}
+});
+
+test('a stop whose book read is refused says nothing for that stop, and the run is partial with the code',async()=>{
+  const runtime=remembered([RANGE]);
+  world({mood:'Focused'},{cargo:[],cargoUsed:0,store:[],markets:HERE},runtime,
+    action=>{if(action==='spacemolt_market/view_market')throw new SpacemoltError('market_closed','closed');});
+  try {
+    const run=await tradeRun({stops:[{at:'sol_base'}]});
+    assert.equal(run.status,'partial');
+    assert.match(run.did,/^sol_base: nothing — net/);
+    assert.match(run.why!,/sol_base: no market \(spacemolt_market\/view_market: market_closed — closed\)/);
   } finally {unbind();rmSync(runtime,{recursive:true,force:true});}
 });

@@ -222,3 +222,27 @@ test('the deposits at the POI the ship stands at are named by their resource ids
     assert.ok((out.next??[]).some(row=>row.startsWith('gatherUntil')&&row.endsWith('asteroid_belt: iron_ore')),JSON.stringify(out.next));
   } finally {unbind();}
 });
+
+test("scout has system.id and name whether the system is near or far, and flags visited connections",async()=>{
+  // Live 2026-09-30/10-01: three refusals on `.system.id`, which the far path's map row (keyed
+  // `system_id`) did not have; and hand-rolled exploration loops could not skip visited systems.
+  world({mood:'Focused',stance:'Prospector'});
+  try {
+    const far=(await scout('deep_range')).detail;
+    assert.equal(far.system.id,'deep_range');
+    assert.ok(far.system.name);
+    assert.ok(far.connections.length&&far.connections.every(row=>typeof row.visited==='boolean'),JSON.stringify(far.connections));
+    const near=(await scout()).detail;
+    assert.ok(near.system.id&&near.system.name);
+    assert.ok(near.connections.length&&near.connections.every(row=>typeof row.visited==='boolean'),JSON.stringify(near.connections));
+  } finally {unbind();}
+});
+
+test('a galaxy map the game refuses leaves visited off every connection, and the scout is still done',async()=>{
+  world({mood:'Focused'},refuse('spacemolt/get_map'));
+  try {
+    const out=await scout();
+    assert.equal(out.status,'done',out.why);
+    assert.ok(out.detail.connections.length&&out.detail.connections.every(row=>!('visited' in row)),JSON.stringify(out.detail.connections));
+  } finally {unbind();}
+});

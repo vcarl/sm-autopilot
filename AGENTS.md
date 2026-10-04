@@ -100,7 +100,7 @@ prompt.
 
 ### The pilot record
 
-`runtime/../pilot.json`: objective, goal, stance, permissions, instruction. Every field is
+`runtime/../pilot.json`: objective (and `objective_start`, the facts when it was set), goal, steps, stance, permissions, instruction. Every field is
 optional — a profile with no record is a pilot with no goal and no stance, and it flies. Written
 only by the bridge's `pilot` request, which `spacemolt_reflect` and `spacemolt_direct` send.
 
@@ -128,7 +128,8 @@ the pilot's context. Every line has `at` (UTC ISO, `Z`) and `event`.
   from; also written to `run.json`), `since_juncture_s` (from that render), `code_sha`, `sources`,
   `start_state` (credits, fuel, hull, cargo, skills, place, active missions — account memory only,
   no storage).
-- `run` `ended`: `outcome`, `reason`, `work` (the run summary: the first work call's `fn` and
+- `run` `ended`: `outcome`, `reason` (the run's, from its top earning call when the returned
+  call is not it: `ofTheRun` in `prose.ts`; each call's own status is in `calls`), `work` (the run summary: the first work call's `fn` and
   `status`, total `credits`/`items`/`xp`), `end_state`, and `calls` (each top-level call's `fn`,
   `status`, `cost`, `gained`, `started_at`, `seconds`; first 40, `calls_total`). No `start_state`:
   pair it with its `started` line by `run_id`.
@@ -139,7 +140,17 @@ the pilot's context. Every line has `at` (UTC ISO, `Z`) and `event`.
   outcome (`replyLost` in `command-boundary.ts`: a closed connection, a pending command, an
   uncertain code).
 - `trade` (buy/sell/refuel/repair: `unit_price`, `fills`, and `quote`, the book or posted price the
-  caller held), `mission` (`accepted`/`completed`/`abandoned`; `already_active` for an accept that
+  caller held; a buy's quote adds `ask_qty` and `asks`, the first 10 ask levels; a sell's adds `bid_qty`
+  and `bids`), `book` (in `books.jsonl` beside the journal, never rotated, so the journal's tail stays small: each `book()` read, unless it is the same as the last one journalled at that base:
+  `base_id`, `book_tick`, and per item with orders its `bid_depth`, `ask_depth`, and first 10 `bids`/`asks`
+  as `[price_each, quantity]`; join a quote to it by `base_id` + `book_tick`, or the latest line for that
+  base), `stop` (one per `tradeRun` stop that read a book: `base_id`, `book_tick`, `from:'store'` when it
+  was, `before_tick` of the remembered book the route was planned on here, per planned item its
+  `ask_depth` (or `stored`), `aboard` (held after the stop's sales, before its buys), `later_bid_depth`
+  (`{base_id: units}` on the bids of each later stop whose book has the item, as the plan read it), the plan's `planned`, `sent`, `bought`, and `why` when it took none or the buy was not `done`
+  (`no ask`, `none stored`, `plan took none`, `no room`, or the buy's own refusal), `later` (each later
+  stop's `base_id`, `source`, `age`; null when no book was known), and `cargo_used`/`cargo_capacity`
+  after the stop), `mission` (`accepted`/`completed`/`abandoned`; `already_active` for an accept that
   sent nothing; `expired` when a mission seen running is next read expired or past its deadline),
   `stranded`, `death`, and `pilot` with `prev`.
 - `defect`: a die (a bug, not a game error) reaching a `jobEffect` or `edge`: `fn`, `why` (the
@@ -193,37 +204,39 @@ Prefer asserting `job_fields()` output as data over driving cron's internals.
 ## Flying a change in a real profile
 
 The tests prove the plugin against Hermes; only a real profile proves it against the game. A
-profile's `plugins/spacemolt` is one of two things, and they upgrade differently:
-
-- **An install** (a directory, with `plugins/.install-metadata.json` naming a pinned `revision`):
-  what a user has. It flies released commits only, upgraded with
-  `hermes --profile <profile> plugins install vcarl/sm-autopilot --ref <full sha> --enable --force`,
-  and a gateway restart; the first bridge start then runs `npm ci` itself. `/shipit-locally` does exactly that,
-  waits out a run in flight, and checks it landed; a human invoking it is the approval for that
-  one profile and ref.
-- **A dev symlink** to a worktree of this repo that is never worked in, only pointed. It flies any
-  branch:
+profile flies an **install**: `plugins/spacemolt` is a directory, and
+`plugins/.install-metadata.json` names the one `revision` it is pinned to and its `source`. A
+release and an unreleased candidate are installed the same way; only the source differs:
 
 ```
-~/.hermes/profiles/<profile>/plugins/spacemolt -> ~/workspace/sm-autopilot-live   (detached HEAD)
+# a release, from GitHub, as a user gets it
+hermes --profile <profile> plugins install vcarl/sm-autopilot --ref <full sha> --enable --force
+# a candidate: any commit in this repo, unpushed, from the main checkout (every worktree's
+# commits are in its object store); Hermes warns that file:// is insecure, which is expected
+hermes --profile <profile> plugins install file:///Users/<you>/workspace/sm-autopilot --ref <full sha> --enable --force
+hermes --profile <profile> gateway restart    # Python is imported once per gateway process
 ```
 
-To fly a branch:
+`--ref` takes a full 40-character SHA (`git rev-parse <branch>`), never a branch name, so what
+flies is exactly the commit you tested. The first bridge start after the restart runs `npm ci`
+itself. Installing a release afterwards puts the profile back on GitHub; the pilot's state lives
+in the profile (`spacemolt/runtime/`, `spacemolt/pilot.json`), not the plugin, so neither
+install touches it. Restarting under a run in flight closes that run `interrupted`: check
+`spacemolt/runtime/run.json` first. `/shipit-locally` does all of this for a release or a
+candidate, waits out a run, and checks it landed; a human invoking it is the approval for that one
+profile and ref.
 
-```
-git -C ~/workspace/sm-autopilot-live switch --detach <branch>
-npm --prefix ~/workspace/sm-autopilot-live ci            # only if package-lock.json changed
-hermes --profile <profile> gateway restart               # Python is imported once; see below
-```
+Then check it landed:
 
-Then check it landed: the juncture job in `~/.hermes/profiles/<profile>/cron/jobs.json` lists
-`spacemolt:play` and the stance's skill, and `logs/errors.log` has no `skill not found` or
-`Plugin spacemolt:` warning since the restart. The pilot's state lives in the profile
-(`spacemolt/runtime/`, `spacemolt/pilot.json`), not the checkout, so switching branches never
-touches it. Detached, so any branch can be flown while it stays checked out where it is worked on.
+- `.install-metadata.json` has the SHA as `revision`, and the source you meant.
+- The juncture job in `cron/jobs.json` lists `spacemolt:play` and the stance's skill.
+- `logs/errors.log` has no `skill not found` or `Plugin spacemolt:` warning since the restart.
+- The next `juncture` line in the journal carries that SHA as `code_sha` (junctures are ~5 minutes
+  apart). From then on, read the pilot's day (below) for what the change was meant to move.
 
 Which profile is which is machine-local, so check rather than assume:
-`ls -l ~/.hermes/profiles/*/plugins/` shows symlinks, and an install has `.install-metadata.json`.
+`cat ~/.hermes/profiles/*/plugins/.install-metadata.json`. A profile whose `plugins/spacemolt` is
+a symlink is a leftover of an older dev loop; reinstall it as above.
 
 ## Reading a pilot's day
 
@@ -246,7 +259,7 @@ Clocks: the journal is UTC. `gateway.log` and the `cron/output` filenames are **
 calls but not the model's reasoning: its words are only in `cron/output`.
 
 To see what code a pilot was flying, read `code_sha` on `juncture` and `run started` lines, not
-the checkout: an install and a symlink both report their own HEAD.
+the checkout: an install reports its own HEAD, a release or a candidate alike.
 
 ```
 # How each run ended, and what its work call earned

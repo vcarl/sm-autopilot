@@ -1,12 +1,12 @@
 import assert from 'node:assert/strict';
-import type {Account} from '@spacemolt/lib';
+import {ConnectionClosedError,type Account} from '@spacemolt/lib';
 import test from 'node:test';
 import {spawnSync} from 'node:child_process';
 import {existsSync,mkdtempSync,readFileSync,writeFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {Result,Schema} from 'effect';
-import {answerLine,createShutdown,journalResult,MENU_CHARS,MENU_ROWS,readPilot,Request,serve,writePilot,type Pilot,type ServeOptions} from './bridge.ts';
+import {answerLine,createShutdown,forPilot,journalResult,MENU_CHARS,MENU_ROWS,readPilot,Request,serve,writePilot,type Pilot,type ServeOptions} from './bridge.ts';
 import {controllerLock} from './controller-lock.ts';
 import type {ReadinessAccount} from './readiness.ts';
 import type {RunResult} from './run.ts';
@@ -83,19 +83,28 @@ test('the pilot request is the one writer of the record, and a null removes a fi
 
 test('a new objective clears the goal and stance unless the same write sets them', async () => {
   const runtime=mkdtempSync(join(tmpdir(),'spacemolt-bridge-'));
-  let record:Pilot={name:'kvothe',objective:'fill the hold',goal:'mine the belt',stance:'Prospector'};
+  let record:Pilot={name:'kvothe',objective:'fill the hold',goal:'mine the belt',steps:['price an upgrade'],stance:'Prospector'};
   const f=fixture({pilot:()=>record,setPilot:next=>{record=next;},runtime});
   await f.dispatch('pilot',{set:{objective:'fill the hold'}});
   assert.equal(record.goal,'mine the belt','the same text again is not a new objective');
   await f.dispatch('pilot',{set:{objective:'explore new areas'}});
-  assert.deepEqual(record,{name:'kvothe',objective:'explore new areas'});
+  const {objective_start:start,...rest}=record;
+  assert.deepEqual(rest,{name:'kvothe',objective:'explore new areas'});
+  // Live 2026-09-30 (kvothe): "train an offensive skill" was met (tactics 4→5) while the pilot kept
+  // saying no skill rose. A new objective keeps the facts it started from.
+  assert.equal(start?.credits,f.account.server.player.credits);
+  assert.equal(start?.place,'sol_base');
+  assert.equal(start?.ship_class,f.account.server.ship.class_id);
+  assert.ok(start?.at&&typeof start.skills==='object',JSON.stringify(start));
   const line=readFileSync(join(runtime,'gameplay.jsonl'),'utf8').trim().split('\n').map(row=>JSON.parse(row))
     .filter(row=>row.event==='pilot').at(-1);
-  assert.deepEqual(line.prev,{objective:'fill the hold',goal:'mine the belt',stance:'Prospector'});
+  assert.deepEqual(line.prev,{objective:'fill the hold',goal:'mine the belt',steps:['price an upgrade'],stance:'Prospector',objective_start:null});
   await f.dispatch('pilot',{set:{objective:'trade',stance:'Trader'}});
-  assert.deepEqual(record,{name:'kvothe',objective:'trade',stance:'Trader'},'a stance set with it stands');
+  assert.equal(record.stance,'Trader','a stance set with it stands');
+  assert.notEqual(record.objective_start?.at,undefined);
   await f.dispatch('pilot',{set:{objective:null}});
   assert.equal(record.stance,'Trader','retiring the objective leaves the plan');
+  assert.equal(record.objective_start,undefined,'a retired objective takes its start with it');
 });
 
 test('run blocks until the pilot file ends; status, stop and menu answer meanwhile', async () => {
@@ -280,6 +289,39 @@ test('a pilot write keeps every field that decodes and names each it dropped, ne
   assert.equal('mood' in record,false);
 });
 
+test('steps that are not a list of lines, or a start that does not read, are dropped and named like any bad field', async () => {
+  const runtime=mkdtempSync(join(tmpdir(),'spacemolt-bridge-'));
+  let record:Pilot={...PILOT,goal:'mine',steps:['price an upgrade']};
+  const f=fixture({pilot:()=>record,setPilot:next=>{record=next;},runtime});
+  const bad=await f.dispatch('pilot',{set:{steps:'price an upgrade',objective_start:{credits:5},goal:'haul'}});
+  assert.deepEqual(record.steps,['price an upgrade'],'the old steps stand');
+  assert.equal(record.objective_start,undefined);
+  assert.equal(record.goal,'haul','the field beside them lands');
+  assert.deepEqual(Object.keys((bad as any).dropped).sort(),['objective_start','steps']);
+  await f.dispatch('pilot',{set:{steps:[]}});
+  assert.deepEqual(record.steps,[],'an empty list is a valid list');
+  const dir=mkdtempSync(join(tmpdir(),'spacemolt-bridge-')),path=join(dir,'pilot.json');
+  writeFileSync(path,JSON.stringify({objective:'haul ore',steps:[1,2],objective_start:{at:'2026-10-03T00:00:00Z',skills:{mining:3}}}));
+  const named:Record<string,string>[]=[];
+  assert.deepEqual(readPilot(path,dropped=>named.push(dropped)),
+    {objective:'haul ore',objective_start:{at:'2026-10-03T00:00:00Z',skills:{mining:3}}});
+  assert.deepEqual(Object.keys(named[0]??{}),['steps']);
+});
+
+test('a new objective whose refresh is lost still lands, its start read from memory, and the journal says so', async () => {
+  const runtime=mkdtempSync(join(tmpdir(),'spacemolt-bridge-'));
+  let record:Pilot={...PILOT};
+  const f=fixture({pilot:()=>record,setPilot:next=>{record=next;},runtime});
+  f.account.refresh=async()=>{throw new ConnectionClosedError();};
+  await f.dispatch('pilot',{set:{objective:'haul ore'}});
+  assert.equal(record.objective,'haul ore');
+  assert.ok(record.objective_start?.at,JSON.stringify(record));
+  const journal=readFileSync(join(runtime,'gameplay.jsonl'),'utf8').trim().split('\n').map(row=>JSON.parse(row));
+  assert.ok(journal.some(row=>row.event==='log'&&/objective_start read from memory: the refresh failed \(reply lost\)/.test(row.message)),
+    JSON.stringify(journal));
+  assert.equal(journal.some(row=>row.event==='defect'),false,'a lost reply is not a bug');
+});
+
 test('pilot.json reads back field by field: an old mood is dropped, a bad field is named and the rest read', () => {
   const dir=mkdtempSync(join(tmpdir(),'spacemolt-bridge-')),path=join(dir,'pilot.json');
   assert.deepEqual(readPilot(path),{},'no record is a pilot with no goal and no stance');
@@ -300,10 +342,26 @@ test('every request service.py, __init__.py, juncture.py and play.py send decode
     ['status',{}],['menu',{}],['check',{}],['stop',{}],['stop',{reason:'objective'}],
     ['run',{}],['run',{juncture:{juncture_id:'abc',at:'2026-10-03T00:00:00Z'}}],['run',{juncture:{juncture_id:'abc',at:null}}],
     ['answer',{answer:''}],['answer',{answer:'yes'}],
-    ['pilot',{set:{goal:'mine',stance:'Prospector'}}],
+    ['pilot',{set:{goal:'mine',stance:'Prospector'}}],['pilot',{set:{goal:'mine',steps:['price an upgrade','sell']}}],['pilot',{set:{steps:[]}}],
     ['pilot',{set:{objective:null,objective_done:null,objective_completed:'haul ore'}}],
     ['pilot',{set:{instruction:{text:'dock',at:'2026-10-03T00:00:00Z'},objective:'x',permissions:{credit_reserve:'500'}}}],
   ];
   for(const [action,params] of sent)
     assert.ok(Result.isSuccess(Schema.decodeUnknownResult(Request)({action,params})),`${action} ${JSON.stringify(params)}`);
+});
+
+// Live 2026-10-02 (kvothe): the run reports read "b495c6003fc83e18f6d8cecbe6929133", and so did
+// the pilot's replies. What reaches the pilot names it; the journal keeps the raw id.
+test('a reply names opaque place ids in its prose for the pilot, and the menu carries the names', async () => {
+  const base='b495c6003fc83e18f6d8cecbe6929133',names={[base]:'Kestrel Yard'};
+  const result={accepted:true,status:'done',did:`sold at ${base}`,why:`${base} bids 40`,
+    prose:`Done: tradeRun({stops:[{at:'${base}'}]}) at ${base}.`,commands:3};
+  assert.deepEqual(forPilot(result,names),{...result,did:`sold at Kestrel Yard (${base})`,why:`Kestrel Yard (${base}) bids 40`,
+    prose:`Done: tradeRun({stops:[{at:'${base}'}]}) at Kestrel Yard (${base}).`});
+  assert.equal((forPilot({running:false,last:result},names) as any).last.did,`sold at Kestrel Yard (${base})`);
+  assert.equal((journalResult('run',result) as any).did,`sold at ${base}`,'the journal is handed the raw reply');
+  const runtime=mkdtempSync(join(tmpdir(),'spacemolt-bridge-'));
+  writeFileSync(join(runtime,'names.json'),JSON.stringify(names));
+  const menu=await fixture({pilot:()=>PILOT,runtime}).dispatch('menu') as any;
+  assert.deepEqual(menu.names,names);
 });

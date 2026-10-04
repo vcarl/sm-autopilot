@@ -1,6 +1,6 @@
 /** The hangar: modules on the ship you fly, and the next hull. */
 import type {CommissionQuoteResponse,InsurancePolicy,ShipClass,ShipListing,V2Module,V2Ship} from '@spacemolt/lib';
-import {Effect,Option,Schema,Struct} from 'effect';
+import {Effect,Option,Result,Schema,Struct} from 'effect';
 import * as Wire from '../wire.gen.ts';
 import {Game,field,reread,type GameError} from './game.ts';
 import {acct,admit,edge,jobEffect,pilot,step} from './runtime.ts';
@@ -179,6 +179,8 @@ export const refitEffect=(change:{install?:string[];remove?:string[]})=>{
 export type ForSale=
   |{kind:'listing';listing:ShipListing;class:ShipClass;versus:string}
   |{kind:'commission';quote:CommissionQuoteResponse;class:ShipClass;versus:string};
+/** A class the yard would not quote you, with the game's reason ("requires Piloting level 20"). */
+export interface Locked {class_id:string;why:string}
 
 /** Ship classes are catalogue data, so each is read once per process — a class the catalogue says
  * it has no entry for included (live 2026-09-28: `inspect rubble` on every menu render). Any other
@@ -271,7 +273,7 @@ const QUOTES=5;
  * `cargo_capacity`, then price, because cargo multiplies every loop. Reads only. Flags crew
  * traps: a class whose `minimum_crew` exceeds your crew capacity is listed with a warning in
  * `versus`, not hidden. */
-export function shipsForSale(opts:{budget?:number;baseId?:string;classId?:string}={}):Promise<Outcome<{for_sale:ForSale[]}>> {
+export function shipsForSale(opts:{budget?:number;baseId?:string;classId?:string}={}):Promise<Outcome<{for_sale:ForSale[];locked:Locked[]}>> {
   return edge(shipsForSaleEffect(opts));
 }
 
@@ -282,9 +284,14 @@ export const shipsForSaleEffect=(opts:{budget?:number;baseId?:string;classId?:st
     const ship=acct().state.ship,who=pilot();
     const credits=acct().state.player?.credits??0,reserve=who.permissions?.credit_reserve??0;
     const budget=opts.budget??credits-reserve;
+    const locked:Locked[]=[];
     const for_sale:ForSale[]=[];
     if(!(budget>0))return {status:'refused' as const,did:'listed no hulls',
-      why:`budget ${budget}: credits ${credits} less reserve ${reserve}`,detail:{for_sale}};
+      why:`budget ${budget}: credits ${credits} less reserve ${reserve}`,detail:{for_sale,locked}};
+    // Live 2026-09-30 (kvothe 13:06Z): undocked, browse_ships answered "Specify a base_id or dock at a
+    // station" and the whole read broke.
+    if(!opts.baseId&&!acct().state.location?.docked_at)return {status:'refused' as const,did:'listed no hulls',
+      why:'not docked: listings are read at a base; dock, or name one with shipsForSale({baseId})',detail:{for_sale,locked}};
     const browsed=yield* game.command('spacemolt_ship/browse_ships',
       {...opts.baseId?{base_id:opts.baseId}:{},...opts.classId?{class_id:opts.classId}:{},max_price:budget});
     const known=new Map<string,ShipClass>();
@@ -301,7 +308,16 @@ export const shipsForSaleEffect=(opts:{budget?:number;baseId?:string;classId?:st
     // A yard quote is only answerable at the yard you are docked at.
     if(!opts.baseId&&(yield* serves('shipyard')))
       for(const id of [...new Set([opts.classId,...known.keys()].flatMap(each=>each?[each]:[]))].slice(0,QUOTES)) {
-        const reply=yield* game.command('spacemolt_ship/commission_quote',{id});
+        // Live 2026-09-30 (kvothe 13:10Z): one quote answered "Flying a Tier 3 ship requires Piloting
+        // level 20 (you have 10)" and the throw took every listing with it. A class the game will not
+        // quote is a row that says why; a lost reply is not a lock and still goes up.
+        const tried=yield* Effect.result(game.command('spacemolt_ship/commission_quote',{id}));
+        if(Result.isFailure(tried)) {
+          if(tried.failure._tag!=='Rejected')return yield* tried.failure;
+          locked.push({class_id:id,why:tried.failure.message});
+          continue;
+        }
+        const reply=tried.success;
         const decoded=decodeCan(replyBody(reply));
         if(Option.isNone(decoded)){step(`spacemolt_ship/commission_quote: the quote for ${id} did not read; left out`);continue;}
         if(!decoded.value.can_commission||decoded.value.credits_only_total>budget)continue;
@@ -315,8 +331,9 @@ export const shipsForSaleEffect=(opts:{budget?:number;baseId?:string;classId?:st
     for_sale.sort((a,b)=>cargo(b)-cargo(a)||price(a)-price(b));
     const best=for_sale[0];
     return {status:'done' as const,
-      did:`${for_sale.length} hull(s) at or under ${budget} cr; you fly a ${ship?.class_name} with ${ship?.cargo_capacity} cargo`,
-      detail:{for_sale},
+      did:`${for_sale.length} hull(s) at or under ${budget} cr; you fly a ${ship?.class_name} with ${ship?.cargo_capacity} cargo`
+        +(locked.length?`; not offered to you: ${locked.map(row=>`${row.class_id} (${row.why})`).join(', ')}`:''),
+      detail:{for_sale,locked},
       next:best?[`${best.kind==='listing'?best.listing.listing_id:best.class.id}: ${best.class.name} ${price(best)} cr, ${best.versus}`,
         best.kind==='commission'?'a commission is buyShip(classId, {commission:true})':'buyShip(listingId)']:[]};
   }));
@@ -414,12 +431,16 @@ export const buyShipEffect=(id:string,opts:{commission?:boolean;switchTo?:boolea
     // The fleet list is the evidence the hull is ours, whatever the reply claimed.
     yield* reread;
     const fleet=rowsOf(yield* game.command('spacemolt_ship/list_ships',{}),'spacemolt_ship/list_ships','ships',decodeOwned).map(row=>row.read);
-    const mine=fleet.find(row=>row.ship_id===bought)??fleet.find(row=>row.ship_id!==previous.ship_id&&!row.is_active);
+    const others=fleet.filter(row=>row.ship_id!==previous.ship_id);
+    const mine=others.find(row=>row.ship_id===bought)??others.find(row=>row.is_active)??others.find(row=>!row.is_active);
     if(!mine)return {status:'failed' as const,did:`paid ${price} cr for ${id}`,
       why:'list_ships does not show the new hull; re-observe before buying again',detail:{...nothing(),price}};
 
-    let switched=false;
-    if(opts.switchTo) {
+    // Live 2026-09-30 (kvothe 13:34Z, 19:08Z): buy_listed_ship makes the new hull the active one, so
+    // switch_ship answered `already_active` and the call read "buyShip broke, nothing gained" over
+    // 21k and 18k spent. The fleet list says which hull is flown; only one not yet flown is switched to.
+    let switched=Boolean(mine.is_active);
+    if(opts.switchTo&&!switched) {
       if(!(yield* serves('shipyard')))
         return {status:'partial' as const,did:`bought ${mine.class_id} for ${price} cr`,
           why:`${previous.base_id} has no shipyard: the switch needs one`,

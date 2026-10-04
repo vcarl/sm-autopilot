@@ -11,7 +11,7 @@
  * carries no context, so the binding itself is one module slot, not AsyncLocalStorage. One pilot
  * per bridge process today; a multi-account runtime is a second process per account (DESIGN.md "Fleet").
  */
-import type { Account } from '@spacemolt/lib';
+import type { Account, SkillProgress } from '@spacemolt/lib';
 import { Cause, Context, Effect, Layer } from 'effect';
 import type { ReadinessAccount, ReadinessCommand } from '../readiness.ts';
 import { type RunRecord } from '../run-record.ts';
@@ -77,6 +77,10 @@ export interface Call {
     gained?: Outcome['gained'];
     started_at?: string;
     seconds?: number;
+    /** The bases a route call docked at, in order, from its detail's `stops` (tradeRun's): the
+     * juncture groups earning laps by them (live 2026-10-01, kvothe: the loop that made +39.6k fell
+     * out of view, and its stops lived only in `did` prose). */
+    stops?: string[];
 }
 /** A question the program is paused on, as run.json and the tools carry it. */
 export type Question = NonNullable<RunRecord['question']>;
@@ -214,6 +218,8 @@ export declare const progress: () => {
  * only refuses — flying off mid-trade would leave the outer helper at the wrong counter — and the
  * resupply waits for the next top-level call or the run's end. */
 export declare const admit: (fn: string) => Effect.Effect<string | null, never, Game | Run>;
+/** `get_skills` answers a map keyed by skill id (live, C23 replay); some shapes nest it. */
+export declare function skillMap(skills: unknown): Record<string, SkillProgress>;
 /** The ship, wallet, hold, place, skills and active missions as the account already holds them:
  * the run's `start_state`/`end_state`. Reads memory only. Storage is not in account state, so it
  * is not here — it would cost a `storage/view` per run.

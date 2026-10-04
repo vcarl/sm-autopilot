@@ -19,7 +19,7 @@ import {words} from '../../servicing.ts';
 import {replyBody,rows as listOf} from '../../storage.ts';
 import {inFaction} from '../../trade-intel.ts';
 import * as Wire from '../../wire.gen.ts';
-import {bookEffect,buyEffect,knownBooks,marketTick,sellEffect,ticksOld} from '../market.ts';
+import {bookEffect,buyEffect,knownBooks,marketTick,sellEffect,slipped,ticksOld,type RememberedBook} from '../market.ts';
 import {counterEffect} from '../counter.ts';
 import {readDrained,ring} from '../freighter/drained.ts';
 import {Game,GameLive,field,message,type GameError} from '../game.ts';
@@ -190,6 +190,52 @@ const storeRows=()=>Effect.gen(function*() {
   });
 });
 
+/** One bid known for an item: where, how much, how deep, how old, and how far. */
+export interface Buyer {item_id:string;base_id:string;best_buy:number;best_buy_qty:number;source:Spread['source'];
+  /** Ticks since the book was read; 0 for this counter's live book. */
+  age:number;
+  /** Jumps from where you are, on the map; null when the base could not be placed. */
+  jumps:number|null}
+
+/** Who buys `items`: the highest bids known for each, anywhere — this counter's live book when
+ * docked, the faction ledger, the books remembered — up to `BUYERS` an item, with each book's age and
+ * the jumps there. Held or not, docked or not. Reads only.
+ * Live 2026-09-30 (kvothe): hours flown system to system, `prices(['aluminum_ore'])` at each, hunting
+ * a buyer the market memory already held. */
+export const buyersEffect=(items:string|readonly string[])=>{
+  const wanted=[...new Set(typeof items==='string'?[items]:items)];
+  return jobEffect<{buyers:Buyer[]}>('buyers',wanted.join(' '),Effect.gen(function*() {
+    if(!wanted.length)return {status:'refused',did:'named no item',why:"pass an item id or a list: buyers('aluminum_ore')",detail:{buyers:[]}};
+    const here=acct().state.location?.docked_at??'',live=here?yield* bookEffect():undefined;
+    const now=live?marketTick():tickNow();
+    const seat=pilotSeat(),far=yield* farBooksEffect(here,now,seat);
+    const bids=[...live?wanted.flatMap(id=>{const row=live.get(id);return row?[{...row,base_id:here,source:'here' as const,age:0}]:[];}):[],
+      ...far.flatMap(known=>known.items.filter(row=>wanted.includes(row.item_id)).map(row=>({...row,base_id:known.base_id,source:known.source,age:known.age})))]
+      .filter(row=>row.best_buy>0&&row.best_buy_qty>0).sort((a,b)=>b.best_buy-a.best_buy);
+    const top=wanted.flatMap(id=>bids.filter(row=>row.item_id===id).slice(0,BUYERS));
+    const {hop}=yield* chart(here,[...new Set(top.map(row=>row.base_id))],far,seat);
+    const rows:Buyer[]=top.map(row=>({item_id:row.item_id,base_id:row.base_id,best_buy:row.best_buy,best_buy_qty:row.best_buy_qty,
+      source:row.source,age:row.age,jumps:hop(here,row.base_id)}));
+    const said=wanted.map(id=>{
+      const mine=rows.filter(row=>row.item_id===id);
+      return `${id}: ${mine.map(row=>`${row.base_id} bids ${row.best_buy} for ${row.best_buy_qty} (${aged(row)}, ${row.jumps??'?'} jumps)`).join('; ')||'no buyer known'}`;
+    });
+    const held=miningInventory(acct().state);
+    return {status:'done',did:said.join(' | '),detail:{buyers:rows},
+      next:wanted.flatMap(id=>{const best=rows.find(row=>row.item_id===id);return best&&held[id]
+        ?[best.base_id===here?`sell([{item_id:'${id}'}])`:runCall([{at:best.base_id}])]:[];}).slice(0,3)};
+  }));
+};
+export function buyers(items:string|readonly string[]):Promise<Outcome<{buyers:Buyer[]}>> {return edge(buyersEffect(items));}
+/** ponytail: undocked there is no live tick to age a book against; the newest book known, advanced
+ * at ten seconds a tick since it was read, stands in. A docked call measures it from the live book. */
+function tickNow():number {
+  const newest=knownBooks().sort((a,b)=>(b.tick??-1)-(a.tick??-1))[0];
+  if(newest?.tick===undefined)return marketTick();
+  const since=Math.floor((Date.now()-Date.parse(newest.at))/10_000);
+  return Math.max(marketTick(),newest.tick+(Number.isFinite(since)?Math.max(0,since):0));
+}
+
 /** ponytail: the ledger is read whole, a page of `LEDGER_PAGE` stations at a time, at most
  * `LEDGER_PAGES` pages (the galaxy has 79 stations) — a bounded call count per read, re-read at
  * every `farBooks`. Cache it per tick if the calls ever show against the rate limit. */
@@ -247,9 +293,10 @@ export const farBooksEffect=(here:string,now:number,seat:Seat=pilotSeat())=>Effe
     return {base_id:known.base_id,source:'remembered' as const,age:ticksOld(known.tick,now),
       ...system_id===undefined?{}:{system_id},items:known.items};
   });
-  // One book per base: the fresher of the ledger's copy and the memory's, a tie to the ledger.
+  // One book per base: the fresher of the ledger's copy and the memory's, a tie to the memory — this
+  // pilot's own filing ties its own read, and only the memory has the levels and its own fills taken off.
   const fresher=new Map<string,FarBook>();
-  for(const book of [...filed,...remembered])if(!((fresher.get(book.base_id)?.age??Infinity)<=book.age))fresher.set(book.base_id,book);
+  for(const book of [...remembered,...filed])if(!((fresher.get(book.base_id)?.age??Infinity)<=book.age))fresher.set(book.base_id,book);
   return [...fresher.values()];
 });
 /** Ticks for a far end's trust to halve: an hour at ten seconds a tick. NPC books move rarely,
@@ -263,6 +310,9 @@ const trust=(age:number)=>0.5**(age/HALF_LIFE);
 const TRUST_FLOOR=1/64;
 /** What a row ranks by: `max(confidence, TRUST_FLOOR) × net / max(1, jumps)`; 0 for an unpriced trip. */
 const rank=(confidence:number,net:number,jumps:number|null)=>jumps===null?0:Math.max(confidence,TRUST_FLOOR)*net/Math.max(1,jumps);
+
+/** A book's provenance as a pilot reads it: `live`, or `remembered, 85 ticks old`. */
+const aged=(book:{source:Spread['source'];age:number})=>book.source==='here'?'live':`${book.source}, ${book.age} ticks old`;
 
 /** A stop's book as the planner reads it. No `items`: nothing is known of that base's book. */
 export interface Book {base_id:string;source:Spread['source'];age:number;items?:Map<string,Listing>}
@@ -483,6 +533,49 @@ export interface Traded {
   net:number;
 }
 
+/** Units on a row's asks, or its bids. */
+const depth=(row:Listing|undefined,side:'asks'|'bids'='asks')=>row?levels(row,side).reduce((sum,level)=>sum+level.quantity,0):0;
+/** The later book `carried` names for an item: the highest top bid among them. */
+const target=(item_id:string,later:readonly (Book|undefined)[])=>{
+  const bid=(book:Book|undefined)=>book?.items?.get(item_id)?.best_buy??0;
+  return later.filter(book=>bid(book)>0).sort((a,b)=>bid(b)-bid(a))[0];
+};
+/** An item a stop was to take that the live book no longer offers as the remembered one did: no ask
+ * at all, or fewer units than were remembered when the buy took every one there is. */
+function dryness(item:string,now:Listing|undefined,before:RememberedBook|undefined,tick:number,bought:number):string[] {
+  const then=before?.items.find(row=>row.item_id===item),was=depth(then),left=depth(now);
+  const ago=then&&was?`was ${then.best_sell} for ${was}, ${ticksOld(before?.tick,tick)} ticks ago`:'';
+  if(!left)return [`no ask for ${item} here now${ago?` (${ago})`:''}`];
+  return ago&&left<was&&bought>=left?[`${item}: ${left} on the asks here now (${ago})`]:[];
+}
+
+/** Whether the rest of a route can still pay: something aboard that a stop ahead bids for, or a stop
+ * ahead with a `buy` it has a known ask for (`from:'store'` counts). A stop with no known book may do
+ * either. False means the flights ahead are provably empty, as far as the books go. */
+function ahead(hold:Record<string,number>,stops:readonly RunStop[],known:ReadonlyMap<string,Book>):boolean {
+  return stops.some(stop=>{
+    const book=known.get(stop.at)?.items;
+    if(!book)return true;
+    return Object.entries(hold).some(([id,n])=>n>0&&(book.get(id)?.best_buy??0)>0)
+      ||items(stop).some(id=>stop.from==='store'||depth(book.get(id))>0);
+  });
+}
+
+/** What a stop took, and the later bid each item was taken for with that book's age:
+ * `took 2 dark_matter_residue for sirius_observatory_station's 1020 bid (remembered, 85 ticks old)`.
+ * Grouped by the later base; past two kinds a group is `N of K kinds`. A later stop with no known
+ * book names no bid. */
+function carried(took:readonly {item_id:string;quantity:number}[],later:readonly (Book|undefined)[]):string[] {
+  const groups=new Map<Book|undefined,{item_id:string;quantity:number}[]>();
+  for(const row of took){const book=target(row.item_id,later);groups.set(book,[...groups.get(book)??[],row]);}
+  return [...groups].map(([book,rows])=>{
+    const [one]=rows,bid=one&&rows.length===1?book?.items?.get(one.item_id)?.best_buy:undefined;
+    return `took ${rows.length>2?`${rows.reduce((sum,row)=>sum+row.quantity,0)} of ${rows.length} kinds`
+      :rows.map(row=>`${row.quantity} ${row.item_id}`).join(', ')}${!book?'':bid!==undefined
+      ?` for ${book.base_id}'s ${bid} bid (${aged(book)})`:` for ${book.base_id}'s bids (${aged(book)})`}`;
+  });
+}
+
 /** Fly `stops` in order, and at each one sell and buy what the plan says, from the hold you have.
  * At each stop the live book is read and the rest of the route re-planned against it — the later
  * stops at their best known books — by the same rule `routes()` ranks with; so a full hold, an
@@ -513,8 +606,9 @@ export const tradeRunEffect=(opts:{stops:RunStop[]})=>{
     const blocked=yield* admit('tradeRun');
     if(blocked)return {status:'refused',did:'ran no trade',why:blocked,detail:detail()};
     if(!route.length)return {status:'refused',did:'ran no trade',why:'no stops: pass {stops:[{at, buy?}, …]}',detail:detail()};
-    const said=()=>stops.map(visit=>`${visit.at}: ${[...visit.sold.map(fill=>`sold ${fill.quantity_sold} ${fill.item_id}`),
-      ...visit.bought?[`took ${visit.bought}`]:[]].join(', ')||'nothing'}`).join(' → ');
+    // What each stop reached did, as the did says it: rendered at the stop, against the book read there.
+    const told:string[]=[];
+    const said=()=>told.join(' → ');
     const short:string[]=[];
     if(acct().state.location?.docked_at)yield* priced;
     for(const [i,stop] of route.entries()) {
@@ -523,8 +617,10 @@ export const tradeRunEffect=(opts:{stops:RunStop[]})=>{
         const trip=yield* goToEffect(stop.at);
         // ponytail: the tank's drop; a refuel inside goTo hides the burn it covered.
         fuel+=trip.cost.fuel;
+        // A partial trip arrived and the base refused the dock (travel.ts): partial here too, in its words.
         if(trip.status!=='done'||!acct().state.location?.docked_at)
-          return {status:i?'partial':trip.status==='refused'?'refused':'failed',did:`${said()||'nothing done'}; did not reach ${stop.at}`,
+          return {status:i||trip.status==='partial'?'partial':trip.status==='refused'?'refused':'failed',
+            did:`${said()||'nothing done'}; ${trip.status==='partial'?trip.did:`did not reach ${stop.at}`}`,
             why:[...short,`${stop.at}: ${trip.why??trip.did}`].join('; '),detail:detail(),next:[runCall(route.slice(i))]};
       }
       const here=acct().state.location?.docked_at??stop.at;
@@ -532,9 +628,11 @@ export const tradeRunEffect=(opts:{stops:RunStop[]})=>{
       const visit:Visit={at:here,sold:[],bought:0,spent:0};
       stops.push(visit);
       const notes:string[]=[];
+      // The book this base was last read at, before this read replaces it: what the route was planned on.
+      const before=knownBooks().find(row=>row.base_id===here);
       const read=yield* Effect.result(bookEffect());
-      if(Result.isFailure(read)){visit.why=`${here}: no market (${words(read.failure)})`;short.push(visit.why);continue;}
-      const live:Known={base_id:here,source:'here',age:0,items:read.success};
+      if(Result.isFailure(read)){visit.why=`${here}: no market (${words(read.failure)})`;short.push(visit.why);told.push(`${here}: nothing`);continue;}
+      const listed=read.success,live:Known={base_id:here,source:'here',age:0,items:listed};
       const later=route.slice(i+1).map(next=>next.at);
       const hold=miningInventory(acct().state);
       const known=byBase(live,yield* farBooksEffect(here,marketTick()));
@@ -549,46 +647,92 @@ export const tradeRunEffect=(opts:{stops:RunStop[]})=>{
           ...stop.from==='store'?{asks:Object.fromEntries(wanted.map(item=>[item,stored(item)?[{price_each:0,quantity:stored(item)}]:[]]))}:{},
           rate},
         ...later.map(base=>({book:known.get(base)??{base_id:base,source:'remembered' as const,age:0},rate:null}))],elsewhere).legs;
-      if(!leg)continue;
+      if(!leg){told.push(`${here}: nothing`);continue;}
       if(leg.sold.length) {
         const sold=yield* sellEffect(leg.sold.map(({item_id,quantity})=>({item_id,quantity})));
         const out=reached(sold);
         visit.sold=out?.fills??[];earned+=out?.total??0;
         if(sold.status!=='done')short.push(`${here}: ${sold.why??sold.did}`);
       }
-      if(wanted.length&&!leg.buys.length)notes.push(`took no ${wanted.join(', ')}: nothing ${stop.from==='store'?'in the store':'on the asks'} here beats the best known bid later on the route`);
+      // A source that dried up says so, against the book the route was planned on.
+      // Live 2026-10-01 (kvothe 15:25Z): tradeRun at confederacy_central_command reported only "nothing".
+      const dried=stop.from==='store'?[]:wanted.flatMap(item=>dryness(item,listed.get(item),before,marketTick(),
+        leg.buys.find(row=>row.item_id===item)?.quantity??0));
+      notes.push(...dried);
+      const asked=stop.from==='store'?wanted:wanted.filter(item=>depth(listed.get(item))>0);
+      if(asked.length&&!leg.buys.length)notes.push(`took no ${asked.join(', ')}: nothing ${stop.from==='store'?'in the store':'on the asks'} here beats the best known bid later on the route`);
+      const loaded:{item_id:string;quantity:number}[]=[];
+      // What each planned buy sent and got, and why not when it got none: the stop's journal line.
+      const sent=new Map<string,{sent:number;bought:number;why?:string}>();
       for(const {item_id,quantity} of leg.buys) {
         const want=Math.min(quantity,cargo());
-        if(!want)notes.push(`took no ${item_id}: no room left after the sales`);
+        if(!want){notes.push(`took no ${item_id}: no room left after the sales`);sent.set(item_id,{sent:0,bought:0,why:'no room'});}
         else if(stop.from==='store') {
           const took=yield* withdrawEffect([{item_id,quantity:want}]);
           const moved=reached(took)?.moved.reduce((sum,row)=>sum+row.quantity,0)??0;
-          visit.bought+=moved;
+          visit.bought+=moved;if(moved)loaded.push({item_id,quantity:moved});
+          sent.set(item_id,{sent:want,bought:moved,...moved?{}:{why:took.why??took.did}});
           if(!moved)short.push(`${here}: withdrew no ${item_id}: ${took.why??took.did}`);
         } else {
           // What the hold and the wallet were before the buy: a lost reply is measured against these, never re-sent.
           const before={held:miningInventory(acct().state)[item_id]??0,credits:acct().state.player?.credits??0};
           const got=yield* buyEffect(item_id,want);
           const out=reached(got);
+          let n=0;
           if(out) {
             // The wallet, not `total_cost`: the reply's cost is the subtotal, and the tax is on top.
-            visit.bought+=Number(out.bought?.quantity??0);visit.spent+=got.cost.credits;spent+=got.cost.credits;
+            n=Number(out.bought?.quantity??0);visit.bought+=n;visit.spent+=got.cost.credits;spent+=got.cost.credits;
           } else if(got.status==='failed') {
             // The buy may have landed: the hold and the wallet are re-read, and what they show is what was bought.
             const refreshed=yield* Effect.result(game.refresh);
             if(Result.isFailure(refreshed))step(`buy ${item_id}: hold not re-read (${message(refreshed.failure.cause)}); what landed is unknown`);
             else {
-              const took=Math.max(0,(miningInventory(acct().state)[item_id]??0)-before.held);
+              n=Math.max(0,(miningInventory(acct().state)[item_id]??0)-before.held);
               const paid=Math.max(0,before.credits-(acct().state.player?.credits??before.credits));
-              visit.bought+=took;visit.spent+=paid;spent+=paid;
-              step(`buy ${item_id}: reply lost; hold re-read, ${took} aboard for ${paid} cr`);
+              visit.bought+=n;visit.spent+=paid;spent+=paid;
+              step(`buy ${item_id}: reply lost; hold re-read, ${n} aboard for ${paid} cr`);
             }
           }
+          if(n)loaded.push({item_id,quantity:n});
+          sent.set(item_id,{sent:want,bought:n,...got.status==='done'?{}:{why:got.why??got.did}});
           if(got.status!=='done')short.push(`${here}: ${got.why??got.did}`);
         }
       }
+      // A take the later bids bound, with more on offer here, names those bids' depth and what was already aboard for them.
+      // Live 2026-10-03 (kvothe, run bc564bea): 137 solarian_biotic bought for b495…'s bids, 16 deep on arrival.
+      const have=(item:string)=>stop.from==='store'?stored(item):depth(listed.get(item));
+      const aboard=(item:string)=>(hold[item]??0)-(leg.sold.find(row=>row.item_id===item)?.quantity??0);
+      for(const {item_id,quantity} of loaded) {
+        const book=target(item_id,later.map(base=>known.get(base))),bids=depth(book?.items?.get(item_id),'bids');
+        if(book&&aboard(item_id)+quantity>=bids&&have(item_id)>quantity)
+          notes.push(`${item_id}: ${book.base_id}'s bids hold ${bids}${aboard(item_id)?`, ${aboard(item_id)} already aboard`:''}`);
+      }
+      // The stop as facts: each planned item's depth here, what was aboard for it, each later known book's bid
+      // depth for it, the plan's take, what was sent and bought (and why none), the books the plan read, and the
+      // hold after. The levels are on this read's `book` line.
+      // Live 2026-10-02 (kvothe 18:01Z, run d364ca05): 6 of 66 planned sunspindle bought; no line said what was on offer.
+      // Live 2026-10-03 (kvothe): a planned buy that was not made, and the remembered books' ages, were only in prose.
+      const dir=runtimeDir(),ship=acct().state.ship;
+      if(dir)journalRun(dir,{base_id:here,book_tick:marketTick(),...stop.from==='store'?{from:'store'}:{},
+        before_tick:before?.tick??null,items:wanted.map(item_id=>{
+          const planned=leg.buys.find(row=>row.item_id===item_id)?.quantity??0;
+          const did=sent.get(item_id)??{sent:0,bought:0,...!have(item_id)?{why:stop.from==='store'?'none stored':'no ask'}:{why:'plan took none'}};
+          const bid_depth=Object.fromEntries(later.flatMap(base=>{const row=known.get(base)?.items?.get(item_id);return row?[[base,depth(row,'bids')]]:[];}));
+          return {item_id,[stop.from==='store'?'stored':'ask_depth']:have(item_id),aboard:aboard(item_id),later_bid_depth:bid_depth,planned,...did};}),
+        later:later.map(base=>{const book=known.get(base);return {base_id:base,source:book?.items?book.source:null,age:book?.items?book.age:null};}),
+        cargo_used:ship?.cargo_used??null,cargo_capacity:ship?.cargo_capacity??null},'stop');
       const why=[...short.filter(line=>line.startsWith(`${here}:`)),...notes].join('; ');
       if(why)visit.why=why;
+      told.push(`${here}: ${[...visit.sold.map(fill=>`sold ${fill.quantity_sold} ${fill.item_id}${slipped(listed.get(fill.item_id),Number(fill.quantity_sold),Number(fill.total_earned))}`),
+        ...carried(loaded,later.map(base=>known.get(base))),...notes].join(', ')||'nothing'}`);
+      // Live 2026-10-02 (kvothe 19:36Z, run e4ca9b3f): nova_terra_central's sunspindle asks drained by
+      // the run's own laps, nothing bought, then 6 jumps flown for "nothing → nothing — net −64 cr".
+      const idle=route.slice(i+1);
+      if(idle.length&&!ahead(miningInventory(acct().state),idle,known)) {
+        const end=detail(),why=`nothing aboard sells at ${later.join(', ')}, and no stop ahead has a known ask to buy at — ${idle.map(next=>next.at).join(' → ')} not flown`;
+        return {status:'partial',did:`${said()}; ${why} — net ${end.net} cr after ${fuel} fuel at ${fuelPrice??0} cr`,
+          why:[...short,why].join('; '),detail:end,next:['routes()']};
+      }
     }
     const end=detail();
     const did=`${said()} — net ${end.net} cr after ${fuel} fuel at ${fuelPrice??0} cr`
@@ -931,7 +1075,9 @@ export const searchEffect=(seat:Seat,opts:RouteOpts={}):Effect.Effect<Said<Found
   // Short: a hold of ten kinds is `sell 499 of 10 kinds`; the legs in `detail` carry the rest.
   const kinds=(verb:string,rows:readonly {item_id:string;quantity:number}[])=>rows.length>2
     ?[`${verb} ${rows.reduce((sum,row)=>sum+row.quantity,0)} of ${rows.length} kinds`]:rows.map(row=>`${verb} ${row.quantity} ${row.item_id}`);
-  const says=(row:Route)=>row.legs.map(leg=>[leg.at,...kinds('sell',leg.sold),...kinds('buy',leg.buys)].join(' ')).join(' → ');
+  // Each far stop's book age, in the words: a route planned on a book that has since moved is
+  // bought on a memory (live 2026-10-01, kvothe 16:10Z: 2 dark_matter_residue at 690 for a bid gone by arrival).
+  const says=(row:Route)=>row.legs.map(leg=>[leg.source==='here'?leg.at:`${leg.at} (${aged(leg)})`,...kinds('sell',leg.sold),...kinds('buy',leg.buys)].join(' ')).join(' → ');
   return {status:failed.length?'partial':'done',
     did:`ranked ${rows.length} route(s) over ${known.size} book(s) (${sources.join(' + ')}); best: ${says(top)}, net ${top.net} cr${rested}${unknown}`,
     ...failed.length?{why:failed.map(row=>`${says(row)}: ${row.why}`).join('; ')}:{},

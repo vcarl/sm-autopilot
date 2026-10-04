@@ -129,10 +129,11 @@ sees the real types, so these are not style notes.
 |---|---|
 | `orient()` | the whole world model in one read: present, skills, storage everywhere, ships, missions, debts |
 | `scout(target?)` | POIs of a system (this one by default) with types, stations, resources here, creatures here |
-| `goTo(id)` | fly to a POI, base or system, jumping as needed; dock if a base. Any of the three ids works, or a display name: a system id with one base ends docked at that base (a system with several ends wherever the jump lands, undocked), a POI id at that POI, a base id docked at it. A trip that ends undocked says so in `did` (`not docked: no base at this POI`, and the bases in this system) and `detail.docked_at` is null — reaching a POI is not docking. A display name works for a base in this system or in the market memory (any base you have read `prices()` at); a guess that names a system with a single base goes to that base, and any other word that names nothing is `refused` with the nearest ids, remembered bases among them, instead of being flown. On the way it flies through and completes any active distress mission whose system is on the route or one jump off it, when the detour stays inside a quarter of the route's length and the whole trip still ends above the mood's fuel reserve. A leg is flown when the tank covers its quoted route; no reserve is kept on top |
-| `service()` | full tank and hull at the counter you are docked at, the repair inside the mood's spend margin; fuel is resupply and only `permissions.credit_reserve` bounds it. A station bills for fuel and repairs after the fact, so it needs no posted price: where it posts one, that is the estimate the spend is checked against first; where it posts none — which is most stations for the hull — the charge itself is checked against `permissions.credit_reserve` and, for the repair, the margin, and nothing further is bought if it breaches either. It also keeps **fuel cells** aboard: once they fall under 1% of the hold it buys up to 5% (at least one), bounded like the fuel by `permissions.credit_reserve` alone, and skipped — `did` says why — where the ask is over 1.5× the median ask your market memory remembers for them. `did` shows `fuel cells held/target` |
+| `goTo(id)` | fly to a POI, base or system, jumping as needed; dock if a base. Any of the three ids works, or a display name: a system id with one base ends docked at that base (a system with several ends wherever the jump lands, undocked), a POI id at that POI, a base id docked at it. A trip that ends undocked says so in `did` (`not docked: no base at this POI`, and the bases in this system) and `detail.docked_at` is null — reaching a POI is not docking. A base that refuses the dock makes the trip `partial`, `arrived at … after N jump(s); docking refused: <the game's words>`, and the juncture's Places line names it after that. A display name works for a base in this system or in the market memory (any base you have read `prices()` at), and for any place shown to you as `Name (id)` — an opaque id (`b495c600…`) is written that way wherever you read it, and either the name or the id may be passed back; a guess that names a system with a single base goes to that base, and any other word that names nothing is `refused` with the nearest ids, remembered bases among them, instead of being flown. On the way it flies through and completes any active distress mission whose system is on the route or one jump off it, when the detour stays inside a quarter of the route's length and the whole trip still ends above the mood's fuel reserve. A leg is flown when the tank covers its quoted route; no reserve is kept on top |
+| `service()` | full tank and hull at the counter you are docked at, the repair inside the mood's spend margin; fuel is resupply and only `permissions.credit_reserve` bounds it. A station bills for fuel and repairs after the fact, so it needs no posted price: where it posts one, that is the estimate the spend is checked against first; where it posts none — which is most stations for the hull — the charge itself is checked against `permissions.credit_reserve` and, for the repair, the margin, and nothing further is bought if it breaches either. It also keeps **fuel cells** aboard: once they fall under 1% of the hold it buys up to 5% (at least one), bounded like the fuel by `permissions.credit_reserve` alone, and skipped — `did` says why — where the ask is over 1.5× the median ask your market memory remembers for them at other bases; with no other base remembered it buys one. `did` shows `fuel cells held/target` |
 | `stow(rows)` / `withdraw(rows)` / `storage(base?)` | station storage; rows you name (omit a row's `quantity` for all of it); readable from anywhere. A `withdraw` counts each item's cargo size (osmium takes 2 a unit), and rows that overfill the hold share its room in proportion: each moves partly, the rest `short` with `no room`, status `partial` |
-| `prices(items?)` / `sell(rows, opts?)` / `buy(item, qty)` | the market here, live at the moment of the act, and remembered for `spreads()`. `sell`'s options are exactly two: `{from: 'hold' \| 'store'}` (default `'hold'`; `'store'` empties the store a hold-load at a time) and `{floor: {[item_id]: number}}` (skip a row whose `best_buy` is under it). There is no option naming a market — `sell` is always the counter you are docked at |
+| `prices(items?)` / `sell(rows, opts?)` / `buy(item, qty)` | the market here, live at the moment of the act, and remembered for `spreads()`. `sell`'s options are exactly two: `{from: 'hold' \| 'store'}` (default `'hold'`; `'store'` empties the store a hold-load at a time) and `{floor: {[item_id]: number}}` (skip a row whose `best_buy` is under it). There is no option naming a market — `sell` is always the counter you are docked at. A sale walks the bids down the book: when it averages more than 3% under the top bid, `did` names the fill and the top bid's depth |
+| `buyers(items)` | who buys it: the highest bids known for an item (or a list) anywhere — the live book here when docked, your faction's ledger, every book you have read — up to 3 an item, each with its base, price, depth, the book's age in ticks and the jumps there. Held or not, docked or not; reads only. Ask it before flying to look for a buyer |
 | `refit({install,remove})` / `shipsForSale(opts?)` / `buyShip(id, opts?)` | the hangar: modules on and off within the grid, the hulls for sale here, the next one |
 | `missions()` / `acceptMission(id)` / `completeMissions()` / `abandonMission(id, opts?)` | the board here; the cheapest credits and xp early |
 | `rest(base?)` | put in and bring the ship up: `goTo(base)` when you name one, then `service()` at the counter. It changes nothing else |
@@ -156,7 +157,7 @@ Everything game-shaped in a `detail` is the lib's own type (`SystemPoi`, `Missio
 
 Careers add more: [`mining/`](mining/README.md) (`gatherUntil`),
 [`hauling/`](hauling/README.md), [`industry/`](industry/README.md) (`recipes`, `quote`, `supply`, `craft`, `jobs`, `materials`, `facilities`, `buildFacility`), [`combat/`](combat/README.md) (`hunt`, `salvage`),
-[`trading/`](trading/README.md) (`spreads`, `routes`, `tradeRun`, `scoutMarkets`), [`exploration/`](exploration/README.md) (`exploreNearby`), [`fleet/`](fleet/README.md) (`assign`, `recall`, `freighters`).
+[`trading/`](trading/README.md) (`buyers`, `spreads`, `routes`, `tradeRun`, `scoutMarkets`), [`exploration/`](exploration/README.md) (`exploreNearby`), [`fleet/`](fleet/README.md) (`assign`, `recall`, `freighters`).
 Each folder's README is the skill for that career; the one for your stance is loaded beside this.
 Every career's functions import from `'play'` whatever your stance. Crafting goes through them,
 never a raw `craft` command: `recipes(search?)` lists what this base can make from hold + store,
@@ -199,7 +200,9 @@ export default async function main() {
 ## Getting a better ship
 
 - `shipsForSale()` lists the hulls at or under credits minus your `credit_reserve`, biggest
-  hold first, each with one line of difference against what you fly.
+  hold first, each with one line of difference against what you fly. A class the yard will not
+  quote you is in `detail.locked` with the game's reason (a Piloting level, a faction).
+  Undocked, name the base: `shipsForSale({baseId})`.
 - `buyShip(listingId, {switchTo:true})` buys it and, at a shipyard, flies it; over the
   reserve it is `refused` with the numbers and nothing is sent.
 - `refit({remove, install})` moves modules across. Check first: a module needs a free slot of
@@ -242,9 +245,11 @@ it. A wallet short of the whole bill buys what fits — the fuel first, then the
 
 ## Goal and stance
 
-`spacemolt_reflect` sets your `goal`, your `stance`, or retires a finished objective
-(`objective_done`); each is optional, and none of them is needed to run. The stance picks which
-career's README the next juncture carries: with none, you have this README alone.
+`spacemolt_reflect` sets your `goal`, your `steps`, your `stance`, or retires a finished objective
+(`objective_done`); each is optional, and none of them is needed to run. The goal is one short
+line: the next step. `steps` is a checklist toward the objective, passed whole each time; a new
+objective clears both. The stance picks which career's README the next juncture carries: with
+none, you have this README alone.
 
 `reflection()` is the read a script takes to branch on how its runs have gone: what is repeating,
 which skills would move, what you hold and owe.

@@ -4,9 +4,11 @@
 import type {SystemPoi} from '@spacemolt/lib';
 import {Effect} from 'effect';
 import {dockAtEffect} from '../dock.ts';
-import {Game,field} from './game.ts';
+import {Game,Rejected,field} from './game.ts';
 import {replyBody} from '../storage.ts';
-import {acct,step} from './runtime.ts';
+import {journalRun} from '../run-record.ts';
+import {clearDockRefused,markDockRefused} from './places.ts';
+import {acct,runtimeDir,step} from './runtime.ts';
 
 /** The part of a `get_system` row the counter reads. A row is kept when it has an `id`, and takes
  * each other field when it is a string: a partial row costs nothing, a malformed one only its field. */
@@ -30,6 +32,23 @@ export const hereEffect=()=>Effect.gen(function*() {
 export const named=(id:string|undefined,row?:PoiRow)=>`${id??'open space'}${row?.name&&row.name!==id?` (${row.name})`:''}`;
 export const others=(bases:string[])=>bases.length?`; bases in this system: ${bases.join(', ')}`:'';
 
+/** Dock at `base_id` where the ship stands, or the game's refusal in its own words when it denies
+ * access (`access_denied`, live 2026-09-30..10-02: 18 `Access denied` docks): remembered in
+ * `docking.json` and journalled (`dock_refused`), so the next juncture can see which bases turned it
+ * away. A dock that takes clears the entry. Every other failure stays in the error channel. */
+export const dockEffect=(base_id:string)=>dockAtEffect(acct(),base_id).pipe(
+  Effect.map(done=>{const runtime=runtimeDir();if(runtime)clearDockRefused(runtime,base_id);return {docked:done.docked_at};}),
+  Effect.catchTag('Rejected',error=>{
+    // TravelBlocked's tag is a plain string, so catchTag hands it here too: only a Rejected has a code.
+    if(!(error instanceof Rejected)||error.code!=='access_denied')return Effect.fail(error);
+    const runtime=runtimeDir(),system_id=acct().state.location?.system_id,where=system_id?{system_id}:{};
+    if(runtime) {
+      markDockRefused(runtime,base_id,{...where,message:error.message,at:new Date().toISOString()});
+      journalRun(runtime,{base_id,...where,code:error.code,message:error.message},'dock_refused');
+    }
+    return Effect.succeed({refused:error.message});
+  }));
+
 /** Docked already, or docked now when a base sits at this POI; otherwise why not, naming the
  * POI, the system, and the bases in this system. */
 export const counterEffect=()=>Effect.gen(function*() {
@@ -38,7 +57,8 @@ export const counterEffect=()=>Effect.gen(function*() {
   const {row,bases}=yield* hereEffect();
   if(row?.base_id) {
     step(`docking at ${row.base_id}: its counter is here`);
-    return {docked:(yield* dockAtEffect(acct(),row.base_id)).docked_at};
+    const done=yield* dockEffect(row.base_id);
+    return 'docked' in done?done:{refused:`docking refused at ${row.base_id}: ${done.refused}`};
   }
   const at=acct().state.location;
   return {refused:`not docked: at ${named(at?.poi_id,row)} in ${at?.system_name??at?.system_id??'?'}, no station here${others(bases)}`};

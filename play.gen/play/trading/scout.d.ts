@@ -19,11 +19,13 @@ export interface Candidate {
     base_id?: string;
     jumps: number;
     age?: number;
+    /** The game's words when this base last refused the dock (`docking.json`): it ranks last. */
+    refused?: string;
 }
 /** The id a candidate is flown to by. */
 export declare const target: (row: Candidate) => string;
-/** Every candidate within `jumps` of the ship's system, unknown and unexplored first, then stale;
- * nearer first, a base before a system. Books are aged against `now`. Reads only, through `seat`:
+/** Every candidate within `jumps` of the ship's system, unknown and unexplored first, then stale,
+ * then bases that refused the dock (`docking.json`); nearer first, a base before a system. Books are aged against `now`. Reads only, through `seat`:
  * `get_map` once, the faction ledger (`farBooks`) and intel map (`query_intel`, each base it names
  * kept in `places.json`), and the runtime's `places.json`, `explored.json` and market memory. A
  * system with a base already placed counts as explored; its other bases are listed by the
@@ -48,7 +50,8 @@ export interface Scouted {
  * is flown to with `goTo` and its book read (remembered and filed, as `prices()` does); a system is
  * flown to and its bases listed and kept, so the next hop can dock at one. Never buys or sells.
  * Refused when not docked (ages are read against a counter's tick) or in a mood that may not start
- * a job. A hop that fails is said and skipped; `partial` when one did. Trains navigation. */
+ * a job. A hop that fails is said and skipped; `partial` when one did. A base that refused the dock
+ * is ranked last and `did` says so, and flown to only when nothing else is left. Trains navigation. */
 export declare function scoutMarkets(opts?: {
     jumps?: number;
     max?: number;

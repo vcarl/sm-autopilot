@@ -139,7 +139,7 @@ def _run(arguments: dict[str, Any] | None = None, **_: Any) -> str:
         # The context this juncture began with names the old objective; the report says what
         # the record holds now, so a reflection after it plans for the new one.
         lines.append(f"Since the last juncture's context was written, the objective became {now!r}; "
-                     "the goal and stance set for the old one were cleared.")
+                     "the goal, steps and stance set for the old one were cleared.")
     return _report(result, lines)
 
 
@@ -279,19 +279,30 @@ def _reflect(arguments: dict[str, Any] | None = None, **_: Any) -> str:
     if asked and stance is None:
         # Validation, not a gate: a stance with no career README would load nothing.
         return f"Nothing written: {asked!r} is not a stance. The stances: {', '.join(STANCES)}."
-    if not (goal or stance or done):
-        return "Nothing to write: pass a goal, a stance, or objective_done."
+    steps = args.get("steps")
+    if steps is not None and not (isinstance(steps, list) and all(isinstance(step, str) for step in steps)):
+        # Shape, not content: the bridge stores a list of strings.
+        return "Nothing written: steps is a list of short strings."
+    steps = [step.strip() for step in steps if step.strip()] if steps is not None else None
+    if not (goal or stance or done or steps is not None):
+        return "Nothing to write: pass a goal, steps, a stance, or objective_done."
     record = read_pilot()
     patch: dict[str, Any] = {**({"goal": goal} if goal else {}), **({"stance": stance} if stance else {})}
+    if steps is not None:
+        # The whole list each time; an empty one clears it.
+        patch["steps"] = steps or None
     retired = record.get("objective") if done or record.get("objective_done") else None
     if done or record.get("objective_done"):
         patch.update(objective=None, objective_done=None,
                      **({"objective_completed": retired} if retired else {}))
     call("pilot", {"set": patch})
-    journal_event("reflection", **({"goal": goal} if goal else {}), **({"stance": stance} if stance else {}),
+    journal_event("reflection", **({"goal": goal} if goal else {}), **({"steps": steps} if steps is not None else {}),
+                  **({"stance": stance} if stance else {}),
                   **({"objective_done": True, "objective": retired} if done else {}))
     _rewrite_job()
-    said = [f"goal {goal!r}" if goal else "", f"stance {stance}" if stance else "",
+    said = [f"goal {goal!r}" if goal else "",
+            (f"{len(steps)} step(s)" if steps else "steps cleared") if steps is not None else "",
+            f"stance {stance}" if stance else "",
             f"objective {retired!r} retired" if retired else ("objective retired" if done else "")]
     return ("Recorded: " + ", ".join(bit for bit in said if bit) + "."
             + (f" The next juncture carries the {stance} skill." if stance else ""))
@@ -316,8 +327,8 @@ def _direct(arguments: dict[str, Any] | None = None, **_: Any) -> str:
 
     The observer's tool: it carries in what the human and the player agreed.
 
-    A new objective (different text) clears the goal and stance, which were the plan for the
-    old one — the bridge's pilot request does that — rewrites the juncture job so the next fire
+    A new objective (different text) clears the goal, its steps and the stance, which were the
+    plan for the old one — the bridge's pilot request does that — rewrites the juncture job so the next fire
     carries no stale career skill, and stops a run in flight at its next safe point, so the
     next juncture plans under the new objective. The mood is derived from the ship.
 
@@ -374,7 +385,7 @@ def _direct(arguments: dict[str, Any] | None = None, **_: Any) -> str:
     after = ("the run in flight was asked to stop at its next safe point" if stopped
              else "a run already under way runs to its outcome first")
     return (f"Recorded: {set_what}."
-            + (" Any goal and stance set for the old one were cleared." if new_objective else "")
+            + (" Any goal, steps and stance set for the old one were cleared." if new_objective else "")
             + f" The pilot takes it up at the next juncture — within {IDLE_SCHEDULE} of the last "
             f"one ending — and {after}."
             + said
@@ -430,15 +441,26 @@ TOOL_DEFINITIONS = (
                                                   "written before the check."}},
                        [])},
     {"name": "spacemolt_reflect", "toolset": "spacemolt", "handler": _reflect,
-     "description": "Set the goal, the stance, or retire a finished objective. Each is optional.",
+     "description": "Set the goal, the steps, the stance, or retire a finished objective. Each is optional.",
      "schema": _schema("spacemolt_reflect",
-                       "Set what the next juncture pursues: a goal, a stance, or objective_done "
+                       "Set what the next juncture pursues: a goal, steps, a stance, or objective_done "
                        "(any of them; at least one). The stance chooses which career README the "
                        "next juncture carries; with none it carries the play README alone. It takes "
                        "effect at the next juncture, and nothing needs a stance to run.",
+                       # Live 2026-09-30 (kvothe): goals averaged ~300 characters — a log of
+                       # where it had been — and subtasks ("price an upgrade") were dropped
+                       # every fire. The context carries the loops and places now; the goal is
+                       # the next step, and the checklist has its own field.
                        {"goal": {"type": "string",
-                                 "description": "What the next runs will do to advance your "
-                                                "objective. One line."},
+                                 "description": "The next step toward your objective, in one short "
+                                                "line: what the next run does. Not a log of where "
+                                                "you have been; the context carries your runs, "
+                                                "loops and places."},
+                        "steps": {"type": "array", "items": {"type": "string"},
+                                  "description": "Optional checklist toward the objective, a few "
+                                                 "short lines (e.g. 'price an upgrade'). Pass the "
+                                                 "whole list each time; [] clears it. Cleared when "
+                                                 "the objective changes."},
                         "stance": {"type": "string", "enum": list(STANCES),
                                    "description": "The career the next juncture reads up on."},
                         "objective_done": {"type": "boolean",
@@ -484,7 +506,7 @@ TOOL_DEFINITIONS = (
                        "next juncture only. Pass any one of them; at least one is required. The "
                        "pilot takes this up at its next juncture, not now, and a job under way "
                        "runs to its outcome first. A permission left unnamed keeps the value it "
-                       "had. This sets nothing else: goal and stance are the pilot's.",
+                       "had. This sets nothing else: goal, steps and stance are the pilot's.",
                        {"instruction": {"type": "string", "maxLength": _INSTRUCTION_LIMIT,
                                         "description": "One sentence for the next juncture, "
                                                        f"at most {_INSTRUCTION_LIMIT} characters, "

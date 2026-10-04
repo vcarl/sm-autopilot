@@ -176,7 +176,7 @@ Then, in order:
    pass. The bridge logs to `~/.hermes/profiles/spacemolt/spacemolt/runtime/bridge.stderr.log`
    and appends a line per event to `runtime/gameplay.jsonl`.
 3. The run's report comes back into the same turn. When the pilot wants a different goal or
-   career it calls `spacemolt_reflect` (goal, stance, objective_done — any of them).
+   career it calls `spacemolt_reflect` (goal, steps, stance, objective_done — any of them).
 4. A stance change rewrites the juncture job, so the next fire carries `spacemolt:play` plus
    (say) `spacemolt:mining`. Cron schedules that fire five minutes after this one ends.
 

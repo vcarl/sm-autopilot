@@ -65,7 +65,11 @@ export interface Call {fn:string;arg:string;status:Status;did:string;
   why?:string;
   credits:number;items:number;xp:number;cost:Outcome['cost'];
   /** Telemetry, journalled on run/ended: the whole of what the call gained, and when it ran. */
-  gained?:Outcome['gained'];started_at?:string;seconds?:number}
+  gained?:Outcome['gained'];started_at?:string;seconds?:number;
+  /** The bases a route call docked at, in order, from its detail's `stops` (tradeRun's): the
+   * juncture groups earning laps by them (live 2026-10-01, kvothe: the loop that made +39.6k fell
+   * out of view, and its stops lived only in `did` prose). */
+  stops?:string[]}
 
 /** A question the program is paused on, as run.json and the tools carry it. */
 export type Question=NonNullable<RunRecord['question']>;
@@ -338,7 +342,7 @@ function snapshot(run:RunState):Snapshot {
   return {at:Date.now(),credits:state.player?.credits??0,fuel:state.ship?.fuel??0,hull:state.ship?.hull??0,cargo,xp};
 }
 /** `get_skills` answers a map keyed by skill id (live, C23 replay); some shapes nest it. */
-function skillMap(skills:unknown):Record<string,SkillProgress> {
+export function skillMap(skills:unknown):Record<string,SkillProgress> {
   const raw=field(skills,'skills')??skills;
   return isRecord(raw)&&!Array.isArray(raw)?Object.fromEntries(Object.entries(raw).flatMap(([id,row])=>isProgress(row)?[[id,row] as const]:[])):{};
 }
@@ -481,6 +485,11 @@ const opening=(run:RunState,fn:string,args:string)=>Effect.gen(function*() {
   run.jobMark=before;
   return {fn,args,before,outer,outerMark};
 });
+/** A detail's `stops[].at` (tradeRun's), when it has a `stops` list: a raw fact for the run record. */
+const stopsOf=(detail:unknown):{stops?:string[]}=>{
+  const stops=field(detail,'stops');
+  return Array.isArray(stops)?{stops:stops.flatMap(stop=>{const at=field(stop,'at');return typeof at==='string'?[at]:[];})}:{};
+};
 /** The closing read, the measurement, the ✓/✗ line and the `calls` push. */
 const closing=<Detail>(run:RunState,{fn,args,before,outer,outerMark}:Opened,part:Said<Detail>,threw:boolean)=>Effect.gen(function*() {
   // The closing read may fail; the cached state stands, so it is only looked at.
@@ -493,7 +502,8 @@ const closing=<Detail>(run:RunState,{fn,args,before,outer,outerMark}:Opened,part
     ...built.why===undefined?{}:{why:built.why},
     credits:built.gained.credits,cost:built.cost,
     items:built.gained.items.reduce((n,row)=>n+row.quantity,0),xp:Object.values(built.gained.xp).reduce((n,x)=>n+x,0),
-    gained:built.gained,started_at:new Date(before.at).toISOString(),seconds:Math.round((Date.now()-before.at)/100)/10});
+    gained:built.gained,started_at:new Date(before.at).toISOString(),seconds:Math.round((Date.now()-before.at)/100)/10,
+    ...stopsOf(built.detail)});
   run.last=outer;run.jobMark=outerMark;run.depth--;
   return built;
 });

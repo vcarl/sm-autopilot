@@ -29,7 +29,7 @@ import {Game,GameLive,SeamFailed,field,rawError} from '../game.ts';
 import {num} from '../rows.ts';
 import {Stopped} from '../runtime.ts';
 import {buysOf,LedgerEntry,ledgerItems,REST_TICKS,searchEffect,type Circuit,type Seat} from '../trading/trading.ts';
-import {markMobile,markPlace,readPlaces} from '../places.ts';
+import {learnNames,markMobile,markPlace,readPlaces} from '../places.ts';
 import {candidatesEffect,exploreEffect,target,type Candidate} from '../trading/scout.ts';
 import {markDrained,ring} from './drained.ts';
 import {scoutHop,scoutHopEffect} from './lap.ts';
@@ -295,6 +295,7 @@ export function start(runtime:string,name:string):string|null {
     const since=Date.now();
     return account.send(tool,verb,params).then(reply=>{
       journalCommand(runtime,`${name}:${action}`,params,true,reply,{freighter:name,ms:Date.now()-since});
+      learnNames(runtime,action,params,reply);
       return reply;
     },error=>{
       journalCommand(runtime,`${name}:${action}`,params,false,error,{freighter:name,ms:Date.now()-since});

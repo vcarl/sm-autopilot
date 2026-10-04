@@ -545,6 +545,8 @@ test("the rules' own refusals reach not_now, which is what the pilot was promise
     // And it is labelled with something the pilot can act on rather than an empty string.
     assert.ok(refused!.move.length>0,'a refusal with no label at all');
     assert.ok(!built.not_now.some(row=>row.move===''),`an unlabelled not_now row: ${JSON.stringify(built.not_now)}`);
+    // Live 2026-09-30 (kvothe): "J9 Price circuit walked" stood in 122 contexts. No row id reaches the pilot.
+    assert.doesNotMatch(renderMenu(built),/\bJ\d+\b/,renderMenu(built));
   } finally {f.close();}
 });
 

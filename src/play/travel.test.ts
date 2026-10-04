@@ -1,17 +1,18 @@
 import assert from 'node:assert/strict';
-import {mkdtempSync,rmSync} from 'node:fs';
+import {mkdtempSync,rmSync,writeFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {SpacemoltError,type Account} from '@spacemolt/lib';
 import {Effect} from 'effect';
 import test from 'node:test';
-import type {ReadinessAccount} from '../readiness.ts';
 import {readJournal} from '../run-record.ts';
 import {bridgeWorld,derived} from '../test-support/bridge-world.ts';
 import {travelToEffect} from '../travel.ts';
 import {onWorldClock} from '../test-support/travel.ts';
-import {acct,bind,edge,jobEffect,stop,unbind,type Pilot} from './runtime.ts';
-import {goTo} from './travel.ts';
+import {menuEffect} from './menu.ts';
+import {readDockRefusals} from './places.ts';
+import {acct,bind,edge,jobEffect,onBinding,stop,unbind,type Pilot} from './runtime.ts';
+import {destinationEffect,goTo} from './travel.ts';
 
 test('goTo refuses a name that is not a place',async()=>{
   const game=bridgeWorld({services:['refuel','repair']});
@@ -142,4 +143,61 @@ test('an arrival the game never confirms fails naming itself, and is not a defec
     assert.match(out.why??'',/Arrival not verified/);
     assert.deepEqual(w.defects(),[]);
   } finally {w.close();}
+});
+
+test('a base that denies the dock: goTo is partial in the game\'s words, and the refusal is remembered, journalled and named in the menu',async()=>{
+  // Live 2026-10-02 (kvothe 16:37Z): an `Access denied` dock broke the whole run after the flight
+  // had landed, and the same bases were retried hours apart because nothing remembered it.
+  const runtime=mkdtempSync(join(tmpdir(),'spacemolt-dock-'));
+  const game=bridgeWorld({services:['refuel','repair']});
+  let deny=true;
+  const command:typeof game.command=async(action,params)=>{
+    if(action==='spacemolt/dock'&&deny)throw new SpacemoltError('access_denied','Access denied');
+    return game.command(action,params);
+  };
+  bind({account:game.account as unknown as Account,command,pilot:():Pilot=>({mood:'Focused'}),runtime,emit:()=>{}});
+  try {
+    const out=await goTo('range_base');
+    assert.equal(out.status,'partial',JSON.stringify(out));
+    assert.match(out.did,/^arrived at range_base after 1 jump\(s\); docking refused: Access denied$/);
+    assert.equal(readDockRefusals(runtime).range_base?.message,'Access denied');
+    const line=readJournal(runtime).find(entry=>entry.event==='dock_refused');
+    assert.equal(line?.base_id,'range_base');
+    assert.equal(line?.system_id,'deep_range');
+    assert.deepEqual((await onBinding(menuEffect(runtime))).places?.refused.map(row=>row.base_id),['range_base']);
+    // Nothing refuses the next try; a dock that takes clears the memory.
+    deny=false;
+    assert.equal((await goTo('range_base')).status,'done');
+    assert.deepEqual(readDockRefusals(runtime),{});
+  } finally {unbind();rmSync(runtime,{recursive:true,force:true});}
+});
+
+test('a dock refused for any other reason keeps its code and is not remembered as a denied base',async()=>{
+  const runtime=mkdtempSync(join(tmpdir(),'spacemolt-dock-'));
+  const game=bridgeWorld({services:['refuel','repair']});
+  const command:typeof game.command=async(action,params)=>{
+    if(action==='spacemolt/dock')throw new SpacemoltError('station_closed','Station closed');
+    return game.command(action,params);
+  };
+  bind({account:game.account as unknown as Account,command,pilot:():Pilot=>({mood:'Focused'}),runtime,emit:()=>{}});
+  try {
+    const out=await goTo('range_base');
+    assert.equal(out.status,'refused',JSON.stringify(out));
+    assert.match(out.why??'',/spacemolt\/dock: station_closed/);
+    assert.deepEqual(readDockRefusals(runtime),{});
+    assert.ok(!readJournal(runtime).some(entry=>entry.event==='dock_refused'||entry.event==='defect'));
+  } finally {unbind();rmSync(runtime,{recursive:true,force:true});}
+});
+
+// Live 2026-10-02 (kvothe): a hex-id base reads `Kestrel Yard (b495…)` to the pilot now, so the
+// name is what it may write back; goTo resolves it through the kept names, from anywhere.
+test('goTo resolves a far opaque base by the name kept for it',async()=>{
+  const base='b495c6003fc83e18f6d8cecbe6929133',game=bridgeWorld({services:['refuel','repair']});
+  const runtime=mkdtempSync(join(tmpdir(),'spacemolt-names-'));
+  writeFileSync(join(runtime,'names.json'),JSON.stringify({[base]:'Kestrel Yard'}));
+  const command:typeof game.command=async(action,params)=>action==='spacemolt/find_route'&&params?.id===base
+    ?{found:true,target_system:'dheneb',target_poi:base,total_jumps:2,estimated_fuel:14,route:[]}:game.command(action,params);
+  bind({account:game.account as unknown as Account,command,pilot:():Pilot=>({mood:'Focused'}),runtime,emit:()=>{}});
+  try {assert.equal((await onBinding(destinationEffect('Kestrel Yard'))).id,base);}
+  finally {unbind();rmSync(runtime,{recursive:true,force:true});}
 });

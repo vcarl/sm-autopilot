@@ -69,6 +69,29 @@ test('a first run installs the example, and the three gates refuse before anythi
   } finally {f.close();}
 });
 
+// Live 2026-09-30 (22:43Z run 058d3387) and 10-01 (15:42Z): `import {Outcome} from 'play'` passed tsc,
+// then Node's type stripping crashed on the missing export.
+test('a type imported as a value is a typecheck refusal, not a crash at load',async()=>{
+  const f=harness();
+  try {
+    f.write("import {Outcome,orient} from 'play';\nexport default async function main():Promise<Outcome|undefined>{ await orient(); return undefined; }\n");
+    const gate=await check(f.runtime);
+    assert.equal(gate.ok,false);
+    assert.match(gate.errors.join('\n'),/Outcome.*type-only import|type-only import.*Outcome/s);
+  } finally {f.close();}
+});
+
+// Live 2026-09-30/10-01: 11 refusals were `Cannot find name 'stopped'`, an unimported `play` export.
+test('a name that is a play export but not imported says so; one that is not, does not',async()=>{
+  const f=harness();
+  try {
+    f.write("export default async function main(){ while(!stopped()){ nothere(); } }\n");
+    const errors=(await check(f.runtime)).errors.join('\n');
+    assert.match(errors,/Cannot find name 'stopped'.*stopped is exported by 'play': add it to your import/);
+    assert.doesNotMatch(errors,/nothere is exported/);
+  } finally {f.close();}
+});
+
 test('a tsc error carries the offending line, so the pilot need not be sent its own file back',async()=>{
   const f=harness();
   try {

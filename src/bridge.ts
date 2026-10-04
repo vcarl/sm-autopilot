@@ -2,7 +2,7 @@
  * `{"id","event":"line","text"}` lines streamed while a `run` proceeds. Requests are
  * handled concurrently, so `stop` and `status` answer while a run is in flight. */
 import {Account} from '@spacemolt/lib';
-import {Effect,Result,Schema} from 'effect';
+import {Cause,Effect,Exit,Result,Schema} from 'effect';
 import {createHash} from 'node:crypto';
 import {existsSync,mkdirSync,readFileSync,renameSync,writeFileSync} from 'node:fs';
 import {resolve} from 'node:path';
@@ -22,7 +22,9 @@ import {flushJournalDrain,startJournalDrain} from './journal-webhook.ts';
 import {check as checkPilot,runPilot as defaultRunPilot,type RunResult} from './run.ts';
 import {menuEffect,renderMenu,threatsHere} from './play/menu.ts';
 import {fleetBrief,resumeFreighters,stopFreighters} from './play/freighter/host.ts';
-import {answer as answerQuestion,bind,isBound,onBinding,pendingQuestion,present,progress,stop as stopRun,unbind,
+import {attempt,isGameError,message} from './play/game.ts';
+import {learnNames,nameIds,readNames} from './play/places.ts';
+import {answer as answerQuestion,bind,isBound,onBinding,pendingQuestion,present,progress,skillMap,stop as stopRun,unbind,
   type Pilot as Flying} from './play/runtime.ts';
 
 /** `attach` is how a request takes the run's stream: the loop routes streamed lines to the
@@ -196,17 +198,34 @@ export function pushJournal(account:{on:(type:string,handler:(payload:Record<str
   });
 }
 
+/** Facts at the moment an objective was set: the wallet, each skill's level, the hull and the
+ * place. Live 2026-09-30 (kvothe): objective "train an offensive skill" was met (tactics 4→5) while
+ * the pilot kept saying no skill rose; it had nothing to compare against. */
+const ObjectiveStart=Schema.Struct({at:Schema.String,credits:Schema.optionalKey(Schema.Number),
+  skills:Schema.Record(Schema.String,Schema.Number),ship_class:Schema.optionalKey(Schema.String),place:Schema.optionalKey(Schema.String)});
+export type ObjectiveStart=typeof ObjectiveStart.Type;
 /** `pilot.json` as stored. The bridge is its only writer (the `pilot` request); the mood is never
  * in it — it is derived from the ship on every read (`flying`). A key it does not name — a stored
  * mood from an older runner included — is dropped on read and never written. */
 const PilotRecord=Schema.Struct({name:Schema.optionalKey(Schema.String),objective:Schema.optionalKey(Schema.String),
   objective_done:Schema.optionalKey(Schema.Boolean),objective_completed:Schema.optionalKey(Schema.String),
-  goal:Schema.optionalKey(Schema.String),stance:Schema.optionalKey(Schema.Literals(STANCES.map(stance=>stance.name))),
+  /** Where the ship stood when this objective was set, for the juncture's deltas. */
+  objective_start:Schema.optionalKey(ObjectiveStart),
+  goal:Schema.optionalKey(Schema.String),
+  /** The pilot's own checklist toward the objective: short lines, set whole by reflect. */
+  steps:Schema.optionalKey(Schema.Array(Schema.String)),
+  stance:Schema.optionalKey(Schema.Literals(STANCES.map(stance=>stance.name))),
   permissions:Schema.optionalKey(Schema.Struct({max_liability:Schema.optionalKey(Schema.Number),credit_reserve:Schema.optionalKey(Schema.Number)})),
   instruction:Schema.optionalKey(Schema.Struct({text:Schema.String,at:Schema.String}))});
 export type Pilot=typeof PilotRecord.Type;
 const decodePilot=Schema.decodeUnknownResult(PilotRecord);
 const decodeJson=Schema.decodeUnknownResult(Schema.fromJsonString(Schema.Unknown));
+export function objectiveStart(state:ReadinessAccount['state']):ObjectiveStart {
+  const {ship,location,player}=state,place=location?.docked_at??location?.poi_id??location?.system_id;
+  return {at:new Date().toISOString(),...player?.credits===undefined?{}:{credits:player.credits},
+    skills:Object.fromEntries(Object.entries(skillMap(state.skills)).map(([id,row])=>[id,row.level])),
+    ...ship?.class_id?{ship_class:ship.class_id}:{},...place?{place}:{}};
+}
 
 /** The record as the play runtime reads it: the stored fields and the mood the ship is in now. */
 export function flying(record:Pilot,state:ReadinessAccount['state']):Flying {
@@ -237,6 +256,20 @@ function pilotFields(row:unknown):{record:Pilot;cleared:string[];dropped:Record<
   }
   return {record,cleared,dropped};
 }
+
+/** A reply as the pilot reads it: the prose of a run's report (and of `status`'s last one) names
+ * each opaque base or POI id it carries (`nameIds`). Applied at stdout, after the request line is
+ * journalled, so the journal keeps every id raw. */
+export function forPilot(result:unknown,names:Record<string,string>):unknown {
+  const named=prose(result,names);
+  return isRecord(named)&&'last' in named?{...named,last:prose(named.last,names)}:named;
+}
+const prose=(row:unknown,names:Record<string,string>):unknown=>{
+  if(!isRecord(row)||Array.isArray(row))return row;
+  const named:Record<string,unknown>={...row};
+  for(const key of ['did','why','prose']){const text=named[key];if(typeof text==='string')named[key]=nameIds(text,names);}
+  return named;
+};
 
 /** The record with each field that does not decode dropped and named to `onDropped`, never refused
  * whole: on main an unknown stance flew as no stance, and a hand edit must not ground the pilot.
@@ -369,12 +402,14 @@ export function serve(account:Account,command:ReadinessCommand,options:ServeOpti
         now:new Date().toISOString(),
         ...who.stance?{stance:who.stance}:{},mood:who.mood,...who.tired_by?{tired_by:who.tired_by}:{},
         ...who.goal?{goal:who.goal}:{},
+        ...record().steps?.length?{steps:record().steps}:{},
+        ...record().objective_start?{objective_start:record().objective_start}:{},
         ...who.permissions?{permissions:who.permissions}:{},
         ...who.objective?{objective:who.objective}:{},
         ...who.instruction?{instruction:who.instruction}:{},
         ...threats.length?{threats}:{},
         present:{system:location?.system_id,poi:location?.poi_id,docked_at:location?.docked_at??null,
-          in_transit:Boolean(location?.in_transit),fuel:ship?.fuel,max_fuel:ship?.max_fuel,
+          in_transit:Boolean(location?.in_transit),ship_class:ship?.class_id,fuel:ship?.fuel,max_fuel:ship?.max_fuel,
           hull:ship?.hull,max_hull:ship?.max_hull,
           cargo_free:(ship?.cargo_capacity??0)-(ship?.cargo_used??0),credits:player?.credits,
           hold:(account.state.cargo??[]).map(row=>({item_id:String(row.item_id),quantity:row.quantity})),
@@ -387,7 +422,7 @@ export function serve(account:Account,command:ReadinessCommand,options:ServeOpti
           // The hull this mood breaks off a fight at, as `moodNow` computes it: the juncture
           // cannot reach the D2 table (the stance's working mood, so Tired does not move it), and a pilot left to guess the line guesses it low.
           ...ship?.max_hull===undefined?{}:{walk_away:Math.floor(resolveWalkAway(stanceMood(who.stance))*ship.max_hull)}},
-        ...built,text:renderMenu(built),...runtime?fleetBrief(runtime):{},last:lastOutcome(),
+        ...built,text:renderMenu(built),...runtime?{names:readNames(runtime)}:{},...runtime?fleetBrief(runtime):{},last:lastOutcome(),
         ...waiting.length?{alerts:waiting.map(({type,key,at,first_at,n,body})=>({type,key,at,first_at,n,body}))}:{},
       };
     } finally {unbind();}
@@ -404,11 +439,23 @@ export function serve(account:Account,command:ReadinessCommand,options:ServeOpti
     // the whole write: the objective or instruction beside a bad stance still lands.
     const {record:valid,cleared,dropped}=pilotFields(patch);
     const set:Record<string,unknown>={...valid,...Object.fromEntries(cleared.map(key=>[key,null]))};
-    // A new objective retires the plan made for the old one: the goal and the stance (which
+    // A new objective retires the plan made for the old one: the goal, its steps and the stance (which
     // picks the career skill a juncture carries) go with it, unless this same write sets them.
     // The same text again is not new; retiring the objective (null) leaves the plan standing.
-    if(typeof set.objective==='string'&&set.objective!==prev.objective)
-      for(const key of ['goal','stance'])if(!(key in set)&&key in prev)set[key]=null;
+    if(typeof set.objective==='string'&&set.objective!==prev.objective) {
+      for(const key of ['goal','steps','stance'])if(!(key in set)&&key in prev)set[key]=null;
+      // The start facts, read fresh where the game answers and from memory where it does not: a refresh
+      // that fails is journalled, never a refusal of the write (the request handler is the edge).
+      const fresh=await Effect.runPromiseExit(attempt('refresh',()=>account.refresh()));
+      if(Exit.isFailure(fresh)&&runtime) {
+        const error=Cause.squash(fresh.cause);
+        if(isGameError(error))journalRun(runtime,{message:`objective_start read from memory: the refresh failed (${error._tag==='ReplyLost'?'reply lost':`${error.code}: ${error.message}`})`},'log');
+        else journalRun(runtime,{fn:'pilot',why:message(error),stack:Cause.pretty(fresh.cause)},'defect');
+      }
+      set.objective_start=objectiveStart(account.state);
+    }
+    // A retired objective takes its start with it.
+    if(set.objective===null&&'objective_start' in prev)set.objective_start=null;
     const next:Record<string,unknown>={...prev};
     for(const [key,value] of Object.entries(set))if(value===null)delete next[key];else next[key]=value;
     const decoded=decodePilot(next);
@@ -530,14 +577,16 @@ async function main() {
   const command:ReadinessCommand=async(action,params)=>{
     const [tool='',name='']=action.split('/');
     const since=Date.now();
-    try {
-      const reply=await account.send(tool,name,params);
-      journalCommand(runtime,action,params,true,reply,{ms:Date.now()-since});
-      return reply;
-    } catch(error) { // edge: journalled and rethrown unchanged; `GameLive` classifies it
+    let reply:unknown;
+    try {reply=await account.send(tool,name,params);}
+    catch(error) { // edge: journalled and rethrown unchanged; `GameLive` classifies it
       journalCommand(runtime,action,params,false,error,{ms:Date.now()-since});
       throw error;
     }
+    journalCommand(runtime,action,params,true,reply,{ms:Date.now()-since});
+    // After the journal line, outside the catch: a reply that landed is never journalled as failed.
+    learnNames(runtime,action,params,reply);
+    return reply;
   };
   // The pushes, on the one account that outlives every run and every juncture.
   pushJournal(account,runtime);
@@ -549,7 +598,7 @@ async function main() {
     if(seen!==droppedSeen)journalRun(runtime,{fields:dropped},'pilot_dropped');droppedSeen=seen;};
   // The request whose run is in flight gets the stream.
   let streamTo:string|undefined;
-  const emit=(text:string)=>console.log(JSON.stringify({id:streamTo,event:'line',text}));
+  const emit=(text:string)=>console.log(JSON.stringify({id:streamTo,event:'line',text:nameIds(text,readNames(runtime))}));
   const dispatch=serve(account,command,
     {pilot:()=>readPilot(pilotFile,droppedOnRead),setPilot:next=>writePilot(pilotFile,next),runtime,emit,
       // A script cut off at the cap may still be running inside this process; ending the process
@@ -564,7 +613,8 @@ async function main() {
   console.log(JSON.stringify({event:'ready',...interrupted?{interrupted:interrupted.outcome}:{}}));
   const handle=async(line:string)=>{
     const response=await answerLine(dispatch,line,id=>{streamTo=id;},runtime);
-    console.log(JSON.stringify(response));
+    // Ids named at stdout only: `answerLine` journalled the raw reply.
+    console.log(JSON.stringify('result' in response?{...response,result:forPilot(response.result,readNames(runtime))}:response));
   };
   for await(const line of createInterface({input:process.stdin,terminal:false})) {
     if(stopped)break;

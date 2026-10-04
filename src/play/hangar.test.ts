@@ -245,18 +245,19 @@ test('a commission quote with can_commission false is refused, naming the blocke
 });
 
 test('a switch whose reply lacks active_ship_class still reports switched; one that does not read is judged by the account',async()=>{
-  const bought={...YARD_SERVICES,hangar:{listings:[LISTING]}};
+  // A commission parks the hull; only a hull not yet flown is switched to (a bought listing is flown at once).
+  const bought={...YARD_SERVICES,hangar:YARD};
   const f=world({mood:'Focused',permissions:{credit_reserve:0}},bought,undefined,
     (action,reply)=>action==='spacemolt_ship/switch_ship'?without(reply,['active_ship_class']):reply);
   try {
-    const out=await buyShip('l1',{switchTo:true});
+    const out=await buyShip('hauler_ii',{commission:true,switchTo:true});
     assert.equal(out.status,'done',out.why);
     assert.equal(out.detail.switched,true);
   } finally {unbind();}
   const g=world({mood:'Focused',permissions:{credit_reserve:0}},bought,undefined,
     (action,reply)=>action==='spacemolt_ship/switch_ship'?without(reply,['active_ship_id']):reply);
   try {
-    const out=await buyShip('l1',{switchTo:true});
+    const out=await buyShip('hauler_ii',{commission:true,switchTo:true});
     assert.equal(out.status,'done',out.why);
     assert.equal(out.detail.switched,true,'the refreshed account shows the new hull');
     assert.equal(g.tried('spacemolt_ship/switch_ship'),1);
@@ -299,5 +300,56 @@ test('shipsForSale lists a yard commission beside the listings, its quote copied
     assert.equal(out.status,'done',out.why);
     assert.ok(out.detail.for_sale.some(row=>row.kind==='commission'&&row.quote.credits_only_total===700),JSON.stringify(out.detail.for_sale));
     assert.equal(f.tried('spacemolt_ship/commission_quote'),1,'only the classes a listing names are quoted');
+  } finally {unbind();}
+});
+
+// Live 2026-09-30 (kvothe 13:34Z, 19:08Z): buy_listed_ship makes the new hull the active one, so
+// switch_ship answered `already_active` and the call read "buyShip broke, nothing gained".
+test('buyShip: a listed hull the game already made active is switched, and no switch is sent',async()=>{
+  const f=world({mood:'Focused',permissions:{credit_reserve:0}},{...YARD_SERVICES,hangar:{listings:[LISTING]}});
+  try {
+    const out=await buyShip('l1',{switchTo:true});
+    assert.equal(out.status,'done',out.why);
+    assert.equal(out.detail.switched,true);
+    assert.match(out.did,/and switched to it/);
+    assert.equal(f.tried('spacemolt_ship/switch_ship'),0);
+  } finally {unbind();}
+});
+
+// Live 2026-09-30 (kvothe 13:10Z): one quote answered "Flying a Tier 3 ship requires Piloting level 20
+// (you have 10)" and the throw took every listing with it.
+test('shipsForSale: a quote the game refuses is a locked row with its reason; the listings still stand',async()=>{
+  const why='Flying a Tier 3 ship requires Piloting level 20 (you have 10)';
+  const f=world({mood:'Focused'},{...YARD_SERVICES,hangar:{listings:[LISTING],locked:{hauler_ii:why}}});
+  try {
+    const out=await shipsForSale();
+    assert.equal(out.status,'done',out.why);
+    assert.deepEqual(out.detail.locked,[{class_id:'hauler_ii',why}]);
+    assert.deepEqual(out.detail.for_sale.map(row=>row.kind),['listing']);
+    assert.match(out.did,/not offered to you: hauler_ii \(Flying a Tier 3/);
+    assert.equal(f.tried('spacemolt_ship/commission_quote'),1);
+  } finally {unbind();}
+});
+
+test('shipsForSale: a lost quote reply is not a lock; the read fails naming it',async()=>{
+  world({mood:'Focused'},{...YARD_SERVICES,hangar:{listings:[LISTING]}},
+    action=>{if(action==='spacemolt_ship/commission_quote')throw new ConnectionClosedError();});
+  try {
+    const out=await shipsForSale();
+    assert.equal(out.status,'failed');
+    assert.match(out.why!,/reply lost on spacemolt_ship\/commission_quote/);
+  } finally {unbind();}
+});
+
+// Live 2026-09-30 (kvothe 13:06Z): undocked, browse_ships answered "Specify a base_id or dock at a station".
+test('shipsForSale undocked with no baseId says so and sends nothing',async()=>{
+  const f=world({mood:'Focused'},{hangar:{listings:[LISTING]}});
+  f.account.server.location.docked_at=null;
+  try {
+    const out=await shipsForSale();
+    assert.equal(out.status,'refused');
+    assert.match(out.why!,/not docked/);
+    assert.deepEqual(out.detail,{for_sale:[],locked:[]});
+    assert.equal(f.tried('spacemolt_ship/browse_ships'),0);
   } finally {unbind();}
 });

@@ -10,6 +10,8 @@ import {check,playDir} from './run.ts';
 
 const BLOCK=/^```ts\n([\s\S]*?)^```/gm;
 const BROKEN=`import {goTo} from 'play';\nconst n:number='three';\nexport async function main(){return goTo(42);}\n`;
+// Live 2026-09-30 (run 058d3387): a type imported as a value passed tsc and died at load.
+const TYPE_AS_VALUE=`import {Outcome,orient} from 'play';\nexport default async function main():Promise<Outcome|undefined>{ await orient(); stopped(); return undefined; }\n`;
 
 function examples():{name:string;source:string}[] {
   const play=playDir();
@@ -29,13 +31,15 @@ function home(source:string):string {
 const journal=(runtime:string)=>readFileSync(join(runtime,'gameplay.jsonl'),'utf8').trim().split('\n').map(line=>JSON.parse(line));
 
 test('the warm checker and tsc give the same errors for every README example and a broken file',async()=>{
-  const all=[...examples(),{name:'broken',source:BROKEN}];
+  const all=[...examples(),{name:'broken',source:BROKEN},{name:'type as value',source:TYPE_AS_VALUE}];
   assert.ok(all.length>=8);
   for(const {name,source} of all) {
     const runtime=home(source);
     const warm=await check(runtime),cold=await check(runtime,{warm:false});
     assert.deepEqual(warm.errors,cold.errors,name);
     if(name==='broken')assert.ok(warm.errors.some(line=>/error TS\d+/.test(line)),'the broken file has errors');
+    // Both paths read the pilot tsconfig's verbatimModuleSyntax, and both hint the unimported play export.
+    if(name==='type as value')assert.match(warm.errors.join('\n'),/type-only import[\s\S]*stopped is exported by 'play'/);
     assert.deepEqual(journal(runtime).filter(line=>line.event==='check').map(line=>line.warm),[true,false],name);
   }
 });

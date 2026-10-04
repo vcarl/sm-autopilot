@@ -1,16 +1,16 @@
 /** Getting somewhere and docking. One function; the id decides what it does. */
 import type {ActiveMissionInfo,FindRouteResponse,RouteStep,V2Location} from '@spacemolt/lib';
 import {Effect,Option,Result,Schema,Struct} from 'effect';
-import {dockAtEffect} from '../dock.ts';
 import {resolveFuelReserve,type Mood} from '../mood-policy.ts';
 import {serviceShipEffect} from '../servicing.ts';
 import {replyBody} from '../storage.ts';
 import {FuelRouteShortfall,InBattle,TravelBlocked,travelToEffect} from '../travel.ts';
 import * as Wire from '../wire.gen.ts';
-import {hereEffect,named as poiName,others} from './counter.ts';
+import {dockEffect,hereEffect,named as poiName,others} from './counter.ts';
 import {Game,isGameError,type GameError} from './game.ts';
 import {knownBooks} from './market.ts';
 import {activeEffect} from './missions.ts';
+import {readNames} from './places.ts';
 import {Stopped,acct,edge,jobEffect,pilot,runtimeDir,step,stopped} from './runtime.ts';
 import type {Outcome} from './types.ts';
 
@@ -145,10 +145,12 @@ export const destinationEffect=(id:string)=>Effect.gen(function*() {
   if(first.found)return {id,quote:first};
   const local=yield* nameable();
   // The bases in the market memory are nameable from anywhere: the one read that knows a far
-  // base's id. It keeps no display name, so `Node Alpha Processing Station` lands on
-  // `node_alpha_processing_station` by the same word match, and a miss lists them as ids.
-  const places=[...local,...knownBooks().filter(book=>!local.some(place=>place.id===book.base_id))
-    .map(book=>({id:book.base_id,name:book.base_id,what:'base' as const}))];
+  // base's id. `Node Alpha Processing Station` lands on `node_alpha_processing_station` by the
+  // same word match; an opaque id answers to the name kept for it (`names.json`), as does a POI
+  // the pilot was shown named.
+  const names=readNames(runtimeDir()),far=new Set(knownBooks().map(book=>book.base_id));
+  const places=[...local,...[...new Set([...far,...Object.keys(names)])].filter(id=>!local.some(place=>place.id===id))
+    .map(id=>({id,name:names[id]??id,what:far.has(id)?'base' as const:'POI' as const}))];
   const want=key(id);
   const hit=places.find(place=>place.id!==id&&(key(place.id)===want||key(place.name)===want));
   if(hit) {
@@ -408,7 +410,14 @@ export const goToEffect=(id:string)=>jobEffect<Trip>('goTo',id,Effect.gen(functi
   let docked=false;
   // The dock is decided by the system's own listing, not the route heuristic: a system id
   // may also answer with a POI, and docking "at a system" would wedge here.
-  if(poi&&(yield* baseAt(quote.target_system,poi,named))){yield* dockAtEffect(acct(),named);docked=true;step(`docked at ${named}`);}
+  if(poi&&(yield* baseAt(quote.target_system,poi,named))) {
+    const done=yield* dockEffect(named);
+    // Live 2026-10-02 (kvothe 16:37Z): an `Access denied` dock broke the whole run after the
+    // flight had landed. The ship arrived; the base said no. That is a partial, in its words.
+    if('refused' in done)return {status:'partial' as const,did:`arrived at ${target} after ${jumps} jump(s); docking refused: ${done.refused}`,
+      why:done.refused,detail:{...detail(),jumps}};
+    docked=true;step(`docked at ${named}`);
+  }
   const at=acct().state.location;
   return {status:'done' as const,did:`arrived at ${target}${poi?'':` (${at?.poi_id})`}${docked?named===target?' and docked':` and docked at ${named}`:''} after ${jumps} jump(s)`
     +(at?.docked_at?'':yield* undocked())+(answered.length?`; ${answered.join('; ')}`:''),detail:{...detail(),jumps,docked}};

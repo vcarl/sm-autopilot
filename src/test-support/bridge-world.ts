@@ -161,6 +161,8 @@ export interface HangarOptions {
   unknownClasses?:string[];
   /** What the yard here will build, by class id: the price, and the blockers that stop it (none: it builds). */
   commissions?:Record<string,{total:number;blockers?:string[]}>;
+  /** Class ids `commission_quote` refuses, with the game's words (live 2026-09-30: `skill_required`). */
+  locked?:Record<string,string>;
 }
 
 /** What `inspect` answers for a module id: the slot it takes and its draw on the grid. */
@@ -749,14 +751,19 @@ export function bridgeWorld(options:WorldOptions={}) {
       if(!row)throw new Error(`No listing ${params.id}`);
       account.server.player.credits-=row.price;
       listings.splice(listings.indexOf(row),1);
-      fleet.push({ship_id:row.ship_id,class_id:row.class_id,class_name:CLASSES[row.class_id]?.name??row.class_id,
-        is_active:false,location_base_id:'sol_base'});
+      // Live 2026-09-30 (kvothe 13:34Z): "Purchased Overhead … Your old ship is stored at this
+      // station." The bought hull is the active one from the purchase on.
+      for(const ship of fleet)ship.is_active=false;
+      const class_name=CLASSES[row.class_id]?.name??row.class_id;
+      fleet.push({ship_id:row.ship_id,class_id:row.class_id,class_name,is_active:true,location_base_id:'sol_base'});
+      Object.assign(account.server.ship,{id:row.ship_id,class_id:row.class_id,class_name});
       return {delta:{details:{message:'Bought.',class_id:row.class_id,price:row.price,
         ship_id:row.ship_id,credits_left:account.server.player.credits}}};
     },
     // A yard quote as the server answers it: `can_commission` is what the blockers say, the rest is the quote's own shape.
     'spacemolt_ship/commission_quote':params=>{
-      const id=String(params.id),row=options.hangar?.commissions?.[id];
+      const id=String(params.id),row=options.hangar?.commissions?.[id],why=options.hangar?.locked?.[id];
+      if(why)throw new SpacemoltError('skill_required',why);
       if(!row)throw new SpacemoltError('unknown_class',`This yard cannot build ${id}.`);
       return {structuredContent:{bare_hull:false,can_afford_credits_only:account.server.player.credits>=row.total,
         can_afford_partial_sourcing:true,can_afford_provide_materials:true,can_commission:!row.blockers?.length,
@@ -776,14 +783,18 @@ export function bridgeWorld(options:WorldOptions={}) {
     'spacemolt_ship/switch_ship':params=>{
       const row=fleet.find(current=>current.ship_id===String(params.id));
       if(!row)throw new Error(`No ship ${params.id}`);
+      if(row.is_active)throw new SpacemoltError('already_active','That is already your active ship.');
       const was=fleet.find(current=>current.is_active);
       for(const each of fleet)each.is_active=each===row;
       Object.assign(account.server.ship,{id:row.ship_id,class_id:row.class_id,class_name:row.class_name});
       return {structuredContent:{active_ship_class:row.class_id,active_ship_id:row.ship_id,message:'Switched.',
         stored_ship_class:was?.class_id??'',stored_ship_id:was?.ship_id??''}};
     },
-    'spacemolt_ship/list_ships':()=>({structuredContent:{count:fleet.length,
-      active_ship_id:'ship',active_ship_class:'cobble',ships:structuredClone(fleet)}}),
+    'spacemolt_ship/list_ships':()=>{
+      const active=fleet.find(current=>current.is_active);
+      return {structuredContent:{count:fleet.length,active_ship_id:active?.ship_id,active_ship_class:active?.class_id,
+        ships:structuredClone(fleet)}};
+    },
     'spacemolt_market/estimate_purchase':params=>{
       const subtotal=Number(params.quantity)*12,sales_tax=tax(subtotal);
       return {structuredContent:{item_id:params.item_id,available:99,quantity:Number(params.quantity),subtotal,

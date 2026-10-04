@@ -6,7 +6,9 @@ import {Effect,Option,Result,Schema,Struct} from 'effect';
 import {replyBody} from '../storage.ts';
 import {battleNowEffect,type BattleNow} from '../travel.ts';
 import * as Wire from '../wire.gen.ts';
+import {mapOf} from './exploration/exploration.ts';
 import {Game,field} from './game.ts';
+import {told} from './rows.ts';
 import {acct,edge,jobEffect,pilot,present,step,type Pilot} from './runtime.ts';
 import type {Outcome,Present} from './types.ts';
 
@@ -101,15 +103,17 @@ export const orientEffect=()=>jobEffect<Orientation>('orient','',Effect.gen(func
 }));
 
 export interface ScoutReport {
-  /** The live `get_system` answer when you are in it; the map entry when you are not. */
-  system:SystemInfo|MapSystemInfo;
+  /** The live `get_system` answer when you are in it; the map entry when you are not. Either way
+   * `id` and `name` are there (the map's own key is `system_id`). */
+  system:(SystemInfo|MapSystemInfo)&{id:string;name:string};
   /** Every POI: type, base id and services if it has a station. */
   pois:SystemPoi[];
   /** Resources at the POI you are standing at, from `location.resources`. Absent elsewhere:
    * the report is then guesswork until you go there. */
   resources:Record<string,ResourceInfo[]>;
-  /** Systems one jump away, each with the fuel `find_route` quotes for it. */
-  connections:(SystemConnection&{fuel:number})[];
+  /** Systems one jump away, each with the fuel `find_route` quotes for it, and whether you have
+   * been there (absent when the map could not be read). */
+  connections:(SystemConnection&{fuel:number;visited?:boolean})[];
   /** Only for the POI you are standing at. */
   here?:{nearby:GetNearbyResponse;wrecks:GetWrecksResponse;police:number};
 }
@@ -138,7 +142,7 @@ const asNearby=(body:unknown)=>body as GetNearbyResponse; // cast: frozen surfac
 const asWrecks=(body:unknown)=>body as GetWrecksResponse; // cast: frozen surface (GetWrecksResponse)
 
 /** The map entry of a place no read answered for: the report's `system` is never absent. */
-const unknownPlace=(id:string):ScoutReport=>({system:{connections:[],name:id,online:0,poi_count:0,position:{x:0,y:0},system_id:id,visited:false,visited_at:''},
+const unknownPlace=(id:string):ScoutReport=>({system:{connections:[],id,name:id,online:0,poi_count:0,position:{x:0,y:0},system_id:id,visited:false,visited_at:''},
   pois:[],resources:{},connections:[]});
 /** `location.resources` rows as the report names a deposit: the location carries `item_id` and `item_name`, the report `resource_id` and `name`. */
 const deposit=(row:V2Resource):ResourceInfo=>({resource_id:row.item_id,name:row.item_name,remaining:row.remaining,richness:row.richness,
@@ -170,6 +174,12 @@ export const scoutEffect=(target?:string)=>jobEffect<ScoutReport>('scout',target
     if(!found.value.found)return {status:'refused' as const,did:`could not find ${target}`,why:found.value.message??'no route',detail:unknownPlace(target)};
     system=found.value.target_system??target;
   }
+  // Live 2026-10-01: hand-rolled exploration loops re-scouted visited systems for want of this.
+  // A map that does not read leaves `visited` off every connection, said in a step.
+  const listed=yield* Effect.result(game.command('spacemolt/get_map',{}));
+  if(Result.isFailure(listed))step(`spacemolt/get_map: ${listed.failure._tag==='ReplyLost'?'reply lost':told(listed.failure)}; connections say nothing of visited`);
+  const seen=new Map(Result.isSuccess(listed)?mapOf(listed.success).map(row=>[row.system_id,row.visited]):[]);
+  const visited=(id:string)=>{const been=seen.get(id);return been===undefined?{}:{visited:been};};
   const here=system===location?.system_id&&!location?.in_transit;
   const resources:Record<string,ResourceInfo[]>={};
   if(here&&location?.poi_id&&Array.isArray(location.resources)&&location.resources.length)
@@ -180,19 +190,19 @@ export const scoutEffect=(target?:string)=>jobEffect<ScoutReport>('scout',target
     if(Option.isNone(map))return offSpec('spacemolt/get_map');
     const links=map.value.connections??[];
     return {status:'done' as const,did:`${map.value.name??system}: ${map.value.poi_count??'?'} POIs (not listed from afar), ${links.length} connections, ${map.value.visited?'visited before':'never visited'}`,
-      detail:{system:asMap(body),pois:[],resources,connections:links.map(system_id=>({system_id,name:system_id,fuel:NaN}))},
+      detail:{system:{...asMap(body),id:system,name:map.value.name??system},pois:[],resources,connections:links.map(system_id=>({system_id,name:system_id,fuel:NaN,...visited(system_id)}))},
       next:[`goTo('${system}') then scout() for its POIs`]};
   }
   const body=replyBody(yield* game.command('spacemolt/get_system',{}));
   const read=decodeSystem(body);
   if(Option.isNone(read))return offSpec('spacemolt/get_system');
   const info=read.value.system,raw=field(body,'system');
-  const connections:(SystemConnection&{fuel:number})[]=[];
+  const connections:ScoutReport['connections']=[];
   for(const link of info.connections??[]) {
     // A quote the game refuses, loses or answers unreadably leaves the fuel unknown: NaN, never a guess.
     const quote=yield* Effect.result(game.command('spacemolt/find_route',{id:link.system_id}));
     const priced=Result.isSuccess(quote)?decodeQuote(replyBody(quote.success)):Option.none();
-    connections.push({...link,name:link.name??link.system_id,fuel:Option.isSome(priced)?priced.value.estimated_fuel:NaN});
+    connections.push({...link,name:link.name??link.system_id,fuel:Option.isSome(priced)?priced.value.estimated_fuel:NaN,...visited(link.system_id)});
   }
   let nearbyHere:ScoutReport['here'];
   if(location?.poi_id&&!location.docked_at) {
@@ -231,5 +241,5 @@ export const scoutEffect=(target?:string)=>jobEffect<ScoutReport>('scout',target
     ...stations.slice(0,2).map(p=>`goTo('${p.base_id}') — ${p.base_name??p.name}`)];
   return {status:'done' as const,
     did:`${info.name} (${info.id}): ${pois.length} POIs, ${belts.length} belt/field, ${stations.length} station(s), police ${info.police_level??'?'}, ${connections.length} connections${nearbyHere?`; here: ${nearbyHere.nearby.creature_count} creatures, ${nearbyHere.nearby.pirate_count} pirates, ${nearbyHere.wrecks.count??0} wrecks`:''}`,
-    detail:{system:asSystem(raw),pois:info.pois?asSystem(raw).pois:[],resources,connections,...nearbyHere?{here:nearbyHere}:{}},next};
+    detail:{system:{...asSystem(raw),id:info.id,name:info.name},pois:info.pois?asSystem(raw).pois:[],resources,connections,...nearbyHere?{here:nearbyHere}:{}},next};
 }));

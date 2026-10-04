@@ -155,10 +155,11 @@ export function stampRun(keys:Record<string,unknown>|null):void {stamp=keys??{};
 
 /** The run's own lines in the pilot's journal, beside the request/response pairs. The
  * runner's other self-made changes take the same line under their own event name (S45). */
-export function journalRun(runtime:string,entry:Record<string,unknown>,event='run'):void {
+export function journalRun(runtime:string,entry:Record<string,unknown>,event='run',file='gameplay.jsonl'):void {
   mkdirSync(runtime,{recursive:true});
   const line={at:new Date().toISOString(),event,...entry.freighter===undefined?stamp:{},...entry};
-  appendFileSync(join(runtime,'gameplay.jsonl'),`${JSON.stringify(line)}\n`,{mode:0o600});
+  appendFileSync(join(runtime,file),`${JSON.stringify(line)}\n`,{mode:0o600});
+  if(file!=='gameplay.jsonl')return;
   // A listener that throws is its own problem: it never costs the pilot the line on disk.
   for(const fn of listeners)try {fn(line);} catch {/* the journal is written; the reader is not the record */} // edge: a listener is another reader's code
 }

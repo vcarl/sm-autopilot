@@ -90,6 +90,29 @@ type Spreads = {
 };
 /** `spreads` as an Effect, for `edge` and for converted callers; never in a barrel. */
 export declare const spreadsEffect: (items?: string[]) => Effect.Effect<Outcome<Spreads>, never, Game | import("../runtime.ts").Run>;
+/** One bid known for an item: where, how much, how deep, how old, and how far. */
+export interface Buyer {
+    item_id: string;
+    base_id: string;
+    best_buy: number;
+    best_buy_qty: number;
+    source: Spread['source'];
+    /** Ticks since the book was read; 0 for this counter's live book. */
+    age: number;
+    /** Jumps from where you are, on the map; null when the base could not be placed. */
+    jumps: number | null;
+}
+/** Who buys `items`: the highest bids known for each, anywhere — this counter's live book when
+ * docked, the faction ledger, the books remembered — up to `BUYERS` an item, with each book's age and
+ * the jumps there. Held or not, docked or not. Reads only.
+ * Live 2026-09-30 (kvothe): hours flown system to system, `prices(['aluminum_ore'])` at each, hunting
+ * a buyer the market memory already held. */
+export declare const buyersEffect: (items: string | readonly string[]) => Effect.Effect<Outcome<{
+    buyers: Buyer[];
+}>, never, Game | import("../runtime.ts").Run>;
+export declare function buyers(items: string | readonly string[]): Promise<Outcome<{
+    buyers: Buyer[];
+}>>;
 /** A ledger entry as this file reads it: the base, its system, the tick it was filed and its top of book per item. Picked
  * from the spec's entry, because the live server omits spec fields and sends `null` for an empty item list. */
 export declare const LedgerEntry: Schema.Struct<{

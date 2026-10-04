@@ -10,7 +10,7 @@ export { reflection, rest } from './rest.ts';
 export { storage, stow, withdraw, type Moved } from './storage.ts';
 export { buy, prices, sell, type Bought, type Quote, type Sold } from './market.ts';
 export { abandonMission, acceptMission, completeMissions, missions, type Active, type Offer } from './missions.ts';
-export { buyShip, refit, shipsForSale, type Fit, type ForSale, type Purchase } from './hangar.ts';
+export { buyShip, refit, shipsForSale, type Fit, type ForSale, type Locked, type Purchase } from './hangar.ts';
 export * from './mining/index.ts';
 export * from './industry/index.ts';
 export * from './hauling/index.ts';
