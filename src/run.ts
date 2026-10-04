@@ -15,7 +15,7 @@ import {createHash,randomUUID} from 'node:crypto';
 import {copyFileSync,existsSync,mkdirSync,readFileSync,readlinkSync,statSync,symlinkSync,unlinkSync,writeFileSync} from 'node:fs';
 import {dirname,join,resolve} from 'node:path';
 import {fileURLToPath,pathToFileURL} from 'node:url';
-import {Cause,Effect,Exit} from 'effect';
+import {Cause,Effect,Exit,Result,Schema} from 'effect';
 import * as play from './play/index.ts';
 import {checkTree,specifiers} from './play/boundary.ts';
 import {checkPolicy} from './play/policy.ts';
@@ -23,7 +23,7 @@ import {ofTheRun,prose} from './play/prose.ts';
 import {runSummary} from './play/menu.ts';
 import {disengage,FIGHT_CEILING_MS} from './play/combat/hunting.ts';
 import {battleAtCloseEffect} from './travel.ts';
-import {bind,defect,edge,line,outcome as build,progress,reached,runCalls,stateSnapshot,stop,stopped,Stopped,unbind,type Binding} from './play/runtime.ts';
+import {bind,defect,edge,InterruptsRead,line,listen,outcome as build,progress,reached,runCalls,stateSnapshot,stop,stopped,Stopped,unbind,type Binding,type Interrupts} from './play/runtime.ts';
 import {rawError} from './play/game.ts';
 import {resupplyEffect} from './play/service.ts';
 import type {Outcome} from './play/types.ts';
@@ -253,6 +253,17 @@ function settle(returned:unknown):Outcome<unknown> {
   return Array.isArray(next)?{...built,next:next.filter(text=>typeof text==='string').slice(0,3)}:built;
 }
 const message=(error:unknown)=>error instanceof Error?error.message:String(error);
+const decodeInterrupts=Schema.decodeUnknownResult(InterruptsRead);
+
+/** The module's `interrupts` export, as the run takes it: the declaration, null when there is none,
+ * or why it did not read. One that does not read interrupts nothing (observe, don't gate). */
+function interruptsOf(loaded:unknown):{declared:Interrupts|null;journal:Record<string,unknown>} {
+  const raw=isObject(loaded)?loaded.interrupts:undefined;
+  if(raw===undefined)return {declared:null,journal:{interrupts:null}};
+  const read=decodeInterrupts(raw);
+  return Result.isSuccess(read)?{declared:read.success,journal:{interrupts:read.success}}
+    :{declared:null,journal:{interrupts:null,interrupts_unread:read.failure.message}};
+}
 
 /** Validate, bind, import fresh, run `main()`, report. Every exit path journals the end,
  * writes the record and unbinds the runtime. */
@@ -275,6 +286,8 @@ export async function runPilot(deps:RunDeps):Promise<RunResult> {
   save();
   const who=deps.pilot();
   bind({...deps,run_id});
+  // Before the module loads: a program's top-level code may send commands at import, and every line
+  // it writes must follow the `run started` it joins to by `run_id`.
   journalRun(runtime,{phase:'started',script:'index.ts',sha:gate.sha,started,stance:who.stance??null,mood:who.mood??null,
     ...juncture,code_sha:CODE_SHA,sources:process.env.SPACEMOLT_SOURCES??null,start_state:stateSnapshot()});
   line(`run started ${started}  index.ts sha ${gate.sha}  mood ${who.mood??'-'}  stance ${who.stance??'none'}`);
@@ -309,6 +322,11 @@ export async function runPilot(deps:RunDeps):Promise<RunResult> {
     result=await Promise.race([broke,(async()=>{
       const url=pathToFileURL(gate.entry);
       const loaded:unknown=await import(`${url.href}?v=${statSync(gate.entry).mtimeMs}-${gate.sha}`);
+      // The declaration is only readable once the module has loaded: its own line, after `run started`.
+      const {declared,journal}=interruptsOf(loaded);
+      listen(declared);
+      journalRun(runtime,journal,'interrupts');
+      if(typeof journal.interrupts_unread==='string')line(`interrupts not read, so nothing interrupts this run: ${journal.interrupts_unread}`);
       if(!isObject(loaded)||typeof loaded.default!=='function')throw new Error('pilot/index.ts exports no default function');
       const returned:unknown=await Reflect.apply(loaded.default,undefined,[]);
       return settle(returned);
@@ -319,6 +337,8 @@ export async function runPilot(deps:RunDeps):Promise<RunResult> {
     result=error instanceof Stopped?build('the run was stopped','partial',{},message(error))
       :build('the run broke','failed',{},message(error));
   } finally {
+    // The runtime's own closing commands (resupply, a battle broken off) are not the program's: no pause.
+    listen(null);
     for(const timer of timers)clearTimeout(timer);
     process.off('unhandledRejection',onRejection);
     process.off('uncaughtException',onException);

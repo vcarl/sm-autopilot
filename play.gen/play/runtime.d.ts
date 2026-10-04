@@ -12,7 +12,7 @@
  * per bridge process today; a multi-account runtime is a second process per account (DESIGN.md "Fleet").
  */
 import type { Account, SkillProgress } from '@spacemolt/lib';
-import { Cause, Context, Effect, Layer } from 'effect';
+import { Cause, Context, Effect, Layer, Schema } from 'effect';
 import type { ReadinessAccount, ReadinessCommand } from '../readiness.ts';
 import { type RunRecord } from '../run-record.ts';
 import type { DockBlocked } from '../dock.ts';
@@ -84,6 +84,21 @@ export interface Call {
 }
 /** A question the program is paused on, as run.json and the tools carry it. */
 export type Question = NonNullable<RunRecord['question']>;
+/** A chat post that paused the run: who sent it, on which channel, the text, and when. */
+export type ChatPause = NonNullable<Question['chat']>;
+/** A chat post that paused the run, with the answer you gave when it did. */
+export interface Heard {
+    chat: ChatPause;
+    answer: string;
+}
+/** What may pause a run: export it from `pilot/index.ts` as `export const interrupts = {…}`. A post
+ * pauses the run when its channel is in `channels` (`['private']` when left out) and, when `from` is
+ * given, its sender is in it (a name or a player id). No export, nothing interrupts. */
+export declare const InterruptsRead: Schema.Struct<{
+    readonly from: Schema.optionalKey<Schema.$Array<Schema.String>>;
+    readonly channels: Schema.optionalKey<Schema.$Array<Schema.Literals<readonly ["private", "local", "system", "faction"]>>>;
+}>;
+export type Interrupts = typeof InterruptsRead.Type;
 interface Snapshot {
     at: number;
     credits: number;
@@ -122,6 +137,14 @@ declare const Run_base: Context.ServiceClass<Run, "Run", {
     burning: boolean;
     burnFailed: boolean;
     unwatch: (() => void) | undefined;
+    /** The program's `interrupts` export, read as the run starts; null: nothing interrupts. */
+    interrupts: Interrupts | null;
+    /** Posts that matched it and have not paused the run yet, oldest first. */
+    readonly chats: ChatPause[];
+    /** Posts that paused the run and the answers given, until `heard()` hands them over. */
+    readonly heard: Heard[];
+    /** A stop withdrew a chat pause: the pilot call it paused inside throws `Stopped`, as a paused `ask()` does. */
+    pauseStopped: boolean;
 }>;
 /** One run: everything `bind()` starts afresh, provided beside the binding's `Game`. */
 export declare class Run extends Run_base {
@@ -166,6 +189,19 @@ export declare function ask(asked: {
     question: string;
     choices?: string[];
 }): Promise<string>;
+/** The chat posts that paused this run, each with the answer you gave, oldest first. Each is
+ * handed over once: a second call returns only what paused the run since the first. */
+export declare function heard(): Heard[];
+/** The run's `interrupts` declaration, from the program's export (run.ts). */
+export declare function listen(declared: Interrupts | null): void;
+/** A chat post the bridge heard: queued to pause the run when its declaration names it. True when queued. */
+export declare function hear(post: {
+    channel: string;
+    sender?: string | undefined;
+    sender_id?: string | undefined;
+    content: string;
+    at: string;
+}): boolean;
 /** Resume the paused program with `text`. The caller has already held it to the choices. */
 export declare function answer(text: string): void;
 /** Build an Outcome for a function of your own. You supply the sentence, the status and the

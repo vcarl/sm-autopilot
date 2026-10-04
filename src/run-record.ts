@@ -12,8 +12,14 @@ import {replyBody} from './storage.ts';
 
 export const isRecord=(value:unknown):value is Record<string,unknown>=>typeof value==='object'&&value!==null;
 
-/** What `ask()` leaves in run.json; `play/runtime.ts`'s `Question` is the same shape. */
-const Question=Schema.Struct({question:Schema.String,choices:Schema.optionalKey(Schema.mutable(Schema.Array(Schema.String))),asked_at:Schema.String});
+/** A chat post that paused the run (the program declared `interrupts`): who, where, what, when. */
+export const ChatPause=Schema.Struct({from:Schema.String,channel:Schema.String,text:Schema.String,at:Schema.String,
+  /** The sender's player id, which a private reply is addressed to. */
+  sender_id:Schema.optionalKey(Schema.String)});
+/** What `ask()` leaves in run.json; `play/runtime.ts`'s `Question` is the same shape. A pause on a
+ * chat post is a question too, carrying the post as `chat`. */
+const Question=Schema.Struct({question:Schema.String,choices:Schema.optionalKey(Schema.mutable(Schema.Array(Schema.String))),asked_at:Schema.String,
+  chat:Schema.optionalKey(ChatPause)});
 const open=Schema.Record(Schema.String,Schema.Unknown);
 // A record that cannot name its script and start is not a run (`readRun`); the run's own code
 // moves `ended`, `last_job`, `outcome` and `question` as it flies, so those keys stay mutable.
@@ -123,18 +129,25 @@ export function readJournal(runtime:string,limit=400):JournalLine[] {
  * (drop the oldest of `journalFiles`) if disk becomes a concern. */
 export function bootJournal(runtime:string,now=new Date()):RunRecord|null {
   mkdirSync(runtime,{recursive:true});
-  const current=join(runtime,'gameplay.jsonl');
-  let rotated_from:string|undefined;
-  if(existsSync(current)&&statSync(current).size>0) {
-    const stamp=now.toISOString().replace(/\.\d+Z$/,'Z').replaceAll(':','-');
-    // Two boots inside one second must not overwrite the first one's file; `_` sorts after `.`,
-    // so the second still reads as the newer.
-    rotated_from=existsSync(join(runtime,`gameplay.${stamp}.jsonl`))?`gameplay.${stamp}_${process.pid}.jsonl`:`gameplay.${stamp}.jsonl`;
-    renameSync(current,join(runtime,rotated_from));
-  }
+  const rotated_from=rotate(runtime,'gameplay',now);
+  // The chat record rotates with it, the same way and as never deleted: the juncture reads back
+  // across boots for the posts since the last juncture (juncture.py's `journal_tail`).
+  rotate(runtime,'chat',now);
   const interrupted=closeInterrupted(runtime);
   journalRun(runtime,{pid:process.pid,...interrupted?{interrupted:interrupted.started}:{},...rotated_from?{rotated_from}:{}},'boot');
   return interrupted;
+}
+
+/** A non-empty `<name>.jsonl` renamed to `<name>.<UTC stamp>.jsonl`; the new name, or undefined. */
+function rotate(runtime:string,name:string,now:Date):string|undefined {
+  const current=join(runtime,`${name}.jsonl`);
+  if(!existsSync(current)||statSync(current).size===0)return undefined;
+  const stamp=now.toISOString().replace(/\.\d+Z$/,'Z').replaceAll(':','-');
+  // Two boots inside one second must not overwrite the first one's file; `_` sorts after `.`,
+  // so the second still reads as the newer.
+  const rotated=existsSync(join(runtime,`${name}.${stamp}.jsonl`))?`${name}.${stamp}_${process.pid}.jsonl`:`${name}.${stamp}.jsonl`;
+  renameSync(current,join(runtime,rotated));
+  return rotated;
 }
 
 /** The one reader of the journal as it is being written: the webhook drain, which renders

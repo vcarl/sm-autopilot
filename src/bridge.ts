@@ -2,13 +2,14 @@
  * `{"id","event":"line","text"}` lines streamed while a `run` proceeds. Requests are
  * handled concurrently, so `stop` and `status` answer while a run is in flight. */
 import {Account} from '@spacemolt/lib';
-import {Cause,Effect,Exit,Result,Schema} from 'effect';
+import {Cause,Effect,Exit,Option,Result,Schema,Struct} from 'effect';
 import {createHash} from 'node:crypto';
 import {existsSync,mkdirSync,readFileSync,renameSync,writeFileSync} from 'node:fs';
 import {resolve} from 'node:path';
 import {createInterface} from 'node:readline';
 import {fileURLToPath} from 'node:url';
 import {markAlertsDelivered,pendingAlerts,recordAlert} from './alerts.ts';
+import {chatJournal,noteUnread,recordSent} from './chat.ts';
 import {foldBattleDamage,foldBattleEnded,foldBattleUpdate} from './combat-memory.ts';
 import {battleEnded,battleNowEffect} from './travel.ts';
 import {controllerLock} from './controller-lock.ts';
@@ -24,6 +25,8 @@ import {menuEffect,renderMenu,threatsHere} from './play/menu.ts';
 import {fleetBrief,resumeFreighters,stopFreighters} from './play/freighter/host.ts';
 import {attempt,isGameError,message} from './play/game.ts';
 import {learnNames,nameIds,readNames} from './play/places.ts';
+import {replyBody} from './storage.ts';
+import * as Wire from './wire.gen.ts';
 import {answer as answerQuestion,bind,isBound,onBinding,pendingQuestion,present,progress,skillMap,stop as stopRun,unbind,
   type Pilot as Flying} from './play/runtime.ts';
 
@@ -36,6 +39,8 @@ const Juncture=Schema.Struct({juncture_id:Schema.optionalKey(Schema.NullOr(Schem
 export const Request=Schema.Union([
   Schema.Struct({action:Schema.Literal('run'),params:Schema.optionalKey(Schema.Struct({juncture:Schema.optionalKey(Schema.NullOr(Juncture))}))}),
   Schema.Struct({action:Schema.Literal('answer'),params:Schema.optionalKey(Schema.Struct({answer:Schema.optionalKey(Schema.String)}))}),
+  Schema.Struct({action:Schema.Literal('chat'),params:Schema.Struct({channel:Schema.Literals(['local','system','faction','private']),
+    to:Schema.optionalKey(Schema.String),text:Schema.String})}),
   Schema.Struct({action:Schema.Literal('pilot'),params:Schema.optionalKey(Schema.Struct({set:Schema.optionalKey(Schema.Record(Schema.String,Schema.Unknown))}))}),
   // `stop` carries a `reason`, which only the request's journal line reads.
   Schema.Struct({action:Schema.Literals(['check','stop','status','menu']),params:Schema.optionalKey(Schema.Unknown)}),
@@ -44,15 +49,17 @@ const decodeRequest=Schema.decodeUnknownResult(Request);
 /** One stdin line: the id the reply carries, and the request it names. */
 const decodeLine=Schema.decodeUnknownResult(Schema.fromJsonString(Schema.Struct({id:Schema.optionalKey(Schema.String),
   action:Schema.String,params:Schema.optionalKey(Schema.Unknown)})));
+/** The one field of a chat send's reply the bridge reads. */
+const decodeSentAt=Schema.decodeUnknownOption(Wire.ChatResponse.mapFields(Struct.pick(['sent_at'])));
 const isRecord=(value:unknown):value is Record<string,unknown>=>typeof value==='object'&&value!==null;
 const field=(row:unknown,key:string):unknown=>isRecord(row)?row[key]:undefined;
 
 /** The actions whose answer is an outcome: a journal line keeps its shape, trimmed. */
-const OUTCOME_ACTIONS=new Set(['run','answer','status','pilot','menu','stop','check']);
+const OUTCOME_ACTIONS=new Set(['run','answer','status','pilot','menu','stop','check','chat']);
 const OUTCOME_KEYS=new Set(['accepted','reason','status','record','running',
   'busy','objective','objective_done','stance','mood','errors','stopping',
   'ok','fn','did','sha','step','commands','elapsed_s','started','stagnation','rest',
-  'paused','reattached','question','withdrawn',
+  'paused','reattached','question','withdrawn','sent','code','lost','why',
   // A reflection's skill rows, which are small and are the one thing a later reflection cannot
   // read any other way: they are what "raise this by two levels" is judged against, and without
   // them in the record every reflection sees only the level it happens to be looking at.
@@ -469,6 +476,24 @@ export function serve(account:Account,command:ReadinessCommand,options:ServeOpti
     return {record:written,...named};
   };
 
+  /** One chat message from the juncture (`spacemolt_chat`), sent on the journalled command and not
+   * through the run's binding, so it goes out while a run flies or waits. A mutation: a lost reply is
+   * said and never re-sent. */
+  const chat=async(params:{readonly channel:string;readonly to?:string;readonly text:string})=>{
+    const action='spacemolt_social/chat';
+    const sent=await Effect.runPromiseExit(attempt(action,()=>command(action,{target:params.channel,content:params.text,
+      ...params.to===undefined?{}:{target_id:params.to}})));
+    if(Exit.isSuccess(sent)) {
+      const read=decodeSentAt(replyBody(sent.value)),at=Option.isSome(read)?{sent_at:read.value.sent_at}:{};
+      if(runtime)recordSent(runtime,{channel:params.channel,to:params.to,content:params.text,...at});
+      return {sent:true,channel:params.channel,...params.to?{to:params.to}:{},...at};
+    }
+    const error=Cause.squash(sent.cause);
+    if(!isGameError(error))throw error; // edge: a bug, not the game's answer; the request loop words it
+    if(error._tag==='ReplyLost')return {sent:false,lost:true,why:'the reply was lost: the message may have landed; it was not re-sent'};
+    return {sent:false,code:error.code,why:error.message};
+  };
+
   const stop=async(attach?:()=>void)=>{
     if(!running)return {stopping:false,reason:'nothing is running'};
     const withdrawn=pendingQuestion();
@@ -496,6 +521,7 @@ export function serve(account:Account,command:ReadinessCommand,options:ServeOpti
       case 'stop':return stop(attach);
       case 'status':return running?busy(running):{running:false,last:lastOutcome()};
       case 'pilot':return setRecord(request.params?.set);
+      case 'chat':return chat(request.params);
       case 'menu':return menu();
     }
   };
@@ -584,12 +610,14 @@ async function main() {
       throw error;
     }
     journalCommand(runtime,action,params,true,reply,{ms:Date.now()-since});
+    noteUnread(runtime,reply);
     // After the journal line, outside the catch: a reply that landed is never journalled as failed.
     learnNames(runtime,action,params,reply);
     return reply;
   };
   // The pushes, on the one account that outlives every run and every juncture.
   pushJournal(account,runtime);
+  chatJournal(account,runtime);
   journalConnection(runtime,account);
   const pilotFile=resolve(runtime,'..','pilot.json');
   // A field dropped on read is journalled once per change, not on every read of the record.

@@ -160,6 +160,14 @@ the pilot's context. Every line has `at` (UTC ISO, `Z`) and `event`.
   and `warm_error` when the service threw and the child answered instead.
 - `deps_installed` (`lock_sha256`, `seconds`) when a bridge start ran `npm ci`; `deps_failed`
   (`lock_sha256`, `error`, and `seconds`/`output` when npm ran). Nothing when the stamp matched.
+- `chat_interrupt` (`channel`, `sender`, `sender_id`) when a post matched the run's `interrupts` and
+  was queued to pause it; `chat_undecodable` (`why`) for a `chat_message` frame that did not decode.
+  `interrupts` (the declaration, or null; `interrupts_unread` when it did not decode) once the program's
+  module has loaded, after `run started` and with its `run_id`: top-level code runs at load, so `run
+  started` is written before it.
+- `runtime/chat.jsonl` is chat's own record, not in the pilot's context except as quoted data:
+  `post` (`channel`, `content`, `sender`, `sender_id`, where, `sent_at`), `sent` (`channel`,
+  `target_id`, `content`, `sent_at`) and `unread` (`counts`). Rotated with the journal.
 
 Joins: `juncture_id` juncture → run; `run_id` run → everything in it; `job_id` + `at` juncture →
 Hermes' `cron/usage_audit.jsonl` (tokens, LLM time, model).
@@ -167,7 +175,8 @@ Hermes' `cron/usage_audit.jsonl` (tokens, LLM time, model).
 Rotation: each bridge boot (`bootJournal` in `run-record.ts`, right after the controller lock)
 renames a non-empty `gameplay.jsonl` to `gameplay.<UTC stamp>.jsonl` (`2026-09-28T04-53-54Z`;
 `_<pid>` on a same-second clash), then writes the interrupted-run close and the `boot` line into the
-fresh file; `boot` carries `rotated_from`, so the chain walks back. `service.py` rotates
+fresh file; `boot` carries `rotated_from`, so the chain walks back. `chat.jsonl` rotates the same
+way at the same boot. `service.py` rotates
 `bridge.stderr.log` the same way (`rotate_log`) before it opens it. Rotated files are never deleted.
 Python appends to `gameplay.jsonl` by name per line, so it follows the rename. Readers of the recent
 past go through one tail walker per language — `readJournal` (TS: reflection, the menu, the

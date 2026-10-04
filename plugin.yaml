@@ -9,6 +9,7 @@ requires_env:
 provides_tools:
   - spacemolt_run
   - spacemolt_answer
+  - spacemolt_chat
   - spacemolt_check
   - spacemolt_stop
   - spacemolt_status

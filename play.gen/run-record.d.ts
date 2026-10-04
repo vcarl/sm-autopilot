@@ -1,5 +1,14 @@
 import { Schema } from 'effect';
 export declare const isRecord: (value: unknown) => value is Record<string, unknown>;
+/** A chat post that paused the run (the program declared `interrupts`): who, where, what, when. */
+export declare const ChatPause: Schema.Struct<{
+    readonly from: Schema.String;
+    readonly channel: Schema.String;
+    readonly text: Schema.String;
+    readonly at: Schema.String;
+    /** The sender's player id, which a private reply is addressed to. */
+    readonly sender_id: Schema.optionalKey<Schema.String>;
+}>;
 export declare const RunRecord: Schema.Struct<{
     readonly script: Schema.NonEmptyString;
     /** The sha of the program that ran; the text is kept at `programs/<sha>.ts`. */
@@ -20,6 +29,14 @@ export declare const RunRecord: Schema.Struct<{
         readonly question: Schema.String;
         readonly choices: Schema.optionalKey<Schema.mutable<Schema.$Array<Schema.String>>>;
         readonly asked_at: Schema.String;
+        readonly chat: Schema.optionalKey<Schema.Struct<{
+            readonly from: Schema.String;
+            readonly channel: Schema.String;
+            readonly text: Schema.String;
+            readonly at: Schema.String;
+            /** The sender's player id, which a private reply is addressed to. */
+            readonly sender_id: Schema.optionalKey<Schema.String>;
+        }>>;
     }>>>;
 }>;
 export type RunRecord = typeof RunRecord.Type;

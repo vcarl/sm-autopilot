@@ -36,6 +36,18 @@ export class FakeLibGoalAccount<S extends object> {
     return handler(payload);
   }
 
+  private readonly listeners=new Map<string,((payload:Record<string,unknown>)=>void)[]>();
+  /** The lib's push subscription: a handler per frame type. */
+  on(type:string,handler:(payload:Record<string,unknown>)=>void):()=>void {
+    const list=this.listeners.get(type)??[];
+    this.listeners.set(type,[...list,handler]);
+    return ()=>{this.listeners.set(type,(this.listeners.get(type)??[]).filter(fn=>fn!==handler));};
+  }
+  /** A frame from the server, as the socket would deliver it. */
+  push(type:string,payload:unknown):void {
+    for(const fn of this.listeners.get(type)??[])fn(payload as Record<string,unknown>);
+  }
+
   async refresh():Promise<GameState> {
     this.refreshes.push(this.now());
     this.state=structuredClone(this.server) as GameState;

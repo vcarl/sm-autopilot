@@ -60,6 +60,9 @@ export const TICK=1000;
 
 export interface WorldOptions {
   services?:string[];
+  /** The chat server: a send refused with `refuse` (the code) or lost on the wire (`lose`), and the
+   * history `get_chat_history` answers with. */
+  chat?:{refuse?:string;lose?:boolean;history?:Record<string,unknown>[]};
   /** POIs in Sol beside the built-in station and belt: nameable to `find_route`, listed by
    * `get_system`, dockable when they carry a `base_id`. A second station is how a world
    * where "the station in Sol" names no one place is expressible. */
@@ -432,6 +435,8 @@ export function bridgeWorld(options:WorldOptions={}) {
   const seat=()=>{account.server.ship.berths=berthsView(platform,platform.onboard);};
   if(options.passengers)seat();
   const sent:{action:string;params:Record<string,unknown>}[]=[];
+  /** Every chat the server took. */
+  const chats:Record<string,unknown>[]=[];
   const handlers:Record<string,(params:Record<string,unknown>)=>unknown>={
     'spacemolt_shipping/list':params=>{
       const rows=freight.listings.filter(row=>!freight.accepted.includes(String(row.id))
@@ -898,6 +903,16 @@ export function bridgeWorld(options:WorldOptions={}) {
         cargo_total:account.server.ship.cargo_capacity,storage_remaining:99}}};
     },
     // Not served: the game refuses what it does not serve, and the menu leaves its skills out (an assertion here would be a defect).
+    'spacemolt_social/chat':params=>{
+      if(options.chat?.lose)throw new SpacemoltError('mutation_timeout','No action_result for chat');
+      if(options.chat?.refuse)throw new SpacemoltError(options.chat.refuse,`chat refused: ${options.chat.refuse}`);
+      chats.push(structuredClone(params));
+      return {structuredContent:{channel:params.target,message:`Message sent to ${params.target}`,sent_at:1_760_000_000}};
+    },
+    'spacemolt_social/get_chat_history':params=>{
+      const rows=options.chat?.history??[];
+      return {structuredContent:{channel:params.target,has_more:false,total_count:rows.length,messages:rows}};
+    },
     'spacemolt/get_skills':async()=>{throw new SpacemoltError('unknown_action','not served here: spacemolt/get_skills');},
   };
   const command:ReadinessCommand=async(action,params)=>{
@@ -905,6 +920,8 @@ export function bridgeWorld(options:WorldOptions={}) {
     assert.ok(Object.hasOwn(handlers,action),`Unexpected command: ${action}`);
     return handlers[action]!(params);
   };
-  return {account,sent,command,store,queued,board,taken,listings,fleet,wrecks,
+  /** A `chat_message` frame from another player, through the account's push. */
+  const pushChat=(payload:unknown)=>account.push('chat_message',payload);
+  return {account,sent,chats,pushChat,command,store,queued,board,taken,listings,fleet,wrecks,
     count:(action:string)=>sent.filter(call=>call.action===action).length};
 }

@@ -12,7 +12,7 @@
  * per bridge process today; a multi-account runtime is a second process per account (DESIGN.md "Fleet").
  */
 import type {Account,SkillProgress} from '@spacemolt/lib';
-import {Cause,Context,Data,Effect,Exit,Layer,ManagedRuntime,Result} from 'effect';
+import {Cause,Context,Data,Effect,Exit,Layer,ManagedRuntime,Result,Schema} from 'effect';
 import type {ReadinessAccount,ReadinessCommand} from '../readiness.ts';
 import {FUEL_CELL} from '../mining-inventory.ts';
 import {journalRun,readRun,stampRun,writeRun,type RunRecord} from '../run-record.ts';
@@ -73,6 +73,17 @@ export interface Call {fn:string;arg:string;status:Status;did:string;
 
 /** A question the program is paused on, as run.json and the tools carry it. */
 export type Question=NonNullable<RunRecord['question']>;
+/** A chat post that paused the run: who sent it, on which channel, the text, and when. */
+export type ChatPause=NonNullable<Question['chat']>;
+/** A chat post that paused the run, with the answer you gave when it did. */
+export interface Heard {chat:ChatPause;answer:string}
+
+/** What may pause a run: export it from `pilot/index.ts` as `export const interrupts = {…}`. A post
+ * pauses the run when its channel is in `channels` (`['private']` when left out) and, when `from` is
+ * given, its sender is in it (a name or a player id). No export, nothing interrupts. */
+export const InterruptsRead=Schema.Struct({from:Schema.optionalKey(Schema.Array(Schema.String)),
+  channels:Schema.optionalKey(Schema.Array(Schema.Literals(['private','local','system','faction'])))});
+export type Interrupts=typeof InterruptsRead.Type;
 
 interface Snapshot {at:number;credits:number;fuel:number;hull:number;cargo:Record<string,number>;xp:Record<string,number>}
 
@@ -99,6 +110,14 @@ export class Run extends Context.Service<Run,{
   short:'broke'|'stranded'|undefined;
   burning:boolean;burnFailed:boolean;
   unwatch:(()=>void)|undefined;
+  /** The program's `interrupts` export, read as the run starts; null: nothing interrupts. */
+  interrupts:Interrupts|null;
+  /** Posts that matched it and have not paused the run yet, oldest first. */
+  readonly chats:ChatPause[];
+  /** Posts that paused the run and the answers given, until `heard()` hands them over. */
+  readonly heard:Heard[];
+  /** A stop withdrew a chat pause: the pilot call it paused inside throws `Stopped`, as a paused `ask()` does. */
+  pauseStopped:boolean;
 }>()('Run') {}
 type RunState=Context.Service.Shape<typeof Run>;
 type GameShape=Context.Service.Shape<typeof Game>;
@@ -129,9 +148,10 @@ function recordQuestion(run:RunState,question:Question|null):void {
 export function bind(binding:Binding):void {
   const {account:live}=binding,once=live.reconnectOnce?.bind(live);
   const run:RunState={binding,stopFlag:false,started:Date.now(),depth:0,wire:freshLedger(),last:{fn:'pilot'},
-    mark:null,jobMark:null,calls:[],asking:null,lastMood:undefined,short:undefined,burning:false,burnFailed:false,unwatch:undefined};
+    mark:null,jobMark:null,calls:[],asking:null,lastMood:undefined,short:undefined,burning:false,burnFailed:false,unwatch:undefined,
+    interrupts:null,chats:[],heard:[],pauseStopped:false};
   const game=GameLive({send:binding.command,reconnected:()=>reconnected(live),refresh:()=>live.refresh(),say:text=>say(run,text),
-    ledger:run.wire,after:served=>burn(run,served).pipe(Effect.andThen(Effect.sync(()=>watchMood(run)))),...once?{reconnect:once}:{}});
+    ledger:run.wire,after:served=>burn(run,served).pipe(Effect.andThen(Effect.sync(()=>watchMood(run))),Effect.andThen(pauseOnChat(run))),...once?{reconnect:once}:{}});
   current={run,game:ManagedRuntime.make(Layer.merge(game,Layer.succeed(Run,run)))};
   run.mark=snapshot(run);
   stampRun(binding.run_id?{run_id:binding.run_id}:null);
@@ -228,6 +248,49 @@ export function ask(asked:{question:string;choices?:string[]}):Promise<string> {
     run.binding.onAsk?.(question);
   });
 }
+
+/** The chat posts that paused this run, each with the answer you gave, oldest first. Each is
+ * handed over once: a second call returns only what paused the run since the first. */
+export function heard():Heard[] {return state().heard.splice(0);}
+
+/** The run's `interrupts` declaration, from the program's export (run.ts). */
+export function listen(declared:Interrupts|null):void {
+  const run=state();
+  run.interrupts=declared;
+  // Null once the program has returned: the runtime's own closing commands (resupply, a battle broken
+  // off) are not the program's, and a post then is the juncture's to show, not a pause.
+  if(!declared)run.chats.splice(0);
+}
+
+/** A chat post the bridge heard: queued to pause the run when its declaration names it. True when queued. */
+export function hear(post:{channel:string;sender?:string|undefined;sender_id?:string|undefined;content:string;at:string}):boolean {
+  const run=current?.run,want=run?.interrupts;
+  if(!run||!want)return false;
+  const names=[post.sender,post.sender_id].flatMap(name=>name?[name.toLowerCase()]:[]);
+  // Private only unless wider channels are listed: a busy or hostile public channel cannot stall a run
+  // that asked only to be reachable.
+  if(!(want.channels??['private']).some(channel=>channel===post.channel))return false;
+  if(want.from&&!want.from.some(name=>names.includes(name.toLowerCase())))return false;
+  run.chats.push({from:post.sender??post.sender_id??'unknown',channel:post.channel,text:post.content,at:post.at,
+    ...post.sender_id===undefined?{}:{sender_id:post.sender_id}});
+  return true;
+}
+
+/** After a command, never inside one: each queued post pauses the run as `ask()` does, one at a time,
+ * until it is answered (kept for `heard()`) or the run is stopped (the stop flag ends the work). */
+const pauseOnChat=(run:RunState)=>Effect.gen(function*() {
+  for(let chat=run.chats[0];chat&&!run.stopFlag&&!run.asking;chat=run.chats[0]) {
+    run.chats.shift();
+    const post=chat;
+    yield* Effect.promise(()=>new Promise<void>(resume=>{
+      const question:Question={question:`${post.channel} message from ${JSON.stringify(post.from)}`,chat:post,asked_at:new Date().toISOString()};
+      run.asking={question,resolve:answer=>{run.heard.push({chat:post,answer});resume();},reject:()=>{run.pauseStopped=true;resume();}};
+      recordQuestion(run,question);
+      say(run,`? paused for a ${post.channel} message from ${JSON.stringify(post.from)}`);
+      run.binding.onAsk?.(question);
+    }));
+  }
+});
 
 /** Resume the paused program with `text`. The caller has already held it to the choices. */
 export function answer(text:string):void {
@@ -427,6 +490,9 @@ const jobWith=<D,R>(fn:string,args:string,body:Effect.Effect<Said<D>,GameError|T
 export async function edge<D>(effect:Effect.Effect<Outcome<D>,never,Game|Run>):Promise<Outcome<D>> {
   const {run,game}=need(),before=snapshot(run),outer=run.last,outerMark=run.jobMark,outerDepth=run.depth;
   const exit=await game.runPromiseExit(effect);
+  // The command the pause followed had finished and its call is in the ledger; the program learns of
+  // the stop here, at its own await, never inside the command.
+  if(run.pauseStopped) {run.pauseStopped=false;throw new Stopped();}
   if(Exit.isSuccess(exit))return exit.value;
   // A die inside a job's own bookkeeping skipped its restore; the edge puts the stack back.
   const fn=run.last.fn;

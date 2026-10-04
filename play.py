@@ -114,7 +114,7 @@ def client(playground: Path, action: str, params: dict) -> None:
                 continue
             if reply.get("ok"):
                 result = reply.get("result")
-                if action == "run" and isinstance(result, dict) and result.get("accepted"):
+                if action == "run" and isinstance(result, dict) and result.get("accepted") and "status" in result:
                     print(f"-- {result.get('status')}: {result.get('reason')}")
                 else:
                     print(json.dumps(result, indent=1))

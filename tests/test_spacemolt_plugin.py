@@ -171,7 +171,7 @@ def test_register_publishes_every_tool_in_the_spacemolt_toolset(monkeypatch):
     for name, (toolset, *_rest) in tools.items():
         by_toolset.setdefault(toolset, set()).add(name)
     assert by_toolset == {
-        "spacemolt": {"spacemolt_run", "spacemolt_answer", "spacemolt_check", "spacemolt_reflect"},
+        "spacemolt": {"spacemolt_run", "spacemolt_answer", "spacemolt_chat", "spacemolt_check", "spacemolt_reflect"},
         "spacemolt_observe": {"spacemolt_stop"},
         "spacemolt_observer": {"spacemolt_direct", "spacemolt_status"},
     }

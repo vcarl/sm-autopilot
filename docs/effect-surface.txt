@@ -52,6 +52,7 @@ Carried.aboard: PassengerView[]
 Carried.landed: { base_id: string; unloaded: UnloadPassengerCommandResponse[]; }[]
 Carried.loaded: PassengerView[]
 Carried.station: StationPassengersResponse
+Channel = "private" | "local" | "system" | "faction"
 Circuit.closed: true
 Circuit.hold: number
 Circuit.lap_jumps: number
@@ -157,6 +158,8 @@ Hauled.contract: ShipmentContract
 Hauled.leg: "accepted" | "loaded" | "delivered"
 Hauled.profile_after: CarrierProfile
 Hauled.settlement?: ShippingSettlementResponse | undefined
+Heard.answer: string
+Heard.chat: { readonly at: string; readonly from: string; readonly channel: string; readonly text: string; readonly sender_id?: string; }
 Holding = { [x: string]: { quantity: number; cost: number; }; }
 Hunted.ended: "asked" | "nothing here" | "nothing found" | "fuel" | "hull" | "hold full" | "stopped" | "tired"
 Hunted.fights: Fight[]
@@ -215,7 +218,7 @@ Near.seen?: SystemSeen | undefined
 Near.stronghold?: boolean | undefined
 Near.system_id: string
 Near.visited: boolean
-Offer = Omit<MissionInfo, "dialog" | "description"> & { wants: string; fits?: "gatherUntil" | "hunt" | "goTo" | "haul"; }
+Offer = Omit<MissionInfo, "description" | "dialog"> & { wants: string; fits?: "gatherUntil" | "hunt" | "goTo" | "haul"; }
 Offer.chain_next?: string | undefined
 Offer.community?: boolean | undefined
 Offer.community_percent?: number | undefined
@@ -569,6 +572,7 @@ src/play/index.ts function buy: (itemId: string, quantity: number, opts?: { deli
 src/play/index.ts function buyShip: (id: string, opts?: { commission?: boolean; switchTo?: boolean; }) => Promise<Outcome<Purchase>>
 src/play/index.ts function buyers: (items: string | readonly string[]) => Promise<Outcome<{ buyers: Buyer[]; }>>
 src/play/index.ts function carryPassengers: (destination?: string | undefined) => Promise<Outcome<Carried>>
+src/play/index.ts function chat: (channel: Channel, text: string, to?: string | undefined) => Promise<Outcome<{ readonly channel: string; readonly message: string; readonly sent_at: number; }>>
 src/play/index.ts function completeMissions: () => Promise<Outcome<{ completed: CompleteMissionResponse[]; remaining: Active[]; }>>
 src/play/index.ts function craft: (recipeId: string, quantity?: number, opts?: { at?: string; }) => Promise<Outcome<Crafted>>
 src/play/index.ts function disengage: (bound?: number) => Promise<boolean>
@@ -579,9 +583,11 @@ src/play/index.ts function freighters: () => Promise<Outcome<{ freighters: Freig
 src/play/index.ts function gatherUntil: (opts: { poi: string; base?: string; until?: { item: string; quantity: number; }; maxTrips?: number; then?: "stow" | "sell"; }) => Promise<Outcome<Gathered>>
 src/play/index.ts function goTo: (id: string) => Promise<Outcome<Trip>>
 src/play/index.ts function haul: (shipmentId: string) => Promise<Outcome<Hauled>>
+src/play/index.ts function heard: () => Heard[]
 src/play/index.ts function hunt: (opts?: { poi?: string; look?: string[]; fights?: number; species?: string | string[]; strict?: boolean; target?: "creature" | "pirate"; onTick?: (view: TickView) => TickDecision | undefined; }) => Promise<Outcome<Hunted>>
 src/play/index.ts function jobs: () => Promise<Outcome<{ jobs: Queued[]; }>>
 src/play/index.ts function materials: (itemId: string, quantity: number) => Promise<Outcome<Materials>>
+src/play/index.ts function messages: (opts?: { channel?: Channel | "emergency"; with?: string; after?: string; limit?: number; }) => Promise<Outcome<{ messages: { readonly sender_id: string; readonly channel: string; readonly content: string; readonly id: string; readonly sender: string; readonly timestamp_utc: string; readonly poi_id?: string; readonly system_id?: string; readonly target_id?: string; readonly target_name?: string; }[]; has_more: boolean; }>>
 src/play/index.ts function missions: () => Promise<Outcome<{ board: Offer[]; active: Active[]; max: number; slots_free: number; }>>
 src/play/index.ts function note: (text: string) => void
 src/play/index.ts function orient: () => Promise<Outcome<Orientation>>
@@ -627,6 +633,7 @@ src/play/index.ts interface Fight: Fight
 src/play/index.ts interface Fit: Fit
 src/play/index.ts interface Gathered: Gathered
 src/play/index.ts interface Hauled: Hauled
+src/play/index.ts interface Heard: Heard
 src/play/index.ts interface Hunted: Hunted
 src/play/index.ts interface Locked: Locked
 src/play/index.ts interface Materials: Materials
@@ -654,15 +661,20 @@ src/play/index.ts interface Traded: Traded
 src/play/index.ts interface Trip: Trip
 src/play/index.ts interface Venue: Venue
 src/play/index.ts type Active: ActiveMissionInfo & { progress: string; stuck?: string; }
+src/play/index.ts type Channel: "private" | "local" | "system" | "faction"
+src/play/index.ts type ChatPause: { readonly at: string; readonly from: string; readonly channel: string; readonly text: string; readonly sender_id?: string; }
 src/play/index.ts type CombatStance: "fire" | "evade" | "brace" | "flee"
 src/play/index.ts type Craftable: Recipe & { margin?: number | null; have: (RecipeInput & { have: number; })[]; }
 src/play/index.ts type ForSale: { kind: "listing"; listing: ShipListing; class: ShipClass; versus: string; } | { kind: "commission"; quote: CommissionQuoteResponse; class: ShipClass; versus: string; }
+src/play/index.ts type Interrupts: { readonly from?: readonly string[]; readonly channels?: readonly ("private" | "local" | "system" | "faction")[]; }
+src/play/index.ts type Message: { readonly sender_id: string; readonly channel: string; readonly content: string; readonly id: string; readonly sender: string; readonly timestamp_utc: string; readonly poi_id?: string; readonly system_id?: string; readonly target_id?: string; readonly target_name?: string; }
 src/play/index.ts type Mood: "Cautious" | "Focused" | "Opportunistic" | "Aggressive" | "Relaxed" | "Tired"
-src/play/index.ts type Offer: Omit<MissionInfo, "dialog" | "description"> & { wants: string; fits?: "gatherUntil" | "hunt" | "goTo" | "haul"; }
+src/play/index.ts type Offer: Omit<MissionInfo, "description" | "dialog"> & { wants: string; fits?: "gatherUntil" | "hunt" | "goTo" | "haul"; }
 src/play/index.ts type Owned: OwnedFacilityEntry & { runway_cycles: number; }
 src/play/index.ts type Quote: MarketListingItem & { held: number; stored: number; }
 src/play/index.ts type Quoted: CraftQuoteResponse & Venue & { produces_total: ItemQuantity[]; output_value: number | null; margin: number | null; missing: Missing[]; }
 src/play/index.ts type Row: { item_id: string; quantity: number; }
+src/play/index.ts type Sent: { readonly channel: string; readonly message: string; readonly sent_at: number; }
 src/play/index.ts type Stance: "Prospector" | "Industrialist" | "Trader" | "Carrier" | "Hunter" | "Scout"
 src/play/index.ts type Status: "done" | "partial" | "refused" | "failed"
 src/play/index.ts type Want: Pick<V2CargoItem, "item_id"> & { quantity?: number; }
