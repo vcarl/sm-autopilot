@@ -79,10 +79,7 @@ export default async function main() {
   `source`, and the status is `partial`. A stocked store is `done` with nothing sent.
 - `craft(recipe, qty)` commits, waits and measures. A job already queued here for the same
   recipe and the same number of runs **is** this job: a re-run re-enters the wait.
-- `jobs()` marks a workshop job `paused` when the ship is not docked at its base, inferring
-  "workshop" from the queue row's `venue`/`venue_type` (falling back to a blank `facility_id`)
-  since which field a live queue row actually carries is unconfirmed against a captured
-  `job_list`.
+- `jobs()` marks a workshop job `paused` when the ship is not docked at its base.
 
 ## Pitfalls
 

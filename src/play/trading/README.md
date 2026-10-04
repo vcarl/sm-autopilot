@@ -70,15 +70,9 @@ measurement, so treat a flat 20 as "unknown, probably stale".
 
 `spreads()` answers `detail: {spreads, sources}`. Each row of `spreads` is one buyer for one item,
 `{item_id, held, base_id, best_buy, best_buy_qty, source, seen, fuel, jumps, net, confidence, score}`.
-`jumps` and `fuel` are priced as `routes()` prices a trip: jumps over the `get_map` links from each
-base's system (the memory's, `places.json`, else one `find_route`, at most 5 a call), fuel per jump
-from one quote (both 0 here). `net` is `best_buy × min(best_buy_qty, held)` less that fuel at
-**this** base's `fuel_price_all_in`. `confidence` is `0.5 ^ (age / HALF_LIFE)`, 1 for a live book,
-and rows rank by `score`, `max(confidence, 1/64) × net / max(1, jumps)` — the same rule as a
-`routes()` row — keeping the best `BUYERS` (3) per item. So a bid of 15 on a book hours old, 15 jumps
-out, ranks under a bid of 8 read a jump away, and both are listed. `held` is the hold plus this
-base's store, because that is what you could put on the counter. A buyer whose base could not be
-placed is not priced, and `did` names it.
+`net` is `best_buy × min(best_buy_qty, held)` less the trip's fuel; `held` counts the store here.
+Rows rank by `score` as `routes()` rows do, the best 3 per item: an old bid far out ranks under a
+fresh one near, and both are listed.
 
 ## The model: a route is a list of stops
 
@@ -118,20 +112,6 @@ It grows routes one stop at a time, keeping the best 20 at each length, within t
 | `maxStops` | stops in a route or a lap, 4 unless given, at most `MAX_STOPS` (10). A local cycle by default; a galaxy tour is a larger number |
 | `maxLegJumps` | jumps in any one leg — from here to the first stop, stop to stop, and a lap's last stop home — 3 unless given |
 | `maxJumps` | jumps all told: from here through every stop, or once round a lap. No cap unless given |
-
-A bigger scope costs time, not game calls: the search plans about `maxStops × 20 × bases` routes on
-the one map read, up to seconds for a 10-stop tour over a full memory. A base with no system known
-can not be counted against a jump cap; its row says so, and the Outcome's `did` names every base
-that could not be placed. A
-route is kept only when it pays and every stop on it sells or buys something. Jumps are counted
-on the galaxy map (`get_map`, one call) between the systems of consecutive stops. The market
-memory keeps each base's system, and lends it to a ledger entry for the same base. A base it has
-no system for (a ledger entry for a base never visited, an old memory) is placed with one `find_route`, at most 5 a call. One `find_route` also prices a jump in fuel.
-Every place learned — a docked book read, a `find_route` here, a freighter arriving at a stop — is
-kept in `places.json` in the runtime dir and read first, so a base is placed once, ever: each call
-places up to 5 new bases, and the `did` says how many wait for a later call. A mobile station
-moves: a base a freighter found away from its kept system is listed in `mobile.json`, and is
-placed by a live `find_route` on every call, never from `places.json` or the memory.
 
 Each row of `routes` is a `Route`:
 
@@ -255,21 +235,12 @@ It answers `detail: Traded` = `{stops, unsold, fuel, net}`:
 | `fuel` | fuel units the flights burned, measured from the tank |
 | `net` | sales, less `spent` (tax included), less `fuel × fuel_price_all_in` at the first base the run was docked at. Fuel comes from the tank, not the wallet, so it is priced exactly as `Route.net` prices it: realised `net` against the `routes()` row's `net` is like against like |
 
-Each stop's `did` names what it took and the later bid it was taken for, with that book's age:
-`took 2 dark_matter_residue for sirius_observatory_station's 1020 bid (remembered, 85 ticks old)`.
-That bid is a memory until the run stands in front of it; an old one is the likeliest to have moved.
-A take that bid's depth bounded, with more on the asks, says how deep it is and what was already
-aboard for it: `solarian_biotic: b495…'s bids hold 16, 4 already aboard`.
-A `buy` item the live book no longer offers as the book the route was planned on did is said
-against that book: `no ask for circuit_board here now (was 330 for 5, 12 ticks ago)`, or, when the
-buy took every unit left, `circuit_board: 2 on the asks here now (was 330 for 5, 12 ticks ago)`.
-The same words are in the stop's `why`.
+Each stop's `did` names what it took and the later bid it was taken for, with that book's age
+(`took 2 dark_matter_residue for sirius_observatory_station's 1020 bid (remembered, 85 ticks old)`):
+a memory until the run stands in front of it. A planned ask gone from the live book is said against
+the book it was planned on, in `did` and `why`.
 
-A thin book is walked down its levels, so a sale can fetch less than the top bid you saw: when a
-stop's sale averages more than 3% under the top bid read there, `did` says so with that bid's depth
-(`sold 10 plasma_injector at 6633 each, under the 7153 top bid (2 deep)`); `sell()` says it the same
-way. `routes()` already prices a remembered book level by level; a ledger book carries only its top
-level and the depth there, so its rows count no more than that.
+A sale walks a thin book down its levels; more than 3% under the top bid, `did` says so with its depth.
 
 It never throws. A flight that does not arrive is `partial`, with the stops done so far, and
 `next` is the rest of the route. A `done` run's `next` is pasteable calls only: the same
@@ -285,19 +256,10 @@ and a stop with no known book count as maybe), the flights ahead cannot pay, so 
 range_base not flown`, with `next: ['routes()']`. A run that loops one source until its asks are gone
 ends this way at the dry stop instead of flying the empty legs.
 
-The menu offers `tradeRun({stops: [{at}]})` in every stance when something aboard has no bid here
-and a remembered book elsewhere bids for it. For goods in the store here, it offers
-`tradeRun({stops: [{at: here, buy, from: 'store'}, {at}]})`. The fuel to get there is not priced
-into that line.
-
 ## Scouting: reading the books nobody has
 
 A route is only ever planned over a book someone read, and the faction ledger covers about 15 of
-the galaxy's ~79 stations. `get_map` lists systems, not their bases. A base id is learned from a
-book, a `find_route`, the faction's intel map (`spacemolt_intel/query_intel`, each system with its
-POIs and their `base_id`s, when your faction has one), or a `get_system` standing in its system,
-which lists every POI there with its `base_id`. So scouting goes jump by jump where nothing else
-knows.
+the galaxy's ~79 stations. So scouting goes jump by jump where nothing else knows.
 
 `scoutMarkets({jumps?, max?})` answers `detail: {filed, explored, left}`:
 
@@ -306,21 +268,9 @@ knows.
 | `jumps` | how far to look, in jumps from the system you are in: `SCOUT_JUMPS` (4) unless given |
 | `max` | hops to fly, all told: 3 unless given |
 
-Each hop goes to the first candidate within `jumps`, chosen afresh after every hop:
-
-1. a base known by id (in `places.json`, the intel map or a far book's system) with **no book** at all;
-2. a system on the map whose bases were **never listed** (not in `explored.json`, no base of it
-   placed, and some POI in it);
-3. a base whose freshest book, ledger or memory, is older than `IGNORE_TICKS` (1080 ticks, three hours).
-
-The first two rank together, nearer first and a base before a system; stale books come after, and
-a base that refused your dock (the same record the Places line reads) comes last of all: `did` says
-`ranked 1 base(s) that refused docking last: …`, and when one is flown to anyway because nothing else
-is left, `flew to … (Access denied) though it refused docking before`. A
-is flown to with `goTo` and its book read as `prices()` reads one: remembered in `markets.json` and
-filed to the ledger. After every hop the system's bases are listed (`get_system`) and kept in
-`places.json`, and the system in `explored.json`, so a system flown to for its bases makes them the
-next candidates, and a system with one base docks there on arrival. It never buys or sells.
+Each hop goes to the nearest base with no book or system never listed, then to stale books; a
+base that refused your dock comes last. It reads and files each book as `prices()` does, lists each
+system's bases as it arrives, and never buys or sells.
 
 | Field | What it is |
 |---|---|

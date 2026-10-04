@@ -41,30 +41,17 @@ export default async function main() {
 
 ## Playing the intro stage
 
-You start docked, with a free starter hull, 50–100 cargo, and a few hundred credits. The way
-out is: first 2,500–10,000 credits, skills 1–3 in mining, trading and navigation, one T1 hull
-(~2,000 cr), and a base near where you work.
+The way out: 2,500–10,000 credits, skills 1–3 in mining, trading and navigation, one T1 hull.
 
-1. `orient()`. It names the most obvious gap; say so in `note()` if there is nothing to act on.
-2. `scout()`. Find a belt (`type: asteroid_belt`) and a station with `market` and `storage`.
-   No belt in this system: `scout('<neighbour system id>')` from `connections`, then `goTo` it.
-3. `missions()` at every dock. A difficulty-1 "deliver 20 ore" or "visit X" mission is credits
-   for a trip you were making anyway. Max 5 active: `detail.slots_free` says how many you may
-   still take, so slice the board by it. Accept what matches; complete on return.
-   `slots_free: 0` with nothing completable means a mission is stuck: each `detail.active` row
-   carries its `progress` and a `stuck` reason (expired, destination elsewhere, goods you do not
-   have), and `abandonMission('<id>')` drops one and frees the slot — it refuses a mission you
-   could turn in here unless you pass `{force:true}`, and refuses an id that was never active
-   (a placeholder id is not a success; already-gone ids stay `done`). `completeMissions()` first: it withdraws
-   from the store here for a `deliver N of item` objective the store can cover.
-4. `gatherUntil({poi})`: out, mine until full, back to the base you left, stow, service. One call
-   is one trip of ~15 minutes. `gatherUntil({poi, until: {item, quantity}})` loops trips.
-5. `prices()` then `sell(rows)`. Trading xp scales with credit volume; ore sells for little, refined
-   for 2–40× more: docked where the ore sits, `recipes()` lists what hold + store can make, best
-   margin first, and `craft(id, qty)` with an `id` from its `detail.recipes` makes it.
-6. First purchase at ~2,000 cr: a cargo expander (`buy`, then `refit({install:['cargo_expander_ii']})`),
-   named by every guide as the correct first buy — it is only correct if a utility
-   slot is free (the play README's "Getting a better ship").
+`missions()` at every dock: a difficulty-1 "deliver 20 ore" or "visit X" pays for a trip you were
+making anyway. Max 5 active; `detail.slots_free` says how many you may still take.
+`slots_free: 0` with nothing completable means one is stuck: each `detail.active` row carries its
+`progress` and a `stuck` reason, and `abandonMission('<id>')` frees the slot (it refuses one you
+could turn in here unless `{force:true}`, and an id never active). `completeMissions()` first: it
+withdraws from the store here for a `deliver N of item` the store covers.
+
+First purchase at ~2,000 cr: a cargo expander (`buy`, then `refit({install:['cargo_expander_ii']})`),
+correct only if a utility slot is free (the play README's "Getting a better ship").
 
 ## What a good trip looks like
 
@@ -75,11 +62,6 @@ out is: first 2,500–10,000 credits, skills 1–3 in mining, trading and naviga
 - The hold is empty when you leave, but for the fuel cells `service()` keeps aboard (about 5% of it;
   no sell or stow takes them). `gatherUntil` refuses a full hold; `sell(rows)` or `stow(rows)` first.
 
-## What you see while it runs
-
-One line per leg (`goTo`, `mine`, `stow`, `service`) and, while mining, a yield line at least
-every two minutes: ticks so far, hold used, what came aboard. A silent run is a bug.
-
 ## When to reconsider
 
 - A trip yields the same ore your store already has 400 of. Sell it, refine it (`recipes()`, then `craft()`), or
@@ -87,8 +69,7 @@ every two minutes: ticks so far, hold used, what came aboard. A silent run is a 
 - Yield per trip drops: the site is depleting (`ended: 'depleted'`). Move on.
 - The mining skill has passed 5 and the credits per hour are flat: the ceiling is the hull's
   cargo, not your skill. An Archimedes (T1 miner, 185 cargo, ~2,200 cr) or an Excavation
-  (T2, 250 cargo, ~8,000 cr) via `account().commands.spacemolt_ship.browse_ships()`.
-- Two shifts in a row were mining. Reflection should reach for something else.
+  (T2, 250 cargo, ~8,000 cr) via `shipsForSale()`.
 
 ## Pitfalls
 
