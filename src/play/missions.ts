@@ -158,10 +158,28 @@ function fillable(m:ActiveMissionInfo):Want[] {
   return rows;
 }
 
-/** An active mission with the two lines the board could not read off it: where its objectives
+/** The one thing to do next for a mission: its first objective not yet met, where it is, and how far when `jumps` knows.
+ * The game lists objectives in order with a `completed` flag each and says nothing of whether order is enforced, so
+ * the first not completed is next (`current < required` where the flag is missing). Live 2026-10-04 (kvothe 22:02Z,
+ * run 8389807d): a five-stop circuit, every objective dumped at once, was flown out of order into the run cap. */
+export function nextStep(m:ActiveMissionInfo,jumps?:(o:ObjectiveProgressInfo)=>number|undefined):string {
+  if(m.community)return `${m.community_percent??0}% community`;
+  if(expired(m))return 'expired';
+  if(completable(m))return 'turn in: completeMissions()';
+  const all=m.objectives??[],at=all.findIndex(o=>!(o.completed??(o.current??0)>=(o.required??0)));
+  const o=all[at];
+  if(!o)return `${m.percent_complete}%`;
+  const target=o.target_base??o.target_base_name,n=jumps?.(o);
+  return `${o.description||o.type}`+((o.required??0)>1?` (${o.current??0}/${o.required}${o.in_cargo?`, ${o.in_cargo} aboard`:''})`:'')
+    +(target?` → ${target}${n===undefined?'':n?`, ${n} jump${n===1?'':'s'}`:', this system'}`:'')+(all.length>1?` [${at+1} of ${all.length}]`:'');
+}
+
+/** An active mission led by its next step, with the lines the board could not read off it: where its objectives
  * stand, and why it cannot be turned in here. */
-export type Active=ActiveMissionInfo&{progress:string;stuck?:string};
-const seen=(m:ActiveMissionInfo):Active=>{const why=stuck(m);return {...m,progress:progress(m),...why?{stuck:why}:{}};};
+export type Active=ActiveMissionInfo&{next:string;progress:string;stuck?:string};
+const seen=(m:ActiveMissionInfo):Active=>{const why=stuck(m);return {next:nextStep(m),...m,progress:progress(m),...why?{stuck:why}:{}};};
+/** Each held mission as `title — next: …`, for a report's prose. */
+const nextLines=(rows:Active[])=>rows.map(r=>`${r.title} — next: ${r.next}`).join('; ');
 
 /** Why `active.length` can exceed `max_missions`, the only two ways the lib's types allow:
  * `community: true` (faction-wide, shared, not a personal slot) and `expires_in_ticks <= 0`
@@ -193,7 +211,7 @@ export const missionsEffect=()=>jobEffect<{board:Offer[];active:Active[];max:num
   const rows=mine.active.map(seen),blocked=rows.filter(r=>r.stuck);
   return {status:'done' as const,
     did:`${free} slot(s) free: ${mine.active.length} of ${mine.max_missions} active${notes.length?` (${notes.join(', ')})`:''}; ${offers.length} on the board, ${fitting.length} fit a library call`
-      +(blocked.length?`; stuck here: ${blocked.map(r=>`${r.title} (${r.stuck})`).join(', ')}`:''),
+      +(rows.length?`. Held: ${nextLines(rows)}`:''),
     detail:{board:offers,active:rows,max:mine.max_missions,slots_free:free},
     next:free?fitting.slice(0,Math.min(3,free)).map(o=>`acceptMission('${o.mission_id}') — ${o.title??o.mission_id}, ${o.rewards?.credits??0} cr, fits ${o.fits}`)
       :[ready.length?`completeMissions() turns in ${ready.length} finished mission(s) and frees the slot(s)`
@@ -273,11 +291,7 @@ export const completeMissionsEffect=()=>jobEffect<{completed:CompleteMissionResp
   for(const mission of mine.active) {
     if(stopped())return yield* Effect.fail(new Stopped());
     const rows=fillable(mission);
-    if(!completable(mission)&&!rows.length) {
-      const why=stuck(mission);
-      if(why)said.push(`${mission.title}: ${why}`);
-      continue;
-    }
+    if(!completable(mission)&&!rows.length)continue;
     if(rows.length) {
       const out=yield* withdrawEffect(rows);
       if(out.status==='refused'){said.push(`${mission.title}: ${out.why??'withdrawal refused'}`);continue;}
@@ -309,12 +323,14 @@ export const completeMissionsEffect=()=>jobEffect<{completed:CompleteMissionResp
   const lost=failed.some(f=>f.error._tag==='ReplyLost');
   const status=lost?(completed.length?'partial' as const:'failed' as const)
     :completed.length?(failed.length?'partial' as const:'done' as const):'refused' as const;
+  // What is still held is said once, by its next step: the refusal's why, else the did's tail.
   const why=failed.length?lines.join('; ')
-    :completed.length?'':blocked.length?blocked.map(r=>`${r.title}: ${r.stuck}`).join('; ')
+    :completed.length?'':blocked.length?nextLines(blocked)
       :'no active mission is completable at this dock';
+  const held=completed.length&&blocked.length?`. Held: ${nextLines(blocked)}`:'';
   return {status,
     did:(completed.length?`completed ${completed.length} mission(s) for ${earnedTotal} cr`:'nothing completable')
-      +`; ${tail}${said.length?`. ${said.join('. ')}`:''}`,
+      +`; ${tail}${said.length?`. ${said.join('. ')}`:''}${held}`,
     ...why?{why}:{},
     detail:{completed,remaining:rest},
     next:free?[]:blocked.slice(0,3).map(r=>`abandonMission('${r.mission_id}') frees a slot — ${r.title}: ${r.stuck}`)};

@@ -1,7 +1,7 @@
 /** The mission board at the base you are docked at. The cheapest credits and skill xp in the
  * intro stage: difficulty-1 missions map onto gather, hunt and goTo trips you were making
  * anyway, and pay 1,000–3,500 cr plus 20–50 xp. Max 5 active at once (`V2Missions.max_missions`). */
-import type { AbandonMissionResponse, AcceptMissionResponse, ActiveMissionInfo, CompleteMissionResponse, MissionInfo, V2Missions } from '@spacemolt/lib';
+import type { AbandonMissionResponse, AcceptMissionResponse, ActiveMissionInfo, CompleteMissionResponse, MissionInfo, ObjectiveProgressInfo, V2Missions } from '@spacemolt/lib';
 import { Effect } from 'effect';
 import { Game, type GameError } from './game.ts';
 import type { Outcome } from './types.ts';
@@ -19,9 +19,15 @@ export declare const activeEffect: () => Effect.Effect<V2Missions, GameError, Ga
  * ways a slot stays locked: the clock ran out, the goods are somewhere this trip is not, or
  * the pilot simply does not have them yet. */
 export declare function stuck(m: ActiveMissionInfo): string | undefined;
-/** An active mission with the two lines the board could not read off it: where its objectives
+/** The one thing to do next for a mission: its first objective not yet met, where it is, and how far when `jumps` knows.
+ * The game lists objectives in order with a `completed` flag each and says nothing of whether order is enforced, so
+ * the first not completed is next (`current < required` where the flag is missing). Live 2026-10-04 (kvothe 22:02Z,
+ * run 8389807d): a five-stop circuit, every objective dumped at once, was flown out of order into the run cap. */
+export declare function nextStep(m: ActiveMissionInfo, jumps?: (o: ObjectiveProgressInfo) => number | undefined): string;
+/** An active mission led by its next step, with the lines the board could not read off it: where its objectives
  * stand, and why it cannot be turned in here. */
 export type Active = ActiveMissionInfo & {
+    next: string;
     progress: string;
     stuck?: string;
 };

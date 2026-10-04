@@ -34,7 +34,7 @@ test('an expired mission is reported stuck, and abandonMission frees the slot',a
     const seen=board.detail.active.find(m=>m.mission_id==='dead')!;
     assert.equal(seen.stuck,'expired');
     assert.equal(seen.progress,'0/20 ore');
-    assert.match(board.did,/stuck here: Old run \(expired\)/);
+    assert.match(board.did,/Held: Old run — next: expired/);
     const out=await abandonMission('dead');
     assert.equal(out.status,'done',out.why);
     assert.match(out.did,/abandoned "Old run" \(expired\); 0 of 5 active, 5 slot\(s\) free/);
@@ -75,6 +75,19 @@ test('abandonMission refuses a completable mission unless forced',async()=>{
   } finally {unbind();}
 });
 
+// Live 2026-10-04 (kvothe 22:02Z, run 8389807d): a five-stop circuit flown out of order into the run cap.
+test('a mission with several objectives leads with the first one not completed',async()=>{
+  const f=world();
+  try {
+    const stop=(n:number,completed:boolean)=>({description:`Visit capital ${n}`,type:'visit',current:completed?1:0,required:1,completed,target_base:`capital_${n}`});
+    f.taken.push(row({title:'Five Capitals',objectives:[stop(1,true),stop(2,false),stop(3,false)]}));
+    const board=await missions();
+    assert.equal(board.detail.active[0]!.next,'Visit capital 2 → capital_2 [2 of 3]');
+    assert.equal(Object.keys(board.detail.active[0]!)[0],'next');
+    assert.match(board.did,/Held: Five Capitals — next: Visit capital 2 → capital_2 \[2 of 3\]$/);
+  } finally {unbind();}
+});
+
 test('a mission whose goods are elsewhere is stuck, and the store cannot unstick it',async()=>{
   const f=world();
   try {
@@ -87,7 +100,7 @@ test('a mission whose goods are elsewhere is stuck, and the store cannot unstick
     assert.match(board.detail.active[0]!.stuck!,/wants deep_range; docked at sol_base/);
     const out=await completeMissions();
     assert.equal(f.count('spacemolt_storage/withdraw'),0);
-    assert.match(out.did,/Far run 0: .*wants deep_range/);
+    assert.match(out.why!,/^Far run 0 — next: 20 ore to Deep Range \(0\/20\) → deep_range;/);
     assert.match(out.next[0]!,/abandonMission\('away'\)/);
   } finally {unbind();}
 });
@@ -100,7 +113,7 @@ test('completing nothing is refused, not done: "missions done" must not carry fo
     const out=await completeMissions();
     assert.equal(out.status,'refused');
     assert.match(out.did,/^nothing completable/);
-    assert.match(out.why!,/needs 20 more ore/);
+    assert.equal(out.why,'Deliver ore — next: 20 ore to Sol Base (0/20) → sol_base');
     assert.equal(out.detail.completed.length,0);
   } finally {unbind();}
 });

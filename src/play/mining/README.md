@@ -45,8 +45,9 @@ The way out: 2,500–10,000 credits, skills 1–3 in mining, trading and navigat
 
 `missions()` at every dock: a difficulty-1 "deliver 20 ore" or "visit X" pays for a trip you were
 making anyway. Max 5 active; `detail.slots_free` says how many you may still take.
-`slots_free: 0` with nothing completable means one is stuck: each `detail.active` row carries its
-`progress` and a `stuck` reason, and `abandonMission('<id>')` frees the slot (it refuses one you
+Each `detail.active` row leads with `next`, its first objective not yet met ("Visit X → base, 3 jumps
+[2 of 5]"): fly them in that order. `slots_free: 0` with nothing completable means one is stuck: its
+row carries `progress` and a `stuck` reason, and `abandonMission('<id>')` frees the slot (it refuses one you
 could turn in here unless `{force:true}`, and an id never active). `completeMissions()` first: it
 withdraws from the store here for a `deliver N of item` the store covers.
 
