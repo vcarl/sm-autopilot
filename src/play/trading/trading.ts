@@ -467,7 +467,7 @@ export function tradeRun(opts:{stops:RunStop[]}):Promise<Outcome<Traded>> {
       const notes:string[]=[];
       let listed:Map<string,MarketListingItem>;
       try {listed=await book();}
-      catch(error) {short.push(`${here}: no market (${error instanceof Error?error.message:String(error)})`);visit.why=short.at(-1);continue;}
+      catch(error) {visit.why=`${here}: no market (${error instanceof Error?error.message:String(error)})`;short.push(visit.why);continue;}
       const later=route.slice(i+1).map(next=>next.at);
       const hold=miningInventory(acct().state);
       const known=byBase({base_id:here,source:'here',age:0,items:listed},

@@ -206,11 +206,12 @@ export async function gatherJob(account:ReadinessAccount,command:ReadinessComman
     mined=addYield(mined,dug.yield);
     // A site that answered no resource list still gives what it just put in the hold.
     for(const row of dug.yield)gives.add(row.item_id);
-    if(dug.outcome==='failed')return {outcome:'failed',reason:dug.reason};
+    const why=dug.reason===undefined?{}:{reason:dug.reason};
+    if(dug.outcome==='failed')return {outcome:'failed',...why};
     // Tired ends the dig and flies the safe leg home; the pilot's own stop ends the job here.
-    if(dug.outcome==='stopped'&&dug.reason!=='tired')return {outcome:'blocked',reason:dug.reason};
+    if(dug.outcome==='stopped'&&dug.reason!=='tired')return {outcome:'blocked',...why};
     // A site that gave nothing is not a trip to finish; one that gave something is.
-    if(dug.outcome==='depleted')return {outcome:mined.length?'done':'blocked',reason:dug.reason};
+    if(dug.outcome==='depleted')return {outcome:mined.length?'done':'blocked',...why};
   });
   if(stop)return stop;
 

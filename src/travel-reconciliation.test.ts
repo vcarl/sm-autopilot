@@ -48,17 +48,17 @@ function fixture(kind:'jump'|'travel',mode:'arrived'|'elsewhere'|'fuel'|'timeout
       assert.equal(quotes.length,2,'retry needs a fresh quote');
       assert.equal(server.location.system_id,resolved.system_id,'retry must depart from resolved origin');
       assert.equal(server.location.poi_id,resolved.poi_id);
-      assert.equal(quotes[1].at,time);
-      assert.deepEqual(quotes[1].state,server);
+      assert.equal(quotes[1]!.at,time);
+      assert.deepEqual(quotes[1]!.state,server);
       if(mode==='second')throw secondError;
-      server.ship.fuel-=quotes[1].cost;server.location.in_transit=true;arrivalAt=time+2_000;
+      server.ship.fuel-=quotes[1]!.cost;server.location.in_transit=true;arrivalAt=time+2_000;
       return {};
     },
   }},()=>time);
   const server=account.server;
   const command:ReadinessCommand=(name,payload)=>{
     const [tool,action]=name.split('/');
-    return account.send(tool,action,payload);
+    return account.send(tool!,action!,payload);
   };
   const options={now:()=>time,maxWaitMs:65_001,
     sleep:async(ms:number)=>{
@@ -90,18 +90,18 @@ test('rejected local travel or jump reconciles unknown location at destination o
   for(const kind of ['jump','travel'] as const)for(const mode of ['arrived','elsewhere'] as const)for(const resolveAt of [2_000,32_000]) {
     const f=fixture(kind,mode,resolveAt),result=await f.run();
     const observedAt=Math.ceil(resolveAt/30_000)*30_000;
-    assert.deepEqual(f.quotes[0].state.location,{system_id:'a',poi_id:'a_gate',docked_at:null,in_transit:false});
+    assert.deepEqual(f.quotes[0]!.state.location,{system_id:'a',poi_id:'a_gate',docked_at:null,in_transit:false});
     assert.deepEqual(f.settled,mode==='arrived'?[0,observedAt]:[0,observedAt,observedAt+30_000]);
     assert.deepEqual(f.account.calls.map(c=>c.action),mode==='arrived'?
       ['find_route',...f.movementActions]:['find_route',...f.movementActions,'find_route',...f.movementActions]);
     assert.equal(f.quotes.length,mode==='arrived'?1:2);
     if(mode==='elsewhere') {
       const quote=f.quotes[1];
-      assert.equal(quote.at,observedAt);
-      assert.equal(quote.state.location.system_id,f.resolved.system_id);
-      assert.equal(quote.state.location.poi_id,f.resolved.poi_id);
-      assert.equal(quote.state.ship.fuel,50);
-      assert.equal(quote.state.ship.cargo_used,40+observedAt/2_000);
+      assert.equal(quote!.at,observedAt);
+      assert.equal(quote!.state.location.system_id,f.resolved.system_id);
+      assert.equal(quote!.state.location.poi_id,f.resolved.poi_id);
+      assert.equal(quote!.state.ship.fuel,50);
+      assert.equal(quote!.state.ship.cargo_used,40+observedAt/2_000);
       assert.equal(f.server.ship.fuel,30,'the fresh route cost is what the leg spends');
     }
     assert.equal(result.location!.system_id,f.destination.system_id);
@@ -127,11 +127,11 @@ test('post-rejection reconciliation blocks fuel shortfalls, unresolved location,
     assert.deepEqual(f.account.calls.map(c=>c.action),actions);
     assert.deepEqual(f.settled,mode==='fuel'||mode==='second'?[0,30_000]:[0]);
     if(mode==='fuel'||mode==='second') {
-      assert.equal(f.quotes[1].state.location.system_id,f.resolved.system_id);
-      assert.equal(f.quotes[1].state.location.poi_id,f.resolved.poi_id);
-      assert.equal(f.quotes[1].state.ship.fuel,mode==='fuel'?19:50);
-      assert.equal(f.quotes[1].state.ship.cargo_used,55);
-      assert.equal(f.quotes[1].at,30_000);
+      assert.equal(f.quotes[1]!.state.location.system_id,f.resolved.system_id);
+      assert.equal(f.quotes[1]!.state.location.poi_id,f.resolved.poi_id);
+      assert.equal(f.quotes[1]!.state.ship.fuel,mode==='fuel'?19:50);
+      assert.equal(f.quotes[1]!.state.ship.cargo_used,55);
+      assert.equal(f.quotes[1]!.at,30_000);
       assert.equal(f.now(),30_000);
       assert.deepEqual(f.account.state,f.server);
     } else if(mode==='timeout') {

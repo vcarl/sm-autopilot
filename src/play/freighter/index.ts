@@ -53,7 +53,7 @@ export interface Approach {jumps:number;credits:number}
  * `cleared` leftover cargo sold at cost or better, e.g. "cleared 98 copper_piping at 36 (cost 29.6)";
  * `stowed` cargo the circuit never sells put in storage, e.g. "98 copper_piping (cost 2898) at
  * nova_terra_central for Chrisjen Avasarala", or "… in its own storage" when the owner's was refused. */
-export interface Report {stop?:string;credits?:number;deposited?:number;lapped?:number;holding?:Holding;approach?:Approach;cleared?:string;stowed?:string;why?:string;
+export interface Report {stop?:string;credits?:number;deposited?:number;lapped?:number;holding?:Holding;approach?:Approach;cleared?:string;stowed?:string;why?:string|undefined;
   /** A stop's base found away from the system the circuit kept for it: a mobile station. `system_id`
    * where `find_route` places it now, when known. The host records it mobile and re-places it. */
   moved?:{at:string;system_id?:string}}

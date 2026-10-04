@@ -300,7 +300,7 @@ export function line(text:string,extra:Record<string,unknown>={}):void {
   b.emit(text);
 }
 /** A sub-step inside a helper: an indented line, and the step `status` reports. */
-export function step(text:string):void {last.step=text.split(' ')[0];line(`  ${text}`);}
+export function step(text:string):void {last.step=text.split(' ')[0]??'';line(`  ${text}`);}
 
 /** Where the run has got to, and — the difference between "waiting on the game" and "the
  * bridge is stuck" — when it last heard back and what is on the wire right now. */

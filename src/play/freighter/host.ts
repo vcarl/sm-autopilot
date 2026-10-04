@@ -49,7 +49,7 @@ export interface Entry {
   /** Its last flight onto the circuit from where its loop started, kept out of every lap's net. */
   approach?:Approach;
   /** Why it parked, or what fell short at the last stop. */
-  why?:string;
+  why?:string|undefined;
   /** Scheduled to stop at the end of the lap it is on (`recall(name, {after:'lap'})`): it parks
    * then and is not re-planned. `assign` clears it. */
   stop_after_lap?:true;
@@ -142,7 +142,7 @@ export function install(runtime:string,name:string,circuit:Circuit,fields:{float
   const clean:Circuit={closed:true,hold:circuit.hold,lap_jumps:circuit.lap_jumps,lap_net:circuit.lap_net,
     stops:circuit.stops.map(stop=>({at:stop.at,system_id:stop.system_id,buys:buysOf(stop).map(({item,qty,max_price})=>({item,qty,max_price})),
       sell:stop.sell.map(({item,min_price})=>({item,min_price}))})),
-    ...scope?{scope:{maxStops:scope.maxStops,maxLegJumps:scope.maxLegJumps,maxJumps:scope.maxJumps}}:{}};
+    ...scope?{scope:{...scope.maxStops===undefined?{}:{maxStops:scope.maxStops},...scope.maxLegJumps===undefined?{}:{maxLegJumps:scope.maxLegJumps},...scope.maxJumps===undefined?{}:{maxJumps:scope.maxJumps}}}:{}};
   const path=scriptPath(runtime,name);
   mkdirSync(dirname(path),{recursive:true});
   writeFileSync(path,script(clean));

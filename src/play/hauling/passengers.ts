@@ -82,7 +82,7 @@ export function carryPassengers(destination?:string):Promise<Outcome<Carried>> {
     const trip=await goTo(target);
     result.aboard=(await readAboard()).passengers??[];
     if(trip.status!=='done')return {status:trip.status==='partial'?'partial':'refused',
-      did:`boarded ${result.loaded.length} for ${target} and did not arrive`,why:trip.why,detail:result,
+      did:`boarded ${result.loaded.length} for ${target} and did not arrive`,...trip.why===undefined?{}:{why:trip.why},detail:result,
       next:[`service(), then carryPassengers('${target}') again: the aboard manifest is still theirs`]};
 
     // Only this stop's passengers get off. Never `all` — it would strand the rest at −1 each.

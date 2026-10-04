@@ -43,7 +43,7 @@ function fixture(local:boolean) {
   const server=account.server,calls=account.calls;
   const command:ReadinessCommand=(name,payload)=>{
     const [tool,action]=name.split('/');
-    return account.send(tool,action,payload);
+    return account.send(tool!,action!,payload);
   };
   return {home,away,server,account,calls,quotes,command,movement};
 }
@@ -59,7 +59,7 @@ for(const local of [true,false])test(`${local?'local':'cross-system'} return re-
     assert.equal(outbound.location!.docked_at,f.away.base_id);
     assert.equal(f.account.state.ship!.fuel,93);
     assert.equal(f.quotes.length,1);
-    assert.equal(f.quotes[0].cost,7);
+    assert.equal(f.quotes[0]!.cost,7);
 
     // Work at the destination changes only authoritative state, leaving a rich,
     // empty cached ship that could incorrectly authorize the one-unit-short trip.
@@ -69,7 +69,7 @@ for(const local of [true,false])test(`${local?'local':'cross-system'} return re-
     const returnOrigin=structuredClone(f.server.location);
     assert.equal(f.account.state.ship!.cargo_used,0);
     assert.ok(f.account.state.ship!.fuel>required);
-    assert.ok(f.server.ship.fuel>f.quotes[0].cost+reserve,'outbound quote would wrongly permit the short return');
+    assert.ok(f.server.ship.fuel>f.quotes[0]!.cost+reserve,'outbound quote would wrongly permit the short return');
     const callIndex=f.calls.length;
     const trip=travelTo(f.account,f.command,f.home,{});
     if(deficit) {

@@ -107,7 +107,7 @@ function leftover(bid:number,holding:Freighter['holding']={copper_piping:{quanti
     markets:{sol_base:[{item_id:'gem',best_buy:0,best_buy_qty:0,best_sell:100,best_sell_qty:50},
       {item_id:'copper_piping',best_buy:bid,best_buy_qty:99,best_sell:0,best_sell_qty:0}],
       range_base:[{item_id:'gem',best_buy:130,best_buy_qty:50,best_sell:0,best_sell_qty:0}]}});
-  h.f.holding=holding;
+  h.f.holding=holding!;
   return h;
 }
 
@@ -173,7 +173,7 @@ function roomy(cargo:{item_id:string;quantity:number}[],holding:Freighter['holdi
   const h=freighter(130,[],{cargo,cargoUsed:cargo.reduce((sum,row)=>sum+row.quantity,0),cargoCapacity:100,
     markets:{sol_base:[{item_id:'gem',best_buy:0,best_buy_qty:0,best_sell:100,best_sell_qty:50}],
       range_base:[{item_id:'gem',best_buy:130,best_buy_qty:50,best_sell:0,best_sell_qty:0},...range] as never}});
-  h.f.holding=holding;
+  h.f.holding=holding!;
   return h;
 }
 const stowsOf=(world:ReturnType<typeof freighter>['world'])=>world.sent.filter(c=>c.action==='spacemolt_storage/deposit'&&c.params.item_id).map(c=>c.params);
@@ -401,7 +401,7 @@ test('parked, cargo sold by hand, then assigned: lap 1 counts no phantom stock, 
   const entry=readFleet(runtime).hauler!;
   rmSync(runtime,{recursive:true,force:true});
   // What the host hands the loop: the entry's holding, as assign wrote it.
-  sold.f.holding=entry.holding;
+  sold.f.holding=entry.holding!;
   await clean.world.account.refresh();
   const want=await lap(clean.f,GEMS),got=await lap(sold.f,GEMS);
   assert.equal(got.net,want.net,'lap 1 nets what a clean start nets, not 714 less');

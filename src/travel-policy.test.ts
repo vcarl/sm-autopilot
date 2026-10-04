@@ -28,7 +28,7 @@ function fixture(local:boolean,fuel:number,cost=10.25) {
   const server=account.server,calls=account.calls;
   const command:ReadinessCommand=(name,payload)=>{
     const [tool,action]=name.split('/');
-    return account.send(tool,action,payload);
+    return account.send(tool!,action!,payload);
   };
   return {server,account,calls,handlers,command,destination,movement};
 }
@@ -65,7 +65,7 @@ test('the route-cost boundary survives capacity, refuel and departure refreshes'
       const refuels:number[]=[];
       if(mode==='capacity')f.server.ship.max_fuel=f.server.ship.fuel=50.5;
       if(mode==='refuel'||mode==='partial-refuel')f.server.ship.fuel=40.25;
-      if(mode==='after-undock')f.handlers.spacemolt.undock=()=>{
+      if(mode==='after-undock')f.handlers.spacemolt!.undock=()=>{
         f.server.location.docked_at=null;f.server.ship.fuel=50.5;return {};
       };
       const trip=travelTo(f.account,f.command,f.destination,{

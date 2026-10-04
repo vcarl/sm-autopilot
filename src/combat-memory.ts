@@ -118,7 +118,7 @@ export interface CombatStats {
   hull_pct_lost?:number;
   /** Measured accuracy by range band, 0..1, each with the shots it rests on. A band with no
    * shots is absent rather than 0 — nothing was measured there. */
-  accuracy:Record<string,{at_us?:number;at_us_shots:number;at_them?:number;at_them_shots:number}>;
+  accuracy:Record<string,{at_us?:number|undefined;at_us_shots:number;at_them?:number|undefined;at_them_shots:number}>;
   /** Wins over fights, present only once there are `THIN` fights to divide. Below that the
    * caller has `won` and `fights` and no rate is offered, because none would be one. */
   win_chance?:number;
@@ -196,7 +196,7 @@ export function combatLine(stats:CombatStats):string {
  * `battle_id` — nothing in the frame says which battle a shot belongs to, so a pilot in two
  * battles at once would have them merged. Hunting is serial, which is what makes that safe. */
 interface Live {
-  battle_id:string;our_side?:number;opponent?:string;opponent_class?:string;ship_class?:string;
+  battle_id:string;our_side?:number|undefined;opponent?:string;opponent_class?:string;ship_class?:string;
   /** The band the ship is in right now, from the latest `battle_update.your_zone` — the only place
    * the band is published at all. `unknown` until one arrives. */
   zone:string;

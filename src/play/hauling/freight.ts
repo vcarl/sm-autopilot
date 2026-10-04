@@ -170,7 +170,7 @@ export function haul(shipmentId:string):Promise<Outcome<Hauled>> {
         step(`goTo ${contract.origin_base_id} for the package`);
         const back=await goTo(contract.origin_base_id);
         if(back.status!=='done')return {status:back.status==='partial'?'partial':'refused',
-          did:`accepted ${id} but did not reach the package`,why:back.why,detail:detail('accepted'),
+          did:`accepted ${id} but did not reach the package`,...back.why===undefined?{}:{why:back.why},detail:detail('accepted'),
           next:[`haul('${id}') again from a base that can reach ${contract.origin_base_id}`]};
       }
       const took=await withdraw([{item_id:stored(packageId),quantity:1}]);
@@ -184,7 +184,7 @@ export function haul(shipmentId:string):Promise<Outcome<Hauled>> {
     // Leg 3: the flight. `goTo` is itself idempotent, so standing at the destination sends nothing.
     const trip=await goTo(destination);
     if(trip.status!=='done')return {status:trip.status==='partial'?'partial':'refused',
-      did:`carried ${id} as far as ${trip.now.location?.poi_id??'?'}`,why:trip.why,detail:detail('loaded'),
+      did:`carried ${id} as far as ${trip.now.location?.poi_id??'?'}`,...trip.why===undefined?{}:{why:trip.why},detail:detail('loaded'),
       next:[`service(), then haul('${id}') again to finish the flight to ${destination}`]};
     if(pilot().mood==='Tired')return tired('loaded',`carried ${id} to ${destination}`);
 

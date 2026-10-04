@@ -11,7 +11,8 @@ import {acct,command,step} from './runtime.ts';
 export async function here():Promise<{row?:SystemPoi;bases:string[]}> {
   const pois=(details(await command('spacemolt/get_system',{})).system?.pois??[]) as SystemPoi[];
   const poi=acct().state.location?.poi_id;
-  return {row:pois.find(p=>p.id===poi),bases:pois.filter(p=>p.base_id&&p.id!==poi).map(p=>p.base_id!)};
+  const row=pois.find(p=>p.id===poi);
+  return {...row?{row}:{},bases:pois.filter(p=>p.base_id&&p.id!==poi).map(p=>p.base_id!)};
 }
 
 /** `belt (Inner Belt)`: the id the pilot writes and the name prose gives it. */

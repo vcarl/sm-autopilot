@@ -48,7 +48,7 @@ function worldWithMoodMoved(record:Pilot,on:string,to:Pilot['mood'],options:Worl
   let who:Pilot=record;
   const command:typeof game.command=async(action,params)=>{
     const res=await game.command(action,params);
-    if(action===on)who={...who,mood:to};
+    if(action===on)who={...who,mood:to!};
     return res;
   };
   bind({account:game.account as unknown as ReadinessAccount,command,

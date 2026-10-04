@@ -27,7 +27,7 @@ function fixture(refusals:number) {
   }},()=>0);
   const command:ReadinessCommand=(name,payload)=>{
     const [tool,action]=name.split('/');
-    return account.send(tool,action,payload);
+    return account.send(tool!,action!,payload);
   };
   return {account,destination,command,attempts:()=>attempts,
     run:()=>travelTo(account,command,destination,{now:()=>0,sleep:async()=>{}})};

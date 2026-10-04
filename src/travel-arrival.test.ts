@@ -31,7 +31,7 @@ function fixture(local:boolean,arrivalAt:number) {
   const server=account.server,reads=account.refreshes,calls=account.calls;
   const command:ReadinessCommand=(name,payload)=>{
     const [tool,action]=name.split('/');
-    return account.send(tool,action,payload);
+    return account.send(tool!,action!,payload);
   };
   const options={mood:'Cautious' as const,now:()=>time,
     sleep:async(ms:number)=>{
@@ -79,7 +79,7 @@ test('travel leaves unresolved transit at its deadline without replay, but accep
   for(const local of [true,false])for(const maxWaitMs of [65_001,undefined])for(const arrives of [false,true]) {
     const deadline=maxWaitMs??600_000;
     const f=fixture(local,arrives?deadline:Infinity);
-    const trip=travelTo(f.account,f.command,f.destination,{...f.options,maxWaitMs});
+    const trip=travelTo(f.account,f.command,f.destination,{...f.options,maxWaitMs:maxWaitMs!});
     if(arrives) {
       const result=await trip;
       assert.deepEqual(result.location,f.server.location);

@@ -143,7 +143,7 @@ export function pushScalars(payload:unknown):Record<string,unknown> {
  * never from `bind()`: a handler bound to a run is deaf between junctures, which is the
  * whole reason these frames were being lost. */
 export function pushJournal(account:{on:(type:string,handler:(payload:Record<string,unknown>)=>void)=>unknown;
-  player?:{id?:string};currentTick?:number},
+  player?:{id?:string}|undefined;currentTick?:number},
   runtime:string,now:()=>number=Date.now):void {
   const seen=new Map<string,{minute:number;n:number}>();
   const spare=(channel:string):boolean=>{

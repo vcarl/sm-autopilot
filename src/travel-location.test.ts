@@ -37,7 +37,7 @@ function fixture(resolvePoi:string,resolveAt=2_000) {
   account.state.location!.system_id='sol';account.state.location!.poi_id='belt';
   const command:ReadinessCommand=(name,payload)=>{
     const [tool,action]=name.split('/');
-    return account.send(tool,action,payload);
+    return account.send(tool!,action!,payload);
   };
   const options={mood:'Cautious' as const,now:()=>time,maxWaitMs:65_001,
     sleep:async(ms:number)=>{
@@ -85,9 +85,9 @@ test('unknown location resolves authoritatively at target or permits one freshly
     ]);
     assert.equal(f.now(),resolvedAt+(poi==='belt'?0:30_000));
     if(poi==='other') {
-      assert.equal(f.quotes[0].at,resolvedAt);
-      assert.equal(f.quotes[0].state.ship.cargo_used,resolvedAt/2_000);
-      assert.equal(f.quotes[0].state.location.poi_id,'other');
+      assert.equal(f.quotes[0]!.at,resolvedAt);
+      assert.equal(f.quotes[0]!.state.ship.cargo_used,resolvedAt/2_000);
+      assert.equal(f.quotes[0]!.state.location.poi_id,'other');
     }
   }
 });

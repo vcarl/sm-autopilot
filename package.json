@@ -1,15 +1,20 @@
 {
   "dependencies": {
-    "@spacemolt/lib": "15.1.0"
+    "@spacemolt/lib": "15.1.0",
+    "effect": "4.0.0"
   },
   "devDependencies": {
+    "@effect/language-service": "0.87.3",
     "@types/node": "24.13.3",
+    "oxlint": "1.86.0",
     "typescript": "5.9.3"
   },
   "type": "module",
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "test": "node --test src/*.test.ts src/play/*.test.ts src/play/*/*.test.ts"
+    "gen:wire": "node scripts/gen-wire.ts",
+    "lint": "oxlint --deny-warnings src",
+    "test": "node --test src/*.test.ts src/play/*.test.ts src/play/*/*.test.ts src/play/*/*/*.test.ts"
   },
   "private": true,
   "name": "sm-autopilot",

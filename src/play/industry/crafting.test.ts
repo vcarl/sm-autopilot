@@ -317,7 +317,7 @@ test('the catalog is kept on disk: a 304 answers from it, a failed fetch falls b
   const dir=mkdtempSync(join(tmpdir(),'catalog-'));
   const asked:(string|undefined)[]=[];
   assert.equal((await revalidated(dir,async(_,etag)=>{asked.push(etag);return {notModified:false,catalog:CATALOG,etag:'"v1"'};})).version,'test');
-  assert.equal((await revalidated(dir,async(_,etag)=>{asked.push(etag);return {notModified:true,etag};})).version,'test');
+  assert.equal((await revalidated(dir,async(_,etag)=>{asked.push(etag);return {notModified:true,etag:etag!};})).version,'test');
   assert.equal((await revalidated(dir,async()=>{throw new Error('GET -> 429 Too Many Requests');})).version,'test');
   assert.deepEqual(asked,[undefined,'"v1"']);
   const fetches=readFileSync(join(dir,'gameplay.jsonl'),'utf8').trim().split('\n').map(row=>JSON.parse(row));

@@ -56,7 +56,7 @@ function fixture() {
   const server=account.server;
   const command:ReadinessCommand=(name,payload)=>{
     const [tool,action]=name.split('/');
-    return account.send(tool,action,payload);
+    return account.send(tool!,action!,payload);
   };
   let who:Pilot={mood:'Tired'};
   bind({account:account as unknown as ReadinessAccount,command,

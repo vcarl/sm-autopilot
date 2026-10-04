@@ -1,0 +1,693 @@
+Active = ActiveMissionInfo & { progress: string; stuck?: string; }
+Active.accepted_at: string
+Active.community?: boolean | undefined
+Active.community_percent?: number | undefined
+Active.community_progress?: { [key: string]: string; } | undefined
+Active.description: string
+Active.difficulty: number
+Active.expires_in_ticks: number
+Active.giver?: MissionGiverInfo | undefined
+Active.issuing_base: string
+Active.issuing_base_id?: string | undefined
+Active.issuing_system_id?: string | undefined
+Active.issuing_system_name?: string | undefined
+Active.mission_id: string
+Active.objectives?: ObjectiveProgressInfo[] | undefined
+Active.percent_complete: number
+Active.progress: string
+Active.rewards: MissionRewardsInfo
+Active.stuck?: string | undefined
+Active.template_id?: string | undefined
+Active.title: string
+Active.type: string
+Approach.credits: number
+Approach.jumps: number
+BattleNow.opponent: string
+BattleNow.tick: number
+Board.active: ShippingActiveContract[]
+Board.listings: (ShippingListing & { fuel: number; reachable: boolean; fits: boolean; liability: number; net: number; })[]
+Board.profile: ShippingProfileResponse
+Bought.bought?: BuyResponse | undefined
+Bought.estimate: EstimatePurchaseResponse
+Built.facility_id: string
+Built.ready_tick?: number | undefined
+Built.rent_per_cycle: number
+Buy.cost: number
+Buy.item_id: string
+Buy.quantity: number
+Candidate.age?: number | undefined
+Candidate.base_id?: string | undefined
+Candidate.jumps: number
+Candidate.kind: "unknown" | "unexplored" | "stale"
+Candidate.system_id: string
+Carried.aboard: PassengerView[]
+Carried.landed: { base_id: string; unloaded: UnloadPassengerCommandResponse[]; }[]
+Carried.loaded: PassengerView[]
+Carried.station: StationPassengersResponse
+Circuit.closed: true
+Circuit.hold: number
+Circuit.lap_jumps: number
+Circuit.lap_net: number
+Circuit.scope?: Scope | undefined
+Circuit.stops: readonly { at: string; system_id: string; buys?: readonly CircuitBuy[]; buy?: CircuitBuy; sell: readonly { item: string; min_price: number; }[]; }[]
+CircuitBuy.item: string
+CircuitBuy.max_price: number
+CircuitBuy.qty: number
+Claim.base_id: string
+Claim.item_id: string
+Claim.quantity: number
+CombatStance = "fire" | "evade" | "brace" | "flee"
+CombatStats.accuracy: Record<string, { at_us?: number | undefined; at_us_shots: number; at_them?: number | undefined; at_them_shots: number; }>
+CombatStats.dealt_per_tick: number
+CombatStats.fights: number
+CombatStats.hull_pct_lost?: number | undefined
+CombatStats.newest_ticks_old: number
+CombatStats.oldest_ticks_old: number
+CombatStats.opponent: string
+CombatStats.ship_classes: string[]
+CombatStats.taken_per_tick: number
+CombatStats.thin: boolean
+CombatStats.win_chance?: number | undefined
+CombatStats.won: number
+Craftable = Recipe & { margin?: number | null; have: (RecipeInput & { have: number; })[]; }
+Craftable.category: string
+Craftable.crafting_time: number
+Craftable.description: string
+Craftable.facility_only?: boolean | undefined
+Craftable.fuel_output?: number | undefined
+Craftable.have: (RecipeInput & { have: number; })[]
+Craftable.hidden?: boolean | undefined
+Craftable.id: string
+Craftable.inputs: RecipeInput[]
+Craftable.margin?: number | null | undefined
+Craftable.name: string
+Craftable.no_recycle?: boolean | undefined
+Craftable.outputs: RecipeOutput[]
+Craftable.package_operation?: string | undefined
+Crafted.facility_id?: string | undefined
+Crafted.fee: number
+Crafted.job: CraftJobResponse | JobView
+Crafted.labor: number
+Crafted.made: Row[]
+Crafted.venue: string
+Crafted.venue_type: string
+Explored.ended: "done" | "refused" | "tired" | "none"
+Explored.unvisited: Near[]
+Explored.visited: { system_id: string; name: string; jumps: number; police?: number; security?: string; pirates?: number; stations: string[]; belts: string[]; pois: number; survey?: string; }[]
+Facilities = { owned: Owned[]; here: Rentable[]; buildable: FacilityTypeSummary[]; }
+Facilities.buildable: FacilityTypeSummary[]
+Facilities.here: Rentable[]
+Facilities.owned: Owned[]
+Fight.hull_after: number
+Fight.hull_before: number
+Fight.last_status?: GetBattleStatusResponse | undefined
+Fight.loot: Row[]
+Fight.outcome: "down" | "escaped" | "broke off" | "unresolved"
+Fight.target: CreatureInfo | PirateInfo
+Fight.why?: string | undefined
+Fight.wreck?: EnrichedWreck | undefined
+Fit.installed: string[]
+Fit.modules: V2Module[]
+Fit.removed: string[]
+Fit.ship: Pick<V2Ship, "cpu_used" | "cpu_capacity" | "power_used" | "power_capacity" | "utility_slots" | "weapon_slots" | "defense_slots">
+Fit.short: { id: string; why: string; }[]
+ForSale = { kind: "listing"; listing: ShipListing; class: ShipClass; versus: string; } | { kind: "commission"; quote: CommissionQuoteResponse; class: ShipClass; versus: string; }
+Freighter.account: ReadinessAccount
+Freighter.command: ReadinessCommand
+Freighter.float: number
+Freighter.holding?: Holding | undefined
+Freighter.market?: Market | undefined
+Freighter.name: string
+Freighter.owner: string
+Freighter.park: (why: string, drained?: number | undefined, blocked?: boolean | undefined) => Lap
+Freighter.recalled: () => boolean
+Freighter.report: (fields: Report) => void
+FreighterRow.approach?: Approach | undefined
+FreighterRow.credits: number | null
+FreighterRow.holding: Holding
+FreighterRow.lap: number
+FreighterRow.lap_net: number
+FreighterRow.last_lap_net: number | null
+FreighterRow.name: string
+FreighterRow.reassigned?: { count: number; ring: string; lap_net: number; } | undefined
+FreighterRow.returned: number
+FreighterRow.scouted?: number | undefined
+FreighterRow.state: "running" | "waiting" | "scouting" | "recalling" | "parked"
+FreighterRow.stop: string | null
+FreighterRow.stop_after_lap?: true | undefined
+FreighterRow.stowed?: string[] | undefined
+FreighterRow.why?: string | undefined
+Gathered.base_id: string
+Gathered.cargo: V2CargoItem[]
+Gathered.ended: "failed" | "stopped" | "tired" | "full" | "depleted" | "threat" | "blocked"
+Gathered.held?: number | undefined
+Gathered.poi_id: string
+Gathered.settled: Row[]
+Gathered.trips: number
+Gathered.yield: Row[]
+Hauled.contract: ShipmentContract
+Hauled.leg: "accepted" | "loaded" | "delivered"
+Hauled.profile_after: CarrierProfile
+Hauled.settlement?: ShippingSettlementResponse | undefined
+Holding = { [x: string]: { quantity: number; cost: number; }; }
+Hunted.ended: "asked" | "nothing here" | "nothing found" | "fuel" | "hull" | "hold full" | "stopped" | "tired"
+Hunted.fights: Fight[]
+Hunted.looked: Looked[]
+Hunted.poi_id: string
+Known.items: Listing[]
+Known.tick: number
+Lap.net: number
+Lap.park?: string | undefined
+Leg.age: number
+Leg.at: string
+Leg.bought: number
+Leg.buys: Buy[]
+Leg.cost: number
+Leg.sales_tax: number | null
+Leg.sold: Sale[]
+Leg.source: "here" | "faction ledger" | "remembered"
+Listing = Pick<MarketListingItem, "item_id" | "best_buy" | "best_buy_qty" | "best_sell" | "best_sell_qty"> & Partial<Pick<MarketListingItem, "buy_orders" | "sell_orders">>
+Listing.best_buy: number
+Listing.best_buy_qty: number
+Listing.best_sell: number
+Listing.best_sell_qty: number
+Listing.buy_orders?: OrderLevel[] | undefined
+Listing.item_id: string
+Listing.sell_orders?: OrderLevel[] | undefined
+Looked.flew: boolean
+Looked.legal: number
+Looked.poi_id: string
+Looked.saw: number
+Market.book: (base_id: string) => Promise<Known | undefined>
+Market.claim: (rows: Claim[]) => void
+Market.claimed: (base_id: string, item_id: string) => number
+Market.saw: (base_id: string, known: Known) => void
+Market.tick: () => number
+Materials.leaves: { item_id: string; need: number; have: number; source: string; }[]
+Materials.steps: { recipe: string; runs: number; facility_only: boolean; }[]
+Missing.buy_each: number | null
+Missing.have: number
+Missing.item_id: string
+Missing.need: number
+Missing.sell_each: number | null
+Missing.source: string
+Mood = "Cautious" | "Focused" | "Opportunistic" | "Aggressive" | "Relaxed" | "Tired"
+Moved.base_id: string
+Moved.cargo: V2CargoItem[]
+Moved.moved: Row[]
+Moved.short: { item_id: string; requested: number; moved: number; why: string; }[]
+Moved.store: ViewStorageResponse
+Near.empire?: string | undefined
+Near.jumps: number
+Near.name: string
+Near.online?: number | undefined
+Near.seen?: SystemSeen | undefined
+Near.stronghold?: boolean | undefined
+Near.system_id: string
+Near.visited: boolean
+Offer = Omit<MissionInfo, "dialog" | "description"> & { wants: string; fits?: "gatherUntil" | "hunt" | "goTo" | "haul"; }
+Offer.chain_next?: string | undefined
+Offer.community?: boolean | undefined
+Offer.community_percent?: number | undefined
+Offer.community_progress?: { [key: string]: string; } | undefined
+Offer.difficulty: number
+Offer.expires_in_ticks: number
+Offer.faction_id?: string | undefined
+Offer.faction_name?: string | undefined
+Offer.fits?: "gatherUntil" | "hunt" | "goTo" | "haul" | undefined
+Offer.giver?: MissionGiverInfo | undefined
+Offer.issuing_base?: string | undefined
+Offer.issuing_base_id?: string | undefined
+Offer.issuing_system_id?: string | undefined
+Offer.issuing_system_name?: string | undefined
+Offer.mission_id: string
+Offer.objectives?: ObjectiveInfo[] | undefined
+Offer.provided_items?: { [key: string]: number; } | undefined
+Offer.repeatable?: boolean | undefined
+Offer.required_modules?: string[] | undefined
+Offer.rewards: MissionRewardsInfo
+Offer.template_id?: string | undefined
+Offer.title: string
+Offer.type: string
+Offer.wants: string
+Offer.warnings?: string[] | undefined
+Orientation.active_missions: ActiveMissionInfo[]
+Orientation.battle?: BattleNow | undefined
+Orientation.missing: string[]
+Orientation.owes: { tax?: TaxEstimateResponse; carrier?: CarrierProfile; bounty: number; }
+Orientation.pilot: Pilot
+Orientation.present: Present
+Orientation.ships: OwnedShipInfo[]
+Orientation.storage: StorageLocation[]
+Outcome.cost: { credits: number; fuel: number; hull: number; minutes: number; }
+Outcome.detail: Detail
+Outcome.did: string
+Outcome.fn: string
+Outcome.gained: { credits: number; items: Row[]; xp: Record<string, number>; }
+Outcome.next: string[]
+Outcome.now: Present
+Outcome.status: Status
+Outcome.why?: string | undefined
+Owned = OwnedFacilityEntry & { runway_cycles: number; }
+Owned.arrears_owed?: number | undefined
+Owned.base_id: string
+Owned.base_name: string
+Owned.custom_name?: string | undefined
+Owned.damaged?: boolean | undefined
+Owned.dismantling?: boolean | undefined
+Owned.facility_id: string
+Owned.labor_per_run?: number | undefined
+Owned.missed_rent_cycles?: number | undefined
+Owned.name: string
+Owned.power_throttled?: boolean | undefined
+Owned.rent_per_cycle: number
+Owned.rental_fee_per_run?: number | undefined
+Owned.repair_complete_tick?: number | undefined
+Owned.runway_cycles: number
+Owned.system_id?: string | undefined
+Owned.type: string
+Owned.under_construction?: boolean | undefined
+Patrolled.bounty_credits: number
+Patrolled.fights: Fight[]
+Patrolled.mission?: ActiveMissionInfo | undefined
+Patrolled.seen: V2NearbyPirate[]
+Patrolled.systems: string[]
+Pilot.goal?: string | undefined
+Pilot.instruction?: { text: string; at: string; } | undefined
+Pilot.mood?: Mood | undefined
+Pilot.name?: string | undefined
+Pilot.objective?: string | undefined
+Pilot.objective_done?: boolean | undefined
+Pilot.permissions?: { credit_reserve?: number; max_liability?: number; } | undefined
+Pilot.stance?: Stance | undefined
+Pilot.tired_by?: string | undefined
+Present.cargo: V2CargoItem[]
+Present.credits: number
+Present.location: V2Location
+Present.mood: Mood
+Present.ship: V2Ship
+Present.skills: Record<string, SkillProgress>
+Present.tired_by?: string | undefined
+Purchase.policy?: InsurancePolicy | undefined
+Purchase.previous: { ship_id: string; base_id: string; }
+Purchase.price: number
+Purchase.ship: V2Ship
+Purchase.switched: boolean
+Queued.base_id?: string | undefined
+Queued.job_id: string
+Queued.paused: boolean
+Queued.recipe: string
+Queued.runs_done: number
+Queued.runs_total: number
+Queued.status: string
+Queued.venue_type?: string | undefined
+Quote = MarketListingItem & { held: number; stored: number; }
+Quote.best_buy: number
+Quote.best_buy_qty: number
+Quote.best_sell: number
+Quote.best_sell_qty: number
+Quote.buy_orders: OrderLevel[]
+Quote.buy_price: number
+Quote.buy_quantity: number
+Quote.category: string
+Quote.held: number
+Quote.item_id: string
+Quote.item_name: string
+Quote.sell_orders: OrderLevel[]
+Quote.sell_price: number
+Quote.sell_quantity: number
+Quote.spread?: number | undefined
+Quote.stored: number
+Quoted = CraftQuoteResponse & Venue & { produces_total: ItemQuantity[]; output_value: number | null; margin: number | null; missing: Missing[]; }
+Quoted.action: "craft" | "recycle"
+Quoted.auto_docked?: boolean | undefined
+Quoted.auto_undocked?: boolean | undefined
+Quoted.cost: EscrowSummary
+Quoted.credits_total: number
+Quoted.dry_run: boolean
+Quoted.effective_time_per_run: number
+Quoted.est_completion_tick: number
+Quoted.external?: boolean | undefined
+Quoted.facility_id: string
+Quoted.fee: number
+Quoted.have_capacity?: boolean | undefined
+Quoted.have_credits: boolean
+Quoted.have_inputs: boolean
+Quoted.kind: "quote"
+Quoted.labor: number
+Quoted.margin: number | null
+Quoted.message: string
+Quoted.missing: Missing[]
+Quoted.mode: "craft" | "recycle"
+Quoted.output_value: number | null
+Quoted.produces?: ItemQuantity[] | undefined
+Quoted.produces_total: ItemQuantity[]
+Quoted.quantity: number
+Quoted.recipe: string
+Quoted.runs: number
+Quoted.venue: string
+Quoted.venue_type: string
+ReadinessAccount.refresh: () => Promise<unknown>
+ReadinessAccount.state: GameState
+ReadinessCommand = (action: string, params: Record<string, unknown>) => Promise<unknown>
+ReflectReport.holdings: { credits: number; storage: { base_id: string; items: number; ships: number; }[]; here?: { item_id: string; quantity: number; }[]; }
+ReflectReport.missing: string[]
+ReflectReport.objective?: string | undefined
+ReflectReport.objective_done?: boolean | undefined
+ReflectReport.owes: { tax_due?: number; shipping_debt?: number; carrier_tier?: string; }
+ReflectReport.recent: { script?: string; outcome?: string; reason?: string; }[]
+ReflectReport.scripts?: ScriptReview[] | undefined
+ReflectReport.ship: { fuel: number; max_fuel: number; hull: number; max_hull: number; cargo_capacity: number; modules: string[]; }
+ReflectReport.skills?: { name: string; level: number; max_level: number; was?: number; since?: string; }[] | undefined
+ReflectReport.stagnation: string[]
+ReflectReport.stances: string[]
+Rentable.fee_per_run?: number | undefined
+Rentable.id: string
+Rentable.labour?: number | undefined
+Rentable.name: string
+Rentable.public: boolean
+Rentable.recipe_id?: string | undefined
+Rentable.type: string
+Report.approach?: Approach | undefined
+Report.cleared?: string | undefined
+Report.credits?: number | undefined
+Report.deposited?: number | undefined
+Report.holding?: Holding | undefined
+Report.lapped?: number | undefined
+Report.moved?: { at: string; system_id?: string; } | undefined
+Report.stop?: string | undefined
+Report.stowed?: string | undefined
+Report.why?: string | undefined
+Route.circuit?: Circuit | undefined
+Route.confidence: number
+Route.cost: number
+Route.fuel: number | null
+Route.legs: Leg[]
+Route.net: number
+Route.next: string
+Route.revenue: number
+Route.sales_tax: number | null
+Route.score: number
+Route.total_jumps: number | null
+Route.unsold: Unsold[]
+Route.why?: string | undefined
+RouteOpts = { items?: string[]; circuit?: { hold: number; }; } & Scope
+RouteOpts.circuit?: { hold: number; } | undefined
+RouteOpts.items?: string[] | undefined
+RouteOpts.maxJumps?: number | undefined
+RouteOpts.maxLegJumps?: number | undefined
+RouteOpts.maxStops?: number | undefined
+Row = { item_id: string; quantity: number; }
+RunStop.at: string
+RunStop.buy?: string | readonly string[] | undefined
+RunStop.from?: "store" | undefined
+RunStop.quantity?: number | undefined
+Sale.item_id: string
+Sale.quantity: number
+Sale.revenue: number
+Salvaged.left: { wreck_id: string; cargo: ShipCargoItem[]; }[]
+Salvaged.looted: { wreck_id: string; items: LootedItem[]; modules: LootedModule[]; }[]
+Salvaged.towed?: string | undefined
+Salvaged.wrecks: EnrichedWreck[]
+Scope.maxJumps?: number | undefined
+Scope.maxLegJumps?: number | undefined
+Scope.maxStops?: number | undefined
+ScoutReport.connections: (SystemConnection & { fuel: number; })[]
+ScoutReport.here?: { nearby: GetNearbyResponse; wrecks: GetWrecksResponse; police: number; } | undefined
+ScoutReport.pois: SystemPoi[]
+ScoutReport.resources: Record<string, ResourceInfo[]>
+ScoutReport.system: SystemInfo | MapSystemInfo
+Scouted.explored: { system_id: string; bases: string[]; }[]
+Scouted.filed: string[]
+Scouted.left: number
+ScriptReview.bytes?: number | undefined
+ScriptReview.last?: ScriptRun[] | undefined
+ScriptReview.name: string
+ScriptReview.runs: number
+ScriptReview.saved?: true | undefined
+ScriptRun.outcome?: string | undefined
+ScriptRun.reason?: string | undefined
+Serviced.base: GetBaseResponse
+Serviced.cleared_tired: boolean
+Serviced.issued: string[]
+Serviced.short: string[]
+Serviced.spent: number
+Sold.base_id: string
+Sold.fills: SellResponse[]
+Sold.short: { item_id: string; requested: number; sold: number; why: string; }[]
+Sold.total: number
+Spread.base_id: string
+Spread.best_buy: number
+Spread.best_buy_qty: number
+Spread.confidence: number
+Spread.fuel: number
+Spread.held: number
+Spread.item_id: string
+Spread.jumps: number
+Spread.net: number
+Spread.score: number
+Spread.seen: string
+Spread.source: "here" | "faction ledger" | "remembered"
+Stance = "Prospector" | "Industrialist" | "Trader" | "Carrier" | "Hunter" | "Scout"
+Status = "done" | "partial" | "refused" | "failed"
+Supplied.bought: Row[]
+Supplied.short: { item_id: string; have: number; need: number; source: string; }[]
+Supplied.spent: number
+Supplied.stowed: Row[]
+SystemSeen.at: string
+SystemSeen.pirates?: number | undefined
+SystemSeen.police?: number | undefined
+SystemSeen.security?: string | undefined
+TickDecision.disengage?: true | undefined
+TickDecision.focus?: string | undefined
+TickDecision.move?: "closeIn" | "backOff" | undefined
+TickDecision.stance?: CombatStance | undefined
+TickView.damage_taken: number
+TickView.distance: number
+TickView.floor: number
+TickView.hull: number
+TickView.max_hull: number
+TickView.opponent: string
+TickView.opponent_hull: number
+TickView.range: string
+TickView.reach: number
+TickView.shield_pct: number
+TickView.stance?: CombatStance | undefined
+TickView.stats?: CombatStats | undefined
+TickView.tick: number
+Traded.fuel: number
+Traded.net: number
+Traded.stops: Visit[]
+Traded.unsold: Unsold[]
+Trip.docked: boolean
+Trip.docked_at: string | null
+Trip.jumps: number
+Trip.location: V2Location
+Trip.route: FindRouteResponse
+Unsold = Row & { why?: string; }
+Unsold.item_id: string
+Unsold.quantity: number
+Unsold.why?: string | undefined
+Venue.facility_id?: string | undefined
+Venue.fee: number
+Venue.labor: number
+Venue.venue: string
+Venue.venue_type: string
+Visit.at: string
+Visit.bought: number
+Visit.sold: SellResponse[]
+Visit.spent: number
+Visit.why?: string | undefined
+Want = Pick<V2CargoItem, "item_id"> & { quantity?: number; }
+Want.item_id: string
+Want.quantity?: number | undefined
+src/play/combat/bounties/index.ts function patrol: (opts?: { systems?: string[]; maxTier?: number; fights?: number; } | undefined) => Promise<Outcome<Patrolled>>
+src/play/combat/bounties/index.ts interface Patrolled: Patrolled
+src/play/combat/index.ts function disengage: (bound?: number) => Promise<boolean>
+src/play/combat/index.ts function hunt: (opts?: { poi?: string; look?: string[]; fights?: number; species?: string | string[]; strict?: boolean; target?: "creature" | "pirate"; onTick?: (view: TickView) => TickDecision | undefined; }) => Promise<Outcome<Hunted>>
+src/play/combat/index.ts function patrol: (opts?: { systems?: string[]; maxTier?: number; fights?: number; } | undefined) => Promise<Outcome<Patrolled>>
+src/play/combat/index.ts function salvage: (opts?: { tow?: string; }) => Promise<Outcome<Salvaged>>
+src/play/combat/index.ts interface CombatStats: CombatStats
+src/play/combat/index.ts interface Fight: Fight
+src/play/combat/index.ts interface Hunted: Hunted
+src/play/combat/index.ts interface Patrolled: Patrolled
+src/play/combat/index.ts interface Salvaged: Salvaged
+src/play/combat/index.ts interface TickDecision: TickDecision
+src/play/combat/index.ts interface TickView: TickView
+src/play/combat/index.ts type CombatStance: "fire" | "evade" | "brace" | "flee"
+src/play/exploration/index.ts function exploreNearby: (opts?: { systems?: number; jumps?: number; survey?: boolean; avoid?: string[]; }) => Promise<Outcome<Explored>>
+src/play/exploration/index.ts interface Explored: Explored
+src/play/fleet/index.ts const FLOAT_MAX: 30000
+src/play/fleet/index.ts function assign: (name: string, circuit: Circuit, caps: { float: number; }) => Promise<Outcome<{ freighter: FreighterRow | null; }>>
+src/play/fleet/index.ts function freighters: () => Promise<Outcome<{ freighters: FreighterRow[]; }>>
+src/play/fleet/index.ts function reassign: (name: string) => Promise<Outcome<{ freighter: FreighterRow | null; }>>
+src/play/fleet/index.ts function recall: (name: string, opts?: { after?: "lap"; }) => Promise<Outcome<{ freighter: FreighterRow | null; }>>
+src/play/fleet/index.ts function ships: () => Promise<Outcome<ListShipsResponse & { active: V2Ship; parked: (StoredShip & { base_id: string; shipyard: boolean; })[]; }>>
+src/play/fleet/index.ts function switchShip: (shipId: string) => Promise<Outcome<{ switched: SwitchShipResponse; ship: V2Ship; }>>
+src/play/freighter/index.ts const FREE_HOLD: 0.4
+src/play/freighter/index.ts const IGNORE_TICKS: 1080
+src/play/freighter/index.ts const STALE_TICKS: 180
+src/play/freighter/index.ts const dropped: (error: unknown) => boolean
+src/play/freighter/index.ts const freeTarget: (ship: { cargo_capacity?: number; } | undefined) => number
+src/play/freighter/index.ts function claims: (circuit: Circuit, from: number, cargo: Record<string, number>) => Claim[]
+src/play/freighter/index.ts function closure: (circuit: Circuit) => string | null
+src/play/freighter/index.ts function lap: (f: Freighter, circuit: Circuit) => Promise<Lap>
+src/play/freighter/index.ts function scoutHop: (f: Freighter, to: { at?: string; system_id: string; }) => Promise<{ read?: { tick: number; items: MarketListingItem[]; }; why?: string; }>
+src/play/freighter/index.ts interface Approach: Approach
+src/play/freighter/index.ts interface Claim: Claim
+src/play/freighter/index.ts interface Freighter: Freighter
+src/play/freighter/index.ts interface Known: Known
+src/play/freighter/index.ts interface Lap: Lap
+src/play/freighter/index.ts interface Market: Market
+src/play/freighter/index.ts interface Report: Report
+src/play/freighter/index.ts type Holding: { [x: string]: { quantity: number; cost: number; }; }
+src/play/hauling/index.ts function carryPassengers: (destination?: string | undefined) => Promise<Outcome<Carried>>
+src/play/hauling/index.ts function freightBoard: (opts?: { destination?: string; limit?: number; }) => Promise<Outcome<Board>>
+src/play/hauling/index.ts function haul: (shipmentId: string) => Promise<Outcome<Hauled>>
+src/play/hauling/index.ts interface Board: Board
+src/play/hauling/index.ts interface Carried: Carried
+src/play/hauling/index.ts interface Hauled: Hauled
+src/play/index.ts const FLOAT_MAX: 30000
+src/play/index.ts const SCOUT_JUMPS: 4
+src/play/index.ts function abandonMission: (id: string, opts?: { force?: boolean; }) => Promise<Outcome<AbandonMissionResponse>>
+src/play/index.ts function acceptMission: (id: string) => Promise<Outcome<AcceptMissionResponse>>
+src/play/index.ts function account: () => Account
+src/play/index.ts function ask: (asked: { question: string; choices?: string[]; }) => Promise<string>
+src/play/index.ts function assign: (name: string, circuit: Circuit, caps: { float: number; }) => Promise<Outcome<{ freighter: FreighterRow | null; }>>
+src/play/index.ts function buildFacility: (type: string) => Promise<Outcome<Built>>
+src/play/index.ts function buy: (itemId: string, quantity: number, opts?: { deliverTo?: "cargo" | "storage"; maxEach?: number; force?: boolean; }) => Promise<Outcome<Bought>>
+src/play/index.ts function buyShip: (id: string, opts?: { commission?: boolean; switchTo?: boolean; }) => Promise<Outcome<Purchase>>
+src/play/index.ts function carryPassengers: (destination?: string | undefined) => Promise<Outcome<Carried>>
+src/play/index.ts function completeMissions: () => Promise<Outcome<{ completed: CompleteMissionResponse[]; remaining: Active[]; }>>
+src/play/index.ts function craft: (recipeId: string, quantity?: number, opts?: { at?: string; }) => Promise<Outcome<Crafted>>
+src/play/index.ts function disengage: (bound?: number) => Promise<boolean>
+src/play/index.ts function exploreNearby: (opts?: { systems?: number; jumps?: number; survey?: boolean; avoid?: string[]; }) => Promise<Outcome<Explored>>
+src/play/index.ts function facilities: () => Promise<Outcome<Facilities>>
+src/play/index.ts function freightBoard: (opts?: { destination?: string; limit?: number; }) => Promise<Outcome<Board>>
+src/play/index.ts function freighters: () => Promise<Outcome<{ freighters: FreighterRow[]; }>>
+src/play/index.ts function gatherUntil: (opts: { poi: string; base?: string; until?: { item: string; quantity: number; }; maxTrips?: number; then?: "stow" | "sell"; }) => Promise<Outcome<Gathered>>
+src/play/index.ts function goTo: (id: string) => Promise<Outcome<Trip>>
+src/play/index.ts function haul: (shipmentId: string) => Promise<Outcome<Hauled>>
+src/play/index.ts function hunt: (opts?: { poi?: string; look?: string[]; fights?: number; species?: string | string[]; strict?: boolean; target?: "creature" | "pirate"; onTick?: (view: TickView) => TickDecision | undefined; }) => Promise<Outcome<Hunted>>
+src/play/index.ts function jobs: () => Promise<Outcome<{ jobs: Queued[]; }>>
+src/play/index.ts function materials: (itemId: string, quantity: number) => Promise<Outcome<Materials>>
+src/play/index.ts function missions: () => Promise<Outcome<{ board: Offer[]; active: Active[]; max: number; slots_free: number; }>>
+src/play/index.ts function note: (text: string) => void
+src/play/index.ts function orient: () => Promise<Outcome<Orientation>>
+src/play/index.ts function outcome: <Detail = Record<string, unknown>>(did: string, status?: Status, detail?: Detail | undefined, why?: string | undefined) => Outcome<Detail>
+src/play/index.ts function patrol: (opts?: { systems?: string[]; maxTier?: number; fights?: number; } | undefined) => Promise<Outcome<Patrolled>>
+src/play/index.ts function pilot: () => Pilot
+src/play/index.ts function prices: (items?: string[] | undefined) => Promise<Outcome<{ quotes: Quote[]; }>>
+src/play/index.ts function quote: (recipeId: string, quantity?: number, opts?: { at?: string; }) => Promise<Outcome<Quoted>>
+src/play/index.ts function reassign: (name: string) => Promise<Outcome<{ freighter: FreighterRow | null; }>>
+src/play/index.ts function recall: (name: string, opts?: { after?: "lap"; }) => Promise<Outcome<{ freighter: FreighterRow | null; }>>
+src/play/index.ts function recipes: (search?: string | undefined) => Promise<Outcome<{ recipes: Craftable[]; }>>
+src/play/index.ts function refit: (change: { install?: string[]; remove?: string[]; }) => Promise<Outcome<Fit>>
+src/play/index.ts function reflection: () => Promise<Outcome<ReflectReport>>
+src/play/index.ts function rest: (base?: string | undefined) => Promise<Outcome<Serviced>>
+src/play/index.ts function routes: (opts?: RouteOpts) => Promise<Outcome<{ routes: Route[]; sources: string[]; }>>
+src/play/index.ts function salvage: (opts?: { tow?: string; }) => Promise<Outcome<Salvaged>>
+src/play/index.ts function scout: (target?: string | undefined) => Promise<Outcome<ScoutReport>>
+src/play/index.ts function scoutMarkets: (opts?: { jumps?: number; max?: number; }) => Promise<Outcome<Scouted>>
+src/play/index.ts function sell: (items: Want[], opts?: { from?: "hold" | "store"; floor?: Record<string, number>; }) => Promise<Outcome<Sold>>
+src/play/index.ts function service: (opts?: { fuel?: number; hull?: number; insure?: boolean; dues?: boolean | "all"; }) => Promise<Outcome<Serviced>>
+src/play/index.ts function ships: () => Promise<Outcome<ListShipsResponse & { active: V2Ship; parked: (StoredShip & { base_id: string; shipyard: boolean; })[]; }>>
+src/play/index.ts function shipsForSale: (opts?: { budget?: number; baseId?: string; classId?: string; }) => Promise<Outcome<{ for_sale: ForSale[]; }>>
+src/play/index.ts function spreads: (items?: string[] | undefined) => Promise<Outcome<{ spreads: Spread[]; sources: string[]; }>>
+src/play/index.ts function stopped: () => boolean
+src/play/index.ts function storage: (baseId?: string | undefined) => Promise<Outcome<ViewStorageResponse>>
+src/play/index.ts function stow: (items: Want[]) => Promise<Outcome<Moved>>
+src/play/index.ts function supply: (recipeId: string, quantity?: number, opts?: { at?: string; maxSpend?: number; }) => Promise<Outcome<Supplied>>
+src/play/index.ts function survey: () => Promise<Outcome<{ response: SurveySystemResponse; deposits: SurveyedPoi[]; }>>
+src/play/index.ts function switchShip: (shipId: string) => Promise<Outcome<{ switched: SwitchShipResponse; ship: V2Ship; }>>
+src/play/index.ts function tradeRun: (opts: { stops: RunStop[]; }) => Promise<Outcome<Traded>>
+src/play/index.ts function withdraw: (items: Want[]) => Promise<Outcome<Moved>>
+src/play/index.ts interface Board: Board
+src/play/index.ts interface Bought: Bought
+src/play/index.ts interface Built: Built
+src/play/index.ts interface Candidate: Candidate
+src/play/index.ts interface Carried: Carried
+src/play/index.ts interface Circuit: Circuit
+src/play/index.ts interface CombatStats: CombatStats
+src/play/index.ts interface Crafted: Crafted
+src/play/index.ts interface Explored: Explored
+src/play/index.ts interface Fight: Fight
+src/play/index.ts interface Fit: Fit
+src/play/index.ts interface Gathered: Gathered
+src/play/index.ts interface Hauled: Hauled
+src/play/index.ts interface Hunted: Hunted
+src/play/index.ts interface Materials: Materials
+src/play/index.ts interface Missing: Missing
+src/play/index.ts interface Moved: Moved
+src/play/index.ts interface Orientation: Orientation
+src/play/index.ts interface Outcome: Outcome<Detail>
+src/play/index.ts interface Patrolled: Patrolled
+src/play/index.ts interface Pilot: Pilot
+src/play/index.ts interface Present: Present
+src/play/index.ts interface Purchase: Purchase
+src/play/index.ts interface Queued: Queued
+src/play/index.ts interface Rentable: Rentable
+src/play/index.ts interface Route: Route
+src/play/index.ts interface Salvaged: Salvaged
+src/play/index.ts interface ScoutReport: ScoutReport
+src/play/index.ts interface Scouted: Scouted
+src/play/index.ts interface Serviced: Serviced
+src/play/index.ts interface Sold: Sold
+src/play/index.ts interface Spread: Spread
+src/play/index.ts interface Supplied: Supplied
+src/play/index.ts interface TickDecision: TickDecision
+src/play/index.ts interface TickView: TickView
+src/play/index.ts interface Traded: Traded
+src/play/index.ts interface Trip: Trip
+src/play/index.ts interface Venue: Venue
+src/play/index.ts type Active: ActiveMissionInfo & { progress: string; stuck?: string; }
+src/play/index.ts type CombatStance: "fire" | "evade" | "brace" | "flee"
+src/play/index.ts type Craftable: Recipe & { margin?: number | null; have: (RecipeInput & { have: number; })[]; }
+src/play/index.ts type ForSale: { kind: "listing"; listing: ShipListing; class: ShipClass; versus: string; } | { kind: "commission"; quote: CommissionQuoteResponse; class: ShipClass; versus: string; }
+src/play/index.ts type Mood: "Cautious" | "Focused" | "Opportunistic" | "Aggressive" | "Relaxed" | "Tired"
+src/play/index.ts type Offer: Omit<MissionInfo, "dialog" | "description"> & { wants: string; fits?: "gatherUntil" | "hunt" | "goTo" | "haul"; }
+src/play/index.ts type Owned: OwnedFacilityEntry & { runway_cycles: number; }
+src/play/index.ts type Quote: MarketListingItem & { held: number; stored: number; }
+src/play/index.ts type Quoted: CraftQuoteResponse & Venue & { produces_total: ItemQuantity[]; output_value: number | null; margin: number | null; missing: Missing[]; }
+src/play/index.ts type Row: { item_id: string; quantity: number; }
+src/play/index.ts type Stance: "Prospector" | "Industrialist" | "Trader" | "Carrier" | "Hunter" | "Scout"
+src/play/index.ts type Status: "done" | "partial" | "refused" | "failed"
+src/play/index.ts type Want: Pick<V2CargoItem, "item_id"> & { quantity?: number; }
+src/play/industry/facilities/index.ts function buildFacility: (type: string) => Promise<Outcome<Built>>
+src/play/industry/facilities/index.ts function facilities: () => Promise<Outcome<Facilities>>
+src/play/industry/facilities/index.ts interface Built: Built
+src/play/industry/facilities/index.ts interface Rentable: Rentable
+src/play/industry/facilities/index.ts type Owned: OwnedFacilityEntry & { runway_cycles: number; }
+src/play/industry/index.ts function buildFacility: (type: string) => Promise<Outcome<Built>>
+src/play/industry/index.ts function craft: (recipeId: string, quantity?: number, opts?: { at?: string; }) => Promise<Outcome<Crafted>>
+src/play/industry/index.ts function facilities: () => Promise<Outcome<Facilities>>
+src/play/industry/index.ts function jobs: () => Promise<Outcome<{ jobs: Queued[]; }>>
+src/play/industry/index.ts function materials: (itemId: string, quantity: number) => Promise<Outcome<Materials>>
+src/play/industry/index.ts function quote: (recipeId: string, quantity?: number, opts?: { at?: string; }) => Promise<Outcome<Quoted>>
+src/play/industry/index.ts function recipes: (search?: string | undefined) => Promise<Outcome<{ recipes: Craftable[]; }>>
+src/play/industry/index.ts function supply: (recipeId: string, quantity?: number, opts?: { at?: string; maxSpend?: number; }) => Promise<Outcome<Supplied>>
+src/play/industry/index.ts interface Built: Built
+src/play/industry/index.ts interface Crafted: Crafted
+src/play/industry/index.ts interface Materials: Materials
+src/play/industry/index.ts interface Missing: Missing
+src/play/industry/index.ts interface Queued: Queued
+src/play/industry/index.ts interface Rentable: Rentable
+src/play/industry/index.ts interface Supplied: Supplied
+src/play/industry/index.ts interface Venue: Venue
+src/play/industry/index.ts type Craftable: Recipe & { margin?: number | null; have: (RecipeInput & { have: number; })[]; }
+src/play/industry/index.ts type Owned: OwnedFacilityEntry & { runway_cycles: number; }
+src/play/industry/index.ts type Quoted: CraftQuoteResponse & Venue & { produces_total: ItemQuantity[]; output_value: number | null; margin: number | null; missing: Missing[]; }
+src/play/mining/index.ts function gatherUntil: (opts: { poi: string; base?: string; until?: { item: string; quantity: number; }; maxTrips?: number; then?: "stow" | "sell"; }) => Promise<Outcome<Gathered>>
+src/play/mining/index.ts function survey: () => Promise<Outcome<{ response: SurveySystemResponse; deposits: SurveyedPoi[]; }>>
+src/play/mining/index.ts interface Gathered: Gathered
+src/play/trading/index.ts const SCOUT_JUMPS: 4
+src/play/trading/index.ts function routes: (opts?: RouteOpts) => Promise<Outcome<{ routes: Route[]; sources: string[]; }>>
+src/play/trading/index.ts function scoutMarkets: (opts?: { jumps?: number; max?: number; }) => Promise<Outcome<Scouted>>
+src/play/trading/index.ts function spreads: (items?: string[] | undefined) => Promise<Outcome<{ spreads: Spread[]; sources: string[]; }>>
+src/play/trading/index.ts function tradeRun: (opts: { stops: RunStop[]; }) => Promise<Outcome<Traded>>
+src/play/trading/index.ts interface Candidate: Candidate
+src/play/trading/index.ts interface Circuit: Circuit
+src/play/trading/index.ts interface Route: Route
+src/play/trading/index.ts interface Scouted: Scouted
+src/play/trading/index.ts interface Spread: Spread
+src/play/trading/index.ts interface Traded: Traded

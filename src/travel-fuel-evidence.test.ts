@@ -32,7 +32,7 @@ function fixture() {
   }});
   const server=account.server;
   const command:ReadinessCommand=(name,payload)=>{
-    const [tool,action]=name.split('/');return account.send(tool,action,payload);
+    const [tool,action]=name.split('/');return account.send(tool!,action!,payload);
   };
   return {account,server,destination,command,
     configure:(config:{undock?:number;jump?:number;invalid?:boolean;error?:Error;cost?:number})=>{
@@ -194,7 +194,7 @@ test('capacity refusals are distinct; invalid quotes and uncertain commands are 
   }
   const pending=new SpacemoltError('in_transit','pending');Object.assign(pending,{pendingCommand:{}});
   for(const error of [undefined,pending,new ConnectionClosedError('lost')]) {
-    const g=fixture();g.configure({invalid:!error,error});
+    const g=fixture();g.configure({invalid:!error,error:error!});
     await assert.rejects(travel.travelTo(g.account,g.command,g.destination,{}),caught=>{
       assert.ok(!(caught instanceof travel.FuelRouteShortfall));
       if(error)assert.equal(caught,error);else assert.ok(caught instanceof travel.TravelBlocked);

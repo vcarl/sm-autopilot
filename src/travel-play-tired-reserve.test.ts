@@ -62,7 +62,7 @@ function fixture({fuel=52,mood='Cautious' as Mood,JUMP=10,knock=true,runtime=und
   const server=account.server;
   const command:ReadinessCommand=(name,payload)=>{
     const [tool,action]=name.split('/');
-    return account.send(tool,action,payload);
+    return account.send(tool!,action!,payload);
   };
   const who=derived(()=>({mood} as Pilot),account);
   bind({account:account as unknown as ReadinessAccount,command,...runtime?{runtime}:{},

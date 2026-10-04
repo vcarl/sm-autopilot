@@ -142,11 +142,17 @@ the output by hand. The generator handles these known cases:
 - **Shadowed names.** The lib's `MapSystem` is its map-data type, not the component. Assert only the
   names whose public export has the same declared type as the one in the lib's
   `generated/openapi/types.gen.d.ts` (the TypeScript checker's `getDeclaredTypeOfSymbol`).
-- **The lib's own bug.** The lib types `side_factions` as `{[key: string]: never}`, because its
-  generator drops `patternProperties`. The spec says `string`. The drift file asserts those three
-  components (`RecoveredBattleSummary`, `BattleLogEntry`, `GetBattleLogResponse`) against the lib
-  type with that one field patched, through `Omit<…> & {…}`. It also asserts that the lib still says
-  `never`, so when the lib is fixed that check fails and the patch comes out.
+- **The lib's own bugs.** There are two, and each is handled the same way. The drift file asserts
+  every component that reaches the bad field against the lib type with that field patched, through
+  `Omit<…> & {…}`. It also asserts that the lib still has the bug, so when the lib is fixed that
+  check fails and the patch comes out.
+  - The lib types `side_factions` as `{[key: string]: never}`, because its generator drops
+    `patternProperties`. The spec says `string`. This reaches `RecoveredBattleSummary`,
+    `BattleLogEntry` and `GetBattleLogResponse`.
+  - The lib types `NotificationOk.base` as `{[key: string]: unknown} | {[key: string]: unknown} |
+    null`, because its generator reads the type array `["string","object","null"]` as two objects.
+    The spec allows a `string`, and fleet_dock sends one. This reaches `NotificationPayload`,
+    `GetNotificationsResponse` (through `McpNotification`) and `V2Response`.
 
 **Drift check, with no cast.** The generated `Type` is deeply `readonly` and the lib's types are
 mutable, so assert agreement in both directions after removing `readonly`. Don't use Effect's

@@ -60,7 +60,7 @@ at `v<installed lib version>`, not v14.2.0. In P0.6 keep the existing `code` fie
 | P0.3 measure | Add `scripts/debt.ts` (verbatim below) and `scripts/surface.ts` (spec below). Commit `docs/effect-surface.txt` as the surface baseline. Record the time `node --test src/play/readme-examples.test.ts` takes as the pilot-gate latency baseline (best of 3) in the tracker. Also record one cold `check()` of a README example on its own (a fresh `tsc` process, as `run.ts` spawns it today). Also extend the `test` script in `package.json` with `src/play/*/*/*.test.ts`, so a test added beside the depth-3 sources of U06 and U21 (`src/play/combat/bounties/`, `src/play/industry/facilities/`) runs; no such test exists yet. | Both scripts run. The tracker's baseline section is filled in. The `test` script contains the `src/play/*/*/*.test.ts` glob, `npm test` is green, and §6's test-coverage check passes. |
 | P0.3b warm check | Replace the per-check `tsc` child process in `src/run.ts` with a warm checker in the bridge process, which is already long-lived: one `ts.createLanguageService` over the pilot home's tsconfig, `getScriptVersion` from file mtimes so a changed library file or plugin checkout invalidates itself, and diagnostics taken as `tsc --noEmit` takes them (options, global, syntactic and semantic, for every file in the program). The library's parsed and checked files stay in memory across checks, so only `pilot/index.ts` is re-checked. Keep the CLI path as the fallback for `play.py` and when the service throws. Journal `check_ms` and `warm: true/false` on each check. | A parity test runs every README example through both paths and gets the same errors. A warm check of an unchanged library is under the P0.3 baseline. |
 | P0.4 lint | Add `.oxlintrc.json` with the four ban-list rules at `error` (EFFECT.md §The ban list). It has two overrides, **in this order**: (1) `**/*.test.ts` and `src/test-support/**` turn all four rules off; (2) **the migration list** turns all four rules off for every non-test `src/**/*.ts` path not yet migrated, as explicit file paths, one per line. Write each rule's severity as the string `"off"`, never `0` or `["off"]`. Units delete their lines. Run the defaults first: if oxlint's default `correctness` rules report ≤20 findings, fix them here. Otherwise set `"categories": {"correctness": "off"}` and note that in the tracker. Add `"lint": "oxlint --deny-warnings src"` to `package.json`. | `npm run lint` is clean. |
-| P0.5 wire | Add `scripts/gen-wire.ts` (EFFECT.md §Generating the wire schemas). Start from `experiments/effect-wire/gen.ts`, the scratch generator that proved the drift check clean at v14.2.0 (683/683 imported, 615 assertions, 0 errors); it is not ban-clean, so the script is rewritten to the ban list, not copied. It takes the spec from the GitHub tag `v<@spacemolt/lib version>` and generates all of it into `src/wire.gen.ts`. Import with `{patterns: 'apply'}`. It also writes `src/wire-drift.gen.ts`: one `Same<M<typeof Wire.X.Type>, X>` assertion (EFFECT.md's `M`, not `Types.DeepMutable`) for **every** component whose name `@spacemolt/lib` exports as that component's generated type. There is no list of roots. Handle every known case in EFFECT.md §Generating the wire schemas: patterns, duplicates, suspended references, open values (`Schema.Json` → `Unknown`), shadowed names, and the lib's `side_factions` bug. Measured at v14.2.0: 683/683 components import, 615 are asserted plus the `never` guard, `tsc` is clean under P0.2's flags, and `wire.gen.ts` is 1,509,109 bytes. A disagreement at the installed version that is not one of the known cases is a STOP. Add `"gen:wire": "node scripts/gen-wire.ts"`. | `npm run gen:wire && git diff --exit-code -- src/wire.gen.ts src/wire-drift.gen.ts` passes, and `npm run typecheck` is clean. Adding `& {extra: 1}` to one assertion by hand fails the typecheck; revert that edit. |
+| P0.5 wire | Add `scripts/gen-wire.ts` (EFFECT.md §Generating the wire schemas). Start from `experiments/effect-wire/gen.ts`, the scratch generator that proved the drift check clean at v14.2.0 (683/683 imported, 615 assertions, 0 errors); it is not ban-clean, so the script is rewritten to the ban list, not copied. It takes the spec from the GitHub tag `v<@spacemolt/lib version>` and generates all of it into `src/wire.gen.ts`. Import with `{patterns: 'apply'}`. It also writes `src/wire-drift.gen.ts`: one `Same<M<typeof Wire.X.Type>, X>` assertion (EFFECT.md's `M`, not `Types.DeepMutable`) for **every** component whose name `@spacemolt/lib` exports as that component's generated type. There is no list of roots. Handle every known case in EFFECT.md §Generating the wire schemas: patterns, duplicates, suspended references, open values (`Schema.Json` → `Unknown`), shadowed names (`MapSystem`, `CatalogRecipe`), and the lib's two bugs (`side_factions`, `NotificationOk.base`). Measured at v15.1.0: 711/711 components import, 633 are asserted plus one guard for each lib bug, `tsc` is clean under P0.2's flags, and `wire.gen.ts` is 2,039,827 bytes. A disagreement at the installed version that is not one of the known cases is a STOP. Add `"gen:wire": "node scripts/gen-wire.ts"`. | `npm run gen:wire && git diff --exit-code -- src/wire.gen.ts src/wire-drift.gen.ts` passes, and `npm run typecheck` is clean. Adding `& {extra: 1}` to one assertion by hand fails the typecheck; revert that edit. |
 | P0.6 Game | `src/play/game.ts` holds the `Game` service, the `GameLive(account)` layer, `classify` and the error classes. `src/play/codes.ts` holds the evidence-derived tag set (see "Error tags" below). `command()` keeps working unchanged. Both `command` journal lines gain `lost: true` on ReplyLost; `code` (the raw server code on failure) already exists (`db6d4527c3`) and stays as it is. Document these fields in the AGENTS.md Telemetry section in the same commit. | `npm test` is green. New tests exercise `GameLive(fakeAccount)` for each tag, a fallback code, and ReplyLost. |
 | P0.7 edge | Add `jobEffect` and `edge` to `runtime.ts` (see "The Promise edge" below). Add a `ManagedRuntime` per `bind()`: freighters have their own binding, so each gets its own runtime. | Tests cover each Exit mapping (Success, Rejected, a specific tag, ReplyLost, `Stopped`, and a defect) through a test Layer. `docs/effect-surface.txt` is unchanged. |
 | P0.8 Qwen | First port the harness to Effect 4: pin `experiments/effect-qwen/package.json` to the same exact `effect` version as P0.1 (it is on 3.22.2), move `lib/`, the docs and `reference/` to the v4 API (`Either` → `Result`, `Context.Tag` → `Context.Service`, …), and `node harness.ts reference` must pass. Then add a `play` variant to `experiments/effect-qwen/harness.ts` (spec in §5). Run `npm ci` in `experiments/effect-qwen` (the harness spawns its local `tsc`; a missing install would fail every sample). Measure the baseline on the pre-migration surface. | The baseline pass rate and n are in the tracker. If the local model server is down, write `deferred` in the tracker (and the date in Notes) and continue: it is retried at the next milestone. M-final deferred, or any Qwen check deferred twice (P0.8 included), opens a Stop (§7). |
@@ -263,7 +263,8 @@ dispatches, runs the gates itself, commits, and records.
 | Stuck | one fresh attempt, from the current tree | **fable** (only here) |
 | Commit + record | controller | — |
 
-1. **Pick.** Take the first unit row in the tracker whose status is `todo` and whose predecessors
+1. **Pick.** If a flight row is `todo` and due (§6, Flights), fly it: that is this iteration.
+   Otherwise take the first unit row in the tracker whose status is `todo` and whose predecessors
    are `done`. Set it to `doing` in the working tree; it is committed with the unit.
 2. **Record the "before" numbers.** Run `node scripts/debt.ts <unit files>` and
    `git rev-parse HEAD`. Keep them for the brief and the commit.
@@ -287,7 +288,8 @@ dispatches, runs the gates itself, commits, and records.
    the commit sha, and one line of notes: tags added, crossings, anything odd.
 
    If a unit touched a README, or its surface diff was approved, add a Qwen run to the milestones
-   table (§5, check 9). The milestone runs after U02, U17 and U31 are always required.
+   table (§5, check 9). The milestone runs after U02, U17 and U31 are always required. So are
+   the flights after U02, U17 and U33 (§6).
 
 ### Conversion brief (paste it, filling in the `<…>` fields)
 
@@ -370,14 +372,14 @@ twice in a row is not noise.
 **The `/goal` condition** (paste it as it is):
 
 ```
-/goal Execute docs/EFFECT-MIGRATION.md from where docs/effect-migration-progress.md says it stands, one unit per iteration, until EITHER `bash scripts/migration-check.sh` exits 0, OR docs/effect-migration-progress.md's Stops table contains a row whose status is `open`. Before Phase 0 is done, scripts/migration-check.sh does not exist, and that counts as not met.
+/goal Execute docs/EFFECT-MIGRATION.md from where docs/effect-migration-progress.md says it stands, one unit or flight per iteration, until EITHER `bash scripts/migration-check.sh` exits 0 (it requires the F-final flight row to be `flown`), OR docs/effect-migration-progress.md's Stops table contains a row whose status is `open`. Before Phase 0 is done, scripts/migration-check.sh does not exist, and that counts as not met.
 ```
 
 **The checklist behind it.** This is `scripts/migration-check.sh`, written verbatim in P0.9:
 
 ```bash
 #!/usr/bin/env bash
-# The whole-project definition of done for the Effect migration. Exit 0 = done (pending flight).
+# The whole-project definition of done for the Effect migration. Exit 0 = done, F-final flown.
 set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
 T=docs/effect-migration-progress.md
@@ -397,55 +399,155 @@ node scripts/surface.ts --check
 node scripts/debt.ts --zero src                                        # outside tests and *.gen.ts
 if grep -rn 'tryPromise' src --include='*.ts' | grep -v -e '^src/play/game.ts:' -e '\.test\.ts:'; then echo 'tryPromise outside Game'; exit 1; fi
 if grep -rn '// bridge: U' src; then echo 'unconverted crossings remain'; exit 1; fi
-if grep -E '^\| (P0\.[0-9]+[a-z]?|U[0-9]{2}|M-[A-Za-z0-9]+) \|' "$T" | grep -vE '^\| [^|]+ \| done \|'; then echo 'tracker rows not done'; exit 1; fi
+if grep -E '^\| (P0\.[0-9]+[a-z]?|U[0-9]{2}|M-[A-Za-z0-9]+|F-[A-Za-z0-9]+) \|' "$T" | grep -vE '^\| ([^F|][^|]* \| done|F-[A-Za-z0-9]+ \| flown) \|'; then echo 'tracker rows not done'; exit 1; fi
 grep -qE '^\| M-final \| done \|' "$T"                                  # the rows exist at all
-grep -qE '^\| Flight \| (handed-off|flown) \|' "$T"
+grep -qE '^\| F-final \| flown \|' "$T"
 ```
 
 In words, the project is done when:
 - the migration override list is empty;
 - every Phase 0, unit and Qwen milestone row is exactly `done` (a `deferred` milestone has not
   run yet, so it fails);
+- every flight row (`F-U02`, `F-U17`, `F-final`) is exactly `flown` (a `todo` or `failed` flight fails);
 - every gate is green;
 - the debt counts are zero outside tests and generated code (baseline: the tracker's baseline section, which P0.3 re-measures);
 - `tryPromise` appears only in `game.ts`, and no crossings remain;
 - the final Qwen milestone passed;
-- the flight has been handed off.
+- the final flight passed every criterion below.
+
+The loop is done when this script exits 0, or when a Stop is open. The owner's only gate after
+that is merge and release.
 
 The pilot-gate latency (`readme-examples` time) is recorded at M-final next to the P0.3 baseline.
 It is gated at P0.6 and every milestone: a warm check over 1.5× the P0.3b warm figure, or a cold
 check (the first after a bridge boot) over 1.5× the P0.3 cold figure, is a STOP.
 
-**The flight is the owner's gate.** When every other check passes, the loop sets the Flight row to
-`handed-off`. It writes the hand-off block in the tracker: the branch, the head sha, and the
-commands from AGENTS.md "Flying a change in a real profile". Then the loop ends. **The loop never
-restarts a gateway, never switches `sm-autopilot-live`, and never writes to a profile.**
+### Flights: the loop flies
 
-The owner flies the branch and observes for **24 hours or 20 ended runs, whichever is longer**. The
-comparison window is the same span before the switch, read from the rotated `gameplay.*.jsonl`
-files. Check these in `gameplay.jsonl`:
-- Every `command` line with `ok:false` has a `code`, or `lost:true`: 100%.
-- The share of `failed` among `run` `ended` `calls[].status` is no higher than 5 points above the
-  comparison window.
-- A `failed` call's `why` names an action and a code, or "reply lost". It never says only
-  "`<fn>` broke".
-- No `death` or `stranded` beyond the comparison window's count.
-- No `interrupted` run closes other than ones the owner caused.
-- `gate` lines keep arriving about every 5 minutes.
-- `bridge.stderr.log` has no `FiberFailure`, `Defect`, or unhandled rejection.
+A **flight** runs one fixed set of programs against the live game through `play.py` (the shell
+driver for the bridge, no Hermes, no cron), first on the base version and then on the branch, and
+compares the two versions' journals. It is defined by what is flown, not by how long it takes.
+There are three, each a tracker row: `F-U02` (due once U02 is `done`), `F-U17` (once U17 is
+`done`) and `F-final` (once U33 and M-final are `done`). A due flight is the next iteration (§4,
+Pick). The loop never flies through Hermes: no profile, no gateway, no cron job.
 
-The owner then sets Flight to `flown` (or opens a Stop).
+**Pilots.** Two test accounts. **TestPilot.cv is the default**: every flight flies on it.
+**Chrisjen Avasarala** is for late-game careers only, the ones TestPilot.cv can't exercise (a
+second ship to switch to, freighters, crafting skills). Her resources can't be replaced, so she
+flies only the programs of a late-game career converted since the last flight, and only when
+TestPilot.cv can't run them; the Notes say why. Before her first program, run a read-only program
+(`orient()`, `ships()`, `storage()`) and record her start state in the tracker's Chrisjen ledger:
+credits, cargo, storage, and ships. After her last program, run it again. Her credits, every cargo
+and storage item, and every ship must be at least what she started with. If they aren't, the loop
+plays her back up (sell, mine, buy back) in the same flight. If it can't, that is a STOP.
+
+**Playgrounds.** One per pilot, outside the repo, kept across flights: `~/workspace/sm-playgrounds/testpilot-cv/`
+and `~/workspace/sm-playgrounds/chrisjen/`. `play.py serve <playground>` keeps `pilot.json` there
+(the bridge writes it; no record is fine) and the journal, programs and `bridge.stderr.log` under
+its `runtime/`. Its socket is `/tmp/smp-<playground basename>.sock`, so the basenames must differ;
+both can serve at once. Each playground also holds `credentials`, a single-account file.
+`~/workspace/sm-autopilot/test-credentials` holds both accounts as two `Username:`/`Password:`
+blocks separated by `---`, and `src/credentials.ts` takes the first match, so the loop splits it
+once (bash, the loop's shell):
+
+```bash
+for p in 'TestPilot.cv:testpilot-cv' 'Chrisjen Avasarala:chrisjen'; do
+  dir=~/workspace/sm-playgrounds/${p##*:}; mkdir -p "$dir"
+  (umask 077; python3 -c 'import sys; b=[x.strip() for x in open(sys.argv[1]).read().split("\n---\n") if f"Username: {sys.argv[2]}\n" in x+"\n"]; assert len(b)==1, "want exactly one block"; open(sys.argv[3],"w").write(b[0]+"\n")' \
+    ~/workspace/sm-autopilot/test-credentials "${p%%:*}" "$dir/credentials")
+done
+```
+
+A credentials file is never printed, never copied into the repo, and never committed. Check one
+with `grep -c '^Username: '`, never `cat`.
+
+**The two versions.** The base is `git merge-base main HEAD`, so the comparison measures only the
+branch. The branch is `HEAD`. `play.py` runs the bridge of the checkout it lives in, and
+`code_sha` is that checkout's `git rev-parse HEAD`, so the base flies from a detached worktree
+outside the repo:
+
+```bash
+base=$(git merge-base main HEAD)
+git worktree add --detach ~/workspace/sm-playgrounds/base "$base"   # or, if it exists: git -C ~/workspace/sm-playgrounds/base switch --detach "$base"
+npm --prefix ~/workspace/sm-playgrounds/base ci
+```
+
+The branch flies from this worktree. After F-final, `git worktree remove ~/workspace/sm-playgrounds/base`.
+
+**The programs.** One set per flight, kept in `~/workspace/sm-playgrounds/programs/<F-row>/` and
+flown unchanged on both versions:
+- the fenced `ts` examples of `src/play/README.md` that act in game (#1 gather, sell, service; #2
+  storage and the shipyard). #3 is the `ask` example and its ids are placeholders, so it is skipped;
+- the examples (`src/play/<career>/README.md`, the same blocks `readme-examples.test.ts` gates) of
+  every career whose unit is `done` by then: exploration (U06), mining (U19), combat (U20, U21),
+  hauling (U22), industry (U23), trading (U24, U25), fleet (U26 to U28, Chrisjen);
+- one refusal program: a call that the library sends and the server refuses. Prefer a function
+  converted by then. At F-final, use `salvage()` at a POI with no wreck (U20, the motivating
+  defect). A candidate qualifies only if the base journal shows a `command` line with `ok:false`
+  inside that call; if it doesn't, pick another.
+
+An example's place ids may be swapped for ids from the pilot's own `orient()`/`scout()` when they
+don't exist where it flies. The swapped file is the one both versions fly.
+
+**Flying one version** (bash; `<checkout>` is the base worktree, then this one):
+
+```bash
+pg=~/workspace/sm-playgrounds/testpilot-cv
+ls "$pg"/runtime/gameplay*.jsonl            # before the flight: the files that existed already
+SPACEMOLT_CREDENTIALS_FILE="$pg/credentials" python3 <checkout>/play.py serve "$pg"   # run in the background; it blocks
+SPACEMOLT_PLAYGROUND="$pg" python3 <checkout>/play.py run ~/workspace/sm-playgrounds/programs/<F-row>/<program>.ts
+```
+
+Run each program to its end before the next. Then stop the daemon with SIGTERM (`kill <pid>`),
+wait for it and its `node src/bridge.ts` child to exit (the bridge ends when its stdin closes), and
+start the other version. Each `serve` boots a bridge, and each boot rotates `gameplay.jsonl`, so
+each version's lines land in their own files.
+
+**Comparing.** For each pilot, the flight's journal files are the ones new since the flight began,
+plus the current `gameplay.jsonl`. Assign each to a version by `code_sha` on its `run started`
+lines: `jq -r 'select(.event=="run" and .phase=="started") | .code_sha' <file> | sort -u`. The
+branch passes when:
+- every `command` line with `ok:false` has a `code`, or `lost:true`: 100%;
+- the share of `failed` among `run` `ended` `calls[].status` is no more than 5 points above the
+  base's;
+- a `failed` call's `why` names an action and a code, or "reply lost". It never says only
+  "`<fn>` broke";
+- the refusal program's call is `refused`, and its `why` names the action and the code (from
+  F-U17 on; at F-U02 nothing that refuses is converted yet, so record the status it shows);
+- there is no `death` or `stranded` beyond the base's count;
+- what the branch's bridge wrote to `runtime/bridge.stderr.log` has no `FiberFailure`, `Defect`,
+  or unhandled rejection. `play.py` appends to that one file and never rotates it, so note its
+  size (`wc -c`) before the branch's `serve` and read from there (`tail -c +<size+1>`);
+- for Chrisjen, the ledger's after row is at least the start row.
+
+**Recording.** In the flight's tracker row: the base and branch shas, the pilot(s), the program
+files, the journal file names per version, and each criterion's result. All pass → `flown`. Any
+miss → `failed`, and a Stop row naming the criterion and the lines that broke it.
 
 ## 7. Kickoff, tracking, resume, stops
 
-**Kickoff (the owner, in fish):**
+**Kickoff (the owner, in fish).** The work happens in the worktree
+`~/workspace/sm-autopilot/.claude/worktrees/determinate-checking`, on branch `effect/migration`,
+which is already created from `explore/effect-ts`.
 
-1. `git -C ~/workspace/sm-autopilot worktree add ~/workspace/sm-autopilot-effect -b effect/migration explore/effect-ts`
-2. `cd ~/workspace/sm-autopilot-effect; npm ci`
-3. `claude --model opus`, then paste the `/goal` line from §6.
+1. `cd ~/workspace/sm-autopilot/.claude/worktrees/determinate-checking; npm ci`
+2. `claude --model opus`, then paste the `/goal` line from §6.
+
+The loop creates the playgrounds and their credentials files itself, at the first flight (§6). To
+start one by hand, for example to look at a pilot between flights, run each in its own terminal
+from the worktree (it blocks), and stop it with ctrl-C:
+
+```
+env SPACEMOLT_CREDENTIALS_FILE=$HOME/workspace/sm-playgrounds/testpilot-cv/credentials python3 play.py serve $HOME/workspace/sm-playgrounds/testpilot-cv
+env SPACEMOLT_CREDENTIALS_FILE=$HOME/workspace/sm-playgrounds/chrisjen/credentials python3 play.py serve $HOME/workspace/sm-playgrounds/chrisjen
+env SPACEMOLT_PLAYGROUND=$HOME/workspace/sm-playgrounds/testpilot-cv python3 play.py status
+```
+
+The bridge holds a controller lock in the playground's `runtime/`, so a playground can't serve
+twice at once: one started by hand must be stopped before the loop flies.
 
 **Tracking.** The tracker is [effect-migration-progress.md](effect-migration-progress.md): one row
-per Phase 0 step, per unit, per Qwen milestone, and for the flight, plus a Stops table. Its row
+per Phase 0 step, per unit, per Qwen milestone, and per flight, plus a Stops table. Its row
 status is the second column. Step, unit and milestone rows take one of these values:
 
 | Status | Meaning |
@@ -456,7 +558,7 @@ status is the second column. Step, unit and milestone rows take one of these val
 | `deferred` | Qwen only: the model server was down. Retried at the next milestone; at M-final, or a second time, it opens a Stop |
 | `done` | committed |
 
-The Flight row is `todo`, `handed-off` (the loop stops here) or `flown` (the owner's verdict). A Stops row is `open` or `answered`.
+A flight row (`F-U02`, `F-U17`, `F-final`) is `todo` (not flown yet), `flown` (every §6 criterion passed) or `failed` (one missed; a Stop is open). A Stops row is `open` or `answered`.
 
 Every unit commit carries its own tracker row, so `git log` and the tracker never disagree.
 
@@ -469,7 +571,7 @@ Every unit commit carries its own tracker row, so `git log` and the tracker neve
    surface change for this unit.
 3. If the diff touches any other path, record a Stop and don't act on them.
 
-A `stuck` row resumes at the stuck step. A `deferred` Qwen row is retried at the next milestone. M-final has no next milestone, so M-final deferred, or any Qwen check deferred twice (P0.8 included), opens a Stop; otherwise the loop could neither finish nor stop.
+A flight left half done resumes from its start, with the same programs; the files its first try wrote are named in Notes and not counted. If a `play.py serve` is still running on a playground (`pgrep -fl 'play.py serve'`), SIGTERM it only if the flight row's Notes record that the loop started that pid; otherwise STOP. A `stuck` row resumes at the stuck step. A `deferred` Qwen row is retried at the next milestone. M-final has no next milestone, so M-final deferred, or any Qwen check deferred twice (P0.8 included), opens a Stop; otherwise the loop could neither finish nor stop.
 
 **Stop and ask.** Add a row `| S<n> | open | <unit> | <question> | |` to the Stops table, commit the
 tracker, and end the turn. That meets the goal condition. The owner answers in the row, sets it to
@@ -483,6 +585,7 @@ tracker, and end the turn. That meets the goal condition. The owner answers in t
   on a real mismatch, oxlint lacks a rule, the language service won't patch, or the pilot-gate
   latency passes 1.5× (§6);
 - a Qwen milestone fails twice;
+- a flight misses a §6 criterion, or Chrisjen can't be played back up to her start state;
 - the model server is down at M-final, or for the second time at any Qwen check (P0.8 or a milestone);
 - the working tree contains changes the loop didn't make.
 
@@ -491,14 +594,17 @@ tracker, and end the turn. That meets the goal condition. The owner answers in t
 ```
 HARD STOPS: these apply to every loop agent, with no exceptions.
 - Never merge to main.
-- Never push, deploy, or tag.
+- Never push, merge, deploy, or tag. The owner's gate is merge and release.
 - Never bump versions (package.json version, CalVer, tags, version numbers in commit messages).
 - Never discard uncommitted work: no `git reset --hard`, `git checkout .`, `git restore`, `git stash` without a unique tag.
 - Append-only commits on the migration branch: no rebase, reset, or amend. Other agents commit here concurrently.
 - Stage only files you changed, by explicit path. Never `git add -A`, `git add -u`, or a directory.
 - No broad-glob deletes. List first, then delete by exact path.
 - No `kill -9`. SIGTERM, wait, and escalate only to survivors.
-- Never touch ~/.hermes. The only reads allowed are P0.6's journal evidence scan and the Qwen harness's API-key lookup. Never write there, and never restart a gateway.
+- Never touch ~/.hermes, a profile, or a gateway. The only reads allowed are P0.6's journal evidence scan and the Qwen harness's API-key lookup. Never write there, and never restart a gateway. Flights go through play.py only.
+- Never print, copy into the repo, or commit a credentials file. The per-pilot files live under ~/workspace/sm-playgrounds/<pilot>/credentials, mode 600.
+- TestPilot.cv is the default pilot. Chrisjen Avasarala flies only late-game careers TestPilot.cv can't exercise; record her start state first, and leave her credits, cargo, storage and ships at least where they started. If that can't be done, STOP.
+- When a flight ends, stop every `play.py serve` daemon it started with SIGTERM, and wait for it and its bridge to exit.
 - Conventional Commits per AGENTS.md: type(scope): summary, with a body that says why; scope = subsystem (play, bridge, juncture, service, skills).
 - Subagents don't commit. The controller commits.
 ```

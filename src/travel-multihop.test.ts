@@ -21,18 +21,18 @@ function fixture(lossAt?:string) {
     find_route:({id}={})=>{
       assert.deepEqual(account.state,server,'quote must start from refreshed position, fuel and cargo');
       const path=id==='c'?['a','c']:paths[server.location.system_id];
-      const cost=id==='c'?7:path.reduce((sum,system)=>sum+costs()[system as keyof ReturnType<typeof costs>],0);
+      const cost=id==='c'?7:path!.reduce((sum,system)=>sum+costs()[system as keyof ReturnType<typeof costs>],0);
       quotes.push({origin:structuredClone(server.location),fuel:server.ship.fuel,cargo:server.ship.cargo_used,cost,target:id});
-      return {found:true,target_system:id,total_jumps:path.length-1,estimated_fuel:cost,
+      return {found:true,target_system:id,total_jumps:path!.length-1,estimated_fuel:cost,
         fuel_per_jump:id==='c'?7:costs()[server.location.system_id as keyof ReturnType<typeof costs>],
         fuel_available:server.ship.fuel,cargo_used:server.ship.cargo_used,
-        route:path.map((system_id,jumps)=>({system_id,jumps}))};
+        route:path!.map((system_id,jumps)=>({system_id,jumps}))};
     },
     get_system:()=>({system:{connections:connections[server.location.system_id]}}),
     undock:()=>{server.location.docked_at=null;return {};},
     jump:({id}={})=>{
       assert.equal(server.location.docked_at,null);
-      assert.ok(connections[server.location.system_id].includes(String(id)));
+      assert.ok(connections[server.location.system_id]!.includes(String(id)));
       server.ship.fuel-=id==='c'?7:costs()[server.location.system_id as keyof ReturnType<typeof costs>];
       server.location.system_id=String(id);server.location.poi_id='gate';
       if(id===lossAt) {
@@ -64,7 +64,7 @@ function fixture(lossAt?:string) {
   const server=account.server,calls=account.calls;
   const command:ReadinessCommand=(name,payload)=>{
     const [tool,action]=name.split('/');
-    return account.send(tool,action,payload);
+    return account.send(tool!,action!,payload);
   };
   return {home,away,server,account,calls,quotes,losses,command};
 }
@@ -132,9 +132,9 @@ test('fuel loss after either return jump blocks the next jump or paid local leg 
     expected.at(-1)!.fuel-=0.25;
     assert.deepEqual(f.quotes.slice(1),expected);
     assert.equal(f.losses.length,1);
-    assert.ok(f.losses[0].cachedFuel>required,'cached fuel would incorrectly permit the next leg');
-    assert.equal(f.losses[0].actualFuel,required-0.25);
-    assert.deepEqual(f.calls.slice(f.losses[0].callIndex),[{tool:'spacemolt',action:'find_route',payload:{id:'a'}}],
+    assert.ok(f.losses[0]!.cachedFuel>required,'cached fuel would incorrectly permit the next leg');
+    assert.equal(f.losses[0]!.actualFuel,required-0.25);
+    assert.deepEqual(f.calls.slice(f.losses[0]!.callIndex),[{tool:'spacemolt',action:'find_route',payload:{id:'a'}}],
       'no movement or docking after the arrival fuel loss');
     assert.deepEqual(f.calls.slice(callIndex).filter(c=>c.tool==='spacemolt'&&c.action==='jump').map(c=>c.payload?.id),
       lossAt==='b'?['b']:['b','a']);

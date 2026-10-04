@@ -78,7 +78,7 @@ function fixture() {
   const command:ReadinessCommand=async(action,params)=>{
     calls.push({action,params:params??{}});
     assert.ok(Object.hasOwn(handlers,action),`Unexpected command: ${action}`);
-    return handlers[action](params??{});
+    return handlers[action]!(params??{});
   };
   return {server,account,calls,
     // The plan is the caller's own object, so a test may move its mood mid-job the way the

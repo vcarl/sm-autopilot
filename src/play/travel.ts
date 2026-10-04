@@ -297,7 +297,7 @@ export function goTo(id:string):Promise<Outcome<Trip>> {
       maxJumps:null,
       checkpoint:async()=>checkStop(),
       onJump:()=>{jumps++;step(`jump ${jumps} of ${planned}, fuel ${acct().state.ship?.fuel}`);},
-      refuel:async()=>{try {await serviceShip(acct(),command,{mood:flying(),creditReserve:who.permissions?.credit_reserve??0,runtime:runtimeDir()});} catch {/* the fuel check after decides */}},
+      refuel:async()=>{try {await serviceShip(acct(),command,{mood:flying(),creditReserve:who.permissions?.credit_reserve??0,...runtimeDir()===undefined?{}:{runtime:runtimeDir()}});} catch {/* the fuel check after decides */}},
     });
     try {
       for(const stop of stops) {

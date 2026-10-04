@@ -132,7 +132,7 @@ export function gatherUntil(opts:{poi:string;base?:string;until?:{item:string;qu
       if(trek.outcome!=='done') {
         result.ended=trek.reason?.includes('stopped by pilot')?'stopped':trek.outcome==='blocked'?'blocked':'failed';
         result.cargo=cargo();
-        if(opts.until)result.held=await storeCount(baseId,opts.until.item).catch(()=>result.held);
+        if(opts.until){const n=await storeCount(baseId,opts.until.item).catch(()=>undefined);if(n!==undefined)result.held=n;}
         // The did is the measurement, never the tally: a leg that broke mid-mine still put
         // ore aboard, and `trek.yield` is empty when the step never returned.
         const took=measured().length?measured():sum(trek.yield);
@@ -141,7 +141,7 @@ export function gatherUntil(opts:{poi:string;base?:string;until?:{item:string;qu
         return {status:result.ended==='stopped'?'partial':trek.outcome==='blocked'?'refused':'failed',
           did:`trip ${trip}: mined ${units} units${units?` (${took.map(row=>`${row.quantity} ${row.item_id}`).join(', ')})`:''} at ${opts.poi}`+
             `${ship?`, hold ${ship.cargo_used}/${ship.cargo_capacity}`:''}; ended at ${trek.steps.at(-1)?.name}`,
-          why:trek.reason,detail:result,
+          ...trek.reason===undefined?{}:{why:trek.reason},detail:result,
           // The world, not a record, says where the next run re-enters: every leg is named
           // for an end state and sends nothing when it already holds.
           next:[`gatherUntil with the same arguments resumes from here: it re-enters at the leg the live world implies`]};
@@ -151,7 +151,7 @@ export function gatherUntil(opts:{poi:string;base?:string;until?:{item:string;qu
       if(depleted)break;
     }
     result.cargo=cargo();
-    if(opts.until&&result.ended!=='tired')result.held=await storeCount(baseId,opts.until.item).catch(()=>result.held);
+    if(opts.until&&result.ended!=='tired'){const n=await storeCount(baseId,opts.until.item).catch(()=>undefined);if(n!==undefined)result.held=n;}
     const short=opts.until&&(result.held??0)<opts.until.quantity;
     const did=`${result.trips} trip(s) to ${opts.poi}: ${say(result.yield)}; ${opts.then==='sell'?'sold':'stowed'} ${say(result.settled)} at ${baseId}`+
       (opts.until?`; store holds ${result.held??'?'} of ${opts.until.quantity} ${opts.until.item}`:'');

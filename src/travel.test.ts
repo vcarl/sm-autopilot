@@ -20,7 +20,7 @@ test('fuel lost after undocking reports the refreshed shortfall before jump or l
     const server=account.server,calls=account.calls;
     const command:ReadinessCommand=(name,payload)=>{
       const [tool,action]=name.split('/');
-      return account.send(tool,action,payload);
+      return account.send(tool!,action!,payload);
     };
     await assert.rejects(travelTo(account,command,local?{system_id:'a',poi_id:'belt'}:{system_id:'b'},{}),
     error=>error instanceof TravelBlocked&&/have 9, need 10; shortfall 1 fuel units/.test(error.message));
@@ -72,7 +72,7 @@ test('travel re-quotes actual remaining fuel, bounds definitive retries, and nev
     const server=account.server,calls=account.calls;
     const command:ReadinessCommand=(name,payload)=>{
       const [tool,action]=name.split('/');
-      return account.send(tool,action,payload);
+      return account.send(tool!,action!,payload);
     };
     const options={now:()=>now,sleep:async(ms:number)=>{now+=ms;},
       refuel:async()=>{refuels++;server.ship.fuel=100;await account.refresh();}};
@@ -116,7 +116,7 @@ test('objective travel admits a longer finite quoted route while retaining fuel 
     const server=account.server;
     const command:ReadinessCommand=(name,payload)=>{
       const [tool,action]=name.split('/');
-      return account.send(tool,action,payload);
+      return account.send(tool!,action!,payload);
     };
     const moved=()=>account.calls.filter(c=>c.tool==='spacemolt'&&c.action==='jump').map(c=>c.payload!.id);
     const trip=travelTo(account,command,{system_id:'d'},{maxJumps:null});

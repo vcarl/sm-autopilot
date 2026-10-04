@@ -31,7 +31,7 @@ test('a Tired pilot can goTo a base whose id equals its own POI id',async()=>{
   const server=account.server;
   const command:ReadinessCommand=(name,payload)=>{
     const [tool,action]=name.split('/');
-    return account.send(tool,action,payload);
+    return account.send(tool!,action!,payload);
   };
   const pilot:Pilot={mood:'Tired'};
   bind({account:account as unknown as ReadinessAccount,command,

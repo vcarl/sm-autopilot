@@ -69,8 +69,8 @@ export function facilities():Promise<Outcome<Facilities>> {
           // L5 station facilities (repair, market...) carry no fee and are not public: skip
           // them unless they are mine — owning one still belongs in the count.
           if(!mine.has(entry.facility_id)&&!(isPublic&&fee))continue;
-          here.push({id:entry.facility_id,type:entry.type,name:entry.name,recipe_id:entry.recipe_id,
-            labour:entry.labor_per_cycle,fee_per_run:fee,public:isPublic});
+          here.push({id:entry.facility_id,type:entry.type,name:entry.name,...entry.recipe_id===undefined?{}:{recipe_id:entry.recipe_id},
+            ...entry.labor_per_cycle===undefined?{}:{labour:entry.labor_per_cycle},...fee===undefined?{}:{fee_per_run:fee},public:isPublic});
         }
       } catch(error){failed.push(`here: ${message(error)}`);}
     }

@@ -10,9 +10,9 @@ import {buildFacility,facilities} from './facilities/facilities.ts';
  * what a test hands in — `Unregistered command` is the loud failure a missing handler gets. */
 function world(handlers:FakeCommandHandlers,pilot:Pilot={mood:'Focused'},credits=1_000) {
   const game=new FakeLibGoalAccount<GameState>({
-    location:{system_id:'sol',poi_id:'station',docked_at:'sol_base',in_transit:false} as GameState['location'],
-    player:{credits} as GameState['player'],
-    ship:{} as GameState['ship'],cargo:[],modules:[],skills:{},
+    location:{system_id:'sol',poi_id:'station',docked_at:'sol_base',in_transit:false} as NonNullable<GameState['location']>,
+    player:{credits} as NonNullable<GameState['player']>,
+    ship:{} as NonNullable<GameState['ship']>,cargo:[],modules:[],skills:{},
   },handlers);
   const command:ReadinessCommand=(action,params)=>{
     const [tool,name]=action.split('/');

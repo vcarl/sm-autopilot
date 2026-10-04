@@ -132,7 +132,7 @@ export function service(opts:{fuel?:number;hull?:number;insure?:boolean;dues?:bo
       // picks the spend margin is read here, not at the top of the job. Tired's row is "service
       // only" — the mood it replaced would refuse the very bill that clears it.
       const mood=pilot().mood??'Cautious';
-      const done=await serviceShip(acct(),command,{mood,creditReserve:who.permissions?.credit_reserve??0,runtime:runtimeDir()});
+      const done=await serviceShip(acct(),command,{mood,creditReserve:who.permissions?.credit_reserve??0,...runtimeDir()===undefined?{}:{runtime:runtimeDir()}});
       const cells=done.cells;
       const cleared=mood==='Tired'&&pilot().mood!=='Tired';
       const did=done.issued.length
