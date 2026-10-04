@@ -81,6 +81,20 @@ def test_the_context_quotes_chat_since_the_last_juncture_as_data_with_its_sender
     assert "spacemolt_chat" in context
 
 
+def test_emergency_maydays_fold_into_a_count(monkeypatch):
+    """Audit 10-04 (kvothe): three quoted MAYDAY lines a juncture helped push the suggested moves
+    out of every context since 10-03. They are a count; other emergency words stay quoted."""
+    _last_juncture()
+    _chat([*[_post(f"2026-10-04T12:1{n}:00.000Z", f"MAYDAY: Wexler {n} is stranded with 3/120 fuel!",
+                   channel="emergency", sender=f"Wexler {n}") for n in range(4)],
+           _post("2026-10-04T12:20:00.000Z", "anyone near Sol?", channel="emergency", sender="Ann")])
+    context = _rendered(monkeypatch)
+    assert "MAYDAY: Wexler" not in context, context
+    assert "  4 MAYDAY broadcast(s) on emergency from stranded ships, readable with " \
+           "messages({channel:'emergency'})." in context.splitlines(), context
+    assert 'emergency from "Ann"' in context and "older messages" not in context
+
+
 def test_no_chat_means_no_chat_section(monkeypatch):
     _last_juncture()
     assert "Chat since" not in _rendered(monkeypatch)

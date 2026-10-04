@@ -555,6 +555,11 @@ def chat_lines(rows: list[dict[str, Any]], since: str | None) -> list[str]:
     ``CHAT_PRIVATE``, then the last ``CHAT_PER_CHANNEL`` of each other channel; the unread counts
     the game last reported, when one was after ``since``."""
     posts = [row for row in rows if row.get("event") == "post" and _after(row, since)]
+    # The game's own stranded-ship broadcasts repeat all day: a count, not three quoted lines each
+    # juncture (audit 10-04: they helped push the moves out of every context since 10-03).
+    maydays = [row for row in posts if row.get("channel") == "emergency"
+               and str(row.get("content") or "").startswith("MAYDAY")]
+    posts = [row for row in posts if row not in maydays]
     private = [row for row in posts if row.get("channel") == "private"][-CHAT_PRIVATE:]
     others: dict[str, list[dict[str, Any]]] = {}
     for row in posts:
@@ -565,6 +570,9 @@ def chat_lines(rows: list[dict[str, Any]], since: str | None) -> list[str]:
                                row.get("at")) for row in shown]
     if len(posts) > len(shown):
         lines.append(f"  +{len(posts) - len(shown)} older messages, readable with messages().")
+    if maydays:
+        lines.append(f"  {len(maydays)} MAYDAY broadcast(s) on emergency from stranded ships, "
+                     "readable with messages({channel:'emergency'}).")
     unread = next((row for row in reversed(rows) if row.get("event") == "unread" and _after(row, since)), None)
     if unread and isinstance(unread.get("counts"), dict):
         counts = ", ".join(f"{k} {v}" for k, v in sorted(unread["counts"].items()) if isinstance(v, int) and v)
@@ -589,14 +597,16 @@ def _battle(menu: dict[str, Any]) -> str | None:
             "account().commands.spacemolt_battle.stance({id:'brace'}).")
 
 
-def _recent_line(row: dict[str, Any]) -> str:
-    """One of the pilot's own recent acts, as a fact."""
+def _recent_line(row: dict[str, Any], goal: Any = None) -> str | None:
+    """One of the pilot's own recent acts, as a fact. A reflection's goal is left off when it is
+    the Goal line above (``goal``), and a reflection with nothing else to say is no line."""
     at = _clock(row.get("at"))
     if row.get("event") == "reflection":
         bits = [f"stance {row['stance']}" if row.get("stance") else "",
-                f"goal {row['goal']!r}" if row.get("goal") else "",
+                f"goal {row['goal']!r}" if row.get("goal") and row["goal"] != goal else "",
                 f"objective {row.get('objective')!r} retired" if row.get("objective_done") else ""]
-        return f"{at} reflect: {', '.join(bit for bit in bits if bit)}"
+        said = ", ".join(bit for bit in bits if bit)
+        return f"{at} reflect: {said}" if said else None
     if row.get("phase") == "refused":
         first = str((row.get("errors") or ["no reason recorded"])[0]).splitlines()[0][:160]
         return f"{at} run refused at the check, nothing ran: {first}"
@@ -643,20 +653,6 @@ def _skill_text(name: str, value: Any) -> str:
     return f"{name} {value}"
 
 
-def _neighbour(row: dict[str, Any]) -> str:
-    """A system one jump out, as the menu's map walk carries it: visited or not, and the law the
-    map names (its empire) or this pilot saw there (police, security, pirates), so a juncture
-    need not spend a run just looking at the neighbours (live 2026-09-30)."""
-    seen = row.get("seen") or {}
-    bits = ([f"police {seen['police']}"] if "police" in seen else []) + (
-        [str(seen["security"])] if seen.get("security") else []) + (
-        [f"{seen['pirates']} pirates seen"] if seen.get("pirates") else [])
-    bits.append(f"empire {row['empire']}" if row.get("empire") else "no empire")
-    if row.get("stronghold"):
-        bits.append("stronghold")
-    return f"{row.get('system_id')} {'visited' if row.get('visited') else 'never visited'} ({', '.join(bits)})"
-
-
 #: ponytail: the Places line names the last eight systems found with no base and five refused
 #: bases, the rest a count. Raise it if a pilot keeps flying back to one it cannot see.
 _PLACES_SHOWN = (8, 5)
@@ -664,8 +660,8 @@ _PLACES_SHOWN = (8, 5)
 
 def _places(menu: dict[str, Any], named: bool = True) -> str | None:
     """What the pilot knows of the map, from the bridge's memory: how much it has flown, the
-    systems a look found no base in, and the bases that refused a dock — named, or only counted
-    when the section is short of room. Live 2026-09-30 (kvothe): with nowhere else to keep it, the
+    systems a look found no base in, and the bases that refused a dock — named for a Scout, else
+    only counted. Live 2026-09-30 (kvothe): with nowhere else to keep it, the
     goal became a lossy list of visited systems, ~341 of 462 jumps were repeats, and refused bases
     were retried hours apart."""
     places = menu.get("places")
@@ -786,8 +782,10 @@ def _situation(menu: dict[str, Any], said: dict[str, Any] | None, chat: list[str
              else f"in transit ({system})" if p.get("in_transit")
              else f"at {p.get('poi') or 'an unknown point'} ({system})")
     # Capped like the hold: at a hub the list would crowd the suggested moves out of the budget.
+    # Bare names: with the per-system "visited (empire …)" suffix the context ran over its limit
+    # and lost the moves (audit 10-04: absent from all 106 contexts since 10-03).
     near = menu.get("neighbours") or []
-    neighbours = "; ".join([_neighbour(row) for row in near[:NEIGHBOURS]]
+    neighbours = ", ".join([str(row.get("system_id")) for row in near[:NEIGHBOURS]]
                            + ([f"+{len(near) - NEIGHBOURS} more"] if len(near) > NEIGHBOURS else []))
     if not unread:
         facts.append(f"Present: {where}." + (f" One jump out: {neighbours}." if neighbours else ""))
@@ -810,16 +808,20 @@ def _situation(menu: dict[str, Any], said: dict[str, Any] | None, chat: list[str
     if menu.get("threats"):
         facts_after.append(f"  Fighting here: {', '.join(map(str, menu['threats']))}.")
     facts_after.append(f"  Fitted weapons: {weapons}. Skills: {skills}{skills_hint}.")
-    if p.get("walk_away") is not None:
+    # Unarmed, there is no fight of its own to break off.
+    if p.get("walk_away") is not None and p.get("weapons"):
         facts_after.append(f"  Walk-away: break off a fight below hull {p['walk_away']}.")
 
-    recent = [_recent_line(row) for row in
+    recent = [line for line in (_recent_line(row, menu.get("goal")) for row in
               [row for row in rows
-               if row.get("event") == "reflection" or row.get("phase") in ("ended", "refused")][-RECENT:]]
+               if row.get("event") == "reflection" or row.get("phase") in ("ended", "refused")][-RECENT:])
+              if line]
     loops = [_loop_line(loop) for loop in earned[:LOOPS]]
     names = menu.get("names") if isinstance(menu.get("names"), dict) else {}
     chat = chat or []
-    shape = {"moves": menu.get("text"), "kept": len(hold), "loops": len(loops), "named": True, "recent": len(recent),
+    # The unknown and refused names are an explorer's working list; other stances get the counts.
+    shape = {"moves": menu.get("text"), "kept": len(hold), "loops": len(loops),
+             "named": menu.get("stance") == "Scout", "recent": len(recent),
              "chat": len(chat)}
 
     def render() -> str:

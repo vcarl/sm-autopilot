@@ -302,6 +302,10 @@ def test_the_places_line_carries_what_the_goal_used_to(monkeypatch):
                       "stationless": [f"sys_{i}" for i in range(10)],
                       "refused": [{"base_id": "db90abb6", "system_id": "proxima_centauri",
                                    "message": "Access denied", "at": "2026-10-02T16:37:17Z"}]}
+    # Audit 10-04: the names are an explorer's list; any other stance gets the counts.
+    assert ("Places: visited 47 of 120 systems on the map; no base found in 10 systems; "
+            "docking refused at 1 bases.") in _rendered(monkeypatch, menu).splitlines()
+    menu["stance"] = "Scout"
     context = _rendered(monkeypatch, menu)
     assert ("Places: visited 47 of 120 systems on the map; no base found in sys_2, sys_3, sys_4, sys_5, "
             "sys_6, sys_7, sys_8, sys_9 (+2 more); docking refused at db90abb6 in proxima_centauri "
@@ -353,7 +357,8 @@ def test_the_situation_renders_only_the_permissions_the_code_knows(monkeypatch):
 
 
 def test_the_present_line_names_the_neighbours_and_what_is_known_of_them(monkeypatch):
-    """Live 2026-09-30: every juncture opened with a read-only run just to see the neighbours."""
+    """Live 2026-09-30: every juncture opened with a read-only run just to see the neighbours.
+    Audit 10-04: bare names, since the per-system suffix helped crowd the moves out."""
     menu = _menu(12)
     menu["neighbours"] = [
         {"system_id": "deep_range", "name": "Deep Range", "jumps": 1, "visited": True, "empire": "solarian",
@@ -361,8 +366,7 @@ def test_the_present_line_names_the_neighbours_and_what_is_known_of_them(monkeyp
         {"system_id": "the_drift", "name": "The Drift", "jumps": 1, "visited": False, "stronghold": True}]
     context = _rendered(monkeypatch, menu)
     assert ("Present: docked at first_step_station (first_step). One jump out: "
-            "deep_range visited (police 3, 2 pirates seen, empire solarian); "
-            "the_drift never visited (no empire, stronghold).") in context, context
+            "deep_range, the_drift.") in context.splitlines(), context
     assert "One jump out" not in _rendered(monkeypatch, _menu(12))
 
 
@@ -384,6 +388,7 @@ def test_opaque_place_ids_are_named_from_the_menu(monkeypatch):
                                    "message": "Access denied"}]}
     menu["text"] = f"Menu:\n  - `goTo('{base}')` — sell at {base}"
     menu["names"] = {base: "Kestrel Yard", poi: "Hex Star"}
+    menu["stance"] = "Scout"  # the refused bases are named for an explorer only
     context = _rendered(monkeypatch, menu)
     assert f"Present: docked at Kestrel Yard ({base}) (dheneb)." in context, context
     assert f"docking refused at Hex Star ({poi}) in dheneb" in context, context
@@ -397,8 +402,8 @@ def test_the_present_line_caps_the_neighbours_at_a_hub(monkeypatch):
     menu = _menu(12)
     menu["neighbours"] = [{"system_id": f"s{n}", "jumps": 1, "visited": True} for n in range(10)]
     present = next(line for line in _rendered(monkeypatch, menu).splitlines() if line.startswith("Present:"))
-    assert "s5 visited" in present and "s6" not in present, present
-    assert present.endswith("; +4 more."), present
+    assert "s5" in present and "s6" not in present, present
+    assert present.endswith(", +4 more."), present
 
 
 def test_skills_and_the_walk_away_line_read_as_what_they_are(monkeypatch):
@@ -408,6 +413,9 @@ def test_skills_and_the_walk_away_line_read_as_what_they_are(monkeypatch):
     menu = _menu(12)
     menu["present"]["walk_away"] = 94
     assert "  Walk-away: break off a fight below hull 94." in _rendered(monkeypatch, menu)
+    # Audit 10-04: with no weapon fitted the line is only room the moves needed.
+    menu["present"]["weapons"] = []
+    assert "Walk-away" not in _rendered(monkeypatch, menu)
 
 
 def test_a_skill_with_xp_and_next_level_shows_progress_and_a_bare_level_stays_old_style(monkeypatch):
@@ -507,6 +515,7 @@ def test_the_loops_and_places_give_way_before_the_recent_runs(monkeypatch):
     menu = _menu(12, hold=[{"item_id": f"salvaged_component_{i}", "quantity": i} for i in range(400)])
     menu["text"] = "Menu:\n" + "  - `hunt()` — trains gunnery [skill]\n" * 200
     menu["steps"] = ["x" * 620] * 3
+    menu["stance"] = "Scout"  # the stance whose Places line starts named
     menu["places"] = {"visited": 47, "systems": 120, "stationless": [f"system_{i:03d}" for i in range(40)],
                       "refused": [{"base_id": f"base_{i}", "message": "Access denied " + "z" * 60,
                                    "at": "2026-10-01T10:00:00Z"} for i in range(9)]}
@@ -524,6 +533,86 @@ def test_the_loops_and_places_give_way_before_the_recent_runs(monkeypatch):
     lines = _rendered(monkeypatch, menu).splitlines()
     assert sum(map(len, lines)) + len(lines) - 1 <= juncture.SECTION_LIMIT
     assert lines[-1] == "Goal: hunt the grazers", lines[-1]
+
+
+def test_a_reflection_repeating_the_goal_is_not_said_twice(monkeypatch):
+    """Audit 10-04 (kvothe): the recent runs closed on the reflect that set the Goal, word for word."""
+    goal = "hunt the grazers"
+    _write_journal([{"event": "reflection", "goal": goal},
+                    {"event": "reflection", "goal": goal, "objective_done": True, "objective": "raise gunnery"},
+                    {"event": "reflection", "goal": "an older goal"}])
+    recent = _rendered(monkeypatch, _menu(12)).split("Your recent runs (newest last):\n")[1].split("\nSuggested")[0]
+    assert recent.splitlines() == ["  09-26 00:00Z reflect: objective 'raise gunnery' retired",
+                                   "  09-26 00:00Z reflect: goal 'an older goal'"], recent
+
+
+# Shaped like kvothe's 10-04 17:27Z render, which ran ~3.9k chars without its moves: a Prospector,
+# unarmed, 18 skills with xp, the Places names, four neighbours, maydays, three loops, five runs.
+KVOTHE_GOAL = ("Objective met; resources kept unsold in the frontier_station store. Resume earning "
+               "credits or take a new objective.")
+KVOTHE_MOVES = """Menu:
+  - `sell([{item:'copper_ingot',quantity:160}])` — 160 copper_ingot at 41 cr here (6,560 cr) [credits]
+  - `tradeRun('nova_terra_central')` — ranks every known route of up to 3 stops, from the hold you have, \
+by net per jump after book depth, fuel and tax [credits]
+  - `gatherUntil({poi:'colony_debris_field',base:'frontier_station'})` — asteroid_belt Colony Debris \
+Field, 172 free in the hold, settling at frontier_station [credits]
+  - `craft('refine_copper', 20)` — trains refining (level 8, the lowest of the objective's) [skill]
+Not now:
+  - acceptMission: no slot free: 5 of 5 active, none completable"""
+
+
+def _kvothe_menu() -> dict:
+    skills = {name: {"level": level, "xp": 100, "next_level_xp": 1000} for name, level in (
+        ("crafting", 9), ("deep_core_mining", 9), ("engineering", 1), ("exploration", 5), ("gunnery", 5),
+        ("leadership", 2), ("mining", 10), ("navigation", 9), ("piloting", 11), ("refining", 8),
+        ("salvaging", 5), ("scanning", 3), ("shields", 1), ("tactics", 5), ("trading", 12), ("weapons", 3),
+        ("wormhole_navigation", 1), ("xenobiology", 5))}
+    return {"now": "2026-10-04T17:27:00.000Z", "stance": "Prospector", "mood": "Focused", "goal": KVOTHE_GOAL,
+            "steps": ["recipes() at frontier_station; note inputs and xp",
+                      "craft the best refining recipe from stored ore", "check refining level; objective_done at 8"],
+            "permissions": {"credit_reserve": 50000},
+            "present": {"system": "distant_light", "docked_at": "frontier_station", "fuel": 140, "max_fuel": 140,
+                        "hull": 75, "max_hull": 75, "credits": 361649, "cargo_free": 172, "walk_away": 67,
+                        "hold": [{"item_id": "fuel_cell", "quantity": 8}], "weapons": [], "skills": skills},
+            "neighbours": [{"system_id": s, "visited": True, "empire": "outerrim"}
+                           for s in ("altais", "horizon", "the_telescope", "unknown_edge")],
+            "places": {"visited": 296, "systems": 505, "stationless": [f"system_{n:02d}" for n in range(34)],
+                       "refused": [{"base_id": f"{n:032x}", "system_id": "proxima_centauri", "message": "Access denied",
+                                    "at": "2026-10-03T21:34:00Z"} for n in range(3)]},
+            "moves": [], "not_now": [], "text": KVOTHE_MOVES, "last": None}
+
+
+def test_a_kvothe_sized_context_keeps_its_suggested_moves(monkeypatch):
+    """Audit 10-04 (kvothe): the context ran over SECTION_LIMIT and the moves, first to give way,
+    were absent from all 106 contexts rendered since 10-03."""
+    runtime = service.runtime_dir()
+    runtime.mkdir(parents=True, exist_ok=True)
+    (runtime / juncture.JUNCTURE_FILE).write_text(json.dumps({"juncture_id": "j0", "at": "2026-10-04T17:00:00Z"}))
+    with (runtime / juncture.CHAT_FILE).open("a") as record:
+        for n in range(4):
+            record.write(json.dumps({"at": f"2026-10-04T17:1{n}:00Z", "event": "post", "channel": "emergency",
+                                     "sender": f"Wexler {n}", "content": f"MAYDAY: Wexler {n}-QX is stranded at "
+                                     "Ramen's Rest in Last Light with 3/120 fuel! Any pilots nearby, please help!"})
+                         + "\n")
+    hex_star = "b495c6003fc83e18f6d8cecbe6929133"
+    loops = [{"at": f"2026-10-03T2{n}:10:00Z", "started": f"2026-10-03T2{n}:00:00Z", "event": "run", "phase": "ended",
+              "run_id": f"l{n}", "outcome": "done", "work": {"fn": "tradeRun", "credits": 12000},
+              "calls": [{"fn": "tradeRun", "credits": 12000, "seconds": 600, "stops": [base, hex_star]}]}
+             for n, base in enumerate(["nova_terra_central", "confederacy_central_command",
+                                       "nova_terra_central", "fed_hub"])]
+    recent = [{"at": "2026-10-04T17:13:00Z", "event": "run", "phase": "ended", "outcome": "done", "commands": 125,
+               "reason": "6 calls gained +960 items: bought 160 copper_ore for 1286 cr (6 of it tax); last call craft done",
+               "work": {"fn": "buy", "items": 960, "xp": 1172}, "calls": [{"fn": "buy"}, {"fn": "craft"}]}] * 4 + [
+              {"at": "2026-10-04T17:21:00Z", "event": "reflection", "goal": KVOTHE_GOAL, "objective_done": True,
+               "objective": "Get crafting, refining and mining to level 8 or higher."}]
+    _write_journal(loops + recent)
+    context = _rendered(monkeypatch, _kvothe_menu())
+    assert len(context) <= juncture.SECTION_LIMIT, len(context)
+    assert "Suggested moves (advice, pasteable into main()):" in context, context
+    assert "craft('refine_copper', 20)" in context and "acceptMission: no slot free" in context
+    for label in ("Goal:", "Steps:", "Stance:", "Present:", "Places:", "  Fuel ", "  Fitted weapons:",
+                  "Your recent runs"):
+        assert any(line.startswith(label) for line in context.splitlines()), (label, context)
 
 
 def test_a_run_in_flight_is_said_in_one_line(monkeypatch):
