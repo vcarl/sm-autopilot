@@ -11,10 +11,11 @@ import {quoteNext} from '../run-record.ts';
 import {listing,words} from '../servicing.ts';
 import {replyBody,rows} from '../storage.ts';
 import {counterEffect} from './counter.ts';
-import {Game,GameLive,attempt,field,message,rawError} from './game.ts';
+import {Game,attempt,field,message} from './game.ts';
 import {bench,moduleSpec,room,whyNotFit} from './hangar.ts';
-import {Stopped,acct,admit,command,edge,jobEffect,pilot,reached,runtimeDir,step,stopped,wanted} from './runtime.ts';
+import {Stopped,acct,admit,edge,jobEffect,pilot,reached,runtimeDir,step,stopped,wanted} from './runtime.ts';
 import {withdraw} from './storage.ts';
+import {num} from './rows.ts';
 import type {Outcome,Row,Want} from './types.ts';
 
 /** The lib's per-item book (`best_buy`, `best_buy_qty`, `best_sell`, `best_sell_qty`,
@@ -22,7 +23,6 @@ import type {Outcome,Row,Want} from './types.ts';
 export type Quote=MarketListingItem&{held:number;stored:number};
 
 const CAP=40;
-const numeric=(raw:unknown,key:string)=>{const value=field(raw,key);return typeof value==='number'?value:undefined;};
 /** The counter, or why the job broke: a dock that was blocked is the job's failure, as a throw always was. */
 const atCounter=()=>counterEffect().pipe(Effect.catchTag('DockBlocked',blocked=>Effect.succeed({broke:blocked.message})));
 
@@ -87,7 +87,7 @@ export function knownBooks(dir=runtimeDir()):RememberedBook[] {
 }
 /** One remembered book as the file has it, rebuilt from the fields read: a row with no base or no item list is dropped. */
 const remembered=(raw:unknown):RememberedBook[]=>{
-  const base_id=field(raw,'base_id'),items=field(raw,'items'),at=field(raw,'at'),tick=numeric(raw,'tick'),system=field(raw,'system_id');
+  const base_id=field(raw,'base_id'),items=field(raw,'items'),at=field(raw,'at'),tick=num(raw,'tick'),system=field(raw,'system_id');
   return typeof base_id==='string'&&base_id&&Array.isArray(items)
     ?[{base_id,at:typeof at==='string'?at:'',...tick===undefined?{}:{tick},...typeof system==='string'?{system_id:system}:{},items:items.flatMap(listing)}]:[];
 };
@@ -118,18 +118,12 @@ export function rememberBook(dir:string|undefined,base_id:string,system_id:strin
 export const bookEffect=()=>Effect.gen(function*() {
   const reply=replyBody(yield* (yield* Game).command('spacemolt_market/view_market',{}));
   const items=rows(field(reply,'items')).flatMap(listing);
-  lastTick=numeric(reply,'current_tick')??lastTick;
+  lastTick=num(reply,'current_tick')??lastTick;
   const base=acct().state.location?.docked_at??'';
   remember(base,items,lastTick);
   yield* fileIntelEffect(acct(),base,items,lastTick,step);
   return new Map(items.map(item=>[item.item_id,item]));
 });
-/** The Promise twin of `bookEffect`: throws the lib's raw error, as it always did. */
-export async function book():Promise<Map<string,MarketListingItem>> {
-  const exit=await Effect.runPromiseExit(bookEffect().pipe(Effect.provide(GameLive({send:command}))));
-  if(exit._tag==='Failure')throw rawError(exit.cause); // bridge: U23, U24, U25 (callers: play/industry/crafting.ts, trading/trading.ts, trading/scout.ts)
-  return exit.value;
-}
 
 /** What things are worth here. Default: every item in the hold and in this base's store.
  * Pass item ids for others. Capped at 40 rows. Over `view_market` it adds: the filter to
@@ -147,7 +141,7 @@ export const pricesEffect=(items?:string[])=>jobEffect<{quotes:Quote[]},Game>('p
   else {
     let dropped=0;
     for(const row of rows(field(replyBody(viewed.success),'items'))) {
-      const id=field(row,'item_id'),quantity=numeric(row,'quantity');
+      const id=field(row,'item_id'),quantity=num(row,'quantity');
       if(typeof id==='string'&&quantity!==undefined)stored[id]=(stored[id]??0)+quantity;else dropped++;
     }
     if(dropped)step(`storage view: ${dropped} row(s) had no item_id and quantity; left out of the stored counts`);
@@ -244,7 +238,7 @@ export const sellEffect=(items:Want[],opts:{from?:'hold'|'store';floor?:Record<s
           why:`${words(error)}; hold re-read: ${took} sold${took>0&&earned===undefined?'; credits unknown':''}`});
         return took;
       }
-      const fill=replyBody(sent.success),earned=numeric(fill,'total_earned'),took=numeric(fill,'quantity_sold')??quantity;
+      const fill=replyBody(sent.success),earned=num(fill,'total_earned'),took=num(fill,'quantity_sold')??quantity;
       fills.push(asSell(fill));total+=earned??0;landed.push({item_id:row.item_id,quantity:took,...earned===undefined?{}:{earned}});
       carried.held[row.item_id]=held-took;
       carried.credits=carried.credits===undefined||earned===undefined?undefined:carried.credits+earned;
@@ -363,10 +357,10 @@ export const buyEffect=(itemId:string,quantity:number,opts:{deliverTo?:'cargo'|'
       }
     }
     const quote=replyBody(yield* game.command('spacemolt_market/estimate_purchase',{item_id:itemId,quantity}));
-    const estimate=asEstimate(quote),available=numeric(quote,'available')??0,message=field(quote,'message');
+    const estimate=asEstimate(quote),available=num(quote,'available')??0,message=field(quote,'message');
     const who=pilot(),credits=acct().state.player?.credits??0;
     const reserve=who.permissions?.credit_reserve??0;
-    const cost=numeric(quote,'total_cost')??0;
+    const cost=num(quote,'total_cost')??0;
     if(!(available>0))return {status:'refused',did:`did not buy ${itemId}`,why:`not on this market: ${typeof message==='string'?message:'0 available'}`,detail:{estimate}};
     if(credits-cost<reserve)return {status:'refused',did:`did not buy ${itemId}`,why:`costs ${cost}; credits ${credits} less reserve ${reserve} leaves ${credits-reserve}`,detail:{estimate}};
     if(opts.maxEach!==undefined&&cost>opts.maxEach*quantity)return {status:'refused',did:`did not buy ${itemId}`,why:`costs ${cost}, over maxEach ${opts.maxEach} × ${quantity}`,detail:{estimate}};
@@ -375,10 +369,10 @@ export const buyEffect=(itemId:string,quantity:number,opts:{deliverTo?:'cargo'|'
     const filled=replyBody(yield* game.command('spacemolt/buy',{id:itemId,quantity:Math.min(quantity,available),
       ...opts.deliverTo?{deliver_to:opts.deliverTo}:{}}));
     // The reply's `total_cost` is the subtotal; the tax on it is charged on top, floored.
-    const subtotal=numeric(filled,'total_cost')??cost,tax=Math.floor(subtotal*(numeric(quote,'sales_tax_rate_bps')??0)/10_000);
-    const unfilled=numeric(filled,'unfilled')??0;
+    const subtotal=num(filled,'total_cost')??cost,tax=Math.floor(subtotal*(num(quote,'sales_tax_rate_bps')??0)/10_000);
+    const unfilled=num(filled,'unfilled')??0;
     return {status:unfilled>0?'partial':'done',
-      did:`bought ${numeric(filled,'quantity')??quantity} ${itemId} for ${subtotal+tax} cr${tax?` (${tax} of it tax)`:''}`,
+      did:`bought ${num(filled,'quantity')??quantity} ${itemId} for ${subtotal+tax} cr${tax?` (${tax} of it tax)`:''}`,
       ...unfilled>0?{why:`${unfilled} unfilled`}:{},detail:{estimate,bought:asBuy(filled)}};
   }));
 export function buy(itemId:string,quantity:number,opts:{deliverTo?:'cargo'|'storage';maxEach?:number;force?:boolean}={}):Promise<Outcome<Bought>> {return edge(buyEffect(itemId,quantity,opts));}

@@ -26,7 +26,7 @@ export interface Moved {
 const ITEM_CAP=40;
 
 /** A field of the view reply this file reads did not decode against the spec. A named value, folded into the Outcome by the twin. */
-class OffSpec extends Data.TaggedError('OffSpec')<{readonly action:string;readonly message:string}> {}
+export class OffSpec extends Data.TaggedError('OffSpec')<{readonly action:string;readonly message:string}> {}
 
 // Only what this file reads: the live server omits spec fields (`hint`, as U12 found of get_base), so a
 // whole-reply decode would refuse real stores. `ships` and `locations` are only counted.
@@ -46,7 +46,7 @@ const read=(stationId?:string)=>Effect.gen(function*() {
 });
 const view=(stationId?:string)=>read(stationId).pipe(Effect.map(result=>result.view));
 /** A reply off the spec is `failed`, saying so: not a defect, not a crash. */
-const folded=<D>(fn:string,empty:()=>D,body:Effect.Effect<Said<D>,GameError|Stopped|OffSpec,Game>)=>body.pipe(Effect.catchTag('OffSpec',
+export const folded=<D>(fn:string,empty:()=>D,body:Effect.Effect<Said<D>,GameError|Stopped|OffSpec,Game>)=>body.pipe(Effect.catchTag('OffSpec',
   (error):Effect.Effect<Said<D>>=>Effect.succeed({status:'failed',did:`${fn} broke`,why:`${error.action}: reply off spec — ${error.message}`,detail:empty()})));
 /** Cargo one unit of `item` occupies, from the store's or the hold's row; one when neither says. */
 const sizeOf=(item:string,rows:{item_id:string;size?:number}[])=>Number(rows.find(row=>row.item_id===item&&Number(row.size)>0)?.size)||1;

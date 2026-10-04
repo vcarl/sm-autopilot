@@ -1,4 +1,11 @@
-import type { ReadinessCommand } from '../../readiness.ts';
+/** Scouting: going to read the books nobody has read lately. A route can only be planned over a
+ * book someone read, the faction ledger covers a fraction of the stations, and `get_map` lists
+ * systems but not their bases, so a base is learned from a book, a `find_route`, the faction's
+ * intel map (`query_intel`), or a `get_system` in its own system. `candidates` is the one choice
+ * of where to go next, read by the pilot's `scoutMarkets` and by a waiting freighter's host alike. */
+import { Effect } from 'effect';
+import { Game } from '../game.ts';
+import { Stopped } from '../runtime.ts';
 import type { Outcome } from '../types.ts';
 import { type Seat } from './trading.ts';
 /** ponytail: how far scouting looks, in jumps from where the ship is. Tunable. */
@@ -21,10 +28,12 @@ export declare const target: (row: Candidate) => string;
  * kept in `places.json`), and the runtime's `places.json`, `explored.json` and market memory. A
  * system with a base already placed counts as explored; its other bases are listed by the
  * `explore` after a hop there. */
+export declare const candidatesEffect: (seat: Seat, now: number, jumps?: number) => Effect.Effect<Candidate[], import("../codes.ts").GameError | Stopped, Game>;
+/** The Promise twin of `candidatesEffect`, sending through the seat's own `command`: throws the lib's raw error, or `Stopped`, as it always did. */
 export declare function candidates(seat: Seat, now: number, jumps?: number): Promise<Candidate[]>;
-/** The system the ship is in, listed live (`get_system`): each base's place kept in `places.json`,
- * the system kept in `explored.json`. The base ids. */
-export declare function explore(send: ReadinessCommand, dir: string | undefined): Promise<string[]>;
+/** The system the ship is in, listed live (`get_system`): each base's place kept in the seat's `places.json`,
+ * the system kept in its `explored.json`. The base ids; none, journalled to the seat, when the reply does not read. */
+export declare const exploreEffect: (seat: Seat) => Effect.Effect<string[], import("../codes.ts").GameError, Game>;
 export interface Scouted {
     /** Bases whose book was read, remembered and filed, in order. */
     filed: string[];
@@ -46,3 +55,9 @@ export declare function scoutMarkets(opts?: {
     jumps?: number;
     max?: number;
 }): Promise<Outcome<Scouted>>;
+/** `scoutMarkets` as an Effect, for `edge`; never in a barrel. A stop, a refusal or a lost reply ends the scout naming the
+ * action and the code (every command here is a read, and a leg's own loss is `goTo`'s to re-observe). */
+export declare const scoutMarketsEffect: (opts?: {
+    jumps?: number;
+    max?: number;
+}) => Effect.Effect<Outcome<Scouted>, never, Game>;

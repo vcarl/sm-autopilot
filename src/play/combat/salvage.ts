@@ -5,8 +5,8 @@ import {Effect,Option,Schema,Struct} from 'effect';
 import {miningInventory} from '../../mining-inventory.ts';
 import {replyBody} from '../../storage.ts';
 import * as Wire from '../../wire.gen.ts';
-import {Game,GameLive,attempt,field,rawError,type GameError} from '../game.ts';
-import {acct,checkStop,command,edge,jobEffect,step} from '../runtime.ts';
+import {Game,attempt,field,type GameError} from '../game.ts';
+import {acct,checkStop,edge,jobEffect,step} from '../runtime.ts';
 import type {Outcome} from '../types.ts';
 
 export interface Salvaged {
@@ -41,14 +41,6 @@ export const wrecksHereEffect=()=>Effect.gen(function*() {
   }
   return wrecks;
 });
-/** The Promise twin for callers not yet converted: throws the lib's raw error. */
-async function viaCommand<A>(effect:Effect.Effect<A,GameError,Game>):Promise<A> {
-  const exit=await Effect.runPromiseExit(effect.pipe(Effect.provide(GameLive({send:command})))); // bridge: U21 (caller: combat/hunting.ts)
-  if(exit._tag==='Failure')throw rawError(exit.cause);
-  return exit.value;
-}
-export const wrecksHere=():Promise<EnrichedWreck[]>=>viaCommand(wrecksHereEffect());
-
 const room=()=>{const ship=acct().state.ship;return Number(ship?.cargo_capacity??0)-Number(ship?.cargo_used??0);};
 /** Why a row stayed in the wreck: the game's refusal (the error itself), or a condition of this side. */
 type Reason=Exclude<GameError,{_tag:'ReplyLost'}>|'hold full'|'nothing that fits';
@@ -95,12 +87,6 @@ export const lootWreckEffect=(wreck:EnrichedWreck)=>Effect.gen(function*() {
   // No cargo and no modules: the hull is all that is left.
   return {items,modules,left,modulesLeft,empty:!wreck.modules.length&&!wreck.cargo.length};
 });
-/** The Promise twin for hunting.ts: a refusal is a value, a lost reply rejects with the lib's raw error. */
-export async function lootWreck(wreck:EnrichedWreck):Promise<{items:LootedItem[];modules:LootedModule[];left:ShipCargoItem[]}> {
-  const {items,modules,left}=await viaCommand(lootWreckEffect(wreck)); // bridge: U21 (caller: combat/hunting.ts)
-  return {items,modules,left:left.map(one=>one.row)};
-}
-
 const say=(rows:LootedItem[])=>rows.map(row=>`${row.quantity} ${row.item_id}`).join(', ');
 
 /** `salvage` as an Effect, for `edge` and for converted callers; never in a barrel. A tow the game refuses or

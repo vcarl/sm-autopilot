@@ -85,7 +85,11 @@ export interface WorldOptions {
   /** The faction trade ledger `query_trade_intel` answers with. Absent means no faction:
    * the command throws, as it does for a pilot with no trade-intel facility. */
   tradeIntel?:{base_id:string;station_name?:string;submitted_at_tick?:number;
-    items:{item_id:string;item_name?:string;best_buy:number;best_sell?:number;buy_volume?:number;sell_volume?:number}[]}[];
+    /** `null` answers as the live server sends an empty collection. */
+    items:{item_id:string;item_name?:string;best_buy:number;best_sell?:number;buy_volume?:number;sell_volume?:number}[]|null}[];
+  /** The faction's intel map `query_intel` answers with, a system and its bases each (`null` pois answers as the live
+   * server sends an empty collection). Needs `tradeIntel`: without a faction the command is refused. */
+  intel?:{system_id:string;pois:{id:string;base_id?:string}[]|null}[];
   /** What the station store holds before anything is deposited. */
   store?:{item_id:string;name?:string;quantity:number}[];
   /** How much ore one mining cycle puts in the hold. */
@@ -663,6 +667,13 @@ export function bridgeWorld(options:WorldOptions={}) {
     },
     // As live: an `item_id` filter answers nothing, even for a filed item; `base_id` (or no
     // filter) answers whole books, paged by `limit`/`offset`; `system_id` is always empty.
+    'spacemolt_intel/query_intel':params=>{
+      if(!ledger)throw new SpacemoltError('not_in_faction','You are not in a faction');
+      const all=options.intel??[],limit=Number(params.limit??10),offset=Number(params.offset??0);
+      return {structuredContent:{count:all.length,total:all.length,intel_level:1,current_tick:TICK,message:'',
+        entries:all.slice(offset,offset+limit).map(row=>({name:row.system_id,police_level:0,submitted_at_tick:100,submitted_by:'p',
+          submitter_name:'p',...row}))}};
+    },
     'spacemolt_intel/query_trade_intel':params=>{
       if(!ledger)throw new Error('You are not in a faction');
       const limit=Number(params.limit??10),offset=Number(params.offset??0);
@@ -671,7 +682,7 @@ export function bridgeWorld(options:WorldOptions={}) {
         .map(row=>({base_id:row.base_id,system_id:'',
           station_name:row.station_name??row.base_id,submitted_at_tick:row.submitted_at_tick??100,
           submitted_by:'someone',submitter_name:'Someone',
-          items:row.items.map(cell=>({item_name:cell.item_id,best_sell:0,buy_volume:0,sell_volume:0,...cell}))}));
+          items:row.items&&row.items.map(cell=>({item_name:cell.item_id,best_sell:0,buy_volume:0,sell_volume:0,...cell}))}));
       return {structuredContent:{entries,intel_level:2,limit,offset,showing:entries.length,total:matched.length}};
     },
     // One entry per base, the latest filing replacing the last, stamped with the tick it came in on.

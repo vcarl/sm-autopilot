@@ -55,8 +55,6 @@ export declare const destinationEffect: (id: string) => Effect.Effect<{
 }, import("./codes.ts").Rejected | import("./codes.ts").InBattle | import("./codes.ts").HoldFull | import("./codes.ts").Depleted | import("./codes.ts").ReplyLost | NotAPlace, Game>;
 /** The quote alone, for callers that only want the fuel and jumps. */
 export declare const routeEffect: (id: string) => Effect.Effect<FindRouteResponse, import("./codes.ts").Rejected | import("./codes.ts").InBattle | import("./codes.ts").HoldFull | import("./codes.ts").Depleted | import("./codes.ts").ReplyLost | NotAPlace, Game>;
-/** The Promise twin of `routeEffect`: throws `NotAPlace` (a `TravelBlocked`) or the lib's raw error, as it always did. */
-export declare function route(id: string): Promise<FindRouteResponse>;
 /** A distress call this trip passes near enough to answer, and what including it costs. */
 export interface Stop {
     id: string;

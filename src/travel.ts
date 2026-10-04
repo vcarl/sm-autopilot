@@ -336,6 +336,6 @@ export const travelToEffect=(account:ReadinessAccount,destination:TravelDestinat
  * themselves. */
 export async function travelTo(account:ReadinessAccount,command:ReadinessCommand,destination:TravelDestination,options:TravelOptions={}) {
   const exit=await Effect.runPromiseExit(travelToEffect(account,destination,options).pipe(Effect.provide(GameLive({send:command}))));
-  if(exit._tag==='Failure')throw rawError(exit.cause); // bridge: U11, U26 (their conversion calls the twin and deletes this)
+  if(exit._tag==='Failure')throw rawError(exit.cause); // bridge: U11 (its conversion calls the twin and deletes this)
   return exit.value;
 }

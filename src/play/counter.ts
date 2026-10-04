@@ -46,6 +46,6 @@ export const counterEffect=()=>Effect.gen(function*() {
 /** The Promise twin of `counterEffect`: throws the lib's raw error or `DockBlocked`, as it always did. */
 export async function counter():Promise<{docked:string}|{refused:string}> {
   const exit=await Effect.runPromiseExit(counterEffect().pipe(Effect.provide(GameLive({send:command}))));
-  if(exit._tag==='Failure')throw rawError(exit.cause); // bridge: U13, U24 (callers: play/storage.ts, trading/trading.ts)
+  if(exit._tag==='Failure')throw rawError(exit.cause); // bridge: U13 (callers: play/storage.ts)
   return exit.value;
 }

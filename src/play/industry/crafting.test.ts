@@ -1,13 +1,17 @@
 import assert from 'node:assert/strict';
-import {mkdtempSync,readFileSync} from 'node:fs';
+import {mkdtempSync,readFileSync,rmSync,writeFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import test from 'node:test';
-import type {Catalog,Account} from '@spacemolt/lib';
+import {SpacemoltError,type Catalog,type Account} from '@spacemolt/lib';
+import {Effect,Fiber,Layer} from 'effect';
+import {TestClock} from 'effect/testing';
 import type {ReadinessAccount} from '../../readiness.ts';
+import {readJournal} from '../../run-record.ts';
 import {bridgeWorld,type WorldOptions} from '../../test-support/bridge-world.ts';
-import {bind,unbind,type Pilot} from '../runtime.ts';
-import {craft,jobs,materials,quote,recipes,revalidated,supply,useCatalog} from './crafting.ts';
+import {GameLive,type Game} from '../game.ts';
+import {bind,stop,unbind,type Pilot} from '../runtime.ts';
+import {craft,craftEffect,jobs,materials,quote,recipes,revalidated,supply,useCatalog} from './crafting.ts';
 
 /** The catalog behind the fake bench's one recipe: 5 iron ore into 2 steel plate. */
 const CATALOG={version:'test',recipes:[{id:'refine_steel',name:'Refine Steel',category:'Refining',
@@ -324,4 +328,226 @@ test('the catalog is kept on disk: a 304 answers from it, a failed fetch falls b
   assert.deepEqual(fetches.map(row=>[row.event,row.status,row.from_disk]),
     [['fetch',200,undefined],['fetch',304,true],['fetch',undefined,true]]);
   await assert.rejects(revalidated(join(dir,'empty'),async()=>{throw new Error('down');}),/down/);
+});
+
+test('a catalog copy on disk that does not decode is fetched whole, not trusted', async()=>{
+  const dir=mkdtempSync(join(tmpdir(),'catalog-'));
+  writeFileSync(join(dir,'catalog.json'),JSON.stringify({etag:'"v1"',catalog:{version:'old',recipes:[null],items:[]}}));
+  const asked:(string|undefined)[]=[];
+  const got=await revalidated(dir,async(_,etag)=>{asked.push(etag);return etag?{notModified:true,etag}:{notModified:false,catalog:CATALOG,etag:'"v2"'};});
+  assert.deepEqual(asked,[undefined]);
+  assert.equal(got.version,'test');
+  assert.equal(JSON.parse(readFileSync(join(dir,'catalog.json'),'utf8')).etag,'"v2"');
+  const fetches=readFileSync(join(dir,'gameplay.jsonl'),'utf8').trim().split('\n').map(row=>JSON.parse(row));
+  assert.deepEqual(fetches.map(row=>[row.status,row.disk_unread]),[[200,true]]);
+});
+
+/** What a world does with one command: answer it, refuse it, or carry it out and lose the reply. Every send is counted as asked. */
+type Params=Record<string,unknown>|undefined;
+type Act=(action:string,params:Params,perform:()=>Promise<unknown>)=>Promise<unknown>;
+type Match=(action:string,params:Params)=>boolean;
+const lostReply=()=>new SpacemoltError('mutation_timeout','no reply in time');
+/** `landed` carries the command out and loses its reply; `dropped` loses it before the game ever saw it. */
+const landed=(match:Match):Act=>async(action,params,perform)=>{
+  const reply=await perform();
+  if(match(action,params))throw lostReply();
+  return reply;
+};
+const dropped=(match:Match):Act=>async(action,params,perform)=>{
+  if(match(action,params))throw lostReply();
+  return perform();
+};
+const refused=(match:Match,code:string):Act=>async(action,params,perform)=>{
+  if(match(action,params))throw new SpacemoltError(code,`the game said ${code}`);
+  return perform();
+};
+const plain:Act=(action,params,perform)=>perform();
+const isCommit:Match=(action,params)=>action==='spacemolt/craft'&&params?.id!==undefined&&!params.dry_run;
+const isDry:Match=(action,params)=>action==='spacemolt/craft'&&params?.dry_run===true;
+const isBuy:Match=action=>action==='spacemolt/buy';
+/** A world bound to a temporary runtime, so its journal can be read for defects, whose command seam may intercept. */
+function rig(options:WorldOptions,act:Act) {
+  useCatalog(async()=>CATALOG);
+  const runtime=mkdtempSync(join(tmpdir(),'spacemolt-crafting-'));
+  const game=bridgeWorld({services:['refuel','repair','storage','crafting'],cargoUsed:0,market:BOOK,...options});
+  const asked:{action:string;params:Params}[]=[];
+  const command:typeof game.command=async(action,params)=>{asked.push({action,params});return act(action,params,()=>game.command(action,params));};
+  bind({account:game.account as unknown as Account,command,runtime,pilot:():Pilot=>({mood:'Focused'}),emit:()=>{}});
+  return {...game,command,
+    count:(match:Match)=>asked.filter(row=>match(row.action,row.params)).length,
+    defects:()=>readJournal(runtime).filter(row=>row.event==='defect'),
+    close:()=>{unbind();rmSync(runtime,{recursive:true,force:true});}};
+}
+/** A fresh store per use: a commit escrows out of the array it is handed. */
+const stocked={get store(){return [{item_id:'iron_ore',quantity:20}];}};
+
+test('a commit the game refuses ends refused in the server\'s code, sent once, and escrows nothing',async()=>{
+  const f=rig(stocked,refused(isCommit,'insufficient_funds'));
+  try {
+    const out=await craft('refine_steel',2);
+    assert.equal(out.status,'refused',JSON.stringify(out));
+    assert.match(out.why!,/was not queued at sol_base: spacemolt\/craft: insufficient_funds/);
+    assert.equal(f.count(isCommit),1,'a refusal is not retried');
+    assert.equal(f.queued.length,0);
+    assert.deepEqual(f.defects(),[]);
+  } finally {f.close();}
+});
+
+test('a dry run the game refuses ends the craft refused in its code, with nothing committed',async()=>{
+  const f=rig(stocked,refused(isDry,'wrong_facility'));
+  try {
+    const out=await craft('refine_steel',2,{at:'fac-9'});
+    assert.equal(out.status,'refused',JSON.stringify(out));
+    assert.match(out.why!,/wrong_facility/);
+    assert.equal(f.count(isCommit),0);
+    assert.deepEqual(f.defects(),[]);
+  } finally {f.close();}
+});
+
+test('a commit whose reply is lost is never re-sent: the queue says it landed, and the craft goes on to done',async()=>{
+  const f=rig({...stocked,craft:{polls:1}},landed(isCommit));
+  try {
+    const out=await craft('refine_steel',2);
+    assert.equal(out.status,'done',JSON.stringify(out));
+    assert.deepEqual(out.detail.made,[{item_id:'steel_plate',quantity:2}]);
+    assert.equal(f.count(isCommit),1,'a mutation whose reply is lost is never re-sent');
+    assert.equal(f.store.find(row=>row.item_id==='iron_ore')?.quantity,15,'one escrow, not two');
+    assert.deepEqual(f.defects(),[]);
+  } finally {f.close();}
+});
+
+test('a commit whose reply is lost and that the queue and store do not show is partial, never done, and not re-sent',async()=>{
+  const f=rig(stocked,dropped(isCommit));
+  try {
+    const out=await craft('refine_steel',2);
+    assert.equal(out.status,'partial',JSON.stringify(out));
+    assert.match(out.why!,/reply lost on spacemolt\/craft; the queue does not show the job, the store shows no output, so it may have landed/);
+    assert.equal(f.count(isCommit),1);
+    assert.deepEqual(out.detail.made,[]);
+    assert.deepEqual(f.defects(),[]);
+  } finally {f.close();}
+});
+
+test('a commit whose reply does not read waits on the queue for the same order, not a blank job id that reads as gone',async()=>{
+  // A blank id matched no queue row, so the wait ended at once and a craft still running was called failed.
+  const f=rig({...stocked,craft:{polls:2}},async(action,params,perform)=>{const reply=await perform();return isCommit(action,params)?{job_id:7}:reply;});
+  try {
+    const out=await craft('refine_steel',2);
+    assert.equal(out.status,'done',JSON.stringify(out));
+    assert.deepEqual(out.detail.made,[{item_id:'steel_plate',quantity:2}]);
+    assert.equal(f.count(isCommit),1);
+    assert.deepEqual(f.defects(),[]);
+  } finally {f.close();}
+});
+
+test('a commit whose reply is lost, of a craft that already finished, is done from the store\'s delta',async()=>{
+  // The queue is empty again by the time it is re-read; the output is in the store.
+  const f=rig(stocked,landed(isCommit));
+  try {
+    const out=await craft('refine_steel',2);
+    assert.equal(out.status,'done',JSON.stringify(out));
+    assert.deepEqual(out.detail.made,[{item_id:'steel_plate',quantity:2}]);
+    assert.match(out.did,/the store shows it landed/);
+    assert.equal(f.count(isCommit),1);
+  } finally {f.close();}
+});
+
+test('a queue that cannot be read after the commit leaves the craft partial with the job named, not failed',async()=>{
+  let committed=false;
+  const f=rig(stocked,async(action,params,perform)=>{
+    if(isCommit(action,params))committed=true;
+    if(committed&&action==='spacemolt/craft'&&params?.id===undefined)throw lostReply();
+    return perform();
+  });
+  try {
+    const out=await craft('refine_steel',2);
+    assert.equal(out.status,'partial',JSON.stringify(out));
+    assert.match(out.did,/queued at sol_base as job job-1/);
+    assert.match(out.why!,/the queue could not be read: reply lost on spacemolt\/craft/);
+    assert.equal(f.count(isCommit),1);
+    assert.deepEqual(f.defects(),[]);
+  } finally {f.close();}
+});
+
+test('a buy the game refuses leaves supply partial with the server\'s code, and the shortfall read from the store',async()=>{
+  const f=rig({store:[]},refused(isBuy,'insufficient_credits'));
+  try {
+    const out=await supply('refine_steel',2);
+    assert.equal(out.status,'partial',JSON.stringify(out));
+    assert.match(out.why!,/iron_ore: spacemolt\/buy: insufficient_credits/);
+    assert.deepEqual(out.detail.short,[{item_id:'iron_ore',have:0,need:5,source:'mining'}]);
+    assert.equal(f.count(isBuy),1);
+    assert.deepEqual(f.defects(),[]);
+  } finally {f.close();}
+});
+
+test('a buy whose reply is lost is never re-sent: the store says it arrived, and the wallet says what it cost',async()=>{
+  const f=rig({store:[]},landed(isBuy));
+  try {
+    const out=await supply('refine_steel',2);
+    assert.equal(out.status,'done',JSON.stringify(out));
+    assert.equal(f.count(isBuy),1,'a buy whose reply is lost is never re-sent');
+    assert.equal(f.store.find(row=>row.item_id==='iron_ore')?.quantity,5);
+    assert.equal(out.detail.spent,60,'5 at 12, from the wallet');
+    assert.deepEqual(out.detail.short,[]);
+    assert.deepEqual(f.defects(),[]);
+  } finally {f.close();}
+});
+
+/** Run one Effect against a world on the TestClock, a minute at a time. `during` runs between minutes. */
+const clocked=<A,E>(f:ReturnType<typeof rig>,effect:Effect.Effect<A,E,Game>,minutes:number,during:(minute:number)=>void=()=>{})=>
+  Effect.runPromise(Effect.gen(function*() {
+    const fiber=yield* Effect.forkChild(effect);
+    for(let minute=0;minute<minutes;minute++) {
+      yield* TestClock.adjust('60 seconds');
+      yield* Effect.promise(()=>new Promise(resolve=>setImmediate(resolve)));
+      during(minute);
+    }
+    return yield* Fiber.join(fiber);
+  }).pipe(Effect.provide(Layer.mergeAll(GameLive({send:f.command,refresh:()=>f.account.refresh()}),TestClock.layer()))));
+const slow={get store(){return stocked.store;},craft:{polls:10_000,eta_ticks:100}};
+
+// Time comes from the clock the wait sleeps on: ten minutes of polling pass in a test that sleeps for none of them.
+test('a craft the bench never delivers is given up on at the ceiling, on the TestClock, partial with the job named',async()=>{
+  const f=rig(slow,plain);
+  try {
+    const out=await clocked(f,craftEffect('refine_steel',2),15);
+    assert.equal(out.status,'partial',JSON.stringify(out));
+    assert.match(out.did,/Refine Steel is still queued at sol_base as job job-1/);
+    assert.match(out.why!,/did not deliver inside 10 minutes/);
+    assert.equal(f.count(isCommit),1);
+    assert.deepEqual(f.defects(),[]);
+  } finally {f.close();}
+});
+
+test('a pilot stop mid-wait ends the craft partial and is not a defect',async()=>{
+  const f=rig(slow,plain);
+  try {
+    const out=await clocked(f,craftEffect('refine_steel',2),15,minute=>{if(minute===2)stop();});
+    assert.equal(out.status,'partial',JSON.stringify(out));
+    assert.match(out.why!,/stopped by pilot/);
+    assert.deepEqual(f.defects(),[]);
+  } finally {f.close();}
+});
+
+test('a catalog that cannot be read fails recipes saying so, and is no defect',async()=>{
+  const f=rig(stocked,plain);
+  useCatalog(async()=>{throw new Error('down');});
+  try {
+    const out=await recipes();
+    assert.equal(out.status,'failed',JSON.stringify(out));
+    assert.match(out.why!,/catalog unavailable: down/);
+    assert.deepEqual(f.defects(),[]);
+  } finally {f.close();}
+});
+
+test('a queue row that does not read is left out and said, not a failed jobs read',async()=>{
+  const f=rig({...stocked,craft:{polls:5}},plain);
+  f.queued.push({job_id:'j1',recipe:'Refine Steel',status:'active',base_id:'sol_base',facility_id:'fac-1',runs_done:0,runs_total:1,produces:[]},{recipe:'No Id',status:'queued',produces:[]});
+  try {
+    const out=await jobs();
+    assert.equal(out.status,'done',JSON.stringify(out));
+    assert.deepEqual(out.detail.jobs.map(row=>row.job_id),['j1']);
+    assert.deepEqual(f.defects(),[]);
+  } finally {f.close();}
 });

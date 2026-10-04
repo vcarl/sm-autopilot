@@ -8,9 +8,10 @@ import {TICK_MS} from '../sighting-memory.ts';
 import {replyBody} from '../storage.ts';
 import * as Wire from '../wire.gen.ts';
 import {counterEffect} from './counter.ts';
-import {Game,GameLive,attempt,field,rawError,type GameError} from './game.ts';
-import {Stopped,acct,admit,command,edge,jobEffect,runtimeDir,step,stopped} from './runtime.ts';
+import {Game,attempt,field,type GameError} from './game.ts';
+import {Stopped,acct,admit,edge,jobEffect,runtimeDir,step,stopped} from './runtime.ts';
 import {withdrawEffect} from './storage.ts';
+import {kept} from './rows.ts';
 import type {Outcome,Want} from './types.ts';
 
 /** The counter, or why the job broke: a dock that was blocked is the job's failure, as a throw always was. */
@@ -45,14 +46,8 @@ const decodeActive=Schema.decodeUnknownOption(Wire.ActiveMissionInfo.mapFields(f
 const decodeTitle=Schema.decodeUnknownOption(Wire.AcceptMissionResponse.mapFields(Struct.pick(['title'])));
 const decodeAbandoned=Schema.decodeUnknownOption(Wire.AbandonMissionResponse.mapFields(Struct.pick(['title'])));
 const decodeEarned=Schema.decodeUnknownOption(Wire.CompleteMissionResponse.mapFields(Struct.pick(['credits_earned'])));
+const missionId=(row:unknown)=>field(row,'mission_id');
 
-/** The rows of a reply's list whose read fields decode, as the game sent them. A row that does not is left out and said in a step. */
-const kept=(action:string,key:string,list:unknown,decode:(row:unknown)=>Option.Option<unknown>):unknown[]=>
-  Array.isArray(list)?list.filter(row=>{
-    if(Option.isSome(decode(row)))return true;
-    step(`${action}: a ${key} row (${field(row,'mission_id')??'no id'}) did not read; left out`);
-    return false;
-  }):[];
 
 /** A board entry, with the 21 KB of dialog dropped and one line we compute for it. */
 export type Offer=Omit<MissionInfo,'dialog'|'description'>&{
@@ -99,19 +94,12 @@ export const activeEffect=()=>Effect.gen(function*() {
   // resort, and a stale cache is how a full board looks like a free slot.
   const section=field(body,'missions')??(Array.isArray(field(body,'active'))?body:acct().state.missions);
   const max=field(section,'max_missions');
-  const mine:V2Missions={active:kept('spacemolt/get_active_missions','active',field(section,'active'),decodeActive).map(asActive),
+  const mine:V2Missions={active:kept('spacemolt/get_active_missions','active',field(section,'active'),decodeActive,missionId).map(asActive),
     max_missions:typeof max==='number'?max:5};
   for(const m of mine.active)known.add(m.mission_id);
   noteExpiries(mine.active);
   return mine;
 });
-/** The Promise twin of `activeEffect`: throws the lib's raw error, as it always did. */
-export async function active():Promise<V2Missions> {
-  const exit=await Effect.runPromiseExit(activeEffect().pipe(Effect.provide(GameLive({send:command}))));
-  if(exit._tag==='Failure')throw rawError(exit.cause); // bridge: U21 (callers: combat/hunting.ts)
-  return exit.value;
-}
-
 /** Turnable in now. `percent_complete` is the personal measure; a community mission carries
  * `community_percent` instead and leaves `percent_complete` at whatever this player did. */
 const completable=(m:ActiveMissionInfo):boolean=>
@@ -195,7 +183,7 @@ export const missionsEffect=()=>jobEffect<{board:Offer[];active:Active[];max:num
   const at=yield* atCounter();
   if('broke' in at)return {status:'failed' as const,did:'missions broke',why:at.broke,detail:none};
   if('refused' in at)return {status:'refused' as const,did:'read no board',why:at.refused,detail:none};
-  const board=kept('spacemolt/get_missions','missions',field(replyBody(yield* (yield* Game).command('spacemolt/get_missions',{})),'missions'),decodeOffer).map(asMission);
+  const board=kept('spacemolt/get_missions','missions',field(replyBody(yield* (yield* Game).command('spacemolt/get_missions',{})),'missions'),decodeOffer,missionId).map(asMission);
   const mine=yield* activeEffect();
   const offers=board.map(offer);
   const fitting=offers.filter(o=>o.fits);
@@ -235,7 +223,7 @@ export const acceptMissionEffect=(id:string)=>jobEffect<AcceptMissionResponse,Ga
   // Refused here, with nothing sent: the game's own refusal costs a round trip to learn
   // what `missions().detail.slots_free` already said.
   if(!census(mine).free)return {status:'refused',did:`did not accept ${id}`,why:`no slot free: ${mine.active.length} of ${mine.max_missions} missions already active`,detail:none};
-  const board=kept('spacemolt/get_missions','missions',field(replyBody(yield* game.command('spacemolt/get_missions',{})),'missions'),decodeOffer).map(asMission);
+  const board=kept('spacemolt/get_missions','missions',field(replyBody(yield* game.command('spacemolt/get_missions',{})),'missions'),decodeOffer,missionId).map(asMission);
   const wanted=board.find(m=>m.mission_id===id||m.template_id===id);
   if(!wanted)return {status:'refused',did:`did not accept ${id}`,why:'not on the board here',detail:none};
   const load=Object.values(wanted.provided_items??{}).reduce((sum,q)=>sum+q,0);

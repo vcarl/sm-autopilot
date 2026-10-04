@@ -21,7 +21,6 @@ export interface Salvaged {
 }
 /** Every wreck at this POI, as `salvage/wrecks` answers it; a row that does not read is dropped and said. */
 export declare const wrecksHereEffect: () => Effect.Effect<EnrichedWreck[], GameError, Game>;
-export declare const wrecksHere: () => Promise<EnrichedWreck[]>;
 /** Why a row stayed in the wreck: the game's refusal (the error itself), or a condition of this side. */
 type Reason = Exclude<GameError, {
     _tag: 'ReplyLost';
@@ -44,12 +43,6 @@ export declare const lootWreckEffect: (wreck: EnrichedWreck) => Effect.Effect<{
     }[];
     empty: boolean;
 }, GameError, Game>;
-/** The Promise twin for hunting.ts: a refusal is a value, a lost reply rejects with the lib's raw error. */
-export declare function lootWreck(wreck: EnrichedWreck): Promise<{
-    items: LootedItem[];
-    modules: LootedModule[];
-    left: ShipCargoItem[];
-}>;
 /** `salvage` as an Effect, for `edge` and for converted callers; never in a barrel. A tow the game refuses or
  * a lost reply ends the run, naming the action; a refused loot is said in the wreck's line and in `did`. */
 export declare const salvageEffect: (opts?: {

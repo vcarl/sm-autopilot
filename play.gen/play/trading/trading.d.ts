@@ -9,28 +9,39 @@
  * reads the ledger when there is one and otherwise remembers: every `book()` read is written
  * to this runtime's market memory, and the second visit knows what the first one saw.
  */
-import type { FactionQueryTradeIntelResponse, MarketListingItem, OrderLevel, SellResponse } from '@spacemolt/lib';
+import type { MarketListingItem, OrderLevel, SellResponse } from '@spacemolt/lib';
+import { Effect, Schema } from 'effect';
 import type { ReadinessAccount, ReadinessCommand } from '../../readiness.ts';
-import { type Said } from '../runtime.ts';
+import { Game, type GameError } from '../game.ts';
+import { Stopped, type Said } from '../runtime.ts';
 import type { Outcome, Row } from '../types.ts';
-/** Whose connection and files a search reads through: the pilot's for `routes()`, or a freighter's
- * own when its host re-plans it, so a host loop never touches the play runtime. */
 /** `inFaction` for a seat, the skip journalled to the seat's runtime. */
 export declare const seatInFaction: (seat: Seat) => boolean;
+/** A line to the seat's journal for the developers: a pilot's `step` needs a bound run, which a freighter's host does not
+ * have. A freighter's line carries its name, so it is never stamped with the pilot's run. */
+export declare const seatLine: (seat: Seat, facts: Record<string, unknown>, event: string) => void;
+/** Whose connection and files a search reads through: the pilot's for `routes()`, or a freighter's
+ * own when its host re-plans it, so a host loop never touches the play runtime. The Effect code sends
+ * through the `Game` it runs under; `command` is for the Promise callers that still read through the seat. */
 export interface Seat {
     account: ReadinessAccount;
     command: ReadinessCommand;
     runtime: string | undefined;
-    /** The live book where the ship is docked, and the tick it was read on. */
-    book(): Promise<{
+    /** The freighter's name, when the seat is one: its journal lines carry it. */
+    freighter?: string;
+    /** The live book where the ship is docked, and the tick it was read on, when the seat reads it its own way (a
+     * freighter's host does). Absent: the pilot's `bookEffect`, which also remembers and files what it reads. */
+    book?: Effect.Effect<{
         items: Map<string, MarketListingItem>;
         tick: number;
-    }>;
+    }, GameError, Game>;
     /** Throws to end a search early. */
     stop(): void;
 }
-/** The pilot's seat: the play runtime, and `book()` remembering and filing what it reads. */
+/** The pilot's seat: the play runtime. */
 export declare const pilotSeat: () => Seat;
+/** The seat's stop as an Effect: the pilot's `Stopped` is the typed stop, any other throw is a bug and dies with its value. */
+export declare const halt: (seat: Seat) => Effect.Effect<void, Stopped, never>;
 /** One item and one buyer known for it, with the trip to that buyer priced and ranked. */
 export interface Spread {
     item_id: string;
@@ -74,10 +85,31 @@ export declare function spreads(items?: string[]): Promise<Outcome<{
     spreads: Spread[];
     sources: string[];
 }>>;
+type Spreads = {
+    spreads: Spread[];
+    sources: string[];
+};
+/** `spreads` as an Effect, for `edge` and for converted callers; never in a barrel. */
+export declare const spreadsEffect: (items?: string[]) => Effect.Effect<Outcome<Spreads>, never, Game>;
+/** A ledger entry as this file reads it: the base, its system, the tick it was filed and its top of book per item. Picked
+ * from the spec's entry, because the live server omits spec fields and sends `null` for an empty item list. */
+export declare const LedgerEntry: Schema.Struct<{
+    readonly items: Schema.optionalKey<Schema.NullOr<Schema.$Array<Schema.Struct<{
+        readonly item_id: Schema.String;
+        readonly best_buy: Schema.Number;
+        readonly best_sell: Schema.Number;
+        readonly buy_volume: Schema.Number;
+        readonly sell_volume: Schema.Number;
+    }>>>>;
+    readonly base_id: Schema.String;
+    readonly system_id: Schema.String;
+    readonly submitted_at_tick: Schema.Number;
+}>;
+export type LedgerEntry = typeof LedgerEntry.Type;
 /** A book row as far as a source can say: a ledger entry has the top of book and volumes, no levels. */
 export type Listing = Pick<MarketListingItem, 'item_id' | 'best_buy' | 'best_buy_qty' | 'best_sell' | 'best_sell_qty'> & Partial<Pick<MarketListingItem, 'buy_orders' | 'sell_orders'>>;
 /** A ledger entry's rows as book rows: its top of book and volumes. */
-export declare const ledgerItems: (entry: FactionQueryTradeIntelResponse["entries"][number]) => Listing[];
+export declare const ledgerItems: (entry: Pick<LedgerEntry, "items">) => Listing[];
 /** A book at another base, with its age in ticks against `now`, and its system when the memory kept it. */
 interface FarBook {
     base_id: string;
@@ -91,7 +123,7 @@ interface FarBook {
  * `routes()`, `tradeRun` and `assign` all read. A ledger entry comes back with an empty
  * `system_id`, as does a memory written before books kept one; the memory's system for that base
  * stands in, else the kept place (`places.json`), else none. */
-export declare function farBooks(here: string, now: number, seat?: Seat): Promise<FarBook[]>;
+export declare const farBooksEffect: (here: string, now: number, seat?: Seat) => Effect.Effect<FarBook[], Stopped, Game>;
 /** Ticks for a far end's trust to halve: an hour at ten seconds a tick. NPC books move rarely,
  * so an hour-old price still counts half. */
 export declare const HALF_LIFE = 360;
@@ -213,6 +245,11 @@ export interface Traded {
 export declare function tradeRun(opts: {
     stops: RunStop[];
 }): Promise<Outcome<Traded>>;
+/** `tradeRun` as an Effect, for `edge` and for converted callers; never in a barrel. A buy whose reply is lost is never
+ * re-sent: the hold and the wallet are re-read against what they were before it, and the run is `partial`. */
+export declare const tradeRunEffect: (opts: {
+    stops: RunStop[];
+}) => Effect.Effect<Outcome<Traded>, never, Game>;
 /** How far `routes()` looks unless told: `STOPS` stops, each leg at most `LEG_JUMPS` jumps, no cap
  * on the whole. A local cycle; a galaxy tour is the same call with larger numbers, up to `MAX_STOPS`. */
 export declare const STOPS = 4, LEG_JUMPS = 3, MAX_STOPS = 10;
@@ -295,15 +332,19 @@ export declare function routes(opts?: RouteOpts): Promise<Outcome<{
     routes: Route[];
     sources: string[];
 }>>;
+/** `routes` as an Effect, for `edge` and for converted callers; never in a barrel. */
+export declare const routesEffect: (opts?: RouteOpts) => Effect.Effect<Outcome<Found>, never, Game>;
 export type RouteOpts = {
     items?: string[];
     circuit?: {
         hold: number;
     };
 } & Scope;
-/** `routes()` itself, read through `seat`: the one planner, whether the pilot or a freighter's host asks. */
-export declare function search(seat: Seat, opts?: RouteOpts): Promise<Said<{
+type Found = {
     routes: Route[];
     sources: string[];
-}>>;
+};
+/** `routes()` itself, read through `seat`: the one planner, whether the pilot or a freighter's host asks. Sends through the `Game`
+ * it runs under; the Promise twin `search` builds one over the seat's own `command`. */
+export declare const searchEffect: (seat: Seat, opts?: RouteOpts) => Effect.Effect<Said<Found>, GameError | Stopped, Game>;
 export {};

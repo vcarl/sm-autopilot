@@ -3,8 +3,10 @@
  * flying at once is several characters: a freighter is one, flying a circuit on its own account
  * from this pilot's process (`assign`). */
 import type { ListShipsResponse, StoredShip, SwitchShipResponse, V2Ship } from '@spacemolt/lib';
+import { Effect } from 'effect';
 import { type Holding } from '../freighter/index.ts';
-import { type FreighterRow } from '../freighter/host.ts';
+import type { FreighterRow } from '../freighter/host.ts';
+import { Game } from '../game.ts';
 import { type Circuit } from '../trading/trading.ts';
 import type { Outcome } from '../types.ts';
 /** Every ship you own and where it is parked (`ship/list_ships`), with the active one
@@ -29,6 +31,9 @@ export declare function switchShip(shipId: string): Promise<Outcome<{
 /** ponytail: the most credits a freighter may keep aboard to trade with; everything above its float
  * goes home at every stop. A cap on what one lost freighter can cost, not a measured number. Tunable. */
 export declare const FLOAT_MAX = 30000;
+type Hand = {
+    freighter: FreighterRow | null;
+};
 /** What of `holding` `circuit` never sells; undefined when the circuit sells all of it. Said, never
  * refused: the freighter stows it at the first stop, cheapest first, only down to `FREE_HOLD` free,
  * and sells the rest at cost wherever a bid covers it. */
@@ -47,6 +52,11 @@ export declare function assign(name: string, circuit: Circuit, caps: {
 }): Promise<Outcome<{
     freighter: FreighterRow | null;
 }>>;
+/** `assign` as an Effect, for `edge` and for `reassign`; never in a barrel. A failed `get_map` or ledger read ends the job
+ * `refused` or `failed` through `jobEffect`, in the server's own code. Nothing here is a game mutation. */
+export declare const assignEffect: (name: string, circuit: Circuit, caps: {
+    float: number;
+}) => Effect.Effect<Outcome<Hand>, never, Game>;
 /** Put the parked freighter `name` on a new circuit: `routes({circuit: {hold}})` for its hold,
  * within the scope its circuit was planned in (`circuit.scope`: maxStops, maxLegJumps, maxJumps),
  * which passes over the rings a freighter drained within `REST_TICKS`, then `assign` of the top
@@ -56,6 +66,8 @@ export declare function assign(name: string, circuit: Circuit, caps: {
 export declare function reassign(name: string): Promise<Outcome<{
     freighter: FreighterRow | null;
 }>>;
+/** `reassign` as an Effect; never in a barrel. */
+export declare const reassignEffect: (name: string) => Effect.Effect<Outcome<Hand>, never, Game>;
 /** Ask the freighter `name` home: it finishes the stop it is on, buying nothing more, deposits its profit, and parks
  * docked there with its cargo aboard. With `{after:'lap'}` it finishes the lap it is on instead, selling and buying
  * as usual, then parks. Either way it is not re-planned; `assign` or `reassign` sets it flying again. */
@@ -70,3 +82,4 @@ export declare function recall(name: string, opts?: {
 export declare function freighters(): Promise<Outcome<{
     freighters: FreighterRow[];
 }>>;
+export {};

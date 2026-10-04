@@ -4,19 +4,23 @@ import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import test,{mock} from 'node:test';
 import {Account,ConnectionClosedError,SpacemoltError} from '@spacemolt/lib';
+import {Effect,Fiber,Layer} from 'effect';
+import {TestClock} from 'effect/testing';
 import type {ReadinessAccount,ReadinessCommand} from '../../readiness.ts';
 import {check} from '../../run.ts';
 import {bridgeWorld,TICK,type WorldOptions} from '../../test-support/bridge-world.ts';
 import {assign,reassign,tiedUp} from '../fleet/fleet.ts';
 import {readJournal} from '../../run-record.ts';
+import {GameLive} from '../game.ts';
 import {knownBooks} from '../market.ts';
 import {menu,renderMenu} from '../menu.ts';
 import {readPlaces} from '../places.ts';
 import {acct,bind,unbind} from '../runtime.ts';
 import {REST_TICKS,routes,type Circuit} from '../trading/trading.ts';
 import {markDrained,ring} from './drained.ts';
-import {BOOK_TTL_MS,gate,launch,market,mender,readFleet,recallLoop,RECONNECT_MS,REPLAN_TICKS,row,script,scriptPath,writeFleet,type Entry} from './host.ts';
+import {BOOK_TTL_MS,gate,launch,market,mender,readFleet,recallLoop,RECONNECT_MS,REPLAN_TICKS,row,script,scriptPath,stopFreighters,writeFleet,type Entry} from './host.ts';
 import {IGNORE_TICKS,lap,STALE_TICKS,type Freighter,type Lap,type Report} from './index.ts';
+import {lapEffect} from './lap.ts';
 
 // Gems bought at sol for at most 110, sold at range for at least 120.
 const GEMS:Circuit={closed:true,hold:10,lap_jumps:2,lap_net:500,stops:[
@@ -481,7 +485,7 @@ test('a why said for a retried stop clears once the retry gets through (live: "Y
   const send=f.command;
   let jam=true;
   f.command=async(action,params)=>{
-    if(action==='spacemolt_market/view_market'&&jam){jam=false;throw new Error('You are not in a system');}
+    if(action==='spacemolt_market/view_market'&&jam){jam=false;throw new SpacemoltError('not_in_system','You are not in a system');}
     return send(action,params);
   };
   await world.account.refresh();
@@ -521,7 +525,7 @@ test('a stop that fails STOP_TRIES times is skipped for the lap, the lap goes on
   const send=f.command;
   let tries=0;
   f.command=async(action,params)=>{
-    if(action==='spacemolt/find_route'&&params.id==='range_base'){tries++;throw new Error('range unreachable');}
+    if(action==='spacemolt/find_route'&&params.id==='range_base'){tries++;throw new SpacemoltError('unreachable','range unreachable');}
     return send(action,params);
   };
   await world.account.refresh();
@@ -540,7 +544,7 @@ test('a base away from its circuit system is flown to where find_route places it
   const send=f.command;
   let jam=true;
   f.command=async(action,params)=>{
-    if(action==='spacemolt/travel'&&jam){jam=false;throw new Error(GONE);}
+    if(action==='spacemolt/travel'&&jam){jam=false;throw new SpacemoltError('not_here',GONE);}
     return send(action,params);
   };
   await world.account.refresh();
@@ -626,6 +630,100 @@ test('with no ring that qualifies it waits docked, re-planning every REPLAN_TICK
     assert.equal(h.now().reassigned?.ring,'sol_base twin_base');
     assert.equal(h.now().why,'stopped after its lap, as scheduled');
   } finally {mock.timers.reset();h.done();}
+});
+
+/** The ring drained and the lap parked: from here the host's re-plan is what sends. */
+const drainedYet=(runtime:string)=>readJournal(runtime,4000).some(line=>line.parked!==undefined&&line.drained!==undefined);
+const settleAll=async()=>{for(let i=0;i<50;i++)await new Promise(resolve=>setImmediate(resolve));};
+test('a re-plan whose routes read the server refuses waits with that refusal in its why and the journal, and writes no defect line',async()=>{
+  const h:ReturnType<typeof hosted>=hosted(115,[SOL,RANGE],{},{},action=>{
+    if(action==='spacemolt_market/view_market'&&drainedYet(h.runtime))throw new SpacemoltError('rate_limited','slow down');
+  });
+  mock.timers.enable({apis:['setTimeout']});
+  try {
+    const flying=h.fly();
+    for(let i=0;i<1000&&h.now().state!=='waiting';i++)await settleAll();
+    assert.equal(h.now().state,'waiting');
+    assert.match(h.now().why!,/rate_limited/,'the code is in the why');
+    const journal=readJournal(h.runtime,4000);
+    assert.deepEqual(journal.filter(line=>line.event==='defect'),[]);
+    assert.ok(journal.some(line=>line.freighter==='hauler'&&/rate_limited/.test(String(line.candidates_unread))),'the unread scout list is journalled under its name');
+    stopFreighters();
+    mock.timers.tick(REPLAN_TICKS*10_000);await settleAll();
+    await flying;
+  } finally {mock.timers.reset();h.done();}
+});
+
+test('the bridge stopping in the middle of a re-plan ends the loop there: no wait, no scouting, no defect line, no "loop broke"',async()=>{
+  let stopped=false;
+  const h:ReturnType<typeof hosted>=hosted(115,[SOL,RANGE],{},{},action=>{
+    if(action==='spacemolt_market/view_market'&&!stopped&&drainedYet(h.runtime)){stopped=true;stopFreighters();}
+  });
+  try {
+    await h.fly();
+    assert.equal(stopped,true,'the stop was raised from inside the re-plan');
+    assert.ok(!/waiting for a circuit/.test(h.now().why??''),'it did not go on to wait: '+h.now().why);
+    assert.ok(!/the loop broke/.test(h.now().why??''),h.now().why);
+    const journal=readJournal(h.runtime,4000);
+    assert.deepEqual(journal.filter(line=>line.event==='defect'),[]);
+    assert.ok(!journal.some(line=>line.waiting!==undefined||line.scouting!==undefined));
+  } finally {h.done();}
+});
+
+test('a session taken elsewhere in the middle of a re-plan parks that freighter for good, unbound: the host settles, no defect line',async()=>{
+  const h:ReturnType<typeof hosted>=hosted(115,[SOL,RANGE],{},{},action=>{
+    if(action==='spacemolt_market/view_market'&&drainedYet(h.runtime))throw new Error('session_replaced or disconnected: kicked');
+  });
+  assert.throws(()=>acct(),/not bound/);
+  try {
+    await h.fly();
+    assert.equal(h.now().state,'parked');
+    assert.match(h.now().why??'',/^the loop broke: session_replaced or disconnected/);
+    const journal=readJournal(h.runtime,4000);
+    assert.deepEqual(journal.filter(line=>line.event==='defect'),[]);
+    assert.ok(!journal.some(line=>line.loop_broke!==undefined),'not retried: another login owns the account');
+  } finally {h.done();}
+});
+
+test('a bug in the middle of a re-plan breaks only that loop, journalled under its name, unbound and with no defect line; it is launched again',async()=>{
+  let thrown=0;
+  const h:ReturnType<typeof hosted>=hosted(115,[SOL,RANGE],{},{},action=>{
+    if(action==='spacemolt_market/view_market'&&drainedYet(h.runtime)&&thrown++===0)throw new TypeError('not a game error');
+  });
+  assert.throws(()=>acct(),/not bound/);
+  mock.timers.enable({apis:['setTimeout']});
+  try {
+    const flying=h.fly();
+    const broke=()=>readJournal(h.runtime,4000).find(line=>line.loop_broke!==undefined);
+    for(let i=0;i<1000&&!broke();i++)await settleAll();
+    assert.equal(broke()?.freighter,'hauler');
+    assert.equal(broke()?.loop_broke,'not a game error');
+    assert.match(h.now().why??'',/^the loop broke: not a game error; again in/);
+    assert.notEqual(h.now().state,'parked','left as it was, to be launched again');
+    for(let waited=0;waited<=REPLAN_TICKS*10_000&&h.now().state!=='waiting';waited+=60_000){mock.timers.tick(60_000);await settleAll();}
+    assert.equal(h.now().state,'waiting','launched again, it re-plans and waits');
+    assert.deepEqual(readJournal(h.runtime,4000).filter(line=>line.event==='defect'),[]);
+    stopFreighters();
+    mock.timers.tick(REPLAN_TICKS*10_000);await settleAll();
+    await flying;
+  } finally {mock.timers.reset();h.done();}
+});
+
+test('a scouting hop whose filing reply is lost never files again in that hop: the host sends a mutation once',async()=>{
+  let filings=0;
+  const h=scouting({reach_base:'far_reach'},(h,action,params)=>{
+    if(action==='spacemolt_intel/submit_trade_intel'&&h.now().state==='scouting'&&JSON.stringify(params).includes('reach_base')) {
+      filings++;
+      throw new ConnectionClosedError('WebSocket connection closed');
+    }
+    reassignedOnce(h);
+  });
+  try {
+    await ticking(()=>h.fly({reconnect:async()=>{}}));
+    assert.equal(filings,1,'the lost filing was not sent again');
+    assert.deepEqual(scoutedAt(h),['reach_base']);
+    assert.equal(h.now().reassigned?.ring,'reach_base sol_base',h.now().why);
+  } finally {h.done();}
 });
 
 test('a freighter scheduled to stop after its lap finishes the lap, selling, and parks without re-planning',async()=>{
@@ -767,7 +865,7 @@ test('one ledger fetch serves every freighter of the host within BOOK_TTL_MS',as
   let asked=0;
   const command:ReadinessCommand=async action=>{
     assert.equal(action,'spacemolt_intel/query_trade_intel');asked++;
-    return {structuredContent:{entries:[{base_id:'range_base',submitted_at_tick:TICK,items:[{item_id:'gem',best_buy:130,buy_volume:10}]}]}};
+    return {structuredContent:{entries:[{base_id:'range_base',submitted_at_tick:TICK,items:[{item_id:'gem',best_buy:130,buy_volume:10,best_sell:0,sell_volume:0}]}]}};
   };
   mock.timers.enable({apis:['Date'],now:1_000_000});
   try {
@@ -843,7 +941,7 @@ test('a recall or a stop after the lap during scouting parks it after the hop, n
 test('a scouting hop that fails STOP_TRIES times is skipped for the wait, and it waits docked',async()=>{
   let tries=0;
   const h=scouting({reach_base:'far_reach'},(_,action,params)=>{
-    if(action==='spacemolt/find_route'&&params.id==='reach_base'){tries++;throw new Error('reach unreachable');}});
+    if(action==='spacemolt/find_route'&&params.id==='reach_base'){tries++;throw new SpacemoltError('unreachable','reach unreachable');}});
   mock.timers.enable({apis:['setTimeout']});
   try {
     const flying=h.fly();
@@ -963,4 +1061,120 @@ test('a 4001 on the current connection whose status read fails too parks: sessio
   assert.match(String(gone()?.message),/^session_replaced or disconnected/);
   await assert.rejects(reconnect(new ConnectionClosedError('WebSocket connection closed')),/^Error: session_replaced or disconnected/);
   account.close();
+});
+
+/** `lapEffect` over the freighter's world on the TestClock, a minute passing at a time, and the runtime bound to a
+ * temporary directory so its journal can be read for defects. */
+async function clockedLap(h:ReturnType<typeof freighter>,minutes=3) {
+  const runtime=mkdtempSync(join(tmpdir(),'freighter-clocked-'));
+  bind({account:h.world.account as unknown as Account,command:h.world.command,runtime,pilot:()=>({mood:'Focused'}),emit:()=>{}});
+  try {
+    await h.world.account.refresh();
+    const done=await Effect.runPromise(Effect.gen(function*() {
+      const fiber=yield* Effect.forkChild(lapEffect(h.f,GEMS));
+      for(let minute=0;minute<minutes;minute++) {
+        yield* TestClock.adjust('1 minute');
+        yield* Effect.promise(()=>new Promise(resolve=>setImmediate(resolve)));
+      }
+      return yield* Fiber.join(fiber);
+    }).pipe(Effect.provide(Layer.mergeAll(GameLive({send:h.f.command,refresh:()=>h.f.account.refresh()}),TestClock.layer()))));
+    return {done,defects:readJournal(runtime).filter(row=>row.event==='defect')};
+  } finally {unbind();rmSync(runtime,{recursive:true,force:true});}
+}
+
+test('a buy the game refuses is said with the server\'s code, and writes no defect line',async()=>{
+  const h=freighter(130);
+  const send=h.f.command;
+  h.f.command=async(action,params)=>{
+    if(action==='spacemolt/buy')throw new SpacemoltError('insufficient_funds','not enough credits');
+    return send(action,params);
+  };
+  const {done,defects}=await clockedLap(h);
+  assert.equal(done.park,undefined);
+  assert.ok(h.reports.some(r=>/^sol_base: buy 10 gem refused: not enough credits \(insufficient_funds\)$/.test(r.why??'')),JSON.stringify(h.reports));
+  assert.equal(h.world.count('spacemolt/buy'),0,'the refused buy landed nothing');
+  assert.deepEqual(defects,[]);
+});
+
+test('a buy whose reply is lost is never re-sent: the account re-read finds the gems aboard, kept at what they cost and carried to the sale',async()=>{
+  const h=freighter(130);
+  const send=h.f.command;
+  let lost=true;
+  h.f.command=async(action,params)=>{
+    const reply=await send(action,params);
+    if(action==='spacemolt/buy'&&lost){lost=false;throw new ConnectionClosedError('WebSocket connection closed');}
+    return reply;
+  };
+  const {done,defects}=await clockedLap(h);
+  assert.equal(done.park,undefined,JSON.stringify(h.reports));
+  assert.equal(h.world.count('spacemolt/buy'),1,'the buy that landed was not sent again');
+  assert.ok(!h.reports.some(r=>/again in a minute/.test(r.why??'')),'judged by the hold, not redone');
+  assert.ok(!h.reports.some(r=>/refused/.test(r.why??'')));
+  assert.deepEqual(h.world.sent.filter(c=>c.action==='spacemolt/sell').map(c=>c.params),[{id:'gem',quantity:10}],'the units it bought are carried to the sale');
+  const gem=h.reports.find(r=>r.holding?.gem)?.holding?.gem;
+  // The fake world bills a buy 12 a unit plus tax, whatever the ask.
+  assert.ok(gem&&gem.quantity===10&&gem.cost>=120,`kept at what it cost: ${JSON.stringify(gem)}`);
+  assert.equal(done.net,(await clockedLap(freighter(130))).done.net,'the lap nets what the same lap with every reply nets');
+  assert.deepEqual(defects,[]);
+});
+
+test('a flight short of fuel with no credits to buy it parks as no credits for fuel, docked where it is',async()=>{
+  const h=freighter(130);
+  Object.assign(h.world.account.server.ship,{fuel:3});
+  h.world.account.server.player.credits=0;
+  await h.world.account.refresh();
+  const done=await lap(h.f,{...GEMS,stops:[GEMS.stops[1]!,GEMS.stops[0]!]});
+  assert.match(done.park??'',/^no credits for fuel: /,JSON.stringify(h.reports));
+  assert.equal(h.world.account.server.location.docked_at,'sol_base');
+  assert.equal(h.world.count('spacemolt/jump'),0);
+});
+
+test('a bug goes up to the host as it was thrown, never retried as if it were the game',async()=>{
+  const h=freighter(130);
+  const send=h.f.command;
+  let reads=0;
+  h.f.command=async(action,params)=>{
+    if(action==='spacemolt_market/view_market'){reads++;throw new TypeError('a bug');}
+    return send(action,params);
+  };
+  await h.world.account.refresh();
+  await assert.rejects(lap(h.f,GEMS),(error:unknown)=>error instanceof TypeError&&error.message==='a bug');
+  assert.equal(reads,1);
+  assert.ok(!h.reports.some(r=>/again in a minute/.test(r.why??'')));
+});
+
+test('a lap with no pilot run bound flies on its own account: a lost buy, a stow and a refused deposit reach nothing of the pilot\'s',async()=>{
+  unbind();
+  assert.throws(()=>acct(),'nothing is bound');
+  const h=freighter(130,['spacemolt_storage/deposit'],{cargo:[{item_id:'ore',quantity:45}],cargoUsed:45});
+  const send=h.f.command;
+  let lost=true;
+  h.f.command=async(action,params)=>{
+    const reply=await send(action,params);
+    if(action==='spacemolt/buy'&&lost){lost=false;throw new ConnectionClosedError('WebSocket connection closed');}
+    return reply;
+  };
+  await h.world.account.refresh();
+  const done=await lap(h.f,GEMS);
+  assert.equal(done.park,undefined,JSON.stringify(h.reports));
+  assert.equal(h.world.count('spacemolt/buy'),1);
+  assert.ok(h.reports.some(r=>/stow \d+ ore.*refused/.test(r.why??'')),JSON.stringify(h.reports));
+  assert.throws(()=>acct(),'still nothing bound');
+});
+
+test('a sale whose reply is lost is never sold again: the account re-read finds the gems gone',async()=>{
+  const h=freighter(130,[],{cargo:[{item_id:'gem',quantity:10}],cargoUsed:10});
+  const send=h.f.command;
+  let lost=true;
+  h.f.command=async(action,params)=>{
+    const reply=await send(action,params);
+    if(action==='spacemolt/sell'&&lost){lost=false;throw new ConnectionClosedError('WebSocket connection closed');}
+    return reply;
+  };
+  const {done,defects}=await clockedLap(h);
+  assert.equal(done.park,undefined,JSON.stringify(h.reports));
+  assert.equal(h.world.count('spacemolt/sell'),1,'the sale that landed was not sent again');
+  assert.ok(!h.reports.some(r=>/again in a minute|refused/.test(r.why??'')),JSON.stringify(h.reports));
+  assert.equal(done.net,(await clockedLap(freighter(130,[],{cargo:[{item_id:'gem',quantity:10}],cargoUsed:10}))).done.net,'the lap nets what the same lap with every reply nets');
+  assert.deepEqual(defects,[]);
 });

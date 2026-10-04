@@ -90,7 +90,7 @@ export const serviceShipEffect=(account:ReadinessAccount,options:ServiceOptions)
  * `ServiceBlocked`, or the custody refusals (`ServiceUnsafe`, same messages). */
 export async function serviceShip(account:ReadinessAccount,command:ReadinessCommand,options:ServiceOptions):Promise<ServiceOutcome> {
   const exit=await Effect.runPromiseExit(serviceShipEffect(account,options).pipe(Effect.provide(GameLive({send:command}))));
-  if(exit._tag==='Failure')throw rawError(exit.cause); // bridge: U11, U26 (callers: gather-job.ts, play/freighter/index.ts)
+  if(exit._tag==='Failure')throw rawError(exit.cause); // bridge: U11 (caller: gather-job.ts)
   return exit.value;
 }
 

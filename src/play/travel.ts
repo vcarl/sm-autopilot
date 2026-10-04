@@ -8,10 +8,10 @@ import {replyBody} from '../storage.ts';
 import {FuelRouteShortfall,InBattle,TravelBlocked,travelToEffect} from '../travel.ts';
 import * as Wire from '../wire.gen.ts';
 import {hereEffect,named as poiName,others} from './counter.ts';
-import {Game,GameLive,isGameError,rawError,type GameError} from './game.ts';
+import {Game,isGameError,type GameError} from './game.ts';
 import {knownBooks} from './market.ts';
 import {activeEffect} from './missions.ts';
-import {acct,checkStop,command,edge,jobEffect,pilot,runtimeDir,step} from './runtime.ts';
+import {acct,checkStop,edge,jobEffect,pilot,runtimeDir,step} from './runtime.ts';
 import type {Outcome} from './types.ts';
 
 /** How far off the direct route one distress call may sit, in jumps. ponytail: tunable. */
@@ -189,12 +189,6 @@ export const destinationEffect=(id:string)=>Effect.gen(function*() {
 
 /** The quote alone, for callers that only want the fuel and jumps. */
 export const routeEffect=(id:string)=>destinationEffect(id).pipe(Effect.map(found=>found.quote));
-/** The Promise twin of `routeEffect`: throws `NotAPlace` (a `TravelBlocked`) or the lib's raw error, as it always did. */
-export async function route(id:string):Promise<FindRouteResponse> {
-  const exit=await Effect.runPromiseExit(routeEffect(id).pipe(Effect.provide(GameLive({send:command}))));
-  if(exit._tag==='Failure')throw rawError(exit.cause); // bridge: U21, U22 (callers: combat/hunting.ts, hauling/freight.ts)
-  return exit.value;
-}
 
 /** Whether `id` is a base sitting at `poiId` in `systemId`, per that system's own POI rows
  * (`base_id` on the row) — the only way to tell a base from its POI when a base's id is the

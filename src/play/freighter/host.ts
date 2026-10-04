@@ -7,7 +7,8 @@
  * journals into the pilot's journal under a `<name>:` prefix. When its ring drains it re-plans
  * with `search`, the planner `routes()` is, on its own connection and this runtime's files. Not reachable from a pilot file
  * (`play/freighter` resolves to `index.ts`, never here). */
-import {Account,ConnectionClosedError,type FactionQueryTradeIntelResponse,type GameState,type MarketListingItem,type ViewMarketResponse} from '@spacemolt/lib';
+import {Account,ConnectionClosedError} from '@spacemolt/lib';
+import {Effect,Exit,Option,Result,Schema,Struct} from 'effect';
 import {createHash} from 'node:crypto';
 import {existsSync,mkdirSync,readFileSync,renameSync,writeFileSync} from 'node:fs';
 import {dirname,join} from 'node:path';
@@ -16,18 +17,23 @@ import {controllerLock} from '../../controller-lock.ts';
 import {GAME_WS_URL,readCredentials} from '../../credentials.ts';
 import {miningInventory} from '../../mining-inventory.ts';
 import type {ReadinessAccount,ReadinessCommand} from '../../readiness.ts';
-import {details} from '../../response-details.ts';
 import {journalCommand,journalConnection,journalRun} from '../../run-record.ts';
 import {pilotHome} from '../../run.ts';
+import {listing,words} from '../../servicing.ts';
+import {replyBody,rows} from '../../storage.ts';
 import {checkBoundary,specifiers} from '../boundary.ts';
 import {checkPolicy} from '../policy.ts';
 import {knownBooks,rememberBook} from '../market.ts';
 import {inFaction} from '../../trade-intel.ts';
-import {buysOf,ledgerItems,REST_TICKS,search,type Circuit,type Seat} from '../trading/trading.ts';
+import {Game,GameLive,SeamFailed,field,rawError} from '../game.ts';
+import {num} from '../rows.ts';
+import {Stopped} from '../runtime.ts';
+import {buysOf,LedgerEntry,ledgerItems,REST_TICKS,searchEffect,type Circuit,type Seat} from '../trading/trading.ts';
 import {markMobile,markPlace,readPlaces} from '../places.ts';
-import {candidates,explore,target,type Candidate} from '../trading/scout.ts';
+import {candidatesEffect,exploreEffect,target,type Candidate} from '../trading/scout.ts';
 import {markDrained,ring} from './drained.ts';
-import {claims as carried,dropped,freeTarget,scoutHop,type Approach,type Claim,type Freighter,type Holding,type Known,type Market} from './index.ts';
+import {scoutHop,scoutHopEffect} from './lap.ts';
+import {claims as carried,dropped,freeTarget,type Approach,type Claim,type Freighter,type Holding,type Known,type Market} from './index.ts';
 
 /** One freighter as `freighters.json` keeps it. */
 export interface Entry {
@@ -79,14 +85,43 @@ const sha=(text:string|Buffer)=>createHash('sha256').update(text).digest('hex');
 export const scriptPath=(runtime:string,name:string)=>join(runtime,'freighters',`${name}.ts`);
 export const credentialsPath=(runtime:string,name:string)=>join(runtime,'freighters',`${name}.txt`);
 
-export function readFleet(runtime:string):Record<string,Entry> {
-  try {const fleet=JSON.parse(readFileSync(join(runtime,FILE),'utf8'));return fleet&&typeof fleet==='object'?fleet:{};}
-  catch {return {};}
+const STATES=new Set<string>(['running','waiting','scouting','recalling','parked']);
+/** A row of `freighters.json` the host can fly: a known state and a circuit with stops. Written only by this file, so the
+ * rest of the shape is trusted; a row that fails this is not flown (a half-written one always crashed on use), said
+ * once, and kept on disk by `writeFleet`. */
+const unflyable=(row:unknown)=>!STATES.has(String(field(row,'state')))?'no known state':!Array.isArray(field(field(row,'circuit'),'stops'))?'no circuit stops':undefined;
+const isEntry=(row:unknown):row is Entry=>unflyable(row)===undefined;
+const decodeFleet=Schema.decodeUnknownOption(Schema.fromJsonString(Schema.Record(Schema.String,Schema.Unknown)));
+/** Every row on disk, flyable or not; undefined when there is no file, null when it is not a JSON object. */
+function fleetOnDisk(runtime:string):Record<string,unknown>|null|undefined {
+  let text:string;
+  try {text=readFileSync(join(runtime,FILE),'utf8');}
+  catch {return undefined;} // edge: no fleet file yet is no freighter assigned
+  const fleet=decodeFleet(text);
+  return Option.isSome(fleet)?fleet.value:null;
 }
-/** Temp file then rename: a torn write would resume a freighter on a lie. */
+/** Rows already said unreadable, so a fleet read every re-plan says each once a process. */
+const unreadSaid=new Set<string>();
+export function readFleet(runtime:string):Record<string,Entry> {
+  return Object.fromEntries(Object.entries(fleetOnDisk(runtime)??{}).filter((pair):pair is [string,Entry]=>{
+    const why=unflyable(pair[1]),said=JSON.stringify([runtime,...pair]);
+    if(why&&!unreadSaid.has(said)){unreadSaid.add(said);journalRun(runtime,{freighter:pair[0],fleet_row_unread:why},'freighter');}
+    return why===undefined;
+  }));
+}
+/** Temp file then rename: a torn write would resume a freighter on a lie. A row the host cannot read is written back as
+ * it was, and a file that is not a JSON object is set aside first: a freighter's record (its float, its
+ * holding) is never erased because a read could not decode it. */
 export function writeFleet(runtime:string,fleet:Record<string,Entry>):void {
-  const path=join(runtime,FILE),temp=`${path}.${process.pid}.tmp`;
-  writeFileSync(temp,JSON.stringify(fleet,null,2),{mode:0o600});
+  const path=join(runtime,FILE),temp=`${path}.${process.pid}.tmp`,was=fleetOnDisk(runtime);
+  if(was===null) {
+    const aside=`${path}.unreadable-${new Date().toISOString().replace(/[:.]/g,'-')}`;
+    renameSync(path,aside);
+    journalRun(runtime,{set_aside:aside},'fleet_unreadable');
+  }
+  const out:Record<string,unknown>={};
+  for(const [name,row] of Object.entries(was??{}))if(!isEntry(row))out[name]=row;
+  writeFileSync(temp,JSON.stringify({...out,...fleet},null,2),{mode:0o600});
   renameSync(temp,path);
 }
 function update(runtime:string,name:string,fields:Partial<Entry>):void {
@@ -168,32 +203,45 @@ export const flying=(name:string)=>loops.has(name);
 export const BOOK_TTL_MS=60_000;
 /** The host's books, by owner runtime and base: the ledger's and the owner's memory's as fetched (at most once a
  * `BOOK_TTL_MS`), and the last live read by any freighter here. */
-const fetched=new Map<string,{at:number;book:Promise<Known|undefined>}>(),seen=new Map<string,Known>();
+const fetched=new Map<string,{at:number;name:string;book:Promise<Result.Result<Known|undefined,SeamFailed>>}>(),seen=new Map<string,Known>();
 let latest=0;
 /** Each flying freighter's claims (by runtime and name): what it carries, to the stop that sells it. */
 const claimed=new Map<string,Claim[]>();
 const fresher=(a:Known|undefined,b:Known|undefined)=>!a||b&&b.tick>=a.tick?b:a;
 /** One base's book off the faction ledger (`query_trade_intel` by `base_id`: its whole book in one
  * call), or the owner's memory, whichever is fresher. Undefined when neither has it. */
-async function fetchBook(runtime:string,account:object,command:ReadinessCommand,base_id:string):Promise<Known|undefined> {
+const fetchBook=(runtime:string,name:string,account:object,base_id:string)=>Effect.gen(function*() {
   const memory=knownBooks(runtime).find(book=>book.base_id===base_id);
   let filed:Known|undefined;
-  if(inFaction(account,text=>journalRun(runtime,{text},'faction_skipped')))try {
-    const entry=(details(await command('spacemolt_intel/query_trade_intel',{base_id})) as FactionQueryTradeIntelResponse).entries?.find(row=>row.base_id===base_id);
-    if(entry)filed={tick:entry.submitted_at_tick,items:ledgerItems(entry)};
-  } catch {/* no faction, or no ledger: the memory stands */}
+  if(inFaction(account,text=>journalRun(runtime,{freighter:name,text},'faction_skipped'))) {
+    const asked=yield* Effect.result((yield* Game).command('spacemolt_intel/query_trade_intel',{base_id}));
+    // No faction, or no ledger: the memory stands, and the developers are told why.
+    if(Result.isFailure(asked))journalRun(runtime,{freighter:name,base_id,ledger_unread:words(asked.failure)},'freighter');
+    else {
+      const row=rows(field(replyBody(asked.success),'entries')).find(entry=>field(entry,'base_id')===base_id),entry=row===undefined?Option.none():decodeLedger(row);
+      if(Option.isSome(entry))filed={tick:entry.value.submitted_at_tick,items:ledgerItems(entry.value)};
+      else if(row!==undefined)journalRun(runtime,{freighter:name,base_id,ledger_unread:'the entry does not decode',row},'freighter');
+    }
+  }
   // An untagged memory is as old as can be: it sizes nothing.
   return fresher(filed,memory&&{tick:memory.tick??0,items:memory.items});
-}
+});
+/** The fields `fetchBook` reads of the base's ledger entry, as the ledger reader decodes them (the live `system_id` is not one). */
+const decodeLedger=Schema.decodeUnknownOption(LedgerEntry.mapFields(Struct.pick(['submitted_at_tick','items'])));
 /** The books and claims `name`'s loop shares with every other freighter this process flies. */
 export function market(runtime:string,name:string,account:object,command:ReadinessCommand):Market {
   const key=join(runtime,name);
   return {
     book:async base_id=>{
-      const at=join(runtime,base_id);
+      const at=join(runtime,base_id),own=()=>settle(()=>fly(fetchBook(runtime,name,account,base_id),command));
       let hit=fetched.get(at);
-      if(!hit||Date.now()-hit.at>=BOOK_TTL_MS)fetched.set(at,hit={at:Date.now(),book:fetchBook(runtime,account,command,base_id)});
-      return fresher(await hit.book,seen.get(at));
+      if(!hit||Date.now()-hit.at>=BOOK_TTL_MS)fetched.set(at,hit={at:Date.now(),name,book:own()});
+      let got=await hit.book;
+      // Another freighter's failed fetch (its session taken, a bug on its connection) is its own: this one asks for itself.
+      if(Result.isFailure(got)&&hit.name!==name)got=await own();
+      if(Result.isSuccess(got))return fresher(got.success,seen.get(at));
+      if(fetched.get(at)===hit)fetched.delete(at);
+      throw got.failure.cause;
     },
     saw:(base_id,known)=>{seen.set(join(runtime,base_id),known);latest=Math.max(latest,known.tick);},
     tick:()=>latest,
@@ -203,6 +251,20 @@ export function market(runtime:string,name:string,account:object,command:Readine
   };
 }
 const sleep=(ms:number)=>new Promise(resolve=>setTimeout(resolve,ms));
+/** The host's edge: an Effect on this freighter's own `Game` (its mended command and account, never the play runtime's).
+ * What it did not hand back as a value goes up as the raw error, a session taken elsewhere or a bug, for the loop's own handler. */
+async function fly<A,E>(effect:Effect.Effect<A,E,Game>,command:ReadinessCommand,account?:ReadinessAccount):Promise<A> {
+  const exit=await Effect.runPromiseExit(effect.pipe(Effect.provide(GameLive({send:command,...account?{refresh:()=>account.refresh()}:{}}))));
+  if(Exit.isSuccess(exit))return exit.value;
+  throw rawError(exit.cause);
+}
+/** A Promise settled to a value: its rejection is the `SeamFailed` it was, never swallowed here. */
+const settle=<T>(work:()=>Promise<T>)=>new Promise<T>(resolve=>resolve(work())).then(value=>Result.succeed(value),cause=>Result.fail(new SeamFailed({cause})));
+/** Close a freighter's account. */
+function shut(loop:Loop):void {
+  try {loop.close();}
+  catch {/* never connected */} // edge: the lib's close throws on an account that never connected; nothing to release
+}
 
 /** Log `name` in on its own account and run its loop, detached. Null when it is off; else why
  * not, and the entry is parked with that why. */
@@ -213,42 +275,42 @@ export function start(runtime:string,name:string):string|null {
   const refused=(why:string)=>{update(runtime,name,{state:'parked',why});return why;};
   const path=scriptPath(runtime,name),login=credentialsPath(runtime,name);
   if(!existsSync(login))return refused(`no login at ${login}: the operator puts a Username:/Password: file there`);
-  let who:{username:string;password:string};
-  try {who=readCredentials(login);} catch(error) {return refused(message(error));}
+  const read=Result.try({try:()=>readCredentials(login),catch:message});
+  if(Result.isFailure(read))return refused(read.failure);
+  const who=read.success;
   const errors=existsSync(path)?gate(path):[`${path}: missing`];
   if(errors.length)return refused(errors.join('; '));
-  let unlock:()=>void;
-  try {unlock=controllerLock(join(runtime,`controller-${sha(who.username).slice(0,16)}.lock`));}
-  catch(error) {return refused(`${who.username} is held by another live controller (${message(error)})`);}
+  const locked=Result.try({try:()=>controllerLock(join(runtime,`controller-${sha(who.username).slice(0,16)}.lock`)),catch:message});
+  if(Result.isFailure(locked))return refused(`${who.username} is held by another live controller (${locked.failure})`);
+  const unlock=locked.success;
   const credentials=()=>({kind:'login' as const,...who});
   const account=new Account({url:GAME_WS_URL,reconnect:true,credentials,fastMutationTimeoutMs:60_000});
   const {reconnect,gone}=mender(account);
   journalConnection(runtime,account,name);
-  const live:ReadinessAccount={get state(){return account.state as GameState;},
+  const live:ReadinessAccount={get state(){return account.state;},
     refresh:async()=>{const error=gone();if(error)throw error;return account.refresh();}};
   const command:ReadinessCommand=async(action,params)=>{
     const error=gone();if(error)throw error;
-    const [tool,verb]=action.split('/');
+    const [tool='',verb='']=action.split('/');
     const since=Date.now();
-    try {
-      const reply=await account.send(tool!,verb!,params);
+    return account.send(tool,verb,params).then(reply=>{
       journalCommand(runtime,`${name}:${action}`,params,true,reply,{freighter:name,ms:Date.now()-since});
       return reply;
-    } catch(error) {
+    },error=>{
       journalCommand(runtime,`${name}:${action}`,params,false,error,{freighter:name,ms:Date.now()-since});
       throw error;
-    }
+    });
   };
   void launch(runtime,name,live,command,{unlock,close:()=>account.close(),reconnect,
     // A login that fails (the server down, the network out) is tried again each minute.
     login:async loop=>{
       for(;;) {
-        try {await account.connect();await account.authenticate(credentials());return;}
-        catch(error) {
-          if(loop.stopping||loop.recall||gone())throw error;
-          update(runtime,name,{why:`login failed (${message(error)}); again in a minute`});
-          await sleep(RETRY_MS);
-        }
+        const tried=await settle(async()=>{await account.connect();await account.authenticate(credentials());});
+        if(Result.isSuccess(tried))return;
+        const error=tried.failure.cause;
+        if(loop.stopping||loop.recall||gone())throw error;
+        update(runtime,name,{why:`login failed (${message(error)}); again in a minute`});
+        await sleep(RETRY_MS);
       }
     }});
   return null;
@@ -265,11 +327,10 @@ export function start(runtime:string,name:string):string|null {
  * current connection fails a status read too. */
 export function mender(account:Account) {
   // ponytail: reaches into the lib's privates; a lib reconnectOnce that detaches the old socket would replace this.
-  const lib=account as unknown as {reconnecting:boolean;_authenticated:boolean;
-    socket:{onClose?:unknown;onFrame?:unknown};correlator:{rejectAll(error:Error):void}};
+  const lib=(key:string)=>Reflect.get(account,key);
   let gone:Error|undefined;
   account.onDisconnected(error=>{
-    account.refresh().catch(()=>{gone??=new Error(`session_replaced or disconnected: ${error.message}`);});
+    void settle(()=>account.refresh()).then(read=>{if(Result.isFailure(read))gone??=new Error(`session_replaced or disconnected: ${error.message}`);});
   });
   const bounded=<T>(work:Promise<T>)=>{
     let timer:NodeJS.Timeout|undefined;
@@ -279,18 +340,18 @@ export function mender(account:Account) {
   };
   const reconnect=async(error:unknown)=>{
     if(gone)throw gone;
-    if(error instanceof ConnectionClosedError||lib.reconnecting) {
-      if(account.authenticated&&!lib.reconnecting)return;
+    if(error instanceof ConnectionClosedError||lib('reconnecting')) {
+      if(account.authenticated&&!lib('reconnecting'))return;
       let off=()=>{};
       const back=await bounded(new Promise<void>(resolve=>{off=account.onReconnected(resolve);})).then(()=>true,()=>false).finally(()=>off());
       if(back)return;
-      if(lib.reconnecting)throw new Error('the lib is still reconnecting');
+      if(lib('reconnecting'))throw new Error('the lib is still reconnecting');
     }
     if(gone)throw gone;
     // What the lib does at a close, minus its reconnect and its onDisconnected.
-    lib.socket.onClose=undefined;lib.socket.onFrame=undefined;
-    lib._authenticated=false;
-    lib.correlator.rejectAll(new ConnectionClosedError('socket replaced by a reconnect'));
+    Reflect.set(lib('socket'),'onClose',undefined);Reflect.set(lib('socket'),'onFrame',undefined);
+    Reflect.set(account,'_authenticated',false);
+    Reflect.apply(Reflect.get(lib('correlator'),'rejectAll'),lib('correlator'),[new ConnectionClosedError('socket replaced by a reconnect')]);
     await bounded(account.reconnectOnce());
   };
   return {reconnect,gone:()=>gone};
@@ -308,20 +369,24 @@ export function launch(runtime:string,name:string,account:ReadinessAccount,comma
   // it is redone from a fresh read. Never re-sent: a jump or a buy may have landed.
   let healing:Promise<void>|undefined;
   const heal=(error:unknown)=>healing??=(async()=>{
-    for(let n=0;!loop.stopping&&!loop.recall;n++) {
-      try {await opts.reconnect!(error);return;}
-      catch(failed) {
-        if(/^session_replaced or disconnected/.test(message(failed)))return;
-        const ms=Math.min(RECONNECT_MS*2**n,RECONNECT_MAX_MS);
-        update(runtime,name,{why:`connection lost (${message(error)}); reconnect failed (${message(failed)}); again in ${ms/1000}s`});
-        journalRun(runtime,{freighter:name,reconnect_failed:message(failed),again_ms:ms},'freighter');
-        await sleep(ms);
-      }
+    const reconnect=opts.reconnect;
+    for(let n=0;reconnect&&!loop.stopping&&!loop.recall;n++) {
+      const mended=await settle(()=>reconnect(error));
+      if(Result.isSuccess(mended))return;
+      const failed=mended.failure.cause;
+      if(/^session_replaced or disconnected/.test(message(failed)))return;
+      const ms=Math.min(RECONNECT_MS*2**n,RECONNECT_MAX_MS);
+      update(runtime,name,{why:`connection lost (${message(error)}); reconnect failed (${message(failed)}); again in ${ms/1000}s`});
+      journalRun(runtime,{freighter:name,reconnect_failed:message(failed),again_ms:ms},'freighter');
+      await sleep(ms);
     }
   })().finally(()=>{healing=undefined;});
   const mended=async<T>(work:()=>Promise<T>):Promise<T>=>{
-    try {return await work();}
-    catch(error) {if(opts.reconnect&&dropped(error))await heal(error);throw error;}
+    const done=await settle(work);
+    if(Result.isSuccess(done))return done.success;
+    const error=done.failure.cause;
+    if(opts.reconnect&&dropped(error))await heal(error);
+    throw error;
   };
   const raw=account,send=command;
   account={get state(){return raw.state;},refresh:()=>mended(()=>raw.refresh())};
@@ -329,38 +394,39 @@ export function launch(runtime:string,name:string,account:ReadinessAccount,comma
   // Claims rebuilt from the entry as it resumes: its holding, to the stop that sells each item from the lap's start.
   if(entry)market(runtime,name,account,command).claim(carried(entry.circuit,0,Object.fromEntries(Object.entries(entry.holding??{}).map(([item,lot])=>[item,lot.quantity]))));
   pilotHome(runtime);
-  return (async()=>{
+  return settle(async()=>{
     await opts.login?.(loop);
     let waiting=entry?.state==='waiting'||entry?.state==='scouting';
     // A loop that breaks is launched again, never left for a human: after a lost connection (already
     // reconnected by `mended`) in a minute, after anything else every REPLAN_TICKS.
     // A session taken elsewhere stays parked: another login owns the account.
     for(;;) {
-      try {
+      const flew=await settle(async()=>{
         for(;;) {
           if(!waiting&&!await run(runtime,name,account,command,loop))return;
           waiting=false;
           if(!await replan(runtime,name,account,command,loop))return;
         }
-      } catch(error) {
-        if(loop.stopping||/^session_replaced or disconnected/.test(message(error)))throw error;
-        // Its state is left as it was, so a bridge restart in the wait resumes it too.
-        const ms=dropped(error)?RETRY_MS:REPLAN_TICKS*TICK_MS;
-        update(runtime,name,{why:`the loop broke: ${message(error)}; again in ${ms/60_000} minute(s)`});
-        journalRun(runtime,{freighter:name,loop_broke:message(error),again_ms:ms},'freighter');
-        for(let waited=0;waited<ms&&!loop.recall&&!loop.afterLap&&!loop.stopping;waited+=RETRY_MS)await sleep(RETRY_MS);
-        if(loop.stopping)return;
-        if(loop.recall||loop.afterLap){update(runtime,name,{state:'parked',why:loop.recall?'recalled':STOPPED});return;}
-        const now=readFleet(runtime)[name]?.state;
-        waiting=now==='waiting'||now==='scouting';
-      }
+      });
+      if(Result.isSuccess(flew))return;
+      const error=flew.failure.cause;
+      if(loop.stopping||/^session_replaced or disconnected/.test(message(error)))throw error;
+      // Its state is left as it was, so a bridge restart in the wait resumes it too.
+      const ms=dropped(error)?RETRY_MS:REPLAN_TICKS*TICK_MS;
+      update(runtime,name,{why:`the loop broke: ${message(error)}; again in ${ms/60_000} minute(s)`});
+      journalRun(runtime,{freighter:name,loop_broke:message(error),again_ms:ms},'freighter');
+      for(let waited=0;waited<ms&&!loop.recall&&!loop.afterLap&&!loop.stopping;waited+=RETRY_MS)await sleep(RETRY_MS);
+      if(loop.stopping)return;
+      if(loop.recall||loop.afterLap){update(runtime,name,{state:'parked',why:loop.recall?'recalled':STOPPED});return;}
+      const now=readFleet(runtime)[name]?.state;
+      waiting=now==='waiting'||now==='scouting';
     }
-  })().catch(error=>{if(!loop.stopping)update(runtime,name,{state:'parked',why:`the loop broke: ${message(error)}`});})
+  }).then(ended=>{if(Result.isFailure(ended)&&!loop.stopping)update(runtime,name,{state:'parked',why:`the loop broke: ${message(ended.failure.cause)}`});})
     .finally(()=>{
       loops.delete(name);opts.unlock?.();
       // Parked, it carries nothing anywhere: its claims go.
       claimed.delete(join(runtime,name));
-      try {loop.close();} catch {/* never connected */}
+      shut(loop);
     });
 }
 
@@ -407,7 +473,7 @@ async function run(runtime:string,name:string,account:ReadinessAccount,command:R
     report:reporter(runtime,name,account,loop)};
   const path=scriptPath(runtime,name);
   const url=`${pathToFileURL(path).href}?v=${sha(readFileSync(path)).slice(0,12)}`;
-  const loaded=await import(url) as {default?:(f:Freighter)=>Promise<unknown>};
+  const loaded:{default?:unknown}=await import(url);
   if(typeof loaded.default!=='function')throw new Error(`${path} exports no default function`);
   await loaded.default(f);
   return again;
@@ -429,27 +495,35 @@ async function run(runtime:string,name:string,account:ReadinessAccount,command:R
  * ponytail: circuits are planned from an empty hold, so a blocked hold takes the first row that sells
  * any of its cargo, and there seldom is one; preferring a ring through a base whose remembered bid
  * covers the leftover's cost (or planning lap 1 from the cargo aboard) is the upgrade. */
-async function replan(runtime:string,name:string,account:ReadinessAccount,command:ReadinessCommand,loop:Loop):Promise<boolean> {
-  const seat:Seat={account,command,runtime,stop:()=>{if(loop.stopping)throw new Error('the bridge is stopping');},
-    book:async()=>{
-      const reply=details(await command('spacemolt_market/view_market',{})) as ViewMarketResponse;
-      return {items:new Map<string,MarketListingItem>((reply.items??[]).map(row=>[row.item_id,row])),tick:Number(reply.current_tick??0)};
-    }};
+const replan=(runtime:string,name:string,account:ReadinessAccount,command:ReadinessCommand,loop:Loop)=>fly(replanEffect(runtime,name,account,command,loop),command,account);
+const replanEffect=(runtime:string,name:string,account:ReadinessAccount,command:ReadinessCommand,loop:Loop)=>Effect.gen(function*() {
+  const game=yield* Game;
+  const book=Effect.gen(function*() {
+    const reply=replyBody(yield* game.command('spacemolt_market/view_market',{}));
+    return {items:new Map(rows(field(reply,'items')).flatMap(listing).map(row=>[row.item_id,row])),tick:num(reply,'current_tick')??0};
+  });
+  // The bridge stopping ends a search as the typed `Stopped`; the loop's own `stopping` is what reads it.
+  const seat:Seat={account,command,runtime,freighter:name,stop:()=>{if(loop.stopping)throw new Stopped();},book};
   // Candidates flown to this wait: each once, so a wait scouts a finite list and then sits docked.
   const tried=new Set<string>(),shared=market(runtime,name,account,command);
   for(;;) {
     const entry=readFleet(runtime)[name];
     if(!entry||loop.stopping)return false;
     if(loop.recall||loop.afterLap){update(runtime,name,{state:'parked',why:loop.recall?'recalled':STOPPED});return false;}
-    await account.refresh();
+    yield* game.refresh;
     const cargo=miningInventory(account.state),ship=account.state.ship,fleet=readFleet(runtime);
     // A ring another freighter here flies is its: two on one ring split its bids.
     const flown=new Set(Object.entries(fleet).filter(([other,row])=>other!==name&&row.state==='running').map(([,row])=>ring(row.circuit.stops)));
     const blocked=(ship?.cargo_capacity??0)-(ship?.cargo_used??0)<freeTarget(ship)&&Object.keys(cargo).length>0
       &&Object.keys(cargo).every(item=>!entry.circuit.stops.some(stop=>stop.sell.some(sale=>sale.item===item)));
     let why:string;
-    try {
-      const found=await search(seat,{circuit:{hold:entry.circuit.hold},...entry.circuit.scope});
+    // A refusal or a lost reply on a read is a why, not a failure; a stop ends the wait; anything else is a bug or a taken session and goes up.
+    const searched=yield* Effect.result(searchEffect(seat,{circuit:{hold:entry.circuit.hold},...entry.circuit.scope}));
+    if(Result.isFailure(searched)) {
+      if(searched.failure instanceof Stopped)return false;
+      why=words(searched.failure);
+    } else {
+      const found=searched.success;
       const rows=found.detail.routes.flatMap(row=>row.circuit??[]).filter(circuit=>!flown.has(ring(circuit.stops)));
       const next=blocked?rows.find(circuit=>circuit.stops.some(stop=>stop.sell.some(sale=>cargo[sale.item]))):rows[0];
       why=(found.why??found.did)+(flown.size?`; passed over the ring(s) another freighter here flies: ${[...flown].join('; ')}`:'');
@@ -462,9 +536,6 @@ async function replan(runtime:string,name:string,account:ReadinessAccount,comman
         }
         why=refused;
       }
-    } catch(error) {
-      if(/^session_replaced or disconnected/.test(message(error)))throw error;
-      why=message(error);
     }
     if(blocked) {
       update(runtime,name,{state:'parked'});
@@ -473,9 +544,11 @@ async function replan(runtime:string,name:string,account:ReadinessAccount,comman
     }
     // Nothing qualifies: read the nearest book nobody has read lately, then re-plan on it.
     const docked=account.state.location?.docked_at;
+    const scouted=yield* Effect.result(Effect.gen(function*() {return yield* candidatesEffect(seat,docked?(yield* book).tick:shared.tick());}));
     let list:Candidate[]=[];
-    try {list=await candidates(seat,docked?(await seat.book()).tick:shared.tick());}
-    catch(error) {if(/^session_replaced or disconnected/.test(message(error)))throw error;}
+    if(Result.isSuccess(scouted))list=scouted.success;
+    else if(scouted.failure instanceof Stopped)return false;
+    else journalRun(runtime,{freighter:name,candidates_unread:words(scouted.failure)},'freighter');
     // Undocked, only a base: a system flown to for its bases is left for one, never for another system.
     const next=list.find(row=>!tried.has(target(row))&&(docked||row.base_id));
     if(next||!docked) {
@@ -488,11 +561,18 @@ async function replan(runtime:string,name:string,account:ReadinessAccount,comman
       journalRun(runtime,{freighter:name,scouting:to},'freighter');
       const f:Freighter={name,account,command,owner:entry.owner,float:entry.float,...entry.holding?{holding:entry.holding}:{},market:shared,
         recalled:()=>loop.recall||loop.afterLap||loop.stopping,park:why=>({park:why,net:0}),report:reporter(runtime,name,account,loop)};
-      const hop=await scoutHop(f,{...to.base_id?{at:to.base_id}:{},system_id:to.system_id});
+      // A session taken elsewhere fails here with the error that said so, and goes up to the loop.
+      const hop:Awaited<ReturnType<typeof scoutHop>>=yield* scoutHopEffect(f,{...to.base_id?{at:to.base_id}:{},system_id:to.system_id});
       // Remembered as the owner's own read: the next re-plan, and the owner's routes(), plan on it.
-      if(hop.read)rememberBook(runtime,to.base_id!,account.state.location?.system_id,hop.read.items,hop.read.tick);
+      if(hop.read&&to.base_id)rememberBook(runtime,to.base_id,account.state.location?.system_id,hop.read.items,hop.read.tick);
       let bases:string[]=[];
-      if(!hop.why)try {bases=await explore(command,runtime);} catch {/* unlisted: the system is scouted again another wait */}
+      if(!hop.why) {
+        // Unlisted: the system is scouted again another wait.
+        const listed=yield* Effect.result(exploreEffect(seat));
+        if(Result.isSuccess(listed))bases=listed.success;
+        else if(listed.failure instanceof Stopped)return false;
+        else journalRun(runtime,{freighter:name,explore_unread:words(listed.failure)},'freighter');
+      }
       if(hop.read&&next)update(runtime,name,{scouted:(readFleet(runtime)[name]?.scouted??0)+1});
       journalRun(runtime,{freighter:name,scouted:target(to),...hop.read?{tick:hop.read.tick}:{},...hop.why?{why:hop.why}:{},...bases.length?{bases}:{}},'freighter');
       if(!next&&hop.why){update(runtime,name,{state:'parked',why:`scouting left it undocked: ${target(to)}: ${hop.why}`});return false;}
@@ -500,9 +580,9 @@ async function replan(runtime:string,name:string,account:ReadinessAccount,comman
     }
     update(runtime,name,{state:'waiting',why:`waiting for a circuit: ${why}`});
     journalRun(runtime,{freighter:name,waiting:why},'freighter');
-    for(let waited=0;waited<REPLAN_TICKS*TICK_MS&&!loop.recall&&!loop.afterLap&&!loop.stopping;waited+=RETRY_MS)await sleep(RETRY_MS);
+    for(let waited=0;waited<REPLAN_TICKS*TICK_MS&&!loop.recall&&!loop.afterLap&&!loop.stopping;waited+=RETRY_MS)yield* Effect.sleep(RETRY_MS);
   }
-}
+});
 
 /** Ask `name` home. It finishes the stop it is on, deposits, and parks docked with its cargo. With
  * `after:'lap'`, it finishes the lap it is on instead, selling as usual. Either way it is not re-planned. */
@@ -529,6 +609,6 @@ export function resumeFreighters(runtime:string):void {
 export function stopFreighters():void {
   for(const loop of loops.values()) {
     loop.stopping=true;
-    try {loop.close();} catch {/* never connected */}
+    shut(loop);
   }
 }

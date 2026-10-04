@@ -77,7 +77,9 @@ export declare const REPLAN_TICKS: number;
 export declare const scriptPath: (runtime: string, name: string) => string;
 export declare const credentialsPath: (runtime: string, name: string) => string;
 export declare function readFleet(runtime: string): Record<string, Entry>;
-/** Temp file then rename: a torn write would resume a freighter on a lie. */
+/** Temp file then rename: a torn write would resume a freighter on a lie. A row the host cannot read is written back as
+ * it was, and a file that is not a JSON object is set aside first: a freighter's record (its float, its
+ * holding) is never erased because a read could not decode it. */
 export declare function writeFleet(runtime: string, fleet: Record<string, Entry>): void;
 export declare const row: (name: string, entry: Entry) => FreighterRow;
 /** `holding` in words: `40 copper_piping (1148 cr)`. */

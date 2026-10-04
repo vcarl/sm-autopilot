@@ -1,19 +1,21 @@
 /** Hunting: wildlife anywhere (legal everywhere), pirates in low-police space. The only loops
  * that train weapons, gunnery, tactics, and — by being hit — shields and armor. */
-import type {CreatureInfo,EnrichedWreck,GetBattleStatusResponse,GetNearbyResponse,PirateInfo,V2Module,V2Ship} from '@spacemolt/lib';
+import type {CreatureInfo,EnrichedWreck,GetBattleStatusResponse,PirateInfo} from '@spacemolt/lib';
+import {Clock,Effect,Option,Result,Schedule,Schema,Struct} from 'effect';
 import {resolveWalkAway} from '../../mood-policy.ts';
-import {details} from '../../response-details.ts';
+import {replyBody,rows as listOf} from '../../storage.ts';
 import {battleEnded} from '../../travel.ts';
-import {active as activeMissions} from '../missions.ts';
-import {acct,admit,checkStop,command,job,pilot,runtimeDir,step,stopped} from '../runtime.ts';
-import {goTo,route} from '../travel.ts';
-import {TravelBlocked} from '../../travel.ts';
+import * as Wire from '../../wire.gen.ts';
+import {Game,attempt,field,isGameError,type GameError} from '../game.ts';
+import {activeEffect} from '../missions.ts';
+import {acct,admit,checkStop,edge,jobEffect,pilot,reached,runtimeDir,step,stopped} from '../runtime.ts';
+import {goToEffect,routeEffect} from '../travel.ts';
 import type {Outcome,Row} from '../types.ts';
 import {readCombat,statsFor,type CombatStats} from '../../combat-memory.ts';
 import {writeLook} from '../../sighting-memory.ts';
 /** Re-exported so a pilot naming the type in its own helper can reach it through `play`. */
 export type {CombatStats} from '../../combat-memory.ts';
-import {lootWreck,wrecksHere} from './salvage.ts';
+import {lootWreckEffect,wrecksHereEffect} from './salvage.ts';
 
 export interface Fight {
   target:CreatureInfo|PirateInfo;
@@ -112,18 +114,56 @@ export interface TickDecision {
 export const pace={tickMs:10_000};
 const FIGHT_CEILING_MS=5*60_000;
 
-const isCreature=(target:CreatureInfo|PirateInfo):target is CreatureInfo=>'creature_id' in target;
-const idOf=(target:CreatureInfo|PirateInfo)=>isCreature(target)?target.creature_id:target.pirate_id;
-const nameOf=(target:CreatureInfo|PirateInfo)=>target.name;
-// Ref'd: the awaited sleep IS the work in flight. Unref'd, the process may exit under it with the
-// promise pending (Node 22.18's test runner did exactly that).
-const sleep=(ms:number)=>new Promise<void>(resolve=>{setTimeout(resolve,ms);});
+/** What the hunt reads of one creature or pirate, with the row the server sent kept for the frozen `Fight.target`.
+ * A creature carries what `decline` reads; a pirate has no `creature`. */
+interface Prey {id:string;name:string;creature?:{species:string;in_combat:boolean;branded:boolean};raw:CreatureInfo|PirateInfo}
+// Only what the hunt reads. `in_combat` is optional because the live server omits spec fields; a row whose read fields fail is dropped and said.
+const Creature=Wire.CreatureInfo.mapFields(fields=>({...Struct.pick(fields,['creature_id','name','species','branded']),in_combat:Schema.optionalKey(fields.in_combat)}));
+const Pirate=Wire.PirateInfo.mapFields(Struct.pick(['pirate_id','name']));
+const decodeCreature=Schema.decodeUnknownOption(Creature);
+const decodePirate=Schema.decodeUnknownOption(Pirate);
+// The battle's own rows, each decoded on its own so one malformed row never reads as the battle's end.
+const Participant=Wire.BattleParticipant.mapFields(Struct.pick(['player_id','kind','shield_pct','hull_pct','zone','zone_distance','stance','target_id']));
+const decodeParticipant=Schema.decodeUnknownOption(Participant);
+const Status=Wire.GetBattleStatusResponse.mapFields(fields=>({battle_id:fields.battle_id,tick_duration:fields.tick_duration,
+  combat_state:Schema.optionalKey(Schema.NullOr(Schema.Struct({max_weapon_reach:Schema.optionalKey(Wire.BattleCombatState.fields.max_weapon_reach)})))}));
+const decodeStatus=Schema.decodeUnknownOption(Status);
+// oxlint-disable-next-line typescript/consistent-type-assertions
+const asCreature=(row:unknown)=>row as CreatureInfo; // cast: frozen surface (CreatureInfo)
+// oxlint-disable-next-line typescript/consistent-type-assertions
+const asPirate=(row:unknown)=>row as PirateInfo; // cast: frozen surface (PirateInfo)
+// oxlint-disable-next-line typescript/consistent-type-assertions
+const asStatus=(body:unknown)=>body as GetBattleStatusResponse; // cast: frozen surface (GetBattleStatusResponse)
+
+/** The creatures or the pirates a `get_nearby` reply lists; an absent or `null` list reads as none. */
+function preyIn(body:unknown,pirates:boolean):Prey[] {
+  const found:Prey[]=[];
+  for(const row of listOf(field(body,pirates?'pirates':'creatures'))) {
+    if(pirates) {
+      const read=decodePirate(row);
+      if(Option.isNone(read)){step(`spacemolt/get_nearby: pirate ${String(field(row,'pirate_id')??'(no id)')} did not read, skipped`);continue;}
+      found.push({id:read.value.pirate_id,name:read.value.name,raw:asPirate(row)});
+    } else {
+      const read=decodeCreature(row);
+      if(Option.isNone(read)){step(`spacemolt/get_nearby: creature ${String(field(row,'creature_id')??'(no id)')} did not read, skipped`);continue;}
+      const {creature_id,name,species,in_combat,branded}=read.value;
+      found.push({id:creature_id,name,creature:{species,in_combat:in_combat??false,branded:branded??false},raw:asCreature(row)});
+    }
+  }
+  return found;
+}
+
+const told=(error:GameError)=>error._tag==='ReplyLost'?`reply lost on ${error.action}`:`${error.action}: ${error.code} — ${error.message}`;
+// bridge: U31 (acct().refresh is readiness, converted with the module state)
+const refresh=attempt('refresh',()=>acct().refresh());
 
 /** The loadout floor, in the one form the state can answer: a fitted module whose `type` is
  * `weapon`, holding rounds for its `ammo_type`. An empty magazine with its ammunition in the
- * hold is reloaded rather than refused — that is the whole of "reload when ammo allows". */
-async function loadout():Promise<string|null> {
-  const weapons=((acct().state.modules??[]) as V2Module[]).filter(module=>module.type==='weapon');
+ * hold is reloaded rather than refused — that is the whole of "reload when ammo allows". A
+ * reload the game refuses, or whose reply is lost, is said and never re-sent: the read after it decides. */
+const loadoutEffect=()=>Effect.gen(function*() {
+  const game=yield* Game;
+  const weapons=(acct().state.modules??[]).filter(module=>module.type==='weapon');
   if(!weapons.length)return 'no module of type weapon is fitted; the hangar is the stop before the hunt';
   const loaded=()=>weapons.filter(weapon=>weapon.ammo_type===undefined||Number(weapon.current_ammo??0)>0);
   if(loaded().length)return null;
@@ -131,22 +171,24 @@ async function loadout():Promise<string|null> {
   for(const weapon of weapons) {
     if(!weapon.ammo_type||!held.has(weapon.ammo_type))continue;
     step(`reload ${weapon.name} from the hold (${weapon.ammo_type})`);
-    try {await command('spacemolt_battle/reload',{id:weapon.module_id});} catch {/* the check below decides */}
+    const sent=yield* Effect.result(game.command('spacemolt_battle/reload',{id:weapon.module_id}));
+    if(Result.isFailure(sent))step(`reload ${weapon.name}: ${told(sent.failure)}; the check below decides`);
   }
-  await acct().refresh();
-  if(((acct().state.modules??[]) as V2Module[]).some(module=>module.type==='weapon'&&Number(module.current_ammo??0)>0))return null;
+  yield* refresh;
+  if((acct().state.modules??[]).some(module=>module.type==='weapon'&&Number(module.current_ammo??0)>0))return null;
   return `${weapons.map(weapon=>`${weapon.name} has ${Number(weapon.current_ammo??0)} rounds of ${weapon.ammo_type}`).join('; ')}, and none is in the hold; the market is the stop before the hunt`;
-}
+});
 
 /** Why this one is not the fight to take, or null when it is. Fauna is legal everywhere, so
  * the only creature rules are the world's own: a beast already in someone else's battle, and
  * a branded one, which is livestock rather than wildlife. Pirates are the pilot's call; only
  * police are declined outright. */
-function decline(target:CreatureInfo|PirateInfo,named:string[]):string|null {
-  if(isCreature(target)) {
-    if(target.in_combat)return `${target.name} is already in someone else's battle`;
-    if(target.branded)return `${target.name} is branded: someone's livestock, not wildlife`;
-    if(named.length&&!named.includes(target.species))return `${target.name} is ${target.species}, not ${named.join(' or ')}`;
+function decline(target:Prey,named:string[]):string|null {
+  const creature=target.creature;
+  if(creature) {
+    if(creature.in_combat)return `${target.name} is already in someone else's battle`;
+    if(creature.branded)return `${target.name} is branded: someone's livestock, not wildlife`;
+    if(named.length&&!named.includes(creature.species))return `${target.name} is ${creature.species}, not ${named.join(' or ')}`;
     return null;
   }
   if(/\[POLICE]/.test(target.name))return `${target.name} is police; attacking it is the crime, not the hunt`;
@@ -159,11 +201,11 @@ function decline(target:CreatureInfo|PirateInfo,named:string[]):string|null {
  * ponytail: substring match on prose, not a real species id; a mission naming its quarry only
  * by a word that is not the species (a nickname, a typo) is missed. Upgrade the day a mission
  * objective carries `target_species`. */
-async function huntText():Promise<string> {
-  const mine=await activeMissions();
+const huntText=()=>Effect.gen(function*() {
+  const mine=yield* activeEffect();
   return mine.active.map(m=>[m.title,m.description,...(m.objectives??[]).map(o=>o.description)].join(' ')).join(' ')
     .toLowerCase().replace(/[^a-z0-9]+/g,' ');
-}
+});
 
 /** Whether an active mission's own words name this species (its id, space for underscore). */
 const namesSpecies=(text:string,species:string)=>text.includes(species.replace(/_/g,' '));
@@ -186,33 +228,69 @@ const namesSpecies=(text:string,species:string)=>text.includes(species.replace(/
  * The stop flag is deliberately not checked: a pilot asking to stop does not mean abandoning
  * the ship in a fight.
  *
- * True when the battle ended. False when the bound ran out with the battle still on, which is
- * the one state a pilot must be told about, because nothing will move the ship until it ends. */
+ * True when the battle ended. False when the bound ran out with the battle still on, or with its
+ * status never read (lost or unreadable replies are not its end), which is the one state a pilot
+ * must be told about, because nothing will move the ship until it ends. */
 export const FLEE_TICKS=3;
-export async function disengage(bound=FIGHT_CEILING_MS):Promise<boolean> {
-  const deadline=Date.now()+bound;
+
+/** One `battle/status` read. Undefined is the battle's end: the server refusing the read (`no_active_battle`) or a reply
+ * with no battle in it IS its end, and that is the evidence. A lost reply or one that does not read is not evidence of
+ * anything: a lost one is re-read (a read is safe to repeat), and one still lost, or unreadable, is `unknown`, said, and
+ * never read as the end. */
+const battleStatus=()=>Effect.gen(function*() {
+  const read=yield* Effect.result((yield* Game).command('spacemolt_battle/status',{}).pipe(
+    Effect.retry({times:2,schedule:Schedule.exponential('1 second'),while:error=>error._tag==='ReplyLost'})));
+  if(Result.isFailure(read)) {
+    if(read.failure._tag==='ReplyLost'){step(`battle/status: ${told(read.failure)}, three reads; not read as the battle's end`);return 'unknown' as const;}
+    step(`battle/status: ${told(read.failure)}; read as the battle's end`);return undefined;
+  }
+  const body=replyBody(read.success);
+  const status=decodeStatus(body);
+  if(Option.isNone(status)){step("battle/status: the reply did not read; not read as the battle's end");return 'unknown' as const;}
+  if(!status.value.battle_id)return undefined;
+  const players:(typeof Participant.Type)[]=[],unread:unknown[]=[];
+  for(const row of listOf(field(body,'participants'))) {
+    const one=decodeParticipant(row);
+    if(Option.isNone(one)){unread.push(field(row,'player_id'));step(`battle/status: participant ${String(field(row,'player_id')??'(no id)')} did not read, skipped`);}
+    else players.push(one.value);
+  }
+  return {status:status.value,players,unread,raw:asStatus(body)};
+});
+
+/** `disengage` as an Effect, for `disengage` below and for `engage`; never in a barrel. A stance the game refuses is sent
+ * again next tick, since nothing landed; one whose reply is lost is not, since it may have, and the status read decides.
+ * `over` is the battle read ended; at the bound, `on` is it read still going and `unknown` is its status never read. */
+export const disengageEffect=(bound=FIGHT_CEILING_MS)=>Effect.gen(function*() {
+  const game=yield* Game;
+  const deadline=(yield* Clock.currentTimeMillis)+bound;
   let held:CombatStance|undefined,ticks=0;
   for(;;) {
     const want:CombatStance=ticks<FLEE_TICKS?'flee':'brace';
     if(want!==held) {
-      try {
-        await command('spacemolt_battle/stance',{id:want});
+      const sent=yield* Effect.result(game.command('spacemolt_battle/stance',{id:want}));
+      if(Result.isSuccess(sent)||sent.failure._tag==='ReplyLost') {
         held=want;
-        step(want==='flee'
+        if(Result.isFailure(sent))step(`stance ${want}: ${told(sent.failure)}; not re-sent, the status read below decides`);
+        else step(want==='flee'
           ?'breaking off: stance flee, which auto-retreats to escape'
           :`flee has not got away in ${FLEE_TICKS} ticks: stance brace (25% taken, shields regen 2×) until the battle ends`);
-      } catch {/* the battle may have ended already; the status read below decides */}
+      } else step(`stance ${want}: ${told(sent.failure)}; the battle may have ended already, the status read below decides`);
     }
-    // The battle answering `not_in_battle` IS its end; that refusal is the evidence.
-    try {
-      const status=details(await command('spacemolt_battle/status',{})) as GetBattleStatusResponse;
-      if(!status?.battle_id){battleEnded();return true;}
-    } catch {battleEnded();return true;}
-    if(Date.now()>=deadline)return false;
+    const seen=yield* battleStatus();
+    if(!seen){battleEnded();return 'over' as const;}
+    if((yield* Clock.currentTimeMillis)>=deadline)return seen==='unknown'?'unknown' as const:'on' as const;
     ticks++;
-    step(`${held??'breaking off'}: the battle has not ended yet`);
-    await sleep(pace.tickMs);
+    step(`${held??'breaking off'}: ${seen==='unknown'?"the battle's end has not been read":'the battle has not ended yet'}`);
+    yield* Effect.sleep(pace.tickMs);
   }
+});
+export async function disengage(bound=FIGHT_CEILING_MS):Promise<boolean> {
+  const out=await edge(jobEffect<{ended:boolean},Game>('disengage','',disengageEffect(bound).pipe(Effect.map(end=>
+    end==='over'?{status:'done' as const,did:'the battle has ended',detail:{ended:true}}
+      :{status:'partial' as const,did:'still in the battle',detail:{ended:false},why:end==='on'
+        ?'the bound ran out with the battle on; nothing will move the ship until it ends'
+        :"the bound ran out with the battle's status unread (lost or unreadable replies): take the ship as still in it"}))));
+  return reached(out)?.ended===true;
 }
 
 const STANCES=new Set<string>(['fire','evade','brace','flee']);
@@ -225,13 +303,14 @@ const MOVES:Record<string,string>={closeIn:'spacemolt_battle/advance',backOff:'s
  * `fire` stance and the focus at the open, then `advance` while the quarry is out of reach or
  * running. It breaks off when our hull crosses the mood's line or Tired lands mid-fight, and
  * that line outranks any decision the callback returns. */
-async function engage(target:CreatureInfo|PirateInfo,floor:()=>number,
-  onTick?:(view:TickView)=>TickDecision|undefined,stats?:CombatStats):Promise<Fight> {
-  await acct().refresh();
+const engage=(target:Prey,floor:()=>number,
+  onTick?:(view:TickView)=>TickDecision|undefined,stats?:CombatStats)=>Effect.gen(function*() {
+  const game=yield* Game;
+  yield* refresh;
   const hull_before=Number(acct().state.ship?.hull??0);
-  const id=idOf(target);
-  await command(isCreature(target)?'spacemolt/hunt':'spacemolt/attack',{id});
-  const deadline=Date.now()+FIGHT_CEILING_MS;
+  const id=target.id;
+  yield* game.command(target.creature?'spacemolt/hunt':'spacemolt/attack',{id});
+  const deadline=(yield* Clock.currentTimeMillis)+FIGHT_CEILING_MS;
   let outcome:Fight['outcome']='escaped',last:GetBattleStatusResponse|undefined;
   let tick=-1,fled=0;
   let seen:{hull:number;far:number}|undefined,first:{hull:number;far:number}|undefined;
@@ -244,7 +323,7 @@ async function engage(target:CreatureInfo|PirateInfo,floor:()=>number,
   const ask=(view:TickView):TickDecision|undefined=>{
     if(!onTick)return undefined;
     try {return onTick(view)??undefined;}
-    catch(error) {
+    catch(error) { // edge: the pilot's callback is not trusted with the ship, and it calls no game
       step(`onTick threw (${error instanceof Error?error.message:String(error)}); the default loop continues`);
       return undefined;
     }
@@ -264,14 +343,14 @@ async function engage(target:CreatureInfo|PirateInfo,floor:()=>number,
    * `target_id`, both self-only), never from what this loop believes it sent: the belief can be
    * wrong, and the server's answer is the thing the next tick will act on. `skipped` collects what
    * was passed over so the journal can say why the decision was reshaped. */
-  const apply=async(asked:TickDecision,inForce:{stance?:string;target?:string},
-    skipped:string[]):Promise<string|null>=>{
+  const apply=(asked:TickDecision,inForce:{stance?:string;target?:string},
+    skipped:string[])=>Effect.gen(function*() {
     if(asked.disengage)return 'disengage';
     if(asked.stance!==undefined) {
       if(!STANCES.has(asked.stance))return null;
       if(inForce.stance===asked.stance)skipped.push(`stance ${asked.stance} already in force`);
       else {
-        await command('spacemolt_battle/stance',{id:asked.stance});
+        yield* game.command('spacemolt_battle/stance',{id:asked.stance});
         stanceNow=asked.stance;
         return `stance ${asked.stance}`;
       }
@@ -281,7 +360,7 @@ async function engage(target:CreatureInfo|PirateInfo,floor:()=>number,
       // A move has no state to compare against — there is no "already advancing" — so it is
       // always a real mutation when the loop reaches it.
       if(action) {
-        await command(action,{});
+        yield* game.command(action,{});
         return asked.move;
       }
       skipped.push(`move ${asked.move} is not one this loop can send`);
@@ -289,29 +368,34 @@ async function engage(target:CreatureInfo|PirateInfo,floor:()=>number,
     if(asked.focus!==undefined) {
       if(inForce.target===asked.focus)skipped.push(`focus ${asked.focus} already in force`);
       else {
-        await command('spacemolt_battle/target',{id:asked.focus});
+        yield* game.command('spacemolt_battle/target',{id:asked.focus});
         if(asked.focus===id)focused=true;
         return `focus ${asked.focus}`;
       }
     }
     return null;
-  };
+  });
   for(;;) {
-    let status:GetBattleStatusResponse;
     // The battle answering `not_in_battle` IS its end; that refusal is the evidence.
-    try {status=details(await command('spacemolt_battle/status',{})) as GetBattleStatusResponse;}
-    catch {break;}
-    if(!status?.battle_id)break;
-    last=status;
-    const rows=status.participants??[];
+    const seenNow=yield* battleStatus();
+    if(!seenNow)break;
     // The quarry's own row, by id. Ours answers our shield, never the range to it.
-    const theirs=rows.find(row=>row.player_id===id);
+    const theirs=seenNow==='unknown'?undefined:seenNow.players.find(row=>row.player_id===id);
+    // Unknown is not the end, nor is a quarry row that did not read: the fight carries on under the stance it has,
+    // re-read next tick, up to the ceiling. Only a status without the quarry in it is the quarry gone.
+    if(seenNow==='unknown'||(!theirs&&seenNow.unread.includes(id))) {
+      if((yield* Clock.currentTimeMillis)>=deadline){outcome='unresolved';break;}
+      yield* Effect.sleep(pace.tickMs);
+      continue;
+    }
+    const {status,players:rows}=seenNow;
+    last=seenNow.raw;
     if(!theirs)break;
     // Observe every poll, regardless of the tick: on the live server `tick_duration` is not
     // monotonic (it sat at 1 for two minutes straight), and a hull crossing the line while it
     // sits still still has to be seen. The tick below only limits ACTIONS to one a tick.
-    await acct().refresh();
-    const ship=acct().state.ship as V2Ship|undefined;
+    yield* refresh;
+    const ship=acct().state.ship;
     const hull=Number(ship?.hull??0);
     const mine=rows.find(row=>row.kind==='player');
     const reach=Number(status.combat_state?.max_weapon_reach??0);
@@ -321,7 +405,7 @@ async function engage(target:CreatureInfo|PirateInfo,floor:()=>number,
     // all". Live, the opening ticks sat at 6 against a reach of 3 and dealt nothing, and the prose
     // said only "outer 6/3" — the fact that explained the zero was there and never spelled out.
     const outOfReach=reach>0&&far>reach;
-    step(`tick ${now} vs ${nameOf(target)}: hull ${hull}/${ship?.max_hull??'?'}, shield ${mine?.shield_pct??0}%, theirs ${theirHull}% at ${theirs.zone??'?'} ${far}/${reach}${outOfReach?' — OUT OF REACH, closing costs nothing to try and firing from here deals nothing':''}`);
+    step(`tick ${now} vs ${target.name}: hull ${hull}/${ship?.max_hull??'?'}, shield ${mine?.shield_pct??0}%, theirs ${theirHull}% at ${theirs.zone??'?'} ${far}/${reach}${outOfReach?' — OUT OF REACH, closing costs nothing to try and firing from here deals nothing':''}`);
     if(ship?.incapacitated){outcome='unresolved';break;}
     const tired=pilot().mood==='Tired';
     // The decision is taken before the floor is checked so a reckless one can be named in the
@@ -336,7 +420,7 @@ async function engage(target:CreatureInfo|PirateInfo,floor:()=>number,
     // length. The counter is still reported to the callback for what it is worth, and its own doc
     // comment says what it is worth.
     const decision=ask({tick:now,hull,max_hull:Number(ship?.max_hull??0),
-      shield_pct:Number(mine?.shield_pct??0),opponent:nameOf(target),opponent_hull:theirHull/100,
+      shield_pct:Number(mine?.shield_pct??0),opponent:target.name,opponent_hull:theirHull/100,
       range:String(theirs.zone??''),distance:far,reach,damage_taken:Math.max(0,lastHull-hull),
       ...stanceNow?{stance:stanceNow}:{},floor:floor(),...stats?{stats}:{}});
     lastHull=hull;
@@ -348,11 +432,11 @@ async function engage(target:CreatureInfo|PirateInfo,floor:()=>number,
       step(`breaking off: hull ${hull} under the line ${Math.floor(floor())}${tired?', and Tired':''}`);
       // Out of the battle is `broke off`; still in one when the bound ran out is unresolved,
       // and the caller must say so — no move will work until it ends.
-      outcome=await disengage()?'broke off':'unresolved';
+      outcome=(yield* disengageEffect())==='over'?'broke off':'unresolved';
       if(outcome==='unresolved')stuck=true;
       break;
     }
-    if(Date.now()>=deadline){outcome='unresolved';break;}
+    if((yield* Clock.currentTimeMillis)>=deadline){outcome='unresolved';break;}
     tick=now;
     // A hull that is not falling while the range opens is the quarry running, not a miss.
     if(seen)fled=theirHull>=seen.hull&&far>seen.far?fled+1:0;else first={hull:theirHull,far};
@@ -361,32 +445,32 @@ async function engage(target:CreatureInfo|PirateInfo,floor:()=>number,
     // open still owes is sent on a later tick rather than skipped.
     const skipped:string[]=[];
     const sent=decision
-      ?await apply(decision,{...mine?.stance?{stance:mine.stance}:{},...mine?.target_id?{target:mine.target_id}:{}},skipped)
+      ?yield* apply(decision,{...mine?.stance?{stance:mine.stance}:{},...mine?.target_id?{target:mine.target_id}:{}},skipped)
       :null;
     if(decision)step(`onTick asked ${JSON.stringify(decision)}; sent ${sent??'nothing it could act on'}${skipped.length?` (skipped: ${skipped.join('; ')})`:''}`);
     if(sent==='disengage') {
-      outcome=await disengage()?'broke off':'unresolved';
+      outcome=(yield* disengageEffect())==='over'?'broke off':'unresolved';
       if(outcome==='unresolved')stuck=true;
       break;
     }
     if(sent===null) {
       // The default ladder, unchanged but for the brace: stance, focus, then the chase.
-      if(!stanceNow){await command('spacemolt_battle/stance',{id:'fire'});stanceNow='fire';step('stance fire');}
-      else if(!focused){await command('spacemolt_battle/target',{id});focused=true;step(`focus fire on ${nameOf(target)}`);}
+      if(!stanceNow){yield* game.command('spacemolt_battle/stance',{id:'fire'});stanceNow='fire';step('stance fire');}
+      else if(!focused){yield* game.command('spacemolt_battle/target',{id});focused=true;step(`focus fire on ${target.name}`);}
       // Shields flat, their hull above ours and the walk-away line one bad tick away: one tick
       // of `brace` (0% dealt, 25% taken, shields regen 2×) buys the hull to keep firing to the
       // line instead of reaching it now. Once a fight, so it can never become the fight.
       else if(!braced&&Number(mine?.shield_pct??0)===0&&theirHull>100*hull/Number(ship?.max_hull??1)
         &&hull<floor()+0.05*Number(ship?.max_hull??0)) {
-        await command('spacemolt_battle/stance',{id:'brace'});stanceNow='brace';braced=true;
+        yield* game.command('spacemolt_battle/stance',{id:'brace'});stanceNow='brace';braced=true;
         step(`stance brace: shields flat, theirs ${theirHull}% against ours, and the line ${Math.floor(floor())} is close`);
       }
-      else if(stanceNow!=='fire'&&braced){await command('spacemolt_battle/stance',{id:'fire'});stanceNow='fire';step('stance fire again');}
-      else if(far>reach||(fled>0&&far>0))await command('spacemolt_battle/advance',{});
+      else if(stanceNow!=='fire'&&braced){yield* game.command('spacemolt_battle/stance',{id:'fire'});stanceNow='fire';step('stance fire again');}
+      else if(far>reach||(fled>0&&far>0))yield* game.command('spacemolt_battle/advance',{});
     }
-    await sleep(pace.tickMs);
+    yield* Effect.sleep(pace.tickMs);
   }
-  await acct().refresh();
+  yield* refresh;
   // ponytail: the chase is `advance`, and the exit is `stance flee` (see `disengage`). `stance
   // board` would cancel a quarry's retreat outright, but it costs marines and suppresses our
   // weapons; take it the day a hunt needs a boarding party.
@@ -395,9 +479,10 @@ async function engage(target:CreatureInfo|PirateInfo,floor:()=>number,
     :outcome==='escaped'&&fled&&seen&&first
       ?`hull flat at ${seen.hull}% for ${fled} tick(s) while it opened the range ${first.far}→${seen.far}`
       :undefined;
-  return {target,...last?{last_status:last}:{},outcome,...why?{why}:{},hull_before,
+  const fight:Fight={target:target.raw,...last?{last_status:last}:{},outcome,...why?{why}:{},hull_before,
     hull_after:Number(acct().state.ship?.hull??0),loot:[]};
-}
+  return fight;
+});
 
 const say=(rows:Row[])=>rows.map(row=>`${row.quantity} ${row.item_id}`).join(', ');
 
@@ -452,7 +537,14 @@ const say=(rows:Row[])=>rows.map(row=>`${row.quantity} ${row.item_id}`).join(', 
  * always — a decision that would keep fighting under the line is refused and said so. */
 export function hunt(opts:{poi?:string;look?:string[];fights?:number;species?:string|string[];
   strict?:boolean;target?:'creature'|'pirate';
-  onTick?:(view:TickView)=>TickDecision|undefined}={}):Promise<Outcome<Hunted>> {
+  onTick?:(view:TickView)=>TickDecision|undefined}={}):Promise<Outcome<Hunted>> {return edge(huntEffect(opts));}
+
+/** `hunt` as an Effect, for `edge` and for converted callers; never in a barrel. A refusal or a lost reply on a
+ * command ends the hunt naming the action and the code; a mutation whose reply is lost is never re-sent, and a
+ * pilot stop is a partial hunt, not a defect. */
+export const huntEffect=(opts:{poi?:string;look?:string[];fights?:number;species?:string|string[];
+  strict?:boolean;target?:'creature'|'pirate';
+  onTick?:(view:TickView)=>TickDecision|undefined}={})=>{
   const asked=Math.max(1,Math.trunc(opts.fights??1));
   // Any of these counts as named. A single id is the common case; the list is for a hunt that
   // will take more than one kind and should say so, not repeat itself.
@@ -461,13 +553,14 @@ export function hunt(opts:{poi?:string;look?:string[];fights?:number;species?:st
   // Where to look, in order. `poi` is the single-place case of `look`; naming neither looks
   // exactly once, where the ship already stands.
   const trail=opts.look?.length?opts.look:opts.poi?[opts.poi]:[];
-  return job<Hunted>('hunt',[trail.join('/'),species.join('+'),opts.target,asked>1?`×${asked}`:''].filter(Boolean).join(' '),async()=>{
-    const who=pilot();
+  return jobEffect<Hunted,Game>('hunt',[trail.join('/'),species.join('+'),opts.target,asked>1?`×${asked}`:''].filter(Boolean).join(' '),Effect.gen(function*() {
+    const game=yield* Game;
     const result:Hunted={poi_id:trail[0]??acct().state.location?.poi_id??'',fights:[],looked:[],ended:'asked'};
     const refuse=(why:string)=>({status:'refused' as const,did:'hunted nothing',why,detail:result});
-    const blocked=await admit('hunt');
+    // bridge: U31 (admit keeps its Promise form with the module singletons it reads)
+    const blocked=yield* attempt('hunt',()=>admit('hunt'));
     if(blocked)return refuse(blocked);
-    const gap=await loadout();
+    const gap=yield* loadoutEffect();
     if(gap)return refuse(gap);
     /** Why the search stopped travelling, when the tank is what stopped it. */
     let shortFuel='';
@@ -478,7 +571,7 @@ export function hunt(opts:{poi?:string;look?:string[];fights?:number;species?:st
     const floor=()=>resolveWalkAway(pilot().mood??'Cautious')*Number(acct().state.ship?.max_hull??0);
     const wantPirates=opts.target==='pirate';
     // No species named: an active mission's own words are the next best thing to ask.
-    const quarry=!species.length&&!wantPirates?await huntText():'';
+    const quarry=!species.length&&!wantPirates?yield* huntText():'';
     // Under `strict`, a named species is the only legal prey — the same list `decline` enforces
     // below. Left loose, nothing here is illegal for being the wrong species: a name is a
     // preference, applied before the fallback loop, never a filter `legal` has to account for.
@@ -494,10 +587,11 @@ export function hunt(opts:{poi?:string;look?:string[];fights?:number;species?:st
         // search ends there, before a look can start a fight a Tired pilot may not.
         const fuel=Number(acct().state.ship?.fuel??0);
         let quoted=NaN;
-        // `route` throws `TravelBlocked` for "not a place"; anything else (a dropped socket, a
+        // `routeEffect` fails with `NotAPlace` for "not a place"; anything else (a dropped socket, a
         // real server error) is a failed hunt, not a stop to skip past.
-        try {quoted=Number((await route(where)).estimated_fuel);}
-        catch(error) {if(!(error instanceof TravelBlocked))throw error;/* unplaceable below */}
+        const quote=yield* Effect.result(routeEffect(where));
+        if(Result.isSuccess(quote))quoted=Number(quote.success.estimated_fuel);
+        else if(isGameError(quote.failure))return yield* quote.failure;
         if(!Number.isFinite(quoted)) {
           // A POI the server cannot place is skipped, not fatal: the rest of the list may be
           // real, and a typo in one id should not end a search that had four good ones.
@@ -509,7 +603,7 @@ export function hunt(opts:{poi?:string;look?:string[];fights?:number;species?:st
           result.ended='fuel';
           break;
         }
-        const out=await goTo(where);
+        const out=yield* goToEffect(where);
         if(out.status!=='done') {
           shortFuel=out.why??`did not reach ${where}`;
           result.ended='fuel';
@@ -521,8 +615,9 @@ export function hunt(opts:{poi?:string;look?:string[];fights?:number;species?:st
       result.poi_id=acct().state.location?.poi_id??where;
       // The look. One read answers what is at this POI and nothing about any other, which is
       // the whole reason the search has to be flown rather than planned.
-      const nearby=details(await command('spacemolt/get_nearby',{})) as GetNearbyResponse;
-      const here:(CreatureInfo|PirateInfo)[]=wantPirates?nearby.pirates??[]:nearby.creatures??[];
+      const nearby=replyBody(yield* game.command('spacemolt/get_nearby',{}));
+      const creatures=wantPirates?[]:preyIn(nearby,false);
+      const here=wantPirates?preyIn(nearby,true):creatures;
       // Written whole, every species present, because `recall` reads a species missing from a
       // look as an absence and a filtered look would make that a lie (`sighting-memory.ts`).
       // Pirates are not wildlife and are not remembered: they move under their own orders, so
@@ -530,36 +625,37 @@ export function hunt(opts:{poi?:string;look?:string[];fights?:number;species?:st
       const remember=runtimeDir();
       if(!wantPirates&&remember) {
         const tally=new Map<string,{species:string;count:number;legal:number}>();
-        for(const one of nearby.creatures??[]) {
-          const row=tally.get(one.species)??{species:one.species,count:0,legal:0};
+        for(const one of creatures) {
+          const species=one.creature?.species??'';
+          const row=tally.get(species)??{species,count:0,legal:0};
           row.count+=1;
           if(decline(one,[])===null)row.legal+=1;
-          tally.set(one.species,row);
+          tally.set(species,row);
         }
         writeLook(remember,{poi_id:result.poi_id,seen:[...tally.values()]});
       }
       // Not restricted (no species, or named but only a preference): every creature here is the
       // prey asked for. Restricted (named and strict): only those species are.
-      const wanted=here.filter(one=>!restrict.length||(isCreature(one)&&restrict.includes(one.species)));
+      const wanted=here.filter(one=>!restrict.length||(one.creature!==undefined&&restrict.includes(one.creature.species)));
       result.looked.push({poi_id:result.poi_id,saw:wanted.length,
         legal:wanted.filter(one=>decline(one,restrict)===null).length,flew});
       for(;result.fights.length<asked;) {
       checkStop();
-      const ship=acct().state.ship as V2Ship|undefined;
+      const ship=acct().state.ship;
       if(Number(ship?.hull??0)<floor()){result.ended='hull';break search;}
       if(Number(ship?.cargo_capacity??0)-Number(ship?.cargo_used??0)<=0){result.ended='hold full';break search;}
       // Re-read each fight: the last kill took one out of the habitat, so the second fight is
       // against what is left rather than against the list the arrival answered with.
-      const round=details(await command('spacemolt/get_nearby',{})) as GetNearbyResponse;
-      const standing:(CreatureInfo|PirateInfo)[]=wantPirates?round.pirates??[]:round.creatures??[];
+      const round=replyBody(yield* game.command('spacemolt/get_nearby',{}));
+      const standing=preyIn(round,wantPirates);
       const refusals:string[]=[];
-      let target:CreatureInfo|PirateInfo|undefined;
+      let target:Prey|undefined;
       // A named species, when legal to take, wins over the first thing here — the preference
       // applies on every fresh read, not only the look that opened the stop. Under `strict` the
       // fallback loop below enforces the same list anyway, so this pass only matters when it is
       // loose. A mission's quarry is the same idea for a hunt naming no species of its own.
-      if(species.length)target=standing.find(one=>isCreature(one)&&species.includes(one.species)&&decline(one,[])===null);
-      if(!target&&quarry)target=standing.find(one=>isCreature(one)&&namesSpecies(quarry,one.species)&&decline(one,[])===null);
+      if(species.length)target=standing.find(one=>one.creature!==undefined&&species.includes(one.creature.species)&&decline(one,[])===null);
+      if(!target&&quarry)target=standing.find(one=>one.creature!==undefined&&namesSpecies(quarry,one.creature.species)&&decline(one,[])===null);
       if(!target)for(const one of standing) {
         const why=decline(one,restrict);
         if(why===null){target=one;break;}
@@ -574,18 +670,19 @@ export function hunt(opts:{poi?:string;look?:string[];fights?:number;species?:st
       }
       // What memory remembers of this opponent, read once per fight and handed to the callback:
       // the same numbers the juncture showed when the pilot chose to come here.
-      const remembered=statsFor(readCombat(runtimeDir()),nameOf(target));
-      const fight=await engage(target,floor,opts.onTick,remembered);
+      const remembered=statsFor(readCombat(runtimeDir()),target.name);
+      const fight=yield* engage(target,floor,opts.onTick,remembered);
       result.fights.push(fight);
       // A wreck with this one's name on it is the only evidence the fight was won.
-      const wreck=(await wrecksHere()).find(row=>row.victim_id===idOf(target!));
+      const quarryId=target.id;
+      const wreck=(yield* wrecksHereEffect()).find(row=>row.victim_id===quarryId);
       if(wreck) {
         fight.wreck=wreck;
-        const took=await lootWreck(wreck);
+        const took=yield* lootWreckEffect(wreck);
         fight.loot=took.items;
         if(fight.outcome==='escaped'){fight.outcome='down';delete fight.why;}
       }
-      step(`fight ${result.fights.length}: ${nameOf(target)} ${fight.outcome}${fight.why?` (${fight.why})`:''}, hull ${fight.hull_before}→${fight.hull_after}, ${say(fight.loot)||'no loot'}`);
+      step(`fight ${result.fights.length}: ${target.name} ${fight.outcome}${fight.why?` (${fight.why})`:''}, hull ${fight.hull_before}→${fight.hull_after}, ${say(fight.loot)||'no loot'}`);
       if(stopped()){result.ended='stopped';break search;}
       if(pilot().mood==='Tired'){result.ended='tired';break search;}
       if(fight.outcome==='broke off'||fight.outcome==='unresolved'){result.ended='hull';break search;}
@@ -601,7 +698,9 @@ export function hunt(opts:{poi?:string;look?:string[];fights?:number;species?:st
     const trailSaid=result.looked.map(row=>`${row.poi_id} (${row.saw?`${row.saw} seen, ${row.legal} legal`:'none'})`).join(', ');
     const seen=new Set([result.poi_id,...result.looked.map(row=>row.poi_id)]);
     let others:string[]=[];
-    try {others=((details(await command('spacemolt/get_system',{})).system?.pois??[]) as {id:string}[]).map(row=>row.id).filter(id=>!seen.has(id)).slice(0,3);} catch {/* the placeholder wording stands */}
+    const system=yield* Effect.result(game.command('spacemolt/get_system',{}));
+    if(Result.isFailure(system))step(`spacemolt/get_system: ${told(system.failure)}; the placeholder wording stands`);
+    else others=listOf(field(field(replyBody(system.success),'system'),'pois')).flatMap(row=>{const id=field(row,'id');return typeof id==='string'?[id]:[];}).filter(id=>!seen.has(id)).slice(0,3);
     const ids=others.length?others.map(id=>`'${id}'`).join(','):`'<poi id>','<and another>'`;
     const prey=species.length?species.join(' or '):(wantPirates?'pirates':'anything huntable');
     // Nothing anywhere, having fought nothing: a fact learned, and `done`, because the looking
@@ -637,14 +736,15 @@ export function hunt(opts:{poi?:string;look?:string[];fights?:number;species?:st
     if(result.ended==='stopped')return {status:'partial',did,why:'stopped by the pilot',detail:result};
     // A fight that could not be broken off is the fact that outranks the hull number: nothing
     // the pilot does next will move the ship until that battle ends.
+    const lastFight=result.fights.at(-1);
     if(result.ended==='hull')return {status:'partial',did,
-      why:result.fights.at(-1)?.outcome==='unresolved'&&result.fights.at(-1)?.why
-        ?result.fights.at(-1)!.why!
+      why:lastFight?.outcome==='unresolved'&&lastFight.why
+        ?lastFight.why
         :`hull ${hull} against the ${pilot().mood} walk-away line ${Math.floor(floor())}`,detail:result,
       next:['goTo a base and service(); ended on the hull line twice running means the habitat is wrong, not the script']};
     if(result.ended==='hold full')return {status:'partial',did,why:'the hold is full; loot fought for has nowhere to go',detail:result,
       next:['stow(rows) or sell(rows), then hunt again']};
     return {status:'done',did,detail:result,
       next:loot.length?['stow(rows) at a base: what is in the hold is lost with the hull']:[]};
-  });
-}
+  }));
+};

@@ -1,24 +1,33 @@
 import assert from 'node:assert/strict';
-import type {Account} from '@spacemolt/lib';
-import {mkdirSync,mkdtempSync,rmSync,writeFileSync} from 'node:fs';
+import {ConnectionClosedError,SpacemoltError,type Account} from '@spacemolt/lib';
+import {existsSync,mkdirSync,mkdtempSync,readFileSync,rmSync,writeFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import test from 'node:test';
+import {Effect} from 'effect';
+import {GameLive} from '../game.ts';
 import type {ReadinessAccount} from '../../readiness.ts';
 import {bridgeWorld,TICK,type WorldOptions} from '../../test-support/bridge-world.ts';
 import {buy,knownBooks,prices,sell} from '../market.ts';
-import {bind,unbind,type Pilot} from '../runtime.ts';
+import {bind,stop,unbind,type Pilot} from '../runtime.ts';
 import {goTo} from '../travel.ts';
 import {check} from '../../run.ts';
 import {readPlaces} from '../places.ts';
-import {routes,runCall,spreads,tradeRun} from './trading.ts';
-import {scoutMarkets} from './scout.ts';
+import {farBooksEffect,pilotSeat,routes,runCall,spreads,tradeRun,type Seat} from './trading.ts';
+import {candidates,exploreEffect,scoutMarkets} from './scout.ts';
 
-function world(record:Pilot,options:WorldOptions={},runtime?:string,raises:(action:string)=>void=()=>{}) {
+/** `lost` names the sends the world carries out and whose reply never arrives. */
+function world(record:Pilot,options:WorldOptions={},runtime?:string,raises:(action:string)=>void=()=>{},lost:(action:string)=>boolean=()=>false) {
   const game=bridgeWorld({services:['refuel','repair','storage'],cargoUsed:0,...options});
   const lines:string[]=[];
   let who:Pilot=record;
-  const command:typeof game.command=async(action,params)=>{raises(action);return game.command(action,params);};
+  const command:typeof game.command=async(action,params)=>{
+    raises(action);
+    const reply=await game.command(action,params);
+    // The server did it and the reply never came back. A message the connection's own reconnect path does not match.
+    if(lost(action))throw new SpacemoltError('mutation_timeout','timed out');
+    return reply;
+  };
   bind({account:game.account as unknown as Account,command,
     pilot:()=>who,emit:text=>lines.push(text),...runtime?{runtime}:{}});
   return {...game,lines,record:()=>who};
@@ -411,12 +420,16 @@ test("tradeRun from:'store' takes the stored goods at the first stop and sells t
 test("tradeRun from:'store': a withdraw that broke is the stop's short, not a crash",async()=>{
   // A broken withdraw's detail is `{}`: tradeRun read `took.detail?.moved.reduce` off it and crashed.
   const runtime=remembered([{base_id:'range_base',age:0,items:[{item_id:'ore',best_buy:10,best_buy_qty:99}]}]);
+  // Every get_base loses its reply: tradeRun's own fuel-price read (read again at the next stop)
+  // and the withdraw's. A lost socket is the lib's ConnectionClosedError, a lost reply, never a defect.
   world({mood:'Focused'},{cargo:[],cargoUsed:0,cargoCapacity:10,store:[{item_id:'ore',quantity:8}],markets:{sol_base:[]}},runtime,
-    action=>{if(action==='spacemolt/get_base')throw new Error('socket gone');});
+    action=>{if(action==='spacemolt/get_base')throw new ConnectionClosedError('socket gone');});
   try {
     const out=await tradeRun({stops:[{at:'sol_base',buy:'ore',from:'store'},{at:'range_base'}]});
+    assert.equal(out.status,'partial',out.why);
     assert.equal(out.detail.stops[0]?.bought,0,JSON.stringify(out));
-    assert.match(out.why??'',/sol_base: withdrew no ore: .*socket gone/);
+    assert.match(out.why??'',/sol_base: withdrew no ore: reply lost on spacemolt\/get_base/);
+    assert.deepEqual(journal(runtime).filter(line=>line.event==='defect'),[]);
   } finally {unbind();rmSync(runtime,{recursive:true,force:true});}
 });
 
@@ -738,5 +751,187 @@ test('scoutMarkets reads the nearest unread books, one hop at a time, files them
     const third=await scoutMarkets();
     assert.equal(third.status,'done');
     assert.match(third.did,/filed no book; nothing to scout within 4 jumps/);
+  } finally {unbind();rmSync(runtime,{recursive:true,force:true});}
+});
+
+/** The journal lines written under `runtime`, parsed; none when nothing was journalled. */
+const journal=(runtime:string):{event:string;[key:string]:unknown}[]=>{
+  const path=join(runtime,'gameplay.jsonl');
+  return existsSync(path)?readFileSync(path,'utf8').split('\n').filter(Boolean).map(line=>JSON.parse(line)):[];
+};
+
+test('a buy whose reply is lost is never re-sent: the hold and wallet are re-read, what landed is counted, and the run is partial',async()=>{
+  const runtime=remembered([{base_id:'range_base',age:0,system_id:'deep_range',items:MIXED_RANGE}]);
+  const f=world({mood:'Focused'},MIXED,runtime,()=>{},action=>action==='spacemolt/buy');
+  try {
+    const out=await tradeRun({stops:[{at:'sol_base',buy:'ore'},{at:'range_base'}]});
+    assert.equal(f.count('spacemolt/buy'),1,'a mutation is never re-sent after its reply is lost');
+    const [here]=out.detail.stops;
+    assert.equal(here!.bought,15,'the buy landed: the hold says so');
+    assert.equal(here!.spent,15*12,'the wallet, not the reply, says what it cost');
+    assert.equal(out.status,'partial');
+    assert.match(out.why??'',/sol_base: .*reply lost on spacemolt\/buy/);
+  } finally {unbind();rmSync(runtime,{recursive:true,force:true});}
+});
+
+test('a buy the server refuses ends the stop with its code, partial, and writes no defect line',async()=>{
+  const runtime=remembered([{base_id:'range_base',age:0,system_id:'deep_range',items:MIXED_RANGE}]);
+  world({mood:'Focused'},MIXED,runtime,action=>{if(action==='spacemolt/buy')throw new SpacemoltError('insufficient_credits','not enough credits');});
+  try {
+    const out=await tradeRun({stops:[{at:'sol_base',buy:'ore'},{at:'range_base'}]});
+    assert.equal(out.status,'partial');
+    assert.match(out.why??'',/insufficient_credits/);
+    assert.equal(out.detail.stops[0]!.bought,0);
+    assert.deepEqual(journal(runtime).filter(line=>line.event==='defect'),[]);
+  } finally {unbind();rmSync(runtime,{recursive:true,force:true});}
+});
+
+test('a pilot stop in the middle of a route search is a stop, not a defect: no defect line is written',async()=>{
+  const runtime=remembered([{base_id:'range_base',age:0,system_id:'deep_range',items:MIXED_RANGE}]);
+  world({mood:'Focused'},MIXED,runtime,action=>{if(action==='spacemolt/get_map')stop();});
+  try {
+    const out=await routes();
+    assert.equal(out.status,'partial',out.why);
+    assert.match(out.why??'',/stopped/);
+    assert.deepEqual(journal(runtime).filter(line=>line.event==='defect'),[]);
+  } finally {unbind();rmSync(runtime,{recursive:true,force:true});}
+});
+
+test('a ledger row that does not read is left out and journalled, and the rest of the ledger is still read',async()=>{
+  const runtime=mkdtempSync(join(tmpdir(),'spacemolt-routes-'));
+  const f=world({mood:'Focused'},{cargo:[{item_id:'ore',quantity:12}],cargoUsed:12,store:[],markets:SCRAP_ONLY,
+    // `submitted_at_tick` is not a number, so that row cannot be aged.
+    tradeIntel:[...LEDGER,{base_id:'odd_base',submitted_at_tick:'soon' as unknown as number,items:[]}]},runtime);
+  try {
+    const out=await spreads(['ore']);
+    assert.equal(out.status,'done',out.why);
+    assert.deepEqual(out.detail.spreads.map(row=>row.base_id),['range_base']);
+    const skipped=journal(runtime).filter(line=>line.event==='trade_skipped');
+    assert.equal(skipped.length,1);
+    // Raw facts: the action, the row's id and the row as it came, no verdict.
+    assert.equal(skipped[0]!.action,'query_trade_intel');
+    assert.equal(skipped[0]!.id,'odd_base');
+    assert.equal((skipped[0]!.row as {submitted_at_tick:unknown}).submitted_at_tick,'soon');
+    assert.ok(f.count('spacemolt_intel/query_trade_intel')>=1);
+  } finally {unbind();rmSync(runtime,{recursive:true,force:true});}
+});
+
+/** `farBooksEffect` over a seat's own `command`, as a freighter's host runs it. */
+const farBooks=(here:string,now:number,seat:Seat=pilotSeat())=>Effect.runPromise(farBooksEffect(here,now,seat).pipe(Effect.provide(GameLive({send:seat.command}))));
+
+test("a freighter's seat journals a ledger row that does not read to its own runtime, not the pilot's",async()=>{
+  const runtime=mkdtempSync(join(tmpdir(),'spacemolt-routes-')),own=mkdtempSync(join(tmpdir(),'spacemolt-seat-'));
+  const f=world({mood:'Focused'},{cargo:[],cargoUsed:0,store:[],markets:SCRAP_ONLY,
+    tradeIntel:[...LEDGER,{base_id:'odd_base',submitted_at_tick:'soon' as unknown as number,items:[]}]},runtime);
+  try {
+    const books=await farBooks('sol_base',TICK,{account:f.account as unknown as ReadinessAccount,command:f.command,runtime:own,stop:()=>{}});
+    assert.deepEqual(books.map(book=>book.base_id),['range_base']);
+    assert.deepEqual(journal(own).filter(line=>line.event==='trade_skipped').map(line=>line.id),['odd_base']);
+    assert.deepEqual(journal(runtime).filter(line=>line.event==='trade_skipped'),[]);
+  } finally {unbind();rmSync(runtime,{recursive:true,force:true});rmSync(own,{recursive:true,force:true});}
+});
+
+test('a ledger entry whose item list is null reads as a book with no rows, not a skipped row',async()=>{
+  const runtime=mkdtempSync(join(tmpdir(),'spacemolt-routes-'));
+  world({mood:'Focused'},{cargo:[{item_id:'ore',quantity:12}],cargoUsed:12,store:[],markets:SCRAP_ONLY,
+    tradeIntel:[...LEDGER,{base_id:'empty_base',submitted_at_tick:900,items:null}]},runtime);
+  try {
+    const out=await spreads(['ore']);
+    assert.equal(out.status,'done',out.why);
+    assert.deepEqual(out.detail.spreads.map(row=>row.base_id),['range_base']);
+    const empty=(await farBooks('sol_base',TICK)).find(book=>book.base_id==='empty_base');
+    assert.deepEqual(empty?.items,[]);
+    assert.deepEqual(journal(runtime).filter(line=>line.event==='trade_skipped'),[]);
+  } finally {unbind();rmSync(runtime,{recursive:true,force:true});}
+});
+
+const SCOUT_WORLD={tradeIntel:[],systems:[{id:'far_reach',connections:['deep_range'],pois:[{id:'reach_dock',base_id:'reach_base'}]}]};
+const scoutRuntime=()=>{
+  const runtime=mkdtempSync(join(tmpdir(),'spacemolt-scout-'));
+  writeFileSync(join(runtime,'places.json'),JSON.stringify({reach_base:'far_reach'}));
+  return runtime;
+};
+
+test('a get_map the server refuses ends scoutMarkets refused with its code, and writes no defect line',async()=>{
+  const runtime=scoutRuntime();
+  world({mood:'Focused'},SCOUT_WORLD,runtime,action=>{if(action==='spacemolt/get_map')throw new SpacemoltError('rate_limited','slow down');});
+  try {
+    const out=await scoutMarkets();
+    assert.equal(out.status,'refused',out.why);
+    assert.match(out.why??'',/rate_limited/);
+    assert.deepEqual(journal(runtime).filter(line=>line.event==='defect'),[]);
+  } finally {unbind();rmSync(runtime,{recursive:true,force:true});}
+});
+
+test('a pilot stop during scoutMarkets is a stop, not a defect: nothing is flown and no defect line is written',async()=>{
+  const runtime=scoutRuntime();
+  const f=world({mood:'Focused'},SCOUT_WORLD,runtime,action=>{if(action==='spacemolt/get_map')stop();});
+  try {
+    const out=await scoutMarkets();
+    assert.equal(out.status,'partial',out.why);
+    assert.match(out.why??'',/stopped/);
+    assert.equal(f.count('spacemolt/jump'),0,'a stopped scout flies nowhere');
+    assert.deepEqual(journal(runtime).filter(line=>line.event==='defect'),[]);
+  } finally {unbind();rmSync(runtime,{recursive:true,force:true});}
+});
+
+test('a get_system whose reply is lost ends the hop short, naming the action, and writes no defect line',async()=>{
+  const runtime=scoutRuntime();
+  world({mood:'Focused'},SCOUT_WORLD,runtime,()=>{},action=>action==='spacemolt/get_system');
+  try {
+    const out=await scoutMarkets({max:1});
+    assert.equal(out.status,'refused',out.why);
+    assert.match(out.why??'',/reply lost on spacemolt\/get_system/);
+    assert.deepEqual(journal(runtime).filter(line=>line.event==='defect'),[]);
+  } finally {unbind();rmSync(runtime,{recursive:true,force:true});}
+});
+
+test('an intel map entry with null pois reads as no bases, and the bases of the others are kept as places',async()=>{
+  const runtime=scoutRuntime();
+  world({mood:'Focused'},{...SCOUT_WORLD,intel:[{system_id:'quiet',pois:null},{system_id:'far_reach',pois:[{id:'p',base_id:'reach_base'},{id:'q',base_id:'other_base'}]}]},runtime);
+  try {
+    const out=await scoutMarkets({max:0});
+    assert.equal(out.status,'done',out.why);
+    assert.equal(readPlaces(runtime).other_base,'far_reach');
+    assert.deepEqual(journal(runtime).filter(line=>line.event==='defect'),[]);
+  } finally {unbind();rmSync(runtime,{recursive:true,force:true});}
+});
+
+test('an intel map the server refuses leaves the files standing: the scout goes on, and writes no defect line',async()=>{
+  const runtime=scoutRuntime();
+  world({mood:'Focused'},SCOUT_WORLD,runtime,action=>{if(action==='spacemolt_intel/query_intel')throw new SpacemoltError('no_intel_facility','no intel map');});
+  try {
+    const out=await scoutMarkets({max:1});
+    assert.equal(out.status,'done',out.why);
+    assert.deepEqual(journal(runtime).filter(line=>line.event==='defect'),[]);
+  } finally {unbind();rmSync(runtime,{recursive:true,force:true});}
+});
+
+test("a freighter's seat with no bound run journals an unreadable intel map and get_system to its own runtime, and does not throw",async()=>{
+  const own=mkdtempSync(join(tmpdir(),'spacemolt-seat-'));
+  writeFileSync(join(own,'places.json'),JSON.stringify({reach_base:'far_reach'}));
+  const game=bridgeWorld({services:[],cargoUsed:0,...SCOUT_WORLD});
+  // Each reply is the wrong shape: `entries` is not a list, and `system` is missing.
+  const command:typeof game.command=async(action,params)=>action==='spacemolt_intel/query_intel'?{structuredContent:{entries:'none'}}
+    :action==='spacemolt/get_system'?{structuredContent:{system:null}}:game.command(action,params);
+  try {
+    const seat={account:game.account as unknown as ReadinessAccount,command,runtime:own,freighter:'hauler',stop:()=>{}};
+    assert.ok((await candidates(seat,TICK)).some(row=>row.base_id==='reach_base'),'the places file still stands');
+    assert.deepEqual(await Effect.runPromise(exploreEffect(seat).pipe(Effect.provide(GameLive({send:seat.command})))),[]);
+    const unread=journal(own).filter(line=>line.event==='scout_unread');
+    assert.deepEqual(unread.map(line=>[line.action,line.freighter]),[['query_intel','hauler'],['get_system','hauler']]);
+  } finally {rmSync(own,{recursive:true,force:true});}
+});
+
+test('a stop before the first hop ends scoutMarkets at the loop, before any candidate is read',async()=>{
+  const runtime=scoutRuntime();
+  // Stopped during the book read before the loop, with no faction (so no intel page to `halt` at): the loop's own
+  // `stopped()` is what ends it there.
+  const f=world({mood:'Focused'},{systems:SCOUT_WORLD.systems},runtime,action=>{if(action==='spacemolt_market/view_market')stop();});
+  try {
+    const out=await scoutMarkets();
+    assert.match(out.why??'',/stopped/);
+    assert.equal(f.count('spacemolt/get_map'),0,'no candidate is read after a stop');
+    assert.equal(f.count('spacemolt/jump'),0);
   } finally {unbind();rmSync(runtime,{recursive:true,force:true});}
 });

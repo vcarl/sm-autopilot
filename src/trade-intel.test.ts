@@ -1,7 +1,16 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {ConnectionClosedError,SpacemoltError,type MarketListingItem} from '@spacemolt/lib';
-import {FILE_BYTES,fileIntel,fileRows,inFaction} from './trade-intel.ts';
+import {Effect} from 'effect';
+import {GameLive,rawError} from './play/game.ts';
+import type {ReadinessCommand} from './readiness.ts';
+import {FILE_BYTES,fileIntelEffect,fileRows,inFaction} from './trade-intel.ts';
+
+/** `fileIntelEffect` on a world that sends through `command`; a defect throws as it was thrown. */
+const fileIntel=async(account:object,command:ReadinessCommand,base_id:string,items:readonly MarketListingItem[],tick:number,say?:(text:string)=>void)=>{
+  const exit=await Effect.runPromiseExit(fileIntelEffect(account,base_id,items,tick,say).pipe(Effect.provide(GameLive({send:command}))));
+  if(exit._tag==='Failure')throw rawError(exit.cause);
+};
 
 const row=(item_id:string,best_buy:number,best_sell:number,qty=100)=>
   ({item_id,best_buy,best_buy_qty:qty,best_sell,best_sell_qty:qty}) as MarketListingItem;

@@ -49,7 +49,7 @@ const MapRow=Wire.MapSystemInfo.mapFields(Struct.pick(['system_id','name','conne
 type MapRow=typeof MapRow.Type;
 const decodeMapRow=Schema.decodeUnknownOption(MapRow);
 /** The rows of a `get_map` reply that decode; a reply with no map, or a row that is not one, adds nothing. */
-const mapOf=(reply:unknown):MapRow[]=>{
+export const mapOf=(reply:unknown):MapRow[]=>{
   const systems=field(details(reply),'systems');
   return Array.isArray(systems)?systems.flatMap(row=>{const decoded=decodeMapRow(row);return Option.isSome(decoded)?[decoded.value]:[];}):[];
 };

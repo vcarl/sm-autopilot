@@ -3,8 +3,7 @@
  * `book()` and a freighter's stop both call it on every market read; nobody calls it by hand. */
 import type {MarketListingItem} from '@spacemolt/lib';
 import {Effect,Result} from 'effect';
-import type {ReadinessCommand} from './readiness.ts';
-import {Game,GameLive,field,rawError} from './play/game.ts';
+import {Game,field} from './play/game.ts';
 
 /** Per account: the tick each base was last filed at. A book is filed once per tick. */
 const filed=new WeakMap<object,Map<string,number>>();
@@ -61,12 +60,3 @@ export const fileIntelEffect=(account:object,base_id:string,items:readonly Marke
   say(error._tag==='ReplyLost'?`trade intel not filed at ${base_id}: reply lost on ${error.action}`
     :`trade intel not filed at ${base_id}: ${error.action}: ${error.code} — ${error.message}`);
 });
-
-/** The Promise twin of `fileIntelEffect`, for callers not yet converted. A failure exit throws the
- * raw error, as `command()` does. */
-export async function fileIntel(account:object,command:ReadinessCommand,base_id:string,items:readonly MarketListingItem[],
-  tick:number,say:(text:string)=>void=()=>{}):Promise<void> {
-  const exit=await Effect.runPromiseExit(fileIntelEffect(account,base_id,items,tick,say).pipe(Effect.provide(GameLive({send:command}))));
-  // Only a defect fails the twin; its thrown value goes up as it was thrown, not wrapped.
-  if(exit._tag==='Failure')throw rawError(exit.cause); // bridge: U26 (the freighter calls the twin; its conversion deletes this)
-}

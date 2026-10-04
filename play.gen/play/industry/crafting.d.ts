@@ -7,6 +7,9 @@
  * store's own delta before and after is the only evidence the output arrived.
  */
 import { fetchCatalogConditional, type Catalog, type CraftJobResponse, type CraftQuoteResponse, type ItemQuantity, type JobView, type Recipe, type RecipeInput } from '@spacemolt/lib';
+import { Effect } from 'effect';
+import { type SourcedItem } from '../../recipe-graph.ts';
+import { Game } from '../game.ts';
 import type { Outcome, Row } from '../types.ts';
 /** The catalog recipe beside what it is worth here and what you already hold. */
 export type Craftable = Recipe & {
@@ -19,12 +22,16 @@ export type Craftable = Recipe & {
         have: number;
     })[];
 };
+/** What this file reads of the catalog: its version, the recipes (handed to the pilot whole, as `Craftable`), and each item's source. */
+type Recipes = Pick<Catalog, 'version' | 'recipes'> & {
+    items: readonly SourcedItem[];
+};
 /** Where the recipe catalog comes from. The tests pass a fixture; nothing else calls it. */
-export declare function useCatalog(load: () => Promise<Catalog>): void;
+export declare function useCatalog(load: () => Promise<Recipes>): void;
 /** The catalog kept in `dir` beside its ETag, so a fresh process pays a ~0-byte 304 rather than
  * the multi-MB body when nothing changed, and a failed fetch falls back to the copy on disk.
  * One `fetch` line each time: status, ms, bytes stored, whether the disk copy answered. */
-export declare function revalidated(dir: string | undefined, load?: typeof fetchCatalogConditional): Promise<Catalog>;
+export declare function revalidated(dir: string | undefined, load?: typeof fetchCatalogConditional): Promise<Recipes>;
 /** Where the quote says it runs and what it charges beyond the inputs. No fee at your own
  * facility and nothing at all at the workshop, so absent reads as 0. */
 export interface Venue {
@@ -42,6 +49,9 @@ export interface Venue {
  * `search` filters on recipe id, name, category or output item. Capped at 20 quoted rows;
  * `did` says how many covered recipes were cut. Refused when there is no bench here, which is
  * itself the answer: the ore is in the wrong place. */
+export declare const recipesEffect: (search?: string) => Effect.Effect<Outcome<{
+    recipes: Craftable[];
+}>, never, Game>;
 export declare function recipes(search?: string): Promise<Outcome<{
     recipes: Craftable[];
 }>>;
@@ -77,6 +87,9 @@ export type Quoted = CraftQuoteResponse & Venue & {
  * `have_inputs`/`have_credits`/`have_capacity`, plus what the whole order fetches here and
  * the inputs the store is short of, each priced to buy and to sell. Nothing is committed.
  * `next` names the buy or the mining that would close the gap. */
+export declare const quoteEffect: (recipeId: string, quantity?: number, opts?: {
+    at?: "workshop" | string;
+}) => Effect.Effect<Outcome<Quoted>, never, Game>;
 export declare function quote(recipeId: string, quantity?: number, opts?: {
     at?: 'workshop' | string;
 }): Promise<Outcome<Quoted>>;
@@ -104,7 +117,12 @@ export interface Supplied {
  * store at this market. The whole bill is estimated (buy fee included) before anything moves:
  * over `maxSpend`, it is refused with nothing stowed or bought. An input this market does not
  * sell comes back in `short` with its `source`, and the status is `partial`. Each buy keeps
- * `credits − permissions.credit_reserve`. */
+ * `credits − permissions.credit_reserve`. A buy or a stow whose reply is lost is never re-sent:
+ * the store is re-read, and what it still lacks is `short`. */
+export declare const supplyEffect: (recipeId: string, quantity?: number, opts?: {
+    at?: "workshop" | string;
+    maxSpend?: number;
+}) => Effect.Effect<Outcome<Supplied>, never, Game>;
 export declare function supply(recipeId: string, quantity?: number, opts?: {
     at?: 'workshop' | string;
     maxSpend?: number;
@@ -129,8 +147,14 @@ export interface Crafted extends Venue {
  * a line at least every 90 seconds and gives up after 10 minutes with `partial` and the job.
  * Tired mid-wait keeps waiting — the ship is docked — but `craft` will not start while Tired.
  *
+ * A commit whose reply is lost is never re-sent: the queue and the store are re-read, and a craft
+ * that may have landed is `partial`, never claimed `done`.
+ *
  * At the workshop it trains crafting, and engineering for components and modules; a facility
  * trains nothing. */
+export declare const craftEffect: (recipeId: string, quantity?: number, opts?: {
+    at?: "workshop" | string;
+}) => Effect.Effect<Outcome<Crafted>, never, Game>;
 export declare function craft(recipeId: string, quantity?: number, opts?: {
     at?: 'workshop' | string;
 }): Promise<Outcome<Crafted>>;
@@ -151,6 +175,9 @@ export interface Queued {
 }
 /** Every job this pilot has queued, at every base, and which of them are paused because the
  * ship is not docked there. Works undocked. Reads only. */
+export declare const jobsEffect: () => Effect.Effect<Outcome<{
+    jobs: Queued[];
+}>, never, Game>;
 export declare function jobs(): Promise<Outcome<{
     jobs: Queued[];
 }>>;
@@ -174,4 +201,6 @@ export interface Materials {
 /** Everything `quantity` of `itemId` takes, down to raw leaves, net of what the hold and — when
  * docked — this base's store already hold of each intermediate. From the catalog: reads only,
  * works undocked, needs no bench. `failed` when the catalog cannot be read. */
+export declare const materialsEffect: (itemId: string, quantity: number) => Effect.Effect<Outcome<Materials>, never, Game>;
 export declare function materials(itemId: string, quantity: number): Promise<Outcome<Materials>>;
+export {};

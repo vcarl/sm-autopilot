@@ -12,7 +12,10 @@
  * built-ins. Build it from a `Catalog` (`RecipeGraph.from`) or from bare arrays.
  */
 
-import type {Catalog,CatalogItem,CatalogRecipe} from '@spacemolt/lib';
+import type {Catalog,CatalogRecipe,Item} from '@spacemolt/lib';
+
+/** What the graph reads of a catalog item: its id and, for a raw one, how it is extracted. A `CatalogItem` is one. */
+export type SourcedItem=Pick<Item,'id'|'extracted_by'>;
 
 /** How much of a recipe's inputs a given inventory covers. */
 export interface Coverage {
@@ -32,14 +35,14 @@ export class RecipeGraph {
   private readonly byOutput=new Map<string,CatalogRecipe[]>();
   private readonly byId=new Map<string,CatalogRecipe>();
   private readonly byInput=new Map<string,CatalogRecipe[]>();
-  private readonly itemsById=new Map<string,CatalogItem>();
+  private readonly itemsById=new Map<string,SourcedItem>();
 
   // Declared rather than written as constructor parameter properties: node's type-stripping
   // runs these files directly and rejects that syntax.
   readonly recipes:readonly CatalogRecipe[];
-  readonly items:readonly CatalogItem[];
+  readonly items:readonly SourcedItem[];
 
-  constructor(recipes:readonly CatalogRecipe[],items:readonly CatalogItem[]=[]) {
+  constructor(recipes:readonly CatalogRecipe[],items:readonly SourcedItem[]=[]) {
     this.recipes=recipes;
     this.items=items;
     for(const item of items)this.itemsById.set(item.id,item);
@@ -51,7 +54,7 @@ export class RecipeGraph {
     }
   }
 
-  static from(catalog:Catalog):RecipeGraph {
+  static from(catalog:Pick<Catalog,'recipes'>&{items:readonly SourcedItem[]}):RecipeGraph {
     return new RecipeGraph(catalog.recipes,catalog.items);
   }
 
@@ -77,9 +80,7 @@ export class RecipeGraph {
    * up as itself instead of `'unknown'`.
    */
   source(itemId:string):string {
-    // `CatalogItem` is `Item | Module`; only `Item` carries `extracted_by`.
-    const entry=this.itemsById.get(itemId);
-    const extracted=entry&&'extracted_by' in entry?entry.extracted_by:undefined;
+    const extracted=this.itemsById.get(itemId)?.extracted_by;
     if(extracted)return extracted;
     return this.byOutput.has(itemId)?'crafted':'unknown';
   }

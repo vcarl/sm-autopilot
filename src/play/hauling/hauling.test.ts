@@ -1,9 +1,13 @@
 import assert from 'node:assert/strict';
-import type {Account} from '@spacemolt/lib';
+import {mkdtempSync,rmSync} from 'node:fs';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
+import {SpacemoltError,type Account} from '@spacemolt/lib';
 import test from 'node:test';
 import type {ReadinessAccount} from '../../readiness.ts';
+import {readJournal} from '../../run-record.ts';
 import {bridgeWorld,type WorldOptions} from '../../test-support/bridge-world.ts';
-import {bind,unbind,type Pilot} from '../runtime.ts';
+import {bind,stop,unbind,type Pilot} from '../runtime.ts';
 import {freightBoard,haul} from './freight.ts';
 import {carryPassengers} from './passengers.ts';
 
@@ -125,4 +129,191 @@ test('nothing waiting is done, not refused',async()=>{
     assert.match(out.did,/nothing waiting/);
     assert.equal(f.count('spacemolt/load_passenger'),0);
   } finally {unbind();}
+});
+
+/** What a world does with one command: answer it, refuse it, or carry it out and lose the reply. */
+type Act=(action:string,params:Record<string,unknown>|undefined,perform:()=>Promise<unknown>)=>Promise<unknown>;
+/** `lose` carries `action` out and loses the reply; `refuse` raises the server's refusal with its code. */
+const lose=(action:string):Act=>async(name,params,perform)=>{
+  const reply=await perform();
+  if(name===action)throw new SpacemoltError('mutation_timeout','no reply in time');
+  return reply;
+};
+const refuse=(action:string,code:string):Act=>async(name,params,perform)=>{
+  if(name===action)throw new SpacemoltError(code,`the game said ${code}`);
+  return perform();
+};
+/** A world bound to a temporary runtime, so its journal can be read for defects. */
+function rig(options:WorldOptions,act:Act) {
+  const runtime=mkdtempSync(join(tmpdir(),'spacemolt-hauling-'));
+  const game=bridgeWorld({services:['refuel','repair','storage'],cargoUsed:0,...options});
+  const asked:string[]=[];
+  const command:typeof game.command=async(action,params)=>{asked.push(action);return act(action,params,()=>game.command(action,params));};
+  bind({account:game.account as unknown as Account,command,runtime,pilot:():Pilot=>({mood:'Focused'}),emit:()=>{}});
+  // Counted as asked, so a send the world refused or never received still counts.
+  return {...game,count:(action:string)=>asked.filter(name=>name===action).length,defects:()=>readJournal(runtime).filter(row=>row.event==='defect'),
+    close:()=>{unbind();rmSync(runtime,{recursive:true,force:true});}};
+}
+const second={...cheap,id:'s3'};
+const riders={passengers:{berths:{economy:4,first:2},
+  waiting:[{citizen_id:'p1',name:'Ari',class:'first',destination:'range_base',estimated_fare:900},
+    {citizen_id:'p2',name:'Bel',destination:'range_base',estimated_fare:200}]}};
+
+test('a refused accept ends refused with the server\'s code, and nothing is sent past it',async()=>{
+  const f=rig({...hold,shipping:{listings:[cheap]}},refuse('spacemolt_shipping/accept','liability_exceeded'));
+  try {
+    const out=await haul('s1');
+    assert.equal(out.status,'refused',JSON.stringify(out));
+    assert.match(out.why!,/spacemolt_shipping\/accept: liability_exceeded/);
+    assert.equal(f.count('spacemolt_shipping/accept'),1,'a refusal is not retried');
+    assert.equal(f.count('spacemolt_storage/withdraw')+f.count('spacemolt_shipping/deliver'),0);
+    assert.deepEqual(f.defects(),[]);
+  } finally {f.close();}
+});
+
+test('a refused contract read is refused with its code, not a failed haul',async()=>{
+  const f=rig({...hold,shipping:{listings:[cheap]}},refuse('spacemolt_shipping/get','not_found'));
+  try {
+    const out=await haul('s1');
+    assert.equal(out.status,'refused',JSON.stringify(out));
+    assert.match(out.why!,/spacemolt_shipping\/get: not_found/);
+  } finally {f.close();}
+});
+
+test('an accept whose reply is lost is never re-sent: the active list says it landed, and the haul goes on',async()=>{
+  const f=rig({...hold,shipping:{listings:[cheap]}},lose('spacemolt_shipping/accept'));
+  try {
+    const out=await haul('s1');
+    assert.equal(out.status,'done',`${out.did}: ${out.why}`);
+    assert.equal(f.count('spacemolt_shipping/accept'),1,'a mutation whose reply is lost is never re-sent');
+    assert.deepEqual(f.defects(),[]);
+  } finally {f.close();}
+});
+
+test('an accept whose reply is lost and that did not land fails naming the lost reply, and is not re-sent',async()=>{
+  const f=rig({...hold,shipping:{listings:[cheap]}},async(name,params,perform)=>{
+    if(name==='spacemolt_shipping/accept')throw new SpacemoltError('mutation_timeout','no reply in time');
+    return perform();
+  });
+  try {
+    const out=await haul('s1');
+    assert.equal(out.status,'failed',JSON.stringify(out));
+    assert.match(out.why!,/reply lost on spacemolt_shipping\/accept/);
+    assert.equal(f.count('spacemolt_shipping/accept'),1);
+    assert.equal(f.count('spacemolt_storage/withdraw'),0,'nothing was fetched for a contract that may not exist');
+  } finally {f.close();}
+});
+
+test('a delivery whose reply is lost is partial, never done and never re-sent',async()=>{
+  const f=rig({...hold,shipping:{listings:[cheap]}},lose('spacemolt_shipping/deliver'));
+  try {
+    const out=await haul('s1');
+    assert.equal(out.status,'partial',JSON.stringify(out));
+    assert.match(out.why!,/reply lost on spacemolt_shipping\/deliver; the contract is no longer active, so it may have settled/);
+    assert.equal(f.count('spacemolt_shipping/deliver'),1,'a delivery that may have landed is not sent twice');
+    assert.equal(out.detail.leg,'loaded');
+    assert.equal(out.detail.settlement,undefined,'no settlement is claimed');
+    assert.deepEqual(f.defects(),[]);
+  } finally {f.close();}
+});
+
+test('a refused delivery ends refused with the server\'s code',async()=>{
+  const f=rig({...hold,shipping:{listings:[cheap]}},refuse('spacemolt_shipping/deliver','not_at_destination'));
+  try {
+    const out=await haul('s1');
+    assert.equal(out.status,'refused',JSON.stringify(out));
+    assert.match(out.why!,/spacemolt_shipping\/deliver: not_at_destination/);
+  } finally {f.close();}
+});
+
+test('a pilot stop mid-board ends partial and is not a defect',async()=>{
+  const f=rig({...hold,shipping:{listings:[cheap,second]}},async(name,params,perform)=>{
+    if(name==='spacemolt/find_route')stop();
+    return perform();
+  });
+  try {
+    const out=await freightBoard();
+    assert.equal(out.status,'partial',JSON.stringify(out));
+    assert.match(out.why??'',/stopped by pilot/);
+    assert.deepEqual(f.defects(),[]);
+  } finally {f.close();}
+});
+
+test('a pilot stop mid-flight leaves the haul partial with the contract kept, and is not a defect',async()=>{
+  const f=rig({...hold,shipping:{listings:[cheap]}},async(name,params,perform)=>{
+    if(name==='spacemolt/jump')stop();
+    return perform();
+  });
+  try {
+    const out=await haul('s1');
+    assert.equal(out.status,'partial',JSON.stringify(out));
+    assert.equal(f.count('spacemolt_shipping/deliver'),0);
+    assert.deepEqual(f.defects(),[]);
+  } finally {f.close();}
+});
+
+test('a find_route the game refuses fails the board with its code; "not a place" only marks that listing unroutable',async()=>{
+  const slow=rig({...hold,shipping:{listings:[cheap]}},refuse('spacemolt/find_route','rate_limited'));
+  try {
+    const out=await freightBoard();
+    assert.equal(out.status,'refused',JSON.stringify(out));
+    assert.match(out.why!,/spacemolt\/find_route: rate_limited/);
+  } finally {slow.close();}
+  const unknown=rig({...hold,shipping:{listings:[cheap]}},async(name,params,perform)=>{
+    if(name==='spacemolt/find_route')throw new SpacemoltError('not_found','Target system not found');
+    return perform();
+  });
+  try {
+    const out=await freightBoard();
+    assert.equal(out.status,'done',out.why);
+    assert.equal(out.detail.listings[0]!.reachable,false);
+    assert.equal(out.detail.listings[0]!.fuel,Infinity);
+  } finally {unknown.close();}
+});
+
+test('a passenger boarding the game refuses ends refused with its code, and flies nobody',async()=>{
+  const f=rig(riders,refuse('spacemolt/load_passenger','berths_full'));
+  try {
+    const out=await carryPassengers('range_base');
+    assert.equal(out.status,'refused',JSON.stringify(out));
+    assert.match(out.why!,/spacemolt\/load_passenger: berths_full/);
+    assert.equal(f.count('spacemolt/jump'),0);
+  } finally {f.close();}
+});
+
+test('a boarding whose reply is lost is never re-sent: the manifest says who boarded, and the trip goes on',async()=>{
+  const f=rig(riders,lose('spacemolt/load_passenger'));
+  try {
+    const out=await carryPassengers('range_base');
+    assert.equal(out.status,'done',`${out.did}: ${out.why}`);
+    assert.equal(f.count('spacemolt/load_passenger'),1);
+    assert.deepEqual(out.detail.loaded.map(row=>row.citizen_id),['p1','p2']);
+    assert.deepEqual(f.defects(),[]);
+  } finally {f.close();}
+});
+
+test('an unload whose reply is lost is partial, never claimed done and never re-sent',async()=>{
+  const f=rig(riders,lose('spacemolt/unload_passenger'));
+  try {
+    const out=await carryPassengers('range_base');
+    assert.equal(out.status,'partial',JSON.stringify(out));
+    assert.match(out.why!,/reply lost on spacemolt\/unload_passenger for Ari, Bel: they may have landed/);
+    assert.equal(f.count('spacemolt/unload_passenger'),2,'once per rider, never twice');
+    assert.deepEqual(out.detail.landed,[]);
+    assert.deepEqual(f.defects(),[]);
+  } finally {f.close();}
+});
+
+test('a pilot stop mid-landing ends partial and is not a defect',async()=>{
+  const f=rig(riders,async(name,params,perform)=>{
+    if(name==='spacemolt/unload_passenger')stop();
+    return perform();
+  });
+  try {
+    const out=await carryPassengers('range_base');
+    assert.equal(out.status,'partial',JSON.stringify(out));
+    assert.match(out.why??'',/stopped by pilot/);
+    assert.equal(f.count('spacemolt/unload_passenger'),1,'the second rider is not landed after the stop');
+    assert.deepEqual(f.defects(),[]);
+  } finally {f.close();}
 });

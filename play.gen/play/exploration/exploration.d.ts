@@ -39,6 +39,8 @@ declare const MapRow: Schema.Struct<{
     readonly visited: Schema.Boolean;
 }>;
 type MapRow = typeof MapRow.Type;
+/** The rows of a `get_map` reply that decode; a reply with no map, or a row that is not one, adds nothing. */
+export declare const mapOf: (reply: unknown) => MapRow[];
 /** The whole galaxy, one read: every system with its links and whether you have been there. */
 export declare function readMap(send: ReadinessCommand): Promise<MapRow[]>;
 /** Jumps from `here` to every system within `max`, one breadth-first walk over the map's links. */

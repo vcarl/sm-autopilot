@@ -1,6 +1,8 @@
 /** Hunting: wildlife anywhere (legal everywhere), pirates in low-police space. The only loops
  * that train weapons, gunnery, tactics, and — by being hit — shields and armor. */
 import type { CreatureInfo, EnrichedWreck, GetBattleStatusResponse, PirateInfo } from '@spacemolt/lib';
+import { Effect } from 'effect';
+import { Game } from '../game.ts';
 import type { Outcome, Row } from '../types.ts';
 import { type CombatStats } from '../../combat-memory.ts';
 /** Re-exported so a pilot naming the type in its own helper can reach it through `play`. */
@@ -124,9 +126,14 @@ export declare const pace: {
  * The stop flag is deliberately not checked: a pilot asking to stop does not mean abandoning
  * the ship in a fight.
  *
- * True when the battle ended. False when the bound ran out with the battle still on, which is
- * the one state a pilot must be told about, because nothing will move the ship until it ends. */
+ * True when the battle ended. False when the bound ran out with the battle still on, or with its
+ * status never read (lost or unreadable replies are not its end), which is the one state a pilot
+ * must be told about, because nothing will move the ship until it ends. */
 export declare const FLEE_TICKS = 3;
+/** `disengage` as an Effect, for `disengage` below and for `engage`; never in a barrel. A stance the game refuses is sent
+ * again next tick, since nothing landed; one whose reply is lost is not, since it may have, and the status read decides.
+ * `over` is the battle read ended; at the bound, `on` is it read still going and `unknown` is its status never read. */
+export declare const disengageEffect: (bound?: number) => Effect.Effect<"unknown" | "on" | "over", never, Game>;
 export declare function disengage(bound?: number): Promise<boolean>;
 /** Hunt a prey across a range of places to look. `look` is POI ids in the order to try them: at
  * each one the habitat is read, and the fight happens where the prey actually is. `poi` is the
@@ -186,3 +193,15 @@ export declare function hunt(opts?: {
     target?: 'creature' | 'pirate';
     onTick?: (view: TickView) => TickDecision | undefined;
 }): Promise<Outcome<Hunted>>;
+/** `hunt` as an Effect, for `edge` and for converted callers; never in a barrel. A refusal or a lost reply on a
+ * command ends the hunt naming the action and the code; a mutation whose reply is lost is never re-sent, and a
+ * pilot stop is a partial hunt, not a defect. */
+export declare const huntEffect: (opts?: {
+    poi?: string;
+    look?: string[];
+    fights?: number;
+    species?: string | string[];
+    strict?: boolean;
+    target?: "creature" | "pirate";
+    onTick?: (view: TickView) => TickDecision | undefined;
+}) => Effect.Effect<Outcome<Hunted>, never, Game>;

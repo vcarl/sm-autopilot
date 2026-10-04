@@ -14,8 +14,6 @@ export type Offer = Omit<MissionInfo, 'dialog' | 'description'> & {
 };
 /** Active missions from the state section `get_active_missions` refreshes. */
 export declare const activeEffect: () => Effect.Effect<V2Missions, GameError, Game>;
-/** The Promise twin of `activeEffect`: throws the lib's raw error, as it always did. */
-export declare function active(): Promise<V2Missions>;
 /** Why this mission cannot be turned in from this dock, or undefined when it can — counting
  * a store withdrawal here as reachable, because `completeMissions` will make it. The three
  * ways a slot stays locked: the clock ran out, the goods are somewhere this trip is not, or

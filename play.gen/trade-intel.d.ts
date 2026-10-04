@@ -3,7 +3,6 @@
  * `book()` and a freighter's stop both call it on every market read; nobody calls it by hand. */
 import type { MarketListingItem } from '@spacemolt/lib';
 import { Effect } from 'effect';
-import type { ReadinessCommand } from './readiness.ts';
 import { Game } from './play/game.ts';
 /** Whether the account's player is in a faction, read off the state the account already holds.
  * Every faction intel call — filing a book, reading the trade ledger, reading the intel map — is
@@ -28,6 +27,3 @@ export declare function fileRows(items: readonly MarketListingItem[]): {
  * this tick only — the next base, or the next tick, files again — and `say` hears once per account
  * per process why one failed. A defect (a bug) is not caught: it goes up. */
 export declare const fileIntelEffect: (account: object, base_id: string, items: readonly MarketListingItem[], tick: number, say?: (text: string) => void) => Effect.Effect<void, never, Game>;
-/** The Promise twin of `fileIntelEffect`, for callers not yet converted. A failure exit throws the
- * raw error, as `command()` does. */
-export declare function fileIntel(account: object, command: ReadinessCommand, base_id: string, items: readonly MarketListingItem[], tick: number, say?: (text: string) => void): Promise<void>;

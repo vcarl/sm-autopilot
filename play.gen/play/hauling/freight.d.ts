@@ -2,6 +2,8 @@
  * carrier tier (probationary → licensed at 5 deliveries → trusted → prime), which is the
  * only thing that raises the liability you may carry. */
 import type { CarrierProfile, ShippingActiveContract, ShippingListing, ShippingProfileResponse, ShippingSettlementResponse } from '@spacemolt/lib';
+import { Effect } from 'effect';
+import { Game } from '../game.ts';
 import type { Outcome } from '../types.ts';
 /** The board here, filtered to what you may take and can carry, beside your carrier record. */
 export interface Board {
@@ -35,6 +37,12 @@ export declare function freightBoard(opts?: {
     destination?: string;
     limit?: number;
 }): Promise<Outcome<Board>>;
+/** `freightBoard` as an Effect, for `edge` and for converted callers; never in a barrel. A refusal or a lost reply on a
+ * read ends it naming the action and the code; a destination that is no place is an unroutable listing, not a failed board. */
+export declare const freightBoardEffect: (opts?: {
+    destination?: string;
+    limit?: number;
+}) => Effect.Effect<Outcome<Board>, never, Game>;
 export interface Hauled {
     contract: ShippingActiveContract['contract'];
     settlement?: ShippingSettlementResponse;
@@ -57,5 +65,9 @@ export interface Hauled {
  * Costs fuel; pays `carrier_payout` plus speed bonus, measured into `gained.credits`.
  * Tired mid-haul: the leg in flight finishes, the package stays where it is, and the
  * function returns `partial` with the contract still active; `service()` then `haul` again
- * with the same id resumes. */
+ * with the same id resumes. A reply lost on the accept or the delivery is never re-sent:
+ * the active list is read to see whether it landed, and a delivery that may have is `partial`. */
 export declare function haul(shipmentId: string): Promise<Outcome<Hauled>>;
+/** `haul` as an Effect, for `edge` and for converted callers; never in a barrel. A refusal ends it naming the action and
+ * the code; a lost reply on the accept or the deliver is never re-sent, and the active list is re-read. */
+export declare const haulEffect: (shipmentId: string) => Effect.Effect<Outcome<Hauled>, never, Game>;

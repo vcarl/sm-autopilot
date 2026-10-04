@@ -11,7 +11,9 @@
  * Pure and deterministic given the recipe/item lists — no I/O, no Node
  * built-ins. Build it from a `Catalog` (`RecipeGraph.from`) or from bare arrays.
  */
-import type { Catalog, CatalogItem, CatalogRecipe } from '@spacemolt/lib';
+import type { Catalog, CatalogRecipe, Item } from '@spacemolt/lib';
+/** What the graph reads of a catalog item: its id and, for a raw one, how it is extracted. A `CatalogItem` is one. */
+export type SourcedItem = Pick<Item, 'id' | 'extracted_by'>;
 /** How much of a recipe's inputs a given inventory covers. */
 export interface Coverage {
     recipe: CatalogRecipe;
@@ -31,9 +33,11 @@ export declare class RecipeGraph {
     private readonly byInput;
     private readonly itemsById;
     readonly recipes: readonly CatalogRecipe[];
-    readonly items: readonly CatalogItem[];
-    constructor(recipes: readonly CatalogRecipe[], items?: readonly CatalogItem[]);
-    static from(catalog: Catalog): RecipeGraph;
+    readonly items: readonly SourcedItem[];
+    constructor(recipes: readonly CatalogRecipe[], items?: readonly SourcedItem[]);
+    static from(catalog: Pick<Catalog, 'recipes'> & {
+        items: readonly SourcedItem[];
+    }): RecipeGraph;
     recipe(id: string): CatalogRecipe | undefined;
     /** Every recipe producing `itemId`, in catalog order. */
     recipesFor(itemId: string): CatalogRecipe[];

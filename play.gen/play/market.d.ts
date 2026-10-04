@@ -53,8 +53,6 @@ export declare function rememberBook(dir: string | undefined, base_id: string, s
  * written to this runtime's market memory, which is what `spreads()` reads, and filed to the
  * faction's trade ledger once per tick when there is one. */
 export declare const bookEffect: () => Effect.Effect<Map<string, MarketListingItem>, import("./codes.ts").GameError, Game>;
-/** The Promise twin of `bookEffect`: throws the lib's raw error, as it always did. */
-export declare function book(): Promise<Map<string, MarketListingItem>>;
 /** What things are worth here. Default: every item in the hold and in this base's store.
  * Pass item ids for others. Capped at 40 rows. Over `view_market` it adds: the filter to
  * what you hold, your held/stored counts beside each book, and the cap. Reads only. `next`
