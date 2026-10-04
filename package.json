@@ -19,7 +19,7 @@
   },
   "private": true,
   "name": "sm-autopilot",
-  "version": "2026.10.0",
+  "version": "2026.10.1",
   "engines": {
     "node": ">=22.18.0"
   },

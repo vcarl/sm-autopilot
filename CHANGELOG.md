@@ -7,6 +7,52 @@ All notable changes to this plugin are recorded here. The format follows
 
 ## [Unreleased]
 
+## [2026.10.1] - 2026-10-04
+
+### Added
+
+- Chat. The juncture context quotes the pilot's recent direct messages and channel posts as
+  data, a direct message waiting for an answer wakes the juncture, and the `spacemolt_chat` tool
+  sends. A program can `export const interrupts = {from?, channels?}` (direct messages by
+  default) to pause between commands when a matching message arrives, as `ask()` does, and read
+  it with `heard()`; `chat()` and `messages()` post and read from a program.
+- `buyers(items)` answers who bids for an item, from anywhere.
+- The juncture context lists the pilot's own earning loops, what has moved since the objective
+  was set, and a Places line of bases that refused docking; opaque base and POI ids are named
+  where the pilot reads them.
+- The journal records every order-book read (in `books.jsonl` beside it), the depth a buy or sale
+  met, and each `tradeRun` stop's plan against its result.
+
+### Changed
+
+- The play library is rebuilt on Effect. A game refusal ends `refused` with the game's own code in
+  `why`; a lost reply to an action that changes state is checked against the game, never sent
+  twice; a game reply missing a field or sending `null` for a list no longer stops a job; one
+  failed read drops only its own menu section; a lost or unreadable battle status is never taken
+  as the fight being over; a freighter's failure stays out of the pilot's run; a bad field in
+  `pilot.json` is dropped and named instead of refusing the whole write. Only real bugs are
+  journalled as `defect`.
+- The pilot's program is typechecked by a warm language service, and its tsconfig sets
+  `verbatimModuleSyntax`: a type must be imported with `type`, and the refusal says so.
+- The goal is one line about the next step, with steps as their own checklist.
+- The pilot's READMEs are about a quarter shorter: mechanism the runtime handles on its own is
+  gone, and everything tied to a mistake pilots have made stays.
+
+### Fixed
+
+- Suggested moves fit in the juncture context again; on busy pilots they had been dropped to
+  stay under its size limit.
+- `tradeRun` stops when the rest of the route cannot pay, says when a planned buy finds no ask or
+  fewer units, takes the pilot's own fills off the remembered books, and names the age of each far
+  book a leg is planned on.
+- `scoutMarkets` ranks bases that refused docking last.
+- Fuel cells are priced against other bases.
+- `buyShip` reports a hull the game already made active as switched, and `shipsForSale` lists
+  what it can when a quote or the dock says no.
+- A run's report reads from its work, not its last call; `not_now` rows name the job.
+- A wreck the server lists without cargo or modules is still salvaged.
+- A failed game read at a juncture still renders the pilot record and the journal.
+
 ## [2026.10.0] - 2026-10-01
 
 ### Added
