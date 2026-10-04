@@ -1,0 +1,12 @@
+{
+  "name": "effect-qwen",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "effect": "3.22.2"
+  },
+  "devDependencies": {
+    "typescript": "5.9.3",
+    "@types/node": "^24"
+  }
+}

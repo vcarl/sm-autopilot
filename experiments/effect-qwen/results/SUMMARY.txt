@@ -1,0 +1,50 @@
+| run | variant | n | tsc ok | no casts | behaviour | full pass | median latency s | median completion tok |
+|---|---|---|---|---|---|---|---|---|
+| v1-nothink | effect | 50 | 22% | 78% | 22% | 16% | 10 | 253 |
+| v1-nothink | promise | 50 | 78% | 76% | 64% | 46% | 9 | 253 |
+| v1-think | effect | 20 | 55% | 85% | 70% | 50% | 137 | 4347 |
+| v1-think | promise | 20 | 95% | 75% | 90% | 65% | 136 | 4282 |
+| v2-nothink | effect | 50 | 60% | 84% | 64% | 52% | 7 | 217 |
+| v2-nothink | promise | 50 | 88% | 100% | 86% | 82% | 8 | 201 |
+| v2-nothink | result | 50 | 70% | 100% | 72% | 66% | 10 | 248 |
+| v2-think | result | 20 | 85% | 95% | 95% | 80% | 125 | 3915 |
+| v3-nothink | effect | 50 | 80% | 98% | 88% | 78% | 8 | 229 |
+| v3-think | effect | 20 | 90% | 100% | 95% | 90% | 113 | 3588 |
+
+### Full pass by task (passes/samples)
+
+| task | v1-nothink effect | v1-nothink promise | v1-think effect | v1-think promise | v2-nothink effect | v2-nothink promise | v2-nothink result | v2-think result | v3-nothink effect | v3-think effect |
+|---|---|---|---|---|---|---|---|---|---|---|
+| t1_sequence | 3/5 | 3/5 | 1/2 | 2/2 | 3/5 | 4/5 | 2/5 | 1/2 | 4/5 | 2/2 |
+| t2_catch_tag | 1/5 | 0/5 | 1/2 | 0/2 | 3/5 | 4/5 | 5/5 | 2/2 | 5/5 | 2/2 |
+| t3_retry | 0/5 | 4/5 | 1/2 | 2/2 | 4/5 | 5/5 | 3/5 | 2/2 | 4/5 | 2/2 |
+| t4_until_full | 0/5 | 2/5 | 1/2 | 2/2 | 5/5 | 5/5 | 3/5 | 0/2 | 5/5 | 2/2 |
+| t5_salvage | 0/5 | 1/5 | 0/2 | 1/2 | 2/5 | 5/5 | 4/5 | 1/2 | 0/5 | 1/2 |
+| t6_finalizer | 2/5 | 4/5 | 2/2 | 2/2 | 4/5 | 5/5 | 4/5 | 2/2 | 5/5 | 2/2 |
+| t7_parallel | 2/5 | 2/5 | 2/2 | 1/2 | 4/5 | 4/5 | 5/5 | 2/2 | 5/5 | 2/2 |
+| t8_schema | 0/5 | 2/5 | 0/2 | 1/2 | 0/5 | 2/5 | 3/5 | 2/2 | 4/5 | 2/2 |
+| t9_missions | 0/5 | 4/5 | 2/2 | 2/2 | 1/5 | 5/5 | 3/5 | 2/2 | 5/5 | 2/2 |
+| t10_composed | 0/5 | 1/5 | 0/2 | 0/2 | 0/5 | 2/5 | 1/5 | 2/2 | 2/5 | 1/2 |
+
+### Failure tags (count of failing samples carrying the tag)
+
+- **v1-nothink effect** (42 failing): behaviour: crashes at runtime 32, default export has the wrong type 22, hallucinated Effect API 13, casts/any/suppression 11, catchTag handler typing 10, Schedule/retry typing 10, behaviour: wrong outcome 10, yield* on a non-Effect 9, Either misuse 9, missing/wrong import 7, pipe helper called with () 6, unknown/undefined not narrowed 6, error/export names misspelled 6, implicit any 6, Effect value called like a function 5, other type error (TS2345) 5, wrong field on game data 5, Schema typing 4, other type error (TS2322) 4, behaviour: fails where it should recover 3, readonly arrays 3, Effect names imported from play 2, Effect namespace used as a type 2, other type error (TS1109) 1, yield without * 1, behaviour: swallows a failure 1, runs/provides the effect itself 1, other type error (TS2554) 1
+- **v1-nothink promise** (27 failing): casts/any/suppression 12, behaviour: fails where it should recover 9, missing/wrong import 5, behaviour: wrong outcome 5, behaviour: swallows a failure 4, no code block 2, other type error 2, yield* on a non-Effect 2, unknown/undefined not narrowed 1, Schema typing 1
+- **v1-think effect** (10 failing): default export has the wrong type 6, hallucinated Effect API 4, behaviour: crashes at runtime 4, behaviour: wrong outcome 4, Schedule/retry typing 4, casts/any/suppression 3, catchTag handler typing 3, Effect namespace used as a type 2, implicit any 2, missing/wrong import 2, other type error (TS7023) 2, Either misuse 1, other type error (TS2345) 1, Effect value called like a function 1, readonly arrays 1, wrong field on game data 1, other type error (TS2693) 1
+- **v1-think promise** (7 failing): casts/any/suppression 5, behaviour: swallows a failure 2, other type error (TS2352) 1
+- **v2-nothink effect** (24 failing): behaviour: crashes at runtime 15, default export has the wrong type 9, casts/any/suppression 8, catchTag handler typing 7, Either misuse 6, missing/wrong import 6, Schema typing 4, hallucinated Effect API 4, unknown/undefined not narrowed 3, behaviour: wrong outcome 3, Schedule/retry typing 3, wrong field on game data 2, Effect namespace used as a type 2, Effect value called like a function 2, implicit any 2, other type error (TS1128) 2, other type error (TS7023) 1, other type error (TS2345) 1, behaviour: fails where it should recover 1
+- **v2-nothink promise** (9 failing): missing/wrong import 5, behaviour: fails where it should recover 3, behaviour: swallows a failure 2, behaviour: wrong outcome 2, implicit any 1, Schema typing 1, wrong field on game data 1
+- **v2-nothink result** (17 failing): behaviour: fails where it should recover 10, missing/wrong import 5, behaviour: wrong outcome 4, wrong field on game data 4, implicit any 3, yield* on a non-Effect 2, unknown/undefined not narrowed 2, behaviour: crashes at runtime 2, readonly arrays 2, other type error (TS2322) 1, other type error (TS2571) 1, other type error (TS2345) 1, other type error (TS1359) 1, other type error (TS1005) 1
+- **v2-think result** (4 failing): readonly arrays 2, yield* on a non-Effect 1, wrong field on game data 1, implicit any 1, behaviour: fails where it should recover 1, casts/any/suppression 1, other type error (TS2322) 1
+- **v3-nothink effect** (11 failing): catchTag handler typing 6, behaviour: crashes at runtime 5, other type error (TS7023) 4, behaviour: wrong outcome 3, default export has the wrong type 2, hallucinated Effect API 1, casts/any/suppression 1, Schema typing 1, yield* on a non-Effect 1, implicit any 1, wrong field on game data 1, other type error (TS2345) 1, Schedule/retry typing 1
+- **v3-think effect** (2 failing): catchTag handler typing 2, other type error (TS7023) 1, implicit any 1, wrong field on game data 1, behaviour: crashes at runtime 1
+
+### Pass after one repair round (typecheck failures only are repaired)
+
+| run | variant | n | first try | repaired | after repair | tsc ok after repair |
+|---|---|---|---|---|---|---|
+| v1-nothink | effect | 50 | 16% | 6/39 | 28% | 46% |
+| v1-nothink | promise | 50 | 46% | 2/11 | 50% | 94% |
+| v2-nothink | promise | 50 | 82% | 6/6 | 94% | 100% |
+| v2-nothink | result | 50 | 66% | 12/15 | 90% | 98% |
+| v3-nothink | effect | 50 | 78% | 6/10 | 90% | 92% |
