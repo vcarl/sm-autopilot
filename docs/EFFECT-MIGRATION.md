@@ -524,6 +524,9 @@ branch passes when:
 - the refusal program's call is `refused`, and its `why` names the action and the code (from
   F-U17 on; at F-U02 nothing that refuses is converted yet, so record the status it shows);
 - there is no `death` or `stranded` beyond the base's count;
+- no reply the base read is skipped on the branch: every `did not read` / `reply off spec` step
+  line on the branch is matched by the same read failing on the base (F-U17: a wreck with
+  `cargo: null` was skipped on the branch, read on the base);
 - what the branch's bridge wrote to `runtime/bridge.stderr.log` has no `FiberFailure`, `Defect`,
   or unhandled rejection. `play.py` appends to that one file and never rotates it, so note its
   size (`wc -c`) before the branch's `serve` and read from there (`tail -c +<size+1>`);

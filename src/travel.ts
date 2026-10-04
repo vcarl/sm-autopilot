@@ -1,12 +1,12 @@
 import type {GameState} from '@spacemolt/lib';
 import {Effect,Result} from 'effect';
 import type {ReadinessAccount,ReadinessCommand} from './readiness.ts';
-import {Game,GameLive,attempt,field,message,rawError,type GameError} from './play/game.ts';
+import {Game,GameLive,attempt,classify,field,message,rawError,type GameError} from './play/game.ts';
 import {routeSteps} from './normal-route.ts';
-import {dockAt} from './dock.ts';
+import {dockAtEffect} from './dock.ts';
 import {position,reconcileMove,type Position,type Reconciliation} from './reconcile.ts';
 
-export class TravelBlocked extends Error {}
+export class TravelBlocked extends Error {readonly _tag:string='TravelBlocked';}
 export interface FuelRouteEvidence {
   kind:'available_fuel'|'capacity';
   actualFuel:number;
@@ -32,7 +32,10 @@ export class FuelRouteShortfall extends TravelBlocked {
     this.evidence=structuredClone(evidence);
   }
 }
+/** The game did not confirm where the ship is: a world condition (a timeout, an unsolicited move, a
+ * ship or place that changed under the move), never a bug, so it is a failure, not a defect. */
 export class ArrivalUnresolved extends Error {
+  readonly _tag='ArrivalUnresolved';
   /** Set when the reconciling read below showed the world moved the ship (S41, C13). */
   moved?:Reconciliation;
 }
@@ -86,7 +89,7 @@ export const battleNowEffect=()=>Effect.gen(function*() {
 /** The Promise twin of `battleNowEffect`, for callers not yet converted. */
 export async function battleNow(send:ReadinessCommand):Promise<BattleNow|undefined> {
   const exit=await Effect.runPromiseExit(battleNowEffect().pipe(Effect.provide(GameLive({send}))));
-  if(exit._tag==='Failure')throw rawError(exit.cause); // bridge: U18, U30, U33 (their conversion calls the twin and deletes this)
+  if(exit._tag==='Failure')throw rawError(exit.cause); // bridge: U30, U33 (their conversion calls the twin and deletes this)
   return exit.value;
 }
 
@@ -101,6 +104,8 @@ export interface TravelOptions {
   checkpoint?:(settled?:boolean)=>Promise<void>;
   beforeMove?:()=>Promise<void>;
   refuel?:(minimum:number)=>Promise<void>;
+  /** `refuel` as an Effect, for an Effect caller: it wins over `refuel` when both are given. */
+  refuelWith?:(minimum:number)=>Effect.Effect<void,never,Game>;
   onJump?:()=>void;
   now?:()=>number;sleep?:(ms:number)=>Promise<void>;
   maxWaitMs?:number;pollMs?:number;liveReadMs?:number;
@@ -141,9 +146,15 @@ export async function waitForArrival(account:ReadinessAccount,predicate:(state:G
     }
   }
   await options.checkpoint?.(true);
-  if(!predicate(account.state))throw new Error('Location changed at arrival checkpoint');
+  if(!predicate(account.state))throw new ArrivalUnresolved('Location changed at arrival checkpoint');
 }
 
+
+/** A Promise step of travel's: the lib's refusal or a lost reply is its tag, travel's own refusals thrown from
+ * it (a pilot stop is a `TravelBlocked`, an unconfirmed arrival `ArrivalUnresolved`) are failures as they are,
+ * and anything else is a defect. */
+export const travelStep=<A>(label:string,body:()=>Promise<A>)=>Effect.tryPromise({try:body,
+  catch:cause=>cause instanceof TravelBlocked||cause instanceof ArrivalUnresolved?cause:classify(label)(cause)});
 
 // Retry only definitive server rejections. A lost reply (transport, pending command) stays the
 // caller's reconciliation responsibility, even if a later read looks safe.
@@ -152,11 +163,9 @@ const retryable=(error:GameError)=>error._tag!=='ReplyLost'&&
 
 type Located=GameState&{location:NonNullable<GameState['location']>};
 type Quote=Parameters<typeof routeSteps>[0];
-/** routeSteps refuses with a plain Error; the refusal is named TravelBlocked (outside the Effect, which would call a try/catch there a bug). */
-const namedSteps=(...args:Parameters<typeof routeSteps>)=>{
-  try {return routeSteps(...args);}
-  catch(error){throw new TravelBlocked(String(error));} // edge: routeSteps throws a plain Error; the refusal is named TravelBlocked
-};
+/** routeSteps refuses with a plain Error; the refusal is named TravelBlocked, as a value. */
+const namedSteps=(...args:Parameters<typeof routeSteps>)=>Effect.try({try:()=>routeSteps(...args),catch:error=>new TravelBlocked(String(error))});
+const blocked=(why:string)=>Effect.fail(new TravelBlocked(why));
 const bool=(v:unknown)=>typeof v==='boolean'?v:undefined,str=(v:unknown)=>typeof v==='string'?v:undefined,num=(v:unknown)=>typeof v==='number'?v:undefined;
 /** The quote as routeSteps reads it, each field kept only when it has the type the spec gives it:
  * the live server omits and mistypes fields, and routeSteps refuses a quote missing any it needs. */
@@ -172,17 +181,16 @@ const stable=(s:GameState):s is Located=>Boolean(s.location?.system_id&&!s.locat
 
 /** One shared movement path; policy, spending and command ownership stay with the caller. Every game
  * command goes through `Game`, so a refusal is a tag: `InBattle` ends in travel's own `InBattle`, any
- * other refusal or lost reply fails with its tag, and a lost reply is never re-sent.
- *
- * ponytail: travel's own refusals (`TravelBlocked`, `FuelRouteShortfall`, `ArrivalUnresolved`, the
- * plain `Error`s) are still thrown classes, so inside this Effect they are defects carrying the thrown
- * value; the unconverted callers branch on `instanceof` through `rawError`. Tag them when U11, U17
- * and U26 convert those callers. `dockCommand` is dockAt's own Promise seam (U08), not travel's. */
-export const travelToEffect=(account:ReadinessAccount,destination:TravelDestination,options:TravelOptions,dockCommand:ReadinessCommand)=>Effect.gen(function*() {
+ * other refusal or lost reply fails with its tag, and a lost reply is never re-sent. Travel's own
+ * refusals (`TravelBlocked`, `FuelRouteShortfall`, `InBattle`) and the dock's `DockBlocked` are failures,
+ * so a caller that wants them reads the error channel; the unconverted Promise callers still branch on
+ * `instanceof` through `rawError`. `ArrivalUnresolved` and `Stopped` (thrown from a checkpoint) cross from
+ * the Promise seams through `travelStep`, so they are failures too; anything else a hook throws is a defect. */
+export const travelToEffect=(account:ReadinessAccount,destination:TravelDestination,options:TravelOptions)=>Effect.gen(function*() {
   const game=yield* Game;
-  if(battleHolds)throw new InBattle('a battle already refused this ship\'s last move and nothing has ended it since');
+  if(battleHolds)return yield* Effect.fail(new InBattle('a battle already refused this ship\'s last move and nothing has ended it since'));
   let maxJumps=options.maxJumps===null?null:options.maxJumps??2;
-  if(!destination.system_id||(maxJumps!==null&&(!Number.isSafeInteger(maxJumps)||maxJumps<0)))throw new TravelBlocked('Invalid travel destination or allocation');
+  if(!destination.system_id||(maxJumps!==null&&(!Number.isSafeInteger(maxJumps)||maxJumps<0)))return yield* blocked('Invalid travel destination or allocation');
   const arrived=(s:GameState)=>stable(s)&&s.location.system_id===destination.system_id&&
     (!destination.poi_id||s.location.poi_id===destination.poi_id);
   const refresh=()=>attempt('refresh',()=>account.refresh());
@@ -190,13 +198,13 @@ export const travelToEffect=(account:ReadinessAccount,destination:TravelDestinat
   const shipId=account.state.ship?.id;
   const checkpoint=async(settled=false)=>{
     await options.checkpoint?.(settled);
-    if(account.state.ship?.id!==shipId)throw new Error('Ship changed during travel; reconcile before further movement');
+    if(account.state.ship?.id!==shipId)throw new ArrivalUnresolved('Ship changed during travel; reconcile before further movement');
   };
-  const hold=(settled?:boolean)=>attempt('checkpoint',()=>checkpoint(settled));
+  const hold=(settled?:boolean)=>travelStep('checkpoint',()=>checkpoint(settled));
   const waits={...options,checkpoint};
-  const settle=(predicate:(state:GameState)=>boolean)=>attempt('waitForArrival',()=>waitForArrival(account,predicate,waits)); // bridge: U08 (waitForArrival stays a Promise for dockAt)
+  const settle=(predicate:(state:GameState)=>boolean)=>travelStep('waitForArrival',()=>waitForArrival(account,predicate,waits)); // bridge: U08 (waitForArrival stays a Promise for dockAtEffect's arrival wait)
   // The live ship, re-read where the old code asserted it: the quote proved it a moment ago.
-  const shipNow=()=>{const ship=account.state.ship;if(!ship)throw new TravelBlocked('Canonical fuel required before departure');return ship;};
+  const shipNow=()=>{const ship=account.state.ship;return ship?Effect.succeed(ship):blocked('Canonical fuel required before departure');};
   // A prior move owns transit until it settles; only then may we quote a new leg.
   if(!stable(account.state))yield* settle(stable);
   else yield* hold(true);
@@ -211,19 +219,19 @@ export const travelToEffect=(account:ReadinessAccount,destination:TravelDestinat
   });
   const quote=()=>Effect.gen(function*() {
     const location=structuredClone(account.state.location),ship=structuredClone(account.state.ship);
-    if(!location||!stable(account.state)||!ship||!Number.isFinite(ship.fuel))throw new TravelBlocked('Canonical location and fuel required for routing');
+    if(!location||!stable(account.state)||!ship||!Number.isFinite(ship.fuel))return yield* blocked('Canonical location and fuel required for routing');
     const reply=payload(yield* game.command('spacemolt/find_route',{id:destination.system_id}));
     const result=quoteOf(reply);
-    const steps=namedSteps(result,location.system_id,destination.system_id,maxJumps===null?null:maxJumps-jumps);
+    const steps=yield* namedSteps(result,location.system_id,destination.system_id,maxJumps===null?null:maxJumps-jumps);
     yield* refresh();
     const current=account.state;
     if(!stable(current)||current.location.system_id!==location.system_id||current.location.poi_id!==location.poi_id||
       current.location.docked_at!==location.docked_at||current.ship?.id!==ship.id||current.ship.fuel!==ship.fuel||current.ship.cargo_used!==ship.cargo_used||
       current.ship.max_fuel!==ship.max_fuel)
-      throw new TravelBlocked('Ship load, fuel or location changed while quoting route');
+      return yield* blocked('Ship load, fuel or location changed while quoting route');
     // The raw values: a mistyped one must still refuse, so it is never narrowed away.
     const fuelSaid=field(reply,'fuel_available'),cargoSaid=field(reply,'cargo_used');
-    if((fuelSaid!==undefined&&fuelSaid!==ship.fuel)||(cargoSaid!==undefined&&cargoSaid!==ship.cargo_used))throw new TravelBlocked('Route quote does not match current fuel or cargo');
+    if((fuelSaid!==undefined&&fuelSaid!==ship.fuel)||(cargoSaid!==undefined&&cargoSaid!==ship.cargo_used))return yield* blocked('Route quote does not match current fuel or cargo');
     // Objective travel admits this finite route, not an unlimited rerouting loop.
     maxJumps??=steps.length;
     // routeSteps proved the estimate a finite number above.
@@ -232,47 +240,53 @@ export const travelToEffect=(account:ReadinessAccount,destination:TravelDestinat
   while(!arrived(account.state)) {
     yield* hold();
     let plan=yield* quote();
-    const fuelShortfall=(kind:FuelRouteEvidence['kind'])=>new FuelRouteShortfall({
-      kind,actualFuel:shipNow().fuel,quotedCost:plan.cost,
-      requiredFuel:plan.required,shortfall:plan.required-shipNow().fuel,
-      ...(kind==='capacity'?{capacityShortfall:plan.required-shipNow().max_fuel}:{}),
-      destination,observed:{ship:account.state.ship,location:account.state.location},quoteOrigin:plan.origin,
+    const fuelShortfall=(kind:FuelRouteEvidence['kind'])=>Effect.gen(function*() {
+      const ship=yield* shipNow();
+      return yield* Effect.fail(new FuelRouteShortfall({
+        kind,actualFuel:ship.fuel,quotedCost:plan.cost,
+        requiredFuel:plan.required,shortfall:plan.required-ship.fuel,
+        ...(kind==='capacity'?{capacityShortfall:plan.required-ship.max_fuel}:{}),
+        destination,observed:{ship:account.state.ship,location:account.state.location},quoteOrigin:plan.origin,
+      }));
     });
-    const requireCapacity=()=>{
-      if(!Number.isFinite(shipNow().max_fuel))throw new TravelBlocked('Canonical tank capacity required for routing');
-      if(plan.required>shipNow().max_fuel)throw fuelShortfall('capacity');
-    };
-    requireCapacity();
-    const refuel=options.refuel;
-    if(shipNow().fuel<plan.required&&account.state.location?.docked_at&&refuel&&!refueled) {
-      refueled=true;yield* attempt('refuel',()=>refuel(plan.required));yield* hold();plan=yield* quote();
-      requireCapacity();
+    const requireCapacity=()=>Effect.gen(function*() {
+      const ship=yield* shipNow();
+      if(!Number.isFinite(ship.max_fuel))return yield* blocked('Canonical tank capacity required for routing');
+      if(plan.required>ship.max_fuel)return yield* fuelShortfall('capacity');
+    });
+    yield* requireCapacity();
+    const refuelWith=options.refuelWith,refuel=options.refuel;
+    if((yield* shipNow()).fuel<plan.required&&account.state.location?.docked_at&&(refuelWith||refuel)&&!refueled) {
+      refueled=true;
+      yield* refuelWith?refuelWith(plan.required):travelStep('refuel',async()=>{await refuel?.(plan.required);});
+      yield* hold();plan=yield* quote();
+      yield* requireCapacity();
     }
-    const requireFuel=()=>{
+    const requireFuel=()=>Effect.gen(function*() {
       const fuel=account.state.ship?.fuel;
-      if(typeof fuel!=='number'||!Number.isFinite(fuel))throw new TravelBlocked('Canonical fuel required before departure');
-      if(fuel<plan.required)throw fuelShortfall('available_fuel');
-    };
-    requireFuel();
+      if(typeof fuel!=='number'||!Number.isFinite(fuel))return yield* blocked('Canonical fuel required before departure');
+      if(fuel<plan.required)return yield* fuelShortfall('available_fuel');
+    });
+    yield* requireFuel();
     yield* hold();
-    yield* attempt('beforeMove',async()=>{await options.beforeMove?.();});
+    yield* travelStep('beforeMove',async()=>{await options.beforeMove?.();});
     // Hooks may await other work while the server changes. Revalidate the quote
     // before undocking as well as before the jump/travel command.
     yield* refresh();
     const departure=account.state;
     if(!stable(departure)||departure.location.system_id!==plan.origin.system_id||departure.location.poi_id!==plan.origin.poi_id||
       departure.location.docked_at!==plan.origin.docked_at||departure.ship?.id!==plan.ship.id||departure.ship.cargo_used!==plan.ship.cargo_used||
-      departure.ship.max_fuel!==plan.ship.max_fuel)throw new TravelBlocked('Route origin, load or fuel changed before departure');
+      departure.ship.max_fuel!==plan.ship.max_fuel)return yield* blocked('Route origin, load or fuel changed before departure');
     // A stale quote cannot establish a fuel crossing. Classify fuel only after
     // its non-fuel context is validated, then retain the fuel-change guard.
-    requireFuel();
-    if(departure.ship.fuel!==plan.ship.fuel)throw new TravelBlocked('Route origin, load or fuel changed before departure');
+    yield* requireFuel();
+    if(departure.ship.fuel!==plan.ship.fuel)return yield* blocked('Route origin, load or fuel changed before departure');
     // Undocking is refused `in_battle` just as the move is, and reaches the pilot the same way.
     if(departure.location.docked_at) {
       const undocked=yield* Effect.result(game.command('spacemolt/undock',{}));
       if(Result.isFailure(undocked)) {
         const failure=undocked.failure;
-        if(failure._tag==='InBattle') {battleHolds=true;throw new InBattle(failure.message);}
+        if(failure._tag==='InBattle') {battleHolds=true;return yield* Effect.fail(new InBattle(failure.message));}
         if(!(yield* goalMet(failure,s=>!s.location?.docked_at)))return yield* failure;
       }
     }
@@ -280,22 +294,22 @@ export const travelToEffect=(account:ReadinessAccount,destination:TravelDestinat
     if(next) {
       const connections=field(field(payload(yield* game.command('spacemolt/get_system',{})),'system'),'connections');
       const rows:readonly unknown[]=Array.isArray(connections)?connections:[];
-      if(!rows.some(c=>(typeof c==='string'?c:field(c,'system_id'))===next))throw new TravelBlocked('Route is not a verified normal connection');
+      if(!rows.some(c=>(typeof c==='string'?c:field(c,'system_id'))===next))return yield* blocked('Route is not a verified normal connection');
     }
     yield* hold();
     yield* refresh();
     const current=account.state;
     if(!stable(current)||current.location.system_id!==plan.origin.system_id||current.location.poi_id!==plan.origin.poi_id||current.location.docked_at||
-      current.ship?.id!==plan.ship.id||current.ship.cargo_used!==plan.ship.cargo_used||current.ship.max_fuel!==plan.ship.max_fuel)throw new TravelBlocked('Route origin, load or fuel changed before departure');
-    requireFuel();
-    if(current.ship.fuel!==plan.ship.fuel)throw new TravelBlocked('Route origin, load or fuel changed before departure');
+      current.ship?.id!==plan.ship.id||current.ship.cargo_used!==plan.ship.cargo_used||current.ship.max_fuel!==plan.ship.max_fuel)return yield* blocked('Route origin, load or fuel changed before departure');
+    yield* requireFuel();
+    if(current.ship.fuel!==plan.ship.fuel)return yield* blocked('Route origin, load or fuel changed before departure');
     const target=next??destination.poi_id;
-    if(!target)throw new TravelBlocked('Route does not reach destination');
+    if(!target)return yield* blocked('Route does not reach destination');
     const moved=yield* Effect.result(game.command(next?'spacemolt/jump':'spacemolt/travel',{id:target}));
     if(Result.isSuccess(moved))battleHolds=false;
     else {
       const failure=moved.failure;
-      if(failure._tag==='InBattle') {battleHolds=true;throw new InBattle(failure.message);}
+      if(failure._tag==='InBattle') {battleHolds=true;return yield* Effect.fail(new InBattle(failure.message));}
       if(!(yield* goalMet(failure,s=>next?stable(s)&&s.location.system_id===next:arrived(s)))) {
         if(!retryable(failure)||retries--<=0)return yield* failure;
         yield* settle(stable);
@@ -311,8 +325,8 @@ export const travelToEffect=(account:ReadinessAccount,destination:TravelDestinat
   if(baseId) {
     yield* hold();
     // One dock path for every caller: satisfied docks, lost replies and queued docks included.
-    yield* attempt('dock',async()=>{await dockAt(account,dockCommand,baseId,waits);}); // bridge: U08 (its conversion drops dockCommand)
-    if(!arrived(account.state))throw new Error('Docking identity not verified');
+    yield* dockAtEffect(account,baseId,waits);
+    if(!arrived(account.state))return yield* Effect.fail(new ArrivalUnresolved('Docking identity not verified'));
   }
   return {jumps,location:structuredClone(account.state.location)};
 });
@@ -321,7 +335,7 @@ export const travelToEffect=(account:ReadinessAccount,destination:TravelDestinat
  * raw error, so a refusal reaches them as the lib's `SpacemoltError` and travel's own classes as
  * themselves. */
 export async function travelTo(account:ReadinessAccount,command:ReadinessCommand,destination:TravelDestination,options:TravelOptions={}) {
-  const exit=await Effect.runPromiseExit(travelToEffect(account,destination,options,command).pipe(Effect.provide(GameLive({send:command}))));
-  if(exit._tag==='Failure')throw rawError(exit.cause); // bridge: U11, U17, U26 (their conversion calls the twin and deletes this)
+  const exit=await Effect.runPromiseExit(travelToEffect(account,destination,options).pipe(Effect.provide(GameLive({send:command}))));
+  if(exit._tag==='Failure')throw rawError(exit.cause); // bridge: U11, U26 (their conversion calls the twin and deletes this)
   return exit.value;
 }

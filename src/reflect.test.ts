@@ -3,12 +3,22 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {mkdirSync,mkdtempSync,writeFileSync} from 'node:fs';
 import {SpacemoltError} from '@spacemolt/lib';
+import {Effect} from 'effect';
+import {GameLive,rawError} from './play/game.ts';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import type {ReadinessAccount,ReadinessCommand} from './readiness.ts';
-import {reflectReport} from './reflect.ts';
+import {reflectReportEffect,type Pilotish} from './reflect.ts';
 import {journalRun} from './run-record.ts';
 import {FakeLibGoalAccount} from './test-support/fake-lib-account.ts';
+
+/** The report as a Promise, run over the world's own command seam and the account's refresh; a failure throws the raw error, as a script's `reflection()` once did. */
+async function reflectReport(account:ReadinessAccount,command:ReadinessCommand,pilot:Pilotish,runtime?:string) {
+  const exit=await Effect.runPromiseExit(reflectReportEffect(account,pilot,runtime).pipe(
+    Effect.provide(GameLive({send:command,refresh:()=>account.refresh()}))));
+  if(exit._tag==='Failure')throw rawError(exit.cause);
+  return exit.value;
+}
 
 /** A pilot docked on a serviced ship, and the runtime its journal lives in. */
 function fixture(over:{pilot?:Record<string,unknown>;

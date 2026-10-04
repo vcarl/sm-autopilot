@@ -1,5 +1,8 @@
 /** Getting somewhere and docking. One function; the id decides what it does. */
 import type { ActiveMissionInfo, FindRouteResponse, RouteStep, V2Location } from '@spacemolt/lib';
+import { Effect } from 'effect';
+import { TravelBlocked } from '../travel.ts';
+import { Game } from './game.ts';
 import type { Outcome } from './types.ts';
 export interface Trip {
     /** The quote the trip was admitted on: `target_system`, `target_poi`, `estimated_fuel`,
@@ -18,6 +21,10 @@ export interface Place {
     id: string;
     name: string;
     what: 'system' | 'POI' | 'base';
+}
+/** The name the pilot wrote is no place: a refusal of the trip, not a failure of it. */
+export declare class NotAPlace extends TravelBlocked {
+    readonly _tag = "NotAPlace";
 }
 /** The system a guess names and the bases known to be in it: `node_alpha_station` names Node
  * Alpha, whatever word the pilot suffixed it with. Exactly one base there is what the guess
@@ -40,12 +47,15 @@ export declare function systemBases(id: string, places: Place[], where?: string)
  * found" says nothing about what was actually named. When it says that, the word is matched
  * against the systems on the map and the POIs and bases here: an exact match on an id or a
  * display name is what the pilot meant (names are what prose gives them), and the near
- * misses go in the refusal so the next script can correct itself. */
-export declare function destination(id: string): Promise<{
+ * misses go in the refusal so the next script can correct itself. A name that is no place
+ * fails with `NotAPlace`; any other refusal or a lost reply on `find_route` is its own tag. */
+export declare const destinationEffect: (id: string) => Effect.Effect<{
     id: string;
     quote: FindRouteResponse;
-}>;
+}, import("./codes.ts").Rejected | import("./codes.ts").InBattle | import("./codes.ts").HoldFull | import("./codes.ts").Depleted | import("./codes.ts").ReplyLost | NotAPlace, Game>;
 /** The quote alone, for callers that only want the fuel and jumps. */
+export declare const routeEffect: (id: string) => Effect.Effect<FindRouteResponse, import("./codes.ts").Rejected | import("./codes.ts").InBattle | import("./codes.ts").HoldFull | import("./codes.ts").Depleted | import("./codes.ts").ReplyLost | NotAPlace, Game>;
+/** The Promise twin of `routeEffect`: throws `NotAPlace` (a `TravelBlocked`) or the lib's raw error, as it always did. */
 export declare function route(id: string): Promise<FindRouteResponse>;
 /** A distress call this trip passes near enough to answer, and what including it costs. */
 export interface Stop {
@@ -77,3 +87,7 @@ export declare function distressPlan(quote: Pick<FindRouteResponse, 'route' | 't
  *
  * Idempotent: already there (and docked, if a base) sends nothing and is `done`. */
 export declare function goTo(id: string): Promise<Outcome<Trip>>;
+/** `goTo` as an Effect, for `edge` and for converted callers; never in a barrel. A refusal or a lost reply on
+ * a leg ends the trip naming the action and the code; a lost reply on a jump, travel or dock is never re-sent, and
+ * the ship's place is re-read from the game. */
+export declare const goToEffect: (id: string) => Effect.Effect<Outcome<Trip>, never, Game>;

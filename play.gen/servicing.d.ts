@@ -1,3 +1,4 @@
+import type { MarketListingItem } from '@spacemolt/lib';
 import { Effect } from 'effect';
 import { Game, type GameError } from './play/game.ts';
 import type { ReadinessAccount, ReadinessCommand } from './readiness.ts';
@@ -88,6 +89,9 @@ export declare const serviceShipEffect: (account: ReadinessAccount, options: Ser
 export declare function serviceShip(account: ReadinessAccount, command: ReadinessCommand, options: ServiceOptions): Promise<ServiceOutcome>;
 /** A live cell price over this multiple of the remembered median is not paid. */
 export declare const CELL_PRICE_BOUND = 1.5;
+/** One `view_market` row as the book memory keeps it. The live server omits spec fields, so a row is
+ * built from what it carries (a missing number is 0, a missing list empty), never decoded whole. */
+export declare const listing: (raw: unknown) => MarketListingItem[];
 /** A refusal or lost reply in the words `skipped` and `why` carry. */
 export declare const words: (error: GameError) => string;
 export {};

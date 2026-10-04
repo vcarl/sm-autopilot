@@ -4,7 +4,7 @@ import {ConnectionClosedError,SpacemoltError} from '@spacemolt/lib';
 import {Effect,Fiber,Layer} from 'effect';
 import {TestClock} from 'effect/testing';
 import type {ReadinessAccount,ReadinessCommand} from './readiness.ts';
-import {gatherJob,gatherJobEffect,type GatherOptions,type GatherOutcome,type GatherPlan} from './gather-job.ts';
+import {gatherJobEffect,type GatherOptions,type GatherOutcome,type GatherPlan} from './gather-job.ts';
 import {GameLive} from './play/game.ts';
 import type {MineYieldRow} from './mine.ts';
 
@@ -88,8 +88,8 @@ function fixture() {
   return {server,account,calls,handlers,command,
     // The plan is the caller's own object, so a test may move its mood mid-job the way the
     // runtime does, and hand the job the hooks a runner passes it.
-    run:(plan:GatherPlan={home,site,mood:'Cautious'},options?:GatherOptions)=>
-      gatherJob(account,command,plan,options)};
+    run:(plan:GatherPlan={home,site,mood:'Cautious'},options?:GatherOptions):Promise<GatherOutcome>=>
+      Effect.runPromise(gatherJobEffect(account,command,plan,options).pipe(Effect.provide(GameLive({send:command}))))};
 }
 
 test('a gather job stows what it mined and sells nothing; the starting hold stays aboard',async()=>{

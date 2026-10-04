@@ -3,7 +3,7 @@ import test from 'node:test';
 import {SpacemoltError} from '@spacemolt/lib';
 import {Effect,Result} from 'effect';
 import type {ReadinessCommand} from './readiness.ts';
-import {GameLive,type Game} from './play/game.ts';
+import {GameLive,Rejected,ReplyLost,type Game} from './play/game.ts';
 import {battleEnded,battleNow,battleNowEffect,InBattle,TravelBlocked,travelTo,travelToEffect} from './travel.ts';
 import {FakeLibGoalAccount} from './test-support/fake-lib-account.ts';
 
@@ -29,7 +29,7 @@ function world(refuse:{undock?:SpacemoltError;travel?:SpacemoltError;status?:Spa
   const opts={now:()=>0,sleep:async()=>{}};
   return {account,destination,command,sent,opts,
     run:()=>travelTo(account,command,destination,opts),
-    effect:()=>Effect.runPromise(Effect.result(travelToEffect(account,destination,opts,command)).pipe(Effect.provide(GameLive({send:command}))))};
+    effect:()=>Effect.runPromise(Effect.result(travelToEffect(account,destination,opts)).pipe(Effect.provide(GameLive({send:command}))))};
 }
 const inBattle=()=>new SpacemoltError('in_battle',"cannot perform this action while in combat. Use the 'battle' command to fight or flee.");
 
@@ -60,7 +60,7 @@ test('a jump or travel refused with another code reaches the Promise caller as t
   // The twin keeps it a value, a named tag with the server's code, never an unnamed Error.
   const tried=await world({travel:new SpacemoltError('no_route','No route to that place')}).effect();
   assert.ok(Result.isFailure(tried));
-  assert.ok(tried.failure._tag==='Rejected'&&tried.failure.code==='no_route');
+  assert.ok(tried.failure instanceof Rejected&&tried.failure.code==='no_route');
 });
 
 test('a travel refused in_battle is a tag in the twin and travel\'s InBattle for the Promise caller',async()=>{
@@ -68,8 +68,8 @@ test('a travel refused in_battle is a tag in the twin and travel\'s InBattle for
   const w=world({travel:inBattle()});
   await assert.rejects(w.run(),InBattle);
   battleEnded();
-  const tried=await world({travel:inBattle()}).effect().then(r=>r,error=>error);
-  assert.ok(tried instanceof InBattle,'travel\'s own refusal is a thrown class, a defect in the twin');
+  const tried=await world({travel:inBattle()}).effect();
+  assert.ok(Result.isFailure(tried)&&tried.failure instanceof InBattle,'travel\'s own refusal is a failure value in the twin');
   battleEnded();
 });
 
@@ -79,7 +79,7 @@ test('a lost reply on travel is not re-sent, and the caller sees the lost reply 
   await assert.rejects(w.run(),error=>error instanceof SpacemoltError&&error.code==='mutation_timeout');
   assert.equal(w.sent('spacemolt/travel'),1,'a mutation whose reply is lost is never re-sent');
   const tried=await world({travel:new SpacemoltError('mutation_timeout','no reply in time')}).effect();
-  assert.ok(Result.isFailure(tried)&&tried.failure._tag==='ReplyLost');
+  assert.ok(Result.isFailure(tried)&&tried.failure instanceof ReplyLost);
 });
 
 test('a lost reply that carries a retryable code is still never re-sent',async()=>{

@@ -155,6 +155,8 @@ export interface HangarOptions {
    * found.` A yard that lists a class its own catalogue cannot answer for is the game being
    * inconsistent with itself, and the library has to survive it. */
   unknownClasses?:string[];
+  /** What the yard here will build, by class id: the price, and the blockers that stop it (none: it builds). */
+  commissions?:Record<string,{total:number;blockers?:string[]}>;
 }
 
 /** What `inspect` answers for a module id: the slot it takes and its draw on the grid. */
@@ -509,8 +511,8 @@ export function bridgeWorld(options:WorldOptions={}) {
     'spacemolt/get_active_missions':()=>({structuredContent:{missions:{active:structuredClone(taken),max_missions:5}}}),
     'spacemolt/accept_mission':params=>{
       const wanted=board.find(row=>row.mission_id===String(params.id));
-      if(!wanted)throw new Error(`No mission ${params.id} on this board`);
-      if(taken.length>=5)throw new Error('5 of 5 missions already active');
+      if(!wanted)throw new SpacemoltError('mission_not_found',`No mission ${params.id} on this board`);
+      if(taken.length>=5)throw new SpacemoltError('mission_limit','5 of 5 missions already active');
       taken.push({...structuredClone(wanted),percent_complete:0});
       return {structuredContent:{mission_id:wanted.mission_id,title:wanted.title}};
     },
@@ -518,10 +520,10 @@ export function bridgeWorld(options:WorldOptions={}) {
     // which is how a caller learns the withdrawal it made was not enough.
     'spacemolt/complete_mission':params=>{
       const row=taken.find(current=>current.mission_id===String(params.id));
-      if(!row)throw new Error(`No active mission ${params.id}`);
+      if(!row)throw new SpacemoltError('mission_not_found',`No active mission ${params.id}`);
       const short=(row.objectives??[]).find((o:Record<string,any>)=>
         (o.required??0)>(o.current??0)+(o.item_id?held(String(o.item_id)):0));
-      if(short)throw new Error(`Objective not met: ${short.description}`);
+      if(short)throw new SpacemoltError('mission_incomplete',`Objective not met: ${short.description}`);
       taken.splice(taken.indexOf(row),1);
       // Paid into the account, not just into the reply: a gain a caller measures has to be real.
       account.server.player.credits+=row.rewards?.credits??0;
@@ -529,7 +531,7 @@ export function bridgeWorld(options:WorldOptions={}) {
     },
     'spacemolt/abandon_mission':params=>{
       const row=taken.find(current=>current.mission_id===String(params.id));
-      if(!row)throw new Error(`No active mission ${params.id}`);
+      if(!row)throw new SpacemoltError('mission_not_found',`No active mission ${params.id}`);
       taken.splice(taken.indexOf(row),1);
       return {delta:{details:{mission_id:row.mission_id,title:row.title,message:'Abandoned.'}}};
     },
@@ -580,6 +582,14 @@ export function bridgeWorld(options:WorldOptions={}) {
     'spacemolt_salvage/loot':params=>{
       const wreck=wrecks.find(row=>row.id===String(params.id));
       if(!wreck)throw new Error(`No wreck ${params.id}`);
+      if(params.module_id!==undefined) {
+        // A module comes off the wreck into the hold, one unit of cargo.
+        const module=(wreck.modules as {id:string}[]).find(item=>item.id===String(params.module_id));
+        if(!module)throw new Error(`No module ${params.module_id} in that wreck`);
+        add(module.id,1);
+        wreck.modules=(wreck.modules as {id:string}[]).filter(item=>item!==module);
+        return {delta:{details:{action:'loot_wreck',module_id:module.id}}};
+      }
       const row=(wreck.cargo as {item_id:string;quantity:number}[])
         .find(item=>item.item_id===String(params.item_id));
       if(!row)throw new Error(`No ${params.item_id} in that wreck`);
@@ -609,7 +619,7 @@ export function bridgeWorld(options:WorldOptions={}) {
       const target=homes[String(params.id)];
       // An id the server cannot place is an error, not a `found:false` body: it assumes the
       // word was a system and says so. That throw is what goTo has to read as "no such place".
-      if(!target)throw new Error('Target system not found');
+      if(!target)throw new SpacemoltError('not_found','Target system not found');
       const from=account.server.location.system_id;
       const route=path(from,target);
       // A system id answers with a system and no POI of its own: there is no one place in a
@@ -637,7 +647,7 @@ export function bridgeWorld(options:WorldOptions={}) {
       // The server's own refusal when the id is not a POI in this system — a system id
       // handed on as a destination is rejected here, after the jump was flown and paid for.
       const where=systemAt(account.server.location.system_id);
-      if(!where.pois.some((row:{id:string})=>row.id===String(params.id)))throw new Error(`Unknown destination: ${params.id}`);
+      if(!where.pois.some((row:{id:string})=>row.id===String(params.id)))throw new SpacemoltError('not_found',`Unknown destination: ${params.id}`);
       account.server.ship.fuel-=7;account.server.location.poi_id=String(params.id);return {};},
     // The reply over-claims: only the cargo delta says what the trip actually took.
     'spacemolt/mine':()=>{add('ore',minePerCycle);
@@ -691,7 +701,8 @@ export function bridgeWorld(options:WorldOptions={}) {
       if(Object.hasOwn(MODULES,id))return {structuredContent:{id,kind:'module',source:'catalog',
         catalog:page([MODULES[id]!],'items')}};
       if((options.hangar?.unknownClasses??[]).includes(id))
-        throw new Error(`Ship class "${id}" not found.`);
+        // The live refusal is a SpacemoltError; the code is not one this repo has seen, so the message is what is matched.
+        throw new SpacemoltError('not_found',`Ship class "${id}" not found.`);
       if(Object.hasOwn(CLASSES,id))return {structuredContent:{id,kind:'ship_class',source:'catalog',
         catalog:page([CLASSES[id]!],'ships')}};
       return {structuredContent:{id,kind:'item',source:'catalog',
@@ -731,6 +742,34 @@ export function bridgeWorld(options:WorldOptions={}) {
         is_active:false,location_base_id:'sol_base'});
       return {delta:{details:{message:'Bought.',class_id:row.class_id,price:row.price,
         ship_id:row.ship_id,credits_left:account.server.player.credits}}};
+    },
+    // A yard quote as the server answers it: `can_commission` is what the blockers say, the rest is the quote's own shape.
+    'spacemolt_ship/commission_quote':params=>{
+      const id=String(params.id),row=options.hangar?.commissions?.[id];
+      if(!row)throw new SpacemoltError('unknown_class',`This yard cannot build ${id}.`);
+      return {structuredContent:{bare_hull:false,can_afford_credits_only:account.server.player.credits>=row.total,
+        can_afford_partial_sourcing:true,can_afford_provide_materials:true,can_commission:!row.blockers?.length,
+        credits_only_available:true,credits_only_total:row.total,message:row.blockers?.length?'Cannot build.':'Can build.',
+        provide_materials_total:0,ship_class:id,source_missing_materials:false,
+        ...row.blockers?.length?{blockers:row.blockers}:{}}};
+    },
+    // A finished build: paid for, and the hull is in the fleet, parked.
+    'spacemolt_ship/commission_ship':params=>{
+      const id=String(params.id),row=options.hangar?.commissions?.[id];
+      if(!row||row.blockers?.length)throw new SpacemoltError('cannot_commission',`This yard cannot build ${id}.`);
+      account.server.player.credits-=row.total;
+      fleet.push({ship_id:`built_${id}`,class_id:id,class_name:CLASSES[id]?.name??id,is_active:false,location_base_id:'sol_base'});
+      return {structuredContent:{bare_hull:false,commission_id:`c_${id}`,credits_left:account.server.player.credits,
+        credits_paid:row.total,message:'Built.',ship_class:id,source_missing_materials:false,status:'complete'}};
+    },
+    'spacemolt_ship/switch_ship':params=>{
+      const row=fleet.find(current=>current.ship_id===String(params.id));
+      if(!row)throw new Error(`No ship ${params.id}`);
+      const was=fleet.find(current=>current.is_active);
+      for(const each of fleet)each.is_active=each===row;
+      Object.assign(account.server.ship,{id:row.ship_id,class_id:row.class_id,class_name:row.class_name});
+      return {structuredContent:{active_ship_class:row.class_id,active_ship_id:row.ship_id,message:'Switched.',
+        stored_ship_class:was?.class_id??'',stored_ship_id:was?.ship_id??''}};
     },
     'spacemolt_ship/list_ships':()=>({structuredContent:{count:fleet.length,
       active_ship_id:'ship',active_ship_class:'cobble',ships:structuredClone(fleet)}}),
@@ -826,7 +865,7 @@ export function bridgeWorld(options:WorldOptions={}) {
       const room=account.server.ship.cargo_capacity-account.server.ship.cargo_used;
       const moved=Math.min(row?.quantity??0,Number(params.quantity));
       // The live refusal, word for word: the whole ask or nothing.
-      if(moved*footprint(item)>room)throw new Error(`cargo_full: Not enough cargo space. Need ${moved*footprint(item)} but only ${room} available. Use 'deposit_items' or 'jettison' to free space.`);
+      if(moved*footprint(item)>room)throw new SpacemoltError('cargo_full',`Not enough cargo space. Need ${moved*footprint(item)} but only ${room} available. Use 'deposit_items' or 'jettison' to free space.`);
       if(row) {
         row.quantity-=moved;
         if(!row.quantity)store.splice(store.indexOf(row),1);

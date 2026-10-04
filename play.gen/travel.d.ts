@@ -4,6 +4,7 @@ import type { ReadinessAccount, ReadinessCommand } from './readiness.ts';
 import { Game, type GameError } from './play/game.ts';
 import { type Reconciliation } from './reconcile.ts';
 export declare class TravelBlocked extends Error {
+    readonly _tag: string;
 }
 export interface FuelRouteEvidence {
     kind: 'available_fuel' | 'capacity';
@@ -25,7 +26,10 @@ export declare class FuelRouteShortfall extends TravelBlocked {
     readonly evidence: FuelRouteEvidence;
     constructor(evidence: FuelRouteEvidence);
 }
+/** The game did not confirm where the ship is: a world condition (a timeout, an unsolicited move, a
+ * ship or place that changed under the move), never a bug, so it is a failure, not a defect. */
 export declare class ArrivalUnresolved extends Error {
+    readonly _tag = "ArrivalUnresolved";
     /** Set when the reconciling read below showed the world moved the ship (S41, C13). */
     moved?: Reconciliation;
 }
@@ -73,6 +77,8 @@ export interface TravelOptions {
     checkpoint?: (settled?: boolean) => Promise<void>;
     beforeMove?: () => Promise<void>;
     refuel?: (minimum: number) => Promise<void>;
+    /** `refuel` as an Effect, for an Effect caller: it wins over `refuel` when both are given. */
+    refuelWith?: (minimum: number) => Effect.Effect<void, never, Game>;
     onJump?: () => void;
     now?: () => number;
     sleep?: (ms: number) => Promise<void>;
@@ -82,18 +88,21 @@ export interface TravelOptions {
 }
 /** Account.refresh always queries get_status. A cargo/hull push must never postpone it. */
 export declare function waitForArrival(account: ReadinessAccount, predicate: (state: GameState) => boolean, options?: TravelOptions): Promise<void>;
+/** A Promise step of travel's: the lib's refusal or a lost reply is its tag, travel's own refusals thrown from
+ * it (a pilot stop is a `TravelBlocked`, an unconfirmed arrival `ArrivalUnresolved`) are failures as they are,
+ * and anything else is a defect. */
+export declare const travelStep: <A>(label: string, body: () => Promise<A>) => Effect.Effect<A, GameError | TravelBlocked | ArrivalUnresolved, never>;
 /** One shared movement path; policy, spending and command ownership stay with the caller. Every game
  * command goes through `Game`, so a refusal is a tag: `InBattle` ends in travel's own `InBattle`, any
- * other refusal or lost reply fails with its tag, and a lost reply is never re-sent.
- *
- * ponytail: travel's own refusals (`TravelBlocked`, `FuelRouteShortfall`, `ArrivalUnresolved`, the
- * plain `Error`s) are still thrown classes, so inside this Effect they are defects carrying the thrown
- * value; the unconverted callers branch on `instanceof` through `rawError`. Tag them when U11, U17
- * and U26 convert those callers. `dockCommand` is dockAt's own Promise seam (U08), not travel's. */
-export declare const travelToEffect: (account: ReadinessAccount, destination: TravelDestination, options: TravelOptions, dockCommand: ReadinessCommand) => Effect.Effect<{
+ * other refusal or lost reply fails with its tag, and a lost reply is never re-sent. Travel's own
+ * refusals (`TravelBlocked`, `FuelRouteShortfall`, `InBattle`) and the dock's `DockBlocked` are failures,
+ * so a caller that wants them reads the error channel; the unconverted Promise callers still branch on
+ * `instanceof` through `rawError`. `ArrivalUnresolved` and `Stopped` (thrown from a checkpoint) cross from
+ * the Promise seams through `travelStep`, so they are failures too; anything else a hook throws is a defect. */
+export declare const travelToEffect: (account: ReadinessAccount, destination: TravelDestination, options: TravelOptions) => Effect.Effect<{
     jumps: number;
     location: import("@spacemolt/lib").V2Location | undefined;
-}, GameError, Game>;
+}, GameError | TravelBlocked | ArrivalUnresolved, Game>;
 /** The Promise twin of `travelToEffect`, for callers not yet converted: a failure exit throws the
  * raw error, so a refusal reaches them as the lib's `SpacemoltError` and travel's own classes as
  * themselves. */

@@ -1,6 +1,8 @@
 /** The market counter at the base you are docked at. Prices are read live at the moment of
  * the act, never from a plan. */
 import type { BuyResponse, EstimatePurchaseResponse, MarketListingItem, SellResponse } from '@spacemolt/lib';
+import { Effect } from 'effect';
+import { Game } from './game.ts';
 import type { Outcome, Want } from './types.ts';
 /** The lib's per-item book (`best_buy`, `best_buy_qty`, `best_sell`, `best_sell_qty`,
  * `spread`) plus your own position, which the market does not know. */
@@ -50,11 +52,16 @@ export declare function rememberBook(dir: string | undefined, base_id: string, s
  * filtered ones against the rate limit, and the pilot never sees it. Every read is also
  * written to this runtime's market memory, which is what `spreads()` reads, and filed to the
  * faction's trade ledger once per tick when there is one. */
+export declare const bookEffect: () => Effect.Effect<Map<string, MarketListingItem>, import("./codes.ts").GameError, Game>;
+/** The Promise twin of `bookEffect`: throws the lib's raw error, as it always did. */
 export declare function book(): Promise<Map<string, MarketListingItem>>;
 /** What things are worth here. Default: every item in the hold and in this base's store.
  * Pass item ids for others. Capped at 40 rows. Over `view_market` it adds: the filter to
  * what you hold, your held/stored counts beside each book, and the cap. Reads only. `next`
  * names the best thing to sell here by `best_buy × min(best_buy_qty, held)`. */
+export declare const pricesEffect: (items?: string[]) => Effect.Effect<Outcome<{
+    quotes: Quote[];
+}>, never, Game>;
 export declare function prices(items?: string[]): Promise<Outcome<{
     quotes: Quote[];
 }>>;
@@ -84,6 +91,10 @@ export interface Sold {
  * - `floor`: per-item minimum `best_buy`; below it the row is skipped, not dumped.
  *
  * Trains trading (xp scales with credit volume). Not docked or no market here: `refused`. */
+export declare const sellEffect: (items: Want[], opts?: {
+    from?: "hold" | "store";
+    floor?: Record<string, number>;
+}) => Effect.Effect<Outcome<Sold>, never, Game>;
 export declare function sell(items: Want[], opts?: {
     from?: 'hold' | 'store';
     floor?: Record<string, number>;
@@ -100,6 +111,11 @@ export interface Bought {
  * free slot of its kind, CPU and power — and refused when it could not be fitted, with
  * `next` saying what to remove; `{force:true}` skips that check for a pilot buying a spare.
  * Trains trading. Tired or Relaxed: refused. */
+export declare const buyEffect: (itemId: string, quantity: number, opts?: {
+    deliverTo?: "cargo" | "storage";
+    maxEach?: number;
+    force?: boolean;
+}) => Effect.Effect<Outcome<Bought>, never, Game>;
 export declare function buy(itemId: string, quantity: number, opts?: {
     deliverTo?: 'cargo' | 'storage';
     maxEach?: number;

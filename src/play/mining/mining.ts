@@ -1,12 +1,14 @@
 /** Mining: out to a belt, ice field or gas cloud, fill the hold, come back, stow, service. */
-import type {SurveySystemResponse,SurveyedPoi,V2CargoItem,ViewStorageResponse} from '@spacemolt/lib';
-import {TravelBlocked} from '../../travel.ts';
-import {gatherJob,type GatherStep} from '../../gather-job.ts';
+import type {SurveySystemResponse,SurveyedPoi,V2CargoItem} from '@spacemolt/lib';
+import {Effect,Option,Result,Schema,Struct} from 'effect';
+import {gatherJobEffect,type GatherStep} from '../../gather-job.ts';
 import type {MineYieldRow} from '../../mine.ts';
 import {details} from '../../response-details.ts';
+import * as Wire from '../../wire.gen.ts';
+import {Game,attempt,classify,field,isGameError,type GameError} from '../game.ts';
 import {sell} from '../market.ts';
-import {acct,admit,checkStop,command,job,measured,pilot,step,stopped} from '../runtime.ts';
-import {route} from '../travel.ts';
+import {Stopped,acct,admit,command,edge,jobEffect,measured,pilot,reached,step,stopped} from '../runtime.ts';
+import {routeEffect} from '../travel.ts';
 import type {Outcome,Row} from '../types.ts';
 
 export interface Gathered {
@@ -36,11 +38,33 @@ const say=(rows:Row[])=>rows.map(row=>`+${row.quantity} ${row.item_id}`).join(',
 export const sellStowed=(rows:Row[]):string[]=>rows.length
   ?[`sell([${rows.map(row=>`{item_id:'${row.item_id}',quantity:${row.quantity}}`).join(', ')}], {from:'store'})`]:[];
 
-async function storeCount(base:string,item:string):Promise<number> {
-  const view=details(await command('spacemolt_storage/view',{station_id:base})) as ViewStorageResponse;
-  return (view.items??[]).filter(row=>row.item_id===item).reduce((n,row)=>n+row.quantity,0);
-}
-
+/** What this reads of the store's answer: its item rows. The live server leaves spec fields out, so
+ * nothing else is required of it. */
+const decodeHeld=Schema.decodeUnknownOption(Wire.CargoItem_14.schema.mapFields(Struct.pick(['item_id','quantity'])));
+/** The store's count of `item` at `base`, row by row: a row that does not read is left out and said. A reply with
+ * no list counts no rows; a row for `item` itself that does not read leaves the count `undefined` (unknown, said).
+ * A lost reply is `Game.command`'s to re-issue: `view` is a read. */
+const storeCount=(base:string,item:string)=>Effect.gen(function*() {
+  const items=field(details(yield* (yield* Game).command('spacemolt_storage/view',{station_id:base})),'items');
+  if(!Array.isArray(items)){step(`spacemolt_storage/view: the reply at ${base} has no items list; counted as empty`);return 0;}
+  let count=0,unknown=false;
+  for(const raw of items) {
+    const row=decodeHeld(raw);
+    if(Option.isSome(row)){if(row.value.item_id===item)count+=row.value.quantity;continue;}
+    step(`spacemolt_storage/view: an items row (${field(raw,'item_id')??'no id'}) did not read; left out`);
+    if(field(raw,'item_id')===item)unknown=true;
+  }
+  return unknown?undefined:count;
+});
+/** A failure as the pilot reads it: the action and the server's code, or that the reply is gone. */
+const told=(error:GameError)=>error._tag==='ReplyLost'?`reply lost on ${error.action}`:`${error.action}: ${error.code} — ${error.message}`;
+/** A re-read after the trip: a failed one leaves `held` as it was, and says so. */
+const recount=(base:string,item:string)=>Effect.gen(function*() {
+  const read=yield* Effect.result(storeCount(base,item));
+  if(Result.isSuccess(read))return read.success;
+  step(`store ${base} ${item}: the re-read failed (${told(read.failure)}); held stays as it was`);
+  return undefined;
+});
 /** One gather trip by default: fly to `poi`, mine until the hold is full (or the site is
  * dry), fly back to `base` (default: the base you left), dock, stow the take,
  * service. Over the raw legs it adds: every leg named for an end state and re-entered from
@@ -67,29 +91,35 @@ export const tripLabel=(opts:{poi:string;base?:string;until?:{item:string;quanti
   maxTrips?:number;then?:'stow'|'sell'}):string=>
   `${opts.poi}${opts.base?` → ${opts.base}`:''}${opts.until?` until ${opts.until.item} ≥ ${opts.until.quantity}`:''}${opts.maxTrips?` ≤${opts.maxTrips} trips`:''}${opts.then==='sell'?' then sell':''}`;
 
-export function gatherUntil(opts:{poi:string;base?:string;until?:{item:string;quantity:number};
-  maxTrips?:number;then?:'stow'|'sell'}):Promise<Outcome<Gathered>> {
+export function gatherUntil(opts:{poi:string;base?:string;until?:{item:string;quantity:number};maxTrips?:number;then?:'stow'|'sell'}):Promise<Outcome<Gathered>> {
+  return edge(gatherUntilEffect(opts));
+}
+
+/** `gatherUntil` as an Effect, for `edge`; never in a barrel. A refusal or a lost reply ends the run, naming the
+ * action and the code, as it did when the Promise twin threw it. */
+const gatherUntilEffect=(opts:Parameters<typeof gatherUntil>[0])=>{
   const label=tripLabel(opts);
-  return job<Gathered>('gatherUntil',label,async()=>{
+  return jobEffect<Gathered,Game>('gatherUntil',label,Effect.gen(function*() {
     const who=pilot();
     const result:Gathered={poi_id:opts.poi,base_id:opts.base??'',trips:0,yield:[],settled:[],ended:'blocked',cargo:[]};
-    const cargo=()=>(acct().state.cargo??[]) as V2CargoItem[];
-    const stop=await admit('gatherUntil');
-    if(stop)return {status:'refused',did:'gathered nothing',why:stop,detail:result};
+    const cargo=()=>acct().state.cargo??[];
+    // bridge: U31 (admit keeps its Promise form with the module singletons it reads)
+    const stop=yield* attempt('gatherUntil',()=>admit('gatherUntil'));
+    if(stop)return {status:'refused' as const,did:'gathered nothing',why:stop,detail:result};
     const baseId=opts.base??acct().state.location?.docked_at;
-    if(!baseId)return {status:'refused',did:'gathered nothing',why:'no base to return to: pass base, or dock first',detail:result};
+    if(!baseId)return {status:'refused' as const,did:'gathered nothing',why:'no base to return to: pass base, or dock first',detail:result};
     result.base_id=baseId;
-    let site,home;
-    try {site=await route(opts.poi);home=await route(baseId);}
-    catch(error) {
-      // `route` throws `TravelBlocked` for "not a place"; anything else (a dropped socket, a
-      // real server error) is a failed run, not a refusal the pilot could have avoided.
-      if(!(error instanceof TravelBlocked))throw error;
-      return {status:'refused',did:'gathered nothing',why:error.message,detail:result};
+    // `routeEffect` fails with `NotAPlace` for "not a place"; anything else (a dropped socket, a
+    // real server error) is a failed run, not a refusal the pilot could have avoided.
+    const legs=yield* Effect.result(Effect.gen(function*() {return {site:yield* routeEffect(opts.poi),home:yield* routeEffect(baseId)};}));
+    if(Result.isFailure(legs)) {
+      if(isGameError(legs.failure))return yield* legs.failure;
+      return {status:'refused' as const,did:'gathered nothing',why:legs.failure.message,detail:result};
     }
-    if(site.target_poi&&site.target_poi!==opts.poi)return {status:'refused',did:'gathered nothing',why:`${opts.poi} is a base, not a mining site; pass its belt's POI id`,detail:result};
+    const {site,home}=legs.success;
+    if(site.target_poi&&site.target_poi!==opts.poi)return {status:'refused' as const,did:'gathered nothing',why:`${opts.poi} is a base, not a mining site; pass its belt's POI id`,detail:result};
     const ship=acct().state.ship;
-    if(ship&&ship.cargo_used>=ship.cargo_capacity)return {status:'refused',did:'gathered nothing',why:'the hold is full; sell(rows) or stow(rows) first',detail:result};
+    if(ship&&ship.cargo_used>=ship.cargo_capacity)return {status:'refused' as const,did:'gathered nothing',why:'the hold is full; sell(rows) or stow(rows) first',detail:result};
     const plan={home:{system_id:String(home.target_system),poi_id:String(home.target_poi??baseId),base_id:baseId},
       site:{system_id:String(site.target_system),poi_id:opts.poi},mood:who.mood??'Cautious'};
     const maxTrips=opts.maxTrips??(opts.until?6:1);
@@ -108,37 +138,45 @@ export function gatherUntil(opts:{poi:string;base?:string;until?:{item:string;qu
     };
     for(let trip=1;trip<=maxTrips;trip++) {
       if(opts.until) {
-        const have=await storeCount(baseId,opts.until.item);
-        result.held=have;
+        const read=yield* storeCount(baseId,opts.until.item);
+        if(read!==undefined)result.held=read;
+        // An unread store is counted as empty for the decision, as a missing list always was; `held` is not written.
+        const have=read??0;
         if(have>=opts.until.quantity){result.ended='full';break;}
-        step(`store ${baseId} ${opts.until.item} ${have} of ${opts.until.quantity}; trip ${trip} of ${maxTrips}`);
+        step(`store ${baseId} ${opts.until.item} ${read===undefined?'not read':`${have} of ${opts.until.quantity}`}; trip ${trip} of ${maxTrips}`);
       }
-      checkStop();
+      if(stopped())return yield* Effect.fail(new Stopped());
       lastLine=Date.now();
       // `moodNow`: the pilot record, not `plan.mood`, says what each leg flies on — the runtime
       // imposes Tired mid-trip and the leg home is quoted against the mood in force by then.
-      const trek=await gatherJob(acct(),command,plan,{onStep,mine,checkpoint:async()=>checkStop(),
+      const trek=yield* gatherJobEffect(acct(),command,plan,{onStep,mine,checkpoint:async()=>{if(stopped())throw new Stopped();},
         moodNow:()=>pilot().mood??'Cautious'});
       result.trips=trip;
       result.yield=sum([...result.yield,...trek.yield]);
       const deposited=trek.settled?.deposited??[];
       const held=trek.settled?.held??[];
       if(opts.then==='sell'&&(deposited.length||held.length)) {
-        const sold=await sell([...deposited.map(row=>({...row})),...held.map(row=>({...row}))],deposited.length?{from:'store'}:{});
-        result.settled=sum([...result.settled,...sold.detail.fills.map(f=>({item_id:f.item_id,quantity:f.quantity_sold}))]);
+        const rows=[...deposited.map(row=>({...row})),...held.map(row=>({...row}))];
+        // bridge: U15 (sell keeps its Promise form until play/market converts)
+        const sold=yield* attempt('gatherUntil',()=>sell(rows,deposited.length?{from:'store'}:{}));
+        // A sell that did not reach its detail settles nothing: a refusal, or one the runtime folded
+        // (`said`, a stop included), carries an empty detail. The pilot's outcome is unchanged.
+        const got=reached(sold);
+        if(got&&(sold.status==='done'||sold.status==='partial'))result.settled=sum([...result.settled,...got.fills.map(f=>({item_id:f.item_id,quantity:f.quantity_sold}))]);
+        else step(`sell ${sold.status}: ${sold.why??sold.did}`);
       } else result.settled=sum([...result.settled,...deposited]);
       const mineStep=trek.steps.find(s=>s.name==='mine');
       depleted=Boolean(mineStep?.reason?.includes('depleted')||mineStep?.reason?.includes('no cargo change'));
       if(trek.outcome!=='done') {
         result.ended=trek.reason?.includes('stopped by pilot')?'stopped':trek.outcome==='blocked'?'blocked':'failed';
         result.cargo=cargo();
-        if(opts.until){const n=await storeCount(baseId,opts.until.item).catch(()=>undefined);if(n!==undefined)result.held=n;}
+        if(opts.until){const n=yield* recount(baseId,opts.until.item);if(n!==undefined)result.held=n;}
         // The did is the measurement, never the tally: a leg that broke mid-mine still put
         // ore aboard, and `trek.yield` is empty when the step never returned.
         const took=measured().length?measured():sum(trek.yield);
         const units=took.reduce((n,row)=>n+row.quantity,0);
         const ship=acct().state.ship;
-        return {status:result.ended==='stopped'?'partial':trek.outcome==='blocked'?'refused':'failed',
+        return {status:result.ended==='stopped'?'partial' as const:trek.outcome==='blocked'?'refused' as const:'failed' as const,
           did:`trip ${trip}: mined ${units} units${units?` (${took.map(row=>`${row.quantity} ${row.item_id}`).join(', ')})`:''} at ${opts.poi}`+
             `${ship?`, hold ${ship.cargo_used}/${ship.cargo_capacity}`:''}; ended at ${trek.steps.at(-1)?.name}`,
           ...trek.reason===undefined?{}:{why:trek.reason},detail:result,
@@ -151,20 +189,21 @@ export function gatherUntil(opts:{poi:string;base?:string;until?:{item:string;qu
       if(depleted)break;
     }
     result.cargo=cargo();
-    if(opts.until&&result.ended!=='tired'){const n=await storeCount(baseId,opts.until.item).catch(()=>undefined);if(n!==undefined)result.held=n;}
+    if(opts.until&&result.ended!=='tired'){const n=yield* recount(baseId,opts.until.item);if(n!==undefined)result.held=n;}
     const short=opts.until&&(result.held??0)<opts.until.quantity;
     const did=`${result.trips} trip(s) to ${opts.poi}: ${say(result.yield)}; ${opts.then==='sell'?'sold':'stowed'} ${say(result.settled)} at ${baseId}`+
       (opts.until?`; store holds ${result.held??'?'} of ${opts.until.quantity} ${opts.until.item}`:'');
-    if(result.ended==='tired')return {status:'partial',did,why:'Tired: home and serviced, no new trip',detail:result};
-    if(short)return {status:'partial',did,why:depleted?'the site is depleted':`${maxTrips} trips made`,detail:result,
+    if(result.ended==='tired')return {status:'partial' as const,did,why:'Tired: home and serviced, no new trip',detail:result};
+    if(short)return {status:'partial' as const,did,why:depleted?'the site is depleted':`${maxTrips} trips made`,detail:result,
       // `survey()` is not built yet, so it is not offered: scout() already lists this system's
       // belts, and naming an unbuilt call here spends the juncture that follows a dry site.
       next:depleted?["another belt: this site gave nothing; scout() lists them"]:[]};
-    return {status:'done',did,detail:result,
+    return {status:'done' as const,did,detail:result,
       next:[...(opts.then==='sell'?[]:sellStowed(result.settled)),
         ...(result.ended==='depleted'?['the site is depleting; scout another belt']:[])]};
-  });
-}
+  // The reconcile and refresh outside the steps fail as the raw lib error, which the job judged as the Promise twin threw it.
+  }).pipe(Effect.catchTag('SeamFailed',error=>Effect.suspend(()=>Effect.fail(classify('gatherUntil')(error.cause))))));
+};
 
 /** Survey the system you are in for hidden deep-core deposits. Not built in slice 1. */
 export function survey():Promise<Outcome<{response:SurveySystemResponse;deposits:SurveyedPoi[]}>> {throw new Error('unimplemented: survey; account().commands.spacemolt.survey_system()');}

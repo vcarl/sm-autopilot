@@ -26,13 +26,6 @@ export const hereEffect=()=>Effect.gen(function*() {
   const row=pois.find(p=>p.id===poi);
   return {...row?{row}:{},bases:pois.flatMap(p=>p.base_id&&p.id!==poi?[p.base_id]:[])};
 });
-/** The Promise twin of `hereEffect`: throws the lib's raw error, as it always did. */
-export async function here():Promise<{row?:PoiRow;bases:string[]}> {
-  const exit=await Effect.runPromiseExit(hereEffect().pipe(Effect.provide(GameLive({send:command}))));
-  if(exit._tag==='Failure')throw rawError(exit.cause); // bridge: U17 (callers: play/travel.ts)
-  return exit.value;
-}
-
 /** `belt (Inner Belt)`: the id the pilot writes and the name prose gives it. */
 export const named=(id:string|undefined,row?:PoiRow)=>`${id??'open space'}${row?.name&&row.name!==id?` (${row.name})`:''}`;
 export const others=(bases:string[])=>bases.length?`; bases in this system: ${bases.join(', ')}`:'';
@@ -53,6 +46,6 @@ export const counterEffect=()=>Effect.gen(function*() {
 /** The Promise twin of `counterEffect`: throws the lib's raw error or `DockBlocked`, as it always did. */
 export async function counter():Promise<{docked:string}|{refused:string}> {
   const exit=await Effect.runPromiseExit(counterEffect().pipe(Effect.provide(GameLive({send:command}))));
-  if(exit._tag==='Failure')throw rawError(exit.cause); // bridge: U13, U15, U16, U24 (callers: play/storage.ts, missions.ts, market.ts, trading/trading.ts)
+  if(exit._tag==='Failure')throw rawError(exit.cause); // bridge: U13, U24 (callers: play/storage.ts, trading/trading.ts)
   return exit.value;
 }

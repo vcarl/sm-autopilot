@@ -1,16 +1,19 @@
 /** The market counter at the base you are docked at. Prices are read live at the moment of
  * the act, never from a plan. */
 import type {BuyResponse,EstimatePurchaseResponse,MarketListingItem,SellResponse,ViewMarketResponse,ViewStorageResponse} from '@spacemolt/lib';
+import {Effect,Result} from 'effect';
 import {mkdirSync,readFileSync,renameSync,writeFileSync} from 'node:fs';
 import {join} from 'node:path';
 import {disposable,miningInventory} from '../mining-inventory.ts';
 import {markPlace} from './places.ts';
-import {details} from '../response-details.ts';
-import {fileIntel} from '../trade-intel.ts';
+import {fileIntelEffect} from '../trade-intel.ts';
 import {quoteNext} from '../run-record.ts';
-import {counter} from './counter.ts';
+import {listing,words} from '../servicing.ts';
+import {replyBody,rows} from '../storage.ts';
+import {counterEffect} from './counter.ts';
+import {Game,GameLive,attempt,field,message,rawError} from './game.ts';
 import {bench,moduleSpec,room,whyNotFit} from './hangar.ts';
-import {acct,admit,checkStop,command,job,pilot,runtimeDir,step,wanted} from './runtime.ts';
+import {Stopped,acct,admit,command,edge,jobEffect,pilot,reached,runtimeDir,step,stopped,wanted} from './runtime.ts';
 import {withdraw} from './storage.ts';
 import type {Outcome,Row,Want} from './types.ts';
 
@@ -19,7 +22,17 @@ import type {Outcome,Row,Want} from './types.ts';
 export type Quote=MarketListingItem&{held:number;stored:number};
 
 const CAP=40;
-const message=(error:unknown)=>error instanceof Error?error.message:String(error);
+const numeric=(raw:unknown,key:string)=>{const value=field(raw,key);return typeof value==='number'?value:undefined;};
+/** The counter, or why the job broke: a dock that was blocked is the job's failure, as a throw always was. */
+const atCounter=()=>counterEffect().pipe(Effect.catchTag('DockBlocked',blocked=>Effect.succeed({broke:blocked.message})));
+
+// The frozen surface promises the lib's reply types; the live body is not decoded whole, because the server omits spec fields.
+// oxlint-disable-next-line typescript/consistent-type-assertions
+const asEstimate=(body:unknown)=>body as EstimatePurchaseResponse; // cast: frozen surface (EstimatePurchaseResponse)
+// oxlint-disable-next-line typescript/consistent-type-assertions
+const asBuy=(body:unknown)=>body as BuyResponse; // cast: frozen surface (BuyResponse)
+// oxlint-disable-next-line typescript/consistent-type-assertions
+const asSell=(body:unknown)=>body as SellResponse; // cast: frozen surface (SellResponse)
 
 /** A book this pilot has stood in front of, kept so the next base knows what the last one
  * paid. The game publishes no cross-station prices — `view_market` and `analyze_market` are
@@ -68,10 +81,16 @@ export const marketTick=():number=>lastTick;
 export function knownBooks(dir=runtimeDir()):RememberedBook[] {
   if(!dir)return [];
   try {
-    const stored=JSON.parse(readFileSync(join(dir,MEMORY),'utf8')) as RememberedBook[];
-    return Array.isArray(stored)?stored.filter(row=>row?.base_id&&Array.isArray(row.items)):[];
-  } catch {return [];}
+    const stored:unknown=JSON.parse(readFileSync(join(dir,MEMORY),'utf8'));
+    return rows(stored).flatMap(remembered);
+  } catch {return [];} // edge: no memory yet, or a torn file, is no remembered book
 }
+/** One remembered book as the file has it, rebuilt from the fields read: a row with no base or no item list is dropped. */
+const remembered=(raw:unknown):RememberedBook[]=>{
+  const base_id=field(raw,'base_id'),items=field(raw,'items'),at=field(raw,'at'),tick=numeric(raw,'tick'),system=field(raw,'system_id');
+  return typeof base_id==='string'&&base_id&&Array.isArray(items)
+    ?[{base_id,at:typeof at==='string'?at:'',...tick===undefined?{}:{tick},...typeof system==='string'?{system_id:system}:{},items:items.flatMap(listing)}]:[];
+};
 
 /** Temp file then rename, as `writeRun` does: a torn write would price a trip on a lie.
  * Evicted by age (`MEMORY_TICKS`), newest first, capped at `BASES`. */
@@ -89,47 +108,59 @@ export function rememberBook(dir:string|undefined,base_id:string,system_id:strin
     const path=join(dir,MEMORY),temp=`${path}.${process.pid}.tmp`;
     writeFileSync(temp,JSON.stringify(kept),{mode:0o600});
     renameSync(temp,path);
-  } catch {/* a market this pilot cannot remember is still a market it can trade at */}
+  } catch {/* a market this pilot cannot remember is still a market it can trade at */} // edge: memory is a convenience; the file may be unwritable
 }
 
 /** The book here, whole, read once and filtered in memory: one 190 KB reply beats twenty
  * filtered ones against the rate limit, and the pilot never sees it. Every read is also
  * written to this runtime's market memory, which is what `spreads()` reads, and filed to the
  * faction's trade ledger once per tick when there is one. */
-export async function book():Promise<Map<string,MarketListingItem>> {
-  const reply=details(await command('spacemolt_market/view_market',{})) as ViewMarketResponse;
-  const items=reply.items??[];
-  lastTick=Number(reply.current_tick??lastTick);
+export const bookEffect=()=>Effect.gen(function*() {
+  const reply=replyBody(yield* (yield* Game).command('spacemolt_market/view_market',{}));
+  const items=rows(field(reply,'items')).flatMap(listing);
+  lastTick=numeric(reply,'current_tick')??lastTick;
   const base=acct().state.location?.docked_at??'';
   remember(base,items,lastTick);
-  await fileIntel(acct(),command,base,items,lastTick,step);
+  yield* fileIntelEffect(acct(),base,items,lastTick,step);
   return new Map(items.map(item=>[item.item_id,item]));
+});
+/** The Promise twin of `bookEffect`: throws the lib's raw error, as it always did. */
+export async function book():Promise<Map<string,MarketListingItem>> {
+  const exit=await Effect.runPromiseExit(bookEffect().pipe(Effect.provide(GameLive({send:command}))));
+  if(exit._tag==='Failure')throw rawError(exit.cause); // bridge: U23, U24, U25 (callers: play/industry/crafting.ts, trading/trading.ts, trading/scout.ts)
+  return exit.value;
 }
 
 /** What things are worth here. Default: every item in the hold and in this base's store.
  * Pass item ids for others. Capped at 40 rows. Over `view_market` it adds: the filter to
  * what you hold, your held/stored counts beside each book, and the cap. Reads only. `next`
  * names the best thing to sell here by `best_buy × min(best_buy_qty, held)`. */
-export function prices(items?:string[]):Promise<Outcome<{quotes:Quote[]}>> {
-  return job<{quotes:Quote[]}>('prices',(items??[]).join(' '),async()=>{
-    const at=await counter();
-    if('refused' in at)return {status:'refused',did:'read no prices',why:at.refused,detail:{quotes:[]}};
-    const held=miningInventory(acct().state);
-    let stored:Record<string,number>={};
-    try {
-      const store=details(await command('spacemolt_storage/view',{})) as ViewStorageResponse;
-      for(const row of store.items??[])stored[row.item_id]=(stored[row.item_id]??0)+row.quantity;
-    } catch {stored={};}
-    const wanted=items?.length?items:[...new Set([...Object.keys(held),...Object.keys(stored)])];
-    const listed=await book();
-    const quotes:Quote[]=wanted.filter(id=>listed.has(id)).slice(0,CAP)
-      .map(id=>({...listed.get(id)!,held:held[id]??0,stored:stored[id]??0}));
-    const missing=wanted.filter(id=>!listed.has(id));
-    const best=quotes.map(q=>({q,value:q.best_buy*Math.min(q.best_buy_qty,q.held+q.stored)})).sort((a,b)=>b.value-a.value)[0];
-    return {status:'done',did:`${quotes.length} of ${wanted.length} items are quoted here${missing.length?`; no book for ${missing.slice(0,5).join(', ')}`:''}`,
-      detail:{quotes},next:best&&best.value>0?[`${best.q.item_id}: best buy ${best.q.best_buy} × ${Math.min(best.q.best_buy_qty,best.q.held+best.q.stored)} ≈ ${Math.round(best.value)} cr`]:[]};
-  });
-}
+export const pricesEffect=(items?:string[])=>jobEffect<{quotes:Quote[]},Game>('prices',(items??[]).join(' '),Effect.gen(function*() {
+  const at=yield* atCounter();
+  if('broke' in at)return {status:'failed',did:'prices broke',why:at.broke,detail:{quotes:[]}};
+  if('refused' in at)return {status:'refused',did:'read no prices',why:at.refused,detail:{quotes:[]}};
+  const held=miningInventory(acct().state);
+  const stored:Record<string,number>={};
+  // No store view is no stored count, said, not a failed read: the book is still worth quoting.
+  const viewed=yield* Effect.result((yield* Game).command('spacemolt_storage/view',{}));
+  if(Result.isFailure(viewed))step(`storage view failed, quoting stored as 0: ${words(viewed.failure)}`);
+  else {
+    let dropped=0;
+    for(const row of rows(field(replyBody(viewed.success),'items'))) {
+      const id=field(row,'item_id'),quantity=numeric(row,'quantity');
+      if(typeof id==='string'&&quantity!==undefined)stored[id]=(stored[id]??0)+quantity;else dropped++;
+    }
+    if(dropped)step(`storage view: ${dropped} row(s) had no item_id and quantity; left out of the stored counts`);
+  }
+  const wanted=items?.length?items:[...new Set([...Object.keys(held),...Object.keys(stored)])];
+  const listed=yield* bookEffect();
+  const quotes:Quote[]=wanted.flatMap(id=>{const row=listed.get(id);return row?[{...row,held:held[id]??0,stored:stored[id]??0}]:[];}).slice(0,CAP);
+  const missing=wanted.filter(id=>!listed.has(id));
+  const best=quotes.map(q=>({q,value:q.best_buy*Math.min(q.best_buy_qty,q.held+q.stored)})).sort((a,b)=>b.value-a.value)[0];
+  return {status:'done',did:`${quotes.length} of ${wanted.length} items are quoted here${missing.length?`; no book for ${missing.slice(0,5).join(', ')}`:''}`,
+    detail:{quotes},next:best&&best.value>0?[`${best.q.item_id}: best buy ${best.q.best_buy} × ${Math.min(best.q.best_buy_qty,best.q.held+best.q.stored)} ≈ ${Math.round(best.value)} cr`]:[]};
+}));
+export function prices(items?:string[]):Promise<Outcome<{quotes:Quote[]}>> {return edge(pricesEffect(items));}
 
 export interface Sold {
   base_id:string;
@@ -153,42 +184,74 @@ export interface Sold {
  * - `floor`: per-item minimum `best_buy`; below it the row is skipped, not dumped.
  *
  * Trains trading (xp scales with credit volume). Not docked or no market here: `refused`. */
-export function sell(items:Want[],opts:{from?:'hold'|'store';floor?:Record<string,number>}={}):Promise<Outcome<Sold>> {
-  return job<Sold>('sell',items.map(row=>`${row.quantity??'all'} ${row.item_id}`).join(', ')+(opts.from==='store'?' from store':''),async()=>{
+export const sellEffect=(items:Want[],opts:{from?:'hold'|'store';floor?:Record<string,number>}={})=>
+  jobEffect<Sold,Game>('sell',items.map(row=>`${row.quantity??'all'} ${row.item_id}`).join(', ')+(opts.from==='store'?' from store':''),Effect.gen(function*() {
+    const game=yield* Game;
     let docked=acct().state.location?.docked_at??'';
     const empty=():Sold=>({base_id:docked,fills:[],short:[],total:0});
     if(!items.length)return {status:'refused',did:'sold nothing',why:'no rows named; pass [{item_id, quantity}]',detail:empty()};
-    const at=await counter();
+    const at=yield* atCounter();
+    if('broke' in at)return {status:'failed',did:'sell broke',why:at.broke,detail:empty()};
     if('refused' in at)return {status:'refused',did:'sold nothing',why:at.refused,detail:empty()};
     docked=at.docked;
     const want=wanted(items);
     if('refused' in want)return {status:'refused',did:'sold nothing',why:want.refused,detail:empty()};
     const asked=want.rows;
     if(!asked.length)return {status:'refused',did:'sold nothing',why:'no rows named; pass [{item_id, quantity}]',detail:empty()};
-    const listed=await book(),read_at=Date.now(),read_tick=marketTick();
+    const listed=yield* bookEffect(),read_at=Date.now(),read_tick=marketTick();
     const fills:SellResponse[]=[],short:Sold['short']=[];
+    // What each fill earned, by the row it sold: the reply's own item_id is not read.
+    // `earned` is absent when the wallet could not say (a reply with no `total_earned`, a re-read that failed): no number is guessed.
+    const landed:{item_id:string;quantity:number;earned?:number}[]=[];
     let total=0;
+    // What the account held before the next sell, carried locally: the cached state is not advanced by a sale, so a re-read after a
+    // lost reply is measured against this and not against a read made before an earlier row sold. Unknown credits stay unknown until re-anchored.
+    const carried:{held:Record<string,number>;credits:number|undefined}={held:{},credits:undefined};
+    const anchor=()=>{carried.held={...disposable(acct().state)};carried.credits=acct().state.player?.credits;};
+    anchor();
     /** One row out of the hold, bounded by what is aboard; returns what the book took. */
-    const sellRow=async(row:Row):Promise<number>=>{
-      checkStop();
-      const held=disposable(acct().state)[row.item_id]??0;
+    const sellRow=(row:Row)=>Effect.gen(function*() {
+      if(stopped())return yield* Effect.fail(new Stopped());
+      const held=carried.held[row.item_id]??0;
       const quantity=Math.min(row.quantity,held);
       const quote=listed.get(row.item_id);
       const floor=opts.floor?.[row.item_id];
       if(quantity<=0){short.push({item_id:row.item_id,requested:row.quantity,sold:0,why:'not held'});return 0;}
       if(!quote||!(quote.best_buy>0)){short.push({item_id:row.item_id,requested:row.quantity,sold:0,why:'no buyer'});return 0;}
       if(floor!==undefined&&quote.best_buy<floor){short.push({item_id:row.item_id,requested:row.quantity,sold:0,why:`under floor: best buy ${quote.best_buy} < ${floor}`});return 0;}
-      try {
-        quoteNext('spacemolt/sell',row.item_id,{bid:quote.best_buy,ask:quote.best_sell,book_tick:read_tick,
-          age_s:Math.round((Date.now()-read_at)/100)/10});
-        const fill=details(await command('spacemolt/sell',{id:row.item_id,quantity})) as SellResponse;
-        const took=Number(fill.quantity_sold??quantity);
-        fills.push(fill);total+=Number(fill.total_earned??0);
-        step(`sell ${took} ${row.item_id} +${fill.total_earned??'?'} cr`);
-        if(took<quantity)short.push({item_id:row.item_id,requested:row.quantity,sold:took,why:`book took ${took}`});
+      quoteNext('spacemolt/sell',row.item_id,{bid:quote.best_buy,ask:quote.best_sell,book_tick:read_tick,
+        age_s:Math.round((Date.now()-read_at)/100)/10});
+      const sent=yield* Effect.result(game.command('spacemolt/sell',{id:row.item_id,quantity}));
+      if(Result.isFailure(sent)) {
+        const error=sent.failure;
+        if(error._tag!=='ReplyLost'){short.push({item_id:row.item_id,requested:row.quantity,sold:0,why:words(error)});return 0;}
+        // The sell may have landed: never re-sent. The hold and the wallet are re-read; a failed re-read is a gap said, not a failed job.
+        const read=yield* Effect.result(game.refresh);
+        if(Result.isFailure(read)) {
+          const gap=`hold not re-read: ${message(read.failure.cause)}`;
+          step(`sell ${row.item_id}: ${words(error)}; ${gap}; credits unknown from here`);
+          carried.credits=undefined;
+          short.push({item_id:row.item_id,requested:row.quantity,sold:0,why:`${words(error)}; ${gap}`});
+          return 0;
+        }
+        const credits=acct().state.player?.credits;
+        const took=Math.max(0,held-(disposable(acct().state)[row.item_id]??0));
+        const earned=carried.credits===undefined||credits===undefined?undefined:Math.max(0,credits-carried.credits);
+        anchor();
+        if(took>0){landed.push({item_id:row.item_id,quantity:took,...earned===undefined?{}:{earned}});total+=earned??0;
+          step(`sell ${took} ${row.item_id} ${earned===undefined?'credits unknown':`+${earned} cr`} (reply lost; hold re-read)`);}
+        if(took<quantity)short.push({item_id:row.item_id,requested:row.quantity,sold:took,
+          why:`${words(error)}; hold re-read: ${took} sold${took>0&&earned===undefined?'; credits unknown':''}`});
         return took;
-      } catch(error){short.push({item_id:row.item_id,requested:row.quantity,sold:0,why:message(error)});return 0;}
-    };
+      }
+      const fill=replyBody(sent.success),earned=numeric(fill,'total_earned'),took=numeric(fill,'quantity_sold')??quantity;
+      fills.push(asSell(fill));total+=earned??0;landed.push({item_id:row.item_id,quantity:took,...earned===undefined?{}:{earned}});
+      carried.held[row.item_id]=held-took;
+      carried.credits=carried.credits===undefined||earned===undefined?undefined:carried.credits+earned;
+      step(`sell ${took} ${row.item_id} +${earned??'?'} cr`);
+      if(took<quantity)short.push({item_id:row.item_id,requested:row.quantity,sold:took,why:`book took ${took}`});
+      return took;
+    });
     if(opts.from==='store') {
       // The book decides what leaves the store at all: an unsellable row stays where it is.
       const left=new Map<string,number>();
@@ -201,16 +264,24 @@ export function sell(items:Want[],opts:{from?:'hold'|'store';floor?:Record<strin
       // One hold-load per pass: withdraw what fits, sell it, go back for the rest.
       let loads=0;
       while(left.size) {
-        checkStop();
-        const took=await withdraw([...left].map(([item_id,quantity])=>
-          Number.isFinite(quantity)?{item_id,quantity}:{item_id}));
-        if(!loads&&took.status==='refused'&&!took.detail.moved.length)
-          return {status:'refused',did:'sold nothing',why:`withdraw first: ${took.why}`,detail:empty()};
-        if(!took.detail.moved.length)break;
+        if(stopped())return yield* Effect.fail(new Stopped());
+        const wanted=[...left].map(([item_id,quantity])=>Number.isFinite(quantity)?{item_id,quantity}:{item_id});
+        const took=yield* attempt('withdraw',()=>withdraw(wanted)); // bridge: U13
+        // A withdraw that broke or was stopped built no detail (`{}`): what it said is the sell's why.
+        const out=reached(took);
+        if(!loads&&(!out||took.status==='refused'&&!out.moved.length))
+          return {status:out?'refused':took.status,did:'sold nothing',why:`withdraw first: ${took.why}`,detail:empty()};
+        if(!out) {
+          step(`withdraw ${took.status}: ${took.why??took.did}`);
+          for(const [item_id,quantity] of left)short.push({item_id,requested:quantity,sold:0,why:`withdraw ${took.status}: ${took.why??took.did}`});
+          break;
+        }
+        if(!out.moved.length)break;
         // A row the store came up short on is exhausted: sell what came out, then stop asking.
-        const emptied=took.detail.short.filter(row=>row.why==='not in store').map(row=>row.item_id);
-        for(const row of took.detail.moved) {
-          const sold=await sellRow(row);
+        anchor(); // the withdraw read the account afresh
+        const emptied=out.short.filter(row=>row.why==='not in store').map(row=>row.item_id);
+        for(const row of out.moved) {
+          const sold=yield* sellRow(row);
           const rest=(left.get(row.item_id)??0)-sold;
           if(sold<row.quantity||rest<=0)left.delete(row.item_id);
           else left.set(row.item_id,rest);
@@ -218,7 +289,7 @@ export function sell(items:Want[],opts:{from?:'hold'|'store';floor?:Record<strin
         for(const item of emptied)left.delete(item);
         loads++;
       }
-    } else for(const row of asked)await sellRow(row);
+    } else for(const row of asked)yield* sellRow(row);
     const detail:Sold={base_id:docked,fills,short,total};
     // Nothing named was held: the end state already holds, so it is said, not refused.
     const already=short.filter(row=>row.why==='not held');
@@ -229,11 +300,11 @@ export function sell(items:Want[],opts:{from?:'hold'|'store';floor?:Record<strin
     const why=blocked.map(row=>`${row.item_id}: ${row.why}`).join('; ');
     // A store sell yields one fill per item per hold-load, so summing by item_id before
     // joining is what keeps "sold 36 copper_ore, 8 iron_ore, 36 copper_ore, …" from repeating.
-    const byItem=new Map<string,{quantity:number;earned:number}>();
-    for(const f of fills) {
-      const row=byItem.get(f.item_id)??{quantity:0,earned:0};
-      row.quantity+=Number(f.quantity_sold??0);row.earned+=Number(f.total_earned??0);
-      byItem.set(f.item_id,row);
+    const byItem=new Map<string,{quantity:number;earned:number;unknown:boolean}>();
+    for(const fill of landed) {
+      const row=byItem.get(fill.item_id)??{quantity:0,earned:0,unknown:false};
+      row.quantity+=fill.quantity;row.earned+=fill.earned??0;row.unknown||=fill.earned===undefined;
+      byItem.set(fill.item_id,row);
     }
     // The yardstick is a bid, not this book's ask: a sale at the bid is normally well under the
     // ask, so comparing to the ask fires on ordinary sells in any wide-spread book. A remembered
@@ -241,17 +312,18 @@ export function sell(items:Want[],opts:{from?:'hold'|'store';floor?:Record<strin
     const MATERIAL=1.5;
     const books=knownBooks();
     const farBid=(item_id:string)=>bestFarBid(books,item_id,docked,read_tick);
-    const sold=fills.length?`sold ${[...byItem].map(([item_id,{quantity,earned}])=>{
+    const sold=landed.length?`sold ${[...byItem].map(([item_id,{quantity,earned,unknown}])=>{
+      if(unknown)return `${quantity} ${item_id} (credits unknown)`;
       const unit=quantity?Math.round(earned/quantity):0;
       const better=farBid(item_id);
       return `${quantity} ${item_id}`+(better&&better.best_buy>unit*MATERIAL
         ?` at ${unit} (${better.base_id} bid ${better.best_buy}, ${better.age} ticks ago)`:'');
-    }).join(', ')} at ${docked} for ${total} cr`
+    }).join(', ')} at ${docked} for ${[...byItem.values()].some(row=>row.unknown)?'at least ':''}${total} cr`
       :blocked.length?`sold nothing at ${docked}`:`nothing to sell at ${docked}`;
-    return {status:blocked.length?(fills.length?'partial':'refused'):'done',
+    return {status:blocked.length?(landed.length?'partial':'refused'):'done',
       did:said?`${sold}; ${said}`:sold,...why?{why}:{},detail};
-  });
-}
+  }));
+export function sell(items:Want[],opts:{from?:'hold'|'store';floor?:Record<string,number>}={}):Promise<Outcome<Sold>> {return edge(sellEffect(items,opts));}
 
 export interface Bought {
   /** The preview the spend was checked against (`total_cost`, `sales_tax`, `unfilled`). */
@@ -266,35 +338,47 @@ export interface Bought {
  * free slot of its kind, CPU and power — and refused when it could not be fitted, with
  * `next` saying what to remove; `{force:true}` skips that check for a pilot buying a spare.
  * Trains trading. Tired or Relaxed: refused. */
-export function buy(itemId:string,quantity:number,opts:{deliverTo?:'cargo'|'storage';maxEach?:number;force?:boolean}={}):Promise<Outcome<Bought>> {
-  return job<Bought>('buy',`${quantity} ${itemId}`,async()=>{
-    const none={estimate:{} as EstimatePurchaseResponse};
-    const stop=await admit('buy');
+export const buyEffect=(itemId:string,quantity:number,opts:{deliverTo?:'cargo'|'storage';maxEach?:number;force?:boolean}={})=>
+  jobEffect<Bought,Game>('buy',`${quantity} ${itemId}`,Effect.gen(function*() {
+    const game=yield* Game;
+    const none={estimate:asEstimate({})};
+    // bridge: U31 (admit keeps its Promise form with the module singletons it reads)
+    const stop=yield* attempt('buy',()=>admit('buy'));
     if(stop)return {status:'refused',did:`did not buy ${itemId}`,why:stop,detail:none};
-    const at=await counter();
+    const at=yield* atCounter();
+    if('broke' in at)return {status:'failed',did:'buy broke',why:at.broke,detail:none};
     if('refused' in at)return {status:'refused',did:`did not buy ${itemId}`,why:at.refused,detail:none};
     // A module that cannot be fitted is a dead 2,080 cr: the grid is checked before the buy.
     if(!opts.force) {
-      const spec=await moduleSpec(itemId).catch(()=>null);
+      // No spec is no fit check, said: the buy goes on to the estimate, as it did when the read was dropped silently.
+      const read=yield* Effect.result(attempt('moduleSpec',()=>moduleSpec(itemId))); // bridge: U14
+      if(Result.isFailure(read))step(`no fit check for ${itemId}: ${words(read.failure)}`);
+      const spec=Result.isSuccess(read)?read.success:null;
       const why=spec&&whyNotFit(spec,bench());
-      if(why)return {status:'refused',did:`did not buy ${itemId}`,why,detail:none,
-        next:[`refit({remove:[…]}) first, then buy`,`buy('${itemId}', ${quantity}, {force:true}) to hold it as a spare`,
-          room(acct().state.ship as never)]};
+      if(why) {
+        const ship=acct().state.ship;
+        return {status:'refused',did:`did not buy ${itemId}`,why,detail:none,
+          next:[`refit({remove:[…]}) first, then buy`,`buy('${itemId}', ${quantity}, {force:true}) to hold it as a spare`,
+            ...ship?[room(ship)]:[]]};
+      }
     }
-    const estimate=details(await command('spacemolt_market/estimate_purchase',{item_id:itemId,quantity})) as EstimatePurchaseResponse;
+    const quote=replyBody(yield* game.command('spacemolt_market/estimate_purchase',{item_id:itemId,quantity}));
+    const estimate=asEstimate(quote),available=numeric(quote,'available')??0,message=field(quote,'message');
     const who=pilot(),credits=acct().state.player?.credits??0;
     const reserve=who.permissions?.credit_reserve??0;
-    const cost=Number(estimate.total_cost??0);
-    if(!(estimate.available>0))return {status:'refused',did:`did not buy ${itemId}`,why:`not on this market: ${estimate.message??'0 available'}`,detail:{estimate}};
+    const cost=numeric(quote,'total_cost')??0;
+    if(!(available>0))return {status:'refused',did:`did not buy ${itemId}`,why:`not on this market: ${typeof message==='string'?message:'0 available'}`,detail:{estimate}};
     if(credits-cost<reserve)return {status:'refused',did:`did not buy ${itemId}`,why:`costs ${cost}; credits ${credits} less reserve ${reserve} leaves ${credits-reserve}`,detail:{estimate}};
     if(opts.maxEach!==undefined&&cost>opts.maxEach*quantity)return {status:'refused',did:`did not buy ${itemId}`,why:`costs ${cost}, over maxEach ${opts.maxEach} × ${quantity}`,detail:{estimate}};
-    quoteNext('spacemolt/buy',itemId,{estimate_quantity:quantity,estimate_total:cost,estimate_available:estimate.available});
-    const bought=details(await command('spacemolt/buy',{id:itemId,quantity:Math.min(quantity,estimate.available),
-      ...opts.deliverTo?{deliver_to:opts.deliverTo}:{}})) as BuyResponse;
+    quoteNext('spacemolt/buy',itemId,{estimate_quantity:quantity,estimate_total:cost,estimate_available:available});
+    // A refusal or a lost reply goes up to the job, named; the buy is never re-sent after a lost reply.
+    const filled=replyBody(yield* game.command('spacemolt/buy',{id:itemId,quantity:Math.min(quantity,available),
+      ...opts.deliverTo?{deliver_to:opts.deliverTo}:{}}));
     // The reply's `total_cost` is the subtotal; the tax on it is charged on top, floored.
-    const subtotal=Number(bought.total_cost??cost),tax=Math.floor(subtotal*(Number(estimate.sales_tax_rate_bps)||0)/10_000);
-    return {status:(bought.unfilled??0)>0?'partial':'done',
-      did:`bought ${bought.quantity??quantity} ${itemId} for ${subtotal+tax} cr${tax?` (${tax} of it tax)`:''}`,
-      ...(bought.unfilled??0)>0?{why:`${bought.unfilled} unfilled`}:{},detail:{estimate,bought}};
-  });
-}
+    const subtotal=numeric(filled,'total_cost')??cost,tax=Math.floor(subtotal*(numeric(quote,'sales_tax_rate_bps')??0)/10_000);
+    const unfilled=numeric(filled,'unfilled')??0;
+    return {status:unfilled>0?'partial':'done',
+      did:`bought ${numeric(filled,'quantity')??quantity} ${itemId} for ${subtotal+tax} cr${tax?` (${tax} of it tax)`:''}`,
+      ...unfilled>0?{why:`${unfilled} unfilled`}:{},detail:{estimate,bought:asBuy(filled)}};
+  }));
+export function buy(itemId:string,quantity:number,opts:{deliverTo?:'cargo'|'storage';maxEach?:number;force?:boolean}={}):Promise<Outcome<Bought>> {return edge(buyEffect(itemId,quantity,opts));}

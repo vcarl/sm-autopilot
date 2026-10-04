@@ -1,12 +1,12 @@
 import assert from 'node:assert/strict';
-import type {Account} from '@spacemolt/lib';
+import {SpacemoltError,type Account} from '@spacemolt/lib';
 import {mkdtempSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import test from 'node:test';
 import {writeFight} from '../../combat-memory.ts';
 import {readSightings,recall} from '../../sighting-memory.ts';
-import type {ReadinessAccount} from '../../readiness.ts';
+import type {ReadinessAccount,ReadinessCommand} from '../../readiness.ts';
 import {bridgeWorld,derived,type WorldOptions} from '../../test-support/bridge-world.ts';
 import {bind,unbind,type Pilot} from '../runtime.ts';
 import {disengage,hunt,pace,type TickDecision,type TickView} from './hunting.ts';
@@ -278,6 +278,160 @@ test('salvage empties the wrecks here into the hold, and no wreck is done',async
     assert.deepEqual(out.detail.left,[{wreck_id:'w1',cargo:[{item_id:'creature_carapace',quantity:3}]}]);
     assert.deepEqual(out.gained.items,[{item_id:'creature_carapace',quantity:2}]);
     assert.match(out.next.join(' '),/hold filled/);
+  } finally {unbind();}
+});
+
+/** `world`, but the command seam may intercept (a refusal or a lost reply on the loot), counting what it was asked. */
+function salvageWorld(fault:(action:string,real:ReadinessCommand)=>ReturnType<ReadinessCommand>|undefined,options:WorldOptions={}) {
+  const game=bridgeWorld({services:['refuel','repair','storage'],cargoUsed:0,...options});
+  const lines:string[]=[],sent:string[]=[];
+  const command:typeof game.command=(action,params)=>{sent.push(action);return fault(action,game.command)??game.command(action,params);};
+  bind({account:game.account as unknown as Account,command,pilot:()=>({mood:'Focused'}),emit:text=>lines.push(text)});
+  return {...game,lines,loots:()=>sent.filter(action=>action==='spacemolt_salvage/loot').length};
+}
+const carapace=(quantity:number)=>({id:'w1',victim_id:'c1',type:'creature',poi_id:'station',
+  cargo:[{item_id:'creature_carapace',quantity}],modules:[],salvage_value:40});
+
+test('a loot the game refuses is named by its code, not "nothing that fits", and the row stays in left',async()=>{
+  // Live (colony_debris_field): "looted 0 of 1 wreck(s): nothing that fits" for a loot refused in_battle.
+  const f=salvageWorld(action=>{if(action==='spacemolt_salvage/loot')throw new SpacemoltError('in_battle','cannot loot while in combat');return undefined;},{cargoUsed:0});
+  try {
+    f.wrecks.push(carapace(5));
+    const out=await salvage();
+    assert.equal(out.status,'done',out.why);
+    assert.match(out.did,/w1 refused: spacemolt_salvage\/loot: in_battle — cannot loot while in combat/);
+    assert.doesNotMatch(out.did,/nothing that fits/);
+    assert.ok(f.lines.some(line=>/loot w1  left 5 creature_carapace: spacemolt_salvage\/loot: in_battle/.test(line)),f.lines.join('\n'));
+    assert.deepEqual(out.detail.left,[{wreck_id:'w1',cargo:[{item_id:'creature_carapace',quantity:5}]}]);
+    assert.equal(f.loots(),1,'a refusal is not retried');
+  } finally {unbind();}
+});
+
+test('a full hold is said as hold full, and no loot is sent for the row it had no room for',async()=>{
+  const f=salvageWorld(()=>undefined,{cargoUsed:10});
+  try {
+    f.wrecks.push({...carapace(5),cargo:[{item_id:'creature_carapace',quantity:5},{item_id:'ore',quantity:4}]});
+    const out=await salvage();
+    assert.equal(out.status,'done',out.why);
+    assert.match(out.did,/w1: left 3 creature_carapace: hold full; w1: left 4 ore: hold full/);
+    assert.doesNotMatch(out.did,/nothing that fits/);
+    assert.equal(f.loots(),1,'the second row had no room and was never sent');
+    assert.match(out.next.join(' '),/hold filled/);
+  } finally {unbind();}
+});
+
+test('a wreck with nothing in it is said to be a hull, with the tow and scrap way out',async()=>{
+  const f=salvageWorld(()=>undefined);
+  try {
+    f.wrecks.push({...carapace(0),cargo:[]});
+    const out=await salvage();
+    assert.equal(out.status,'done',out.why);
+    assert.match(out.did,/w1 empty \(hull only\)/);
+    assert.doesNotMatch(out.did,/nothing that fits/);
+    assert.ok(f.lines.some(line=>line.includes("loot w1  empty (hull only): salvage({tow:'w1'}) or scrap it")),f.lines.join('\n'));
+    assert.match(out.next.join(' '),/tow it/);
+    assert.equal(f.loots(),0);
+  } finally {unbind();}
+});
+
+test('a loot whose reply is lost is sent once, and the salvage fails saying so',async()=>{
+  const f=salvageWorld(action=>{if(action==='spacemolt_salvage/loot')throw new SpacemoltError('mutation_timeout','No action_result');return undefined;});
+  try {
+    f.wrecks.push({...carapace(5),cargo:[{item_id:'creature_carapace',quantity:5},{item_id:'ore',quantity:4}]});
+    const out=await salvage();
+    assert.equal(out.status,'failed');
+    assert.match(out.why??'',/reply lost on spacemolt_salvage\/loot/);
+    assert.equal(f.loots(),1,'never re-sent, and the next row is not tried');
+  } finally {unbind();}
+});
+
+// Live: the server omits spec-required fields. An absent cargo/modules reads as none; a wrong-typed one drops the row.
+test('a wreck listed without modules still loots its cargo, and the step says so',async()=>{
+  const f=salvageWorld(()=>undefined);
+  try {
+    const {modules:_,...row}=carapace(1);
+    f.wrecks.push(row);
+    const out=await salvage();
+    assert.deepEqual(out.detail.looted,[{wreck_id:'w1',items:[{item_id:'creature_carapace',quantity:1}],modules:[]}]);
+    assert.ok(f.lines.some(line=>line.includes('wreck w1: no modules listed, read as none')),f.lines.join('\n'));
+  } finally {unbind();}
+});
+test('a wreck listed without cargo still loots its modules, or is a hull',async()=>{
+  const f=salvageWorld(()=>undefined);
+  try {
+    const {cargo:_,...row}=moduleWreck(['mod1']);
+    f.wrecks.push(row);
+    const out=await salvage();
+    assert.equal(out.detail.looted[0]?.modules.length,1);
+    assert.ok(f.lines.some(line=>line.includes('wreck w1: no cargo listed, read as none')),f.lines.join('\n'));
+    const {cargo:__,...bare}=carapace(1);
+    f.wrecks.splice(0,f.wrecks.length,{...bare,modules:[]});
+    const hull=await salvage();
+    assert.match(hull.did,/w1 empty \(hull only\)/);
+  } finally {unbind();}
+});
+// Live 2026-10-03 (F-U17, TestPilot.cv at material_harvesters): wreck rows came with `cargo: null`, and the whole wreck was skipped.
+test('a wreck listed with null cargo or null modules is still salvaged, and the step says so',async()=>{
+  const f=salvageWorld(()=>undefined);
+  try {
+    f.wrecks.push({...moduleWreck(['mod1']),cargo:null});
+    const out=await salvage();
+    assert.equal(out.detail.wrecks.length,1);
+    assert.equal(out.detail.looted[0]?.modules.length,1);
+    assert.ok(f.lines.some(line=>line.includes('wreck w1: no cargo listed, read as none')),f.lines.join('\n'));
+    f.wrecks.splice(0,f.wrecks.length,{...carapace(1),modules:null});
+    const second=await salvage();
+    assert.deepEqual(second.detail.looted,[{wreck_id:'w1',items:[{item_id:'creature_carapace',quantity:1}],modules:[]}]);
+    assert.ok(f.lines.some(line=>line.includes('wreck w1: no modules listed, read as none')),f.lines.join('\n'));
+  } finally {unbind();}
+});
+test('a wreck whose cargo is the wrong type is dropped, with a step line',async()=>{
+  const f=salvageWorld(()=>undefined);
+  try {
+    f.wrecks.push({...carapace(1),cargo:'x'});
+    const out=await salvage();
+    assert.equal(out.detail.wrecks.length,0);
+    assert.ok(f.lines.some(line=>line.includes('wreck w1 did not read, skipped')),f.lines.join('\n'));
+  } finally {unbind();}
+});
+
+const moduleWreck=(modules:string[]=['mod1','mod2'])=>({id:'w1',victim_id:'c1',type:'ship',poi_id:'station',cargo:[],
+  modules:modules.map(id=>({id,name:'Autocannon',type:'weapon',type_id:'autocannon_i'})),salvage_value:90});
+
+test('a module loot the game refuses is named by its code, and every row refused the same way is said once',async()=>{
+  const f=salvageWorld(action=>{if(action==='spacemolt_salvage/loot')throw new SpacemoltError('in_battle','cannot loot while in combat');return undefined;});
+  try {
+    f.wrecks.push(moduleWreck());
+    const out=await salvage();
+    assert.equal(out.status,'done',out.why);
+    assert.equal(out.did.split('in_battle').length-1,1,out.did);
+    assert.match(out.did,/w1 refused: spacemolt_salvage\/loot: in_battle — cannot loot while in combat/);
+    assert.ok(f.lines.some(line=>/loot w1  left module mod1: spacemolt_salvage\/loot: in_battle.*left module mod2: spacemolt_salvage\/loot: in_battle/.test(line)),f.lines.join('\n'));
+    assert.equal(f.loots(),2,'each module is asked for once: a refusal on one does not stop the next');
+  } finally {unbind();}
+});
+
+test('a module is taken into the hold, and a full hold skips the rest with no loot sent',async()=>{
+  const f=salvageWorld(()=>undefined,{cargoUsed:11});
+  try {
+    f.wrecks.push(moduleWreck());
+    const out=await salvage();
+    assert.equal(out.status,'done',out.why);
+    assert.deepEqual(out.detail.looted[0]?.modules.map(row=>row.id),['mod1']);
+    assert.match(out.did,/w1: left module mod2: hold full/);
+    assert.equal(f.loots(),1,'the second module had no room and was never sent');
+    assert.match(out.next.join(' '),/hold filled/);
+  } finally {unbind();}
+});
+
+test('a module loot whose reply is lost is sent once, and the salvage fails saying so',async()=>{
+  const f=salvageWorld(action=>{if(action==='spacemolt_salvage/loot')throw new SpacemoltError('mutation_timeout','No action_result');return undefined;});
+  try {
+    f.wrecks.push(moduleWreck());
+    const out=await salvage();
+    assert.equal(out.status,'failed');
+    assert.match(out.why??'',/reply lost on spacemolt_salvage\/loot/);
+    assert.equal(f.loots(),1,'never re-sent, and the next module is not tried');
   } finally {unbind();}
 });
 

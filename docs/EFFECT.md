@@ -45,7 +45,10 @@ These are in priority order.
   whose implementation returns a wider type than its signature, is a cast and is banned. The only
   sanctioned exception is a cast the frozen pilot surface forces, written as a plain `as` on a line
   marked `// cast: frozen surface (<type>)`; `scripts/debt.ts` reports those as `surface_cast`,
-  apart from `cast`, so they stay visible without failing `--zero`.
+  apart from `cast`, so they stay visible without failing `--zero`. That cast makes a failure's
+  `detail` an `{}` typed as the full `Detail`, so an internal caller checks an Outcome before
+  reading its `detail`, through `reached()` in `runtime.ts`: `status` alone does not tell, since a
+  stop is `partial` and an escaped refusal `refused`, both with `{}`.
 
 **How it's enforced**, from least to most maintenance:
 
@@ -310,7 +313,9 @@ them then.
 does, as U12 found), so a full decode of a whole reply would refuse real data. Decode the fields
 the code reads, picked from the `Wire.*` schema, never a parallel authored shape. A row is dropped
 only when a field the code reads fails to decode, and a `step` line names it (observe, don't
-gate). Where the frozen pilot surface promises the full lib type for a reply the code only partly
+gate). It sends `null` for empty collections (wreck `cargo`, F-U17), so a picked collection field
+the code reads as none when absent reads `null` as empty too (`Schema.optionalKey(Schema.NullOr(…))`,
+then `?? []`). Where the frozen pilot surface promises the full lib type for a reply the code only partly
 reads, pass the raw body through on one line marked `// cast: frozen surface (<Type>)`: the lie is
 the lib type's, and `debt.ts` counts it.
 

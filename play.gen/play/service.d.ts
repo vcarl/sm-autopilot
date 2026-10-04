@@ -45,6 +45,7 @@ export interface Elsewhere {
 export declare const serviceElsewhereEffect: (docked?: string) => Effect.Effect<Elsewhere[], never, Game>;
 /** The Promise twin of `serviceElsewhereEffect`. */
 export declare function serviceElsewhere(docked?: string): Promise<Elsewhere[]>;
+export declare const asBase: (body: unknown) => GetBaseResponse;
 /** Bring the ship up at the counter you are docked at: full tank and full hull.
  *
  * Over `refuel` + `repair` it adds: the quote read first, the mood's spend margin on the repair

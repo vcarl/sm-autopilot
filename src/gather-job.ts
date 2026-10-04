@@ -1,7 +1,7 @@
 import type {GameState} from '@spacemolt/lib';
 import {Data,Effect,Result,Schedule} from 'effect';
 import {DockBlocked,dockAtEffect} from './dock.ts';
-import {Game,GameLive,SeamFailed,attempt,isGameError,message,rawError,type GameError} from './play/game.ts';
+import {Game,SeamFailed,attempt,isGameError,message,rawError,type GameError} from './play/game.ts';
 import {mineToFullEffect,type MineOptions,type MineYieldRow} from './mine.ts';
 import {causeText} from './command-boundary.ts';
 import {miningInventory} from './mining-inventory.ts';
@@ -288,12 +288,3 @@ export const gatherJobEffect=(account:ReadinessAccount,command:ReadinessCommand,
   if(stop)return stop;
   return {outcome:'done',steps,yield:mined,settled,serviced} satisfies GatherOutcome;
 });
-
-/** The Promise twin of `gatherJobEffect`: the same job, throwing what it always threw. */
-export async function gatherJob(account:ReadinessAccount,command:ReadinessCommand,
-  plan:GatherPlan,options:GatherOptions={}):Promise<GatherOutcome> {
-  const exit=await Effect.runPromiseExit(gatherJobEffect(account,command,plan,options).pipe(
-    Effect.provide(GameLive({send:command}))));
-  if(exit._tag==='Failure')throw rawError(exit.cause); // bridge: U19 (caller: play/mining/mining.ts)
-  return exit.value;
-}

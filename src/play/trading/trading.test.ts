@@ -14,11 +14,12 @@ import {readPlaces} from '../places.ts';
 import {routes,runCall,spreads,tradeRun} from './trading.ts';
 import {scoutMarkets} from './scout.ts';
 
-function world(record:Pilot,options:WorldOptions={},runtime?:string) {
+function world(record:Pilot,options:WorldOptions={},runtime?:string,raises:(action:string)=>void=()=>{}) {
   const game=bridgeWorld({services:['refuel','repair','storage'],cargoUsed:0,...options});
   const lines:string[]=[];
   let who:Pilot=record;
-  bind({account:game.account as unknown as Account,command:game.command,
+  const command:typeof game.command=async(action,params)=>{raises(action);return game.command(action,params);};
+  bind({account:game.account as unknown as Account,command,
     pilot:()=>who,emit:text=>lines.push(text),...runtime?{runtime}:{}});
   return {...game,lines,record:()=>who};
 }
@@ -404,6 +405,18 @@ test("tradeRun from:'store' takes the stored goods at the first stop and sells t
     assert.equal(f.count('spacemolt/buy'),0);
     assert.equal(out.detail.stops[0]!.bought,8);
     assert.deepEqual(fills(out.detail.stops[1]!),[['ore',8]]);
+  } finally {unbind();rmSync(runtime,{recursive:true,force:true});}
+});
+
+test("tradeRun from:'store': a withdraw that broke is the stop's short, not a crash",async()=>{
+  // A broken withdraw's detail is `{}`: tradeRun read `took.detail?.moved.reduce` off it and crashed.
+  const runtime=remembered([{base_id:'range_base',age:0,items:[{item_id:'ore',best_buy:10,best_buy_qty:99}]}]);
+  world({mood:'Focused'},{cargo:[],cargoUsed:0,cargoCapacity:10,store:[{item_id:'ore',quantity:8}],markets:{sol_base:[]}},runtime,
+    action=>{if(action==='spacemolt/get_base')throw new Error('socket gone');});
+  try {
+    const out=await tradeRun({stops:[{at:'sol_base',buy:'ore',from:'store'},{at:'range_base'}]});
+    assert.equal(out.detail.stops[0]?.bought,0,JSON.stringify(out));
+    assert.match(out.why??'',/sol_base: withdrew no ore: .*socket gone/);
   } finally {unbind();rmSync(runtime,{recursive:true,force:true});}
 });
 

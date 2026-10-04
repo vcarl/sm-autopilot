@@ -19,7 +19,7 @@ import {inFaction} from '../../trade-intel.ts';
 import {book,buy,knownBooks,marketTick,sell,ticksOld} from '../market.ts';
 import {readDrained,ring} from '../freighter/drained.ts';
 import {markPlace,readMobile,readPlaces} from '../places.ts';
-import {acct,admit,checkStop,command,job,runtimeDir,step,type Said} from '../runtime.ts';
+import {acct,admit,checkStop,command,job,reached,runtimeDir,step,type Said} from '../runtime.ts';
 import {counter} from '../counter.ts';
 import {withdraw} from '../storage.ts';
 import {goTo} from '../travel.ts';
@@ -492,7 +492,7 @@ export function tradeRun(opts:{stops:RunStop[]}):Promise<Outcome<Traded>> {
         if(!want)notes.push(`took no ${item_id}: no room left after the sales`);
         else if(stop.from==='store') {
           const took=await withdraw([{item_id,quantity:want}]);
-          const moved=took.detail?.moved.reduce((sum,row)=>sum+row.quantity,0)??0;
+          const moved=reached(took)?.moved.reduce((sum,row)=>sum+row.quantity,0)??0;
           visit.bought+=moved;
           if(!moved)short.push(`${here}: withdrew no ${item_id}: ${took.why??took.did}`);
         } else {

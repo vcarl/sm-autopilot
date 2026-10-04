@@ -1,6 +1,8 @@
 /** Looking around. Reads only; nothing here spends a tick or a credit. */
 import type { ActiveMissionInfo, CarrierProfile, GetNearbyResponse, GetWrecksResponse, ListShipsResponse, MapSystemInfo, ResourceInfo, StorageLocation, SystemConnection, SystemInfo, SystemPoi, TaxEstimateResponse } from '@spacemolt/lib';
+import { Effect } from 'effect';
 import { type BattleNow } from '../travel.ts';
+import { Game } from './game.ts';
 import { type Pilot } from './runtime.ts';
 import type { Outcome, Present } from './types.ts';
 export interface Orientation {
@@ -29,6 +31,8 @@ export interface Orientation {
  * reads it adds: one call, each reply cut to what a decision needs, and `next` naming the
  * most obvious gap ("hold is full", "tax due 16 cr"). Returns `done` always. */
 export declare function orient(): Promise<Outcome<Orientation>>;
+/** `orient` as an Effect, for `edge` and for converted callers; never in a barrel. */
+export declare const orientEffect: () => Effect.Effect<Outcome<Orientation>, never, Game>;
 export interface ScoutReport {
     /** The live `get_system` answer when you are in it; the map entry when you are not. */
     system: SystemInfo | MapSystemInfo;
@@ -56,3 +60,7 @@ export interface ScoutReport {
  * adds: the id resolved through `find_route`, one call, and `next` naming belts and stations
  * as ids you can paste into `gatherUntil` and `goTo`. Reads only. */
 export declare function scout(target?: string): Promise<Outcome<ScoutReport>>;
+/** `scout` as an Effect, for `edge` and for converted callers; never in a barrel. A refusal of the
+ * route to the target ends the run, naming the action and the code; a refused quote, nearby or wreck
+ * read only leaves its part of the report empty. */
+export declare const scoutEffect: (target?: string) => Effect.Effect<Outcome<ScoutReport>, never, Game>;

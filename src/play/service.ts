@@ -115,7 +115,7 @@ const asNext=(rows:Elsewhere[],system:string):string[]=>rows.length
 
 // The live body is not decoded: the server omits spec fields, so a strict decode would refuse real quotes.
 // oxlint-disable-next-line typescript/consistent-type-assertions
-const asBase=(body:unknown)=>body as GetBaseResponse; // cast: frozen surface (GetBaseResponse)
+export const asBase=(body:unknown)=>body as GetBaseResponse; // cast: frozen surface (GetBaseResponse)
 /** Bring the ship up at the counter you are docked at: full tank and full hull.
  *
  * Over `refuel` + `repair` it adds: the quote read first, the mood's spend margin on the repair
@@ -144,7 +144,7 @@ export const serviceEffect=(opts:NonNullable<Parameters<typeof service>[0]>={})=
   const found=yield* Effect.result(counterEffect());
   if(Result.isFailure(found)) {
     if(found.failure._tag==='DockBlocked')return {status:'failed',did:'service broke',why:found.failure.message,detail:empty};
-    return yield* found.failure;
+    return yield* Effect.fail(found.failure);
   }
   const at=found.success;
   if('refused' in at)return {status:'refused',did:'serviced nothing',why:at.refused,detail:empty};

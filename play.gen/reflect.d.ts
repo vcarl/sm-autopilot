@@ -1,6 +1,6 @@
 import { Effect } from 'effect';
 import { Game } from './play/game.ts';
-import type { ReadinessAccount, ReadinessCommand } from './readiness.ts';
+import type { ReadinessAccount } from './readiness.ts';
 /** One run as the review reads it: how it ended and what it said. */
 export interface ScriptRun {
     outcome?: string;
@@ -71,6 +71,3 @@ export interface ReflectReport {
     missing: string[];
 }
 export declare const reflectReportEffect: (account: Pick<ReadinessAccount, "state">, pilot: Pilotish, runtime?: string) => Effect.Effect<ReflectReport, import("./play/game.ts").SeamFailed, Game>;
-/** The Promise twin of `reflectReportEffect`, for the pilot's `reflection()` until it is converted.
- * A failure exit throws the raw error, as `command()` and `account.refresh()` do. */
-export declare function reflectReport(account: ReadinessAccount, command: ReadinessCommand, pilot: Pilotish, runtime?: string): Promise<ReflectReport>;

@@ -14,7 +14,8 @@ import {Cause,Data,Effect,Exit,ManagedRuntime,Result} from 'effect';
 import type {ReadinessAccount,ReadinessCommand} from '../readiness.ts';
 import {FUEL_CELL} from '../mining-inventory.ts';
 import {journalRun,readRun,stampRun,writeRun,type RunRecord} from '../run-record.ts';
-import {TravelBlocked} from '../travel.ts';
+import type {DockBlocked} from '../dock.ts';
+import {TravelBlocked,type ArrivalUnresolved} from '../travel.ts';
 import {Depleted,Game,GameLive,HoldFull,InBattle,Rejected,ReplyLost,attempt,freshLedger,field,message,rawError,type GameError} from './game.ts';
 import {resupply} from './service.ts';
 import type {Outcome,Present,Row,Status,Want} from './types.ts';
@@ -367,9 +368,9 @@ export const job=<Detail>(fn:string,args:string,body:()=>Promise<Said<Detail>>):
 /** `job` for an Effect body: the same bookkeeping, every failure folded into the Outcome by
  * `said`. A defect is a `failed` Outcome too, as a throw is in `job`, and its stack goes to a
  * `defect` line. Never exported from a barrel. */
-export const jobEffect=<D,R>(fn:string,args:string,body:Effect.Effect<Said<D>,GameError|Stopped,R>)=>jobWith(fn,args,body,true);
+export const jobEffect=<D,R>(fn:string,args:string,body:Effect.Effect<Said<D>,GameError|TravelBlocked|ArrivalUnresolved|DockBlocked,R>)=>jobWith(fn,args,body,true);
 
-const jobWith=<D,R>(fn:string,args:string,body:Effect.Effect<Said<D>,GameError|Stopped,R>,journalDefects:boolean):Effect.Effect<Outcome<D>,never,R|Game>=>
+const jobWith=<D,R>(fn:string,args:string,body:Effect.Effect<Said<D>,GameError|TravelBlocked|ArrivalUnresolved|DockBlocked,R>,journalDefects:boolean):Effect.Effect<Outcome<D>,never,R|Game>=>
   Effect.gen(function*() {
     const open=yield* opening(fn,args);
     const exit=yield* Effect.exit(body);
@@ -400,13 +401,23 @@ const viaGame=<A,E>(effect:Effect.Effect<A,E,Game>)=>need().game.runPromiseExit(
 // oxlint-disable-next-line typescript/consistent-type-assertions
 function orEmpty<Detail>(detail:Detail|undefined):Detail {return detail??{} as Detail;} // cast: frozen surface (Outcome<Detail>)
 
+const unsaid=new WeakSet<object>();
+/** An Outcome's detail when the job built one, `undefined` when it is `said`'s `{}`. An internal caller reads
+ * a helper's detail through this: status alone does not tell, since a stop is `partial` and an escaped refusal `refused`. */
+export function reached<Detail>(outcome:Outcome<Detail>):Detail|undefined {
+  const detail=outcome.detail;
+  return typeof detail==='object'&&detail!==null&&unsaid.has(detail)?undefined:detail;
+}
+
 /** A failure in its own fields' words. Every definitive refusal tag is `refused`: the server
  * said no and nothing landed, whether or not its code has a tag of its own.
  * ponytail: the pilot-surface `Outcome<Detail>` promises a `Detail` that a failure does not have, so this
  * cast says it does (`{}`). It goes when the surface types a failure's detail. */
 function said<Detail>(fn:string,error:unknown):Said<Detail> {
+  const none={};
+  unsaid.add(none);
   // oxlint-disable-next-line typescript/consistent-type-assertions
-  const detail={} as Detail; // cast: frozen surface (Outcome<Detail>)
+  const detail=none as Detail; // cast: frozen surface (Outcome<Detail>)
   if(error instanceof Stopped)return {status:'partial',did:`${fn} stopped by the pilot`,why:error.message,detail};
   if(error instanceof ReplyLost)return {status:'failed',did:`${fn} broke`,why:`reply lost on ${error.action}; state re-read`,detail};
   if(error instanceof Rejected||error instanceof InBattle||error instanceof HoldFull||error instanceof Depleted)

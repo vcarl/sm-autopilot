@@ -1,7 +1,10 @@
 /** The hangar: modules on the ship you fly, and the next hull. */
-import type {BrowseShipsResponse,BuyListedShipResponse,CommissionQuoteResponse,CommissionShipResponse,InsurancePolicy,InspectResponse,ListShipsResponse,Module,ShipClass,ShipListing,SwitchShipResponse,V2Module,V2Ship} from '@spacemolt/lib';
+import type {CommissionQuoteResponse,InsurancePolicy,ShipClass,ShipListing,V2Module,V2Ship} from '@spacemolt/lib';
+import {Effect,Option,Schema,Struct} from 'effect';
 import {details} from '../response-details.ts';
-import {acct,admit,command,job,pilot,step} from './runtime.ts';
+import * as Wire from '../wire.gen.ts';
+import {Game,GameLive,attempt,field,rawError,type GameError} from './game.ts';
+import {acct,admit,command,edge,jobEffect,pilot,step} from './runtime.ts';
 import {withdraw} from './storage.ts';
 import type {Outcome} from './types.ts';
 
@@ -18,47 +21,81 @@ export interface Fit {
 /** The grid a change is measured against: the hull, the modules on it, and the draw so far.
  * A simulated remove takes a module off this copy, which is how the slot a later install
  * needs is known to be free before anything is sent. */
-export interface Bench {ship:V2Ship;fitted:V2Module[];cpu:number;power:number}
+export interface Bench {ship:V2Ship|undefined;fitted:V2Module[];cpu:number;power:number}
 
 /** The bench as the ship stands right now. */
 export function bench():Bench {
-  const ship=acct().state.ship as V2Ship,fitted=(acct().state.modules??[]) as V2Module[];
-  return {ship,fitted:[...fitted],cpu:ship?.cpu_used??0,power:ship?.power_used??0};
+  const {ship,modules=[]}=acct().state;
+  return {ship,fitted:[...modules],cpu:ship?.cpu_used??0,power:ship?.power_used??0};
 }
 
-const slotCap=(ship:V2Ship,slot:string):number|undefined=>
-  ({utility:ship?.utility_slots,weapon:ship?.weapon_slots,defense:ship?.defense_slots} as Record<string,number|undefined>)[slot];
+const slotCap=(ship:V2Ship|undefined,slot:string):number|undefined=>
+  slot==='utility'?ship?.utility_slots:slot==='weapon'?ship?.weapon_slots:slot==='defense'?ship?.defense_slots:undefined;
 const names=(rows:V2Module[])=>rows.map(row=>row.type_id).join(', ')||'nothing';
+
+/** What this reads of the catalog's answer to `inspect`: what kind of thing it is, and its entries as
+ * they come (each is decoded against the kind it should be, because the spec's entry union is `oneOf`). */
+const decodeInspect=Schema.decodeUnknownOption(Wire.InspectResponse.mapFields(fields=>({kind:fields.kind,
+  catalog:Schema.optionalKey(Schema.NullOr(Schema.Struct({items:Schema.Array(Schema.Unknown)})))})));
+const firstEntry=(reply:unknown)=>{const read=decodeInspect(details(reply));return Option.isSome(read)?{kind:read.value.kind,entry:read.value.catalog?.items[0]}:{kind:undefined,entry:undefined};};
+/** The slot kind a module takes and its grid draw: all `refit` and `buy` need to know of it. */
+const ModuleSpec=Wire.Module.mapFields(Struct.pick(['name','slot','type','cpu_usage','power_usage','size']));
+export type ModuleSpec=typeof ModuleSpec.Type;
+const decodeSpec=Schema.decodeUnknownOption(ModuleSpec);
+/** What is read of a hull class: the fields `versus`, the menu and the board name. The spec's other fields are not required of it:
+ * the live server leaves some out. The surface still hands the pilot the raw entry. */
+const ClassRead=Wire.ShipClass.schema.mapFields(Struct.pick(['id','name','cargo_capacity','base_speed','base_fuel','utility_slots','weapon_slots',
+  'defense_slots','minimum_crew','piloting_required']));
+const decodeClass=Schema.decodeUnknownOption(ClassRead);
 
 /** What the catalog says fitting this module costs: the slot kind it takes and its grid
  * draw (`spacemolt/inspect`, which answers `kind: 'module'` only for a module). `null` for
- * anything that is not a module, which is how `buy` tells ore from a cargo expander. */
-export async function moduleSpec(typeId:string):Promise<Module|null> {
-  const reply=details(await command('spacemolt/inspect',{id:typeId})) as InspectResponse;
-  const entry=reply.kind==='module'?reply.catalog?.items?.[0]:undefined;
-  return entry&&'cpu_usage' in entry&&'slot' in entry?entry as Module:null;
+ * anything that is not a module, which is how `buy` tells ore from a cargo expander.
+ * `undefined` when the answer was there but not readable: said in a step, and not the same as
+ * "not a module". */
+export const moduleSpecEffect=(typeId:string)=>Effect.gen(function*() {
+  const {kind,entry}=firstEntry(yield* (yield* Game).command('spacemolt/inspect',{id:typeId}));
+  if(kind!==undefined&&kind!=='module')return null;
+  const spec=kind==='module'?decodeSpec(entry):Option.none();
+  if(Option.isSome(spec))return spec.value;
+  step(`spacemolt/inspect: the catalog's answer for ${typeId} did not read as a module`);
+  return undefined;
+});
+
+/** The Promise twin of an Effect, for the callers not yet converted: throws what `command()` threw,
+ * the lib's raw error. */
+async function viaCommand<A>(effect:Effect.Effect<A,GameError,Game>):Promise<A> {
+  const exit=await Effect.runPromiseExit(effect.pipe(Effect.provide(GameLive({send:command})))); // bridge: U15, U29 (their conversion calls the twin and deletes this)
+  if(exit._tag==='Failure')throw rawError(exit.cause);
+  return exit.value;
 }
+export const moduleSpec=async(typeId:string):Promise<ModuleSpec|null>=>(await viaCommand(moduleSpecEffect(typeId)))??null;
 
 /** Why one more module of this spec would not fit the bench, naming the fix; `null` when it
  * fits. The one check `refit` and `buy` share: a module that could not be fitted is refused
  * at the counter, not discovered after 2,080 cr have left the wallet. */
-export function whyNotFit(spec:Module,at:Bench):string|null {
-  const cap=slotCap(at.ship,spec.slot),inSlot=at.fitted.filter(row=>row.slot===spec.slot);
+export function whyNotFit(spec:ModuleSpec,at:Bench):string|null {
+  const {ship}=at,cap=slotCap(ship,spec.slot),inSlot=at.fitted.filter(row=>row.slot===spec.slot);
   if(cap!==undefined&&inSlot.length>=cap)
     return `no free ${spec.slot} slot: ${inSlot.length} of ${cap} fitted; remove one of ${names(inSlot)} first`;
-  if(at.cpu+spec.cpu_usage>at.ship.cpu_capacity)
-    return `cpu ${at.cpu}+${spec.cpu_usage} over capacity ${at.ship.cpu_capacity}; remove one of ${names(at.fitted)} first`;
-  if(at.power+spec.power_usage>at.ship.power_capacity)
-    return `power ${at.power}+${spec.power_usage} over capacity ${at.ship.power_capacity}; remove one of ${names(at.fitted)} first`;
+  if(ship&&at.cpu+spec.cpu_usage>ship.cpu_capacity)
+    return `cpu ${at.cpu}+${spec.cpu_usage} over capacity ${ship.cpu_capacity}; remove one of ${names(at.fitted)} first`;
+  if(ship&&at.power+spec.power_usage>ship.power_capacity)
+    return `power ${at.power}+${spec.power_usage} over capacity ${ship.power_capacity}; remove one of ${names(at.fitted)} first`;
   return null;
 }
 
 /** The grid line every refit ends with, and `buy` suggests. */
-export function room(ship:V2Ship):string {
+export function room(ship:V2Ship|undefined):string {
+  if(!ship)return 'no ship read';
+  const fitted=acct().state.modules??[];
   const free=(['utility','weapon','defense'] as const).map(slot=>
-    `${(slotCap(ship,slot)??0)-((acct().state.modules??[]) as V2Module[]).filter(row=>row.slot===slot).length} ${slot}`);
+    `${(slotCap(ship,slot)??0)-fitted.filter(row=>row.slot===slot).length} ${slot}`);
   return `cpu ${ship.cpu_used}/${ship.cpu_capacity}, power ${ship.power_used}/${ship.power_capacity}; free slots: ${free.join(', ')}`;
 }
+
+/** A refusal or a lost reply as the pilot reads it: the action and the server's code, or that the reply is gone. */
+const told=(error:GameError)=>error._tag==='ReplyLost'?`reply lost on ${error.action}`:`${error.action}: ${error.code} — ${error.message}`;
 
 /** Install and/or remove modules while docked. Ids are `module_id`s or `type_id`s from the
  * hold or this base's store (a stored module is withdrawn first). Removes go before
@@ -72,15 +109,21 @@ export function room(ship:V2Ship):string {
  * `power_used/power_capacity` trains engineering passively; `next` says how far under the
  * grid you are. */
 export function refit(change:{install?:string[];remove?:string[]}):Promise<Outcome<Fit>> {
+  return edge(refitEffect(change));
+}
+
+/** `refit` as an Effect, for `edge` and for converted callers; never in a barrel. A mutation the
+ * game refuses or loses ends the run, naming the action and the code; none is ever re-sent. */
+export const refitEffect=(change:{install?:string[];remove?:string[]})=>{
   const install=change.install??[],remove=change.remove??[];
-  return job<Fit>('refit',[...remove.map(id=>`-${id}`),...install.map(id=>`+${id}`)].join(' '),async()=>{
+  return jobEffect('refit',[...remove.map(id=>`-${id}`),...install.map(id=>`+${id}`)].join(' '),Effect.gen(function*() {
+    const game=yield* Game;
     const grid=():Fit['ship']=>{
-      const s=(acct().state.ship??{}) as V2Ship;
-      return {cpu_used:s.cpu_used,cpu_capacity:s.cpu_capacity,power_used:s.power_used,power_capacity:s.power_capacity,
-        utility_slots:s.utility_slots,weapon_slots:s.weapon_slots,defense_slots:s.defense_slots};
+      const s=acct().state.ship;
+      return {cpu_used:s?.cpu_used??0,cpu_capacity:s?.cpu_capacity??0,power_used:s?.power_used??0,power_capacity:s?.power_capacity??0,
+        utility_slots:s?.utility_slots??0,weapon_slots:s?.weapon_slots??0,defense_slots:s?.defense_slots??0};
     };
-    const nothing=(short:Fit['short']=[]):Fit=>({installed:[],removed:[],
-      modules:(acct().state.modules??[]) as V2Module[],ship:grid(),short});
+    const nothing=(short:Fit['short']=[]):Fit=>({installed:[],removed:[],modules:acct().state.modules??[],ship:grid(),short});
     const no=(why:string,short:Fit['short']=[])=>
       ({status:'refused' as const,did:'refitted nothing',why,detail:nothing(short)});
     if(!acct().state.location?.docked_at)return no('refit needs a docked ship: modules come off at a station');
@@ -96,11 +139,11 @@ export function refit(change:{install?:string[];remove?:string[]}):Promise<Outco
       at.cpu-=row.cpu_usage;at.power-=row.power_usage;
       off.push(row);
     }
-    const on:{id:string;spec:Module}[]=[],alreadyOn:string[]=[],short:Fit['short']=[];
+    const on:{id:string;spec:ModuleSpec}[]=[],alreadyOn:string[]=[],short:Fit['short']=[];
     for(const id of install) {
       if(at.fitted.some(module=>module.module_id===id)){alreadyOn.push(id);continue;}
-      const spec=await moduleSpec(id);
-      if(!spec){short.push({id,why:'no module by that id in the catalog'});continue;}
+      const spec=yield* moduleSpecEffect(id);
+      if(!spec){short.push({id,why:spec===null?'no module by that id in the catalog':'the catalog entry for it was unreadable'});continue;}
       const why=whyNotFit(spec,at);
       if(why){short.push({id,why});continue;}
       at.fitted.push({module_id:id,type_id:id,name:spec.name,slot:spec.slot,type:spec.type,
@@ -114,30 +157,30 @@ export function refit(change:{install?:string[];remove?:string[]}):Promise<Outco
     const held=(id:string)=>(acct().state.cargo??[]).some(row=>row.item_id===id&&row.quantity>0);
     for(const row of on) {
       if(held(row.id))continue;
-      await withdraw([{item_id:row.id,quantity:1}]);
+      yield* attempt('withdraw',()=>withdraw([{item_id:row.id,quantity:1}])); // bridge: U13
       if(!held(row.id))short.push({id:row.id,why:'not in the hold or this base\'s store; buy one first'});
     }
     if(short.length)return no(short.map(row=>`${row.id}: ${row.why}`).join('; '),short);
 
     for(const row of off) {
-      await command('spacemolt/uninstall_mod',{id:row.module_id});
+      yield* game.command('spacemolt/uninstall_mod',{id:row.module_id});
       step(`uninstall ${row.type_id}`);
     }
     for(const row of on) {
-      await command('spacemolt/install_mod',{id:row.id});
+      yield* game.command('spacemolt/install_mod',{id:row.id});
       step(`install ${row.id} (${row.spec.slot}, cpu ${row.spec.cpu_usage}, power ${row.spec.power_usage})`);
     }
-    await acct().refresh();
+    yield* attempt('refresh',()=>acct().refresh()); // bridge: U31 (acct().refresh is readiness, converted with the module state)
     const said=[off.length?`removed ${off.map(row=>row.type_id).join(', ')}`:'',
       on.length?`installed ${on.map(row=>row.id).join(', ')}`:'',
       alreadyOn.length?`already fitted: ${alreadyOn.join(', ')}`:'',
       alreadyOff.length?`already unfitted: ${alreadyOff.join(', ')}`:''].filter(Boolean).join('; ');
-    return {status:'done',did:said||'the fit already held',
+    return {status:'done' as const,did:said||'the fit already held',
       detail:{installed:on.map(row=>row.id),removed:off.map(row=>row.type_id),
-        modules:(acct().state.modules??[]) as V2Module[],ship:grid(),short:[]},
-      next:[room(acct().state.ship as V2Ship)]};
-  });
-}
+        modules:acct().state.modules??[],ship:grid(),short:[]},
+      next:[room(acct().state.ship)]};
+  }));
+};
 
 /** A player listing or a yard commission, each beside the class it is and one line on how
  * it compares with the hull you fly ("cargo +110, speed -1, minimum_crew 1"). */
@@ -147,20 +190,28 @@ export type ForSale=
 
 /** Ship classes are catalogue data, so each is read once per process — a class the catalogue says
  * it has no entry for included (live 2026-09-28: `inspect rubble` on every menu render). Any other
- * failure is thrown and not remembered. */
+ * failure is not remembered. The game sends no code for it that this repo has seen, so the refusal
+ * is read by its message ("Ship class X not found"), as it always was. */
 const classes=new Map<string,ShipClass|undefined>();
-export async function catalogClass(id:string):Promise<ShipClass|undefined> {
+export const catalogClassEffect=(id:string)=>Effect.gen(function*() {
   if(classes.has(id))return classes.get(id);
-  try {
-    const entry=(details(await command('spacemolt/inspect',{id})) as InspectResponse).catalog?.items?.[0];
-    const klass=entry&&'class' in entry?entry as ShipClass:undefined;
-    classes.set(id,klass);
-    return klass;
-  } catch(error) {
-    if(/not found/i.test(error instanceof Error?error.message:String(error)))classes.set(id,undefined);
-    throw error;
-  }
-}
+  const reply=yield* (yield* Game).command('spacemolt/inspect',{id}).pipe(
+    Effect.catchTag('Rejected',refused=>{
+      if(/not found/i.test(refused.message))classes.set(id,undefined);
+      return Effect.fail(refused);
+    }));
+  const {kind,entry}=firstEntry(reply);
+  // A catalogue answer that is some other kind of thing is definitive and remembered, as before; one that
+  // did not read is said and not remembered.
+  if(kind!==undefined&&kind!=='ship_class'){classes.set(id,undefined);return undefined;}
+  if(kind===undefined||Option.isNone(decodeClass(entry))){step(`spacemolt/inspect: the catalog's answer for ${id} did not read as a ship class`);return undefined;}
+  // The surface's ShipClass is the lib's full type; the entry is passed as the game sent it.
+  // oxlint-disable-next-line typescript/consistent-type-assertions
+  const klass=entry as ShipClass; // cast: frozen surface (ShipClass)
+  classes.set(id,klass);
+  return klass;
+});
+export const catalogClass=(id:string):Promise<ShipClass|undefined>=>viaCommand(catalogClassEffect(id));
 
 /** The catalog entry for a ship class (`spacemolt/inspect`), or nothing when the catalogue cannot
  * answer for it.
@@ -170,17 +221,15 @@ export async function catalogClass(id:string):Promise<ShipClass|undefined> {
  * turn. That is the game being inconsistent with itself, and it used to throw straight out through
  * `shipsForSale()` and end the run `failed` — at the same yard, every turn. A hull we cannot read is
  * a hull we cannot compare, so it is left off the board; the listings we CAN read are still worth
- * having, which is why this skips rather than propagates. */
-async function shipClass(id:string):Promise<ShipClass|undefined> {
-  try {return await catalogClass(id);}
-  catch(error) {
-    step(`${id}: no catalogue entry (${error instanceof Error?error.message:String(error)}); listing skipped`);
-    return undefined;
-  }
-}
+ * having, which is why this skips rather than propagates. Only the game's own answers are skipped
+ * (a refusal, a lost reply); a bug still goes up. */
+const shipClass=(id:string)=>{
+  const skip=(error:GameError)=>Effect.sync(()=>{step(`${id}: no catalogue entry (${told(error)}); listing skipped`);return undefined;});
+  return catalogClassEffect(id).pipe(Effect.catchTags({Rejected:skip,InBattle:skip,ReplyLost:skip}));
+};
 
 /** The difference against the hull you fly, in the fields that decide a trip. */
-function versus(klass:ShipClass,ship:V2Ship):string {
+function versus(klass:ShipClass,ship:V2Ship|undefined):string {
   const gap=(label:string,now:number|undefined,then:number|undefined)=>
     then===undefined||now===undefined?'':`${label} ${then-now>=0?'+':''}${then-now}`;
   return [gap('cargo',ship?.cargo_capacity,klass.cargo_capacity),gap('speed',ship?.speed,klass.base_speed),
@@ -189,11 +238,37 @@ function versus(klass:ShipClass,ship:V2Ship):string {
     klass.minimum_crew?`minimum_crew ${klass.minimum_crew}`:''].filter(Boolean).join(', ');
 }
 
-/** Whether this base has the named service. */
-async function serves(service:string):Promise<boolean> {
-  const base=details(await command('spacemolt/get_base',{}));
-  return (Array.isArray(base.services)?base.services:[]).map(String).includes(service);
-}
+const decodeServices=Schema.decodeUnknownOption(Wire.GetBaseResponse.mapFields(Struct.pick(['services'])));
+/** Whether this base has the named service; a reply that does not read is said, and the answer is no. */
+const serves=(service:string)=>Effect.gen(function*() {
+  const base=decodeServices(details(yield* (yield* Game).command('spacemolt/get_base',{})));
+  if(Option.isNone(base)){step(`spacemolt/get_base: the reply did not read; ${service} not known`);return false;}
+  return base.value.services.includes(service);
+});
+
+/** The rows of a reply's list that decode, each beside the row as the game sent it. A row whose read fields do not
+ * is left out and said in a step, naming the action and the row; a reply with no list is said too. */
+const rowsOf=<A>(reply:unknown,action:string,key:string,decode:(row:unknown)=>Option.Option<A>):{raw:unknown;read:A}[]=>{
+  const rows=field(details(reply),key);
+  if(!Array.isArray(rows)){step(`${action}: the reply has no ${key} list`);return [];}
+  return rows.flatMap(raw=>{
+    const read=decode(raw);
+    if(Option.isSome(read))return [{raw,read:read.value}];
+    step(`${action}: a ${key} row (${field(raw,'listing_id')??field(raw,'ship_id')??'no id'}) did not read; left out`);
+    return [];
+  });
+};
+/** What is read of a listing: its ids, its class and its price. The spec's other fields are not required of it. */
+const decodeListed=Schema.decodeUnknownOption(Wire.ShipListing.mapFields(Struct.pick(['listing_id','ship_id','class_id','price'])));
+const decodeOwned=Schema.decodeUnknownOption(Wire.OwnedShipInfo.mapFields(Struct.pick(['ship_id','class_id','class_name','is_active'])));
+const decodeBuilt=Schema.decodeUnknownOption(Wire.CommissionShipResponse.mapFields(fields=>({status:fields.status,
+  credits_paid:Schema.optionalKey(fields.credits_paid),materials_to_source:fields.materials_to_source})));
+const decodeBought=Schema.decodeUnknownOption(Wire.BuyListedShipResponse.mapFields(fields=>({ship_id:fields.ship_id,
+  class_id:Schema.optionalKey(fields.class_id),price:Schema.optionalKey(fields.price)})));
+const decodeSwitched=Schema.decodeUnknownOption(Wire.SwitchShipResponse.mapFields(fields=>({active_ship_id:fields.active_ship_id,
+  active_ship_class:Schema.optionalKey(fields.active_ship_class),cargo_note:fields.cargo_note})));
+const decodeCan=Schema.decodeUnknownOption(Wire.CommissionQuoteResponse.mapFields(fields=>({can_commission:fields.can_commission,
+  credits_only_total:fields.credits_only_total,blockers:fields.blockers,message:Schema.optionalKey(fields.message)})));
 
 /** A quote is one command each: the classes worth asking about are capped. */
 const QUOTES=5;
@@ -206,43 +281,54 @@ const QUOTES=5;
  * traps: a class whose `minimum_crew` exceeds your crew capacity is listed with a warning in
  * `versus`, not hidden. */
 export function shipsForSale(opts:{budget?:number;baseId?:string;classId?:string}={}):Promise<Outcome<{for_sale:ForSale[]}>> {
-  return job<{for_sale:ForSale[]}>('shipsForSale',[opts.classId,opts.baseId].filter(Boolean).join(' '),async()=>{
-    const ship=acct().state.ship as V2Ship,who=pilot();
+  return edge(shipsForSaleEffect(opts));
+}
+
+/** `shipsForSale` as an Effect, for `edge` and for converted callers; never in a barrel. */
+export const shipsForSaleEffect=(opts:{budget?:number;baseId?:string;classId?:string}={})=>
+  jobEffect('shipsForSale',[opts.classId,opts.baseId].filter(Boolean).join(' '),Effect.gen(function*() {
+    const game=yield* Game;
+    const ship=acct().state.ship,who=pilot();
     const credits=acct().state.player?.credits??0,reserve=who.permissions?.credit_reserve??0;
     const budget=opts.budget??credits-reserve;
-    if(!(budget>0))return {status:'refused',did:'listed no hulls',
-      why:`budget ${budget}: credits ${credits} less reserve ${reserve}`,detail:{for_sale:[]}};
-    const browsed=details(await command('spacemolt_ship/browse_ships',
-      {...opts.baseId?{base_id:opts.baseId}:{},...opts.classId?{class_id:opts.classId}:{},max_price:budget})) as BrowseShipsResponse;
-    const classes=new Map<string,ShipClass>();
-    const load=async(id:string)=>{
-      if(!classes.has(id)){const klass=await shipClass(id);if(klass)classes.set(id,klass);}
-      return classes.get(id);
-    };
     const for_sale:ForSale[]=[];
-    for(const listing of (browsed.listings??[]).filter(row=>row.price<=budget)) {
-      const klass=await load(listing.class_id);
-      if(klass)for_sale.push({kind:'listing',listing,class:klass,versus:versus(klass,ship)});
+    if(!(budget>0))return {status:'refused' as const,did:'listed no hulls',
+      why:`budget ${budget}: credits ${credits} less reserve ${reserve}`,detail:{for_sale}};
+    const browsed=yield* game.command('spacemolt_ship/browse_ships',
+      {...opts.baseId?{base_id:opts.baseId}:{},...opts.classId?{class_id:opts.classId}:{},max_price:budget});
+    const known=new Map<string,ShipClass>();
+    const load=(id:string)=>Effect.gen(function*() {
+      if(!known.has(id)){const klass=yield* shipClass(id);if(klass)known.set(id,klass);}
+      return known.get(id);
+    });
+    for(const {raw,read} of rowsOf(browsed,'spacemolt_ship/browse_ships','listings',decodeListed).filter(row=>row.read.price<=budget)) {
+      const klass=yield* load(read.class_id);
+      // ForSale.listing is the lib's full ShipListing; the row is passed as the game sent it.
+      // oxlint-disable-next-line typescript/consistent-type-assertions
+      if(klass)for_sale.push({kind:'listing',listing:raw as ShipListing,class:klass,versus:versus(klass,ship)}); // cast: frozen surface (ShipListing)
     }
     // A yard quote is only answerable at the yard you are docked at.
-    if(!opts.baseId&&await serves('shipyard'))
-      for(const id of [...new Set([opts.classId,...classes.keys()].filter(Boolean) as string[])].slice(0,QUOTES)) {
-        const quote=details(await command('spacemolt_ship/commission_quote',{id})) as CommissionQuoteResponse;
-        if(!quote.can_commission||quote.credits_only_total>budget)continue;
-        const klass=await load(id);
-        if(klass)for_sale.push({kind:'commission',quote,class:klass,versus:versus(klass,ship)});
+    if(!opts.baseId&&(yield* serves('shipyard')))
+      for(const id of [...new Set([opts.classId,...known.keys()].flatMap(each=>each?[each]:[]))].slice(0,QUOTES)) {
+        const reply=yield* game.command('spacemolt_ship/commission_quote',{id});
+        const decoded=decodeCan(details(reply));
+        if(Option.isNone(decoded)){step(`spacemolt_ship/commission_quote: the quote for ${id} did not read; left out`);continue;}
+        if(!decoded.value.can_commission||decoded.value.credits_only_total>budget)continue;
+        const klass=yield* load(id);
+        // ForSale.quote is the lib's full CommissionQuoteResponse; the reply is passed as the game sent it.
+        // oxlint-disable-next-line typescript/consistent-type-assertions
+        if(klass)for_sale.push({kind:'commission',quote:details(reply) as CommissionQuoteResponse,class:klass,versus:versus(klass,ship)}); // cast: frozen surface (CommissionQuoteResponse)
       }
     const cargo=(row:ForSale)=>row.class.cargo_capacity??0;
     const price=(row:ForSale)=>row.kind==='listing'?row.listing.price:row.quote.credits_only_total;
     for_sale.sort((a,b)=>cargo(b)-cargo(a)||price(a)-price(b));
     const best=for_sale[0];
-    return {status:'done',
+    return {status:'done' as const,
       did:`${for_sale.length} hull(s) at or under ${budget} cr; you fly a ${ship?.class_name} with ${ship?.cargo_capacity} cargo`,
       detail:{for_sale},
       next:best?[`${best.kind==='listing'?best.listing.listing_id:best.class.id}: ${best.class.name} ${price(best)} cr, ${best.versus}`,
         best.kind==='commission'?'a commission is buyShip(classId, {commission:true})':'buyShip(listingId)']:[]};
-  });
-}
+  }));
 
 export interface Purchase {
   /** The hull you now fly, when the switch happened; otherwise the one you still fly. */
@@ -260,80 +346,114 @@ export interface Purchase {
  * `partial` with `materials_to_source` named. Done when `list_ships` shows the new hull.
  * Costs the price; trains nothing. `next` says what is left to do on the new hull. */
 export function buyShip(id:string,opts:{commission?:boolean;switchTo?:boolean}={}):Promise<Outcome<Purchase>> {
-  return job<Purchase>('buyShip',`${id}${opts.commission?' (commission)':''}`,async()=>{
-    const flying=()=>(acct().state.ship??{}) as V2Ship;
-    const previous={ship_id:flying().id??'',base_id:acct().state.location?.docked_at??''};
+  return edge(buyShipEffect(id,opts));
+}
+
+/** `buyShip` as an Effect, for `edge` and for converted callers; never in a barrel. A mutation the
+ * game refuses or loses ends the run, naming the action and the code; none is ever re-sent. */
+export const buyShipEffect=(id:string,opts:{commission?:boolean;switchTo?:boolean}={})=>
+  jobEffect('buyShip',`${id}${opts.commission?' (commission)':''}`,Effect.gen(function*() {
+    const game=yield* Game;
+    // A hull not read yet is `{}`: the pilot-facing `Purchase.ship` promises a whole one.
+    // oxlint-disable-next-line typescript/consistent-type-assertions
+    const flying=()=>acct().state.ship??({} as V2Ship); // cast: frozen surface (Purchase.ship)
+    const previous={ship_id:acct().state.ship?.id??'',base_id:acct().state.location?.docked_at??''};
     const nothing=():Purchase=>({ship:flying(),price:0,switched:false,previous});
     const no=(why:string)=>({status:'refused' as const,did:`did not buy ${id}`,why,detail:nothing()});
-    const blocked=await admit('buyShip');
+    // bridge: U31 (admit keeps its Promise form with the module singletons it reads)
+    const blocked=yield* attempt('buyShip',()=>admit('buyShip'));
     if(blocked)return no(blocked);
     if(!previous.base_id)return no('not docked; a hull changes hands at a station');
 
     const who=pilot(),credits=acct().state.player?.credits??0;
     const reserve=who.permissions?.credit_reserve??0;
-    let price:number,quote:CommissionQuoteResponse|undefined;
+    let price:number;
     if(opts.commission) {
-      quote=details(await command('spacemolt_ship/commission_quote',{id})) as CommissionQuoteResponse;
+      const reply=yield* game.command('spacemolt_ship/commission_quote',{id});
+      const decoded=decodeCan(details(reply));
+      if(Option.isNone(decoded))return no(`the commission_quote reply for ${id} was unreadable; nothing was bought`);
+      const quote=decoded.value;
       if(!quote.can_commission)
-        return no(`this yard will not build ${id}: ${(quote.blockers??[]).join('; ')||quote.message}`);
+        return no(`this yard will not build ${id}: ${(quote.blockers??[]).join('; ')||quote.message||'no reason given'}`);
       price=quote.credits_only_total;
     } else {
-      const browsed=details(await command('spacemolt_ship/browse_ships',{})) as BrowseShipsResponse;
-      const listing=(browsed.listings??[]).find(row=>row.listing_id===id||row.ship_id===id);
+      const browsed=yield* game.command('spacemolt_ship/browse_ships',{});
+      const listing=rowsOf(browsed,'spacemolt_ship/browse_ships','listings',decodeListed).find(row=>row.read.listing_id===id||row.read.ship_id===id)?.read;
       if(!listing)return no(`no listing ${id} at ${previous.base_id}; shipsForSale() names what is here`);
       price=listing.price;
     }
     if(credits-price<reserve)
       return no(`costs ${price}; credits ${credits} less reserve ${reserve} leaves ${credits-reserve}`);
 
-    let bought:string,sourcing='';
+    let bought:string;
     if(opts.commission) {
-      const built=details(await command('spacemolt_ship/commission_ship',{id})) as CommissionShipResponse;
-      step(`commission ${id} for ${built.credits_paid??price} cr (${built.status})`);
+      const reply=yield* game.command('spacemolt_ship/commission_ship',{id});
+      const decoded=decodeBuilt(details(reply));
+      // A reply that does not read is not guessed at and nothing is re-sent: it ends `partial` as any
+      // build not yet delivered does, and says so; `list_ships` is what shows whether the hull came.
+      if(Option.isNone(decoded)) {
+        step(`spacemolt_ship/commission_ship: the reply for ${id} did not read`);
+        return {status:'partial' as const,did:`commissioned ${id}; the quote said ${price} cr`,
+          why:'the commission_ship reply was unreadable; the commission may have landed',
+          detail:{...nothing(),price},
+          next:['account().commands.spacemolt_ship.list_ships() says when the hull is delivered']};
+      }
+      const built=decoded.value,paid=built.credits_paid??price;
+      step(`commission ${id} for ${paid} cr (${built.status})`);
       if(built.status!=='complete') {
         const missing=(built.materials_to_source??[]).map(row=>`${row.quantity} ${row.item_id}`).join(', ');
-        return {status:'partial',did:`commissioned ${id} for ${built.credits_paid??price} cr`,
+        return {status:'partial' as const,did:`commissioned ${id} for ${paid} cr`,
           why:`build is ${built.status}${missing?`; still sourcing ${missing}`:''}`,
-          detail:{...nothing(),price:built.credits_paid??price},
+          detail:{...nothing(),price:paid},
           // `ships()` is not built yet (fleet/fleet.ts throws), so the raw command is what can
           // actually be run. A hint naming an unbuilt function costs a juncture to discover.
           next:['account().commands.spacemolt_ship.list_ships() says when the hull is delivered']};
       }
       bought='';
     } else {
-      const fill=details(await command('spacemolt_ship/buy_listed_ship',{id})) as BuyListedShipResponse;
-      bought=fill.ship_id;
-      step(`bought ${fill.class_id} for ${fill.price??price} cr`);
-      price=fill.price??price;
+      const reply=yield* game.command('spacemolt_ship/buy_listed_ship',{id});
+      const decoded=decodeBought(details(reply));
+      // The fleet list below is the evidence; a reply that did not read only means no ship id to look for.
+      if(Option.isNone(decoded))step(`spacemolt_ship/buy_listed_ship: the reply for ${id} did not read; the fleet list will show it`);
+      const fill=Option.isSome(decoded)?decoded.value:undefined;
+      bought=fill?.ship_id??'';
+      if(fill)step(`bought ${fill.class_id??id} for ${fill.price??price} cr`);
+      price=fill?.price??price;
     }
 
     // The fleet list is the evidence the hull is ours, whatever the reply claimed.
-    await acct().refresh();
-    const fleet=details(await command('spacemolt_ship/list_ships',{})) as ListShipsResponse;
-    const mine=(fleet.ships??[]).find(row=>row.ship_id===bought)
-      ??(fleet.ships??[]).find(row=>row.ship_id!==previous.ship_id&&!row.is_active);
-    if(!mine)return {status:'failed',did:`paid ${price} cr for ${id}`,
+    yield* attempt('refresh',()=>acct().refresh()); // bridge: U31 (acct().refresh is readiness, converted with the module state)
+    const fleet=rowsOf(yield* game.command('spacemolt_ship/list_ships',{}),'spacemolt_ship/list_ships','ships',decodeOwned).map(row=>row.read);
+    const mine=fleet.find(row=>row.ship_id===bought)??fleet.find(row=>row.ship_id!==previous.ship_id&&!row.is_active);
+    if(!mine)return {status:'failed' as const,did:`paid ${price} cr for ${id}`,
       why:'list_ships does not show the new hull; re-observe before buying again',detail:{...nothing(),price}};
 
     let switched=false;
     if(opts.switchTo) {
-      if(!await serves('shipyard'))
-        return {status:'partial',did:`bought ${mine.class_id} for ${price} cr`,
+      if(!(yield* serves('shipyard')))
+        return {status:'partial' as const,did:`bought ${mine.class_id} for ${price} cr`,
           why:`${previous.base_id} has no shipyard: the switch needs one`,
           detail:{ship:flying(),price,switched,previous},
           next:[`goTo a base with a shipyard, then `+`account().commands.spacemolt_ship.switch_ship({id:'${mine.ship_id}'}) — switchShip is not built yet`]};
-      const swap=details(await command('spacemolt_ship/switch_ship',{id:mine.ship_id})) as SwitchShipResponse;
-      switched=swap.active_ship_id===mine.ship_id;
-      step(`switch to ${swap.active_ship_class}${swap.cargo_note?`; ${swap.cargo_note}`:''}`);
-      await acct().refresh();
+      const reply=yield* game.command('spacemolt_ship/switch_ship',{id:mine.ship_id});
+      const decoded=decodeSwitched(details(reply));
+      yield* attempt('refresh',()=>acct().refresh()); // bridge: U31 (acct().refresh is readiness, converted with the module state)
+      if(Option.isSome(decoded)) {
+        const swap=decoded.value;
+        switched=swap.active_ship_id===mine.ship_id;
+        step(`switch to ${swap.active_ship_class??mine.class_id}${swap.cargo_note?`; ${swap.cargo_note}`:''}`);
+      } else {
+        // The reply did not read: the refreshed state says which hull is flown, and nothing is re-sent.
+        switched=acct().state.ship?.id===mine.ship_id;
+        step(`spacemolt_ship/switch_ship: the reply did not read; the account shows ${switched?'the new hull':'the old hull'} flown`);
+      }
     }
-    return {status:'done',
+    return {status:'done' as const,
       did:`bought ${mine.class_name??mine.class_id} for ${price} cr${switched?' and switched to it':''}`,
-      detail:{ship:flying(),price,switched,previous,...quote?{}:{}},
-      next:[switched?room(flying())
+      detail:{ship:flying(),price,switched,previous},
+      next:[switched?room(acct().state.ship)
         :`account().commands.spacemolt_ship.switch_ship({id:'${mine.ship_id}'}) to fly it — switchShip is not built yet`,
         // `refit()` does not compile: the change argument is required, and it moves nothing by
         // itself — each module is named, one id at a time.
         `refit({install:['<module type_id from the hold>']}) moves a module across, one id at a time`]};
-  });
-}
+  }));

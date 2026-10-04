@@ -83,5 +83,3 @@ export declare const gatherJobEffect: (account: ReadinessAccount, command: Readi
     settled: null;
     serviced: null;
 }, SeamFailed, Game>;
-/** The Promise twin of `gatherJobEffect`: the same job, throwing what it always threw. */
-export declare function gatherJob(account: ReadinessAccount, command: ReadinessCommand, plan: GatherPlan, options?: GatherOptions): Promise<GatherOutcome>;

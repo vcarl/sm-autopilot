@@ -11,8 +11,8 @@ import {readdirSync,statSync} from 'node:fs';
 import {join} from 'node:path';
 import {readJournal} from './run-record.ts';
 import {Effect,Result} from 'effect';
-import {Game,GameLive,field,rawError,type GameError} from './play/game.ts';
-import type {ReadinessAccount,ReadinessCommand} from './readiness.ts';
+import {Game,field,type GameError} from './play/game.ts';
+import type {ReadinessAccount} from './readiness.ts';
 import {STANCES} from './rules-table.ts';
 import {replyBody,viewStorageEffect} from './storage.ts';
 
@@ -181,16 +181,3 @@ export const reflectReportEffect=(account:Pick<ReadinessAccount,'state'>,pilot:P
   };
   return report;
 });
-
-/** The Promise twin of `reflectReportEffect`, for the pilot's `reflection()` until it is converted.
- * A failure exit throws the raw error, as `command()` and `account.refresh()` do. */
-export async function reflectReport(account:ReadinessAccount,command:ReadinessCommand,
-  pilot:Pilotish,runtime?:string):Promise<ReflectReport> {
-  // The refresh runs here, not as the layer's seam: the outer layer would re-read again on every
-  // lost reply, on top of the binding's own command path that already does.
-  await account.refresh();
-  const exit=await Effect.runPromiseExit(reflectReportEffect(account,pilot,runtime).pipe(
-    Effect.provide(GameLive({send:command}))));
-  if(exit._tag==='Failure')throw rawError(exit.cause); // bridge: U18 (its conversion calls the twin and deletes this)
-  return exit.value;
-}

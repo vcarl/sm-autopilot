@@ -13,7 +13,8 @@ import type { Account } from '@spacemolt/lib';
 import { Effect } from 'effect';
 import type { ReadinessAccount, ReadinessCommand } from '../readiness.ts';
 import { type RunRecord } from '../run-record.ts';
-import { TravelBlocked } from '../travel.ts';
+import type { DockBlocked } from '../dock.ts';
+import { TravelBlocked, type ArrivalUnresolved } from '../travel.ts';
 import { Game, type GameError } from './game.ts';
 import type { Outcome, Present, Row, Status, Want } from './types.ts';
 export type Mood = 'Cautious' | 'Focused' | 'Opportunistic' | 'Aggressive' | 'Relaxed' | 'Tired';
@@ -195,10 +196,13 @@ export declare const job: <Detail>(fn: string, args: string, body: () => Promise
 /** `job` for an Effect body: the same bookkeeping, every failure folded into the Outcome by
  * `said`. A defect is a `failed` Outcome too, as a throw is in `job`, and its stack goes to a
  * `defect` line. Never exported from a barrel. */
-export declare const jobEffect: <D, R>(fn: string, args: string, body: Effect.Effect<Said<D>, GameError | Stopped, R>) => Effect.Effect<Outcome<D>, never, Game | R>;
+export declare const jobEffect: <D, R>(fn: string, args: string, body: Effect.Effect<Said<D>, GameError | TravelBlocked | ArrivalUnresolved | DockBlocked, R>) => Effect.Effect<Outcome<D>, never, Game | R>;
 /** The Promise a pilot function returns: `effect` run through the binding's runtime. A defect
  * outside any job is a `failed` Outcome and a `defect` line. */
 export declare function edge<D>(effect: Effect.Effect<Outcome<D>, never, Game>): Promise<Outcome<D>>;
+/** An Outcome's detail when the job built one, `undefined` when it is `said`'s `{}`. An internal caller reads
+ * a helper's detail through this: status alone does not tell, since a stop is `partial` and an escaped refusal `refused`. */
+export declare function reached<Detail>(outcome: Outcome<Detail>): Detail | undefined;
 /** What has come aboard since the running job's opening read: the cargo diff a helper's own
  * `did` must be written from, rather than a tally it kept while the world moved. */
 export declare function measured(): Row[];

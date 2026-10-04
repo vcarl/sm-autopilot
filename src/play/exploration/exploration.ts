@@ -12,10 +12,10 @@ import {details} from '../../response-details.ts';
 import {sightingTicksOld} from '../../sighting-memory.ts';
 import * as Wire from '../../wire.gen.ts';
 import {Game,attempt,field,type GameError} from '../game.ts';
-import {scout} from '../orient.ts';
+import {scoutEffect} from '../orient.ts';
 import {keepJson} from '../places.ts';
-import {Stopped,acct,admit,command,edge,jobEffect,pilot,runtimeDir,step,stopped} from '../runtime.ts';
-import {goTo} from '../travel.ts';
+import {Stopped,acct,admit,command,edge,jobEffect,pilot,reached,runtimeDir,step,stopped} from '../runtime.ts';
+import {goToEffect} from '../travel.ts';
 import type {Outcome} from '../types.ts';
 
 /** What this runtime saw standing in a system: its police level and security status (`get_system`
@@ -112,7 +112,7 @@ export function exploreNearby(opts:{systems?:number;jumps?:number;survey?:boolea
 }
 
 const decodeRoute=Schema.decodeUnknownOption(Wire.FindRouteResponse.mapFields(()=>({
-  route:Schema.optionalKey(Schema.Array(Wire.RouteStep.mapFields(Struct.pick(['system_id']))))})));
+  route:Schema.optionalKey(Schema.NullOr(Schema.Array(Wire.RouteStep.mapFields(Struct.pick(['system_id'])))))})));
 const decodeSurvey=Schema.decodeUnknownOption(Wire.SurveySystemResponse.mapFields(Struct.pick(['message'])));
 /** A refusal or a lost reply as the pilot reads it: the action and the server's code, or that the reply is gone. */
 const told=(error:GameError)=>error._tag==='ReplyLost'?`reply lost on ${error.action}`:`${error.action}: ${error.code} — ${error.message}`;
@@ -145,16 +145,19 @@ export const exploreNearbyEffect=(opts:{systems?:number;jumps?:number;survey?:bo
         const through=(Option.isSome(routed)?routed.value.route??[]:[]).find(row=>avoid.has(row.system_id));
         if(through){step(`${next.system_id} skipped: the route crosses ${through.system_id}`);continue;}
       }
-      const hop=yield* attempt('goTo',()=>goTo(next.system_id)); // bridge: U17
+      const hop=yield* goToEffect(next.system_id);
       if(hop.status!=='done'&&acct().state.location?.system_id!==next.system_id) {
         short.push(`${next.system_id}: ${hop.why??hop.did}`);
         detail.ended='refused';break;
       }
-      const seen=yield* attempt('scout',()=>scout()); // bridge: U18
-      const sys=seen.detail.system;
+      const scouted=yield* scoutEffect();
+      // A scout that broke built no detail (`{}`): the system is named short, not read off nothing.
+      const seen=reached(scouted);
+      if(!seen){short.push(`${next.system_id}: scout ${scouted.status}: ${scouted.why??scouted.did}`);detail.ended='refused';break;}
+      const sys=seen.system;
       const police=field(sys,'police_level'),security=field(sys,'security_status');
       const policeLevel=typeof police==='number'?police:undefined,securityStatus=typeof security==='string'&&security?security:undefined;
-      const pirates=seen.detail.here?.nearby.pirate_count;
+      const pirates=seen.here?.nearby.pirate_count;
       const row:SystemSeen={...policeLevel!==undefined?{police:policeLevel}:{},...securityStatus?{security:securityStatus}:{},
         ...pirates!==undefined?{pirates}:{},at:new Date().toISOString()};
       const dir=runtimeDir();
@@ -165,7 +168,7 @@ export const exploreNearbyEffect=(opts:{systems?:number;jumps?:number;survey?:bo
           Effect.map(reply=>{const said=decodeSurvey(details(reply));return Option.isSome(said)?said.value.message:'surveyed';})));
         survey=Result.isFailure(surveyed)?`survey refused: ${told(surveyed.failure)}`:surveyed.success;
       }
-      const pois=seen.detail.pois;
+      const pois=seen.pois;
       detail.visited.push({system_id:next.system_id,name:sys.name??next.system_id,jumps:next.jumps,
         ...policeLevel!==undefined?{police:policeLevel}:{},...securityStatus?{security:securityStatus}:{},...pirates!==undefined?{pirates}:{},
         stations:pois.flatMap(poi=>poi.base_id?[poi.base_id]:[]),belts:pois.filter(poi=>/belt|field|cloud/.test(poi.type)).map(poi=>poi.id),

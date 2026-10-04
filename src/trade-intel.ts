@@ -68,5 +68,5 @@ export async function fileIntel(account:object,command:ReadinessCommand,base_id:
   tick:number,say:(text:string)=>void=()=>{}):Promise<void> {
   const exit=await Effect.runPromiseExit(fileIntelEffect(account,base_id,items,tick,say).pipe(Effect.provide(GameLive({send:command}))));
   // Only a defect fails the twin; its thrown value goes up as it was thrown, not wrapped.
-  if(exit._tag==='Failure')throw rawError(exit.cause); // bridge: U15, U26 (their conversion calls the twin and deletes this)
+  if(exit._tag==='Failure')throw rawError(exit.cause); // bridge: U26 (the freighter calls the twin; its conversion deletes this)
 }

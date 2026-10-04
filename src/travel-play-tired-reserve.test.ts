@@ -43,6 +43,7 @@ function fixture({fuel=52,mood='Cautious' as Mood,JUMP=10,knock=true,runtime=und
         fuel_available:server.ship.fuel,cargo_used:server.ship.cargo_used,
         route:path.map((system_id,jumps)=>({system_id,jumps}))};
     },
+    get_active_missions:()=>({missions:{active:[],max_missions:5}}),
     get_system:()=>{
       const here=SYSTEMS.indexOf(server.location.system_id);
       return {system:{connections:[SYSTEMS[here-1],SYSTEMS[here+1]].filter(Boolean),

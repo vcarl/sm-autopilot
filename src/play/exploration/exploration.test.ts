@@ -155,6 +155,19 @@ test('exploreNearby: a survey whose reply is lost is said as lost, and the visit
   } finally {f.close();}
 });
 
+test('exploreNearby: a scout that broke ends the run naming it, not reading a system off nothing',async()=>{
+  // A broken scout's detail is `{}`: exploreNearby read `seen.detail.system.name` off it and crashed.
+  // The jump reads the system once on arrival; the scout's read is the one that breaks.
+  let systemReads=0;
+  const f=world({mood:'Focused'},CHAIN,undefined,action=>{if(action==='spacemolt/get_system'&&++systemReads>1)throw new Error('socket gone');});
+  try {
+    const out=await exploreNearby({systems:1});
+    assert.equal(out.detail.ended,'refused',JSON.stringify(out));
+    assert.deepEqual(out.detail.visited,[]);
+    assert.match(out.why??'',/^deep_range: scout failed: .*socket gone/);
+  } finally {f.close();}
+});
+
 test('exploreNearby: a refused map read ends the run as refused, naming the code',async()=>{
   const f=world({mood:'Focused'},CHAIN,undefined,action=>{if(action==='spacemolt/get_map')throw new SpacemoltError('rate_limited','slow down');});
   try {

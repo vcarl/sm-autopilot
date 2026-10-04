@@ -1,6 +1,8 @@
 /** Station storage: custody that survives death, readable from anywhere, moved only when
  * docked. Never sells, never buys. */
 import type { V2CargoItem, ViewStorageResponse } from '@spacemolt/lib';
+import { Effect } from 'effect';
+import { Game } from './game.ts';
 import type { Outcome, Row, Want } from './types.ts';
 export interface Moved {
     base_id: string;
@@ -21,6 +23,8 @@ export interface Moved {
 /** Units of each row that fit `room` cargo: every want when they all fit, else each row's
  * share of the room in proportion to its footprint, floored, the leftover handed out in order. */
 export declare function share(room: number, wants: number[], sizes: number[]): number[];
+export declare const stowEffect: (items: Want[]) => Effect.Effect<Outcome<Moved>, never, Game>;
+export declare const withdrawEffect: (items: Want[]) => Effect.Effect<Outcome<Moved>, never, Game>;
 /** Deposit the named rows from the hold into the store here. Over `storage/deposit` it
  * adds: the `storage` counter checked first, each row bounded by what the hold shows, and
  * the store re-read after. Omit a row's `quantity` to mean all held. Refused when not docked
@@ -33,6 +37,7 @@ export declare function stow(items: Want[]): Promise<Outcome<Moved>>;
  * `no room`, and the status is `partial`. Omit a row's `quantity` to mean all stored. Refused when not docked; a row
  * the store does not hold is `short` and `done`. Costs nothing. */
 export declare function withdraw(items: Want[]): Promise<Outcome<Moved>>;
+export declare const storageEffect: (baseId?: string) => Effect.Effect<Outcome<ViewStorageResponse>, never, Game>;
 /** Read the store at this base, or at a named base or station POI without going there. Works
  * undocked and in another system. `locations` is the whole account's map of holdings. Over
  * `storage/view` it adds: items capped at 40 rows (the count is in `next`). Reads only. */

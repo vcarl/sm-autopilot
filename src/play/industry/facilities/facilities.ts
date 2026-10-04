@@ -36,14 +36,14 @@ const decodeOwned=Schema.decodeUnknownEffect(Wire.FacilityOwnedResponse.mapField
 const decodeOwnedList=Schema.decodeUnknownEffect(Wire.FacilityOwnedResponse.mapFields(Struct.pick(['facilities'])));
 /** The entry as this reads it: the spec's own fields, picked, so a reply's other fields never fail it. */
 const Entry=Wire.FacilityEntry_1.mapFields(fields=>({...Struct.pick(fields,['facility_id','type','name','recipe_id','labor_per_cycle']),
-  production:Schema.optionalKey(Wire.FacilityProduction_1.mapFields(Struct.pick(['public','rental_fee_per_run'])))}));
+  production:Schema.optionalKey(Schema.NullOr(Wire.FacilityProduction_1.mapFields(Struct.pick(['public','rental_fee_per_run']))))}));
 const decodeList=Schema.decodeUnknownEffect(Wire.FacilityListResponse.mapFields(()=>{
   const rows=Schema.Array(Entry);
-  return {station_facilities:rows,player_facilities:rows,faction_facilities:rows,public_facilities:Schema.optionalKey(rows)};
+  return {station_facilities:rows,player_facilities:rows,faction_facilities:rows,public_facilities:Schema.optionalKey(Schema.NullOr(rows))};
 }));
 const decodeTypes=Schema.decodeUnknownEffect(Wire.FacilityTypeListResponse.mapFields(Struct.pick(['types'])));
 const decodeTyped=Schema.decodeUnknownEffect(Wire.FacilityTypeDetailResponse.mapFields(fields=>({...Struct.pick(fields,['build_cost','category']),
-  build_materials:Schema.optionalKey(Schema.Array(Wire.ItemQuantity_14.mapFields(Struct.pick(['item_id','quantity']))))})));
+  build_materials:Schema.optionalKey(Schema.NullOr(Schema.Array(Wire.ItemQuantity_14.mapFields(Struct.pick(['item_id','quantity'])))))})));
 // Both build replies carry the id the same way, so one pick reads either.
 const decodeBuilt=Schema.decodeUnknownOption(Wire.FacilityBuildResponse.mapFields(Struct.pick(['facility_id'])));
 

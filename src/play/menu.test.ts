@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import type {Account} from '@spacemolt/lib';
+import {SpacemoltError,type Account} from '@spacemolt/lib';
 import test from 'node:test';
 import {mkdirSync,mkdtempSync,rmSync,writeFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
@@ -17,7 +17,12 @@ import {bind,unbind,type Pilot} from './runtime.ts';
 function world(record:Pilot,options:WorldOptions={}) {
   const runtime=mkdtempSync(join(tmpdir(),'spacemolt-menu-'));
   const game=bridgeWorld({services:['refuel','repair','storage','shipyard'],...options});
-  bind({account:game.account as unknown as Account,command:game.command,pilot:()=>record,runtime,emit:()=>{}});
+  // The shared world serves no skills or tax read: the game refuses what it does not serve, and an assertion would be a defect.
+  const command:typeof game.command=async(action,params)=>{
+    if(action==='spacemolt/get_skills'||action==='spacemolt/get_tax_estimate')throw new SpacemoltError('unknown_action',`not served here: ${action}`);
+    return game.command(action,params);
+  };
+  bind({account:game.account as unknown as Account,command,pilot:()=>record,runtime,emit:()=>{}});
   return {...game,runtime,close:()=>{unbind();rmSync(runtime,{recursive:true,force:true});}};
 }
 const gather=(over:Partial<RunSummary>={}):RunSummary=>({fn:'gatherUntil',arg:'belt',status:'done',credits:0,items:12,xp:0,at:'sol_base',...over});

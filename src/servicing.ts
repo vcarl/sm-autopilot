@@ -90,7 +90,7 @@ export const serviceShipEffect=(account:ReadinessAccount,options:ServiceOptions)
  * `ServiceBlocked`, or the custody refusals (`ServiceUnsafe`, same messages). */
 export async function serviceShip(account:ReadinessAccount,command:ReadinessCommand,options:ServiceOptions):Promise<ServiceOutcome> {
   const exit=await Effect.runPromiseExit(serviceShipEffect(account,options).pipe(Effect.provide(GameLive({send:command}))));
-  if(exit._tag==='Failure')throw rawError(exit.cause); // bridge: U11, U17, U26 (callers: gather-job.ts, play/travel.ts, play/freighter/index.ts)
+  if(exit._tag==='Failure')throw rawError(exit.cause); // bridge: U11, U26 (callers: gather-job.ts, play/freighter/index.ts)
   return exit.value;
 }
 
@@ -108,7 +108,7 @@ const level=(raw:unknown):OrderLevel[]=>{
 };
 /** One `view_market` row as the book memory keeps it. The live server omits spec fields, so a row is
  * built from what it carries (a missing number is 0, a missing list empty), never decoded whole. */
-const listing=(raw:unknown):MarketListingItem[]=>{
+export const listing=(raw:unknown):MarketListingItem[]=>{
   const id=field(raw,'item_id'),spread=field(raw,'spread');
   return typeof id!=='string'?[]:[{item_id:id,item_name:text(field(raw,'item_name')),category:text(field(raw,'category')),
     best_buy:num(field(raw,'best_buy')),best_buy_qty:num(field(raw,'best_buy_qty')),

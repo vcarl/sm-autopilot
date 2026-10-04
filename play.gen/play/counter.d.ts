@@ -13,11 +13,6 @@ export declare const hereEffect: () => Effect.Effect<{
     bases: string[];
     row?: PoiRow;
 }, import("./codes.ts").GameError, Game>;
-/** The Promise twin of `hereEffect`: throws the lib's raw error, as it always did. */
-export declare function here(): Promise<{
-    row?: PoiRow;
-    bases: string[];
-}>;
 /** `belt (Inner Belt)`: the id the pilot writes and the name prose gives it. */
 export declare const named: (id: string | undefined, row?: PoiRow) => string;
 export declare const others: (bases: string[]) => string;
@@ -29,7 +24,7 @@ export declare const counterEffect: () => Effect.Effect<{
 } | {
     refused: string;
     docked?: never;
-}, import("./codes.ts").GameError | import("../dock.ts").DockBlocked, Game>;
+}, import("./codes.ts").GameError | import("../travel.ts").TravelBlocked | import("../travel.ts").ArrivalUnresolved, Game>;
 /** The Promise twin of `counterEffect`: throws the lib's raw error or `DockBlocked`, as it always did. */
 export declare function counter(): Promise<{
     docked: string;
