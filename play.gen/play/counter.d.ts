@@ -29,6 +29,8 @@ export declare const dockEffect: (base_id: string) => Effect.Effect<{
  * POI, the system, and the bases in this system. */
 export declare const counterEffect: () => Effect.Effect<{
     docked: string;
+    refused?: never;
 } | {
     refused: string;
+    docked?: never;
 }, import("./codes.ts").GameError | import("../travel.ts").TravelBlocked | import("../travel.ts").ArrivalUnresolved | import("../dock.ts").DockBlocked, Game>;

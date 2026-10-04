@@ -324,9 +324,9 @@ test('shipsForSale: a quote the game refuses is a locked row with its reason; th
   try {
     const out=await shipsForSale();
     assert.equal(out.status,'done',out.why);
-    assert.deepEqual(out.detail.locked,[{class_id:'hauler_ii',why}]);
+    assert.deepEqual(out.detail.locked,[{class_id:'hauler_ii',why:`spacemolt_ship/commission_quote: skill_required — ${why}`}]);
     assert.deepEqual(out.detail.for_sale.map(row=>row.kind),['listing']);
-    assert.match(out.did,/not offered to you: hauler_ii \(Flying a Tier 3/);
+    assert.match(out.did,/not offered to you: hauler_ii \(spacemolt_ship\/commission_quote: skill_required — Flying a Tier 3/);
     assert.equal(f.tried('spacemolt_ship/commission_quote'),1);
   } finally {unbind();}
 });

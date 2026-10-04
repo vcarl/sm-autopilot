@@ -313,8 +313,8 @@ export const shipsForSaleEffect=(opts:{budget?:number;baseId?:string;classId?:st
         // quote is a row that says why; a lost reply is not a lock and still goes up.
         const tried=yield* Effect.result(game.command('spacemolt_ship/commission_quote',{id}));
         if(Result.isFailure(tried)) {
-          if(tried.failure._tag!=='Rejected')return yield* tried.failure;
-          locked.push({class_id:id,why:tried.failure.message});
+          if(tried.failure._tag==='ReplyLost')return yield* tried.failure;
+          locked.push({class_id:id,why:told(tried.failure)});
           continue;
         }
         const reply=tried.success;

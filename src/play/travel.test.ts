@@ -159,7 +159,7 @@ test('a base that denies the dock: goTo is partial in the game\'s words, and the
   try {
     const out=await goTo('range_base');
     assert.equal(out.status,'partial',JSON.stringify(out));
-    assert.match(out.did,/^arrived at range_base after 1 jump\(s\); docking refused: Access denied$/);
+    assert.match(out.did,/^arrived at range_base after 1 jump\(s\); docking refused: spacemolt\/dock: access_denied — Access denied$/);
     assert.equal(readDockRefusals(runtime).range_base?.message,'Access denied');
     const line=readJournal(runtime).find(entry=>entry.event==='dock_refused');
     assert.equal(line?.base_id,'range_base');

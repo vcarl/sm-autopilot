@@ -173,7 +173,8 @@ function journalBook(base:string,items:MarketListingItem[],tick:number):void {
   const key=JSON.stringify(rows),at=`${dir}\0${base}`;
   if(journalled.get(at)===key)return;
   journalled.set(at,key);
-  journalRun(dir,{base_id:base,book_tick:tick,items:rows},'book','books.jsonl');
+  // A book this pilot cannot journal is still a book it can trade at, as with markets.json.
+  try {journalRun(dir,{base_id:base,book_tick:tick,items:rows},'book','books.jsonl');} catch {} // edge: a failed write is dropped; the next read journals it again
 }
 /** The last book `bookEffect()` read, for a `buy` to quote the ask it was sent against.
  * ponytail: process-local like `lastTick`; a buy checks the base, so a stale slot quotes nulls, never another counter's book. */

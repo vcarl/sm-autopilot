@@ -33,14 +33,17 @@ const journal=(runtime:string)=>readFileSync(join(runtime,'gameplay.jsonl'),'utf
 test('the warm checker and tsc give the same errors for every README example and a broken file',async()=>{
   const all=[...examples(),{name:'broken',source:BROKEN},{name:'type as value',source:TYPE_AS_VALUE}];
   assert.ok(all.length>=8);
+  // One runtime, the file rewritten per example, as a bridge has: a service per runtime holds its own
+  // checked program, and one per example passed 4 GB of heap at 19 examples (2026-10-04).
+  const runtime=home('');
   for(const {name,source} of all) {
-    const runtime=home(source);
+    writeFileSync(join(runtime,'pilot','index.ts'),source);
     const warm=await check(runtime),cold=await check(runtime,{warm:false});
     assert.deepEqual(warm.errors,cold.errors,name);
     if(name==='broken')assert.ok(warm.errors.some(line=>/error TS\d+/.test(line)),'the broken file has errors');
     // Both paths read the pilot tsconfig's verbatimModuleSyntax, and both hint the unimported play export.
     if(name==='type as value')assert.match(warm.errors.join('\n'),/type-only import[\s\S]*stopped is exported by 'play'/);
-    assert.deepEqual(journal(runtime).filter(line=>line.event==='check').map(line=>line.warm),[true,false],name);
+    assert.deepEqual(journal(runtime).filter(line=>line.event==='check').slice(-2).map(line=>line.warm),[true,false],name);
   }
 });
 

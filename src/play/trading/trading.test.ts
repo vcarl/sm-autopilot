@@ -1098,8 +1098,8 @@ test('a first stop that refuses the dock leaves tradeRun partial in the trip\'s 
   try {
     const out=await tradeRun({stops:[{at:'range_base'}]});
     assert.equal(out.status,'partial',JSON.stringify(out));
-    assert.match(out.did,/^nothing done; arrived at range_base after 1 jump\(s\); docking refused: Access denied$/);
-    assert.match(out.why!,/range_base: Access denied/);
+    assert.match(out.did,/^nothing done; arrived at range_base after 1 jump\(s\); docking refused: spacemolt\/dock: access_denied — Access denied$/);
+    assert.match(out.why!,/range_base: spacemolt\/dock: access_denied — Access denied/);
   } finally {unbind();rmSync(runtime,{recursive:true,force:true});}
 });
 

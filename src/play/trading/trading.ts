@@ -19,7 +19,7 @@ import {words} from '../../servicing.ts';
 import {replyBody,rows as listOf} from '../../storage.ts';
 import {inFaction} from '../../trade-intel.ts';
 import * as Wire from '../../wire.gen.ts';
-import {bookEffect,buyEffect,knownBooks,marketTick,sellEffect,slipped,ticksOld,type RememberedBook} from '../market.ts';
+import {bookEffect,buyEffect,debitBook,knownBooks,marketTick,sellEffect,slipped,ticksOld,type RememberedBook} from '../market.ts';
 import {counterEffect} from '../counter.ts';
 import {readDrained,ring} from '../freighter/drained.ts';
 import {Game,GameLive,field,message,type GameError} from '../game.ts';
@@ -690,6 +690,8 @@ export const tradeRunEffect=(opts:{stops:RunStop[]})=>{
               n=Math.max(0,(miningInventory(acct().state)[item_id]??0)-before.held);
               const paid=Math.max(0,before.credits-(acct().state.player?.credits??before.credits));
               visit.bought+=n;visit.spent+=paid;spent+=paid;
+              // What the re-read showed landed comes off the remembered asks, as a landed buy's fill does.
+              debitBook(runtimeDir(),here,item_id,'asks',n);
               step(`buy ${item_id}: reply lost; hold re-read, ${n} aboard for ${paid} cr`);
             }
           }

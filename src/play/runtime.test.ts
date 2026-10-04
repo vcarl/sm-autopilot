@@ -535,8 +535,8 @@ test('shipsForSale names a class the yard will not quote you, and undocked says 
     assert.equal(board.status,'done',board.why);
     assert.equal(board.detail.for_sale.length,2,'the listings stand');
     // This world's yard refuses a class it does not build (`unknown_class`): that is named too, beside the lock.
-    assert.deepEqual(board.detail.locked.find(row=>row.class_id==='hauler_ii'),{class_id:'hauler_ii',why});
-    assert.match(board.did,/not offered to you: hauler_ii \(Flying a Tier 3 ship requires Piloting level 20/);
+    assert.deepEqual(board.detail.locked.find(row=>row.class_id==='hauler_ii'),{class_id:'hauler_ii',why:`spacemolt_ship/commission_quote: skill_required — ${why}`});
+    assert.match(board.did,/not offered to you: hauler_ii \(spacemolt_ship\/commission_quote: skill_required — Flying a Tier 3 ship requires Piloting level 20/);
     f.account.server.location.docked_at=null;
     await f.account.refresh();
     const away=await shipsForSale();

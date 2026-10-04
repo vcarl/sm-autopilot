@@ -9,7 +9,9 @@ functions from this library with literal arguments. Every function returns the s
 
 The file is one module: `import {…} from 'play'` (every function, careers included, and the
 types `Outcome` and `Present`; `'@spacemolt/lib'` for game types) and
-`export default async function main()` that returns the last Outcome.
+`export default async function main()` that returns the last Outcome. A type is imported with
+the word `type`, in the same line: `import {goTo, service, type Outcome} from 'play'`; a type
+imported as a plain value fails the check (`must be imported using a type-only import`).
 
 `orient()` returns the present as `look.detail.present`: fuel and hull are on the ship
 (`present.ship.fuel`, `present.ship.hull`, `present.ship.max_hull`), and each skill is an object
@@ -121,7 +123,8 @@ sees the real types, so these are not style notes.
   `system_name`, `docked_at` (null when undocked), plus `connections` and the `nearby_*` counts.
 - **`Cannot find name 'x'` means you did not import it.** There are no globals. Every function you
   call, `sell` and `buy` included, and `note`, `outcome`, `stopped` and `account` too, comes from one
-  line: `import {…} from 'play'`. Name each one there.
+  line: `import {…} from 'play'`. Name each one there; a type (`Outcome`, `Present`, `Trip`) with
+  `type` before it.
 
 ## The root functions (every stage)
 

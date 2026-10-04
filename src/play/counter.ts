@@ -6,6 +6,7 @@ import {Effect} from 'effect';
 import {dockAtEffect} from '../dock.ts';
 import {Game,Rejected,field} from './game.ts';
 import {replyBody} from '../storage.ts';
+import {told} from './rows.ts';
 import {journalRun} from '../run-record.ts';
 import {clearDockRefused,markDockRefused} from './places.ts';
 import {acct,runtimeDir,step} from './runtime.ts';
@@ -46,7 +47,7 @@ export const dockEffect=(base_id:string)=>dockAtEffect(acct(),base_id).pipe(
       markDockRefused(runtime,base_id,{...where,message:error.message,at:new Date().toISOString()});
       journalRun(runtime,{base_id,...where,code:error.code,message:error.message},'dock_refused');
     }
-    return Effect.succeed({refused:error.message});
+    return Effect.succeed({refused:told(error)});
   }));
 
 /** Docked already, or docked now when a base sits at this POI; otherwise why not, naming the
