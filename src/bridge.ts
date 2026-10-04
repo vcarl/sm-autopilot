@@ -226,7 +226,7 @@ export function writePilot(path:string,pilot:Pilot):void {
 }
 
 /** Pure dispatch over an account + command pair, so tests never connect. */
-export function serve(account:ReadinessAccount,command:ReadinessCommand,options:ServeOptions={}):Dispatch {
+export function serve(account:Account,command:ReadinessCommand,options:ServeOptions={}):Dispatch {
   const record=options.pilot??(()=>({} as Pilot));
   const pilot=()=>flying(record(),account.state);
   const runner=options.runPilot??defaultRunPilot;

@@ -183,19 +183,20 @@ const RULES:Rule[]=[
     if(!mining.length)return no('stance',job,'no reachable POI is quoted with resources; survey or travel to a system that has one');
     const found=mining.map(site=>trip(facts,site,'stance'));
     const open=found.findIndex(verdict=>verdict.admissible);
-    if(open<0)return no('stance',job,`${found[0]!.reason}`);
+    const first=found[open];
+    if(first===undefined)return no('stance',job,`${found[0]?.reason}`);
     if(facts.holdings.cargo_free<=0)return no('stance',job,'the hold is full; settle cargo at a market or storage first');
     // Every mining site the fuel admits, named in the reason so the pilot picks one; a station
     // is never among them. The call takes the nearest of them, because a call must name one
     // destination and the reason still carries the rest.
-    const poi_id=mining.filter((_,index)=>found[index]!.admissible).map(site=>site.poi_id);
+    const poi_id=mining.filter((_,index)=>found[index]?.admissible).map(site=>site.poi_id);
     // `gatherUntil` refuses outright with no base to settle at — it falls back to `docked_at`
     // and there is none out at a POI (mining.ts). So undocked the option is real and the call
     // is not: the reason says to dock or name a base, rather than handing over a line that
     // costs a juncture to discover is wrong.
     const home=facts.place.base_id;
     return yes('stance',job,
-      `${found[open]!.reason}; ${facts.holdings.cargo_free} free cargo to fill${poi_id.length>1?`; the fuel also admits ${poi_id.slice(1).join(', ')}`:''}${home?'':'; dock first or name the base the trip settles at, which gatherUntil needs'}`,
+      `${first.reason}; ${facts.holdings.cargo_free} free cargo to fill${poi_id.length>1?`; the fuel also admits ${poi_id.slice(1).join(', ')}`:''}${home?'':'; dock first or name the base the trip settles at, which gatherUntil needs'}`,
       home?`gatherUntil({poi:'${poi_id[0]}',base:'${home}'})`:undefined);
   }},
   {id:'stance.industrialist.J7',stance:'Industrialist',apply:facts=>{
@@ -218,11 +219,11 @@ const RULES:Rule[]=[
     const job='J4 Freight delivered',allowed=facts.permissions.max_liability??0;
     const board=facts.place.board?.contracts??[];
     if(!board.length)return no('stance',job,'the shipping board is empty here; another station may have a package');
-    const fits=board.filter(row=>row.cargo<=facts.holdings.cargo_free&&row.liability<=allowed);
-    if(!fits.length)return no('stance',job,
+    const fits=board.filter(row=>row.cargo<=facts.holdings.cargo_free&&row.liability<=allowed),fit=fits[0];
+    if(fit===undefined)return no('stance',job,
       `no package fits ${facts.holdings.cargo_free} free cargo inside the standing ${allowed} credit liability permission`);
     return yes('stance',job,`${fits.length} package(s) fit the hold and the ${allowed} credit liability permission`,
-      `haul('${fits[0]!.id}')`);
+      `haul('${fit.id}')`);
   }},
   {id:'stance.carrier.J5',stance:'Carrier',apply:facts=>{
     const job='J5 Passengers landed',waiting=facts.place.board?.passengers??0,aboard=facts.obligations.passengers??0;

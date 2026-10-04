@@ -3,7 +3,7 @@ import {mkdtempSync,readFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import test from 'node:test';
-import type {Catalog} from '@spacemolt/lib';
+import type {Catalog,Account} from '@spacemolt/lib';
 import type {ReadinessAccount} from '../../readiness.ts';
 import {bridgeWorld,type WorldOptions} from '../../test-support/bridge-world.ts';
 import {bind,unbind,type Pilot} from '../runtime.ts';
@@ -26,7 +26,7 @@ function world(record:Pilot,options:WorldOptions={}) {
     market:BOOK,...options});
   const lines:string[]=[];
   let who:Pilot=record;
-  bind({account:game.account as unknown as ReadinessAccount,command:game.command,
+  bind({account:game.account as unknown as Account,command:game.command,
     pilot:()=>who,emit:text=>lines.push(text)});
   return {...game,lines,record:()=>who};
 }
@@ -169,7 +169,7 @@ test('quote prices each missing input to buy and to sell, and names its source',
 test('quote survives a catalog outage and an unsold input',async()=>{
   const f=world({mood:'Focused'},{store:[]});
   useCatalog(async()=>{throw new Error('down');});
-  bind({account:f.account as unknown as ReadinessAccount,pilot:()=>f.record(),emit:()=>{},
+  bind({account:f.account as unknown as Account,pilot:()=>f.record(),emit:()=>{},
     command:async(action,params)=>action==='spacemolt_market/estimate_purchase'
       ?{structuredContent:{item_id:params.item_id,available:0,total_cost:0,unfilled:Number(params.quantity)}}
       :f.command(action,params)});
@@ -236,7 +236,7 @@ test('supply refuses a bill over maxSpend before anything moves',async()=>{
 
 test('supply is partial, with a short row and a did rewrite, when this market does not sell an input',async()=>{
   const f=world({mood:'Focused'},{store:[]});
-  bind({account:f.account as unknown as ReadinessAccount,pilot:()=>f.record(),emit:()=>{},
+  bind({account:f.account as unknown as Account,pilot:()=>f.record(),emit:()=>{},
     command:async(action,params)=>action==='spacemolt_market/estimate_purchase'
       ?{structuredContent:{item_id:params.item_id,available:0,total_cost:0,unfilled:Number(params.quantity)}}
       :f.command(action,params)});

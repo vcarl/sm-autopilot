@@ -1,15 +1,15 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import {mkdtempSync,rmSync} from 'node:fs';
+import {mkdtempSync,rmSync,writeFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
-import type {MapSystemInfo} from '@spacemolt/lib';
+import {ConnectionClosedError,SpacemoltError,type MapSystemInfo,type Account} from '@spacemolt/lib';
 import type {ReadinessAccount} from '../../readiness.ts';
 import {journalRun} from '../../run-record.ts';
 import {bridgeWorld,type WorldOptions} from '../../test-support/bridge-world.ts';
 import {menu,type RunSummary} from '../menu.ts';
 import {bind,unbind,type Pilot} from '../runtime.ts';
-import {around,exploreNearby,markSeen,nearFacts,readSeen} from './exploration.ts';
+import {around,exploreNearby,markSeen,nearFacts,readMap,readSeen} from './exploration.ts';
 
 const sys=(system_id:string,connections:string[],over:Partial<MapSystemInfo>={}):MapSystemInfo=>
   ({system_id,name:system_id,connections,visited:false,poi_count:1,online:0,position:{x:0,y:0},visited_at:'',...over});
@@ -36,7 +36,7 @@ function world(record:Pilot,options:WorldOptions,map:(row:Record<string,any>)=>v
     if(action==='spacemolt/get_map'&&params?.system_id===undefined)for(const row of (res as any).structuredContent.systems)map(row);
     return res;
   };
-  bind({account:game.account as unknown as ReadinessAccount,command,pilot:()=>record,runtime,emit:()=>{}});
+  bind({account:game.account as unknown as Account,command,pilot:()=>record,runtime,emit:()=>{}});
   return {...game,runtime,close:()=>{unbind();rmSync(runtime,{recursive:true,force:true});}};
 }
 
@@ -133,5 +133,50 @@ test('systems.json keeps the newest look per system',()=>{
     markSeen(dir,'a',{police:0,at:'2026-09-30T00:00:00Z'});
     markSeen(dir,'a',{police:20,pirates:1,at:'2026-09-30T01:00:00Z'});
     assert.deepEqual(readSeen(dir),{a:{police:20,pirates:1,at:'2026-09-30T01:00:00Z'}});
+  } finally {rmSync(dir,{recursive:true,force:true});}
+});
+
+test('exploreNearby: a refused survey is named with its action and code, and the system is still visited',async()=>{
+  const f=world({mood:'Focused'},CHAIN,undefined,action=>{if(action==='spacemolt/survey_system')throw new SpacemoltError('rate_limited','slow down');});
+  try {
+    const out=await exploreNearby({systems:1,survey:true});
+    assert.equal(out.status,'done',out.why);
+    assert.deepEqual(out.detail.visited.map(row=>row.system_id),['deep_range']);
+    assert.equal(out.detail.visited[0]?.survey,'survey refused: spacemolt/survey_system: rate_limited — slow down');
+  } finally {f.close();}
+});
+
+test('exploreNearby: a survey whose reply is lost is said as lost, and the visit goes on',async()=>{
+  const f=world({mood:'Focused'},CHAIN,undefined,action=>{if(action==='spacemolt/survey_system')throw new ConnectionClosedError();});
+  try {
+    const out=await exploreNearby({systems:1,survey:true});
+    assert.equal(out.status,'done',out.why);
+    assert.equal(out.detail.visited[0]?.survey,'survey refused: reply lost on spacemolt/survey_system');
+  } finally {f.close();}
+});
+
+test('exploreNearby: a refused map read ends the run as refused, naming the code',async()=>{
+  const f=world({mood:'Focused'},CHAIN,undefined,action=>{if(action==='spacemolt/get_map')throw new SpacemoltError('rate_limited','slow down');});
+  try {
+    const out=await exploreNearby();
+    assert.equal(out.status,'refused',JSON.stringify(out));
+    assert.equal(out.why,'spacemolt/get_map: rate_limited — slow down');
+  } finally {f.close();}
+});
+
+test('readMap keeps the rows that decode and reads a reply with no map as empty',async()=>{
+  const row={system_id:'a',name:'A',connections:['b'],visited:false,online:0,poi_count:1,position:{x:0,y:0},visited_at:''};
+  assert.deepEqual((await readMap(async()=>({structuredContent:{systems:[row,{system_id:'broken'}]}}))).map(r=>r.system_id),['a']);
+  assert.deepEqual(await readMap(async()=>({structuredContent:{}})),[]);
+});
+
+test('systems.json: a torn file, or a row that is not a look, reads as nothing',()=>{
+  const dir=mkdtempSync(join(tmpdir(),'spacemolt-seen-'));
+  try {
+    assert.deepEqual(readSeen(dir),{});
+    writeFileSync(join(dir,'systems.json'),JSON.stringify({a:{police:3,at:'t'},b:'oops',c:{police:'high',at:'t'}}));
+    assert.deepEqual(readSeen(dir),{a:{police:3,at:'t'}});
+    writeFileSync(join(dir,'systems.json'),'{torn');
+    assert.deepEqual(readSeen(dir),{});
   } finally {rmSync(dir,{recursive:true,force:true});}
 });

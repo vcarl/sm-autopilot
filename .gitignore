@@ -12,3 +12,5 @@ __pycache__/
 credentials*
 *.credentials
 .env
+# generated declarations: credentials.d.ts is code, not a secret
+!play.gen/**

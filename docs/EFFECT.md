@@ -41,6 +41,12 @@ These are in priority order.
 
 `as const` stays. It narrows a type and is not a cast, and the assertion ban allows it.
 
+- An assertion function that doesn't check (`asserts x is T` with an empty body), or an overload
+  whose implementation returns a wider type than its signature, is a cast and is banned. The only
+  sanctioned exception is a cast the frozen pilot surface forces, written as a plain `as` on a line
+  marked `// cast: frozen surface (<type>)`; `scripts/debt.ts` reports those as `surface_cast`,
+  apart from `cast`, so they stay visible without failing `--zero`.
+
 **How it's enforced**, from least to most maintenance:
 
 1. **tsconfig**, with no dependency added:
@@ -299,6 +305,14 @@ Inside the boundary, don't re-check `typeof x === 'string'`, don't use `?? 0` ag
 schema already requires, and don't write `Number(ship?.cargo_capacity ?? 0)`. The decode already
 proved it. Runtime checks on undecoded data are still needed until that data is decoded; delete
 them then.
+
+**The live server is looser than its spec.** It omits fields the spec marks required (`get_base`
+does, as U12 found), so a full decode of a whole reply would refuse real data. Decode the fields
+the code reads, picked from the `Wire.*` schema, never a parallel authored shape. A row is dropped
+only when a field the code reads fails to decode, and a `step` line names it (observe, don't
+gate). Where the frozen pilot surface promises the full lib type for a reply the code only partly
+reads, pass the raw body through on one line marked `// cast: frozen surface (<Type>)`: the lie is
+the lib type's, and `debt.ts` counts it.
 
 ## The pilot's surface
 

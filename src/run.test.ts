@@ -1,11 +1,13 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import {existsSync,mkdirSync,mkdtempSync,readFileSync,rmSync,writeFileSync} from 'node:fs';
+import {existsSync,mkdirSync,mkdtempSync,readFileSync,readlinkSync,rmSync,symlinkSync,writeFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
+import type {Account} from '@spacemolt/lib';
 import type {ReadinessAccount} from './readiness.ts';
-import {check,runPilot} from './run.ts';
-import {closeInterrupted,journalCommand,readJournal,readRun,writeRun} from './run-record.ts';
+import {check,pilotHome,playDir,runPilot} from './run.ts';
+import {closeInterrupted,journalCommand,readJournal as readJournalLines,readRun,writeRun} from './run-record.ts';
+const readJournal=(runtime:string,limit?:number):Record<string,any>[]=>readJournalLines(runtime,limit); // bridge: U30
 import {bridgeWorld,type WorldOptions} from './test-support/bridge-world.ts';
 import {flying} from './bridge.ts';
 import {pace} from './play/combat/hunting.ts';
@@ -16,11 +18,24 @@ function harness(options:WorldOptions={}) {
   const runtime=mkdtempSync(join(tmpdir(),'spacemolt-run-'));
   const game=bridgeWorld({services:['refuel','repair','storage'],cargoUsed:0,...options});
   const lines:string[]=[];
-  const deps={account:game.account as unknown as ReadinessAccount,command:game.command,runtime,
+  const deps={account:game.account as unknown as Account,command:game.command,runtime,
     pilot:()=>PILOT,emit:(text:string)=>lines.push(text)};
   const write=(source:string)=>{mkdirSync(join(runtime,'pilot'),{recursive:true});writeFileSync(join(runtime,'pilot','index.ts'),source);};
   return {...game,runtime,lines,deps,write,close:()=>rmSync(runtime,{recursive:true,force:true})};
 }
+
+// Live 2026-10-02 (F-U02): a link left by another checkout ran its `play`, never bound: "the play runtime is not bound".
+test('a play link left pointing at another checkout is replaced with this one',()=>{
+  const runtime=mkdtempSync(join(tmpdir(),'spacemolt-run-'));
+  try {
+    const other=mkdtempSync(join(tmpdir(),'other-checkout-'));
+    mkdirSync(join(runtime,'node_modules'),{recursive:true});
+    symlinkSync(other,join(runtime,'node_modules','play'),'dir');
+    pilotHome(runtime);
+    assert.equal(readlinkSync(join(runtime,'node_modules','play')),playDir());
+    rmSync(other,{recursive:true,force:true});
+  } finally {rmSync(runtime,{recursive:true,force:true});}
+});
 
 test('a first run installs the example, and the three gates refuse before anything reaches the game',async()=>{
   const f=harness();
@@ -337,6 +352,20 @@ test('a run a dead bridge left open is closed as interrupted at boot, and nothin
     assert.equal(ended.why,'SpacemoltError: No response to spacemolt/get_active_missions within 15000ms');
     assert.equal(f.sent.length,0,'nothing was sent to the game');
     assert.equal(closeInterrupted(f.runtime),null,'an ended record is left alone');
+  } finally {f.close();}
+});
+
+test('a juncture with a null at still leaves a run.json boot can read and close',async()=>{
+  const f=harness();
+  try {
+    // juncture.py's last_juncture sends `record.get("at")`: null crosses the seam as JSON.
+    const seen:{record?:ReturnType<typeof readRun>}={};
+    const deps={...f.deps,juncture:JSON.parse('{"juncture_id":"j1","at":null}'),
+      command:async(action:string,params:Record<string,unknown>)=>{seen.record??=readRun(f.runtime);return f.command(action,params);}};
+    f.write("import {goTo} from 'play';\nexport default async function main(){ return goTo('belt'); }\n");
+    await runPilot(deps);
+    assert.equal(seen.record?.ended,false,'the in-flight record decodes, so closeInterrupted would see it');
+    assert.equal(seen.record?.juncture_at,undefined);
   } finally {f.close();}
 });
 

@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import type {Account} from '@spacemolt/lib';
 import test from 'node:test';
 import type {ReadinessAccount,ReadinessCommand} from './readiness.ts';
 import {FakeLibGoalAccount,type FakeCommandHandlers} from './test-support/fake-lib-account.ts';
@@ -59,7 +60,7 @@ function fixture() {
     return account.send(tool!,action!,payload);
   };
   let who:Pilot={mood:'Tired'};
-  bind({account:account as unknown as ReadinessAccount,command,
+  bind({account:account as unknown as Account,command,
     pilot:()=>who,emit:()=>{}});
   return {account,server,command,pilot:()=>who,
     jumps:()=>account.calls.filter(call=>call.action==='jump').length};

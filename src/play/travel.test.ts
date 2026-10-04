@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import type {Account} from '@spacemolt/lib';
 import test from 'node:test';
 import type {ReadinessAccount} from '../readiness.ts';
 import {bridgeWorld} from '../test-support/bridge-world.ts';
@@ -7,7 +8,7 @@ import {goTo} from './travel.ts';
 
 test('goTo refuses a name that is not a place',async()=>{
   const game=bridgeWorld({services:['refuel','repair']});
-  bind({account:game.account as unknown as ReadinessAccount,command:game.command,pilot:():Pilot=>({mood:'Focused'}),emit:()=>{}});
+  bind({account:game.account as unknown as Account,command:game.command,pilot:():Pilot=>({mood:'Focused'}),emit:()=>{}});
   try {
     const out=await goTo('nowhere_at_all');
     assert.equal(out.status,'refused');
@@ -25,7 +26,7 @@ test('goTo fails (does not refuse) a real command error out of find_route, e.g. 
     if(action==='spacemolt/find_route')throw new Error('cannot send on a closed socket');
     return game.command(action,params);
   };
-  bind({account:game.account as unknown as ReadinessAccount,command,pilot:():Pilot=>({mood:'Focused'}),emit:()=>{}});
+  bind({account:game.account as unknown as Account,command,pilot:():Pilot=>({mood:'Focused'}),emit:()=>{}});
   try {
     const out=await goTo('deep_range');
     assert.equal(out.status,'failed',JSON.stringify(out));

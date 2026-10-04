@@ -13,6 +13,7 @@
   "scripts": {
     "typecheck": "tsc --noEmit",
     "gen:wire": "node scripts/gen-wire.ts",
+    "gen:play": "node scripts/gen-play-types.ts",
     "lint": "oxlint --deny-warnings src",
     "test": "node --test src/*.test.ts src/play/*.test.ts src/play/*/*.test.ts src/play/*/*/*.test.ts"
   },

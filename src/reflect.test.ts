@@ -2,6 +2,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {mkdirSync,mkdtempSync,writeFileSync} from 'node:fs';
+import {SpacemoltError} from '@spacemolt/lib';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import type {ReadinessAccount,ReadinessCommand} from './readiness.ts';
@@ -11,7 +12,9 @@ import {FakeLibGoalAccount} from './test-support/fake-lib-account.ts';
 
 /** A pilot docked on a serviced ship, and the runtime its journal lives in. */
 function fixture(over:{pilot?:Record<string,unknown>;
-  skills?:Record<string,{name:string;level:number;max_level:number}>}={}) {
+  skills?:Record<string,{name:string;level:number;max_level:number}>;
+  /** What the world does for an action, instead of refusing it: serve a reply, or throw as the lib does. */
+  serve?:Record<string,()=>unknown>}={}) {
   const account=new FakeLibGoalAccount({
     location:{system_id:'sol',poi_id:'station',docked_at:'sol_base',in_transit:false},
     ship:{id:'ship',fuel:120,max_fuel:120,hull:100,max_hull:100,cargo_used:0,cargo_capacity:12},
@@ -20,8 +23,10 @@ function fixture(over:{pilot?:Record<string,unknown>;
     modules:[] as {module_id:string;type_id:string;slot:string}[],
   });
   const command:ReadinessCommand=async action=>{
+    const served=over.serve?.[action];
+    if(served)return served();
     if(action==='spacemolt/get_skills'&&over.skills)return {structuredContent:{skills:over.skills}};
-    throw new Error(`not served here: ${action}`);
+    throw new SpacemoltError('not_available',`not served here: ${action}`);
   };
   const runtime=mkdtempSync(join(tmpdir(),'spacemolt-reflect-'));
   return {runtime,reflect:()=>reflectReport(account as unknown as ReadinessAccount,command,over.pilot??{},runtime) as Promise<any>};
@@ -73,4 +78,66 @@ test('a reflection measures each skill against the earliest one in the journal, 
   assert.equal(raised.was,2,`the baseline reaches the report: ${JSON.stringify(after.skills)}`);
   assert.ok(raised.since,'the baseline says when it was taken');
   assert.ok(!after.missing.some((row:string)=>/earlier skill levels/.test(row)));
+});
+
+const refuse=(code:string)=>()=>{throw new SpacemoltError(code,`refused: ${code}`);};
+const lost=()=>{throw new SpacemoltError('mutation_timeout','no result');};
+
+test('a world that refuses every read still yields a report, naming each read it could not make',async()=>{
+  const report=await fixture({pilot:{objective:'fill the hold'}}).reflect();
+  for(const name of ['skills','storage','tax','shipping_debt'])
+    assert.ok(report.missing.includes(name),`${name} is named: ${JSON.stringify(report.missing)}`);
+  assert.equal(report.owes.tax_due,undefined);
+  assert.equal(report.owes.shipping_debt,undefined);
+  assert.equal(report.ship.fuel,120);
+  assert.equal(report.objective,'fill the hold');
+});
+
+test('a refused tax estimate is named and leaves the other reads standing',async()=>{
+  const report=await fixture({serve:{'spacemolt/get_tax_estimate':refuse('no_tax'),
+    'spacemolt_shipping/profile':()=>({structuredContent:{profile:{outstanding_debt:7,tier:'bronze'}}}),
+    'spacemolt_storage/view':()=>({structuredContent:{base_id:'b',items:[{item_id:'ore',quantity:3}],ships:[{}],
+      locations:[{base_id:'b',base_name:'Base',system_name:'Sol',item_count:1,ship_count:1}]}})}}).reflect();
+  assert.ok(report.missing.includes('tax'));
+  assert.ok(!report.missing.includes('storage')&&!report.missing.includes('shipping_debt'));
+  assert.equal(report.owes.tax_due,undefined);
+  assert.deepEqual(report.owes,{shipping_debt:7,carrier_tier:'bronze'});
+  assert.deepEqual(report.holdings.here,[{item_id:'ore',quantity:3}]);
+  assert.deepEqual(report.holdings.storage,[{base_id:'b',items:1,ships:1}]);
+});
+
+test('a served tax estimate is summed as before',async()=>{
+  const report=await fixture({serve:{'spacemolt/get_tax_estimate':()=>({structuredContent:
+    {income_tax_total:10,property_tax_total:5,tax_prepaid:3}})}}).reflect();
+  assert.equal(report.owes.tax_due,12);
+  assert.ok(!report.missing.includes('tax'));
+});
+
+test('a lost storage reply is named missing and the report still builds',async()=>{
+  const report=await fixture({serve:{'spacemolt_storage/view':lost}}).reflect();
+  assert.ok(report.missing.includes('storage'));
+  assert.deepEqual(report.holdings.storage,[]);
+});
+
+test('a refused skills read, and a defect in any read, are told apart',async()=>{
+  const refused=await fixture({serve:{'spacemolt/get_skills':refuse('in_battle')}}).reflect();
+  assert.ok(refused.missing.includes('skills'));
+  // A bug is not a game outcome: it is not swallowed into `missing`, it goes up as thrown.
+  const bug=new Error('a bug in the world');
+  await assert.rejects(fixture({serve:{'spacemolt/get_tax_estimate':()=>{throw bug;}}}).reflect(),error=>error===bug);
+});
+
+test('a refresh that throws goes up, as it always did',async()=>{
+  const account=new FakeLibGoalAccount({ship:{fuel:1}});
+  const boom=new Error('refresh down');
+  account.refresh=async()=>{throw boom;};
+  await assert.rejects(reflectReport(account as unknown as ReadinessAccount,async()=>({}),{}),error=>error===boom);
+});
+
+test('an account with no ship names the ship missing rather than reading its zeros as fuel and hull',async()=>{
+  const account={state:{player:{credits:5}},refresh:async()=>{}};
+  const report=await reflectReport(account as unknown as ReadinessAccount,
+    async action=>{throw new SpacemoltError('not_available',`not served here: ${action}`);},{});
+  assert.equal(report.ship.fuel,0);
+  assert.ok(report.missing.includes('ship'),JSON.stringify(report.missing));
 });

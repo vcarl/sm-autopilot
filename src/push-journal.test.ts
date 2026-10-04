@@ -1,5 +1,6 @@
 /** The pushes the game sends without being asked: which reach the journal, which are
  * buffered for the next wake, and what the human reads. */
+import type {Account} from '@spacemolt/lib';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {mkdtempSync,readFileSync,existsSync} from 'node:fs';
@@ -154,7 +155,7 @@ test('a push with no run in flight survives to the next juncture\'s menu call', 
   // A fresh bridge, as a restart or the next juncture would have it: one `menu` call is the
   // whole of what `juncture_context()` asks for.
   const world=bridgeWorld();
-  const dispatch=serve(world.account as unknown as ReadinessAccount,world.command,
+  const dispatch=serve(world.account as unknown as Account,world.command,
     {pilot:()=>({stance:'Prospector' as const,mood:'Focused' as const}),runtime});
   try {
     const menu=await dispatch('menu') as any;

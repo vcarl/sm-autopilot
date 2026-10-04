@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import type {Account} from '@spacemolt/lib';
 import test from 'node:test';
 import {mkdirSync,mkdtempSync,rmSync,writeFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
@@ -16,7 +17,7 @@ import {bind,unbind,type Pilot} from './runtime.ts';
 function world(record:Pilot,options:WorldOptions={}) {
   const runtime=mkdtempSync(join(tmpdir(),'spacemolt-menu-'));
   const game=bridgeWorld({services:['refuel','repair','storage','shipyard'],...options});
-  bind({account:game.account as unknown as ReadinessAccount,command:game.command,pilot:()=>record,runtime,emit:()=>{}});
+  bind({account:game.account as unknown as Account,command:game.command,pilot:()=>record,runtime,emit:()=>{}});
   return {...game,runtime,close:()=>{unbind();rmSync(runtime,{recursive:true,force:true});}};
 }
 const gather=(over:Partial<RunSummary>={}):RunSummary=>({fn:'gatherUntil',arg:'belt',status:'done',credits:0,items:12,xp:0,at:'sol_base',...over});
@@ -715,7 +716,7 @@ test('a wreck-sale mission is not offered as fitting tradeRun',async()=>{
         {mission_id:'t1',title:'Sell ore',type:'sell',difficulty:1,objectives:[{description:'Sell 5 ore'}],rewards:{credits:9}}];
       return res;
     };
-    bind({account:f.account as unknown as ReadinessAccount,command,pilot:()=>record,runtime:f.runtime,emit:()=>{}});
+    bind({account:f.account as unknown as Account,command,pilot:()=>record,runtime:f.runtime,emit:()=>{}});
     const text=JSON.stringify((await menu(f.runtime)).moves);
     assert.ok(!text.includes("acceptMission('w1')"),text);
     assert.ok(text.includes("acceptMission('t1')"),text);
@@ -746,7 +747,7 @@ test('an unfitted module in the store, not the hold, is offered as a refit, not 
       if(action==='spacemolt/get_map')for(const row of (res as any).structuredContent.systems??[])row.visited=true;
       return res;
     };
-    bind({account:f.account as unknown as ReadinessAccount,command,pilot:()=>record,runtime:f.runtime,emit:()=>{}});
+    bind({account:f.account as unknown as Account,command,pilot:()=>record,runtime:f.runtime,emit:()=>{}});
     const built=await menu(f.runtime);
     const refit=built.moves.find(m=>m.call==="refit({install:['cargo_expander_ii']})");
     assert.ok(refit,`no refit from the store: ${JSON.stringify(built.moves)}`);

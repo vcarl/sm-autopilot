@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import type {Account} from '@spacemolt/lib';
 import test from 'node:test';
 import {spawnSync} from 'node:child_process';
 import {existsSync,mkdtempSync,readFileSync,writeFileSync} from 'node:fs';
@@ -13,7 +14,7 @@ import {bridgeWorld} from './test-support/bridge-world.ts';
 function fixture(options:ServeOptions={},services=['refuel','repair']) {
   const world=bridgeWorld({services});
   return {...world,
-    dispatch:serve(world.account as unknown as ReadinessAccount,world.command,options)};
+    dispatch:serve(world.account as unknown as Account,world.command,options)};
 }
 
 const PILOT:Pilot={name:'kvothe',objective:'fill the hold',stance:'Prospector'};
@@ -45,7 +46,7 @@ test('menu answers with moves from the present, each a paste-able call, and the 
   // The juncture renders the situation from this one reply: the clock, the record, the ship.
   assert.ok(Date.parse(menu.now),menu.now);
   const armed=bridgeWorld({wildlife:{creatures:[]}});
-  const fitted=await serve(armed.account as unknown as ReadinessAccount,armed.command,{pilot:()=>PILOT})('menu') as any;
+  const fitted=await serve(armed.account as unknown as Account,armed.command,{pilot:()=>PILOT})('menu') as any;
   assert.deepEqual(fitted.present.weapons,[{id:'autocannon_i',loaded:500}]);
   // A pilot with no stance gets the same menu: nothing about a missing stance is a state to leave.
   const blank=await fixture().dispatch('menu') as any;
@@ -58,7 +59,7 @@ test('the menu derives the mood from the ship after its reads, writes nothing, a
   const world=bridgeWorld();
   const writes:Pilot[]=[];
   // A record an older runner wrote, mood and all: the stored mood is ignored.
-  const serveIt=()=>serve(world.account as unknown as ReadinessAccount,world.command,
+  const serveIt=()=>serve(world.account as unknown as Account,world.command,
     {pilot:()=>({...PILOT,mood:'Aggressive'} as Pilot),setPilot:next=>{writes.push(next);}});
   const menu=await serveIt()('menu') as any;
   assert.equal(menu.mood,'Focused','a Prospector flies Focused');
@@ -207,7 +208,7 @@ test('a long menu is capped both ways and other actions still count their arrays
 test('the menu says whether a battle holds the ship, before any other fact',async()=>{
   const grazer={creature_id:'c1',species:'molt_grazer',name:'Molt Grazer'};
   const world=bridgeWorld({services:['refuel','repair'],wildlife:{creatures:[grazer],polls:20,damage:0}});
-  const dispatch=serve(world.account as unknown as ReadinessAccount,world.command,{pilot:()=>PILOT});
+  const dispatch=serve(world.account as unknown as Account,world.command,{pilot:()=>PILOT});
   const calm=await dispatch('menu') as any;
   assert.equal(calm.battle,undefined,'no battle, no line');
   await world.command('spacemolt/hunt',{id:'c1'});

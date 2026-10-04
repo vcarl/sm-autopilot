@@ -10,11 +10,14 @@
  */
 import {resolve} from 'node:path';
 import {fileURLToPath} from 'node:url';
+import {isRecord,readJournal} from './run-record.ts';
 
 /** A chat line, not a paragraph. Long reasons are cut rather than wrapped. */
 export const LINE_CHARS=160;
 
 const text=(value:unknown)=>value===undefined||value===null?'':String(value);
+type Entry=Record<string,unknown>;
+const rec=(value:unknown):Entry=>isRecord(value)&&!Array.isArray(value)?value:{};
 const clip=(value:string,chars:number)=>value.length>chars?`${value.slice(0,chars-1)}…`:value;
 
 /** Local time, because the person reading this is in it. */
@@ -26,16 +29,17 @@ function clock(at:unknown):string {
 
 /** `+61 carbon_ore +59 iron_ore`, three rows at most: the rest is a count. */
 function rows(value:unknown):string {
-  const list=(Array.isArray(value)?value:[]).filter(row=>row&&typeof row==='object');
+  const all:unknown[]=Array.isArray(value)?value:[];
+  const list=all.filter(isRecord);
   const shown=list.slice(0,3)
-    .map((row:any)=>`+${text(row.quantity)} ${text(row.item_id)}`).join(' ');
+    .map(row=>`+${text(row.quantity)} ${text(row.item_id)}`).join(' ');
   return list.length>3?`${shown} +${list.length-3} more`:shown;
 }
 
 /** A run's parameters as a person names them: where it went, what it made, how many. */
 function asked(params:unknown):string {
   const bits:string[]=[];
-  for(const [key,value] of Object.entries((params??{}) as Record<string,unknown>)) {
+  for(const [key,value] of Object.entries(rec(params))) {
     if(value===null||typeof value==='object')continue;
     if(key==='poi_id')bits.unshift(`→ ${text(value)}`);
     else if(key==='quantity'||key==='fights')bits.push(`×${text(value)}`);
@@ -46,9 +50,9 @@ function asked(params:unknown):string {
 }
 
 /** What a finished run yielded, when it said: the same rows the outcome carries. */
-function produced(entry:Record<string,any>):string {
-  const jobs=Array.isArray(entry.jobs)?entry.jobs:[];
-  const yielded=jobs.flatMap((job:any)=>Array.isArray(job?.yield)?job.yield:[]);
+function produced(entry:Entry):string {
+  const jobs:unknown[]=Array.isArray(entry.jobs)?entry.jobs:[];
+  const yielded:unknown[]=jobs.flatMap(job=>isRecord(job)&&Array.isArray(job.yield)?job.yield:[]);
   return yielded.length?rows(yielded):text(entry.reason);
 }
 
@@ -56,7 +60,7 @@ function produced(entry:Record<string,any>):string {
 const ACTS=new Set(['travel','jump','undock','dock','deposit','withdraw','craft','refuel','repair','hunt','loot','sell','buy','set_home']);
 const STEP_OUTCOME:Record<string,string>={done:'',skipped:'skipped',failed:'failed',blocked:'blocked'};
 
-function step(entry:Record<string,any>):string {
+function step(entry:Entry):string {
   const bits=[`${text(entry.job)} ${text(entry.step)}`];
   if(entry.poi_id)bits.push(`→ ${text(entry.poi_id)}`);
   if(entry.base_id)bits.push(`@ ${text(entry.base_id)}`);
@@ -70,13 +74,13 @@ function step(entry:Record<string,any>):string {
 }
 
 /** One journal entry as one line, or null when it is not worth one. */
-export function renderLine(entry:Record<string,any>|null|undefined):string|null {
+export function renderLine(entry:Entry|null|undefined):string|null {
   if(!entry||typeof entry!=='object')return null;
   const body=render(entry);
   return body?clip(`${clock(entry.at)} ${body.replace(/\s+/g,' ').trim()}`,LINE_CHARS):null;
 }
 
-function render(entry:Record<string,any>):string|null {
+function render(entry:Entry):string|null {
   // Lines the bridge wrote before the request/response pair carried an event name: they are
   // still the pilot's history, and a journal that starts rendering at today is no history.
   switch(text(entry.event)||(entry.request?'request':'')) {
@@ -100,7 +104,7 @@ function render(entry:Record<string,any>):string|null {
       // read is not, and a mine tick is one of many the step line adds up.
       const action=text(entry.action);
       if(!ACTS.has(action))return null;
-      const params=(entry.params??{}) as Record<string,unknown>;
+      const params=rec(entry.params);
       const target=params.id??params.item_id??params.recipe_id??params.station_id;
       const qty=params.quantity?` ×${text(params.quantity)}`:'';
       return `${action}${target?` → ${text(target)}`:''}${qty}`;
@@ -127,15 +131,16 @@ function render(entry:Record<string,any>):string|null {
     // The request/response pairs: every one that took is covered by a line above, so only
     // the refusals earn one. A read that failed is a thing the pilot could not do.
     case 'request': {
-      if(entry.response&&entry.response.ok===false)return `! ${text(entry.request?.action)}: ${text(entry.response.error)}`;
+      const response=rec(entry.response),action=text(rec(entry.request).action);
+      if(response.ok===false)return `! ${action}: ${text(response.error)}`;
       // The one reply worth a line of its own: the menu is the pilot's whole view of the
       // world at a juncture, and which moves it was offered is what a diagnosis asks.
-      const result=(entry.response?.result??{}) as Record<string,any>;
-      if(text(entry.request?.action)!=='menu'||!Array.isArray(result.moves))return null;
+      const result=rec(response.result),moves:unknown[]|null=Array.isArray(result.moves)?result.moves:null;
+      if(action!=='menu'||!moves)return null;
       const who=[result.stance,result.mood].filter(Boolean).join('/');
-      const offered=result.moves.length?result.moves.map(text).join(' · '):'(nothing)';
-      const refused=Array.isArray(result.not_now)&&result.not_now.length
-        ?` — not now: ${result.not_now.map(text).join(' · ')}`:'';
+      const offered=moves.length?moves.map(text).join(' · '):'(nothing)';
+      const notNow:unknown[]=Array.isArray(result.not_now)?result.not_now:[];
+      const refused=notNow.length?` — not now: ${notNow.map(text).join(' · ')}`:'';
       return `menu${who?` ${who}`:''}: ${offered}${refused}`;
     }
     default:return null;
@@ -145,7 +150,6 @@ function render(entry:Record<string,any>):string|null {
 /** The tail of a journal file, rendered. The one-shot the plugin's `spacemolt_status` runs
  * for its `journal` key, so the window and the Discord drain read the same lines from the same renderer. */
 if(process.argv[1]&&fileURLToPath(import.meta.url)===resolve(process.argv[1])) {
-  const {readJournal}=await import('./run-record.ts');
   const runtime=process.argv[2]??process.env.SPACEMOLT_RUNTIME_DIR??'';
   const limit=Math.max(1,Number(process.argv[3]??40));
   // Read well past the limit: most entries render to nothing, so a tail of N lines is drawn

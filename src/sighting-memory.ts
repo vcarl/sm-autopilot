@@ -19,6 +19,7 @@
  */
 import {mkdirSync,readFileSync,renameSync,writeFileSync} from 'node:fs';
 import {join} from 'node:path';
+import {Option,Schema} from 'effect';
 
 const MEMORY='sightings.json';
 /** ponytail: the last 200 rows, which is roughly forty looks at five species each and about
@@ -46,7 +47,10 @@ export const ABSENCE_STALE=90;
 /** One species at one POI at one look. `count` is how many were seen, `legal` how many were
  * engageable — neither `in_combat` nor `branded`, the two refusals `play/combat/hunting.ts`
  * spends a trip discovering. A row with no `species` is an empty look: nothing was there. */
-export interface Sighting {poi_id:string;species?:string;count:number;legal:number;at:string;tick?:number}
+const Sighting=Schema.Struct({poi_id:Schema.String,species:Schema.optionalKey(Schema.String),count:Schema.Number,legal:Schema.Number,at:Schema.String,tick:Schema.optionalKey(Schema.Number)});
+export type Sighting=typeof Sighting.Type;
+const Store=Schema.fromJsonString(Schema.Struct({sightings:Schema.Array(Schema.Unknown)}));
+const decodeStore=Schema.decodeUnknownOption(Store),decodeSighting=Schema.decodeUnknownOption(Sighting);
 
 /** A whole look at one POI, which is the unit that gets written: a look supersedes everything
  * remembered about that POI, because a fresher answer about the same rock is the only answer.
@@ -62,10 +66,10 @@ export interface Look {poi_id:string;tick?:number;seen:{species:string;count:num
 export function readSightings(dir:string|undefined):Sighting[] {
   if(!dir)return [];
   try {
-    const stored=JSON.parse(readFileSync(join(dir,MEMORY),'utf8')) as {sightings?:Sighting[]};
-    return (Array.isArray(stored?.sightings)?stored.sightings:[])
-      .filter((row):row is Sighting=>Boolean(row&&typeof row.poi_id==='string'&&typeof row.count==='number'));
-  } catch {return [];}
+    const stored=decodeStore(readFileSync(join(dir,MEMORY),'utf8'));
+    // A bad row is dropped and the good ones kept; a file that is not a store at all reads as nothing.
+    return Option.isSome(stored)?stored.value.sightings.flatMap(row=>{const one=decodeSighting(row);return Option.isSome(one)?[one.value]:[];}):[];
+  } catch {return [];} // edge: a torn or absent file is no memory
 }
 
 /** Temp file then rename, as `writeFight` does: a torn write would send a pilot somewhere on a
@@ -82,7 +86,7 @@ export function writeLook(dir:string,look:Look,now=()=>new Date()):Sighting[] {
     const path=join(dir,MEMORY),temp=`${path}.${process.pid}.tmp`;
     writeFileSync(temp,`${JSON.stringify({sightings:kept})}\n`,{mode:0o600});
     renameSync(temp,path);
-  } catch {/* a POI this pilot cannot remember is still a POI it can look at again */}
+  } catch {} // edge: a POI this pilot cannot remember is still a POI it can look at again
   return written;
 }
 

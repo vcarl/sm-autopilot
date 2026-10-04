@@ -1,8 +1,9 @@
-import {SpacemoltError,type GameState} from '@spacemolt/lib';
-import type {ReadinessAccount,ReadinessCommand} from './readiness.ts';
-import {details} from './response-details.ts';
+import type {GameState} from '@spacemolt/lib';
+import {Effect,Result} from 'effect';
+import type {ReadinessAccount} from './readiness.ts';
 import {miningInventory,miningYield} from './mining-inventory.ts';
-import {replyLost} from './command-boundary.ts';
+import {causeText} from './command-boundary.ts';
+import {Game,attempt,field} from './play/game.ts';
 
 export interface MineYieldRow {item_id:string;quantity:number}
 export interface MineOutcome {
@@ -16,21 +17,19 @@ export interface MineOutcome {
   reason?:string;
 }
 
-/** The site is out, not the pilot. Codes observed across the mine command's rejections. */
-const DEPLETED=new Set(['depleted','resource_depleted','deposit_too_sparse','no_common_ores','no_resources']);
+/** The site is out, not the pilot. `depleted` is the `Depleted` tag; these are the codes that have
+ * no tag (codes.ts: never observed), so they arrive as `Rejected` and are read by their code. */
+const DEPLETED=new Set(['resource_depleted','deposit_too_sparse','no_common_ores','no_resources']);
 const FULL=new Set(['cargo_full','hold_full']);
 const finite=(value:unknown):value is number=>typeof value==='number'&&Number.isFinite(value)&&value>=0;
-const rejection=(error:unknown)=>error instanceof SpacemoltError?error.code:'';
-const cause=(error:unknown)=>{
-  const named=error instanceof SpacemoltError?error.code:(error as Error)?.name;
-  return `${named||'error'}: ${(error as Error)?.message??String(error)}`;
-};
+/** A reply arrives directly, as MCP content, or inside a state delta. */
+const body=(reply:unknown)=>field(reply,'structuredContent')??field(field(reply,'delta'),'details')??reply;
 
 /** A reply may carry the server's own "that hold is full" token; a unit that will not
  * fit ends the step even though `cargo_used` is still short of capacity. */
 const replyIsFull=(reply:unknown)=>{
-  const body=details(reply);
-  return body?.cargo_full===true||FULL.has(String(body?.kind??''))||FULL.has(String(body?.code??''));
+  const said=body(reply);
+  return field(said,'cargo_full')===true||FULL.has(String(field(said,'kind')??''))||FULL.has(String(field(said,'code')??''));
 };
 
 /** Mine at the POI the ship is already at until the hold is full.
@@ -48,7 +47,9 @@ export interface MineOptions {
   onCycle?:(yield_:MineYieldRow[],cycles:number)=>void;
 }
 
-export async function mineToFull(account:ReadinessAccount,command:ReadinessCommand,options:MineOptions={}):Promise<MineOutcome> {
+export const mineToFullEffect=(account:ReadinessAccount,options:MineOptions={})=>Effect.gen(function*() {
+  const game=yield* Game;
+  const refresh=attempt('refresh',()=>account.refresh());
   const site=(state:GameState)=>{
     const {ship,location,cargo}=state??{};
     if(!ship||!location||!Array.isArray(cargo))throw new Error('Authoritative ship, location and cargo required before mining');
@@ -58,7 +59,7 @@ export async function mineToFull(account:ReadinessAccount,command:ReadinessComma
       incapacitated:Boolean(ship.incapacitated),full:ship.cargo_used>=ship.cargo_capacity};
   };
 
-  await account.refresh();
+  yield* refresh;
   const start=site(account.state),opening=miningInventory(account.state);
   let cycles=0,carried=opening;
   const done=(outcome:MineOutcome['outcome'],reason?:string):MineOutcome=>({
@@ -81,26 +82,34 @@ export async function mineToFull(account:ReadinessAccount,command:ReadinessComma
   if(blocked)return done('failed',`cannot mine: ${blocked}`);
   if(start.full)return done('full');
 
-  for(;;) {
+  while(true) {
     const halt=options.stop?.();
     if(halt)return done('stopped',halt);
-    let reply:unknown;
-    try {
-      reply=await command('spacemolt/mine',{});
-    } catch(error) {
-      const code=rejection(error);
-      await account.refresh();
+    const sent=yield* Effect.result(game.command('spacemolt/mine',{}));
+    if(Result.isFailure(sent)) {
+      const error=sent.failure;
+      yield* refresh;
       carried=miningInventory(account.state);
-      if(DEPLETED.has(code))return done('depleted',`mine rejected: ${cause(error)}`);
-      if(FULL.has(code))return done('full',`mine rejected: ${cause(error)}`);
       // The reply is gone, not the outcome: the take may have landed. Read, never re-send.
-      if(replyLost(error)&&!displaced(site(account.state))&&site(account.state).full)
-        return done('full',`reconciled after ${cause(error)}`);
-      return done('failed',`mine failed: ${cause(error)}`);
+      // A pending command is ambiguous before its code is read (classify), so a depletion or full
+      // code on one is reconciled here too; before U10 the code was read first.
+      if(error._tag==='ReplyLost') {
+        const said=causeText(error.cause);
+        if(!displaced(site(account.state))&&site(account.state).full)return done('full',`reconciled after ${said}`);
+        // No `mine failed:` prefix: the caller names the step and its outcome (F-U02 read it twice).
+        return done('failed',said);
+      }
+      const said=`${error.code}: ${error.message}`;
+      if(error._tag==='Depleted'||(error._tag==='Rejected'&&DEPLETED.has(error.code)))return done('depleted',`mine rejected: ${said}`);
+      if(error._tag==='HoldFull'||(error._tag==='Rejected'&&error.code==='hold_full'))return done('full',`mine rejected: ${said}`);
+      // Live F-U02 (testpilot-cv, 2026-10-02): `no_mining` read as a broken script. Any other
+      // definitive refusal stays a value with its code, for the caller to report as refused.
+      return yield* error;
     }
+    const reply=sent.success;
     cycles++;
     const before=carried;
-    await account.refresh();
+    yield* refresh;
     carried=miningInventory(account.state);
     options.onCycle?.(done('full').yield,cycles);
     const now=site(account.state);
@@ -110,4 +119,4 @@ export async function mineToFull(account:ReadinessAccount,command:ReadinessComma
     if(replyIsFull(reply))return done('full','mine reported a full hold');
     if(!Object.keys(miningYield(before,carried)).length)return done('depleted','mine reply showed no cargo change');
   }
-}
+});

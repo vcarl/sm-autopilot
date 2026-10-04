@@ -551,7 +551,7 @@ export function bridgeWorld(options:WorldOptions={}) {
     },
     // The server's own refusal when the fight is over, which is how a caller learns it ended.
     'spacemolt_battle/status':()=>{
-      if(!battle)throw new Error('No active battle. Use attack to engage a target.');
+      if(!battle)throw new SpacemoltError('no_active_battle','No active battle. Use attack to engage a target.');
       const target=battle.target,ticks=battle.ticks+1;
       tick();
       const {ship}=account.server;
@@ -620,6 +620,7 @@ export function bridgeWorld(options:WorldOptions={}) {
         estimated_fuel:7,fuel_per_jump:7,fuel_available:account.server.ship.fuel,
         cargo_used:account.server.ship.cargo_used,route:route.map((system_id,jumps)=>({system_id,jumps}))};
     },
+    'spacemolt/survey_system':()=>({structuredContent:{message:'Survey complete.'}}),
     'spacemolt/jump':params=>{notInBattle();account.server.ship.fuel-=7;account.server.location.system_id=String(params.id);
       account.server.location.poi_id='gate';
       // Arriving is the whole of a `visit_system` objective: the server ticks it over on the

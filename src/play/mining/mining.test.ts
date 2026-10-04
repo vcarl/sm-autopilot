@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import type {Account} from '@spacemolt/lib';
 import {test} from 'node:test';
 import type {ReadinessAccount} from '../../readiness.ts';
 import {bridgeWorld} from '../../test-support/bridge-world.ts';
@@ -27,7 +28,7 @@ test('a trip cap is named whenever it was passed, because maxTrips is now honore
 test('maxTrips with no until still makes that many trips (regression for the report: maxTrips:2 made one)',async()=>{
   const game=bridgeWorld({services:['refuel','repair','storage'],cargoUsed:0});
   const who:Pilot={mood:'Focused'};
-  bind({account:game.account as unknown as ReadinessAccount,command:game.command,pilot:()=>who,emit:()=>{}});
+  bind({account:game.account as unknown as Account,command:game.command,pilot:()=>who,emit:()=>{}});
   try {
     const out=await gatherUntil({poi:'belt',base:'sol_base',maxTrips:2});
     assert.equal(out.detail.trips,2,JSON.stringify(out));

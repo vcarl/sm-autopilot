@@ -1,11 +1,13 @@
 /** The service counter: fuel and hull. Insurance and dues wait for a later slice. */
-import type {GetBaseResponse,SystemPoi} from '@spacemolt/lib';
-import {details} from '../response-details.ts';
+import type {GetBaseResponse} from '@spacemolt/lib';
+import {Effect,Result} from 'effect';
 import {journalRun} from '../run-record.ts';
-import {ServiceBlocked,serviceShip} from '../servicing.ts';
-import {acct,burnCells,command,job,line,pilot,runtimeDir,stopped} from './runtime.ts';
-import {counter} from './counter.ts';
+import {ServiceBlocked,ServiceUnsafe,serviceShipEffect,words} from '../servicing.ts';
+import {replyBody,rows} from '../storage.ts';
+import {counterEffect} from './counter.ts';
+import {Game,GameLive,field,rawError} from './game.ts';
 import {readPlaces} from './places.ts';
+import {acct,burnCells,command,edge,jobEffect,line,pilot,runtimeDir,stopped,type Said} from './runtime.ts';
 import {goTo} from './travel.ts';
 import type {Outcome} from './types.ts';
 
@@ -46,50 +48,64 @@ export interface Elsewhere {call:string;why:string;base:string}
  * The candidates are this system's bases, else the far ones `places.json` has placed. The journal
  * was the far list once, read for docks in `response.result`: on the live journal (2026-09-28) that
  * shape matched nothing, and a Tired pilot one jump from a placed base resupplied "stranded". */
-export async function serviceElsewhere(docked?:string):Promise<Elsewhere[]> {
-  const trip=async(id:string):Promise<string>=>{
-    try {
-      const quote=details(await command('spacemolt/find_route',{id}));
-      return quote.found?`${quote.estimated_fuel} fuel, ${quote.total_jumps} jump(s)`:'no route from here';
-    } catch {return 'no route quote';}
-  };
+export const serviceElsewhereEffect=(docked?:string)=>Effect.gen(function*() {
+  const game=yield* Game;
+  const trip=(id:string)=>Effect.gen(function*() {
+    const read=yield* Effect.result(game.command('spacemolt/find_route',{id}));
+    if(Result.isFailure(read))return `no route quote (${words(read.failure)})`;
+    const quote=replyBody(read.success);
+    return field(quote,'found')?`${field(quote,'estimated_fuel')} fuel, ${field(quote,'total_jumps')} jump(s)`:'no route from here';
+  });
   /** What an in-system counter posts, read from here, or the plain admission that nothing does. */
-  const posted=async(base:string,fuelPrice?:number):Promise<string>=>{
-    let quoted:GetBaseResponse|undefined;
-    try {quoted=(details(await command('spacemolt/inspect',{id:base})) as {base?:GetBaseResponse}).base;}
-    catch {/* no quote from here is the answer, not a guess */}
-    const fuel=quoted?.fuel_price_all_in??fuelPrice,hull=quoted?.base?.repair_price_per_hull;
+  const posted=(base:string,fuelPrice?:number)=>Effect.gen(function*() {
+    const read=yield* Effect.result(game.command('spacemolt/inspect',{id:base}));
+    // no quote from here is the answer, not a guess
+    const quoted=Result.isSuccess(read)?field(replyBody(read.success),'base'):undefined;
+    const fuel=field(quoted,'fuel_price_all_in')??fuelPrice,hull=field(field(quoted,'base'),'repair_price_per_hull');
+    const lost=Result.isFailure(read)?` (${words(read.failure)})`:'';
     const prices=[...Number.isFinite(fuel)?[`refuel ${fuel} cr/unit`]:[],
       ...Number.isFinite(hull)&&Number(hull)>0?[`repair ${hull} cr/hull`]:[]];
     return prices.length?`posts ${prices.join(' and ')}; the rest is unknown until docked`
-      :'no price readable from here; unknown until docked';
-  };
-  let pois:SystemPoi[]=[];
-  try {pois=(details(await command('spacemolt/get_system',{})).system?.pois??[]) as SystemPoi[];} catch {/* no listing is no advice */}
+      :`no price readable from here${lost}; unknown until docked`;
+  });
+  const listed=yield* Effect.result(game.command('spacemolt/get_system',{}));
+  // no listing is no advice
+  const pois=Result.isSuccess(listed)?rows(field(field(replyBody(listed.success),'system'),'pois')):[];
   const system=acct().state.location?.system_id??'this system';
-  const rows:Elsewhere[]=[];
-  for(const row of pois.filter(poi=>poi.base_id&&poi.base_id!==docked).slice(0,3))
-    rows.push({call:`goTo('${row.base_id}')`,base:row.base_id!,
-      why:`${row.base_name??row.base_id} in ${system}: ${await trip(row.base_id!)}; ${await posted(row.base_id!,row.fuel_price)}`});
-  if(rows.length)return rows;
+  const out:Elsewhere[]=[];
+  for(const poi of pois) {
+    const base=field(poi,'base_id');
+    if(typeof base!=='string'||!base||base===docked)continue;
+    if(out.length>=3)break;
+    const name=field(poi,'base_name'),price=field(poi,'fuel_price');
+    out.push({call:`goTo('${base}')`,base,
+      why:`${typeof name==='string'&&name?name:base} in ${system}: ${yield* trip(base)}; ${yield* posted(base,typeof price==='number'?price:undefined)}`});
+  }
+  if(out.length)return out;
   // Nothing else in this system. A base `places.json` has placed is a far one it can name, so it
   // is named as what it is — placed, with whatever a route quote from here says — nearest first.
   // ponytail: one find_route per placed base; cap the quotes if places.json grows large.
   const runtime=runtimeDir(),far:{base:string;jumps:number;quote:string}[]=[];
   for(const base of Object.keys(runtime?readPlaces(runtime):{}).filter(base=>base!==docked)) {
-    let quote='no route quote',jumps=Number.MAX_SAFE_INTEGER;
-    try {
-      const route=details(await command('spacemolt/find_route',{id:base}));
-      quote=route.found?`${route.estimated_fuel} fuel, ${route.total_jumps} jump(s)`:'no route from here';
-      if(route.found)jumps=Number(route.total_jumps);
-    } catch {/* unquoted is still nameable */}
-    far.push({base,jumps,quote});
+    const read=yield* Effect.result(game.command('spacemolt/find_route',{id:base}));
+    // unquoted is still nameable
+    if(Result.isFailure(read)) {far.push({base,jumps:Number.MAX_SAFE_INTEGER,quote:`no route quote (${words(read.failure)})`});continue;}
+    const route=replyBody(read.success),found=Boolean(field(route,'found'));
+    far.push({base,jumps:found?Number(field(route,'total_jumps')):Number.MAX_SAFE_INTEGER,
+      quote:found?`${field(route,'estimated_fuel')} fuel, ${field(route,'total_jumps')} jump(s)`:'no route from here'});
   }
   for(const {base,quote} of far.sort((a,b)=>a.jumps-b.jumps).slice(0,3))
-    rows.push({call:`goTo('${base}')`,base,
+    out.push({call:`goTo('${base}')`,base,
       // No inspect: it is current-system only, so the call could only fail and break nothing usefully.
       why:`a base this pilot has placed: ${quote}; no price readable from here; unknown until docked`});
-  return rows;
+  return out;
+});
+
+/** The Promise twin of `serviceElsewhereEffect`. */
+export async function serviceElsewhere(docked?:string):Promise<Elsewhere[]> {
+  const exit=await Effect.runPromiseExit(serviceElsewhereEffect(docked).pipe(Effect.provide(GameLive({send:command}))));
+  if(exit._tag==='Failure')throw rawError(exit.cause); // bridge: U29, U30, U31 (callers: play/menu.ts, and `resupply` below, which stays Promise for run.ts and runtime.ts)
+  return exit.value;
 }
 
 /** The same advice as one line per row, which is the shape an Outcome's `next` takes. */
@@ -97,6 +113,9 @@ const asNext=(rows:Elsewhere[],system:string):string[]=>rows.length
   ?rows.map(row=>`${row.call} — ${row.why}`)
   :[`no other base in ${system}, and none placed: no station's service counter can be read from where you are`];
 
+// The live body is not decoded: the server omits spec fields, so a strict decode would refuse real quotes.
+// oxlint-disable-next-line typescript/consistent-type-assertions
+const asBase=(body:unknown)=>body as GetBaseResponse; // cast: frozen surface (GetBaseResponse)
 /** Bring the ship up at the counter you are docked at: full tank and full hull.
  *
  * Over `refuel` + `repair` it adds: the quote read first, the mood's spend margin on the repair
@@ -113,46 +132,58 @@ const asNext=(rows:Elsewhere[],system:string):string[]=>rows.length
  * Tired: resupplying back inside the margins is what clears it (the mood is derived from the
  * ship), and `cleared_tired` says so. `insure` and `dues` are accepted and
  * reported in `short` until a later slice implements them. */
-export function service(opts:{fuel?:number;hull?:number;insure?:boolean;dues?:boolean|'all'}={}):Promise<Outcome<Serviced>> {
-  return job<Serviced>('service',Object.keys(opts).join(' '),async()=>{
-    const who=pilot();
-    const short:string[]=[];
-    if(opts.insure)short.push('insure: not implemented yet; account().commands.spacemolt_salvage.quote/insure');
-    if(opts.dues)short.push('dues: not implemented yet; account().commands.spacemolt.prepay_tax / pay_bounty');
-    if(opts.fuel!==undefined||opts.hull!==undefined)short.push('partial targets: not implemented yet; a service is a full fill');
-    const empty={base:{} as GetBaseResponse,issued:[],spent:0,short,cleared_tired:false};
-    const at=await counter();
-    if('refused' in at)return {status:'refused',did:'serviced nothing',why:at.refused,detail:empty};
-    const docked=at.docked;
-    let base:GetBaseResponse;
-    try {base=details(await command('spacemolt/get_base',{})) as GetBaseResponse;}
-    catch(error){return {status:'failed',did:`${docked} would not quote`,why:(error as Error).message,detail:empty};}
-    try {
-      // The quote above was a command, and a command is where Tired is imposed: the mood that
-      // picks the spend margin is read here, not at the top of the job. Tired's row is "service
-      // only" — the mood it replaced would refuse the very bill that clears it.
-      const mood=pilot().mood??'Cautious';
-      const done=await serviceShip(acct(),command,{mood,creditReserve:who.permissions?.credit_reserve??0,...runtimeDir()===undefined?{}:{runtime:runtimeDir()}});
-      const cells=done.cells;
-      const cleared=mood==='Tired'&&pilot().mood!=='Tired';
-      const did=done.issued.length
-        ?`serviced at ${docked}: ${done.issued.map(action=>action.split('/')[1]).join(' and ')} for ${done.spent} cr; fuel ${done.fuel}, hull ${done.hull}`
-        :`already serviced at ${docked}: fuel ${done.fuel}, hull ${done.hull}`;
-      const kept=cells?.target?`; fuel cells ${cells.held}/${cells.target}${cells.bought?` (bought ${cells.bought} for ${cells.spent} cr)`:''}${cells.skipped?`, none bought: ${cells.skipped.replace(/^fuel cells: /,'')}`:''}`:'';
-      const detail={base,issued:done.issued,spent:done.spent+(cells?.spent??0),short:[...short,...done.short??[]],cleared_tired:cleared};
-      if(done.short)return {status:'partial',did:did+kept,why:done.short.join('; '),detail,
-        next:asNext(await serviceElsewhere(docked),acct().state.location?.system_id??'this system')};
-      return {status:'done',did:did+kept,detail,next:cleared?['Tired cleared: the mood before it is back']:[]};
-    } catch(error) {
-      if(error instanceof ServiceBlocked)
-        return {status:'refused',did:`not serviced at ${docked}`,why:error.blockers.join('; '),
-          detail:{base,issued:[],spent:0,short:[...short,...error.blockers],cleared_tired:false},
-          next:[...asNext(await serviceElsewhere(docked),acct().state.location?.system_id??'this system'),
-            'a calmer bill, a bolder mood, or another station admits it']};
-      throw error;
+export const serviceEffect=(opts:NonNullable<Parameters<typeof service>[0]>={})=>jobEffect<Serviced,Game>('service',Object.keys(opts).join(' '),Effect.gen(function*() {
+  const game=yield* Game;
+  const who=pilot();
+  const short:string[]=[];
+  if(opts.insure)short.push('insure: not implemented yet; account().commands.spacemolt_salvage.quote/insure');
+  if(opts.dues)short.push('dues: not implemented yet; account().commands.spacemolt.prepay_tax / pay_bounty');
+  if(opts.fuel!==undefined||opts.hull!==undefined)short.push('partial targets: not implemented yet; a service is a full fill');
+  // The surface promises a `GetBaseResponse`; a refusal before the quote has none to give.
+  const empty:Serviced={base:asBase({}),issued:[],spent:0,short,cleared_tired:false};
+  const found=yield* Effect.result(counterEffect());
+  if(Result.isFailure(found)) {
+    if(found.failure._tag==='DockBlocked')return {status:'failed',did:'service broke',why:found.failure.message,detail:empty};
+    return yield* found.failure;
+  }
+  const at=found.success;
+  if('refused' in at)return {status:'refused',did:'serviced nothing',why:at.refused,detail:empty};
+  const docked=at.docked;
+  const quoted=yield* Effect.result(game.command('spacemolt/get_base',{}));
+  if(Result.isFailure(quoted))return {status:'failed',did:`${docked} would not quote`,why:words(quoted.failure),detail:empty};
+  const base=asBase(replyBody(quoted.success));
+  // The quote above was a command, and a command is where Tired is imposed: the mood that
+  // picks the spend margin is read here, not at the top of the job. Tired's row is "service
+  // only" — the mood it replaced would refuse the very bill that clears it.
+  const mood=pilot().mood??'Cautious';
+  const system=()=>acct().state.location?.system_id??'this system';
+  const served=yield* Effect.result(serviceShipEffect(acct(),{mood,creditReserve:who.permissions?.credit_reserve??0,
+    ...runtimeDir()===undefined?{}:{runtime:runtimeDir()}}));
+  if(Result.isFailure(served)) {
+    const error=served.failure;
+    if(error instanceof ServiceBlocked) {
+      const blockers=[...error.blockers];
+      const detail:Serviced={base,issued:[],spent:0,short:[...short,...blockers],cleared_tired:false};
+      return {status:'refused',did:`not serviced at ${docked}`,why:blockers.join('; '),detail,
+        next:[...asNext(yield* serviceElsewhereEffect(docked),system()),
+          'a calmer bill, a bolder mood, or another station admits it']};
     }
-  });
-}
+    // The custody checks are not the game refusing: said as `job` always said a throw. A refusal or lost reply goes up, folded by name.
+    if(error instanceof ServiceUnsafe)return {status:'failed',did:'service broke',why:error.message,detail:empty};
+    return yield* error;
+  }
+  const done=served.success,cells=done.cells;
+  const cleared=mood==='Tired'&&pilot().mood!=='Tired';
+  const did=done.issued.length
+    ?`serviced at ${docked}: ${done.issued.map(action=>action.split('/')[1]).join(' and ')} for ${done.spent} cr; fuel ${done.fuel}, hull ${done.hull}`
+    :`already serviced at ${docked}: fuel ${done.fuel}, hull ${done.hull}`;
+  const kept=cells?.target?`; fuel cells ${cells.held}/${cells.target}${cells.bought?` (bought ${cells.bought} for ${cells.spent} cr)`:''}${cells.skipped?`, none bought: ${cells.skipped.replace(/^fuel cells: /,'')}`:''}`:'';
+  const detail:Serviced={base,issued:done.issued,spent:done.spent+(cells?.spent??0),short:[...short,...done.short??[]],cleared_tired:cleared};
+  if(done.short)return {status:'partial',did:did+kept,why:done.short.join('; '),detail,
+    next:asNext(yield* serviceElsewhereEffect(docked),system())};
+  return {status:'done',did:did+kept,detail,next:cleared?['Tired cleared: the mood before it is back']:[]};
+}));
+export function service(opts:{fuel?:number;hull?:number;insure?:boolean;dues?:boolean|'all'}={}):Promise<Outcome<Serviced>> {return edge(serviceEffect(opts));}
 
 /** Tired's guarantee, kept by the runtime and not left to the script: bring the ship back inside
  * its margins. Docked, service here; otherwise (or when this counter could not clear it) fly to

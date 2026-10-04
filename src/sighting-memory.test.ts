@@ -39,6 +39,8 @@ test('an absent or torn store is no memory, not a crash',()=>{
     assert.deepEqual(readSightings(dir),[],'a half-written file reads as empty');
     writeFileSync(join(dir,'sightings.json'),'{"sightings":[{"count":1},{"poi_id":"poi-a","count":1,"legal":1,"at":"x"}]}');
     assert.equal(readSightings(dir).length,1,'a row without a POI is not a sighting');
+    writeFileSync(join(dir,'sightings.json'),'{"sightings":[{"poi_id":"poi-b","count":1,"at":"x"},{"poi_id":"poi-a","count":1,"legal":1,"at":"x"}]}');
+    assert.deepEqual(readSightings(dir).map(row=>row.poi_id),['poi-a'],'a row without a legal count is not a sighting');
   } finally {rmSync(dir,{recursive:true,force:true});}
 });
 

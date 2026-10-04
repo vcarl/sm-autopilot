@@ -4,12 +4,20 @@
  * entry carries no system, so without this every `routes()` would place the same bases again. */
 import {mkdirSync,readFileSync,renameSync,writeFileSync} from 'node:fs';
 import {join} from 'node:path';
+import {Option,Schema} from 'effect';
 
 const FILE='places.json';
 
+/** Read leniently: a row whose value is not a string is dropped, the rest kept; a file that is
+ * not a record at all reads as empty. */
+const decodePlaces=Schema.decodeUnknownOption(Schema.fromJsonString(Schema.Record(Schema.String,Schema.Unknown)));
+const decodeIds=Schema.decodeUnknownOption(Schema.fromJsonString(Schema.Array(Schema.Unknown)));
+
 export function readPlaces(runtime:string):Record<string,string> {
-  try {const places=JSON.parse(readFileSync(join(runtime,FILE),'utf8'));return places&&typeof places==='object'?places:{};}
-  catch {return {};}
+  try {
+    const places=decodePlaces(readFileSync(join(runtime,FILE),'utf8'));
+    return Option.isSome(places)?Object.fromEntries(Object.entries(places.value).flatMap(([base,system])=>typeof system==='string'?[[base,system]]:[])):{};
+  } catch {return {};} // edge: an absent or unreadable file is no places kept
 }
 /** Write `file` in `dir` as JSON, temp file then rename, so a reader never sees half of it. A
  * failed write is dropped: everything kept this way is only looked up or seen again. */
@@ -19,7 +27,7 @@ export function keepJson(dir:string,file:string,value:unknown):void {
     const path=join(dir,file),temp=`${path}.${process.pid}.tmp`;
     writeFileSync(temp,JSON.stringify(value,null,2),{mode:0o600});
     renameSync(temp,path);
-  } catch {/* unkept */}
+  } catch {} // edge: a write that fails is dropped; the next look keeps it again
 }
 
 /** A no-op when the place is already kept or either id is empty. */
@@ -44,8 +52,10 @@ export const readExplored=(runtime:string)=>readList(runtime,EXPLORED);
 export const markExplored=(runtime:string,system_id:string)=>addToList(runtime,EXPLORED,system_id);
 
 function readList(runtime:string,file:string):Set<string> {
-  try {const ids=JSON.parse(readFileSync(join(runtime,file),'utf8'));return new Set(Array.isArray(ids)?ids.filter(id=>typeof id==='string'):[]);}
-  catch {return new Set();}
+  try {
+    const ids=decodeIds(readFileSync(join(runtime,file),'utf8'));
+    return new Set(Option.isSome(ids)?ids.value.flatMap(id=>typeof id==='string'?[id]:[]):[]);
+  } catch {return new Set();} // edge: an absent or unreadable file is an empty list
 }
 /** A no-op when the id is already listed or empty. */
 function addToList(runtime:string,file:string,id:string):void {

@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import type {Account} from '@spacemolt/lib';
 import {mkdtempSync,rmSync,writeFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
@@ -11,7 +12,7 @@ import {bind,unbind,type Pilot} from './runtime.ts';
 function world(record:Pilot,options:WorldOptions={}) {
   const runtime=mkdtempSync(join(tmpdir(),'spacemolt-market-'));
   const game=bridgeWorld({services:['refuel','repair','storage'],cargoUsed:0,...options});
-  bind({account:game.account as unknown as ReadinessAccount,command:game.command,pilot:()=>record,runtime,emit:()=>{}});
+  bind({account:game.account as unknown as Account,command:game.command,pilot:()=>record,runtime,emit:()=>{}});
   return {...game,runtime,close:()=>{unbind();rmSync(runtime,{recursive:true,force:true});}};
 }
 

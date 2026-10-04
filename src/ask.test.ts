@@ -2,6 +2,7 @@
  * the answer. Driven through `serve` with the real runner and the real gate, so what is pinned
  * is what the tools see: the run answers early with the question, run.json carries it for the
  * juncture gate, and an answer (or a stop) is the only way on. */
+import type {Account} from '@spacemolt/lib';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {mkdirSync,mkdtempSync,rmSync,writeFileSync} from 'node:fs';
@@ -27,7 +28,7 @@ function harness(source:string) {
   writeFileSync(join(runtime,'pilot','index.ts'),source);
   const game=bridgeWorld({services:['refuel','repair']});
   const lines:string[]=[];
-  const dispatch=serve(game.account as unknown as ReadinessAccount,game.command,
+  const dispatch=serve(game.account as unknown as Account,game.command,
     {pilot:()=>PILOT,runtime,emit:text=>lines.push(text)});
   /** Which requests took the stream over, in order. */
   const attached:string[]=[];

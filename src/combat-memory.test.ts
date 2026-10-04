@@ -1,7 +1,7 @@
 /** The combat memory: the battle frames the runner used to drop, folded into the numbers that
  * decide whether to take the next fight — and `player_died` reaching the buffer the pilot reads. */
 import assert from 'node:assert/strict';
-import {existsSync,mkdtempSync,readFileSync,rmSync} from 'node:fs';
+import {existsSync,mkdtempSync,readFileSync,rmSync,writeFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import test from 'node:test';
@@ -120,6 +120,17 @@ test('the combat store is bounded, evicts the oldest fight, and every fact repor
   // A fight the frames never named an opponent for is not written at all.
   writeFight(runtime,{...record(99,new Date(now).toISOString()),opponent:''});
   assert.equal(readCombat(runtime).length,CAP);
+});
+
+test('a malformed row is dropped, a torn file reads as nothing',()=>{
+  const dir=temp();
+  try {
+    const good={opponent:'beast-1',ticks:1,by_range:{},dealt:1,taken:1,stances:['fire'],flee_ticks:0,ending:'victory',at:'2026-09-25T12:00:00.000Z'};
+    writeFileSync(join(dir,'combat.json'),JSON.stringify({fights:[{opponent:'x'},null,good]}));
+    assert.deepEqual(readCombat(dir),[good],'the good row survives its bad neighbours');
+    writeFileSync(join(dir,'combat.json'),'{"fights":[{"opponent"');
+    assert.deepEqual(readCombat(dir),[],'a half-written file reads as empty');
+  } finally {rmSync(dir,{recursive:true,force:true});}
 });
 
 test('player_died reaches the alerts buffer, one item per wreck',()=>{

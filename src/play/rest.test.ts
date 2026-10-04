@@ -1,4 +1,5 @@
 /** Rest is a play action — put in and bring the ship up — and it gates nothing. */
+import {SpacemoltError,type Account} from '@spacemolt/lib';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {mkdtempSync, rmSync} from 'node:fs';
@@ -13,7 +14,15 @@ function world(record:Pilot,options:WorldOptions={}) {
   const runtime=mkdtempSync(join(tmpdir(),'spacemolt-rest-'));
   const game=bridgeWorld({services:['refuel','repair','storage'],cargoUsed:0,...options});
   let who:Pilot=record;
-  bind({account:game.account as unknown as ReadinessAccount,command:game.command,runtime,
+  // The game refuses an action it does not serve; the shared world asserts instead, which is a defect.
+  const command:typeof game.command=async(action,params)=>{
+    try {return await game.command(action,params);}
+    catch(error) {
+      if(error instanceof assert.AssertionError&&/^Unexpected command/.test(error.message))throw new SpacemoltError('unknown_action',error.message);
+      throw error;
+    }
+  };
+  bind({account:game.account as unknown as Account,command,runtime,
     pilot:()=>who,emit:()=>{}});
   return {...game,runtime,who:()=>who,close:()=>{unbind();rmSync(runtime,{recursive:true,force:true});}};
 }

@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import type {Account} from '@spacemolt/lib';
 import test from 'node:test';
 import type {ReadinessAccount} from '../../readiness.ts';
 import {bridgeWorld,type WorldOptions} from '../../test-support/bridge-world.ts';
@@ -10,7 +11,7 @@ function world(record:Pilot,options:WorldOptions={}) {
   const game=bridgeWorld({services:['refuel','repair','storage'],cargoUsed:0,...options});
   const lines:string[]=[];
   let who:Pilot=record;
-  bind({account:game.account as unknown as ReadinessAccount,command:game.command,
+  bind({account:game.account as unknown as Account,command:game.command,
     pilot:()=>who,emit:text=>lines.push(text)});
   return {...game,lines,record:()=>who};
 }
@@ -45,7 +46,7 @@ test('freightBoard fails (does not silently mark unroutable) on a real find_rout
     if(action==='spacemolt/find_route')throw new Error('cannot send on a closed socket');
     return game.command(action,params);
   };
-  bind({account:game.account as unknown as ReadinessAccount,command,pilot:():Pilot=>({mood:'Focused'}),emit:()=>{}});
+  bind({account:game.account as unknown as Account,command,pilot:():Pilot=>({mood:'Focused'}),emit:()=>{}});
   try {
     const out=await freightBoard();
     assert.equal(out.status,'failed',JSON.stringify(out));

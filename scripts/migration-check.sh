@@ -15,6 +15,7 @@ node -e 'const off=v=>["off","allow",0].includes(Array.isArray(v)?v[0]:v);
   const left=o.filter(x=>off(x.rules?.["typescript/consistent-type-assertions"])).flatMap(x=>x.files).filter(f=>!/test/.test(f));
   if(left.length){console.error("migration override list not empty:",left);process.exit(1)}'
 npm run gen:wire && git diff --exit-code -- src/wire.gen.ts src/wire-drift.gen.ts
+npm run gen:play && [ -z "$(git status --porcelain -- play.gen)" ]             # the pilot's declarations, new files too
 node scripts/surface.ts --check
 node scripts/debt.ts --zero src                                        # outside tests and *.gen.ts
 if grep -rn 'tryPromise' src --include='*.ts' | grep -v -e '^src/play/game.ts:' -e '\.test\.ts:'; then echo 'tryPromise outside Game'; exit 1; fi

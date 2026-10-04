@@ -6,7 +6,9 @@
  * unobserved depletion codes (mine.ts branches on them, never observed): they stay `Rejected`. */
 import {Data} from 'effect';
 
-type Refusal = {readonly action: string; readonly code: string; readonly message: string};
+/** `cause` is the error the lib threw, kept for the Promise callers that have not moved yet
+ * (`command()` rethrows it, so `instanceof SpacemoltError` and `.code` still work). */
+type Refusal = {readonly action: string; readonly code: string; readonly message: string; readonly cause?: unknown};
 
 /** The server refused, definitively; nothing landed. `code` is the server's own. */
 export class Rejected extends Data.TaggedError('Rejected')<Refusal> {}
@@ -20,6 +22,9 @@ export class Depleted extends Data.TaggedError('Depleted')<Refusal> {}
 export class ReplyLost extends Data.TaggedError('ReplyLost')<{readonly action: string; readonly cause: unknown}> {}
 
 export type GameError = Rejected | InBattle | HoldFull | Depleted | ReplyLost;
+
+export const isGameError = (error: unknown): error is GameError =>
+  error instanceof Rejected || error instanceof InBattle || error instanceof HoldFull || error instanceof Depleted || error instanceof ReplyLost;
 
 /** A definitive refusal by its code; a code not named here is `Rejected`. */
 export const refusal = (fields: Refusal): Exclude<GameError, ReplyLost> => {

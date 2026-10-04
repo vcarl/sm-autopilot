@@ -13,6 +13,7 @@
  */
 import {mkdirSync,readFileSync,renameSync,writeFileSync} from 'node:fs';
 import {join} from 'node:path';
+import {Option,Schema} from 'effect';
 
 const MEMORY='combat.json';
 /** ponytail: the last 60 fights, whole. A night's hunting is twenty; sixty is three nights and
@@ -28,7 +29,10 @@ export const TICK_MS=10_000;
 
 /** Shots seen at one range band, one direction. `hits` is `battle_damage.hit_success`, which is
  * the only place accuracy is published at all. */
-export interface Shots {shots:number;hits:number}
+const Shots=Schema.Struct({shots:Schema.Number,hits:Schema.Number});
+export type Shots=typeof Shots.Type;
+/** `Shots` as the live fold counts it, in place. */
+type Tally={-readonly [K in keyof Shots]:Shots[K]};
 
 /** The live server publishes FIVE values in `battle_update.your_zone`, not the three this file
  * was written for: `outer`, `mid`, `inner`, `engaged`, and nothing at all. Measured on the kvothe
@@ -42,47 +46,49 @@ export interface Shots {shots:number;hits:number}
 export const bandOf=(zone:string|undefined):string=>zone==='engaged'?'inner':zone||'unknown';
 
 /** One fight as memory keeps it: aggregates, never a transcript. */
-export interface FightRecord {
+const FightRecord=Schema.Struct({
   /** The opponent as the frames name it — `battle_update.participants[].username`, which for
    * wildlife is its display name and is what `get_nearby` calls it too. The frames carry no
    * species id, so this is the key. */
-  opponent:string;
+  opponent:Schema.String,
   /** The opponent's hull class when the frames named one. */
-  opponent_class?:string;
+  opponent_class:Schema.optionalKey(Schema.String),
   /** OUR hull class in this fight. Win chance is species versus class, not species alone, so
    * both are recorded and neither is baked into the key. */
-  ship_class?:string;
+  ship_class:Schema.optionalKey(Schema.String),
   /** Battle ticks the fight lasted (`battle_ended.duration`). */
-  ticks:number;
+  ticks:Schema.Number,
   /** Shots per range band, both directions: `at_us` is their accuracy against us, `at_them`
    * ours against them. A tick whose band was never pushed lands under `unknown`. */
-  by_range:Record<string,{at_us:Shots;at_them:Shots}>;
+  by_range:Schema.Record(Schema.String,Schema.Struct({at_us:Shots,at_them:Shots})),
   /** The server's own fight totals (`battle_ended.participants[]`), hull and shield together. */
-  dealt:number;taken:number;
+  dealt:Schema.Number,taken:Schema.Number,
   /** The stances that were actually in force, in order, collapsed to the changes. */
-  stances:string[];
+  stances:Schema.Array(Schema.String),
   /** Ticks observed in the `flee` stance. The retreat COMMAND is not in the push frames — the
    * command seam journals every `spacemolt_battle/retreat` — so this is the stance, not the ask. */
-  flee_ticks:number;
+  flee_ticks:Schema.Number,
   /** `victory` when our side won, `defeat` when we did not survive, and the server's own
    * `stalemate`/`mutual_destruction`/`interrupted` otherwise. */
-  ending:string;
+  ending:Schema.String,
   /** Our hull as a percentage of max, first tick to last: the fight's cost. */
-  hull_pct_from?:number;hull_pct_to?:number;
+  hull_pct_from:Schema.optionalKey(Schema.Number),hull_pct_to:Schema.optionalKey(Schema.Number),
   /** Global engine tick at close, and the wall clock the age is read from. */
-  tick?:number;at:string;
-}
+  tick:Schema.optionalKey(Schema.Number),at:Schema.String,
+});
+export type FightRecord=typeof FightRecord.Type;
 
-interface Store {fights:FightRecord[]}
+const Store=Schema.fromJsonString(Schema.Struct({fights:Schema.Array(Schema.Unknown)}));
+const decodeStore=Schema.decodeUnknownOption(Store),decodeFight=Schema.decodeUnknownOption(FightRecord);
 
 /** Whatever is on disk, newest fight first, or nothing: a torn or absent file is no memory. */
 export function readCombat(dir:string|undefined):FightRecord[] {
   if(!dir)return [];
   try {
-    const stored=JSON.parse(readFileSync(join(dir,MEMORY),'utf8')) as Store;
-    return (Array.isArray(stored?.fights)?stored.fights:[])
-      .filter((row):row is FightRecord=>Boolean(row&&typeof row.opponent==='string'));
-  } catch {return [];}
+    const stored=decodeStore(readFileSync(join(dir,MEMORY),'utf8'));
+    // A bad row is dropped and the good ones kept; a file that is not a store at all reads as nothing.
+    return Option.isSome(stored)?stored.value.fights.flatMap(row=>{const one=decodeFight(row);return Option.isSome(one)?[one.value]:[];}):[];
+  } catch {return [];} // edge: a torn or absent file is no memory
 }
 
 /** Temp file then rename, as `remember()` and `writeAlerts` do: a torn write would price the
@@ -95,7 +101,7 @@ export function writeFight(dir:string,fight:FightRecord):void {
     const path=join(dir,MEMORY),temp=`${path}.${process.pid}.tmp`;
     writeFileSync(temp,`${JSON.stringify({fights:kept})}\n`,{mode:0o600});
     renameSync(temp,path);
-  } catch {/* a fight this pilot cannot remember is still a fight it fought */}
+  } catch {} // edge: a fight this pilot cannot remember is still a fight it fought
 }
 
 /** The three metrics the record exists to answer, for one opponent. Every number carries the
@@ -161,8 +167,7 @@ export function statsFor(fights:FightRecord[],opponent:string,now=Date.now()):Co
   // Hull cost per fight, from the fights that read the hull at both ends. Kept apart from the
   // damage totals because it is a different quantity in a different unit, and it is the one the
   // pilot's walk-away line is expressed in.
-  const hulls=mine.filter(row=>row.hull_pct_from!==undefined&&row.hull_pct_to!==undefined)
-    .map(row=>Math.max(0,row.hull_pct_from!-row.hull_pct_to!));
+  const hulls=mine.flatMap(row=>row.hull_pct_from!==undefined&&row.hull_pct_to!==undefined?[Math.max(0,row.hull_pct_from-row.hull_pct_to)]:[]);
   return {opponent,fights:mine.length,won,
     ...hulls.length?{hull_pct_lost:Math.round(10*hulls.reduce((sum,one)=>sum+one,0)/hulls.length)/10}:{},
     newest_ticks_old:Math.min(...ages),oldest_ticks_old:Math.max(...ages),
@@ -182,8 +187,7 @@ export function statsFor(fights:FightRecord[],opponent:string,now=Date.now()):Co
  * deciding against is measured in hull. */
 export function combatLine(stats:CombatStats):string {
   const bands=Object.entries(stats.accuracy)
-    .filter(([,band])=>band.at_us!==undefined)
-    .map(([band,row])=>`${Math.round(100*row.at_us!)}% ${band}`).join('/');
+    .flatMap(([band,row])=>row.at_us===undefined?[]:[`${Math.round(100*row.at_us)}% ${band}`]).join('/');
   return [`${stats.won}/${stats.fights} won${stats.thin?` (${stats.fights} fight${stats.fights>1?'s':''}, not a rate)`:''}`,
     ...stats.hull_pct_lost!==undefined?[`costs ${stats.hull_pct_lost}% hull a fight`]:[],
     `${stats.taken_per_tick} shield+hull dmg/tick in`,
@@ -215,7 +219,7 @@ interface Live {
    * approximation rather than a silent merge, and the `unknown` band stays visible so how much of
    * the record is unplaced can be read off it. Upgrade the day a damage frame names its own zone,
    * or the day `get_battle_log` is read per fight (it carries a real per-tick `entries[].tick`). */
-  by_range:Record<string,{at_us:Shots;at_them:Shots}>;
+  by_range:Record<string,{at_us:Tally;at_them:Tally}>;
   stances:string[];flee_ticks:number;
   hull_from?:number;hull_to?:number;
   dealt:number;taken:number;last_tick:number;
@@ -224,6 +228,9 @@ let live:Live|null=null;
 
 /** The tally for the band in force, made on first use. */
 const bucket=(fold:Live)=>fold.by_range[fold.zone]??=({at_us:{shots:0,hits:0},at_them:{shots:0,hits:0}});
+
+const isRow=(v:unknown):v is Record<string,unknown>=>typeof v==='object'&&v!==null;
+const participantsOf=(payload:Record<string,unknown>)=>Array.isArray(payload.participants)?payload.participants.filter(isRow):[];
 
 /** `battle_update`: the tick, the band, the stance in force, and who is on the other side. */
 export function foldBattleUpdate(payload:Record<string,unknown>):void {
@@ -241,7 +248,7 @@ export function foldBattleUpdate(payload:Record<string,unknown>):void {
     if(fold.stances.at(-1)!==stance)fold.stances.push(stance);
     if(stance==='flee')fold.flee_ticks+=1;
   }
-  const rows=Array.isArray(payload.participants)?payload.participants as Record<string,unknown>[]:[];
+  const rows=participantsOf(payload);
   const us=rows.find(row=>row.side_id===fold.our_side);
   const them=rows.find(row=>row.side_id!==fold.our_side);
   if(typeof us?.ship_class==='string')fold.ship_class=us.ship_class;
@@ -271,7 +278,7 @@ export function foldBattleEnded(dir:string,payload:Record<string,unknown>,me:str
   const fold=live;
   live=null;
   if(!fold||!fold.opponent)return undefined;
-  const rows=Array.isArray(payload.participants)?payload.participants as Record<string,unknown>[]:[];
+  const rows=participantsOf(payload);
   const ours=rows.find(row=>row.player_id===me)??rows.find(row=>row.side_id===fold.our_side);
   const dealt=Number(ours?.damage_dealt??fold.dealt),taken=Number(ours?.damage_taken??fold.taken);
   const reason=String(payload.reason??'unresolved');

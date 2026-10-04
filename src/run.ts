@@ -12,7 +12,7 @@
  */
 import {execFile,execFileSync} from 'node:child_process';
 import {createHash,randomUUID} from 'node:crypto';
-import {copyFileSync,existsSync,mkdirSync,readFileSync,statSync,symlinkSync,writeFileSync} from 'node:fs';
+import {copyFileSync,existsSync,mkdirSync,readFileSync,readlinkSync,statSync,symlinkSync,unlinkSync,writeFileSync} from 'node:fs';
 import {dirname,join,resolve} from 'node:path';
 import {fileURLToPath,pathToFileURL} from 'node:url';
 import {checkTree,specifiers} from './play/boundary.ts';
@@ -20,7 +20,7 @@ import {checkPolicy} from './play/policy.ts';
 import {prose} from './play/prose.ts';
 import {runSummary} from './play/menu.ts';
 import {disengage} from './play/combat/hunting.ts';
-import {battleNow} from './travel.ts';
+import {battleNow,type BattleNow} from './travel.ts';
 import {bind,command,line,outcome as build,progress,runCalls,stateSnapshot,stop,stopped,Stopped,unbind,type Binding} from './play/runtime.ts';
 import {resupply} from './play/service.ts';
 import type {Outcome} from './play/types.ts';
@@ -30,6 +30,9 @@ import {warmCheck} from './check-service.ts';
 const PLUGIN=fileURLToPath(new URL('..',import.meta.url));
 const PLAY=join(PLUGIN,'src','play');
 const EXAMPLE=join(PLAY,'pilot','index.ts.example');
+/** tsc resolves `play` to its generated declarations (`npm run gen:play`), node to the source: the pilot's
+ * check then parses and checks no library implementation, and Effect only where a declaration imports it. */
+const PLAY_TYPES={play:[join(PLUGIN,'play.gen','play','index.d.ts')],'play/*':[join(PLUGIN,'play.gen','play','*','index.d.ts')]};
 /** The plugin's git HEAD as this bridge loaded it: with the TypeScript fingerprint `service.py`
  * booted it on (`SPACEMOLT_SOURCES`), the code a run's lines were written by. Null outside a checkout. */
 const CODE_SHA=(()=>{try {return execFileSync('git',['rev-parse','HEAD'],{cwd:PLUGIN,encoding:'utf8',stdio:['ignore','pipe','ignore']}).trim();} catch {return null;}})();
@@ -50,15 +53,18 @@ export function pilotHome(runtime:string):{dir:string;entry:string;tsconfig:stri
   if(!existsSync(entry))copyFileSync(EXAMPLE,entry);
   const modules=join(runtime,'node_modules');
   mkdirSync(modules,{recursive:true});
+  // Live 2026-10-02 (F-U02): a link kept from another checkout ran that checkout's `play`, which this
+  // bridge never bound, so every run broke with "the play runtime is not bound". Replace it.
   const link=(from:string,to:string)=>{
-    try {symlinkSync(from,to,'dir');}
-    catch(error){if((error as NodeJS.ErrnoException).code!=='EEXIST')throw error;}
+    try {if(readlinkSync(to)===from)return; unlinkSync(to);}
+    catch(error){if((error as NodeJS.ErrnoException).code!=='ENOENT')throw error;}
+    symlinkSync(from,to,'dir');
   };
   link(PLAY,join(modules,'play'));
   link(join(PLUGIN,'node_modules','@spacemolt'),join(modules,'@spacemolt'));
   const tsconfig=join(runtime,'tsconfig.json');
   writeFileSync(tsconfig,JSON.stringify({compilerOptions:{target:'ES2023',module:'NodeNext',moduleResolution:'NodeNext',
-    strict:true,noEmit:true,allowImportingTsExtensions:true,skipLibCheck:true,types:['node'],
+    strict:true,noEmit:true,allowImportingTsExtensions:true,skipLibCheck:true,types:['node'],paths:PLAY_TYPES,
     typeRoots:[join(PLUGIN,'node_modules','@types')]},include:['pilot/**/*.ts']},null,2));
   return {dir,entry,tsconfig};
 }
@@ -180,7 +186,9 @@ function keepProgram(runtime:string,entry:string,sha:string):void {
  *
  * Null when no battle held the ship, which is the ordinary case and costs one read. */
 async function closeBattle():Promise<{opponent:string;ended:boolean}|null> {
-  const fight=await battleNow(command);
+  // Tired must still resupply after this, so a throw here is reported, not allowed to skip the report.
+  let fight:BattleNow|undefined;
+  try {fight=await battleNow(command);} catch(error){line(`reading the battle threw: ${message(error)}`);return null;}
   if(!fight)return null;
   line(`the run returned with a battle still live against ${fight.opponent}: breaking off before handing back`);
   let ended=false;
@@ -217,7 +225,10 @@ export async function runPilot(deps:RunDeps):Promise<RunResult> {
     journalRun(runtime,{phase:'refused',script:'index.ts',sha:gate.sha,started,run_id,...juncture,errors:gate.errors.slice(0,5)});
     return {accepted:false,reason:`pilot/index.ts is not admissible`,errors:gate.errors,started};
   }
-  const record:RunRecord={script:'index.ts',source:gate.sha,started,ended:false,...deps.juncture?.at===undefined?{}:{juncture_at:deps.juncture.at}};
+  // RunRecord decodes juncture_at as a string: a null here (juncture.py's `at` is `.get`) would make
+  // run.json unreadable, and boot would skip closing this run `interrupted`.
+  const record:RunRecord={script:'index.ts',source:gate.sha,started,ended:false,
+    ...typeof deps.juncture?.at==='string'?{juncture_at:deps.juncture.at}:{}};
   const save=()=>writeRun(runtime,record);
   save();
   const who=deps.pilot();

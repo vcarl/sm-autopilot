@@ -31,6 +31,8 @@ jobs:
       - run: npm test
       - run: npm run lint
       - run: npm run gen:wire && git diff --exit-code -- src/wire.gen.ts src/wire-drift.gen.ts
+      # status, not diff: a new play module is a new, untracked declaration file
+      - run: npm run gen:play && test -z "$(git status --porcelain -- play.gen)"
       - run: node scripts/surface.ts --check
       # The patched tsc reports floatingEffect. A CI step, never `prepare`: that would also patch
       # the tsc a live profile's pilot gate runs.

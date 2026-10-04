@@ -1,12 +1,14 @@
 import assert from 'node:assert/strict';
+import {SpacemoltError,type Account} from '@spacemolt/lib';
 import test from 'node:test';
 import {mkdtempSync,writeFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
-import type {ReadinessAccount} from '../readiness.ts';
+import type {ReadinessAccount,ReadinessCommand} from '../readiness.ts';
 import {bridgeWorld,derived} from '../test-support/bridge-world.ts';
 import {bind,unbind,type Pilot} from './runtime.ts';
-import {service} from './service.ts';
+import {ServiceBlocked,ServiceUnsafe,serviceShip} from '../servicing.ts';
+import {service,serviceElsewhere} from './service.ts';
 
 // S4: `service` read the mood at the top of the job, but the quote it takes first is a command,
 // and a command is where `imposeTired()` lands. A tank under the mood's reserve is exactly what
@@ -28,7 +30,7 @@ test('the spend margin is the mood the crossing imposed, not the one service ope
   // command is what reports it.
   game.account.server.ship.fuel=10;
   const who=derived(()=>({mood:'Cautious'}),game.account);
-  bind({account:game.account as unknown as ReadinessAccount,command,
+  bind({account:game.account as unknown as Account,command,
     pilot:who,emit:()=>{}});
   try {
     const out=await service();
@@ -51,7 +53,7 @@ for(const mood of ['Tired','Cautious'] as const)
     game.account.server.ship.fuel=117;
     game.account.server.ship.hull=52;
     let who:Pilot={mood};
-    bind({account:game.account as unknown as ReadinessAccount,command:game.command,
+    bind({account:game.account as unknown as Account,command:game.command,
       pilot:()=>who,emit:()=>{}});
     try {
       const out=await service();
@@ -75,7 +77,7 @@ test('an unpriced repair that eats into the standing reserve is refused by name'
   game.account.server.ship.hull=52;
   game.account.server.player.credits=100;
   let who:Pilot={mood:'Tired',permissions:{credit_reserve:90}};
-  bind({account:game.account as unknown as ReadinessAccount,command:game.command,
+  bind({account:game.account as unknown as Account,command:game.command,
     pilot:()=>who,emit:()=>{}});
   try {
     const out=await service();
@@ -94,7 +96,7 @@ test('an unpriced counter is not tried at all with nothing above the reserve',as
   const runtime=mkdtempSync(join(tmpdir(),'spacemolt-service-'));
   writeFileSync(join(runtime,'places.json'),JSON.stringify({range_base:'deep_range'}));
   let who:Pilot={mood:'Tired',permissions:{credit_reserve:90}};
-  bind({account:game.account as unknown as ReadinessAccount,command:game.command,
+  bind({account:game.account as unknown as Account,command:game.command,
     pilot:()=>who,emit:()=>{},runtime});
   try {
     const out=await service();
@@ -118,7 +120,7 @@ test('the standing credit reserve still refuses a Tired fill, by name',async()=>
   game.account.server.ship.hull=100;
   game.account.server.player.credits=100;
   let who:Pilot={mood:'Tired',permissions:{credit_reserve:90}};
-  bind({account:game.account as unknown as ReadinessAccount,command:game.command,
+  bind({account:game.account as unknown as Account,command:game.command,
     pilot:()=>who,emit:()=>{}});
   try {
     const out=await service();
@@ -143,7 +145,7 @@ test('a Cautious refuel quoted over the 500 credit margin is filled; only the re
   game.account.server.ship.fuel=40;
   game.account.server.player.credits=1_000;
   let who:Pilot={mood:'Cautious',permissions:{credit_reserve:200}};
-  bind({account:game.account as unknown as ReadinessAccount,command,
+  bind({account:game.account as unknown as Account,command,
     pilot:()=>who,emit:()=>{}});
   try {
     const out=await service();
@@ -167,7 +169,7 @@ test('credits for only part of the bill buy the fuel and leave the repair short,
   game.account.server.ship.hull=52;
   game.account.server.player.credits=130;
   let who:Pilot={mood:'Tired'};
-  bind({account:game.account as unknown as ReadinessAccount,command:game.command,
+  bind({account:game.account as unknown as Account,command:game.command,
     pilot:()=>who,emit:()=>{}});
   try {
     const out=await service();
@@ -177,4 +179,97 @@ test('credits for only part of the bill buy the fuel and leave the repair short,
     assert.deepEqual(out.detail.issued,['spacemolt/refuel']);
     assert.match(out.why!,/repair/);
   } finally {unbind();}
+});
+
+// What the server answers for one action, in place of the world's own: a refusal, or a reply that is lost.
+const answering=(game:ReturnType<typeof bridgeWorld>,on:string,answer:(real:()=>Promise<unknown>)=>Promise<unknown>):ReadinessCommand=>
+  (action,params)=>action===on?answer(()=>game.command(action,params)):game.command(action,params);
+const flown=async<T>(game:ReturnType<typeof bridgeWorld>,command:typeof game.command,run:()=>Promise<T>,extra:Partial<Parameters<typeof bind>[0]>={})=>{
+  bind({account:game.account as unknown as Account,command,pilot:()=>({mood:'Cautious'}),emit:()=>{},...extra});
+  try {return await run();} finally {unbind();}
+};
+const thirsty=()=>{const game=bridgeWorld({services:['refuel','repair'],cargoUsed:0});game.account.server.ship.fuel=10;return game;};
+
+test('a refuel the server refuses with a code is refused, naming the action and the code',async()=>{
+  const game=thirsty();
+  const refuse=async()=>{throw new SpacemoltError('insufficient_credits','not enough credits');};
+  const out=await flown(game,answering(game,'spacemolt/refuel',refuse),()=>service());
+  assert.equal(out.status,'refused',out.why);
+  assert.match(out.why!,/spacemolt\/refuel: insufficient_credits — not enough credits/);
+  assert.equal(game.account.server.ship.fuel,10);
+});
+
+test('serviceShip still throws the lib error the server raised, not a tag',async()=>{
+  const game=thirsty();
+  const raised=new SpacemoltError('insufficient_credits','not enough credits');
+  const command=answering(game,'spacemolt/refuel',async()=>{throw raised;});
+  await assert.rejects(serviceShip(game.account as unknown as ReadinessAccount,command,{mood:'Cautious'}),error=>error===raised);
+});
+
+test('a refuel whose reply is lost is not re-sent, and is failed by name',async()=>{
+  const game=thirsty();
+  const lose=async(real:()=>Promise<unknown>)=>{await real();throw new SpacemoltError('connection_closed','the socket dropped');};
+  const out=await flown(game,answering(game,'spacemolt/refuel',lose),()=>service());
+  assert.equal(out.status,'failed',out.why);
+  assert.match(out.why!,/reply lost on spacemolt\/refuel/);
+  assert.equal(game.count('spacemolt/refuel'),1,'a mutation is never re-sent');
+  assert.equal(game.count('spacemolt/repair'),0,'nothing further is bought after a lost reply');
+});
+
+test('a counter that will not quote is a failed service naming the refusal',async()=>{
+  const game=thirsty();
+  const out=await flown(game,answering(game,'spacemolt/get_base',async()=>{throw new SpacemoltError('no_base','no base here');}),()=>service());
+  assert.equal(out.status,'failed');
+  assert.match(out.did,/would not quote/);
+  assert.match(out.why!,/spacemolt\/get_base: no_base — no base here/);
+});
+
+test('a bill the wallet cannot cover is ServiceBlocked from serviceShip, with the same message and blockers',async()=>{
+  const game=bridgeWorld({services:['refuel'],cargoUsed:0});
+  game.account.server.ship.fuel=game.account.server.ship.max_fuel;
+  game.account.server.ship.hull=52;
+  game.account.server.player.credits=90;
+  const error=await serviceShip(game.account as unknown as ReadinessAccount,game.command,{mood:'Tired',creditReserve:90}).then(()=>undefined,e=>e);
+  assert.ok(error instanceof ServiceBlocked);
+  assert.match(error.message,/^service_blocked: credits 90 leave nothing above the reserve 90/);
+  assert.equal(error.blockers.length>0,true);
+});
+
+test('a ship that is not at a dock is ServiceUnsafe, with the message it always had',async()=>{
+  const game=thirsty();
+  Reflect.deleteProperty(game.account.server.location,"docked_at");
+  const error=await serviceShip(game.account as unknown as ReadinessAccount,game.command,{mood:'Cautious'}).then(()=>undefined,e=>e);
+  assert.ok(error instanceof ServiceUnsafe);
+  assert.equal(error.message,'Servicing requires a verified dock');
+});
+
+test('a ship that moves during the fill is a failed service, not a refusal',async()=>{
+  const game=thirsty();
+  const drift=async(real:()=>Promise<unknown>)=>{const reply=await real();game.account.server.location.poi_id='belt';return reply;};
+  const out=await flown(game,answering(game,'spacemolt/refuel',drift),()=>service());
+  assert.equal(out.status,'failed',out.did);
+  assert.match(out.why!,/Ship or docking changed during servicing/);
+});
+
+test('serviceElsewhere names a base whose counter the server will not quote, in the row',async()=>{
+  const game=bridgeWorld({pois:[{id:'far_station',base_id:'far_base',base_name:'Far Base'}]});
+  const refuse=async()=>{throw new SpacemoltError('target_not_found','no such thing');};
+  const command:typeof game.command=(action,params)=>
+    action==='spacemolt/find_route'||action==='spacemolt/inspect'?refuse():game.command(action,params);
+  const rows=await flown(game,command,()=>serviceElsewhere('sol_base'));
+  assert.equal(rows.length,1);
+  assert.equal(rows[0]?.base,'far_base');
+  assert.match(rows[0]!.why,/no route quote \(spacemolt\/find_route: target_not_found — no such thing\); no price readable from here \(spacemolt\/inspect: target_not_found/);
+});
+
+test('serviceElsewhere with no listing falls back to the placed bases, unquoted when find_route refuses',async()=>{
+  const game=bridgeWorld();
+  const runtime=mkdtempSync(join(tmpdir(),'spacemolt-service-'));
+  writeFileSync(join(runtime,'places.json'),JSON.stringify({range_base:'deep_range'}));
+  const refuse=async()=>{throw new SpacemoltError('target_not_found','no such thing');};
+  const command:typeof game.command=(action,params)=>
+    action==='spacemolt/get_system'||action==='spacemolt/find_route'?refuse():game.command(action,params);
+  const rows=await flown(game,command,()=>serviceElsewhere(),{runtime});
+  assert.deepEqual(rows.map(row=>row.base),['range_base']);
+  assert.match(rows[0]!.why,/a base this pilot has placed: no route quote \(spacemolt\/find_route: target_not_found — no such thing\)/);
 });

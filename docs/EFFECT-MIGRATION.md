@@ -152,8 +152,7 @@ set is built from what has actually been observed:
    "Target system not found". The journal line carries `code` (since `db6d4527c3`), so the evidence
    improves as the pilot flies.
 2. **Tag rule.** A code gets its own `Data.TaggedError` only if it appears in the evidence **and**
-   some caller branches on it. Today that is `in_battle` → `InBattle`, `already_docked` →
-   `AlreadyDocked`, `cargo_full`/`hold_full` → `HoldFull`, and the depletion set in `mine.ts` →
+   some caller branches on it. Today that is `in_battle` → `InBattle`, `cargo_full`/`hold_full` → `HoldFull`, and the depletion set in `mine.ts` →
    `Depleted`. Every other definitive refusal is the fallback, **`Rejected {action, code, message}`**,
    which carries the raw code. Ambiguous outcomes (`command-boundary.ts`'s `uncertainCodes`, a
    pending command, or `ConnectionClosedError`) are **`ReplyLost {action, cause}`**.
@@ -217,7 +216,7 @@ its last commit.
 | U05 | trade-intel, order-book, recipe-graph | 280 | all three | 1/0/0/1 | trade-intel sends a command. |
 | U06 P | play/places, play/boundary, play/policy, play/freighter/drained, play/prose, play/exploration/*, play/industry/facilities/* | 273 | gates, prose, exploration, facilities | 2/1/4/5 | Schema for `places.json`. |
 | U07 | controller-lock, credentials, storage (src), reflect | 251 | reflect | 10/4/7/7 | The lock's race catch may keep an `edge:` marker. |
-| U08 | dock, play/counter | 76 | none direct | 1/0/2/1 | The first real Effect conversion; it sets the pattern. `AlreadyDocked`. |
+| U08 | dock, play/counter | 76 | none direct | 1/0/2/1 | The first real Effect conversion; it sets the pattern. `already_docked` stays `Rejected`, read by its code (never observed, so no tag). |
 | U09 | reconcile, travel (src) | 350 | 11 `travel-*.test.ts` | 8/3/28/5 | `InBattle` replaces `refusedInBattle`. |
 | U10 | command-boundary, settle-cargo, mine | 282 | command-boundary ×2, gates | 4/0/0/4 | `CommandBoundary` becomes Effect semantics: after a send, `ReplyLost` is fatal. Port its two tests. `HoldFull` and `Depleted`. |
 | U11 | gather-job | 245 | gather-job | 3/0/0/3 | |
@@ -351,7 +350,7 @@ controller runs each one itself.
 Check 5, as a command (the pipes are ERE alternation):
 
 ```bash
-grep -lE 'Rejected|ReplyLost|InBattle|HoldFull|AlreadyDocked|Depleted|new SpacemoltError\(' T \
+grep -lE 'Rejected|ReplyLost|InBattle|HoldFull|Depleted|new SpacemoltError\(' T \
   && ! grep -nE 'mock\.(fn|method)|spyOn' T
 ```
 
@@ -395,6 +394,7 @@ node -e 'const off=v=>["off","allow",0].includes(Array.isArray(v)?v[0]:v);
   const left=o.filter(x=>off(x.rules?.["typescript/consistent-type-assertions"])).flatMap(x=>x.files).filter(f=>!/test/.test(f));
   if(left.length){console.error("migration override list not empty:",left);process.exit(1)}'
 npm run gen:wire && git diff --exit-code -- src/wire.gen.ts src/wire-drift.gen.ts
+npm run gen:play && [ -z "$(git status --porcelain -- play.gen)" ]             # the pilot's declarations, new files too
 node scripts/surface.ts --check
 node scripts/debt.ts --zero src                                        # outside tests and *.gen.ts
 if grep -rn 'tryPromise' src --include='*.ts' | grep -v -e '^src/play/game.ts:' -e '\.test\.ts:'; then echo 'tryPromise outside Game'; exit 1; fi
@@ -500,11 +500,20 @@ SPACEMOLT_PLAYGROUND="$pg" python3 <checkout>/play.py run ~/workspace/sm-playgro
 
 Run each program to its end before the next. Then stop the daemon with SIGTERM (`kill <pid>`),
 wait for it and its `node src/bridge.ts` child to exit (the bridge ends when its stdin closes), and
-start the other version. Each `serve` boots a bridge, and each boot rotates `gameplay.jsonl`, so
+start the other version. Each `serve` points the playground's `node_modules/play` and
+`node_modules/@spacemolt` links at its own checkout (`pilotHome`, `src/run.ts`). A base that
+predates that fix keeps whatever link it finds, so the base pass imports the branch's `play`,
+which that bridge never bound, and every run breaks with "the play runtime is not bound" (F-U02's
+first branch pass): while the base lacks it, `rm` the two links before the base's `serve`. Find that bridge by its cwd, which is `<checkout>`: it is the daemon's
+child (`pgrep -P <pid>`), and `lsof -a -p <bridge pid> -d cwd -Fn` names the checkout. Never find
+it with `pgrep -f src/bridge.ts`: that also matches a live Hermes pilot's bridge, which a flight
+never touches. Each `serve` boots a bridge, and each boot rotates `gameplay.jsonl`, so
 each version's lines land in their own files.
 
 **Comparing.** For each pilot, the flight's journal files are the ones new since the flight began,
-plus the current `gameplay.jsonl`. Assign each to a version by `code_sha` on its `run started`
+plus the current `gameplay.jsonl`, less one: the flight's first boot rotates the pre-flight
+`gameplay.jsonl` (scouting, an earlier flight) to a new `gameplay.<stamp>.jsonl`, and that file's
+lines predate the flight, so it is excluded. Assign each to a version by `code_sha` on its `run started`
 lines: `jq -r 'select(.event=="run" and .phase=="started") | .code_sha' <file> | sort -u`. The
 branch passes when:
 - every `command` line with `ok:false` has a `code`, or `lost:true`: 100%;

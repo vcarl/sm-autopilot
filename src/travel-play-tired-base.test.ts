@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import type {Account} from '@spacemolt/lib';
 import test from 'node:test';
 import type {ReadinessAccount,ReadinessCommand} from './readiness.ts';
 import {FakeLibGoalAccount,type FakeCommandHandlers} from './test-support/fake-lib-account.ts';
@@ -34,7 +35,7 @@ test('a Tired pilot can goTo a base whose id equals its own POI id',async()=>{
     return account.send(tool!,action!,payload);
   };
   const pilot:Pilot={mood:'Tired'};
-  bind({account:account as unknown as ReadinessAccount,command,
+  bind({account:account as unknown as Account,command,
     pilot:()=>pilot,emit:()=>{}});
   try {
     const trip=await goTo('unknown_edge_waystation');

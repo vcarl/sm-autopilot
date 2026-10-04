@@ -1,5 +1,6 @@
 /** What `scout` hands the pilot to paste. A hint the library refuses is worse than no hint: it
  * reads as knowledge, costs a juncture to try, and the refusal arrives too late to act on. */
+import type {Account} from '@spacemolt/lib';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import type {ReadinessAccount} from '../readiness.ts';
@@ -9,7 +10,7 @@ import {bind,unbind,type Pilot} from './runtime.ts';
 
 function world(record:Pilot) {
   const game=bridgeWorld({services:['refuel','repair','storage']});
-  bind({account:game.account as unknown as ReadinessAccount,command:game.command,
+  bind({account:game.account as unknown as Account,command:game.command,
     pilot:()=>record,emit:()=>{}});
   return game;
 }

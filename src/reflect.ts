@@ -10,10 +10,11 @@
 import {readdirSync,statSync} from 'node:fs';
 import {join} from 'node:path';
 import {readJournal} from './run-record.ts';
-import {details} from './response-details.ts';
+import {Effect,Result} from 'effect';
+import {Game,GameLive,field,rawError,type GameError} from './play/game.ts';
 import type {ReadinessAccount,ReadinessCommand} from './readiness.ts';
 import {STANCES} from './rules-table.ts';
-import {viewStorage} from './storage.ts';
+import {replyBody,viewStorageEffect} from './storage.ts';
 
 /** Enough of each list to choose from; the whole report stays well under the 3 KB the
  * juncture's own context budget allows it. */
@@ -56,43 +57,40 @@ function scriptReview(ran:Map<string,ScriptRun[]>,runtime?:string):ScriptReview[
   if(!runtime)return undefined;
   let files:string[];
   try {files=readdirSync(join(runtime,'pilot')).filter(file=>file.endsWith('.ts')).sort();}
-  catch {return undefined;}
+  catch {return undefined;} // edge: the pilot's directory is its own and may not exist yet
   return files.map(file=>{
     const runs=ran.get(file)??[];
     let bytes=0;
-    try {bytes=statSync(join(runtime,'pilot',file)).size;} catch {/* listed, unreadable */}
+    try {bytes=statSync(join(runtime,'pilot',file)).size;} catch {/* listed, unreadable */} // edge: a file listed a moment ago may be gone
     return {name:file,saved:true as const,bytes,runs:runs.length,last:runs.slice(-CAP.script_runs)};
   });
 }
 
 /** One read that is allowed to fail: the game is on the other side of a socket and a
- * reflection is worth having without every counter answering. */
-async function attempt<T>(missing:string[],name:string,read:()=>Promise<T>):Promise<T|undefined> {
-  try {return await read();} catch {missing.push(name);return undefined;}
-}
+ * reflection is worth having without every counter answering. A game failure (a refusal, a lost
+ * reply) names the read in `missing`; a defect is a bug and goes up. */
+const attempt=<A,R>(missing:string[],name:string,read:Effect.Effect<A,GameError,R>)=>
+  Effect.result(read).pipe(Effect.map(done=>Result.isSuccess(done)?done.success:(missing.push(name),undefined)));
 
-export async function reflectReport(account:ReadinessAccount,command:ReadinessCommand,
-  pilot:Pilotish,runtime?:string):Promise<ReflectReport> {
+/** The rows of a skills reply: a list, or (live, C23 replay) a map keyed by skill id. */
+const skillList=(rows:unknown):unknown[]=>Array.isArray(rows)?rows
+  :typeof rows==='object'&&rows!==null?Object.values(rows):[];
+
+export const reflectReportEffect=(account:Pick<ReadinessAccount,'state'>,pilot:Pilotish,runtime?:string)=>Effect.gen(function*() {
+  const game=yield* Game;
   const missing:string[]=[];
-  await account.refresh();
+  yield* game.refresh;
   const {ship,player,modules}=account.state;
 
   // Progression desk. get_skills answers with a state section, so the account holds it
   // after the send; a reply that carries the rows directly is read from the reply.
-  const skillRows=await attempt(missing,'skills',async()=>{
-    const reply=details(await command('spacemolt/get_skills',{}));
-    const rows=reply.skills??account.state.skills;
-    // Live get_skills answers with a map keyed by skill id, not a list (C23 replay); the
-    // rows inside carry their own display name, so the map's values are the rows.
-    if(Array.isArray(rows))return rows as {name?:string;level?:number;max_level?:number}[];
-    return rows&&typeof rows==='object'
-      ?Object.values(rows) as {name?:string;level?:number;max_level?:number}[]:[];
-  });
-  const storage=await attempt(missing,'storage',()=>viewStorage(command));
-  const tax=await attempt(missing,'tax',async()=>details(await command('spacemolt/get_tax_estimate',{})));
-  const shipping=await attempt(missing,'shipping_debt',async()=>details(await command('spacemolt_shipping/profile',{})));
+  const skillRows=yield* attempt(missing,'skills',game.command('spacemolt/get_skills',{}).pipe(
+    Effect.map(reply=>skillList(field(replyBody(reply),'skills')??account.state.skills))));
+  const storage=yield* attempt(missing,'storage',viewStorageEffect());
+  const tax=yield* attempt(missing,'tax',game.command('spacemolt/get_tax_estimate',{}).pipe(Effect.map(replyBody)));
+  const shipping=yield* attempt(missing,'shipping_debt',game.command('spacemolt_shipping/profile',{}).pipe(Effect.map(replyBody)));
   const taxDue=tax===undefined?undefined
-    :Number(tax.income_tax_total??0)+Number(tax.property_tax_total??0)-Number(tax.tax_prepaid??0);
+    :Number(field(tax,'income_tax_total')??0)+Number(field(tax,'property_tax_total')??0)-Number(field(tax,'tax_prepaid')??0);
 
   // The journal is the account of past work; the present came from the live reads above.
   // A shift now writes a line per step and per game command, so the history reflection needs
@@ -106,49 +104,62 @@ export async function reflectReport(account:ReadinessAccount,command:ReadinessCo
   let baseline:{at:string;levels:Map<string,number>}|undefined;
   const ranJobs=new Map<string,number>(),ranScripts=new Map<string,ScriptRun[]>();
   const recent:ReflectReport['recent']=[];
+  const text=(value:unknown)=>typeof value==='string'?value:undefined;
   for(const entry of journal) {
-    if(entry.event==='reflection'&&entry.stance)chosen.add(String(entry.stance));
+    const event=field(entry,'event'),stance=field(entry,'stance');
+    if(event==='reflection'&&stance)chosen.add(String(stance));
     // `reflection_read` is what a script's `reflection()` journals; a `reflect` request is the same
     // rows as an older bridge journalled them.
-    const past=entry.event==='reflection_read'?entry.skills
-      :entry.request?.action==='reflect'?entry.response?.result?.skills:undefined;
+    const past=event==='reflection_read'?field(entry,'skills')
+      :field(field(entry,'request'),'action')==='reflect'?field(field(field(entry,'response'),'result'),'skills'):undefined;
     if(!baseline&&Array.isArray(past)&&past.length)
-      baseline={at:String(entry.at??'an unrecorded time'),
-        levels:new Map(past.filter((row:any)=>typeof row?.level==='number').map((row:any)=>[String(row.name),row.level as number]))};
-    if(entry.event==='run'&&entry.phase==='ended') {
-      recent.push({script:entry.script,outcome:entry.outcome,reason:entry.reason});
-      const name=String(entry.script??'');
-      if(name)(ranScripts.get(name)??ranScripts.set(name,[]).get(name)!)
-        .push({outcome:entry.outcome,reason:String(entry.reason??'').slice(0,CAP.reason)});
+      baseline={at:String(field(entry,'at')??'an unrecorded time'),
+        levels:new Map(past.flatMap((row):[string,number][]=>{
+          const level=field(row,'level');
+          return typeof level==='number'?[[String(field(row,'name')),level]]:[];
+        }))};
+    if(event==='run'&&field(entry,'phase')==='ended') {
+      const script=text(field(entry,'script')),outcome=text(field(entry,'outcome')),reason=text(field(entry,'reason'));
+      recent.push({...script===undefined?{}:{script},...outcome===undefined?{}:{outcome},...reason===undefined?{}:{reason}});
+      const name=String(field(entry,'script')??'');
+      if(name) {
+        const runs=ranScripts.get(name)??[];
+        ranScripts.set(name,runs);
+        runs.push({...outcome===undefined?{}:{outcome},reason:String(field(entry,'reason')??'').slice(0,CAP.reason)});
+      }
       // `work` is the run's first work call, as `run` journals it (`runSummary`).
-      if(entry.work?.fn)ranJobs.set(String(entry.work.fn),(ranJobs.get(String(entry.work.fn))??0)+1);
+      const fn=field(field(entry,'work'),'fn');
+      if(fn)ranJobs.set(String(fn),(ranJobs.get(String(fn))??0)+1);
     }
   }
 
-  const skills=skillRows?.filter(row=>typeof row?.level==='number')
-    .sort((a,b)=>(a.level!-b.level!)||String(a.name).localeCompare(String(b.name)))
+  const base=baseline;
+  const skills=skillRows?.flatMap(row=>{
+    const level=field(row,'level');
+    return typeof level==='number'?[{name:String(field(row,'name')),level,max_level:Number(field(row,'max_level')??0)}]:[];
+  }).sort((a,b)=>(a.level-b.level)||a.name.localeCompare(b.name))
     .slice(0,CAP.skills)
     .map(row=>{
-      const was=baseline?.levels.get(String(row.name));
-      return {name:String(row.name),level:row.level!,max_level:Number(row.max_level??0),
-        ...was===undefined||was===row.level?{}:{was,since:baseline!.at}};
+      const was=base?.levels.get(row.name);
+      return {...row,...base===undefined||was===undefined||was===row.level?{}:{was,since:base.at}};
     });
 
   const scripts=scriptReview(ranScripts,runtime);
   const stagnation:string[]=[];
   const runCount=recent.length;
   const kinds=[...ranJobs.entries()].sort((a,b)=>b[1]-a[1]);
-  if(runCount>=3&&kinds.length===1)
-    stagnation.push(`every run in the journal's span led with ${kinds[0]![0]} (${kinds[0]![1]} of them)`);
+  const [lead]=kinds;
+  if(runCount>=3&&kinds.length===1&&lead)
+    stagnation.push(`every run in the journal's span led with ${lead[0]} (${lead[1]} of them)`);
   const untried=STANCES.map(stance=>stance.name).filter(name=>!chosen.has(name));
   if(untried.length)stagnation.push(`stances never chosen: ${untried.join(', ')}`);
 
-  return {
+  const report:ReflectReport={
     ...pilot.objective?{objective:pilot.objective}:{},
     ...pilot.objective_done?{objective_done:true}:{},
     ...skills?.length?{skills}:{},
-    ship:{fuel:ship?.fuel as number,max_fuel:ship?.max_fuel as number,hull:ship?.hull as number,
-      max_hull:ship?.max_hull as number,cargo_capacity:ship?.cargo_capacity as number,
+    ship:{fuel:ship?.fuel??0,max_fuel:ship?.max_fuel??0,hull:ship?.hull??0,
+      max_hull:ship?.max_hull??0,cargo_capacity:ship?.cargo_capacity??0,
       modules:(Array.isArray(modules)?modules:[]).map(row=>String(row.type_id))},
     holdings:{credits:player?.credits??0,
       storage:(storage?.locations??[]).slice(0,CAP.bases)
@@ -156,15 +167,30 @@ export async function reflectReport(account:ReadinessAccount,command:ReadinessCo
       ...storage?.items.length?{here:storage.items.slice(0,CAP.items)
         .map(row=>({item_id:row.item_id,quantity:row.quantity}))}:{}},
     owes:{...taxDue===undefined?{}:{tax_due:taxDue},
-      ...shipping===undefined?{}:{shipping_debt:Number(shipping.profile?.outstanding_debt??0),
-        carrier_tier:String(shipping.profile?.tier??'unknown')}},
+      ...shipping===undefined?{}:{shipping_debt:Number(field(field(shipping,'profile'),'outstanding_debt')??0),
+        carrier_tier:String(field(field(shipping,'profile'),'tier')??'unknown')}},
     recent:recent.slice(-CAP.runs),
     ...scripts?.length?{scripts}:{},
     stagnation,
     stances:STANCES.map(stance=>stance.name),
     // The ship's fit against each stance's needs has no table behind it yet: D7 names the
     // counters a stance points at, never a hull or a module a stance requires.
-    missing:[...missing,'ship fit against each stance (no per-stance ship requirement exists yet)',
+    // No ship in the account's state: the zeros above are not readings, so say so.
+    missing:[...missing,...ship?[]:['ship'],'ship fit against each stance (no per-stance ship requirement exists yet)',
       ...baseline?[]:['earlier skill levels (no reflection inside the journal\'s span to measure movement from)']],
   };
+  return report;
+});
+
+/** The Promise twin of `reflectReportEffect`, for the pilot's `reflection()` until it is converted.
+ * A failure exit throws the raw error, as `command()` and `account.refresh()` do. */
+export async function reflectReport(account:ReadinessAccount,command:ReadinessCommand,
+  pilot:Pilotish,runtime?:string):Promise<ReflectReport> {
+  // The refresh runs here, not as the layer's seam: the outer layer would re-read again on every
+  // lost reply, on top of the binding's own command path that already does.
+  await account.refresh();
+  const exit=await Effect.runPromiseExit(reflectReportEffect(account,pilot,runtime).pipe(
+    Effect.provide(GameLive({send:command}))));
+  if(exit._tag==='Failure')throw rawError(exit.cause); // bridge: U18 (its conversion calls the twin and deletes this)
+  return exit.value;
 }

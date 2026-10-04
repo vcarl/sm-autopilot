@@ -38,7 +38,7 @@ const FIELDS=['ship_id','system_id','poi_id','docked_at','in_transit','incapacit
 
 /** The pilot's own respawn point, as the player record gives it (`set_home` sets it). */
 const atHome=(to:Position,state:GameState)=>{
-  const player=state?.player as {home_base?:string;home_poi?:string;home_system?:string}|undefined;
+  const player=state?.player;
   if(!player?.home_base)return false;
   return to.docked_at===player.home_base||
     (Boolean(player.home_poi)&&to.poi_id===player.home_poi&&

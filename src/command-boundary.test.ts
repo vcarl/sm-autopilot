@@ -1,32 +1,44 @@
-import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {SpacemoltError,ConnectionClosedError} from '@spacemolt/lib';
-import {CommandBoundary} from './command-boundary.ts';
+import test from 'node:test';
+import {ConnectionClosedError,SpacemoltError} from '@spacemolt/lib';
+import {Effect} from 'effect';
+import {mineToFullEffect} from './mine.ts';
+import {ReplyLost} from './play/game.ts';
+import {mineLive,mineTwin,mineWorld as world} from './test-support/mine-world.ts';
 
-test('a swallowed uncertain later substep prevents subsequent sends and outer success',async()=>{
-  for(const error of [new Error('transport failure'),new ConnectionClosedError('socket closed',1006),new SpacemoltError('mutation_timeout','no result'),new SpacemoltError('facility_required','Request rejected while another command is pending',{pendingCommand:'buy'})]){
-    const boundary=new CommandBoundary();let sends=0;
-    await boundary.run(async(sent,completed)=>{sent();sends++;completed();});
-    await boundary.run(async(sent)=>{sent();sends++;throw error;}).catch(()=>({partial:true}));
-    await assert.rejects(boundary.run(async(sent)=>{sent();sends++;}),error);
-    assert.throws(()=>boundary.assertHealthy(),error);
-    assert.equal(sends,2);
-    assert.deepEqual(boundary.status(error),{outcome_unknown:true,fatal:true,action_completed:false});
+// The error channel is the latch: a lost reply to a send, or a read that fails after a send, ends
+// the composite, so nothing after it is sent. These ran against CommandBoundary before.
+
+test('a lost reply to a mutation is reconciled by a read, and no further mutation is sent',async()=>{
+  for(const lost of [new ConnectionClosedError('socket closed',1006),new SpacemoltError('mutation_timeout','no result'),
+    new SpacemoltError('facility_required','Request rejected while another command is pending',{pendingCommand:'buy'})]) {
+    const w=world(()=>{throw lost;});
+    assert.equal((await mineTwin(w)).outcome,'failed');
+    assert.equal(w.mines(),1);
   }
 });
 
-test('post-send refresh failures latch, but known game rejections remain recoverable',async()=>{
-  const boundary=new CommandBoundary();
-  const rejection=new SpacemoltError('no_resources','depleted');
-  await boundary.run(async(sent)=>{sent();throw rejection;}).catch(()=>{});
-  boundary.assertHealthy();
-  assert.equal(boundary.status(rejection).fatal,false);
-  const failure=new Error('canonical refresh lost');let sends=0;
-  const account={async send(){sends++;return {};},async refresh(){throw failure;}};
-  // A send that completed, then a failed canonical refresh: the shape every mutation runs.
-  await boundary.run(async(sent,completed)=>{sent();await account.send();completed();await account.refresh();}).catch(()=>{});
-  assert.throws(()=>boundary.assertHealthy(),failure);
-  await assert.rejects(boundary.run(async()=>{sends++;}),failure);
-  assert.equal(sends,1);
-  assert.deepEqual(boundary.status(failure),{outcome_unknown:false,fatal:true,action_completed:true});
+test('a plain Error from the seam is a defect and also halts, raw',async()=>{
+  const raised=new Error('transport failure');
+  const w=world(()=>{throw raised;});
+  assert.equal(await mineTwin(w).then(()=>undefined,e=>e),raised);
+  assert.equal(w.mines(),1);
+});
+
+test('a known rejection is handled by its tag and ends the composite cleanly',async()=>{
+  const w=world(()=>{throw new SpacemoltError('no_resources','depleted');});
+  assert.equal((await mineTwin(w)).outcome,'depleted');
+  assert.equal(w.mines(),1);
+});
+
+test('a refresh that fails after a send fails the composite, with no further send',async()=>{
+  const lost=new ConnectionClosedError('canonical refresh lost');
+  const w=world(fake=>{fake.refresh=async()=>{throw lost;};return {ok:true};});
+  const failed=await Effect.runPromise(Effect.flip(mineToFullEffect(w.fake)).pipe(Effect.provide(mineLive(w))));
+  assert.ok(failed instanceof ReplyLost&&failed.cause===lost);
+  assert.equal(w.mines(),1);
+  const defect=new Error('canonical refresh broke');
+  const d=world(fake=>{fake.refresh=async()=>{throw defect;};return {ok:true};});
+  assert.equal(await mineTwin(d).then(()=>undefined,e=>e),defect);
+  assert.equal(d.mines(),1);
 });

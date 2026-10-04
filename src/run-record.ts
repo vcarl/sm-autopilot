@@ -6,28 +6,46 @@
  */
 import {appendFileSync,existsSync,mkdirSync,readdirSync,readFileSync,renameSync,statSync,writeFileSync} from 'node:fs';
 import {join} from 'node:path';
-import type {Question} from './play/runtime.ts';
+import {Option,Schema} from 'effect';
 import {details} from './response-details.ts';
 import {replyLost} from './command-boundary.ts';
 
-export interface RunRecord {
-  script:string;
+export const isRecord=(value:unknown):value is Record<string,unknown>=>typeof value==='object'&&value!==null;
+
+/** What `ask()` leaves in run.json; `play/runtime.ts`'s `Question` is the same shape. */
+const Question=Schema.Struct({question:Schema.String,choices:Schema.optionalKey(Schema.mutable(Schema.Array(Schema.String))),asked_at:Schema.String});
+const open=Schema.Record(Schema.String,Schema.Unknown);
+// A record that cannot name its script and start is not a run (`readRun`); the run's own code
+// moves `ended`, `last_job`, `outcome` and `question` as it flies, so those keys stay mutable.
+// Struct decode drops unknown keys and `closeInterrupted` writes the record back: every key a
+// writer sets (run.ts, play/runtime.ts) is named here.
+export const RunRecord=Schema.Struct({
+  script:Schema.NonEmptyString,
   /** The sha of the program that ran; the text is kept at `programs/<sha>.ts`. */
-  source?:string;
-  params?:Record<string,unknown>;
+  source:Schema.optionalKey(Schema.String),
+  params:Schema.optionalKey(open),
   /** The run's identity: no counter, no ids to keep unique across restarts. */
-  started:string;
+  started:Schema.NonEmptyString,
   /** When the context this run was written from was rendered. An instruction given after it
    * was never seen, so this run does not consume it (juncture.py's `_pending_instruction`). */
-  juncture_at?:string;
-  last_job?:string;
-  last_step?:string;
-  ended:boolean;
+  juncture_at:Schema.optionalKey(Schema.String),
+  last_job:Schema.optionalKey(Schema.String).pipe(Schema.mutableKey),
+  last_step:Schema.optionalKey(Schema.String),
+  ended:Schema.Boolean.pipe(Schema.mutableKey),
   /** Present exactly when the run ended: the same shape the juncture reads as `last`. */
-  outcome?:Record<string,unknown>;
+  outcome:Schema.optionalKey(open).pipe(Schema.mutableKey),
   /** Present while the program is paused on `ask()`: what the juncture gate wakes the pilot for. */
-  question?:Question;
-}
+  question:Schema.optionalKey(Question).pipe(Schema.mutableKey),
+});
+export type RunRecord=typeof RunRecord.Type;
+
+/** One gameplay.jsonl line: `at` and `event` when the writer stamped them (the old
+ * request/response pairs carry no `event`), every other key as written. */
+export const JournalLine=Schema.StructWithRest(
+  Schema.Struct({at:Schema.optionalKey(Schema.String),event:Schema.optionalKey(Schema.String)}),[open]);
+export type JournalLine=typeof JournalLine.Type;
+const decodeRun=Schema.decodeUnknownOption(Schema.fromJsonString(RunRecord));
+const decodeLine=Schema.decodeUnknownOption(Schema.fromJsonString(JournalLine));
 
 /** Temp file then rename: a torn write would tell a restarting bridge a lie about the pilot. */
 export function writeRun(runtime:string,record:RunRecord):void {
@@ -39,10 +57,8 @@ export function writeRun(runtime:string,record:RunRecord):void {
 
 /** No record, or one too broken to name a script, is the same answer: nothing to resume. */
 export function readRun(runtime:string):RunRecord|null {
-  try {
-    const stored=JSON.parse(readFileSync(join(runtime,'run.json'),'utf8')) as RunRecord;
-    return stored?.script&&stored.started?stored:null;
-  } catch {return null;}
+  const path=join(runtime,'run.json');
+  return existsSync(path)?Option.getOrNull(decodeRun(readFileSync(path,'utf8'))):null;
 }
 
 /** The last error line the previous bridge wrote to its stderr log: the one the gateway rotated
@@ -52,11 +68,8 @@ export function readRun(runtime:string):RunRecord|null {
  * ponytail: an appended log spans every boot, so its last error may be an older bridge's; read
  * from the last boot marker if that ever misleads. */
 export function lastBridgeError(runtime:string):string|undefined {
-  let rotated:string[]=[];
-  try {rotated=readdirSync(runtime).filter(name=>/^bridge\.stderr\..+\.log$/.test(name)).sort().slice(-1);} catch {/* no runtime yet */}
-  const lines=[...rotated,'bridge.stderr.log'].flatMap(name=>{
-    try {return readFileSync(join(runtime,name),'utf8').split('\n');} catch {return [];}
-  });
+  const rotated=existsSync(runtime)?readdirSync(runtime).filter(name=>/^bridge\.stderr\..+\.log$/.test(name)).sort().slice(-1):[];
+  const lines=[...rotated,'bridge.stderr.log'].flatMap(name=>existsSync(join(runtime,name))?readFileSync(join(runtime,name),'utf8').split('\n'):[]);
   return lines.findLast(line=>/^[A-Za-z]*(Error|Exception)\b/.test(line))?.trim().slice(0,300);
 }
 
@@ -80,8 +93,7 @@ export function closeInterrupted(runtime:string):RunRecord|null {
 /** The journal files newest first: `gameplay.jsonl`, then each `gameplay.<UTC stamp>.jsonl` a
  * boot rotated away. The stamps sort as time. */
 function journalFiles(runtime:string):string[] {
-  let rotated:string[]=[];
-  try {rotated=readdirSync(runtime).filter(name=>/^gameplay\..+\.jsonl$/.test(name)).sort().reverse();} catch {/* no runtime yet */}
+  const rotated=existsSync(runtime)?readdirSync(runtime).filter(name=>/^gameplay\..+\.jsonl$/.test(name)).sort().reverse():[];
   return ['gameplay.jsonl',...rotated].map(name=>join(runtime,name));
 }
 
@@ -92,15 +104,13 @@ function journalFiles(runtime:string):string[] {
  *
  * ponytail: each file is read whole and the tail kept. Rest happens once an evening, so a
  * few MB costs nothing; seek from the end if a journal ever outgrows that. */
-export function readJournal(runtime:string,limit=400):Record<string,any>[] {
+export function readJournal(runtime:string,limit=400):JournalLine[] {
   let lines:string[]=[];
   for(const path of journalFiles(runtime)) {
     if(lines.length>=limit)break;
-    try {lines=[...readFileSync(path,'utf8').split('\n').filter(line=>line.trim()),...lines];} catch {/* absent */}
+    if(existsSync(path))lines=[...readFileSync(path,'utf8').split('\n').filter(line=>line.trim()),...lines];
   }
-  return lines.slice(-limit).flatMap(line=>{
-    try {return [JSON.parse(line) as Record<string,any>];} catch {return [];}
-  });
+  return lines.slice(-limit).flatMap(line=>Option.toArray(decodeLine(line)));
 }
 
 /** A bridge's boot, in the journal: a non-empty `gameplay.jsonl` is renamed to
@@ -150,7 +160,7 @@ export function journalRun(runtime:string,entry:Record<string,unknown>,event='ru
   const line={at:new Date().toISOString(),event,...entry.freighter===undefined?stamp:{},...entry};
   appendFileSync(join(runtime,'gameplay.jsonl'),`${JSON.stringify(line)}\n`,{mode:0o600});
   // A listener that throws is its own problem: it never costs the pilot the line on disk.
-  for(const fn of listeners)try {fn(line);} catch {/* the journal is written; the reader is not the record */}
+  for(const fn of listeners)try {fn(line);} catch {/* the journal is written; the reader is not the record */} // edge: a listener is another reader's code
 }
 
 const SUMMARY_CHARS=120;
@@ -169,7 +179,7 @@ export function journalCommand(runtime:string,action:string,params:Record<string
   const who=freighter?{freighter}:{};
   // `ms` is wall time around the lib's send, its own rate-limit retries included; `code` is the
   // error's own code (the game's string, or a socket close number), the thing to count by.
-  const code=ok?undefined:(reply as {code?:unknown}|null)?.code;
+  const code=ok||!isRecord(reply)?undefined:reply.code;
   // `lost`: the reply is gone, not the outcome (`replyLost`, the same test `classify` makes).
   journalRun(runtime,{tool,action:name,params:scalars,ok,summary:summarise(ok,reply),
     ...ms===undefined?{}:{ms},...code===undefined?{}:{code},...!ok&&replyLost(reply)?{lost:true}:{},...who},'command');
@@ -177,9 +187,9 @@ export function journalCommand(runtime:string,action:string,params:Record<string
   const held=quoted?.action===action&&(quoted.id===undefined||quoted.id===params?.id)?quoted.quote:undefined;
   if(quoted?.action===action)quoted=null;
   if(!ok)return;
-  const body=details(reply);
-  const fact=TELEMETRY[name]?.(body);
-  if(fact)journalRun(runtime,{...fact,...held?{quote:held}:{},...who},fact.event as string);
+  const raw=details(reply);
+  const fact=TELEMETRY[name]?.(isRecord(raw)?raw:{});
+  if(fact)journalRun(runtime,{...fact,...held?{quote:held}:{},...who},fact.event);
 }
 
 /** The socket's own life on the journal: each reconnect attempt, its success, and a connection
@@ -200,14 +210,17 @@ export function quoteNext(action:string,id:unknown,quote:Record<string,unknown>)
 
 const unit=(total:unknown,quantity:unknown)=>Number(quantity)>0&&Number.isFinite(Number(total))?Number(total)/Number(quantity):null;
 /** ponytail: fills capped at 10 rows; a deeper walk of the book is summarised by total/quantity. */
-const fills=(body:Record<string,any>)=>(Array.isArray(body.fills)?body.fills:[]).slice(0,10)
-  .map((f:any)=>({price_each:f.price_each,quantity:f.quantity}));
-const pick=(body:Record<string,any>,keys:string[])=>Object.fromEntries(keys.filter(key=>body[key]!==undefined).map(key=>[key,body[key]]));
+const fills=(body:Record<string,unknown>)=>{
+  const rows:unknown[]=Array.isArray(body.fills)?body.fills:[];
+  return rows.slice(0,10).flatMap(f=>isRecord(f)?[{price_each:f.price_each,quantity:f.quantity}]:[]);
+};
+const pick=(body:Record<string,unknown>,keys:string[])=>Object.fromEntries(keys.filter(key=>body[key]!==undefined).map(key=>[key,body[key]]));
 const MISSION_KEYS=['mission_id','title','type','template_id','expires_at','credits_earned','credits_promised',
   'credits_shortfall','items_received','skill_xp_gained','reputation_changes','chain_next'];
 /** The facts a reply carries that the journal keeps as their own event, raw: a trade's unit
  * price, a mission's id and reward. Read off replies the seam already has; nothing is asked. */
-const TELEMETRY:Record<string,(body:Record<string,any>)=>Record<string,unknown>|null>={
+type Fact=Record<string,unknown>&{event:string};
+const TELEMETRY:Record<string,(body:Record<string,unknown>)=>Fact|null>={
   sell:body=>({event:'trade',side:'sell',item_id:body.item_id,quantity:body.quantity_sold,total:body.total_earned,
     unit_price:unit(body.total_earned,body.quantity_sold),fills:fills(body)}),
   buy:body=>({event:'trade',side:'buy',item_id:body.item_id,quantity:body.quantity,total:body.total_cost,
@@ -224,9 +237,9 @@ const TELEMETRY:Record<string,(body:Record<string,any>)=>Record<string,unknown>|
 /** The reply in one short string: what the game says it did, when, and what went wrong. */
 function summarise(ok:boolean,reply:unknown):string {
   if(!ok)return text(reply instanceof Error?reply.message:reply).slice(0,SUMMARY_CHARS);
-  let body:Record<string,any>={};
-  try {body=(reply as any)?.structuredContent??(reply as any)?.delta?.details??reply??{};} catch {/* not an object */}
-  if(typeof body!=='object'||body===null)return text(body).slice(0,SUMMARY_CHARS);
+  const delta=isRecord(reply)&&isRecord(reply.delta)?reply.delta.details:undefined;
+  const body:unknown=(isRecord(reply)?reply.structuredContent:undefined)??delta??reply??{};
+  if(!isRecord(body))return text(body).slice(0,SUMMARY_CHARS);
   const bits=[text(body.command??body.action??body.kind),
     body.tick===undefined?'':`tick ${text(body.tick)}`,
     text(body.error??body.message)];

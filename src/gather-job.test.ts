@@ -1,7 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import {ConnectionClosedError,SpacemoltError} from '@spacemolt/lib';
+import {Effect,Fiber,Layer} from 'effect';
+import {TestClock} from 'effect/testing';
 import type {ReadinessAccount,ReadinessCommand} from './readiness.ts';
-import {gatherJob,type GatherOptions,type GatherPlan} from './gather-job.ts';
+import {gatherJob,gatherJobEffect,type GatherOptions,type GatherOutcome,type GatherPlan} from './gather-job.ts';
+import {GameLive} from './play/game.ts';
+import type {MineYieldRow} from './mine.ts';
 
 // Recording handler-map fixture in the C9 style: the server is independent of the cache
 // and only a refresh exposes it. This station quotes EVERY item it is shown and has a
@@ -80,7 +85,7 @@ function fixture() {
     assert.ok(Object.hasOwn(handlers,action),`Unexpected command: ${action}`);
     return handlers[action]!(params??{});
   };
-  return {server,account,calls,
+  return {server,account,calls,handlers,command,
     // The plan is the caller's own object, so a test may move its mood mid-job the way the
     // runtime does, and hand the job the hooks a runner passes it.
     run:(plan:GatherPlan={home,site,mood:'Cautious'},options?:GatherOptions)=>
@@ -175,4 +180,95 @@ test('the service at the end is quoted on the mood in force now, not the plannin
   assert.deepEqual(result.steps.filter(step=>step.name==='service').map(step=>step.outcome),['done']);
   assert.equal(result.serviced?.spent,550);
   assert.equal(f.server.ship.fuel,TANK);
+});
+
+// A deposit the server refuses is a world the pilot can answer: the take stays aboard, the
+// server's own words reach the gap, and nothing is sent twice.
+test('a refused deposit ends the settle step blocked with the server\'s message, sent once',async()=>{
+  const f=fixture();
+  f.handlers['spacemolt_storage/deposit']=()=>{throw new SpacemoltError('storage_full','the store is full');};
+  const result=await f.run();
+  assert.equal(result.outcome,'blocked');
+  assert.equal(result.steps.at(-1)?.name,'settle');
+  assert.match(result.reason??'',/settle blocked: ore: the store is full/);
+  assert.deepEqual(result.settled?.unsettled.map(row=>row.gap),['the store is full']);
+  assert.equal(f.calls.filter(call=>call.action==='spacemolt_storage/deposit').length,1);
+});
+
+// A lost reply is not an outcome: the read says nothing moved, so it is reported unsettled. A
+// mutation is never re-sent on ReplyLost (docs/EFFECT.md), so the deposit goes out exactly once.
+test('a deposit whose reply is lost and moved nothing is sent once and left unsettled',async()=>{
+  const f=fixture();
+  f.handlers['spacemolt_storage/deposit']=()=>{throw new SpacemoltError('mutation_timeout','no reply in time');};
+  const result=await f.run();
+  assert.equal(result.outcome,'blocked');
+  assert.deepEqual(result.settled?.unsettled.map(row=>row.gap),
+    ['deposit did not clear: cargo -0 after no reply in time']);
+  assert.equal(f.calls.filter(call=>call.action==='spacemolt_storage/deposit').length,1);
+});
+
+test('a refused storage view means no store: the take is held, not a failure',async()=>{
+  const f=fixture();
+  f.handlers['spacemolt_storage/view']=()=>{throw new SpacemoltError('no_storage','no storage at this station');};
+  const result=await f.run();
+  assert.equal(result.outcome,'done',result.reason);
+  assert.deepEqual(result.settled?.held,[{item_id:'ore',quantity:4}]);
+  assert.deepEqual(f.calls.filter(call=>call.action==='spacemolt_storage/deposit'),[]);
+});
+
+// A lost reply on the store probe is not "no store": the read is retried and the take stowed.
+test('a lost storage view is read again, not taken for no store',async()=>{
+  const f=fixture();
+  const view=f.handlers['spacemolt_storage/view']!;
+  let lost=1;
+  f.handlers['spacemolt_storage/view']=params=>{if(lost-->0)throw new SpacemoltError('query_timeout','no reply in time');return view(params);};
+  const views=()=>f.calls.filter(call=>call.action==='spacemolt_storage/view').length;
+  // The backoff runs on the TestClock: time moves only when the test moves it.
+  const result:GatherOutcome=await Effect.runPromise(Effect.gen(function*() {
+    const fiber=yield* Effect.forkChild(gatherJobEffect(f.account,f.command,{home,site,mood:'Cautious'}));
+    for(let tick=0;views()<2&&tick<10;tick++) {
+      yield* TestClock.adjust('1 second');
+      yield* Effect.promise(()=>new Promise(resolve=>setImmediate(resolve)));
+    }
+    return yield* Fiber.join(fiber);
+  }).pipe(Effect.provide(Layer.mergeAll(GameLive({send:f.command}),TestClock.layer()))));
+  assert.equal(result.outcome,'done',result.reason);
+  assert.deepEqual(result.settled?.deposited,[{item_id:'ore',quantity:4}]);
+  assert.equal(views(),2);
+});
+
+// Live F-U02 (TestPilot.cv, 2026-10-02): `no_mining` read as a broken script, and its why said
+// "mine failed: mine failed: no_mining: …". A refusal is a world the pilot can answer: the job is
+// blocked (gatherUntil's `refused`), named once, in the server's code.
+test('a mine refusal blocks the job in the server\'s code, naming the step once',async()=>{
+  const f=fixture();
+  f.handlers['spacemolt/mine']=()=>{throw new SpacemoltError('no_mining','No mining equipment');};
+  const result=await f.run();
+  assert.equal(result.outcome,'blocked');
+  assert.deepEqual(result.steps.at(-1),{name:'mine',outcome:'blocked',reason:'no_mining: No mining equipment'});
+  assert.equal(result.reason,'mine blocked: no_mining: No mining equipment');
+});
+
+// The journal must show what landed: a refusal after two ticks keeps their measured ore.
+test('a mine refusal after ticks that landed keeps their ore in the job\'s yield',async()=>{
+  const f=fixture();
+  const mine=f.handlers['spacemolt/mine']!;
+  let ticks=0;
+  f.server.ship.cargo_capacity=30; // room for a third tick, which is refused
+  f.handlers['spacemolt/mine']=params=>{if(ticks++<2)return mine(params);throw new SpacemoltError('in_battle','You are in battle');};
+  const moved:MineYieldRow[][]=[];
+  const result=await f.run(undefined,{onStep:(step,rows)=>{if(step.name==='mine')moved.push(rows.yield);}});
+  assert.equal(result.outcome,'blocked');
+  assert.equal(result.reason,'mine blocked: in_battle: You are in battle');
+  assert.deepEqual(result.yield,[{item_id:'ore',quantity:4}]);
+  assert.deepEqual(moved,[[{item_id:'ore',quantity:4}]]);
+});
+
+test('a reply lost to a read mid-mine fails the job, naming the read',async()=>{
+  const f=fixture();
+  const mine=f.handlers['spacemolt/mine']!;
+  f.handlers['spacemolt/mine']=params=>{f.account.refresh=async()=>{throw new ConnectionClosedError('socket closed');};return mine(params);};
+  const result=await f.run();
+  assert.equal(result.outcome,'failed');
+  assert.equal(result.reason,'mine failed: refresh: ConnectionClosedError: socket closed');
 });

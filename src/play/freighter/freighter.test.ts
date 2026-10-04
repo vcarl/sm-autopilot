@@ -228,7 +228,7 @@ test('assign proceeds with cargo the new circuit never sells, and says what it t
   (world.account.server.player as {username?:string}).username='B';
   writeFleet(runtime,{hauler:{state:'parked',circuit:GEMS,float:5_000,owner:'B',lap:3,returned:0,
     holding:{copper_wiring:{quantity:4,cost:40}},why:'recalled',at:''}});
-  bind({account:world.account as unknown as ReadinessAccount,command:world.command,pilot:()=>({mood:'Focused'}),
+  bind({account:world.account as unknown as Account,command:world.command,pilot:()=>({mood:'Focused'}),
     emit:()=>{},runtime});
   try {
     await world.account.refresh();
@@ -243,7 +243,7 @@ test('assign proceeds with cargo the new circuit never sells, and says what it t
 test('assign refuses an open path, and writes nothing',async()=>{
   const runtime=mkdtempSync(join(tmpdir(),'freighter-assign-'));
   const world=bridgeWorld({});
-  bind({account:world.account as unknown as ReadinessAccount,command:world.command,pilot:()=>({mood:'Focused'}),
+  bind({account:world.account as unknown as Account,command:world.command,pilot:()=>({mood:'Focused'}),
     emit:()=>{},runtime});
   try {
     const open={...GEMS,closed:false} as unknown as Circuit;
@@ -261,7 +261,7 @@ test('assign takes a circuit whose bases are known only from the faction ledger,
   const world=bridgeWorld({tradeIntel:[{base_id:'sol_base',items:[{item_id:'gem',best_buy:0,best_sell:100,sell_volume:50}]},
     {base_id:'range_base',items:[{item_id:'gem',best_buy:130,buy_volume:50}]}]});
   (world.account.server.player as {username?:string}).username='B';
-  bind({account:world.account as unknown as ReadinessAccount,command:world.command,pilot:()=>({mood:'Focused'}),
+  bind({account:world.account as unknown as Account,command:world.command,pilot:()=>({mood:'Focused'}),
     emit:()=>{},runtime});
   try {
     await world.account.refresh();
@@ -345,7 +345,7 @@ test('a drained ring rests: routes passes over it and says so, and reassign assi
   const world=bridgeWorld({services:['refuel','repair','storage'],cargo:[],cargoUsed:0,cargoCapacity:50,
     pois:[{id:'twin',base_id:'twin_base'}],markets:{sol_base:[{item_id:'gem',best_buy:0,best_buy_qty:0,best_sell:100,best_sell_qty:50}]}});
   (world.account.server.player as {username?:string}).username='B';
-  bind({account:world.account as unknown as ReadinessAccount,command:world.command,pilot:()=>({mood:'Focused',stance:'Trader'}),
+  bind({account:world.account as unknown as Account,command:world.command,pilot:()=>({mood:'Focused',stance:'Trader'}),
     emit:()=>{},runtime});
   try {
     await world.account.refresh();
@@ -391,7 +391,7 @@ test('parked, cargo sold by hand, then assigned: lap 1 counts no phantom stock, 
   writeFleet(runtime,{hauler:{state:'parked',circuit:GEMS,float:5_000,owner:'B',lap:3,returned:0,
     holding:{copper_wiring:{quantity:100,cost:714}},why:'recalled',at:''}});
   (sold.world.account.server.player as {username?:string}).username='B';
-  bind({account:sold.world.account as unknown as ReadinessAccount,command:sold.world.command,pilot:()=>({mood:'Focused'}),
+  bind({account:sold.world.account as unknown as Account,command:sold.world.command,pilot:()=>({mood:'Focused'}),
     emit:()=>{},runtime});
   try {
     await sold.world.account.refresh();
@@ -435,7 +435,7 @@ test('a lap buys and sells every item of a multi-buy stop exactly as routes rank
     {item_id:'ore',best_buy:0,best_buy_qty:0,best_sell:10,best_sell_qty:1000}],
     range_base:[{item_id:'gem',best_buy:150,best_buy_qty:50,best_sell:0,best_sell_qty:0},{item_id:'ore',best_buy:25,best_buy_qty:50,best_sell:0,best_sell_qty:0}]};
   const pilot=bridgeWorld({services:['refuel','repair','storage'],cargo:[],cargoUsed:0,cargoCapacity:30,markets});
-  bind({account:pilot.account as unknown as ReadinessAccount,command:pilot.command,pilot:()=>({mood:'Focused'}),emit:()=>{},runtime});
+  bind({account:pilot.account as unknown as Account,command:pilot.command,pilot:()=>({mood:'Focused'}),emit:()=>{},runtime});
   let top;
   try {
     await pilot.account.refresh();

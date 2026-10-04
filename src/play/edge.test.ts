@@ -3,8 +3,9 @@ import {mkdtempSync,rmSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import test from 'node:test';
-import {ConnectionClosedError,SpacemoltError} from '@spacemolt/lib';
+import {ConnectionClosedError,SpacemoltError,type Account} from '@spacemolt/lib';
 import {Effect} from 'effect';
+import {replyLost} from '../command-boundary.ts';
 import type {ReadinessAccount} from '../readiness.ts';
 import {readJournal} from '../run-record.ts';
 import {FakeLibGoalAccount} from '../test-support/fake-lib-account.ts';
@@ -19,7 +20,7 @@ async function flying<T>(outcome:unknown,fly:(runtime:string)=>Promise<T>):Promi
     if(outcome instanceof Error)throw outcome;
     return outcome;
   }}});
-  bind({account:game as unknown as ReadinessAccount,command:(action,params)=>{const [tool='',name='']=action.split('/');return game.send(tool,name,params);},
+  bind({account:game as unknown as Account,command:(action,params)=>{const [tool='',name='']=action.split('/');return game.send(tool,name,params);},
     pilot:()=>({mood:'Focused'}),runtime,emit:()=>{}});
   try {return await fly(runtime);} finally {unbind();rmSync(runtime,{recursive:true,force:true});}
 }
@@ -58,8 +59,6 @@ test('a lost reply is failed, saying the state was re-read',()=>flying(new Space
 }));
 
 for(const [how,body] of [
-  // ponytail: `Stopped` is an untagged Error (it extends TravelBlocked); U02 gives the stop its Effect form, then this goes.
-  // @effect-diagnostics-next-line effect/globalErrorInEffectFailure:off
   ['failed with',Effect.fail(new Stopped())],
   ['thrown from a checkpoint inside',Effect.sync(()=>{stop();checkStop();return {status:'done' as const,did:'not reached',detail:{}};})],
 ] as const)
@@ -95,3 +94,23 @@ test('the Promise job folds a refusal the server raised the same way: refused, n
   const out=await job('jump','sol',async()=>{await command('spacemolt/jump',{id:'sol'});return {status:'done',did:'jumped',detail:{}};});
   assert.deepEqual({status:out.status,why:out.why},{status:'refused',why:'jump: in_battle — in combat'});
 }));
+
+// The Promise `command()` is what every unconverted caller (dock, mine, travel, settle-cargo)
+// still awaits. They branch on the lib's own error, so it must come out as the very object.
+for(const error of [new SpacemoltError('in_battle','in combat'),new SpacemoltError('not_in_faction','join a faction first'),
+  new SpacemoltError('mutation_timeout','No action_result'),new ConnectionClosedError(),new TypeError('a bug')])
+  test(`command() rejects with the very error the lib threw: ${error.constructor.name} ${error.message}`,()=>flying(error,async()=>{
+    await assert.rejects(command('spacemolt/jump',{id:'sol'}),thrown=>thrown===error);
+  }));
+
+test('a mutation whose reply was lost rejects with the lib error that says to re-observe, and is not sent twice',async()=>{
+  let sends=0;
+  const game=new FakeLibGoalAccount({},{spacemolt:{sell:()=>{sends++;throw new ConnectionClosedError();}}});
+  const account=Object.assign(game,{onReconnected:(fn:()=>void)=>{setTimeout(fn,0);return ()=>{};}});
+  bind({account:account as unknown as Account,command:(action,params)=>{const [tool='',name='']=action.split('/');return game.send(tool,name,params);},pilot:()=>({mood:'Focused'}),emit:()=>{}});
+  try {
+    await assert.rejects(command('spacemolt/sell',{id:'ore'}),error=>error instanceof SpacemoltError&&replyLost(error)
+      &&error.code==='connection_closed'&&error.message==='spacemolt/sell: outcome unknown, re-observe');
+    assert.equal(sends,1);
+  } finally {unbind();}
+});

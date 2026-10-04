@@ -1,8 +1,9 @@
-import {SpacemoltError,type GameState} from '@spacemolt/lib';
-import type {ReadinessAccount,ReadinessCommand} from './readiness.ts';
-import {details} from './response-details.ts';
+import type {GameState} from '@spacemolt/lib';
+import {Effect,Result} from 'effect';
+import type {ReadinessAccount} from './readiness.ts';
 import {disposable,miningInventory} from './mining-inventory.ts';
-import {replyLost} from './command-boundary.ts';
+import {causeText} from './command-boundary.ts';
+import {Game,attempt,field} from './play/game.ts';
 
 /** `quoted` is the station's posted price for the quantity offered, seen before anything
  * was sent. `cleared` is the wallet delta measured between authoritative reads. They are
@@ -22,10 +23,8 @@ export interface SettleOutcome {
 }
 
 const finite=(value:unknown):value is number=>typeof value==='number'&&Number.isFinite(value)&&value>=0;
-const cause=(error:unknown)=>{
-  const named=error instanceof SpacemoltError?error.code:(error as Error)?.name;
-  return `${named||'error'}: ${(error as Error)?.message??String(error)}`;
-};
+/** A reply arrives directly, as MCP content, or inside a state delta. */
+const body=(reply:unknown)=>field(reply,'structuredContent')??field(field(reply,'delta'),'details')??reply;
 
 /** The counter as the game sees it: who is docked where, with what, holding how much. */
 function read(state:GameState) {
@@ -43,15 +42,16 @@ function read(state:GameState) {
  * and cargo deltas between authoritative reads afterwards. A sale whose post-state shows
  * an unmoved wallet or an unmoved hold is unsettled with the gap, never reported as
  * income. A lost reply is reconciled from that same post-state — gone and paid is
- * cleared, nothing moved earns exactly one re-issue, anything else is unsettled — so an
- * ambiguous send is never repeated blind. Items on `keep` are the pilot's own: fitted
+ * cleared, anything else is unsettled with the gap and the cause — so a mutation is never
+ * re-sent after a lost reply, and nothing is repeated blind. Items on `keep` are the pilot's own: fitted
  * spares, cabins, anything the caller is carrying on purpose. They are never offered, and
  * neither are the fuel cells the reserve keeps aboard (`disposable`).
  */
-export async function settleCargo(account:ReadinessAccount,command:ReadinessCommand,
-  options:{keep?:string[]}={}):Promise<SettleOutcome> {
+export const settleCargoEffect=(account:ReadinessAccount,options:{keep?:string[]}={})=>Effect.gen(function*() {
+  const game=yield* Game;
+  const refresh=attempt('refresh',()=>account.refresh());
   const keep=new Set(options.keep??[]);
-  await account.refresh();
+  yield* refresh;
   const start=read(account.state);
   if(!start.docked_at)throw new Error('Settling cargo requires a docked ship; no station counter is reachable');
 
@@ -60,30 +60,36 @@ export async function settleCargo(account:ReadinessAccount,command:ReadinessComm
     credits_before:start.credits,credits_after:start.credits};
 
   const book=new Map<string,number>();
-  for(const row of details(await command('spacemolt_market/view_market',{})).items??[])
-    if(typeof row?.item_id==='string'&&finite(row.buy_price)&&row.buy_price>0)book.set(row.item_id,row.buy_price);
+  const market=body(yield* game.command('spacemolt_market/view_market',{}));
+  const listed=field(market,'items');
+  for(const row of Array.isArray(listed)?listed:[]) {
+    const id:unknown=field(row,'item_id'),buy:unknown=field(row,'buy_price');
+    if(typeof id==='string'&&finite(buy)&&buy>0)book.set(id,buy);
+  }
 
-  // Probed only when something the station will not buy turns up, and only once.
+  // Probed only when something the station will not buy turns up, and only once. A refusal or a
+  // lost reply is no storage; a defect is not.
   let storage:boolean|undefined;
-  const hasStorage=async()=>{
+  const hasStorage=Effect.gen(function*() {
     if(storage===undefined) {
-      try {storage=Array.isArray(details(await command('spacemolt_storage/view',{})).items);}
-      catch {storage=false;}
+      const viewed=yield* Effect.result(game.command('spacemolt_storage/view',{}));
+      storage=Result.isSuccess(viewed)&&Array.isArray(field(body(viewed.success),'items'));
     }
     return storage;
-  };
+  });
 
   /** Send one mutation, then read the world. The reply's claim is not evidence. */
-  const move=async(item_id:string,action:string,params:Record<string,unknown>)=>{
+  const move=(item_id:string,action:string,params:Record<string,unknown>)=>Effect.gen(function*() {
     const before=now;
     let lost='',rejected='';
-    try {await command(action,params);}
-    catch(error) {
-      if(!replyLost(error))rejected=cause(error);
-      else lost=cause(error);
+    const sent=yield* Effect.result(game.command(action,params));
+    if(Result.isFailure(sent)) {
+      const error=sent.failure;
+      if(error._tag==='ReplyLost')lost=causeText(error.cause);
+      else rejected=`${error.code}: ${error.message}`;
     }
     if(!rejected) {
-      await account.refresh();
+      yield* refresh;
       now=read(account.state);
       outcome.credits_after=now.credits;
       if(now.ship_id!==start.ship_id)drift=`ship changed from ${start.ship_id} to ${now.ship_id}`;
@@ -91,8 +97,8 @@ export async function settleCargo(account:ReadinessAccount,command:ReadinessComm
     }
     return {credits:now.credits-before.credits,
       cargo:(before.cargo[item_id]??0)-(now.cargo[item_id]??0),rejected,lost};
-  };
-  type Move=Awaited<ReturnType<typeof move>>;
+  });
+  type Move=Effect.Success<ReturnType<typeof move>>;
   const gap=(verb:string,result:Move)=>result.rejected||
     `${verb} did not clear: cargo -${result.cargo}, credits ${result.credits>=0?'+':''}${result.credits}${result.lost?` after ${result.lost}`:''}`;
 
@@ -105,19 +111,16 @@ export async function settleCargo(account:ReadinessAccount,command:ReadinessComm
       continue;
     }
     if(price===undefined) {
-      if(!await hasStorage()) {outcome.held.push({item_id,quantity});continue;}
-      let result=await move(item_id,'spacemolt_storage/deposit',{item_id,quantity});
-      if(result.lost&&!result.cargo&&!drift)result=await move(item_id,'spacemolt_storage/deposit',{item_id,quantity});
+      if(!(yield* hasStorage)) {outcome.held.push({item_id,quantity});continue;}
+      const result=yield* move(item_id,'spacemolt_storage/deposit',{item_id,quantity});
       if(result.cargo>0)outcome.deposited.push({item_id,quantity:result.cargo});
       else outcome.unsettled.push({item_id,quantity,quoted:null,gap:gap('deposit',result)});
       continue;
     }
     const quoted=price*quantity;
-    let result=await move(item_id,'spacemolt/sell',{id:item_id,quantity});
-    // Nothing moved at all: the send is the only thing that went missing. One re-issue.
-    if(result.lost&&!result.cargo&&!result.credits&&!drift)result=await move(item_id,'spacemolt/sell',{id:item_id,quantity});
+    const result=yield* move(item_id,'spacemolt/sell',{id:item_id,quantity});
     if(result.cargo>0&&result.credits>0)outcome.sold.push({item_id,quantity:result.cargo,quoted,cleared:result.credits});
     else outcome.unsettled.push({item_id,quantity,quoted,gap:gap('sale',result)});
   }
   return outcome;
-}
+});

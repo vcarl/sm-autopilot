@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import type {Account} from '@spacemolt/lib';
 import {mkdtempSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
@@ -18,7 +19,7 @@ function world(record:Pilot,options:WorldOptions={}) {
   const game=bridgeWorld({services:['refuel','repair','storage'],cargoUsed:0,...options});
   const lines:string[]=[];
   const who=derived(()=>record,game.account);
-  bind({account:game.account as unknown as ReadinessAccount,command:game.command,
+  bind({account:game.account as unknown as Account,command:game.command,
     pilot:who,emit:text=>lines.push(text)});
   return {...game,lines,record:who};
 }
@@ -36,7 +37,7 @@ function worldWithStuckTick(record:Pilot,options:WorldOptions={}) {
       (res as {structuredContent?:{tick_duration?:number}}).structuredContent!.tick_duration=1;
     return res;
   };
-  bind({account:game.account as unknown as ReadinessAccount,command,
+  bind({account:game.account as unknown as Account,command,
     pilot:()=>who,emit:text=>lines.push(text)});
   return {...game,command,lines,record:()=>who};
 }
@@ -51,7 +52,7 @@ function worldWithMoodMoved(record:Pilot,on:string,to:Pilot['mood'],options:Worl
     if(action===on)who={...who,mood:to!};
     return res;
   };
-  bind({account:game.account as unknown as ReadinessAccount,command,
+  bind({account:game.account as unknown as Account,command,
     pilot:()=>who,emit:()=>{}});
   return {...game,command,record:()=>who};
 }
@@ -210,7 +211,7 @@ test('hunt fails (does not silently skip the stop) on a real find_route error, e
     if(action==='spacemolt/find_route')throw new Error('cannot send on a closed socket');
     return game.command(action,params);
   };
-  bind({account:game.account as unknown as ReadinessAccount,command,pilot:():Pilot=>({mood:'Focused'}),emit:()=>{}});
+  bind({account:game.account as unknown as Account,command,pilot:():Pilot=>({mood:'Focused'}),emit:()=>{}});
   try {
     const out=await hunt({poi:'belt'});
     assert.equal(out.status,'failed',JSON.stringify(out));
@@ -286,7 +287,7 @@ function worldWithMemory(record:Pilot,options:WorldOptions={}) {
   const game=bridgeWorld({services:['refuel','repair','storage'],cargoUsed:0,...options});
   const lines:string[]=[],runtime=mkdtempSync(join(tmpdir(),'spacemolt-ontick-'));
   let who:Pilot=record;
-  bind({account:game.account as unknown as ReadinessAccount,command:game.command,runtime,
+  bind({account:game.account as unknown as Account,command:game.command,runtime,
     pilot:()=>who,emit:text=>lines.push(text)});
   return {...game,lines,runtime,record:()=>who};
 }
@@ -490,7 +491,7 @@ test('a hop the tank covers but that crosses the reserve is flown, and the searc
   // keeps 24, the route quotes 7, and 30 flies it and lands under the line.
   const f=worldWithMemory({mood:'Focused'},{wildlife:{creatures:[{...grazer,poi:'far_belt'}],polls:1}});
   // Tired is derived from the ship, as the bridge binds it.
-  bind({account:f.account as unknown as ReadinessAccount,command:f.command,runtime:f.runtime,
+  bind({account:f.account as unknown as Account,command:f.command,runtime:f.runtime,
     pilot:derived(()=>({mood:'Focused'}),f.account),emit:()=>{}});
   try {
     f.account.server.location.docked_at=null;f.account.server.location.poi_id='belt';

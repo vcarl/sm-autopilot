@@ -4,6 +4,7 @@ import {mkdtempSync,rmSync,writeFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import test from 'node:test';
+import {SpacemoltError,type Account} from '@spacemolt/lib';
 import type {ReadinessAccount} from '../readiness.ts';
 import {readJournal} from '../run-record.ts';
 import {bridgeWorld,type WorldOptions} from '../test-support/bridge-world.ts';
@@ -19,7 +20,7 @@ function world(record:Pilot,services=['refuel','repair','storage'],options:World
   const game=bridgeWorld({services,...options});
   const lines:string[]=[];
   let who:Pilot=record;
-  bind({account:game.account as unknown as ReadinessAccount,command:game.command,
+  bind({account:game.account as unknown as Account,command:game.command,
     pilot:()=>who,emit:text=>lines.push(text)});
   return {...game,lines,record:()=>who};
 }
@@ -56,7 +57,7 @@ test('Tired follows the ship: said on the command seam when a margin is crossed,
   const f=world({});
   const lines:string[]=[];
   // What the bridge binds: the record plus the mood derived from the live ship on every read.
-  bind({account:f.account as unknown as ReadinessAccount,command:f.command,emit:text=>lines.push(text),
+  bind({account:f.account as unknown as Account,command:f.command,emit:text=>lines.push(text),
     pilot:()=>flying({stance:'Prospector',permissions:{credit_reserve:0}},f.account.state as never)});
   try {
     assert.equal(pilot().mood,'Focused','a Prospector flies Focused');
@@ -234,7 +235,7 @@ test('goTo a far base by its display name, from the market memory (live: Node Al
   writeFileSync(join(runtime,'markets.json'),JSON.stringify([{base_id:'range_base',at:'',tick:1000,system_id:'deep_range',items:[]}]));
   const f=bridgeWorld({services:['refuel','repair','storage']});
   let who:Pilot={mood:'Focused'};
-  bind({account:f.account as unknown as ReadinessAccount,command:f.command,runtime,pilot:()=>who,emit:()=>{}});
+  bind({account:f.account as unknown as Account,command:f.command,runtime,pilot:()=>who,emit:()=>{}});
   try {
     f.account.server.location={system_id:'sol',poi_id:'belt',docked_at:null,in_transit:false};
     await f.account.refresh();
@@ -371,7 +372,7 @@ test('a disconnect mid-command is waited out, an idempotent command re-issued on
   // The lib's own reconnect: `reconnect:true` re-authenticates and then says so.
   const account=Object.assign(game.account,{onReconnected:(fn:()=>void)=>{setTimeout(fn,0);return ()=>{};}});
   const lines:string[]=[];
-  bind({account:account as unknown as ReadinessAccount,command:flaky,
+  bind({account:account as unknown as Account,command:flaky,
     pilot:()=>({mood:'Focused'}),emit:text=>lines.push(text)});
   try {
     await command('spacemolt/get_base',{});
@@ -379,7 +380,8 @@ test('a disconnect mid-command is waited out, an idempotent command re-issued on
     assert.ok(lines.some(line=>line.includes('reconnected; re-issued once')),lines.join('\n'));
     // A sell may have landed before the wire went: it is never re-sent, and says why.
     drop=true;calls=0;
-    await assert.rejects(command('spacemolt/sell',{id:'ore',quantity:1}),/outcome unknown, re-observe/);
+    await assert.rejects(command('spacemolt/sell',{id:'ore',quantity:1}),error=>error instanceof SpacemoltError&&error.code==='connection_closed'
+      &&/outcome unknown, re-observe/.test(error.message));
     assert.equal(calls,1,'nothing was sent twice');
     assert.equal(game.count('spacemolt/sell'),0);
   } finally {unbind();}
@@ -394,7 +396,7 @@ test('a command pending longer than 30s says so every 30s, and status names what
     if(action==='spacemolt/mine')await new Promise<void>(resolve=>{release=resolve;});
     return game.command(action,params);
   };
-  bind({account:game.account as unknown as ReadinessAccount,command:slow,
+  bind({account:game.account as unknown as Account,command:slow,
     pilot:()=>({mood:'Focused'}),emit:text=>lines.push(text)});
   try {
     const flight=command('spacemolt/mine',{});
@@ -424,7 +426,7 @@ test('a half-open socket the lib never reconnects is forced back, then the comma
   // The socket never closed, so the lib's own reconnect never fires; only reconnectOnce moves.
   const account=Object.assign(game.account,{onReconnected:()=>()=>{},reconnectOnce:async()=>{forced++;}});
   const lines:string[]=[];
-  bind({account:account as unknown as ReadinessAccount,command:flaky,
+  bind({account:account as unknown as Account,command:flaky,
     pilot:()=>({mood:'Focused'}),emit:text=>lines.push(text)});
   try {
     const flight=command('spacemolt/get_base',{});
@@ -579,7 +581,7 @@ test('a yard listing whose class the catalogue cannot answer for is skipped, not
 // earning could clear, with earning refused under Tired, strands the pilot by construction.
 test('credits under the standing reserve are not Tired, and work is admitted',async()=>{
   const f=world({});
-  bind({account:f.account as unknown as ReadinessAccount,command:f.command,emit:()=>{},
+  bind({account:f.account as unknown as Account,command:f.command,emit:()=>{},
     pilot:()=>flying({stance:'Prospector',permissions:{credit_reserve:500}},f.account.state as never)});
   try {
     f.account.server.player.credits=10;
@@ -596,7 +598,7 @@ test('fuel under the reserve in space burns the cells aboard, only as many as cl
   const f=world({},['refuel','repair','storage'],{cargo:[{item_id:'fuel_cell',quantity:2}],cargoUsed:2,cargoCapacity:50});
   const runtime=mkdtempSync(join(tmpdir(),'spacemolt-cells-'));
   const lines:string[]=[];
-  bind({account:f.account as unknown as ReadinessAccount,command:f.command,runtime,emit:text=>lines.push(text),
+  bind({account:f.account as unknown as Account,command:f.command,runtime,emit:text=>lines.push(text),
     pilot:()=>flying({stance:'Prospector',permissions:{credit_reserve:0}},f.account.state as never)});
   try {
     f.account.server.location={system_id:'sol',poi_id:'belt',docked_at:null,in_transit:false};
@@ -616,12 +618,39 @@ test('fuel under the reserve in space burns the cells aboard, only as many as cl
   } finally {unbind();rmSync(runtime,{recursive:true,force:true});}
 });
 
+// A burn that fails is journalled with its why, and is not tried again this run: Tired is then
+// declared and resupply takes over. Two ways it ends: the server refuses the refuel, or the refuel
+// answers and no cell leaves the hold.
+for(const [how,refuel,why] of [
+  ['refuses the refuel',()=>{throw new SpacemoltError('cannot_refuel','no fuel can be taken here');},'no fuel can be taken here'],
+  ['takes no cell',()=>({ok:1}),'the refuel took no cell'],
+] as const)
+  test(`a burn whose server ${how} stops burning for the run, says why, and journals it`,async()=>{
+    const f=world({},['refuel','repair','storage'],{cargo:[{item_id:'fuel_cell',quantity:2}],cargoUsed:2,cargoCapacity:50});
+    const runtime=mkdtempSync(join(tmpdir(),'spacemolt-cells-'));
+    const lines:string[]=[];
+    bind({account:f.account as unknown as Account,command:(action,params)=>action==='spacemolt/refuel'?Promise.resolve().then(refuel):f.command(action,params),
+      runtime,emit:text=>lines.push(text),pilot:()=>flying({stance:'Prospector',permissions:{credit_reserve:0}},f.account.state as never)});
+    try {
+      f.account.server.location={system_id:'sol',poi_id:'belt',docked_at:null,in_transit:false};
+      f.account.server.ship.fuel=20;
+      await f.account.refresh();
+      await command('spacemolt/get_system',{});
+      await command('spacemolt/get_system',{});
+      assert.equal(f.sent.filter(c=>c.action==='spacemolt/refuel').length,0,'the wrapper answers refuels, so the world never sees one');
+      const burned=readJournal(runtime).filter(entry=>entry.event==='fuel_cell');
+      assert.deepEqual(burned.map(entry=>[entry.burned,entry.why]),[[0,why]],'one burn, journalled with its why, and never retried');
+      assert.equal(lines.filter(text=>text.startsWith('fuel cells:')).length,1);
+      assert.ok(lines.some(text=>text.includes(`the burn failed: ${why}`)),lines.join('\n'));
+    } finally {unbind();rmSync(runtime,{recursive:true,force:true});}
+  });
+
 // Credits are what resupply spends. A Tired pilot docked with a wallet that covers nothing can
 // only get out by earning, so the work is let through and the journal says why.
 test('Tired and broke at a counter: the work goes on, journalled, and resupply is retried',async()=>{
   const f=world({});
   const runtime=mkdtempSync(join(tmpdir(),'spacemolt-broke-'));
-  bind({account:f.account as unknown as ReadinessAccount,command:f.command,runtime,emit:()=>{},
+  bind({account:f.account as unknown as Account,command:f.command,runtime,emit:()=>{},
     pilot:()=>flying({stance:'Prospector',permissions:{credit_reserve:0}},f.account.state as never)});
   try {
     f.account.server.ship.fuel=10;
@@ -645,7 +674,7 @@ test('Tired in a system with no base: resupply flies to a base places.json place
   const f=world({},['refuel','repair','storage'],{systems:[{id:'drift',connections:['sol'],pois:[{id:'void'}]}]});
   const runtime=mkdtempSync(join(tmpdir(),'spacemolt-placed-'));
   writeFileSync(join(runtime,'places.json'),JSON.stringify({sol_base:'sol'}));
-  bind({account:f.account as unknown as ReadinessAccount,command:f.command,runtime,emit:()=>{},
+  bind({account:f.account as unknown as Account,command:f.command,runtime,emit:()=>{},
     pilot:()=>flying({stance:'Prospector',permissions:{credit_reserve:0}},f.account.state as never)});
   try {
     f.account.server.location={system_id:'drift',poi_id:'void',docked_at:null,in_transit:false};
@@ -664,7 +693,7 @@ test('Tired in a system with no base: resupply flies to a base places.json place
 test('Tired with no base resupply can name: the work goes on, journalled stranded',async()=>{
   const f=world({},['refuel','repair','storage'],{systems:[{id:'drift',connections:['sol'],pois:[{id:'void'}]}]});
   const runtime=mkdtempSync(join(tmpdir(),'spacemolt-stranded-'));
-  bind({account:f.account as unknown as ReadinessAccount,command:f.command,runtime,emit:()=>{},
+  bind({account:f.account as unknown as Account,command:f.command,runtime,emit:()=>{},
     pilot:()=>flying({stance:'Prospector',permissions:{credit_reserve:0}},f.account.state as never)});
   try {
     f.account.server.location={system_id:'drift',poi_id:'void',docked_at:null,in_transit:false};
@@ -682,7 +711,7 @@ test('Tired with no base resupply can name: the work goes on, journalled strande
 
 test('account().commands sends params as the payload, even to an action the lib binds bare',async()=>{
   const sent:[string,unknown][]=[];
-  bind({account:{state:{}} as unknown as ReadinessAccount,emit:()=>{},pilot:()=>({}) as Pilot,
+  bind({account:{state:{}} as unknown as Account,emit:()=>{},pilot:()=>({}) as Pilot,
     command:async(action,params)=>{sent.push([action,params]);return {};}});
   try {
     await account().commands.spacemolt_salvage.sell({id:'w1'} as never);

@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import type {Account} from '@spacemolt/lib';
 import test from 'node:test';
 import type {ReadinessAccount} from '../readiness.ts';
 import {bridgeWorld,type WorldOptions} from '../test-support/bridge-world.ts';
@@ -12,7 +13,7 @@ import {bind,unbind,type Pilot} from './runtime.ts';
 function world(options:WorldOptions={}) {
   const game=bridgeWorld({services:['refuel','repair','storage'],cargoUsed:0,cargo:[],...options});
   let who:Pilot={mood:'Focused'};
-  bind({account:game.account as unknown as ReadinessAccount,command:game.command,
+  bind({account:game.account as unknown as Account,command:game.command,
     pilot:()=>who,emit:()=>{}});
   return game;
 }
@@ -122,7 +123,7 @@ test('abandonMission refuses an id the account never had, and stays idempotent f
 test('the journal says when an accept found the mission already active, and when one seen active expires',async()=>{
   const runtime=mkdtempSync(join(tmpdir(),'spacemolt-missions-'));
   const game=bridgeWorld({services:['refuel','repair','storage'],cargoUsed:0,cargo:[]});
-  bind({account:game.account as unknown as ReadinessAccount,command:game.command,pilot:()=>({mood:'Focused'}),runtime,emit:()=>{}});
+  bind({account:game.account as unknown as Account,command:game.command,pilot:()=>({mood:'Focused'}),runtime,emit:()=>{}});
   const events=()=>readJournal(runtime).filter(e=>e.event==='mission').map(e=>[e.verb,e.mission_id]);
   try {
     game.taken.push(row({mission_id:'held',title:'Held run'}),row({mission_id:'late',title:'Trade Run',expires_in_ticks:100}));

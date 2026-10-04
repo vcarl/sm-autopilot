@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import type {Account} from '@spacemolt/lib';
 import test from 'node:test';
 import {mkdtempSync,readFileSync,rmSync} from 'node:fs';
 import {tmpdir} from 'node:os';
@@ -65,7 +66,7 @@ function fixture({fuel=52,mood='Cautious' as Mood,JUMP=10,knock=true,runtime=und
     return account.send(tool!,action!,payload);
   };
   const who=derived(()=>({mood} as Pilot),account);
-  bind({account:account as unknown as ReadinessAccount,command,...runtime?{runtime}:{},
+  bind({account:account as unknown as Account,command,...runtime?{runtime}:{},
     pilot:who,emit:()=>{}});
   return {account,server,command,pilot:who,
     jumps:()=>account.calls.filter(call=>call.action==='jump').length};

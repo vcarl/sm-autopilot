@@ -36,7 +36,7 @@ export interface Verdict {ok:boolean;errors:string[]}
 /** Every specifier a source names, in every import spelling. */
 export function specifiers(source:string):string[] {
   const code=blank(source),seen=new Set<string>();
-  for(const pattern of [FROM,BARE]){pattern.lastIndex=0;for(const match of code.matchAll(pattern))seen.add(match[1]!);}
+  for(const pattern of [FROM,BARE]){pattern.lastIndex=0;for(const match of code.matchAll(pattern))seen.add(match[1]??'');}
   return [...seen];
 }
 
@@ -54,8 +54,8 @@ export function checkBoundary(source:string,path:string):Verdict {
 export function checkTree(entry:string):Verdict {
   const errors:string[]=[],seen=new Set<string>(),queue=[entry];
   while(queue.length) {
-    const path=queue.shift()!;
-    if(seen.has(path))continue;
+    const path=queue.shift();
+    if(path===undefined||seen.has(path))continue;
     seen.add(path);
     if(!existsSync(path)){errors.push(`${path}: missing`);continue;}
     const source=readFileSync(path,'utf8');

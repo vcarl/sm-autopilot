@@ -10,22 +10,26 @@ const expand = (p: string) => statSync(p).isDirectory() ? readdirSync(p, {recurs
 const files = (paths.length ? paths : ['src']).flatMap(expand)
   .filter(f => f.endsWith('.ts') && !f.endsWith('.gen.ts') && (flag('--tests') || !(f.endsWith('.test.ts') || f.includes('test-support/'))));
 const keys = ['cast', 'unknown_cast', 'any', 'non_null', 'ts_comment', 'catch'] as const;
+// Casts on a line marked `// cast: frozen surface (<type>)`: forced by the frozen pilot surface, reported, not debt.
+let surface_cast = 0;
 const zero = () => Object.fromEntries(keys.map(k => [k, 0])) as Record<typeof keys[number], number>;
 const total = zero();
 for (const f of [...new Set(files)].sort()) {
   const text = readFileSync(f, 'utf8');
   const sf = ts.createSourceFile(f, text, ts.ScriptTarget.Latest, true);
   const n = zero();
+  const lineOf = (node: ts.Node) => text.split('\n')[sf.getLineAndCharacterOfPosition(node.getStart(sf)).line] ?? '';
   const visit = (node: ts.Node): void => {
     if ((ts.isAsExpression(node) || ts.isTypeAssertionExpression(node))
         && !(ts.isTypeReferenceNode(node.type) && node.type.typeName.getText(sf) === 'const')) {
-      n.cast++;
+      if (/\/\/ cast: frozen surface \(/.test(lineOf(node))) surface_cast++;
+      else n.cast++;
       if (ts.isAsExpression(node.expression) && node.expression.type.kind === ts.SyntaxKind.UnknownKeyword) n.unknown_cast++;
     }
     if (node.kind === ts.SyntaxKind.AnyKeyword) n.any++;
     if (ts.isNonNullExpression(node)) n.non_null++;
     // A catch is debt unless its own line says why it is an edge: `catch (e) { // edge: <reason>`.
-    if (ts.isCatchClause(node) && !/\/\/ edge:/.test(text.split('\n')[sf.getLineAndCharacterOfPosition(node.getStart(sf)).line] ?? '')) n.catch++;
+    if (ts.isCatchClause(node) && !/\/\/ edge:/.test(lineOf(node))) n.catch++;
     ts.forEachChild(node, visit);
   };
   visit(sf);
@@ -33,5 +37,5 @@ for (const f of [...new Set(files)].sort()) {
   for (const k of keys) total[k] += n[k];
   if (flag('--by-file') && keys.some(k => n[k])) console.log(f, JSON.stringify(n));
 }
-console.log(JSON.stringify({files: files.length, ...total}));
+console.log(JSON.stringify({files: files.length, ...total, surface_cast}));
 if (flag('--zero') && keys.some(k => total[k])) process.exit(1);

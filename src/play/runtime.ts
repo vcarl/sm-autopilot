@@ -9,14 +9,13 @@
  * ponytail: a module singleton, not AsyncLocalStorage. One account per bridge process today;
  * a multi-account runtime is a second process per account (DESIGN.md "Fleet").
  */
-import {SpacemoltError,type Account,type SkillProgress,type V2CargoItem,type V2Location,type V2Ship} from '@spacemolt/lib';
-import {Cause,Effect,Exit,ManagedRuntime} from 'effect';
-import {replyLost} from '../command-boundary.ts';
+import type {Account,SkillProgress} from '@spacemolt/lib';
+import {Cause,Data,Effect,Exit,ManagedRuntime,Result} from 'effect';
 import type {ReadinessAccount,ReadinessCommand} from '../readiness.ts';
 import {FUEL_CELL} from '../mining-inventory.ts';
-import {journalRun,readRun,stampRun,writeRun} from '../run-record.ts';
+import {journalRun,readRun,stampRun,writeRun,type RunRecord} from '../run-record.ts';
 import {TravelBlocked} from '../travel.ts';
-import {Depleted,Game,GameLive,HoldFull,InBattle,Rejected,ReplyLost,classify,type GameError} from './game.ts';
+import {Depleted,Game,GameLive,HoldFull,InBattle,Rejected,ReplyLost,attempt,freshLedger,field,message,rawError,type GameError} from './game.ts';
 import {resupply} from './service.ts';
 import type {Outcome,Present,Row,Status,Want} from './types.ts';
 
@@ -40,7 +39,7 @@ export interface Pilot {
 }
 
 export interface Binding {
-  account:ReadinessAccount;
+  account:Account;
   command:ReadinessCommand;
   /** The record with its derived mood; the bridge derives it from the live ship on every call. */
   pilot:()=>Pilot;
@@ -59,7 +58,9 @@ export interface Binding {
 let bound:(Binding&{readonly game:ManagedRuntime.ManagedRuntime<Game,never>})|null=null;
 /** How many jobs deep the program is: 1 is a call `main()` made itself. */
 let depth=0;
-let stopFlag=false,commands=0,started=0;
+let stopFlag=false,started=0;
+/** What the command path keeps for `progress()`; `GameLive` writes it. */
+const wire=freshLedger();
 let last:{fn:string;step?:string}={fn:'pilot'};
 let mark:Snapshot|null=null;
 /** The opening read of the job now running, so a helper inside it can say what it measured. */
@@ -79,7 +80,7 @@ let calls:Call[]=[];
 export const runCalls=()=>calls;
 
 /** A question the program is paused on, as run.json and the tools carry it. */
-export interface Question {question:string;choices?:string[];asked_at:string}
+export type Question=NonNullable<RunRecord['question']>;
 let asking:{question:Question;resolve:(answer:string)=>void;reject:(error:unknown)=>void}|null=null;
 /** The question the program is paused on, or null. */
 export const pendingQuestion=():Question|null=>asking?.question??null;
@@ -95,15 +96,21 @@ const need=()=>{if(!bound)throw new Error('the play runtime is not bound: only `
 
 /** Bind the runtime for one run. Resets the stop flag and the counters. */
 export function bind(binding:Binding):void {
-  bound={...binding,game:ManagedRuntime.make(GameLive({send:(tool,action,params)=>command(`${tool}/${action}`,params??{})}))};
-  stopFlag=false;commands=0;asking=null;depth=0;started=Date.now();last={fn:'pilot'};calls=[];
-  lastCommandAt=0;pending=null;lastTick=undefined;burning=false;burnFailed=false;short=undefined;
+  const {account:live}=binding,once=live.reconnectOnce?.bind(live);
+  bound={...binding,game:ManagedRuntime.make(GameLive({send:(action,params)=>need().command(action,params),
+    reconnected,refresh:()=>live.refresh(),say:line,ledger:wire,
+    after:async()=>{await burnCells();watchMood();},...once?{reconnect:once}:{}}))};
+  stopFlag=false;asking=null;depth=0;started=Date.now();last={fn:'pilot'};calls=[];
+  Object.assign(wire,freshLedger());burning=false;burnFailed=false;short=undefined;
   mark=snapshot();
   stampRun(binding.run_id?{run_id:binding.run_id}:null);
   lastMood=binding.pilot().mood;
   // A lib Account pushes state between commands (a tick, a fight); the fake in tests does not.
-  const live=binding.account as unknown as {onStateChange?:(fn:()=>void)=>()=>void};
-  unwatch=typeof live.onStateChange==='function'?live.onStateChange(()=>{try {watchMood();} catch {/* a push is not the place to fail */}}):undefined;
+  unwatch=live.onStateChange?.(()=>{
+    try {watchMood();}
+    catch { // edge: a push from the lib's socket is not the place to fail
+    }
+  });
 }
 export function unbind():void {unwatch?.();unwatch=undefined;asking=null;void bound?.game.dispose();bound=null;stampRun(null);}
 export const isBound=()=>bound!==null;
@@ -118,7 +125,7 @@ export function pilot():Pilot {return need().pilot();}
  * yourself are journalled and margin-checked like any other, but they are NOT idempotent and
  * NOT rules-checked: read the reply before sending the same one again. */
 export function account():Account {
-  const live=need().account as unknown as Account;
+  const live=need().account;
   return new Proxy(live,{get:(target,key)=>{
     if(key==='commands')return commandsProxy;
     const value=Reflect.get(target,key);
@@ -129,8 +136,8 @@ export function account():Account {
 // sent the params as the request id and timed out ("No response to mutation [object Object]").
 // Every `commands.<tool>.<action>(params)` goes through `command()` instead: params are the payload.
 const commandsProxy=new Proxy({},{get:(_,tool)=>new Proxy({},{get:(__,action)=>
-  (params?:unknown)=>command(`${String(tool)}/${String(action)}`,
-    params&&typeof params==='object'?params as Record<string,unknown>:{})})}) as Account['commands'];
+  (params?:unknown)=>command(`${String(tool)}/${String(action)}`,isRecord(params)?params:{})})});
+const isRecord=(value:unknown):value is Record<string,unknown>=>typeof value==='object'&&value!==null;
 
 /** Write one line to the journal and to the run's stream, under your own words. Use it to
  * say what you decided and why, so the record shows the reasoning, not only the moves. */
@@ -152,7 +159,7 @@ export function stop():void {
 }
 
 /** Thrown from a travel checkpoint when the pilot asked to stop; the leg in flight finishes. */
-export class Stopped extends TravelBlocked {constructor(){super('stopped by pilot');}}
+export class Stopped extends TravelBlocked {readonly _tag='Stopped';constructor(){super('stopped by pilot');}}
 export const checkStop=()=>{if(stopFlag)throw new Stopped();};
 
 /** Pause the program and put a question to the model that is running it; resolves to its
@@ -197,7 +204,7 @@ export function answer(text:string):void {
  * helper so it composes like ours. */
 export function outcome<Detail=Record<string,unknown>>(did:string,status:Status='done',detail?:Detail,why?:string):Outcome<Detail> {
   const before=mark??snapshot();
-  const built=finish('pilot',before,{status,did,...why===undefined?{}:{why},detail:(detail??{}) as Detail});
+  const built=finish('pilot',before,{status,did,...why===undefined?{}:{why},detail:orEmpty(detail)});
   mark=snapshot();
   return built;
 }
@@ -214,20 +221,10 @@ export function wanted(rows:Want[]):{rows:Row[]}|{refused:string} {
 
 // ---- internal: the seam, the measurement, the lines ----------------------------------
 
-/** The errors a dropped connection raises: the lib's own two, before its `reconnect:true`
- * has re-authenticated. Anything else is the game refusing, which is not retried. */
-const DISCONNECTED=/WebSocket connection closed|No action_result/;
-/** Commands whose end state the live world re-states, so re-issuing one after a lost
- * connection costs at most a repeat of a read (or one more mining tick, measured from
- * cargo). Everything else — sell, buy, accept, deposit — moves something once. */
-const IDEMPOTENT=new Set(['mine','travel','jump','dock','undock','find_route','view','view_market','view_storage','status']);
-const reissuable=(action:string)=>{const name=action.split('/')[1]??'';return name.startsWith('get_')||IDEMPOTENT.has(name);};
-
 /** Wait for the lib's own reconnect to re-authenticate this account, up to `ms`. False when
  * the account has no reconnect listener (a test fake) or the wait ran out. */
 function reconnected(ms=60_000):Promise<boolean> {
-  const live=need().account as unknown as {onReconnected?:(fn:()=>void)=>()=>void};
-  const listen=live.onReconnected?.bind(live);
+  const {account:live}=need(),listen=live.onReconnected?.bind(live);
   if(typeof listen!=='function')return Promise.resolve(false);
   return new Promise(resolve=>{
     let off:(()=>void)|undefined;
@@ -237,65 +234,21 @@ function reconnected(ms=60_000):Promise<boolean> {
   });
 }
 
-/** Every game command a helper sends. Journalled by the bridge's command; counted, and a mood
- * change it caused is said here.
+/** Every game command a helper sends: `Game.command` (game.ts) through the binding's runtime,
+ * its failure handed back as the raw error. Journalled by the bridge's command; counted, and a
+ * mood change it caused is said by the layer's `after`.
  *
  * A connection that drops mid-command is not the trip ending: the lib reconnects and
- * re-authenticates by itself, so this waits for that, re-reads the world, and re-issues the
+ * re-authenticates by itself, so the layer waits for that, re-reads the world, and re-issues the
  * command exactly once when it is one the live world can restate. A mutation that may have
- * landed is never re-sent — it fails with "outcome unknown, re-observe" instead. */
+ * landed is never re-sent — it fails with "outcome unknown, re-observe" instead.
+ *
+ * A `run*` besides `edge` (the others are marked `// bridge:`), and the
+ * string seam: U31 deletes it with the callers that still `await command(...)`. */
 export async function command(action:string,params:Record<string,unknown>={}):Promise<unknown> {
-  const b=need();
-  commands++;
-  try {return await sent(action,params);}
-  catch(error) {
-    if(!DISCONNECTED.test(message(error)))throw error;
-    line(`  ${action}: ${message(error)}; waiting for the connection`);
-    // A half-open socket is never *closed*, so the lib's own reconnect may never fire at all:
-    // wait a minute for it, then force one in place — same Account, same listeners, fresh socket.
-    let back=await reconnected();
-    if(!back) {
-      const live=b.account as unknown as {reconnectOnce?:()=>Promise<void>};
-      if(typeof live.reconnectOnce==='function') {
-        line(`  ${action}: no reconnect in 60s; forcing one`);
-        try {await live.reconnectOnce();back=true;}
-        catch(failed){line(`  ${action}: the forced reconnect failed (${message(failed)})`);}
-      }
-    }
-    try {await b.account.refresh();} catch {/* the re-read may fail too; the throw below stands */}
-    if(!back)throw error;
-    if(!reissuable(action)) {
-      line(`  ${action}: reconnected, but the command may have landed; not re-sent`);
-      // An uncertain code, so `classify` makes it the ReplyLost it is, not a defect.
-      throw new SpacemoltError('connection_closed',`${action}: outcome unknown, re-observe`);
-    }
-    line(`  ${action}: reconnected; re-issued once`);
-    return await sent(action,params);
-  }
-  finally {await burnCells();watchMood();}
-}
-
-/** A command pending longer than this says so, and keeps saying so every this often. The
- * contract is a line from any long step at least every 2 minutes; 30s is well inside it. */
-const WAITING_MS=30_000;
-let lastCommandAt=0,pending:{action:string;since:number}|null=null,lastTick:number|undefined;
-
-/** One command on the wire, with the waiting said out loud. A mine tick is 10s and a transit
- * is minutes, so silence is the only thing a pilot cannot tell apart from a wedged bridge. */
-async function sent(action:string,params:Record<string,unknown>):Promise<unknown> {
-  const b=need(),since=Date.now();
-  pending={action,since};
-  const ticker=setInterval(()=>line(
-    `  ${action}: waiting ${Math.round((Date.now()-since)/1000)}s for the game (last tick ${lastTick??'?'})`),WAITING_MS);
-  ticker.unref?.();
-  try {
-    const reply=await b.command(action,params);
-    const tick=(reply as {structuredContent?:{tick?:unknown};delta?:{details?:{tick?:unknown}};tick?:unknown});
-    const seen=tick?.structuredContent?.tick??tick?.delta?.details?.tick??tick?.tick;
-    if(typeof seen==='number')lastTick=seen;
-    return reply;
-  }
-  finally {clearInterval(ticker);lastCommandAt=Date.now();pending=null;}
+  const exit=await viaGame(Effect.gen(function*() {return yield* (yield* Game).command(action,params);}));
+  if(Exit.isSuccess(exit))return exit.value;
+  throw rawError(exit.cause);
 }
 export const acct=():ReadinessAccount=>need().account;
 export const runtimeDir=()=>need().runtime;
@@ -311,9 +264,9 @@ export function step(text:string):void {last.step=text.split(' ')[0]??'';line(` 
 
 /** Where the run has got to, and — the difference between "waiting on the game" and "the
  * bridge is stuck" — when it last heard back and what is on the wire right now. */
-export const progress=()=>({fn:last.fn,step:last.step,commands,elapsed_s:Math.round((Date.now()-started)/1000),
-  ...lastCommandAt?{last_command_at:new Date(lastCommandAt).toISOString()}:{},
-  ...pending?{pending:{action:pending.action,since_s:Math.round((Date.now()-pending.since)/1000)}}:{}});
+export const progress=()=>({fn:last.fn,step:last.step,commands:wire.commands,elapsed_s:Math.round((Date.now()-started)/1000),
+  ...wire.lastCommandAt?{last_command_at:new Date(wire.lastCommandAt).toISOString()}:{},
+  ...wire.pending?{pending:{action:wire.pending.action,since_s:Math.round((Date.now()-wire.pending.since)/1000)}}:{}});
 
 /** The rules between one helper and the next: a mood that may not start work. Helpers that
  * begin something (a gather, a buy, a mission) ask before sending; reads and the safe legs
@@ -348,9 +301,12 @@ function snapshot():Snapshot {
 }
 /** `get_skills` answers a map keyed by skill id (live, C23 replay); some shapes nest it. */
 function skillMap(skills:unknown):Record<string,SkillProgress> {
-  const raw=(skills as any)?.skills??skills;
-  return raw&&typeof raw==='object'&&!Array.isArray(raw)?raw as Record<string,SkillProgress>:{};
+  const raw=field(skills,'skills')??skills;
+  return isRecord(raw)&&!Array.isArray(raw)?Object.fromEntries(Object.entries(raw).flatMap(([id,row])=>isProgress(row)?[[id,row] as const]:[])):{};
 }
+/** Every field of the lib's `SkillProgress`: a malformed row is now left out of the map, not passed through. */
+const isProgress=(row:unknown):row is SkillProgress=>isRecord(row)&&typeof row.category==='string'&&typeof row.name==='string'
+  &&typeof row.level==='number'&&typeof row.max_level==='number'&&typeof row.next_level_xp==='number'&&typeof row.xp==='number';
 
 /** The ship, wallet, hold, place, skills and active missions as the account already holds them:
  * the run's `start_state`/`end_state`. Reads memory only. Storage is not in account state, so it
@@ -358,7 +314,7 @@ function skillMap(skills:unknown):Record<string,SkillProgress> {
  * ponytail: cargo and missions capped at 40 rows, as the storage and market reads are. */
 export function stateSnapshot():Record<string,unknown> {
   const state=need().account.state,{ship,location}=state;
-  const missions=(state as {missions?:{active?:any[]}}).missions?.active;
+  const missions=state.missions?.active;
   return {credits:state.player?.credits??null,fuel:ship?.fuel??null,max_fuel:ship?.max_fuel??null,
     hull:ship?.hull??null,max_hull:ship?.max_hull??null,cargo_used:ship?.cargo_used??null,cargo_capacity:ship?.cargo_capacity??null,
     cargo:(state.cargo??[]).slice(0,40).map(row=>({item_id:row.item_id,quantity:row.quantity})),
@@ -369,8 +325,13 @@ export function stateSnapshot():Record<string,unknown> {
 }
 
 export function present():Present {
-  const state=need().account.state,who=pilot();
-  return {ship:state.ship as V2Ship,location:state.location as V2Location,cargo:(state.cargo??[]) as V2CargoItem[],
+  const state=need().account.state,who=pilot(),{ship,location}=state;
+  /* ponytail: `Present` declares `ship` and `location` present (pilot surface, frozen by check 7), but a
+   * pilot riding another's ship has no `ship` (V2GameState.riding), and present() runs in every Outcome,
+   * which must not reject. Lift it when the surface may say `ship?:`/`location?:`. */
+  // oxlint-disable-next-line typescript/consistent-type-assertions
+  return {ship:ship as Present['ship'],location:location as Present['location'], // cast: frozen surface (Present)
+    cargo:state.cargo??[],
     credits:state.player?.credits??0,skills:skillMap(state.skills),mood:who.mood??'Cautious',
     ...who.mood==='Tired'?{tired_by:who.tired_by??''}:{}};
 }
@@ -393,34 +354,32 @@ function finish<Detail>(fn:string,before:Snapshot,part:Said<Detail>):Outcome<Det
     now:present(),next:(part.next??[]).slice(0,3),detail:part.detail};
 }
 
-const message=(error:unknown)=>error instanceof Error?error.message:String(error);
 const seconds=(ms:number)=>`${(ms/1000).toFixed(ms<10_000?1:0)}s`;
 
 /** The measuring wrapper every exported function is defined through: snapshot, run, snapshot,
  * diff. Streams `▶ fn args` on entry and `✓/✗ fn status secs did` on return. A throw is folded
- * by `said`; nothing escapes as an exception. */
-export async function job<Detail>(fn:string,args:string,body:()=>Promise<Said<Detail>>):Promise<Outcome<Detail>> {
-  const open=await opening(fn,args);
-  let part:Said<Detail>,threw=false;
-  try {part=await body();}
-  catch(error){threw=true;part=said(fn,error instanceof SpacemoltError||replyLost(error)?classify(fn)(error):error);}
-  return closing(open,part,threw);
-}
+ * by `said`; nothing escapes as an exception. The body is a Promise, so its failure is classified
+ * as a game step's is (`attempt`): a refusal or lost reply is a tag, any other throw a defect that
+ * `said` words from the thrown value and that is not a journalled `defect`, as it never was. */
+export const job=<Detail>(fn:string,args:string,body:()=>Promise<Said<Detail>>):Promise<Outcome<Detail>>=>
+  edge(jobWith(fn,args,attempt(fn,body),false));
 
 /** `job` for an Effect body: the same bookkeeping, every failure folded into the Outcome by
  * `said`. A defect is a `failed` Outcome too, as a throw is in `job`, and its stack goes to a
  * `defect` line. Never exported from a barrel. */
-export const jobEffect=<D,R>(fn:string,args:string,body:Effect.Effect<Said<D>,GameError|Stopped,R>):Effect.Effect<Outcome<D>,never,R>=>
+export const jobEffect=<D,R>(fn:string,args:string,body:Effect.Effect<Said<D>,GameError|Stopped,R>)=>jobWith(fn,args,body,true);
+
+const jobWith=<D,R>(fn:string,args:string,body:Effect.Effect<Said<D>,GameError|Stopped,R>,journalDefects:boolean):Effect.Effect<Outcome<D>,never,R|Game>=>
   Effect.gen(function*() {
-    const open=yield* Effect.promise(()=>opening(fn,args));
+    const open=yield* opening(fn,args);
     const exit=yield* Effect.exit(body);
-    if(Exit.isSuccess(exit))return yield* Effect.promise(()=>closing(open,exit.value,false));
-    defect(fn,exit.cause);
-    return yield* Effect.promise(()=>closing(open,said<D>(fn,Cause.squash(exit.cause)),true));
+    if(Exit.isSuccess(exit))return yield* closing(open,exit.value,false);
+    if(journalDefects)defect(fn,exit.cause);
+    return yield* closing(open,said<D>(fn,Cause.squash(exit.cause)),true);
   });
 
-/** The Promise a pilot function returns: `effect` run through the binding's runtime. The only
- * caller of `run*`. A defect outside any job is a `failed` Outcome and a `defect` line. */
+/** The Promise a pilot function returns: `effect` run through the binding's runtime. A defect
+ * outside any job is a `failed` Outcome and a `defect` line. */
 export async function edge<D>(effect:Effect.Effect<Outcome<D>,never,Game>):Promise<Outcome<D>> {
   const b=need(),before=snapshot(),outer=last,outerMark=jobMark,outerDepth=depth;
   const exit=await b.game.runPromiseExit(effect);
@@ -431,11 +390,23 @@ export async function edge<D>(effect:Effect.Effect<Outcome<D>,never,Game>):Promi
   defect(fn,exit.cause);
   return finish(fn,before,said<D>(fn,Cause.squash(exit.cause)));
 }
+/** A `run*` besides `edge` (the others are marked `// bridge:`), for the Promise seams that still `await` a Game effect
+ * (`command`, `burnCells`): U31 deletes the string seam and with it this. */
+const viaGame=<A,E>(effect:Effect.Effect<A,E,Game>)=>need().game.runPromiseExit(effect);
+
+/** The detail a pilot gave, or the empty object `outcome` has always put there.
+ * ponytail: the pilot-surface signature promises a `Detail` that an omitted detail does not have, so this
+ * cast says it does. It goes when the surface types an omitted detail (`detail?:`). */
+// oxlint-disable-next-line typescript/consistent-type-assertions
+function orEmpty<Detail>(detail:Detail|undefined):Detail {return detail??{} as Detail;} // cast: frozen surface (Outcome<Detail>)
 
 /** A failure in its own fields' words. Every definitive refusal tag is `refused`: the server
- * said no and nothing landed, whether or not its code has a tag of its own. */
+ * said no and nothing landed, whether or not its code has a tag of its own.
+ * ponytail: the pilot-surface `Outcome<Detail>` promises a `Detail` that a failure does not have, so this
+ * cast says it does (`{}`). It goes when the surface types a failure's detail. */
 function said<Detail>(fn:string,error:unknown):Said<Detail> {
-  const detail={} as Detail;
+  // oxlint-disable-next-line typescript/consistent-type-assertions
+  const detail={} as Detail; // cast: frozen surface (Outcome<Detail>)
   if(error instanceof Stopped)return {status:'partial',did:`${fn} stopped by the pilot`,why:error.message,detail};
   if(error instanceof ReplyLost)return {status:'failed',did:`${fn} broke`,why:`reply lost on ${error.action}; state re-read`,detail};
   if(error instanceof Rejected||error instanceof InBattle||error instanceof HoldFull||error instanceof Depleted)
@@ -451,20 +422,21 @@ function defect(fn:string,cause:Cause.Cause<unknown>):void {
 }
 
 type Opened={fn:string;args:string;before:Snapshot;outer:typeof last;outerMark:Snapshot|null};
-/** The ▶ line and the opening read. */
-async function opening(fn:string,args:string):Promise<Opened> {
+/** The ▶ line and the opening read. A read that fails is said, and the cached state measures. */
+const opening=(fn:string,args:string)=>Effect.gen(function*() {
   const outer=last,outerMark=jobMark;
   last={fn};depth++;
   line(`▶ ${fn}${args?` ${args}`:''}`);
-  let before:Snapshot;
-  try {await acct().refresh();before=snapshot();}
-  catch(error){before=snapshot();line(`  ${fn}: the opening read failed (${message(error)}); measuring from cached state`);}
+  const read=yield* Effect.result((yield* Game).refresh);
+  const before=snapshot();
+  if(Result.isFailure(read))line(`  ${fn}: the opening read failed (${message(read.failure.cause)}); measuring from cached state`);
   jobMark=before;
   return {fn,args,before,outer,outerMark};
-}
+});
 /** The closing read, the measurement, the ✓/✗ line and the `calls` push. */
-async function closing<Detail>({fn,args,before,outer,outerMark}:Opened,part:Said<Detail>,threw:boolean):Promise<Outcome<Detail>> {
-  try {await acct().refresh();} catch {/* the closing read failed; the cached state stands */}
+const closing=<Detail>({fn,args,before,outer,outerMark}:Opened,part:Said<Detail>,threw:boolean)=>Effect.gen(function*() {
+  // The closing read may fail; the cached state stands, so it is only looked at.
+  yield* Effect.result((yield* Game).refresh);
   const built=finish(fn,before,part);
   // A did the wrapper wrote knows nothing of what happened; the measurement does.
   if(threw)built.did=`${built.did}, ${witness(built)}`;
@@ -476,7 +448,7 @@ async function closing<Detail>({fn,args,before,outer,outerMark}:Opened,part:Said
     gained:built.gained,started_at:new Date(before.at).toISOString(),seconds:Math.round((Date.now()-before.at)/100)/10});
   last=outer;jobMark=outerMark;depth--;
   return built;
-}
+});
 
 /** What the measurement says happened, for a `did` that would otherwise claim nothing did:
  * the gains, the hold, and where the ship ended up. */
@@ -531,26 +503,35 @@ function canBurn():boolean {
   return !burnFailed&&who.mood==='Tired'&&!!who.tired_by?.startsWith('fuel')&&!state.location?.docked_at&&cellsHeld()>0;
 }
 
+/** The refuel that left the cell count where it was. */
+class NoCell extends Data.TaggedError('NoCell')<{readonly message:string}> {}
+
 /** Burn the fuel cells aboard (`refuel({id:'fuel_cell',quantity:1})`, one at a time) until the tank
  * is back over the reserve or the cells run out. Runs after every command, so no path strands
  * with cells in the hold. A burn that fails is journalled and not tried again this run: Tired is
- * then declared and resupply takes over. Never throws. */
-export async function burnCells():Promise<void> {
+ * then declared and resupply takes over. Never throws.
+ * ponytail: `Effect.exit` over the loop folds a defect into the `why`, as the old catch-everything did, so a
+ * burn can never strand a command. Narrow it to the typed failures once no fake throws a bare Error. */
+const burn=Effect.gen(function*() {
   if(burning||!canBurn())return;
-  const b=need(),fuel=()=>b.account.state.ship?.fuel??0;
+  const b=need(),game=yield* Game,fuel=()=>b.account.state.ship?.fuel??0;
   const fuel_before=fuel(),held=cellsHeld();
-  let why:string|undefined;
   burning=true;
-  try {
+  const exit=yield* Effect.exit(Effect.gen(function*() {
     while(canBurn()) {
       const left=cellsHeld();
-      await command('spacemolt/refuel',{id:FUEL_CELL,quantity:1});
-      await b.account.refresh();
-      if(cellsHeld()>=left)throw new Error('the refuel took no cell');
+      yield* game.command('spacemolt/refuel',{id:FUEL_CELL,quantity:1});
+      yield* game.refresh;
+      if(cellsHeld()>=left)return yield* new NoCell({message:'the refuel took no cell'});
     }
-  } catch(error){why=message(error);burnFailed=true;}
-  finally {burning=false;}
+  })).pipe(Effect.ensuring(Effect.sync(()=>{burning=false;})));
+  const why=Exit.isFailure(exit)?message(rawError(exit.cause)):undefined;
+  if(Exit.isFailure(exit))burnFailed=true;
   const entry={burned:held-cellsHeld(),fuel_before,fuel_after:fuel(),cells_left:cellsHeld(),...why?{why}:{}};
   if(b.runtime)journalRun(b.runtime,entry,'fuel_cell');
   line(`fuel cells: burned ${entry.burned}, fuel ${fuel_before} → ${entry.fuel_after}, ${entry.cells_left} left${why?`; the burn failed: ${why}`:''}`);
+});
+export async function burnCells():Promise<void> {
+  const exit=await viaGame(burn);
+  if(Exit.isFailure(exit))throw Cause.squash(exit.cause);
 }
