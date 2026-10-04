@@ -37,6 +37,9 @@ export declare const classify: (action: string) => (cause: unknown) => GameError
 /** A Promise body run as one game step: the lib's refusal or a lost reply is its tag, anything
  * else is a defect carrying the thrown value. For code still on `await` that wants the failure typed. */
 export declare const attempt: <A>(label: string, body: () => Promise<A>) => Effect.Effect<A, GameError, never>;
+/** Re-read the account, a failure classified as a game step's is: for a caller that must not go
+ * on from a read that did not land. */
+export declare const reread: Effect.Effect<void, GameError, Game>;
 /** What the command path keeps for `progress()`: counted, when it last heard back, what is on
  * the wire now, and the last game tick any reply carried. The binding owns one. */
 export interface Ledger {
@@ -63,8 +66,9 @@ export interface Seam {
     readonly refresh?: ReadinessAccount['refresh'];
     /** A line to the stream and the journal. */
     readonly say?: (text: string) => void;
-    /** After every command, whatever it came to: burn cells, say a mood change. */
-    readonly after?: () => Promise<void>;
+    /** After every command, whatever it came to: burn cells, say a mood change. Handed this
+     * connection, so what it sends takes the same path. */
+    readonly after?: (game: Context.Service.Shape<typeof Game>) => Effect.Effect<void>;
     readonly ledger?: Ledger;
 }
 declare const Game_base: Context.ServiceClass<Game, "Game", {

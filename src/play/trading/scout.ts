@@ -8,7 +8,7 @@ import {replyBody} from '../../storage.ts';
 import * as Wire from '../../wire.gen.ts';
 import {jumpsFrom,mapOf} from '../exploration/exploration.ts';
 import {IGNORE_TICKS} from '../freighter/index.ts';
-import {Game,GameLive,attempt,rawError} from '../game.ts';
+import {Game} from '../game.ts';
 import {bookEffect,marketTick} from '../market.ts';
 import {markExplored,markPlace,readExplored,readPlaces} from '../places.ts';
 import {Stopped,acct,admit,edge,jobEffect,stopped} from '../runtime.ts';
@@ -83,12 +83,6 @@ export const candidatesEffect=(seat:Seat,now:number,jumps=SCOUT_JUMPS)=>Effect.g
   const rank=(row:Candidate)=>row.kind==='stale'?1:0;
   return out.sort((a,b)=>rank(a)-rank(b)||a.jumps-b.jumps||Number(!a.base_id)-Number(!b.base_id));
 });
-/** The Promise twin of `candidatesEffect`, sending through the seat's own `command`: throws the lib's raw error, or `Stopped`, as it always did. */
-export async function candidates(seat:Seat,now:number,jumps=SCOUT_JUMPS):Promise<Candidate[]> {
-  const exit=await Effect.runPromiseExit(candidatesEffect(seat,now,jumps).pipe(Effect.provide(GameLive({send:seat.command}))));
-  if(exit._tag==='Failure')throw rawError(exit.cause); // bridge: U29 (caller: play/menu.ts)
-  return exit.value;
-}
 
 /** The system the ship is in, listed live (`get_system`): each base's place kept in the seat's `places.json`,
  * the system kept in its `explored.json`. The base ids; none, journalled to the seat, when the reply does not read. */
@@ -125,10 +119,9 @@ export function scoutMarkets(opts:{jumps?:number;max?:number}={}):Promise<Outcom
  * action and the code (every command here is a read, and a leg's own loss is `goTo`'s to re-observe). */
 export const scoutMarketsEffect=(opts:{jumps?:number;max?:number}={})=>{
   const jumps=opts.jumps??SCOUT_JUMPS,max=opts.max??3;
-  return jobEffect<Scouted,Game>('scoutMarkets',`${max} within ${jumps} jumps`,Effect.gen(function*() {
+  return jobEffect<Scouted>('scoutMarkets',`${max} within ${jumps} jumps`,Effect.gen(function*() {
     const detail:Scouted={filed:[],explored:[],left:0},short:string[]=[],tried=new Set<string>();
-    // bridge: U31 (admit keeps its Promise form with the module singletons it reads)
-    const blocked=yield* attempt('scoutMarkets',()=>admit('scoutMarkets'));
+    const blocked=yield* admit('scoutMarkets');
     if(blocked)return {status:'refused' as const,did:'scouted nothing',why:blocked,detail};
     if(!acct().state.location?.docked_at)return {status:'refused' as const,did:'scouted nothing',why:'not docked; book ages are read against a counter\'s tick',detail,
       next:['goTo a base, then scoutMarkets()']};

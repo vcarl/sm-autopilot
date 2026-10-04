@@ -43,7 +43,7 @@ export declare const facilitiesEffect: () => Effect.Effect<Outcome<{
     owned: Owned[];
     here: Rentable[];
     buildable: FacilityTypeSummary[];
-}>, never, Game>;
+}>, never, Game | import("../../runtime.ts").Run>;
 export interface Built {
     facility_id: string;
     rent_per_cycle: number;
@@ -61,5 +61,5 @@ export declare function buildFacility(type: string): Promise<Outcome<Built>>;
 export declare const buildFacilityEffect: (type: string) => Effect.Effect<Outcome<{
     facility_id: string;
     rent_per_cycle: number;
-}>, never, Game>;
+}>, never, Game | import("../../runtime.ts").Run>;
 export {};

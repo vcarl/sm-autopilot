@@ -43,8 +43,6 @@ export interface Elsewhere {
  * was the far list once, read for docks in `response.result`: on the live journal (2026-09-28) that
  * shape matched nothing, and a Tired pilot one jump from a placed base resupplied "stranded". */
 export declare const serviceElsewhereEffect: (docked?: string) => Effect.Effect<Elsewhere[], never, Game>;
-/** The Promise twin of `serviceElsewhereEffect`. */
-export declare function serviceElsewhere(docked?: string): Promise<Elsewhere[]>;
 export declare const asBase: (body: unknown) => GetBaseResponse;
 /** Bring the ship up at the counter you are docked at: full tank and full hull.
  *
@@ -62,7 +60,7 @@ export declare const asBase: (body: unknown) => GetBaseResponse;
  * Tired: resupplying back inside the margins is what clears it (the mood is derived from the
  * ship), and `cleared_tired` says so. `insure` and `dues` are accepted and
  * reported in `short` until a later slice implements them. */
-export declare const serviceEffect: (opts?: NonNullable<Parameters<typeof service>[0]>) => Effect.Effect<Outcome<Serviced>, never, Game>;
+export declare const serviceEffect: (opts?: NonNullable<Parameters<typeof service>[0]>) => Effect.Effect<Outcome<Serviced>, never, Game | import("./runtime.ts").Run>;
 export declare function service(opts?: {
     fuel?: number;
     hull?: number;
@@ -81,6 +79,6 @@ export declare function service(opts?: {
  *
  * ponytail: the bases are tried in `serviceElsewhere`'s order (this system first), not by route
  * cost, and a wallet refused here is still flown to the next counter. */
-export declare function resupply(opts?: {
+export declare const resupplyEffect: (opts?: {
     travel?: boolean;
-}): Promise<'cleared' | 'broke' | 'stranded'>;
+}) => Effect.Effect<"stranded" | "broke" | "cleared", never, Game | import("./runtime.ts").Run>;

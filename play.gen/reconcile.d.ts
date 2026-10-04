@@ -10,6 +10,7 @@
  * stop, and reconcile from live state before acting.
  */
 import type { GameState } from '@spacemolt/lib';
+import { Effect } from 'effect';
 import type { ReadinessAccount } from './readiness.ts';
 export type MoveCause = 'respawn' | 'captured' | 'fleet_kick' | 'unknown';
 /** Where the last command left the pilot. The four location fields S41 names, plus the two
@@ -36,11 +37,14 @@ export declare const position: (state: GameState) => Position;
  *
  * `read:false` is for the one caller that has just taken that read itself — an arrival wait
  * refreshes at its own deadline — so the comparison uses the freshest read rather than
- * spending a second one on it.
+ * spending a second one on it (`reconcile`). A failed read is classified as any game step's
+ * is (`attempt`): the lib's refusal or a lost reply its tag, anything else a defect.
  */
-export declare function reconcileMove(account: ReadinessAccount, expected: Position, options?: {
+export declare const reconcileMoveEffect: (account: ReadinessAccount, expected: Position, options?: {
     read?: boolean;
-}): Promise<Reconciliation>;
+}) => Effect.Effect<Reconciliation, import("./play/codes.ts").GameError, never>;
+/** The comparison alone, against the read already taken. */
+export declare function reconcile(state: GameState, expected: Position): Reconciliation;
 /** A respawn is the world putting the pilot home, which is a juncture the agent can answer
  * from where it stands; anything else needs a reading before the pilot acts again. */
 export declare const movedOutcome: (cause?: MoveCause) => "blocked" | "failed";

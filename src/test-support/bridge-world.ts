@@ -886,6 +886,8 @@ export function bridgeWorld(options:WorldOptions={}) {
         cargo_space:account.server.ship.cargo_capacity-account.server.ship.cargo_used,
         cargo_total:account.server.ship.cargo_capacity,storage_remaining:99}}};
     },
+    // Not served: the game refuses what it does not serve, and the menu leaves its skills out (an assertion here would be a defect).
+    'spacemolt/get_skills':async()=>{throw new SpacemoltError('unknown_action','not served here: spacemolt/get_skills');},
   };
   const command:ReadinessCommand=async(action,params)=>{
     sent.push({action,params:structuredClone(params)});

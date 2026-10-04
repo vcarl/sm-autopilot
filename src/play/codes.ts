@@ -6,8 +6,8 @@
  * unobserved depletion codes (mine.ts branches on them, never observed): they stay `Rejected`. */
 import {Data} from 'effect';
 
-/** `cause` is the error the lib threw, kept for the Promise callers that have not moved yet
- * (`command()` rethrows it, so `instanceof SpacemoltError` and `.code` still work). */
+/** `cause` is the error the lib threw, kept for the Promise seams (a pilot's own
+ * `account().commands` rethrows it, so `instanceof SpacemoltError` and `.code` still work). */
 type Refusal = {readonly action: string; readonly code: string; readonly message: string; readonly cause?: unknown};
 
 /** The server refused, definitively; nothing landed. `code` is the server's own. */

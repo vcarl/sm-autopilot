@@ -1,7 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import {Effect} from 'effect';
 import type {ReadinessCommand} from './readiness.ts';
-import {ArrivalUnresolved,travelTo} from './travel.ts';
+import {ArrivalUnresolved} from './travel.ts';
+import {travelTo} from './test-support/travel.ts';
 import {FakeLibGoalAccount,type FakeCommandHandlers} from './test-support/fake-lib-account.ts';
 
 // Adapted from setpoint (removed from this repo; see git history), tests/dispatcher/wait-for-location.test.ts.
@@ -46,9 +48,9 @@ function fixture(local:boolean,arrivalAt:number) {
       account.state.ship!.cargo_used=server.ship.cargo_used;
       if(!server.location.in_transit&&account.state.location!.in_transit)staleArrivalPolls++;
     },
-    checkpoint:async(settled=false)=>{
+    checkpoint:(settled=false)=>Effect.sync(()=>{
       if(settled&&calls.some(call=>`${call.tool}/${call.action}`===movement))settledInFlight.push(time);
-    },
+    }),
   };
   return {account,server,command,destination,options,reads,sleeps,calls,movement,settledInFlight,
     now:()=>time,staleArrivalPolls:()=>staleArrivalPolls};

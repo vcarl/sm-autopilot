@@ -7,8 +7,10 @@ import {join} from 'node:path';
 import type {ReadinessAccount,ReadinessCommand} from '../readiness.ts';
 import {bridgeWorld,derived} from '../test-support/bridge-world.ts';
 import {bind,unbind,type Pilot} from './runtime.ts';
-import {ServiceBlocked,ServiceUnsafe,serviceShip} from '../servicing.ts';
-import {service,serviceElsewhere} from './service.ts';
+import {Effect} from 'effect';
+import {ServiceBlocked,ServiceUnsafe,serviceShipEffect,type ServiceOptions} from '../servicing.ts';
+import {GameLive} from './game.ts';
+import {service,serviceElsewhereEffect} from './service.ts';
 
 // S4: `service` read the mood at the top of the job, but the quote it takes first is a command,
 // and a command is where `imposeTired()` lands. A tank under the mood's reserve is exactly what
@@ -199,11 +201,17 @@ test('a refuel the server refuses with a code is refused, naming the action and 
   assert.equal(game.account.server.ship.fuel,10);
 });
 
-test('serviceShip still throws the lib error the server raised, not a tag',async()=>{
+/** `serviceShipEffect` over its own `Game`; resolves with what it failed with. */
+const serviceFailure=(account:ReadinessAccount,command:ReadinessCommand,options:ServiceOptions)=>
+  Effect.runPromise(Effect.flip(serviceShipEffect(account,options)).pipe(Effect.provide(GameLive({send:command}))));
+
+test('serviceShipEffect fails with the refusal\'s tag, carrying the lib error the server raised',async()=>{
   const game=thirsty();
   const raised=new SpacemoltError('insufficient_credits','not enough credits');
   const command=answering(game,'spacemolt/refuel',async()=>{throw raised;});
-  await assert.rejects(serviceShip(game.account as unknown as ReadinessAccount,command,{mood:'Cautious'}),error=>error===raised);
+  const error=await serviceFailure(game.account as unknown as ReadinessAccount,command,{mood:'Cautious'});
+  assert.equal(error._tag,'Rejected');
+  assert.ok('cause' in error&&error.cause===raised);
 });
 
 test('a refuel whose reply is lost is not re-sent, and is failed by name',async()=>{
@@ -224,12 +232,12 @@ test('a counter that will not quote is a failed service naming the refusal',asyn
   assert.match(out.why!,/spacemolt\/get_base: no_base — no base here/);
 });
 
-test('a bill the wallet cannot cover is ServiceBlocked from serviceShip, with the same message and blockers',async()=>{
+test('a bill the wallet cannot cover is ServiceBlocked from serviceShipEffect, with the same message and blockers',async()=>{
   const game=bridgeWorld({services:['refuel'],cargoUsed:0});
   game.account.server.ship.fuel=game.account.server.ship.max_fuel;
   game.account.server.ship.hull=52;
   game.account.server.player.credits=90;
-  const error=await serviceShip(game.account as unknown as ReadinessAccount,game.command,{mood:'Tired',creditReserve:90}).then(()=>undefined,e=>e);
+  const error=await serviceFailure(game.account as unknown as ReadinessAccount,game.command,{mood:'Tired',creditReserve:90});
   assert.ok(error instanceof ServiceBlocked);
   assert.match(error.message,/^service_blocked: credits 90 leave nothing above the reserve 90/);
   assert.equal(error.blockers.length>0,true);
@@ -238,7 +246,7 @@ test('a bill the wallet cannot cover is ServiceBlocked from serviceShip, with th
 test('a ship that is not at a dock is ServiceUnsafe, with the message it always had',async()=>{
   const game=thirsty();
   Reflect.deleteProperty(game.account.server.location,"docked_at");
-  const error=await serviceShip(game.account as unknown as ReadinessAccount,game.command,{mood:'Cautious'}).then(()=>undefined,e=>e);
+  const error=await serviceFailure(game.account as unknown as ReadinessAccount,game.command,{mood:'Cautious'});
   assert.ok(error instanceof ServiceUnsafe);
   assert.equal(error.message,'Servicing requires a verified dock');
 });
@@ -256,7 +264,7 @@ test('serviceElsewhere names a base whose counter the server will not quote, in 
   const refuse=async()=>{throw new SpacemoltError('target_not_found','no such thing');};
   const command:typeof game.command=(action,params)=>
     action==='spacemolt/find_route'||action==='spacemolt/inspect'?refuse():game.command(action,params);
-  const rows=await flown(game,command,()=>serviceElsewhere('sol_base'));
+  const rows=await flown(game,command,()=>Effect.runPromise(serviceElsewhereEffect('sol_base').pipe(Effect.provide(GameLive({send:command})))));
   assert.equal(rows.length,1);
   assert.equal(rows[0]?.base,'far_base');
   assert.match(rows[0]!.why,/no route quote \(spacemolt\/find_route: target_not_found — no such thing\); no price readable from here \(spacemolt\/inspect: target_not_found/);
@@ -269,7 +277,7 @@ test('serviceElsewhere with no listing falls back to the placed bases, unquoted 
   const refuse=async()=>{throw new SpacemoltError('target_not_found','no such thing');};
   const command:typeof game.command=(action,params)=>
     action==='spacemolt/get_system'||action==='spacemolt/find_route'?refuse():game.command(action,params);
-  const rows=await flown(game,command,()=>serviceElsewhere(),{runtime});
+  const rows=await flown(game,command,()=>Effect.runPromise(serviceElsewhereEffect().pipe(Effect.provide(GameLive({send:command})))),{runtime});
   assert.deepEqual(rows.map(row=>row.base),['range_base']);
   assert.match(rows[0]!.why,/a base this pilot has placed: no route quote \(spacemolt\/find_route: target_not_found — no such thing\)/);
 });

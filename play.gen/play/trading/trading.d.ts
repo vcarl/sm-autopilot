@@ -11,7 +11,7 @@
  */
 import type { MarketListingItem, OrderLevel, SellResponse } from '@spacemolt/lib';
 import { Effect, Schema } from 'effect';
-import type { ReadinessAccount, ReadinessCommand } from '../../readiness.ts';
+import type { ReadinessAccount } from '../../readiness.ts';
 import { Game, type GameError } from '../game.ts';
 import { Stopped, type Said } from '../runtime.ts';
 import type { Outcome, Row } from '../types.ts';
@@ -21,11 +21,10 @@ export declare const seatInFaction: (seat: Seat) => boolean;
  * have. A freighter's line carries its name, so it is never stamped with the pilot's run. */
 export declare const seatLine: (seat: Seat, facts: Record<string, unknown>, event: string) => void;
 /** Whose connection and files a search reads through: the pilot's for `routes()`, or a freighter's
- * own when its host re-plans it, so a host loop never touches the play runtime. The Effect code sends
- * through the `Game` it runs under; `command` is for the Promise callers that still read through the seat. */
+ * own when its host re-plans it, so a host loop never touches the play runtime. It sends through the
+ * `Game` it runs under. */
 export interface Seat {
     account: ReadinessAccount;
-    command: ReadinessCommand;
     runtime: string | undefined;
     /** The freighter's name, when the seat is one: its journal lines carry it. */
     freighter?: string;
@@ -90,7 +89,7 @@ type Spreads = {
     sources: string[];
 };
 /** `spreads` as an Effect, for `edge` and for converted callers; never in a barrel. */
-export declare const spreadsEffect: (items?: string[]) => Effect.Effect<Outcome<Spreads>, never, Game>;
+export declare const spreadsEffect: (items?: string[]) => Effect.Effect<Outcome<Spreads>, never, Game | import("../runtime.ts").Run>;
 /** A ledger entry as this file reads it: the base, its system, the tick it was filed and its top of book per item. Picked
  * from the spec's entry, because the live server omits spec fields and sends `null` for an empty item list. */
 export declare const LedgerEntry: Schema.Struct<{
@@ -249,7 +248,7 @@ export declare function tradeRun(opts: {
  * re-sent: the hold and the wallet are re-read against what they were before it, and the run is `partial`. */
 export declare const tradeRunEffect: (opts: {
     stops: RunStop[];
-}) => Effect.Effect<Outcome<Traded>, never, Game>;
+}) => Effect.Effect<Outcome<Traded>, never, Game | import("../runtime.ts").Run>;
 /** How far `routes()` looks unless told: `STOPS` stops, each leg at most `LEG_JUMPS` jumps, no cap
  * on the whole. A local cycle; a galaxy tour is the same call with larger numbers, up to `MAX_STOPS`. */
 export declare const STOPS = 4, LEG_JUMPS = 3, MAX_STOPS = 10;
@@ -333,7 +332,7 @@ export declare function routes(opts?: RouteOpts): Promise<Outcome<{
     sources: string[];
 }>>;
 /** `routes` as an Effect, for `edge` and for converted callers; never in a barrel. */
-export declare const routesEffect: (opts?: RouteOpts) => Effect.Effect<Outcome<Found>, never, Game>;
+export declare const routesEffect: (opts?: RouteOpts) => Effect.Effect<Outcome<Found>, never, Game | import("../runtime.ts").Run>;
 export type RouteOpts = {
     items?: string[];
     circuit?: {
@@ -345,6 +344,6 @@ type Found = {
     sources: string[];
 };
 /** `routes()` itself, read through `seat`: the one planner, whether the pilot or a freighter's host asks. Sends through the `Game`
- * it runs under; the Promise twin `search` builds one over the seat's own `command`. */
+ * it runs under. */
 export declare const searchEffect: (seat: Seat, opts?: RouteOpts) => Effect.Effect<Said<Found>, GameError | Stopped, Game>;
 export {};

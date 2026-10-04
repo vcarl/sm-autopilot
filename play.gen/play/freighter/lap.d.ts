@@ -170,7 +170,7 @@ export declare const scoutHopEffect: (f: Freighter, to: {
     };
 } | {
     why: string;
-}, import("../codes.ts").GameError | SeamFailed | TravelBlocked | import("../../travel.ts").ArrivalUnresolved | ServiceBlocked | import("../../servicing.ts").ServiceUnsafe, Game>;
+}, import("../codes.ts").GameError | SeamFailed | TravelBlocked | import("../../travel.ts").ArrivalUnresolved | import("../../dock.ts").DockBlocked | ServiceBlocked | import("../../servicing.ts").ServiceUnsafe, Game>;
 /** The Promise twin of `scoutHopEffect`, kept for the frozen freighter surface (`play/freighter`): a session taken elsewhere, or a bug, throws as it was thrown. The host calls the Effect. */
 export declare function scoutHop(f: Freighter, to: {
     at?: string;

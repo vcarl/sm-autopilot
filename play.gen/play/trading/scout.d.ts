@@ -29,8 +29,6 @@ export declare const target: (row: Candidate) => string;
  * system with a base already placed counts as explored; its other bases are listed by the
  * `explore` after a hop there. */
 export declare const candidatesEffect: (seat: Seat, now: number, jumps?: number) => Effect.Effect<Candidate[], import("../codes.ts").GameError | Stopped, Game>;
-/** The Promise twin of `candidatesEffect`, sending through the seat's own `command`: throws the lib's raw error, or `Stopped`, as it always did. */
-export declare function candidates(seat: Seat, now: number, jumps?: number): Promise<Candidate[]>;
 /** The system the ship is in, listed live (`get_system`): each base's place kept in the seat's `places.json`,
  * the system kept in its `explored.json`. The base ids; none, journalled to the seat, when the reply does not read. */
 export declare const exploreEffect: (seat: Seat) => Effect.Effect<string[], import("../codes.ts").GameError, Game>;
@@ -60,4 +58,4 @@ export declare function scoutMarkets(opts?: {
 export declare const scoutMarketsEffect: (opts?: {
     jumps?: number;
     max?: number;
-}) => Effect.Effect<Outcome<Scouted>, never, Game>;
+}) => Effect.Effect<Outcome<Scouted>, never, Game | import("../runtime.ts").Run>;

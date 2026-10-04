@@ -5,7 +5,7 @@ import type {PassengerView,StationPassengersResponse,UnloadPassengerCommandRespo
 import {Effect,Option,Result,Schema,Struct} from 'effect';
 import {replyBody} from '../../storage.ts';
 import * as Wire from '../../wire.gen.ts';
-import {Game,attempt,field} from '../game.ts';
+import {Game,field} from '../game.ts';
 import {Stopped,acct,admit,edge,jobEffect,step,stopped} from '../runtime.ts';
 import {folded} from '../storage.ts';
 import {goToEffect} from '../travel.ts';
@@ -72,7 +72,7 @@ export function carryPassengers(destination?:string):Promise<Outcome<Carried>> {
 /** `carryPassengers` as an Effect, for `edge` and for converted callers; never in a barrel. A refusal ends it naming the
  * action and the code; a lost reply on the boarding or an unload is never re-sent, and the manifest is re-read. */
 export const carryPassengersEffect=(destination?:string)=>
-  jobEffect<Carried,Game>('carryPassengers',destination??'',folded<Carried>('carryPassengers',emptyCarried,Effect.gen(function*() {
+  jobEffect<Carried>('carryPassengers',destination??'',folded<Carried>('carryPassengers',emptyCarried,Effect.gen(function*() {
     const game=yield* Game;
     const result=emptyCarried();
     const docked=acct().state.location?.docked_at;
@@ -83,8 +83,7 @@ export const carryPassengersEffect=(destination?:string)=>
 
     result.aboard=yield* readAboard();
     // Tired may not start work, but it may finish a trip someone is already aboard for.
-    // bridge: U31 (admit keeps its Promise form with the module singletons it reads)
-    const blocked=yield* attempt('carryPassengers',()=>admit('carryPassengers'));
+    const blocked=yield* admit('carryPassengers');
     const carrying=destination?result.aboard.filter(row=>row.destination===destination):[];
     if(blocked&&!carrying.length)return {status:'refused' as const,did:'carried nobody',why:blocked,detail:result};
 

@@ -1,7 +1,7 @@
 import type { MarketListingItem } from '@spacemolt/lib';
 import { Effect } from 'effect';
 import { Game, type GameError } from './play/game.ts';
-import type { ReadinessAccount, ReadinessCommand } from './readiness.ts';
+import type { ReadinessAccount } from './readiness.ts';
 import { type Mood } from './mood-policy.ts';
 export interface ServiceFuelQuote {
     observed_at: string;
@@ -20,6 +20,9 @@ export interface ServiceOptions {
     runtime?: string;
     /** False skips the fuel-cell top-up: a freighter's hold is its circuit's to plan. */
     cells?: boolean;
+    /** False keeps this fill's prices off the pilot's next `trade` line: the quote is one per
+     * bridge, and a freighter serviced in it is not the pilot (its trades carry no quote). */
+    quotes?: boolean;
 }
 /** The fuel-cell top-up that follows a fill: cells aboard against the reserve, what was bought
  * for what, and `skipped` saying why nothing was when the reserve was due. */
@@ -84,9 +87,6 @@ export declare class ServiceUnsafe extends ServiceUnsafe_base<{
  * A lost reply on the refuel or the repair is never re-sent: it fails with the tag, and the
  * caller's own re-read says what landed. */
 export declare const serviceShipEffect: (account: ReadinessAccount, options: ServiceOptions) => Effect.Effect<ServiceOutcome, GameError | ServiceBlocked | ServiceUnsafe, Game>;
-/** The Promise twin of `serviceShipEffect`: throws what it always threw — the lib's raw error,
- * `ServiceBlocked`, or the custody refusals (`ServiceUnsafe`, same messages). */
-export declare function serviceShip(account: ReadinessAccount, command: ReadinessCommand, options: ServiceOptions): Promise<ServiceOutcome>;
 /** A live cell price over this multiple of the remembered median is not paid. */
 export declare const CELL_PRICE_BOUND = 1.5;
 /** One `view_market` row as the book memory keeps it. The live server omits spec fields, so a row is

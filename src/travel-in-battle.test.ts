@@ -2,7 +2,8 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {SpacemoltError} from '@spacemolt/lib';
 import type {ReadinessCommand} from './readiness.ts';
-import {battleEnded,InBattle,travelTo} from './travel.ts';
+import {battleEnded,InBattle} from './travel.ts';
+import {travelTo} from './test-support/travel.ts';
 import {FakeLibGoalAccount} from './test-support/fake-lib-account.ts';
 
 /** One local hop, with the server free to refuse it `in_battle` the way the live one does:

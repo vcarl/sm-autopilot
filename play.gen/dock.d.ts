@@ -21,5 +21,5 @@ export interface DockResult {
  * tag (no evidence, codes.ts): it is a `Rejected` read by its code. The re-read is the account's
  * own, not `Game.refresh`, so it adds no re-read of its own to a dropped connection the caller's
  * command path already handled. */
-export declare const dockAtEffect: (account: ReadinessAccount, baseId?: string, options?: TravelOptions) => Effect.Effect<DockResult, import("./play/codes.ts").GameError | import("./travel.ts").TravelBlocked | import("./travel.ts").ArrivalUnresolved, Game>;
+export declare const dockAtEffect: (account: ReadinessAccount, baseId?: string, options?: TravelOptions) => Effect.Effect<DockResult, import("./play/codes.ts").GameError | import("./travel.ts").TravelBlocked | import("./travel.ts").ArrivalUnresolved | DockBlocked, Game>;
 export {};

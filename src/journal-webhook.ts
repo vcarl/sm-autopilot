@@ -8,8 +8,12 @@
  * Nothing here is the record. A post that fails keeps its lines and tries again; a drain
  * that never runs costs the pilot nothing, because `gameplay.jsonl` is already written.
  */
+import {Data,Effect,Option,Schema} from 'effect';
 import {renderLine} from './journal-lines.ts';
 import {watchJournal} from './run-record.ts';
+
+/** A POST to the webhook that threw: the lines stay buffered for the next drain. */
+class PostFailed extends Data.TaggedError('PostFailed')<{readonly cause:unknown}> {}
 
 /** ponytail: three numbers, not a config system. Discord takes 2000 characters a message
  * and the drain leaves room for the newline joins; three to eight minutes is "a burst, not
@@ -69,13 +73,15 @@ function take(buffer:string[]):string[] {
   return out;
 }
 
+// Discord answers the wait in seconds, as a number; only that field is read.
+const decodeRetry=Schema.decodeUnknownOption(Schema.Struct({retry_after:Schema.optionalKey(Schema.Unknown)}));
+
 const discordPost=(url:string)=>async (content:string):Promise<PostResult>=>{
   const reply=await fetch(url,{method:'POST',headers:{'content-type':'application/json'},
     body:JSON.stringify({content,allowed_mentions:{parse:[]}})});
   if(reply.status===429) {
     // Discord answers the wait in seconds; anything unreadable is a second.
-    const body=await reply.json().catch(()=>({})) as {retry_after?:unknown};
-    const seconds=Number(body?.retry_after);
+    const seconds=Number(Option.getOrUndefined(decodeRetry(await reply.json().catch(()=>({}))))?.retry_after);
     return {ok:false,retryAfterMs:Math.max(1_000,Math.round((Number.isFinite(seconds)?seconds:1)*1000))};
   }
   return {ok:reply.ok};
@@ -103,9 +109,9 @@ export function journalDrain(url:string,deps:DrainDeps={}):Drain {
       let sent=0,posts=0,waited=0,failed=false;
       while(buffer.length&&!stopped) {
         const sending=take(buffer);
-        let result:PostResult;
         // A webhook that is down, slow or gone keeps its lines: the next drain carries them.
-        try {result=await post(sending.join('\n'));} catch {result={ok:false};}
+        const result=await Effect.runPromise(Effect.tryPromise({try:()=>post(sending.join('\n')),catch:cause=>new PostFailed({cause})}).pipe(
+          Effect.orElseSucceed((): PostResult=>({ok:false}))));
         if(!result.ok) {
           const retry=result.retryAfterMs;
           if(!retry||waited+retry>RETRY_BUDGET_MS) {failed=true;break;}

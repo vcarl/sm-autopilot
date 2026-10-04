@@ -3,21 +3,23 @@
  * before the entrypoint is imported; there is exactly one pilot per process.
  *
  * Inside, the same module holds what the library needs and the pilot does not see: the
- * command seam (journal + Tired imposition), the measuring `job()` wrapper, the step line,
- * and the rules check helpers ask before starting work.
+ * measuring `job()` wrapper, the step line, and the rules check helpers ask before starting work.
+ * Everything a run keeps is its `Run` service, built by `bind()` beside its own `Game`; an Effect
+ * asks for it by type, and the Promise surface reaches it through the binding.
  *
- * ponytail: a module singleton, not AsyncLocalStorage. One account per bridge process today;
- * a multi-account runtime is a second process per account (DESIGN.md "Fleet").
+ * ponytail: the pilot's surface (`pilot()`, `stopped()`, `note()`, `account()`) is synchronous and
+ * carries no context, so the binding itself is one module slot, not AsyncLocalStorage. One pilot
+ * per bridge process today; a multi-account runtime is a second process per account (DESIGN.md "Fleet").
  */
 import type {Account,SkillProgress} from '@spacemolt/lib';
-import {Cause,Data,Effect,Exit,ManagedRuntime,Result} from 'effect';
+import {Cause,Context,Data,Effect,Exit,Layer,ManagedRuntime,Result} from 'effect';
 import type {ReadinessAccount,ReadinessCommand} from '../readiness.ts';
 import {FUEL_CELL} from '../mining-inventory.ts';
 import {journalRun,readRun,stampRun,writeRun,type RunRecord} from '../run-record.ts';
 import type {DockBlocked} from '../dock.ts';
 import {TravelBlocked,type ArrivalUnresolved} from '../travel.ts';
-import {Depleted,Game,GameLive,HoldFull,InBattle,Rejected,ReplyLost,attempt,freshLedger,field,message,rawError,type GameError} from './game.ts';
-import {resupply} from './service.ts';
+import {Depleted,Game,GameLive,HoldFull,InBattle,Rejected,ReplyLost,attempt,freshLedger,field,message,rawError,type GameError,type Ledger} from './game.ts';
+import {resupplyEffect} from './service.ts';
 import type {Outcome,Present,Row,Status,Want} from './types.ts';
 
 export type Mood='Cautious'|'Focused'|'Opportunistic'|'Aggressive'|'Relaxed'|'Tired';
@@ -54,19 +56,6 @@ export interface Binding {
   run_id?:string;
 }
 
-/** The binding, with its own `Game` runtime: commands through it take this binding's journalled
- * `command()` path (docs/EFFECT.md "The Promise ↔ Effect edge"). */
-let bound:(Binding&{readonly game:ManagedRuntime.ManagedRuntime<Game,never>})|null=null;
-/** How many jobs deep the program is: 1 is a call `main()` made itself. */
-let depth=0;
-let stopFlag=false,started=0;
-/** What the command path keeps for `progress()`; `GameLive` writes it. */
-const wire=freshLedger();
-let last:{fn:string;step?:string}={fn:'pilot'};
-let mark:Snapshot|null=null;
-/** The opening read of the job now running, so a helper inside it can say what it measured. */
-let jobMark:Snapshot|null=null;
-let unwatch:(()=>void)|undefined;
 /** Every top-level call `main()` made this run, as the menu reads a run: the function, its
  * first argument, how it ended and what it gained. ponytail: the first whitespace token of
  * the job's label stands in for "first argument"; it is the poi/id for every job that takes one. */
@@ -77,47 +66,89 @@ export interface Call {fn:string;arg:string;status:Status;did:string;
   credits:number;items:number;xp:number;cost:Outcome['cost'];
   /** Telemetry, journalled on run/ended: the whole of what the call gained, and when it ran. */
   gained?:Outcome['gained'];started_at?:string;seconds?:number}
-let calls:Call[]=[];
-export const runCalls=()=>calls;
 
 /** A question the program is paused on, as run.json and the tools carry it. */
 export type Question=NonNullable<RunRecord['question']>;
-let asking:{question:Question;resolve:(answer:string)=>void;reject:(error:unknown)=>void}|null=null;
+
+interface Snapshot {at:number;credits:number;fuel:number;hull:number;cargo:Record<string,number>;xp:Record<string,number>}
+
+/** One run: everything `bind()` starts afresh, provided beside the binding's `Game`. */
+export class Run extends Context.Service<Run,{
+  readonly binding:Binding;
+  /** Set by `stop()`; every library function checks it between commands. */
+  stopFlag:boolean;
+  readonly started:number;
+  /** How many jobs deep the program is: 1 is a call `main()` made itself. */
+  depth:number;
+  /** What the command path keeps for `progress()`; `GameLive` writes it. */
+  readonly wire:Ledger;
+  last:{fn:string;step?:string};
+  /** Where the pilot's next `outcome()` measures from. */
+  mark:Snapshot|null;
+  /** The opening read of the job now running, so a helper inside it can say what it measured. */
+  jobMark:Snapshot|null;
+  calls:Call[];
+  asking:{question:Question;resolve:(answer:string)=>void;reject:(error:unknown)=>void}|null;
+  /** The mood last said, so a crossing into or out of Tired is said once. */
+  lastMood:Mood|undefined;
+  /** How the last resupply ended short, if it did: `admit` lets the work go on either way. */
+  short:'broke'|'stranded'|undefined;
+  burning:boolean;burnFailed:boolean;
+  unwatch:(()=>void)|undefined;
+}>()('Run') {}
+type RunState=Context.Service.Shape<typeof Run>;
+type GameShape=Context.Service.Shape<typeof Game>;
+
+/** The run bound now, with its own runtime: commands through it take this binding's journalled
+ * `command` (docs/EFFECT.md "The Promise ↔ Effect edge").
+ * ponytail: one slot, because the sync helpers (`stopped()`, `pilot()`, `note()`, `step()`) carry no context
+ * to find their run by; two bindings may never overlap, so the bridge takes it in turn (`exclusive`), and
+ * `unbind` disposes the runtime, interrupting any job still in it. Lift it with AsyncLocalStorage or a
+ * surface whose helpers are handed their run, when one process must hold two bindings at once. */
+let current:{readonly run:RunState;readonly game:ManagedRuntime.ManagedRuntime<Game|Run,never>}|null=null;
+
+const need=()=>{if(!current)throw new Error('the play runtime is not bound: only `run` may execute pilot code');return current;};
+const state=()=>need().run;
+
+export const runCalls=()=>state().calls;
 /** The question the program is paused on, or null. */
-export const pendingQuestion=():Question|null=>asking?.question??null;
+export const pendingQuestion=():Question|null=>current?.run.asking?.question??null;
 /** run.json carries the pending question, so the juncture gate (another process) can see it. */
-function recordQuestion(question:Question|null):void {
-  const runtime=bound?.runtime,record=runtime?readRun(runtime):null;
+function recordQuestion(run:RunState,question:Question|null):void {
+  const runtime=run.binding.runtime,record=runtime?readRun(runtime):null;
   if(!runtime||!record)return;
   if(question)record.question=question;else delete record.question;
   writeRun(runtime,record);
 }
 
-const need=()=>{if(!bound)throw new Error('the play runtime is not bound: only `run` may execute pilot code');return bound;};
-
-/** Bind the runtime for one run. Resets the stop flag and the counters. */
+/** Bind the runtime for one run: a fresh `Run`, and a `Game` over this binding's command. */
 export function bind(binding:Binding):void {
   const {account:live}=binding,once=live.reconnectOnce?.bind(live);
-  bound={...binding,game:ManagedRuntime.make(GameLive({send:(action,params)=>need().command(action,params),
-    reconnected,refresh:()=>live.refresh(),say:line,ledger:wire,
-    after:async()=>{await burnCells();watchMood();},...once?{reconnect:once}:{}}))};
-  stopFlag=false;asking=null;depth=0;started=Date.now();last={fn:'pilot'};calls=[];
-  Object.assign(wire,freshLedger());burning=false;burnFailed=false;short=undefined;
-  mark=snapshot();
+  const run:RunState={binding,stopFlag:false,started:Date.now(),depth:0,wire:freshLedger(),last:{fn:'pilot'},
+    mark:null,jobMark:null,calls:[],asking:null,lastMood:undefined,short:undefined,burning:false,burnFailed:false,unwatch:undefined};
+  const game=GameLive({send:binding.command,reconnected:()=>reconnected(live),refresh:()=>live.refresh(),say:text=>say(run,text),
+    ledger:run.wire,after:served=>burn(run,served).pipe(Effect.andThen(Effect.sync(()=>watchMood(run)))),...once?{reconnect:once}:{}});
+  current={run,game:ManagedRuntime.make(Layer.merge(game,Layer.succeed(Run,run)))};
+  run.mark=snapshot(run);
   stampRun(binding.run_id?{run_id:binding.run_id}:null);
-  lastMood=binding.pilot().mood;
+  run.lastMood=binding.pilot().mood;
   // A lib Account pushes state between commands (a tick, a fight); the fake in tests does not.
-  unwatch=live.onStateChange?.(()=>{
-    try {watchMood();}
+  run.unwatch=live.onStateChange?.(()=>{
+    try {watchMood(run);}
     catch { // edge: a push from the lib's socket is not the place to fail
     }
   });
 }
-export function unbind():void {unwatch?.();unwatch=undefined;asking=null;void bound?.game.dispose();bound=null;stampRun(null);}
-export const isBound=()=>bound!==null;
+export function unbind():void {
+  const was=current;
+  current=null;
+  if(was){was.run.unwatch?.();was.run.unwatch=undefined;was.run.asking=null;void was.game.dispose();}
+  stampRun(null);
+}
+export const isBound=()=>current!==null;
 
 /** The pilot record as it is right now. Cheap; call it, do not cache it. */
-export function pilot():Pilot {return need().pilot();}
+export function pilot():Pilot {return state().binding.pilot();}
 
 /** The connected `@spacemolt/lib` Account: typed state (`account().ship: V2Ship`,
  * `.cargo: V2CargoItem[]`, `.location: V2Location`, `.credits`, `.skills`) and every game
@@ -126,7 +157,7 @@ export function pilot():Pilot {return need().pilot();}
  * yourself are journalled and margin-checked like any other, but they are NOT idempotent and
  * NOT rules-checked: read the reply before sending the same one again. */
 export function account():Account {
-  const live=need().account;
+  const live=state().binding.account;
   return new Proxy(live,{get:(target,key)=>{
     if(key==='commands')return commandsProxy;
     const value=Reflect.get(target,key);
@@ -135,9 +166,11 @@ export function account():Account {
 }
 // The lib binds a no-param action as `(requestId)`, so `commands.spacemolt_salvage.sell({id})`
 // sent the params as the request id and timed out ("No response to mutation [object Object]").
-// Every `commands.<tool>.<action>(params)` goes through `command()` instead: params are the payload.
+// Every `commands.<tool>.<action>(params)` is `Game.command` instead: params are the payload.
 const commandsProxy=new Proxy({},{get:(_,tool)=>new Proxy({},{get:(__,action)=>
-  (params?:unknown)=>command(`${String(tool)}/${String(action)}`,isRecord(params)?params:{})})});
+  (params?:unknown)=>onBinding(Effect.gen(function*() {
+    return yield* (yield* Game).command(`${String(tool)}/${String(action)}`,isRecord(params)?params:{});
+  }))})});
 const isRecord=(value:unknown):value is Record<string,unknown>=>typeof value==='object'&&value!==null;
 
 /** Write one line to the journal and to the run's stream, under your own words. Use it to
@@ -146,22 +179,25 @@ export function note(text:string):void {line(`✎ ${text}`);}
 
 /** True once the pilot (or the observer) asked the run to stop. Every library function checks it
  * between commands and returns `partial`; a loop of your own should check it too. */
-export function stopped():boolean {return stopFlag;}
+// Nothing bound is a run that has closed: a program still flying (abandoned at the cap) must stop.
+export function stopped():boolean {return current?.run.stopFlag??true;}
 /** Ask the run to stop. A program paused on `ask()` is not at a safe point, it is waiting: the
  * ask rejects with `Stopped` there and then, and the question is withdrawn. */
 export function stop():void {
-  stopFlag=true;
-  const waiting=asking;
+  const run=current?.run;
+  if(!run)return;
+  run.stopFlag=true;
+  const waiting=run.asking;
   if(!waiting)return;
-  asking=null;
-  recordQuestion(null);
-  line(`question withdrawn by stop: ${waiting.question.question}`);
+  run.asking=null;
+  recordQuestion(run,null);
+  say(run,`question withdrawn by stop: ${waiting.question.question}`);
   waiting.reject(new Stopped());
 }
 
 /** Thrown from a travel checkpoint when the pilot asked to stop; the leg in flight finishes. */
 export class Stopped extends TravelBlocked {readonly _tag='Stopped';constructor(){super('stopped by pilot');}}
-export const checkStop=()=>{if(stopFlag)throw new Stopped();};
+export const checkStop=()=>{if(stopped())throw new Stopped();};
 
 /** Pause the program and put a question to the model that is running it; resolves to its
  * answer, which is always one of `choices` when they are given. It waits until the answer
@@ -169,12 +205,12 @@ export const checkStop=()=>{if(stopFlag)throw new Stopped();};
  * wall-clock cap (run.ts).
  * A model call takes minutes, so ask at a strategic fork, never once per tick. */
 export function ask(asked:{question:string;choices?:string[]}):Promise<string> {
-  need();
-  if(stopFlag)return Promise.reject(new Stopped());
+  const run=state();
+  if(run.stopFlag)return Promise.reject(new Stopped());
   const text=String(asked?.question??'').trim();
   const choices=asked?.choices;
   const refused=!text?'ask needs a question'
-    :asking?'ask: a question is already pending; await one before asking the next'
+    :run.asking?'ask: a question is already pending; await one before asking the next'
     :choices!==undefined&&(!Array.isArray(choices)||!choices.length||choices.some(c=>typeof c!=='string'||!c.trim()))
       ?'ask: choices must be a non-empty list of non-empty strings'
     :null;
@@ -182,20 +218,20 @@ export function ask(asked:{question:string;choices?:string[]}):Promise<string> {
   const question:Question={question:text,...choices?{choices:[...choices]}:{},
     asked_at:new Date().toISOString()};
   return new Promise<string>((resolve,reject)=>{
-    asking={question,resolve,reject};
-    recordQuestion(question);
-    line(`? ${text}${choices?`  [${choices.join(' | ')}]`:''}`);
-    need().onAsk?.(question);
+    run.asking={question,resolve,reject};
+    recordQuestion(run,question);
+    say(run,`? ${text}${choices?`  [${choices.join(' | ')}]`:''}`);
+    run.binding.onAsk?.(question);
   });
 }
 
 /** Resume the paused program with `text`. The caller has already held it to the choices. */
 export function answer(text:string):void {
-  const waiting=asking;
-  if(!waiting)throw new Error('no question is pending');
-  asking=null;
-  recordQuestion(null);
-  line(`answered: ${text}`);
+  const run=current?.run,waiting=run?.asking;
+  if(!run||!waiting)throw new Error('no question is pending');
+  run.asking=null;
+  recordQuestion(run,null);
+  say(run,`answered: ${text}`);
   waiting.resolve(text);
 }
 
@@ -204,9 +240,9 @@ export function answer(text:string):void {
  * run started or since your last `outcome()` call, whichever is later. Return it from your
  * helper so it composes like ours. */
 export function outcome<Detail=Record<string,unknown>>(did:string,status:Status='done',detail?:Detail,why?:string):Outcome<Detail> {
-  const before=mark??snapshot();
-  const built=finish('pilot',before,{status,did,...why===undefined?{}:{why},detail:orEmpty(detail)});
-  mark=snapshot();
+  const run=state(),before=run.mark??snapshot(run);
+  const built=finish(run,'pilot',before,{status,did,...why===undefined?{}:{why},detail:orEmpty(detail)});
+  run.mark=snapshot(run);
   return built;
 }
 
@@ -224,8 +260,8 @@ export function wanted(rows:Want[]):{rows:Row[]}|{refused:string} {
 
 /** Wait for the lib's own reconnect to re-authenticate this account, up to `ms`. False when
  * the account has no reconnect listener (a test fake) or the wait ran out. */
-function reconnected(ms=60_000):Promise<boolean> {
-  const {account:live}=need(),listen=live.onReconnected?.bind(live);
+function reconnected(live:Account,ms=60_000):Promise<boolean> {
+  const listen=live.onReconnected?.bind(live);
   if(typeof listen!=='function')return Promise.resolve(false);
   return new Promise(resolve=>{
     let off:(()=>void)|undefined;
@@ -235,39 +271,40 @@ function reconnected(ms=60_000):Promise<boolean> {
   });
 }
 
-/** Every game command a helper sends: `Game.command` (game.ts) through the binding's runtime,
- * its failure handed back as the raw error. Journalled by the bridge's command; counted, and a
- * mood change it caused is said by the layer's `after`.
- *
- * A connection that drops mid-command is not the trip ending: the lib reconnects and
- * re-authenticates by itself, so the layer waits for that, re-reads the world, and re-issues the
- * command exactly once when it is one the live world can restate. A mutation that may have
- * landed is never re-sent — it fails with "outcome unknown, re-observe" instead.
- *
- * A `run*` besides `edge` (the others are marked `// bridge:`), and the
- * string seam: U31 deletes it with the callers that still `await command(...)`. */
-export async function command(action:string,params:Record<string,unknown>={}):Promise<unknown> {
-  const exit=await viaGame(Effect.gen(function*() {return yield* (yield* Game).command(action,params);}));
+/** The Promise seam for an Effect that is not a pilot function — the pilot's own
+ * `account().commands`, the bridge's menu: run through the binding's runtime, a failure thrown
+ * as the raw error the lib raised, so `instanceof SpacemoltError` and `.code` still work.
+ * Journalled by the bridge's command; counted, and a mood change it caused is said by the
+ * layer's `after`. The one `run*` besides `edge`. */
+export async function onBinding<A,E>(effect:Effect.Effect<A,E,Game|Run>):Promise<A> {
+  const exit=await need().game.runPromiseExit(effect);
   if(Exit.isSuccess(exit))return exit.value;
   throw rawError(exit.cause);
 }
-export const acct=():ReadinessAccount=>need().account;
-export const runtimeDir=()=>need().runtime;
+/** The bound run as a layer, for an Effect run against a `Game` of its own rather than through `edge`
+ * (a test on the TestClock). */
+export const boundRun=()=>Layer.succeed(Run,state());
+export const acct=():ReadinessAccount=>state().binding.account;
+export const runtimeDir=()=>state().binding.runtime;
 
 /** One streamed line: journalled first, then sent. */
-export function line(text:string,extra:Record<string,unknown>={}):void {
-  const b=need();
+export function line(text:string,extra:Record<string,unknown>={}):void {say(state(),text,extra);}
+function say(run:RunState,text:string,extra:Record<string,unknown>={}):void {
+  const {binding:b,last}=run;
   if(b.runtime)journalRun(b.runtime,{text,fn:last.fn,...last.step?{step:last.step}:{},...extra},'line');
   b.emit(text);
 }
 /** A sub-step inside a helper: an indented line, and the step `status` reports. */
-export function step(text:string):void {last.step=text.split(' ')[0]??'';line(`  ${text}`);}
+export function step(text:string):void {const run=state();run.last.step=text.split(' ')[0]??'';say(run,`  ${text}`);}
 
 /** Where the run has got to, and — the difference between "waiting on the game" and "the
  * bridge is stuck" — when it last heard back and what is on the wire right now. */
-export const progress=()=>({fn:last.fn,step:last.step,commands:wire.commands,elapsed_s:Math.round((Date.now()-started)/1000),
-  ...wire.lastCommandAt?{last_command_at:new Date(wire.lastCommandAt).toISOString()}:{},
-  ...wire.pending?{pending:{action:wire.pending.action,since_s:Math.round((Date.now()-wire.pending.since)/1000)}}:{}});
+export const progress=()=>{
+  const {last,wire,started}=state();
+  return {fn:last.fn,step:last.step,commands:wire.commands,elapsed_s:Math.round((Date.now()-started)/1000),
+    ...wire.lastCommandAt?{last_command_at:new Date(wire.lastCommandAt).toISOString()}:{},
+    ...wire.pending?{pending:{action:wire.pending.action,since_s:Math.round((Date.now()-wire.pending.since)/1000)}}:{}};
+};
 
 /** The rules between one helper and the next: a mood that may not start work. Helpers that
  * begin something (a gather, a buy, a mission) ask before sending; reads and the safe legs
@@ -277,23 +314,23 @@ export const progress=()=>({fn:last.fn,step:last.step,commands:wire.commands,ela
  * and the work goes on: cleared, or journalled when it could not be. Inside another helper it
  * only refuses — flying off mid-trade would leave the outer helper at the wrong counter — and the
  * resupply waits for the next top-level call or the run's end. */
-export async function admit(fn:string):Promise<string|null> {
-  if(pilot().mood==='Tired'&&depth===1){const out=await resupply();short=out==='cleared'?undefined:out;}
-  const {mood,tired_by}=pilot();
+export const admit=(fn:string)=>Effect.gen(function*() {
+  const run=yield* Run,who=()=>run.binding.pilot();
+  if(who().mood==='Tired'&&run.depth===1){const out=yield* resupplyEffect();run.short=out==='cleared'?undefined:out;}
+  const {mood,tired_by}=who();
   // Tired is only the resupply guarantee: when resupply could not keep it, refusing the work
   // (which earns the credits, or flies where a base may be learned) would strand the ship.
-  if(mood==='Tired'&&short) {
-    line(`${fn}: Tired (${tired_by}), ${short==='broke'?'resupply unaffordable: working to pay for it':'resupply found no base: working on'}`);
+  if(mood==='Tired'&&run.short) {
+    say(run,`${fn}: Tired (${tired_by}), ${run.short==='broke'?'resupply unaffordable: working to pay for it':'resupply found no base: working on'}`);
     return null;
   }
   if(mood==='Tired')return `${fn} not started: Tired (${tired_by??'a margin crossed'}) and the runtime's resupply did not clear it`;
   if(mood==='Relaxed')return `${fn} not started: Relaxed may not initiate a job`;
   return null;
-}
+});
 
-interface Snapshot {at:number;credits:number;fuel:number;hull:number;cargo:Record<string,number>;xp:Record<string,number>}
-function snapshot():Snapshot {
-  const state=need().account.state;
+function snapshot(run:RunState):Snapshot {
+  const state=run.binding.account.state;
   const cargo:Record<string,number>={};
   for(const row of state.cargo??[])cargo[row.item_id]=(cargo[row.item_id]??0)+row.quantity;
   const xp:Record<string,number>={};
@@ -314,7 +351,7 @@ const isProgress=(row:unknown):row is SkillProgress=>isRecord(row)&&typeof row.c
  * is not here — it would cost a `storage/view` per run.
  * ponytail: cargo and missions capped at 40 rows, as the storage and market reads are. */
 export function stateSnapshot():Record<string,unknown> {
-  const state=need().account.state,{ship,location}=state;
+  const state=acct().state,{ship,location}=state;
   const missions=state.missions?.active;
   return {credits:state.player?.credits??null,fuel:ship?.fuel??null,max_fuel:ship?.max_fuel??null,
     hull:ship?.hull??null,max_hull:ship?.max_hull??null,cargo_used:ship?.cargo_used??null,cargo_capacity:ship?.cargo_capacity??null,
@@ -325,8 +362,9 @@ export function stateSnapshot():Record<string,unknown> {
       percent_complete:m.percent_complete,rewards:m.rewards}))}:{}};
 }
 
-export function present():Present {
-  const state=need().account.state,who=pilot(),{ship,location}=state;
+export function present():Present {return presentOf(state());}
+function presentOf(run:RunState):Present {
+  const state=run.binding.account.state,who=run.binding.pilot(),{ship,location}=state;
   /* ponytail: `Present` declares `ship` and `location` present (pilot surface, frozen by check 7), but a
    * pilot riding another's ship has no `ship` (V2GameState.riding), and present() runs in every Outcome,
    * which must not reject. Lift it when the surface may say `ship?:`/`location?:`. */
@@ -340,8 +378,8 @@ export function present():Present {
 /** What a helper hands back; the wrapper measures the rest. */
 export interface Said<Detail> {status:Status;did:string;why?:string;detail:Detail;next?:string[]}
 
-function finish<Detail>(fn:string,before:Snapshot,part:Said<Detail>):Outcome<Detail> {
-  const after=snapshot();
+function finish<Detail>(run:RunState,fn:string,before:Snapshot,part:Said<Detail>):Outcome<Detail> {
+  const after=snapshot(run);
   const items:Row[]=[];
   for(const [item_id,quantity] of Object.entries(after.cargo))
     if(quantity>(before.cargo[item_id]??0))items.push({item_id,quantity:quantity-(before.cargo[item_id]??0)});
@@ -352,7 +390,7 @@ function finish<Detail>(fn:string,before:Snapshot,part:Said<Detail>):Outcome<Det
     cost:{credits:Math.max(0,-credits),fuel:Math.max(0,before.fuel-after.fuel),hull:Math.max(0,before.hull-after.hull),
       minutes:Math.round((after.at-before.at)/6000)/10},
     gained:{credits:Math.max(0,credits),items,xp},
-    now:present(),next:(part.next??[]).slice(0,3),detail:part.detail};
+    now:presentOf(run),next:(part.next??[]).slice(0,3),detail:part.detail};
 }
 
 const seconds=(ms:number)=>`${(ms/1000).toFixed(ms<10_000?1:0)}s`;
@@ -368,32 +406,30 @@ export const job=<Detail>(fn:string,args:string,body:()=>Promise<Said<Detail>>):
 /** `job` for an Effect body: the same bookkeeping, every failure folded into the Outcome by
  * `said`. A defect is a `failed` Outcome too, as a throw is in `job`, and its stack goes to a
  * `defect` line. Never exported from a barrel. */
-export const jobEffect=<D,R>(fn:string,args:string,body:Effect.Effect<Said<D>,GameError|TravelBlocked|ArrivalUnresolved|DockBlocked,R>)=>jobWith(fn,args,body,true);
+export const jobEffect=<D,R extends Game|Run=Game|Run>(fn:string,args:string,body:Effect.Effect<Said<D>,GameError|TravelBlocked|ArrivalUnresolved|DockBlocked,R>)=>jobWith(fn,args,body,true);
 
-const jobWith=<D,R>(fn:string,args:string,body:Effect.Effect<Said<D>,GameError|TravelBlocked|ArrivalUnresolved|DockBlocked,R>,journalDefects:boolean):Effect.Effect<Outcome<D>,never,R|Game>=>
+const jobWith=<D,R>(fn:string,args:string,body:Effect.Effect<Said<D>,GameError|TravelBlocked|ArrivalUnresolved|DockBlocked,R>,journalDefects:boolean):Effect.Effect<Outcome<D>,never,R|Game|Run>=>
   Effect.gen(function*() {
-    const open=yield* opening(fn,args);
+    const run=yield* Run;
+    const open=yield* opening(run,fn,args);
     const exit=yield* Effect.exit(body);
-    if(Exit.isSuccess(exit))return yield* closing(open,exit.value,false);
-    if(journalDefects)defect(fn,exit.cause);
-    return yield* closing(open,said<D>(fn,Cause.squash(exit.cause)),true);
+    if(Exit.isSuccess(exit))return yield* closing(run,open,exit.value,false);
+    if(journalDefects)journalDefect(run,fn,exit.cause);
+    return yield* closing(run,open,said<D>(fn,Cause.squash(exit.cause)),true);
   });
 
 /** The Promise a pilot function returns: `effect` run through the binding's runtime. A defect
  * outside any job is a `failed` Outcome and a `defect` line. */
-export async function edge<D>(effect:Effect.Effect<Outcome<D>,never,Game>):Promise<Outcome<D>> {
-  const b=need(),before=snapshot(),outer=last,outerMark=jobMark,outerDepth=depth;
-  const exit=await b.game.runPromiseExit(effect);
+export async function edge<D>(effect:Effect.Effect<Outcome<D>,never,Game|Run>):Promise<Outcome<D>> {
+  const {run,game}=need(),before=snapshot(run),outer=run.last,outerMark=run.jobMark,outerDepth=run.depth;
+  const exit=await game.runPromiseExit(effect);
   if(Exit.isSuccess(exit))return exit.value;
   // A die inside a job's own bookkeeping skipped its restore; the edge puts the stack back.
-  const fn=last.fn;
-  last=outer;jobMark=outerMark;depth=outerDepth;
-  defect(fn,exit.cause);
-  return finish(fn,before,said<D>(fn,Cause.squash(exit.cause)));
+  const fn=run.last.fn;
+  run.last=outer;run.jobMark=outerMark;run.depth=outerDepth;
+  journalDefect(run,fn,exit.cause);
+  return finish(run,fn,before,said<D>(fn,Cause.squash(exit.cause)));
 }
-/** A `run*` besides `edge` (the others are marked `// bridge:`), for the Promise seams that still `await` a Game effect
- * (`command`, `burnCells`): U31 deletes the string seam and with it this. */
-const viaGame=<A,E>(effect:Effect.Effect<A,E,Game>)=>need().game.runPromiseExit(effect);
 
 /** The detail a pilot gave, or the empty object `outcome` has always put there.
  * ponytail: the pilot-surface signature promises a `Detail` that an omitted detail does not have, so this
@@ -426,38 +462,39 @@ function said<Detail>(fn:string,error:unknown):Said<Detail> {
 }
 
 /** A bug, not a game outcome: its stack goes to the journal. The stop is not one. */
-function defect(fn:string,cause:Cause.Cause<unknown>):void {
-  const runtime=bound?.runtime;
+export function defect(fn:string,cause:Cause.Cause<unknown>):void {if(current)journalDefect(current.run,fn,cause);}
+function journalDefect(run:RunState,fn:string,cause:Cause.Cause<unknown>):void {
+  const runtime=run.binding.runtime;
   if(!runtime||!Cause.hasDies(cause)||Cause.squash(cause) instanceof Stopped)return;
   journalRun(runtime,{fn,why:message(Cause.squash(cause)),stack:Cause.pretty(cause)},'defect');
 }
 
-type Opened={fn:string;args:string;before:Snapshot;outer:typeof last;outerMark:Snapshot|null};
+type Opened={fn:string;args:string;before:Snapshot;outer:RunState['last'];outerMark:Snapshot|null};
 /** The ▶ line and the opening read. A read that fails is said, and the cached state measures. */
-const opening=(fn:string,args:string)=>Effect.gen(function*() {
-  const outer=last,outerMark=jobMark;
-  last={fn};depth++;
-  line(`▶ ${fn}${args?` ${args}`:''}`);
+const opening=(run:RunState,fn:string,args:string)=>Effect.gen(function*() {
+  const outer=run.last,outerMark=run.jobMark;
+  run.last={fn};run.depth++;
+  say(run,`▶ ${fn}${args?` ${args}`:''}`);
   const read=yield* Effect.result((yield* Game).refresh);
-  const before=snapshot();
-  if(Result.isFailure(read))line(`  ${fn}: the opening read failed (${message(read.failure.cause)}); measuring from cached state`);
-  jobMark=before;
+  const before=snapshot(run);
+  if(Result.isFailure(read))say(run,`  ${fn}: the opening read failed (${message(read.failure.cause)}); measuring from cached state`);
+  run.jobMark=before;
   return {fn,args,before,outer,outerMark};
 });
 /** The closing read, the measurement, the ✓/✗ line and the `calls` push. */
-const closing=<Detail>({fn,args,before,outer,outerMark}:Opened,part:Said<Detail>,threw:boolean)=>Effect.gen(function*() {
+const closing=<Detail>(run:RunState,{fn,args,before,outer,outerMark}:Opened,part:Said<Detail>,threw:boolean)=>Effect.gen(function*() {
   // The closing read may fail; the cached state stands, so it is only looked at.
   yield* Effect.result((yield* Game).refresh);
-  const built=finish(fn,before,part);
+  const built=finish(run,fn,before,part);
   // A did the wrapper wrote knows nothing of what happened; the measurement does.
   if(threw)built.did=`${built.did}, ${witness(built)}`;
-  line(`${built.status==='done'?'✓':'✗'} ${fn}  ${built.status}  ${seconds(Date.now()-before.at)}  ${built.did}${built.why?`: ${built.why}`:''}`);
-  if(outer.fn==='pilot')calls.push({fn,arg:args.split(' ')[0]??'',status:built.status,did:built.did,
+  say(run,`${built.status==='done'?'✓':'✗'} ${fn}  ${built.status}  ${seconds(Date.now()-before.at)}  ${built.did}${built.why?`: ${built.why}`:''}`);
+  if(outer.fn==='pilot')run.calls.push({fn,arg:args.split(' ')[0]??'',status:built.status,did:built.did,
     ...built.why===undefined?{}:{why:built.why},
     credits:built.gained.credits,cost:built.cost,
     items:built.gained.items.reduce((n,row)=>n+row.quantity,0),xp:Object.values(built.gained.xp).reduce((n,x)=>n+x,0),
     gained:built.gained,started_at:new Date(before.at).toISOString(),seconds:Math.round((Date.now()-before.at)/100)/10});
-  last=outer;jobMark=outerMark;depth--;
+  run.last=outer;run.jobMark=outerMark;run.depth--;
   return built;
 });
 
@@ -473,9 +510,9 @@ function witness(built:Outcome<unknown>):string {
 /** What has come aboard since the running job's opening read: the cargo diff a helper's own
  * `did` must be written from, rather than a tally it kept while the world moved. */
 export function measured():Row[] {
-  const before=jobMark;
+  const run=state(),before=run.jobMark;
   if(!before)return [];
-  const after=snapshot();
+  const after=snapshot(run);
   return Object.entries(after.cargo).filter(([id,quantity])=>quantity>(before.cargo[id]??0))
     .map(([item_id,quantity])=>({item_id,quantity:quantity-(before.cargo[item_id]??0)}))
     .sort((a,b)=>a.item_id<b.item_id?-1:1);
@@ -483,35 +520,31 @@ export function measured():Row[] {
 
 // ---- Tired: derived from the ship, said here when it changes ----------------------------
 
-let lastMood:Mood|undefined;
 /** After every command and state push: when the derived mood crossed into or out of Tired, the
  * journal and the stream say so. Nothing is written to the record — the mood is the facts.
- * A fuel crossing the cells aboard can clear is not said: `burnCells` clears it first. */
-export function watchMood():void {
-  const b=need(),who=b.pilot(),was=lastMood;
-  if(burning||canBurn())return;
-  lastMood=who.mood;
+ * A fuel crossing the cells aboard can clear is not said: `burn` clears it first. */
+function watchMood(run:RunState):void {
+  const b=run.binding,who=b.pilot(),was=run.lastMood;
+  if(run.burning||canBurn(run))return;
+  run.lastMood=who.mood;
   if(!was||who.mood===was)return;
   if(who.mood==='Tired') {
     if(b.runtime)journalRun(b.runtime,{rule:who.tired_by,mood_before:was},'tired');
-    line(`tired: ${who.tired_by}; the runtime resupplies at the next call or the run's end`);
+    say(run,`tired: ${who.tired_by}; the runtime resupplies at the next call or the run's end`);
   } else if(was==='Tired') {
     if(b.runtime)journalRun(b.runtime,{mood:who.mood},'tired_cleared');
-    line(`tired cleared: back inside the ${who.mood} margins`);
+    say(run,`tired cleared: back inside the ${who.mood} margins`);
   }
 }
 
 // ---- fuel cells: the reserve aboard, burned before Tired is declared --------------------
 
-/** How the last resupply ended short, if it did: `admit` lets the work go on either way. */
-let short:'broke'|'stranded'|undefined;
-let burning=false,burnFailed=false;
-const cellsHeld=()=>(need().account.state.cargo??[]).filter(row=>row.item_id===FUEL_CELL).reduce((n,row)=>n+row.quantity,0);
+const cellsHeld=(run:RunState)=>(run.binding.account.state.cargo??[]).filter(row=>row.item_id===FUEL_CELL).reduce((n,row)=>n+row.quantity,0);
 /** Tired on fuel, away from a counter, with a cell aboard. Docked, the counter is the refill:
  * a docked `refuel` draws the station's fuel for credits, not the cells (lib RefuelParams). */
-function canBurn():boolean {
-  const b=need(),who=b.pilot(),state=b.account.state;
-  return !burnFailed&&who.mood==='Tired'&&!!who.tired_by?.startsWith('fuel')&&!state.location?.docked_at&&cellsHeld()>0;
+function canBurn(run:RunState):boolean {
+  const b=run.binding,who=b.pilot(),state=b.account.state;
+  return !run.burnFailed&&who.mood==='Tired'&&!!who.tired_by?.startsWith('fuel')&&!state.location?.docked_at&&cellsHeld(run)>0;
 }
 
 /** The refuel that left the cell count where it was. */
@@ -520,29 +553,27 @@ class NoCell extends Data.TaggedError('NoCell')<{readonly message:string}> {}
 /** Burn the fuel cells aboard (`refuel({id:'fuel_cell',quantity:1})`, one at a time) until the tank
  * is back over the reserve or the cells run out. Runs after every command, so no path strands
  * with cells in the hold. A burn that fails is journalled and not tried again this run: Tired is
- * then declared and resupply takes over. Never throws.
+ * then declared and resupply takes over. Never fails.
  * ponytail: `Effect.exit` over the loop folds a defect into the `why`, as the old catch-everything did, so a
  * burn can never strand a command. Narrow it to the typed failures once no fake throws a bare Error. */
-const burn=Effect.gen(function*() {
-  if(burning||!canBurn())return;
-  const b=need(),game=yield* Game,fuel=()=>b.account.state.ship?.fuel??0;
-  const fuel_before=fuel(),held=cellsHeld();
-  burning=true;
+const burn=(run:RunState,game:GameShape)=>Effect.gen(function*() {
+  if(run.burning||!canBurn(run))return;
+  const b=run.binding,fuel=()=>b.account.state.ship?.fuel??0;
+  const fuel_before=fuel(),held=cellsHeld(run);
+  run.burning=true;
   const exit=yield* Effect.exit(Effect.gen(function*() {
-    while(canBurn()) {
-      const left=cellsHeld();
+    while(canBurn(run)) {
+      const left=cellsHeld(run);
       yield* game.command('spacemolt/refuel',{id:FUEL_CELL,quantity:1});
       yield* game.refresh;
-      if(cellsHeld()>=left)return yield* new NoCell({message:'the refuel took no cell'});
+      if(cellsHeld(run)>=left)return yield* new NoCell({message:'the refuel took no cell'});
     }
-  })).pipe(Effect.ensuring(Effect.sync(()=>{burning=false;})));
+  })).pipe(Effect.ensuring(Effect.sync(()=>{run.burning=false;})));
   const why=Exit.isFailure(exit)?message(rawError(exit.cause)):undefined;
-  if(Exit.isFailure(exit))burnFailed=true;
-  const entry={burned:held-cellsHeld(),fuel_before,fuel_after:fuel(),cells_left:cellsHeld(),...why?{why}:{}};
+  if(Exit.isFailure(exit))run.burnFailed=true;
+  const entry={burned:held-cellsHeld(run),fuel_before,fuel_after:fuel(),cells_left:cellsHeld(run),...why?{why}:{}};
   if(b.runtime)journalRun(b.runtime,entry,'fuel_cell');
-  line(`fuel cells: burned ${entry.burned}, fuel ${fuel_before} → ${entry.fuel_after}, ${entry.cells_left} left${why?`; the burn failed: ${why}`:''}`);
+  say(run,`fuel cells: burned ${entry.burned}, fuel ${fuel_before} → ${entry.fuel_after}, ${entry.cells_left} left${why?`; the burn failed: ${why}`:''}`);
 });
-export async function burnCells():Promise<void> {
-  const exit=await viaGame(burn);
-  if(Exit.isFailure(exit))throw Cause.squash(exit.cause);
-}
+/** `burn` for the run's own resupply, which may burn before it services. */
+export const burnCells=Effect.gen(function*() {yield* burn(yield* Run,yield* Game);});

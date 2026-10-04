@@ -1,10 +1,11 @@
 import assert from 'node:assert/strict';
 import {SpacemoltError,type Account} from '@spacemolt/lib';
-import {mkdtempSync} from 'node:fs';
+import {mkdtempSync,rmSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import test from 'node:test';
 import {writeFight} from '../../combat-memory.ts';
+import {readJournal} from '../../run-record.ts';
 import {readSightings,recall} from '../../sighting-memory.ts';
 import type {ReadinessAccount,ReadinessCommand} from '../../readiness.ts';
 import {bridgeWorld,derived,type WorldOptions} from '../../test-support/bridge-world.ts';
@@ -305,6 +306,25 @@ test('a loot the game refuses is named by its code, not "nothing that fits", and
     assert.deepEqual(out.detail.left,[{wreck_id:'w1',cargo:[{item_id:'creature_carapace',quantity:5}]}]);
     assert.equal(f.loots(),1,'a refusal is not retried');
   } finally {unbind();}
+});
+
+// U31: the re-read after a loot goes through the run's own `Game`. A re-read the server refuses is
+// a game condition: the salvage is refused naming it and its code, and no `defect` line is written.
+test('a re-read the server refuses after a loot ends the salvage refused with its code, and is not a defect',async()=>{
+  let looted=false;
+  const f=salvageWorld(()=>undefined,{cargoUsed:0});
+  const runtime=mkdtempSync(join(tmpdir(),'spacemolt-reread-'));
+  const read=f.account.refresh.bind(f.account);
+  f.account.refresh=async()=>{if(looted)throw new SpacemoltError('rate_limited','slow down');return read();};
+  bind({account:f.account as unknown as Account,runtime,pilot:()=>({mood:'Focused'}),emit:()=>{},
+    command:(action,params)=>{if(action==='spacemolt_salvage/loot')looted=true;return f.command(action,params);}});
+  try {
+    f.wrecks.push(carapace(5));
+    const out=await salvage();
+    assert.equal(out.status,'refused',JSON.stringify(out));
+    assert.match(out.why??'',/^refresh: rate_limited — slow down$/);
+    assert.deepEqual(readJournal(runtime).filter(entry=>entry.event==='defect'),[]);
+  } finally {unbind();rmSync(runtime,{recursive:true,force:true});}
 });
 
 test('a full hold is said as hold full, and no loot is sent for the row it had no room for',async()=>{

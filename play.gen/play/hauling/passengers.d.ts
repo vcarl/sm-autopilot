@@ -38,4 +38,4 @@ export interface Carried {
 export declare function carryPassengers(destination?: string): Promise<Outcome<Carried>>;
 /** `carryPassengers` as an Effect, for `edge` and for converted callers; never in a barrel. A refusal ends it naming the
  * action and the code; a lost reply on the boarding or an unload is never re-sent, and the manifest is re-read. */
-export declare const carryPassengersEffect: (destination?: string) => Effect.Effect<Outcome<Carried>, never, Game>;
+export declare const carryPassengersEffect: (destination?: string) => Effect.Effect<Outcome<Carried>, never, Game | import("../runtime.ts").Run>;

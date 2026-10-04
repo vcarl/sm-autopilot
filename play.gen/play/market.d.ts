@@ -59,7 +59,7 @@ export declare const bookEffect: () => Effect.Effect<Map<string, MarketListingIt
  * names the best thing to sell here by `best_buy × min(best_buy_qty, held)`. */
 export declare const pricesEffect: (items?: string[]) => Effect.Effect<Outcome<{
     quotes: Quote[];
-}>, never, Game>;
+}>, never, Game | import("./runtime.ts").Run>;
 export declare function prices(items?: string[]): Promise<Outcome<{
     quotes: Quote[];
 }>>;
@@ -92,7 +92,7 @@ export interface Sold {
 export declare const sellEffect: (items: Want[], opts?: {
     from?: "hold" | "store";
     floor?: Record<string, number>;
-}) => Effect.Effect<Outcome<Sold>, never, Game>;
+}) => Effect.Effect<Outcome<Sold>, never, Game | import("./runtime.ts").Run>;
 export declare function sell(items: Want[], opts?: {
     from?: 'hold' | 'store';
     floor?: Record<string, number>;
@@ -113,7 +113,7 @@ export declare const buyEffect: (itemId: string, quantity: number, opts?: {
     deliverTo?: "cargo" | "storage";
     maxEach?: number;
     force?: boolean;
-}) => Effect.Effect<Outcome<Bought>, never, Game>;
+}) => Effect.Effect<Outcome<Bought>, never, Game | import("./runtime.ts").Run>;
 export declare function buy(itemId: string, quantity: number, opts?: {
     deliverTo?: 'cargo' | 'storage';
     maxEach?: number;

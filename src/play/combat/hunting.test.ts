@@ -10,7 +10,7 @@ import type {ReadinessCommand} from '../../readiness.ts';
 import {readJournal} from '../../run-record.ts';
 import {bridgeWorld,type WorldOptions} from '../../test-support/bridge-world.ts';
 import {GameLive,type Game} from '../game.ts';
-import {bind,stop,unbind,type Pilot} from '../runtime.ts';
+import {boundRun,bind,stop,unbind,type Pilot,type Run} from '../runtime.ts';
 import {disengage,disengageEffect,hunt,huntEffect,pace} from './hunting.ts';
 
 pace.tickMs=1;
@@ -102,7 +102,7 @@ test('a fight that never ends is given up on at the ceiling, on the TestClock, a
         yield* Effect.promise(()=>new Promise(resolve=>setImmediate(resolve)));
       }
       return yield* Fiber.join(fiber);
-    }).pipe(Effect.provide(Layer.mergeAll(GameLive({send:f.command,refresh:()=>f.account.refresh()}),TestClock.layer()))));
+    }).pipe(Effect.provide(Layer.mergeAll(GameLive({send:f.command,refresh:()=>f.account.refresh()}),TestClock.layer(),boundRun()))));
     assert.equal(out.status,'partial',JSON.stringify(out));
     assert.equal(out.detail.fights[0]?.outcome,'unresolved');
     assert.equal(out.detail.ended,'hull');
@@ -152,14 +152,14 @@ test('a nearby creature row without a name is dropped and said, and the rest are
 });
 
 /** Run one Effect against the world on the TestClock, moving it a second at a time: the status re-read backs off on it. */
-const clocked=<A,E>(f:ReturnType<typeof world>,effect:Effect.Effect<A,E,Game>,seconds=60)=>Effect.runPromise(Effect.gen(function*() {
+const clocked=<A,E>(f:ReturnType<typeof world>,effect:Effect.Effect<A,E,Game|Run>,seconds=60)=>Effect.runPromise(Effect.gen(function*() {
   const fiber=yield* Effect.forkChild(effect);
   for(let second=0;second<seconds;second++) {
     yield* TestClock.adjust('1 second');
     yield* Effect.promise(()=>new Promise(resolve=>setImmediate(resolve)));
   }
   return yield* Fiber.join(fiber);
-}).pipe(Effect.provide(Layer.mergeAll(GameLive({send:f.command,refresh:()=>f.account.refresh()}),TestClock.layer()))));
+}).pipe(Effect.provide(Layer.mergeAll(GameLive({send:f.command,refresh:()=>f.account.refresh()}),TestClock.layer(),boundRun()))));
 
 // A lost read is not evidence the battle ended (combat is where a ship is lost): it is re-read, and the fight goes on.
 test('a battle/status read whose reply is lost once is re-read, and the fight goes on to the kill rather than reading escaped',async()=>{

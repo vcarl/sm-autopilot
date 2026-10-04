@@ -1,12 +1,12 @@
 /** The hangar: modules on the ship you fly, and the next hull. */
 import type {CommissionQuoteResponse,InsurancePolicy,ShipClass,ShipListing,V2Module,V2Ship} from '@spacemolt/lib';
 import {Effect,Option,Schema,Struct} from 'effect';
-import {details} from '../response-details.ts';
 import * as Wire from '../wire.gen.ts';
-import {Game,GameLive,attempt,field,rawError,type GameError} from './game.ts';
-import {acct,admit,command,edge,jobEffect,pilot,step} from './runtime.ts';
-import {withdraw} from './storage.ts';
+import {Game,field,reread,type GameError} from './game.ts';
+import {acct,admit,edge,jobEffect,pilot,step} from './runtime.ts';
+import {withdrawEffect} from './storage.ts';
 import type {Outcome} from './types.ts';
+import {replyBody} from '../storage.ts';
 
 export interface Fit {
   installed:string[];removed:string[];
@@ -37,7 +37,7 @@ const names=(rows:V2Module[])=>rows.map(row=>row.type_id).join(', ')||'nothing';
  * they come (each is decoded against the kind it should be, because the spec's entry union is `oneOf`). */
 const decodeInspect=Schema.decodeUnknownOption(Wire.InspectResponse.mapFields(fields=>({kind:fields.kind,
   catalog:Schema.optionalKey(Schema.NullOr(Schema.Struct({items:Schema.Array(Schema.Unknown)})))})));
-const firstEntry=(reply:unknown)=>{const read=decodeInspect(details(reply));return Option.isSome(read)?{kind:read.value.kind,entry:read.value.catalog?.items[0]}:{kind:undefined,entry:undefined};};
+const firstEntry=(reply:unknown)=>{const read=decodeInspect(replyBody(reply));return Option.isSome(read)?{kind:read.value.kind,entry:read.value.catalog?.items[0]}:{kind:undefined,entry:undefined};};
 /** The slot kind a module takes and its grid draw: all `refit` and `buy` need to know of it. */
 const ModuleSpec=Wire.Module.mapFields(Struct.pick(['name','slot','type','cpu_usage','power_usage','size']));
 export type ModuleSpec=typeof ModuleSpec.Type;
@@ -62,14 +62,6 @@ export const moduleSpecEffect=(typeId:string)=>Effect.gen(function*() {
   return undefined;
 });
 
-/** The Promise twin of an Effect, for the callers not yet converted: throws what `command()` threw,
- * the lib's raw error. */
-async function viaCommand<A>(effect:Effect.Effect<A,GameError,Game>):Promise<A> {
-  const exit=await Effect.runPromiseExit(effect.pipe(Effect.provide(GameLive({send:command})))); // bridge: U15, U29 (their conversion calls the twin and deletes this)
-  if(exit._tag==='Failure')throw rawError(exit.cause);
-  return exit.value;
-}
-export const moduleSpec=async(typeId:string):Promise<ModuleSpec|null>=>(await viaCommand(moduleSpecEffect(typeId)))??null;
 
 /** Why one more module of this spec would not fit the bench, naming the fix; `null` when it
  * fits. The one check `refit` and `buy` share: a module that could not be fitted is refused
@@ -157,7 +149,7 @@ export const refitEffect=(change:{install?:string[];remove?:string[]})=>{
     const held=(id:string)=>(acct().state.cargo??[]).some(row=>row.item_id===id&&row.quantity>0);
     for(const row of on) {
       if(held(row.id))continue;
-      yield* attempt('withdraw',()=>withdraw([{item_id:row.id,quantity:1}])); // bridge: U13
+      yield* withdrawEffect([{item_id:row.id,quantity:1}]);
       if(!held(row.id))short.push({id:row.id,why:'not in the hold or this base\'s store; buy one first'});
     }
     if(short.length)return no(short.map(row=>`${row.id}: ${row.why}`).join('; '),short);
@@ -170,7 +162,7 @@ export const refitEffect=(change:{install?:string[];remove?:string[]})=>{
       yield* game.command('spacemolt/install_mod',{id:row.id});
       step(`install ${row.id} (${row.spec.slot}, cpu ${row.spec.cpu_usage}, power ${row.spec.power_usage})`);
     }
-    yield* attempt('refresh',()=>acct().refresh()); // bridge: U31 (acct().refresh is readiness, converted with the module state)
+    yield* reread;
     const said=[off.length?`removed ${off.map(row=>row.type_id).join(', ')}`:'',
       on.length?`installed ${on.map(row=>row.id).join(', ')}`:'',
       alreadyOn.length?`already fitted: ${alreadyOn.join(', ')}`:'',
@@ -211,7 +203,6 @@ export const catalogClassEffect=(id:string)=>Effect.gen(function*() {
   classes.set(id,klass);
   return klass;
 });
-export const catalogClass=(id:string):Promise<ShipClass|undefined>=>viaCommand(catalogClassEffect(id));
 
 /** The catalog entry for a ship class (`spacemolt/inspect`), or nothing when the catalogue cannot
  * answer for it.
@@ -241,7 +232,7 @@ function versus(klass:ShipClass,ship:V2Ship|undefined):string {
 const decodeServices=Schema.decodeUnknownOption(Wire.GetBaseResponse.mapFields(Struct.pick(['services'])));
 /** Whether this base has the named service; a reply that does not read is said, and the answer is no. */
 const serves=(service:string)=>Effect.gen(function*() {
-  const base=decodeServices(details(yield* (yield* Game).command('spacemolt/get_base',{})));
+  const base=decodeServices(replyBody(yield* (yield* Game).command('spacemolt/get_base',{})));
   if(Option.isNone(base)){step(`spacemolt/get_base: the reply did not read; ${service} not known`);return false;}
   return base.value.services.includes(service);
 });
@@ -249,7 +240,7 @@ const serves=(service:string)=>Effect.gen(function*() {
 /** The rows of a reply's list that decode, each beside the row as the game sent it. A row whose read fields do not
  * is left out and said in a step, naming the action and the row; a reply with no list is said too. */
 const rowsOf=<A>(reply:unknown,action:string,key:string,decode:(row:unknown)=>Option.Option<A>):{raw:unknown;read:A}[]=>{
-  const rows=field(details(reply),key);
+  const rows=field(replyBody(reply),key);
   if(!Array.isArray(rows)){step(`${action}: the reply has no ${key} list`);return [];}
   return rows.flatMap(raw=>{
     const read=decode(raw);
@@ -311,13 +302,13 @@ export const shipsForSaleEffect=(opts:{budget?:number;baseId?:string;classId?:st
     if(!opts.baseId&&(yield* serves('shipyard')))
       for(const id of [...new Set([opts.classId,...known.keys()].flatMap(each=>each?[each]:[]))].slice(0,QUOTES)) {
         const reply=yield* game.command('spacemolt_ship/commission_quote',{id});
-        const decoded=decodeCan(details(reply));
+        const decoded=decodeCan(replyBody(reply));
         if(Option.isNone(decoded)){step(`spacemolt_ship/commission_quote: the quote for ${id} did not read; left out`);continue;}
         if(!decoded.value.can_commission||decoded.value.credits_only_total>budget)continue;
         const klass=yield* load(id);
         // ForSale.quote is the lib's full CommissionQuoteResponse; the reply is passed as the game sent it.
         // oxlint-disable-next-line typescript/consistent-type-assertions
-        if(klass)for_sale.push({kind:'commission',quote:details(reply) as CommissionQuoteResponse,class:klass,versus:versus(klass,ship)}); // cast: frozen surface (CommissionQuoteResponse)
+        if(klass)for_sale.push({kind:'commission',quote:replyBody(reply) as CommissionQuoteResponse,class:klass,versus:versus(klass,ship)}); // cast: frozen surface (CommissionQuoteResponse)
       }
     const cargo=(row:ForSale)=>row.class.cargo_capacity??0;
     const price=(row:ForSale)=>row.kind==='listing'?row.listing.price:row.quote.credits_only_total;
@@ -360,8 +351,7 @@ export const buyShipEffect=(id:string,opts:{commission?:boolean;switchTo?:boolea
     const previous={ship_id:acct().state.ship?.id??'',base_id:acct().state.location?.docked_at??''};
     const nothing=():Purchase=>({ship:flying(),price:0,switched:false,previous});
     const no=(why:string)=>({status:'refused' as const,did:`did not buy ${id}`,why,detail:nothing()});
-    // bridge: U31 (admit keeps its Promise form with the module singletons it reads)
-    const blocked=yield* attempt('buyShip',()=>admit('buyShip'));
+    const blocked=yield* admit('buyShip');
     if(blocked)return no(blocked);
     if(!previous.base_id)return no('not docked; a hull changes hands at a station');
 
@@ -370,7 +360,7 @@ export const buyShipEffect=(id:string,opts:{commission?:boolean;switchTo?:boolea
     let price:number;
     if(opts.commission) {
       const reply=yield* game.command('spacemolt_ship/commission_quote',{id});
-      const decoded=decodeCan(details(reply));
+      const decoded=decodeCan(replyBody(reply));
       if(Option.isNone(decoded))return no(`the commission_quote reply for ${id} was unreadable; nothing was bought`);
       const quote=decoded.value;
       if(!quote.can_commission)
@@ -388,7 +378,7 @@ export const buyShipEffect=(id:string,opts:{commission?:boolean;switchTo?:boolea
     let bought:string;
     if(opts.commission) {
       const reply=yield* game.command('spacemolt_ship/commission_ship',{id});
-      const decoded=decodeBuilt(details(reply));
+      const decoded=decodeBuilt(replyBody(reply));
       // A reply that does not read is not guessed at and nothing is re-sent: it ends `partial` as any
       // build not yet delivered does, and says so; `list_ships` is what shows whether the hull came.
       if(Option.isNone(decoded)) {
@@ -412,7 +402,7 @@ export const buyShipEffect=(id:string,opts:{commission?:boolean;switchTo?:boolea
       bought='';
     } else {
       const reply=yield* game.command('spacemolt_ship/buy_listed_ship',{id});
-      const decoded=decodeBought(details(reply));
+      const decoded=decodeBought(replyBody(reply));
       // The fleet list below is the evidence; a reply that did not read only means no ship id to look for.
       if(Option.isNone(decoded))step(`spacemolt_ship/buy_listed_ship: the reply for ${id} did not read; the fleet list will show it`);
       const fill=Option.isSome(decoded)?decoded.value:undefined;
@@ -422,7 +412,7 @@ export const buyShipEffect=(id:string,opts:{commission?:boolean;switchTo?:boolea
     }
 
     // The fleet list is the evidence the hull is ours, whatever the reply claimed.
-    yield* attempt('refresh',()=>acct().refresh()); // bridge: U31 (acct().refresh is readiness, converted with the module state)
+    yield* reread;
     const fleet=rowsOf(yield* game.command('spacemolt_ship/list_ships',{}),'spacemolt_ship/list_ships','ships',decodeOwned).map(row=>row.read);
     const mine=fleet.find(row=>row.ship_id===bought)??fleet.find(row=>row.ship_id!==previous.ship_id&&!row.is_active);
     if(!mine)return {status:'failed' as const,did:`paid ${price} cr for ${id}`,
@@ -436,8 +426,8 @@ export const buyShipEffect=(id:string,opts:{commission?:boolean;switchTo?:boolea
           detail:{ship:flying(),price,switched,previous},
           next:[`goTo a base with a shipyard, then `+`account().commands.spacemolt_ship.switch_ship({id:'${mine.ship_id}'}) — switchShip is not built yet`]};
       const reply=yield* game.command('spacemolt_ship/switch_ship',{id:mine.ship_id});
-      const decoded=decodeSwitched(details(reply));
-      yield* attempt('refresh',()=>acct().refresh()); // bridge: U31 (acct().refresh is readiness, converted with the module state)
+      const decoded=decodeSwitched(replyBody(reply));
+      yield* reread;
       if(Option.isSome(decoded)) {
         const swap=decoded.value;
         switched=swap.active_ship_id===mine.ship_id;

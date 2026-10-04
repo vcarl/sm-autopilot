@@ -1,18 +1,22 @@
 import assert from 'node:assert/strict';
-import {SpacemoltError,type Account} from '@spacemolt/lib';
+import {ConnectionClosedError,SpacemoltError,type Account} from '@spacemolt/lib';
 import test from 'node:test';
+import {Effect} from 'effect';
 import {mkdirSync,mkdtempSync,rmSync,writeFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import type {ReadinessAccount} from '../readiness.ts';
 import {check} from '../run.ts';
 import {ABSENCE_STALE,TICK_MS,writeLook} from '../sighting-memory.ts';
-import {journalRun} from '../run-record.ts';
+import {journalRun,readJournal} from '../run-record.ts';
 import {evaluateMenu,jobStop,type Facts} from '../rules-table.ts';
 import {bridgeWorld,TICK,type WorldOptions} from '../test-support/bridge-world.ts';
-import {factsNow,leadCall,menu,menuDue,pilotingGap,renderMenu,type RunSummary} from './menu.ts';
+import {GameLive} from './game.ts';
+import {factsNowEffect,leadCall,menuDue,menuEffect,pilotingGap,renderMenu,type RunSummary} from './menu.ts';
 import {orient} from './orient.ts';
-import {bind,unbind,type Pilot} from './runtime.ts';
+import {bind,onBinding,unbind,type Pilot} from './runtime.ts';
+
+const menu=(runtime?:string)=>onBinding(menuEffect(runtime));
 
 function world(record:Pilot,options:WorldOptions={}) {
   const runtime=mkdtempSync(join(tmpdir(),'spacemolt-menu-'));
@@ -29,7 +33,8 @@ const gather=(over:Partial<RunSummary>={}):RunSummary=>({fn:'gatherUntil',arg:'b
 const ended=(runtime:string,work:RunSummary)=>journalRun(runtime,{phase:'ended',script:'index.ts',outcome:work.status,work});
 /** The facts as the juncture builds them, and the one verdict a field is wired for. */
 type Game=ReturnType<typeof world>;
-const facts=(f:Game,record:Pilot)=>factsNow(f.account as unknown as ReadinessAccount,f.command,record,f.runtime);
+const facts=(f:Game,record:Pilot)=>Effect.runPromise(factsNowEffect(f.account as unknown as ReadinessAccount,record,f.runtime)
+  .pipe(Effect.provide(GameLive({send:f.command,refresh:()=>f.account.refresh()}))));
 const verdict=(built:Facts,job:string)=>evaluateMenu(built).find(row=>row.job.startsWith(job))!;
 
 test('four identical gathers: the stagnation line names them and the top move is not another gather',async()=>{
@@ -775,5 +780,114 @@ test('a stuck abandonMission unblocks acceptMission and ranks onto the menu, and
     // free" line, not one per fitting mission.
     const noSlot=built.not_now.filter(row=>row.move==='acceptMission');
     assert.equal(noSlot.length,1,JSON.stringify(built.not_now));
+  } finally {f.close();}
+});
+
+// The menu is read-only: a read refused or lost leaves its section out, and neither is a bug, so neither writes a `defect` line.
+const READS=/^(get_|view|find_route|list|browse_|inspect|query_)/;
+function faulty(f:Game,record:Pilot,fault:(action:string)=>unknown) {
+  const sent:string[]=[];
+  const command:typeof f.command=async(action,params)=>{
+    sent.push(action);
+    const failure=fault(action);
+    if(failure)throw failure;
+    return f.command(action,params);
+  };
+  bind({account:f.account as unknown as Account,command,pilot:()=>record,runtime:f.runtime,emit:()=>{}});
+  return sent;
+}
+const defects=(runtime:string)=>readJournal(runtime).filter(line=>line.event==='defect');
+
+// The menu is the juncture's context: one that does not build is a pilot flying blind. Every read it makes is a section it can
+// do without, the ones the facts are built from included (a refused get_system failed the whole build on main too).
+for(const [name,fault] of [['refused',()=>new SpacemoltError('rate_limited','slow down')],['lost',()=>new ConnectionClosedError()]] as const)
+  for(const action of ['spacemolt/get_system','spacemolt/get_base','spacemolt/find_route','spacemolt/get_map'])
+    test(`a ${name} ${action} leaves its section out, the menu still builds, and writes no defect line`,async()=>{
+      const record:Pilot={mood:'Focused',stance:'Prospector'};
+      const f=world(record);
+      try {
+        const sent=faulty(f,record,asked=>asked===action?fault():undefined);
+        const built=await menu(f.runtime);
+        assert.ok(sent.includes(action),action);
+        assert.ok(Array.isArray(built.moves)&&Array.isArray(built.not_now),JSON.stringify(built));
+        assert.deepEqual(defects(f.runtime),[]);
+      } finally {f.close();}
+    });
+
+test('a failed re-read of the account leaves the menu built from what is cached, and writes no defect line',async()=>{
+  const record:Pilot={mood:'Focused',stance:'Prospector'};
+  const f=world(record);
+  try {
+    faulty(f,record,()=>undefined);
+    f.account.refresh=async()=>{throw new SpacemoltError('rate_limited','slow down');};
+    const built=await menu(f.runtime);
+    assert.ok(Array.isArray(built.moves),JSON.stringify(built));
+    assert.deepEqual(defects(f.runtime),[]);
+  } finally {f.close();}
+});
+
+test('a bug in any read leaves only that section out, and journals a defect line naming it',async()=>{
+  for(const action of ['spacemolt/get_system','spacemolt/get_base','spacemolt/find_route','spacemolt/get_map','spacemolt_market/view_market',
+    'spacemolt/get_active_missions','spacemolt/get_missions','spacemolt_storage/view']) {
+    const record:Pilot={mood:'Focused',stance:'Prospector',objective:'obtain credits'};
+    const f=world(record,{cargoUsed:6});
+    try {
+      faulty(f,record,asked=>asked===action?new TypeError(`bug in ${action}`):undefined);
+      const built=await menu(f.runtime);
+      assert.ok(Array.isArray(built.moves),action);
+      const lines=defects(f.runtime);
+      assert.ok(lines.length>=1&&lines.every(line=>typeof line.fn==='string'&&String(line.why).includes(action)),`${action}: ${JSON.stringify(lines)}`);
+    } finally {f.close();}
+  }
+});
+
+// Every juncture builds a menu, and the menu reads the active missions: an expiry is still one line.
+test('a mission seen running and then expired is journalled expired once, however many menus are built',async()=>{
+  const record:Pilot={mood:'Focused',stance:'Prospector'};
+  const f=world(record);
+  const row=(expires_in_ticks:number)=>({mission_id:'menu-late',title:'Late run',type:'delivery',description:'',difficulty:1,accepted_at:'',
+    issuing_base:'sol_base',expires_in_ticks,percent_complete:0,rewards:{credits:1_000},objectives:[]});
+  const expired=()=>readJournal(f.runtime).filter(line=>line.event==='mission'&&line.verb==='expired'&&line.mission_id==='menu-late');
+  try {
+    f.taken.push(row(100));
+    await menu(f.runtime);
+    f.taken.splice(0,1,row(0));
+    await menu(f.runtime);
+    await menu(f.runtime);
+    assert.equal(expired().length,1,JSON.stringify(expired()));
+  } finally {f.close();}
+});
+
+test('a read refused or lost leaves its section out, the menu still builds, nothing it sends is a mutation, and no defect is written',async()=>{
+  const record:Pilot={mood:'Focused',stance:'Prospector',objective:'obtain credits'};
+  const f=world(record,{cargoUsed:6});
+  try {
+    const sent=faulty(f,record,action=>action==='spacemolt_market/view_market'?new SpacemoltError('rate_limited','slow down')
+      :action==='spacemolt/get_missions'?new ConnectionClosedError()
+      :action==='spacemolt/get_active_missions'?new SpacemoltError('not_found','no missions'):undefined);
+    const built=await menu(f.runtime);
+    assert.ok(built.moves.length>0,JSON.stringify(built));
+    assert.ok(!built.moves.some(m=>m.call.startsWith('sell(')||m.call.startsWith('acceptMission(')),JSON.stringify(built.moves));
+    for(const action of ['spacemolt_market/view_market','spacemolt/get_missions','spacemolt/get_active_missions'])assert.ok(sent.includes(action),action);
+    assert.deepEqual(sent.filter(action=>!READS.test(action.split('/')[1]??'')),[]);
+    assert.deepEqual(defects(f.runtime),[]);
+  } finally {f.close();}
+});
+
+test('the live server\'s null for an empty list, and a board row that does not read, are not a failed build',async()=>{
+  const record:Pilot={mood:'Cautious',stance:'Trader',goal:'obtain credits'};
+  const f=world(record);
+  try {
+    const command:typeof f.command=async(action,params)=>{
+      const res:any=await f.command(action,params);
+      if(action==='spacemolt_market/view_market'||action==='spacemolt_storage/view')(res.structuredContent??res).items=null;
+      if(action==='spacemolt/get_missions')res.structuredContent.missions=[{title:'no id'},
+        {mission_id:'t1',title:'Sell ore',type:'sell',difficulty:1,objectives:null,rewards:{credits:9}}];
+      return res;
+    };
+    bind({account:f.account as unknown as Account,command,pilot:()=>record,runtime:f.runtime,emit:()=>{}});
+    const built=await menu(f.runtime);
+    assert.ok(JSON.stringify(built.moves).includes("acceptMission('t1')")||JSON.stringify(built.not_now).includes('acceptMission'),JSON.stringify(built));
+    assert.deepEqual(defects(f.runtime),[]);
   } finally {f.close();}
 });

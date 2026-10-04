@@ -8,7 +8,7 @@ import {TICK_MS} from '../sighting-memory.ts';
 import {replyBody} from '../storage.ts';
 import * as Wire from '../wire.gen.ts';
 import {counterEffect} from './counter.ts';
-import {Game,attempt,field,type GameError} from './game.ts';
+import {Game,field,type GameError} from './game.ts';
 import {Stopped,acct,admit,edge,jobEffect,runtimeDir,step,stopped} from './runtime.ts';
 import {withdrawEffect} from './storage.ts';
 import {kept} from './rows.ts';
@@ -178,7 +178,7 @@ function census(mine:V2Missions) {
 /** The board here and your active missions, compact. Over `get_missions` +
  * `get_active_missions` it adds: dialog and description dropped, one `wants` line and a
  * `fits` guess per offer. Reads only. `next` names the offers that fit the intro loops. */
-export const missionsEffect=()=>jobEffect<{board:Offer[];active:Active[];max:number;slots_free:number},Game>('missions','',Effect.gen(function*() {
+export const missionsEffect=()=>jobEffect<{board:Offer[];active:Active[];max:number;slots_free:number}>('missions','',Effect.gen(function*() {
   const none={board:[],active:[],max:0,slots_free:0};
   const at=yield* atCounter();
   if('broke' in at)return {status:'failed' as const,did:'missions broke',why:at.broke,detail:none};
@@ -205,11 +205,10 @@ export function missions():Promise<Outcome<{board:Offer[];active:Active[];max:nu
 /** Accept one mission by `mission_id`. Over `accept_mission` it adds: refused when
  * `max_missions` are active, when a `provided_items` load will not fit the hold, when the
  * mission names a no-go system, or under Tired/Relaxed. Costs nothing. */
-export const acceptMissionEffect=(id:string)=>jobEffect<AcceptMissionResponse,Game>('acceptMission',id,Effect.gen(function*() {
+export const acceptMissionEffect=(id:string)=>jobEffect<AcceptMissionResponse>('acceptMission',id,Effect.gen(function*() {
   const game=yield* Game;
   const none=asAccepted({});
-  // bridge: U31 (admit keeps its Promise form with the module singletons it reads)
-  const stop=yield* attempt('acceptMission',()=>admit('acceptMission'));
+  const stop=yield* admit('acceptMission');
   if(stop)return {status:'refused',did:`did not accept ${id}`,why:stop,detail:none};
   const at=yield* atCounter();
   if('broke' in at)return {status:'failed',did:'acceptMission broke',why:at.broke,detail:none};
@@ -241,7 +240,7 @@ export function acceptMission(id:string):Promise<Outcome<AcceptMissionResponse>>
  * account never had active is `refused`, so a placeholder cannot read as a success), and a refusal when
  * the mission could be turned in right here — the slot is about to free itself and pay for
  * it. Pass `{force:true}` to drop it anyway. Costs nothing but the mission. */
-export const abandonMissionEffect=(id:string,opts:{force?:boolean}={})=>jobEffect<AbandonMissionResponse,Game>('abandonMission',id,Effect.gen(function*() {
+export const abandonMissionEffect=(id:string,opts:{force?:boolean}={})=>jobEffect<AbandonMissionResponse>('abandonMission',id,Effect.gen(function*() {
   const none=asAbandoned({});
   const mine=yield* activeEffect();
   const mission=mine.active.find(m=>m.mission_id===id);
@@ -266,7 +265,7 @@ export function abandonMission(id:string,opts:{force?:boolean}={}):Promise<Outco
  * it adds: the loop over the active list, a `withdraw` from the store here for a `deliver N
  * of item` objective the store can cover, and one line per mission saying what happened.
  * Never abandons: a mission it cannot finish is left in `remaining` with its `stuck` reason. */
-export const completeMissionsEffect=()=>jobEffect<{completed:CompleteMissionResponse[];remaining:Active[]},Game>('completeMissions','',Effect.gen(function*() {
+export const completeMissionsEffect=()=>jobEffect<{completed:CompleteMissionResponse[];remaining:Active[]}>('completeMissions','',Effect.gen(function*() {
   const game=yield* Game;
   const mine=yield* activeEffect();
   const completed:CompleteMissionResponse[]=[],failed:{id:string;error:GameError}[]=[],said:string[]=[];

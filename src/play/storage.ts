@@ -4,11 +4,11 @@ import type {V2CargoItem,ViewStorageResponse} from '@spacemolt/lib';
 import {Data,Effect,Result,Schema,Struct} from 'effect';
 import {disposable,miningInventory} from '../mining-inventory.ts';
 import {replyBody} from '../storage.ts';
-import {DockBlocked} from '../dock.ts';
 import * as Wire from '../wire.gen.ts';
-import {counter as dockedHere} from './counter.ts';
-import {Game,attempt,field,type GameError} from './game.ts';
-import {acct,checkStop,edge,jobEffect,step,wanted,type Said,type Stopped} from './runtime.ts';
+import {counterEffect} from './counter.ts';
+import {Game,field,reread,type GameError} from './game.ts';
+import {acct,checkStop,edge,jobEffect,step,wanted,type Run,type Said} from './runtime.ts';
+import type {ArrivalUnresolved,TravelBlocked} from '../travel.ts';
 import type {Outcome,Row,Want} from './types.ts';
 
 export interface Moved {
@@ -45,8 +45,8 @@ const read=(stationId?:string)=>Effect.gen(function*() {
   return {total:reply.items.length,view:{...reply,items:reply.items.slice(0,ITEM_CAP)}};
 });
 const view=(stationId?:string)=>read(stationId).pipe(Effect.map(result=>result.view));
-/** A reply off the spec is `failed`, saying so: not a defect, not a crash. */
-export const folded=<D>(fn:string,empty:()=>D,body:Effect.Effect<Said<D>,GameError|Stopped|OffSpec,Game>)=>body.pipe(Effect.catchTag('OffSpec',
+/** A reply off the spec is `failed`, saying so: not a defect, not a crash. By class, not `catchTag`: the counter's dock can fail with travel's classes, whose `_tag` is a plain string. */
+export const folded=<D,R extends Game|Run=Game|Run>(fn:string,empty:()=>D,body:Effect.Effect<Said<D>,GameError|TravelBlocked|ArrivalUnresolved|OffSpec,R>)=>body.pipe(Effect.catchIf((error):error is OffSpec=>error instanceof OffSpec,
   (error):Effect.Effect<Said<D>>=>Effect.succeed({status:'failed',did:`${fn} broke`,why:`${error.action}: reply off spec — ${error.message}`,detail:empty()})));
 /** Cargo one unit of `item` occupies, from the store's or the hold's row; one when neither says. */
 const sizeOf=(item:string,rows:{item_id:string;size?:number}[])=>Number(rows.find(row=>row.item_id===item&&Number(row.size)>0)?.size)||1;
@@ -66,8 +66,7 @@ const held=(rows:{item_id:string;quantity:number}[],item:string)=>rows.filter(ro
 /** The counter a deposit or withdraw needs: docked, at a base with `storage`. */
 const counter=Effect.gen(function*() {
   // A DockBlocked out of the dock inside is the counter's own refusal, said as the counter says it.
-  const at=yield* attempt('counter',()=>dockedHere()).pipe( // bridge: U31 (counter.ts still awaits the command seam)
-    Effect.catchDefect(thrown=>thrown instanceof DockBlocked?Effect.succeed({refused:thrown.message}):Effect.die(thrown)));
+  const at=yield* counterEffect().pipe(Effect.catchTag('DockBlocked',blocked=>Effect.succeed({refused:blocked.message})));
   if('refused' in at)return at;
   const docked=at.docked;
   const services=field(replyBody(yield* (yield* Game).command('spacemolt/get_base',{})),'services');
@@ -80,9 +79,9 @@ const counter=Effect.gen(function*() {
  * and says what landed. */
 const moveEffect=(fn:'stow'|'withdraw',items:Want[])=>{
   const action=fn==='stow'?'spacemolt_storage/deposit':'spacemolt_storage/withdraw';
-  return jobEffect<Moved,Game>(fn,items.map(row=>`${row.quantity??'all'} ${row.item_id}`).join(', '),folded<Moved>(fn,()=>({base_id:'',moved:[],short:[],cargo:acct().state.cargo??[],store:noView()}),Effect.gen(function*() {
+  return jobEffect<Moved>(fn,items.map(row=>`${row.quantity??'all'} ${row.item_id}`).join(', '),folded<Moved>(fn,()=>({base_id:'',moved:[],short:[],cargo:acct().state.cargo??[],store:noView()}),Effect.gen(function*() {
     const game=yield* Game;
-    const refresh=attempt('refresh',()=>acct().refresh());
+    const refresh=reread;
     const empty=():Moved=>({base_id:acct().state.location?.docked_at??'',moved:[],short:[],
       cargo:acct().state.cargo??[],store:noView()});
     const asking=wanted(items);
@@ -175,7 +174,7 @@ export function stow(items:Want[]):Promise<Outcome<Moved>> {return edge(stowEffe
  * the store does not hold is `short` and `done`. Costs nothing. */
 export function withdraw(items:Want[]):Promise<Outcome<Moved>> {return edge(withdrawEffect(items));}
 
-export const storageEffect=(baseId?:string)=>jobEffect<ViewStorageResponse,Game>('storage',baseId??'',folded<ViewStorageResponse>('storage',noView,Effect.gen(function*() {
+export const storageEffect=(baseId?:string)=>jobEffect<ViewStorageResponse>('storage',baseId??'',folded<ViewStorageResponse>('storage',noView,Effect.gen(function*() {
   const {total,view:detail}=yield* read(baseId);
   return {status:'done',did:`read the store at ${detail.base_id||'(not docked)'}: ${total} item rows, ${detail.ships.length} ships, holdings at ${detail.locations.length} bases`,
     detail,next:total>ITEM_CAP?[`${total-ITEM_CAP} more rows not shown; account().commands.spacemolt_storage.view for all`]:[]};

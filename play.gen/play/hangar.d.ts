@@ -50,7 +50,6 @@ export declare const moduleSpecEffect: (typeId: string) => Effect.Effect<{
     readonly cpu_usage: number;
     readonly power_usage: number;
 } | null | undefined, GameError, Game>;
-export declare const moduleSpec: (typeId: string) => Promise<ModuleSpec | null>;
 /** Why one more module of this spec would not fit the bench, naming the fix; `null` when it
  * fits. The one check `refit` and `buy` share: a module that could not be fitted is refused
  * at the counter, not discovered after 2,080 cr have left the wallet. */
@@ -77,7 +76,7 @@ export declare function refit(change: {
 export declare const refitEffect: (change: {
     install?: string[];
     remove?: string[];
-}) => Effect.Effect<Outcome<Fit>, never, Game>;
+}) => Effect.Effect<Outcome<Fit>, never, Game | import("./runtime.ts").Run>;
 /** A player listing or a yard commission, each beside the class it is and one line on how
  * it compares with the hull you fly ("cargo +110, speed -1, minimum_crew 1"). */
 export type ForSale = {
@@ -92,7 +91,6 @@ export type ForSale = {
     versus: string;
 };
 export declare const catalogClassEffect: (id: string) => Effect.Effect<ShipClass | undefined, import("./codes.ts").Rejected | import("./codes.ts").InBattle | import("./codes.ts").HoldFull | import("./codes.ts").Depleted | import("./codes.ts").ReplyLost, Game>;
-export declare const catalogClass: (id: string) => Promise<ShipClass | undefined>;
 /** Hulls for sale within a budget, here or at a named base: `ship/browse_ships` listings and
  * `ship/commission_quote` for the classes this yard can build (the ones a listing names,
  * plus `classId` when you pass one — the lib has no way to enumerate a yard's catalogue).
@@ -114,7 +112,7 @@ export declare const shipsForSaleEffect: (opts?: {
     classId?: string;
 }) => Effect.Effect<Outcome<{
     for_sale: ForSale[];
-}>, never, Game>;
+}>, never, Game | import("./runtime.ts").Run>;
 export interface Purchase {
     /** The hull you now fly, when the switch happened; otherwise the one you still fly. */
     ship: V2Ship;
@@ -149,5 +147,5 @@ export declare const buyShipEffect: (id: string, opts?: {
         ship_id: string;
         base_id: string;
     };
-}>, never, Game>;
+}>, never, Game | import("./runtime.ts").Run>;
 export {};

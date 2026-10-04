@@ -1,7 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import {Effect} from 'effect';
 import type {ReadinessCommand} from './readiness.ts';
-import {ArrivalUnresolved,travelTo} from './travel.ts';
+import {ArrivalUnresolved} from './travel.ts';
+import {travelTo} from './test-support/travel.ts';
 import {FakeLibGoalAccount} from './test-support/fake-lib-account.ts';
 
 // Adapted from setpoint (removed from this repo; see git history), tests/dispatcher/lib-primitives/go-to-poi.test.ts.
@@ -50,7 +52,7 @@ function fixture(resolvePoi:string,resolveAt=2_000) {
       account.state.ship!.cargo_used=++server.ship.cargo_used;
       hooks.poll();
     },
-    checkpoint:async(isSettled=false)=>{
+    checkpoint:(isSettled=false)=>Effect.sync(()=>{
       hooks.checkpoint();
       if(isSettled) {
         assert.ok(server.location.system_id);
@@ -59,7 +61,7 @@ function fixture(resolvePoi:string,resolveAt=2_000) {
         assert.equal(account.refreshes.at(-1),time,'settled location needs an authoritative read');
         settled.push(time);
       }
-    },
+    }),
   };
   return {account,server,sleeps,settled,quotes,hooks,now:()=>time,
     run:()=>travelTo(account,command,{system_id:'sol',poi_id:'belt'},options)};

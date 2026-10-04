@@ -18,7 +18,7 @@ export function startHeartbeat(runtime:string,deps:HeartbeatDeps={}):()=>void {
   let run:{script:string;started:number}|null=null,step:{job:string;step:string}|null=null;
   let spoken=now(),commands=0,last='';
   const unwatch=watchJournal(entry=>{
-    const e=entry as Record<string,any>;
+    const e=entry;
     if(e.event==='run'&&e.phase==='started') {run={script:String(e.script),started:now()};step=null;commands=0;spoken=now();}
     if(e.event==='run'&&e.phase==='ended')run=null;
     if(e.event==='step')step={job:String(e.job),step:String(e.step)};

@@ -5,16 +5,25 @@ import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import test from 'node:test';
 import {SpacemoltError,type Account} from '@spacemolt/lib';
+import {Effect} from 'effect';
 import type {ReadinessAccount} from '../readiness.ts';
 import {readJournal} from '../run-record.ts';
 import {bridgeWorld,type WorldOptions} from '../test-support/bridge-world.ts';
 import {distressPlan,goTo} from './travel.ts';
-import {account,admit,bind,command,job,note,outcome,pilot,progress,stop,unbind,type Pilot} from './runtime.ts';
+import {Stopped,account,admit,bind,edge,job,jobEffect,note,outcome,pilot,progress,stop,stopped,unbind,type Pilot} from './runtime.ts';
 import {service} from './service.ts';
 import {buy,sell,prices} from './market.ts';
 import {buyShip,refit,shipsForSale} from './hangar.ts';
 import {stow,withdraw} from './storage.ts';
 import {acceptMission,missions} from './missions.ts';
+
+/** A raw `tool/action` command the way a pilot sends one, through `account().commands`. */
+const command=(action:string,params:Record<string,unknown>={}):Promise<unknown>=>{
+  const [tool='',name='']=action.split('/');
+  return (account().commands as any)[tool][name](params);
+};
+/** A top-level job whose whole work is asking `admit`: its `did` is what admit answered. */
+const admitted=()=>edge(jobEffect('work','',Effect.gen(function*() {return {status:'done' as const,did:String(yield* admit('gatherUntil')),detail:{}};})));
 
 function world(record:Pilot,services=['refuel','repair','storage'],options:WorldOptions={}) {
   const game=bridgeWorld({services,...options});
@@ -587,7 +596,7 @@ test('credits under the standing reserve are not Tired, and work is admitted',as
     f.account.server.player.credits=10;
     await f.account.refresh();
     assert.equal(pilot().mood,'Focused');
-    assert.equal(await admit('gatherUntil'),null);
+    assert.equal((await admitted()).did,'null');
   } finally {unbind();}
 });
 
@@ -614,7 +623,7 @@ test('fuel under the reserve in space burns the cells aboard, only as many as cl
     assert.ok(!journal.some(entry=>entry.event==='tired'),'Tired was never declared');
     const burned=journal.filter(entry=>entry.event==='fuel_cell');
     assert.deepEqual(burned.map(entry=>[entry.burned,entry.fuel_before,entry.fuel_after,entry.cells_left]),[[1,20,25,1]]);
-    assert.equal(await job('work','',async()=>({status:'done' as const,did:String(await admit('gatherUntil')),detail:{}})).then(out=>out.did),'null');
+    assert.equal(await admitted().then(out=>out.did),'null');
   } finally {unbind();rmSync(runtime,{recursive:true,force:true});}
 });
 
@@ -656,15 +665,61 @@ test('Tired and broke at a counter: the work goes on, journalled, and resupply i
     f.account.server.ship.fuel=10;
     f.account.server.player.credits=0;
     await f.account.refresh();
-    const out=await job('work','',async()=>({status:'done' as const,did:String(await admit('gatherUntil')),detail:{}}));
+    const out=await admitted();
     assert.equal(out.did,'null','the work was admitted');
     assert.equal(pilot().mood,'Tired');
     const said=readJournal(runtime).filter(entry=>entry.event==='line').map(entry=>String(entry.text));
     assert.ok(said.some(text=>/resupply unaffordable: working to pay for it/.test(text)),said.join('\n'));
     // Once there are credits, the next work call resupplies as before.
     f.account.server.player.credits=1_000;
-    await job('work','',async()=>({status:'done' as const,did:String(await admit('gatherUntil')),detail:{}}));
+    await admitted();
     assert.equal(pilot().mood,'Focused');
+  } finally {unbind();rmSync(runtime,{recursive:true,force:true});}
+});
+
+// U31: `admit` resupplies inside the top-level call, on the run's own `Game`. A refuel whose reply
+// is lost there is never re-sent, the work still goes on, and a lost reply is not a defect.
+test('Tired at a top-level call: a refuel reply lost in the resupply is not re-sent, the work goes on, no defect',async()=>{
+  const f=world({});
+  const runtime=mkdtempSync(join(tmpdir(),'spacemolt-lost-refuel-'));
+  const sent:string[]=[];
+  bind({account:f.account as unknown as Account,runtime,emit:()=>{},
+    command:(action,params)=>{sent.push(action);return action==='spacemolt/refuel'?Promise.reject(new SpacemoltError('mutation_timeout','No action_result')):f.command(action,params);},
+    pilot:()=>flying({stance:'Prospector',permissions:{credit_reserve:0}},f.account.state as never)});
+  try {
+    f.account.server.ship.fuel=10;
+    await f.account.refresh();
+    const out=await admitted();
+    assert.equal(out.did,'null','the work was admitted');
+    assert.equal(sent.filter(action=>action==='spacemolt/refuel').length,1,'the lost refuel was never re-sent');
+    const journal=readJournal(runtime);
+    assert.ok(journal.some(entry=>entry.event==='resupply'&&/reply lost on spacemolt\/refuel/.test(String(entry.why))),JSON.stringify(journal));
+    assert.deepEqual(journal.filter(entry=>entry.event==='defect'),[]);
+  } finally {unbind();rmSync(runtime,{recursive:true,force:true});}
+});
+
+// U31 verify: the resupply runs in-fiber inside the top-level call, so a bug in its nested service no longer
+// reaches an edge of its own. The nested job still journals it as a `defect`, and the work goes on.
+test('Tired at a top-level call: a bug inside the resupply\'s service is a defect line, and the work goes on',async()=>{
+  const f=world({});
+  const runtime=mkdtempSync(join(tmpdir(),'spacemolt-resupply-bug-'));
+  const lines:string[]=[];
+  let bug=true;
+  bind({account:f.account as unknown as Account,command:f.command,runtime,emit:text=>lines.push(text),
+    pilot:()=>{
+      if(bug&&lines.at(-1)?.startsWith('▶ service')){bug=false;throw new TypeError('a bug in service');}
+      return flying({stance:'Prospector',permissions:{credit_reserve:0}},f.account.state as never);
+    }});
+  try {
+    f.account.server.ship.fuel=10;
+    await f.account.refresh();
+    const out=await admitted();
+    assert.equal(bug,false,'the bug was reached');
+    assert.equal(out.status,'done',JSON.stringify(out));
+    const defects=readJournal(runtime).filter(entry=>entry.event==='defect');
+    assert.equal(defects.length,1,JSON.stringify(defects));
+    assert.equal(defects[0]!.fn,'service');
+    assert.match(String(defects[0]!.stack),/a bug in service/);
   } finally {unbind();rmSync(runtime,{recursive:true,force:true});}
 });
 
@@ -680,7 +735,7 @@ test('Tired in a system with no base: resupply flies to a base places.json place
     f.account.server.location={system_id:'drift',poi_id:'void',docked_at:null,in_transit:false};
     f.account.server.ship.fuel=20;
     await f.account.refresh();
-    const out=await job('work','',async()=>({status:'done' as const,did:String(await admit('gatherUntil')),detail:{}}));
+    const out=await admitted();
     assert.equal(out.did,'null','the work was admitted');
     assert.equal(pilot().mood,'Focused');
     assert.equal(f.account.server.location.docked_at,'sol_base');
@@ -699,7 +754,7 @@ test('Tired with no base resupply can name: the work goes on, journalled strande
     f.account.server.location={system_id:'drift',poi_id:'void',docked_at:null,in_transit:false};
     f.account.server.ship.fuel=20;
     await f.account.refresh();
-    const out=await job('work','',async()=>({status:'done' as const,did:String(await admit('gatherUntil')),detail:{}}));
+    const out=await admitted();
     assert.equal(out.did,'null','the work was admitted');
     assert.equal(pilot().mood,'Tired');
     const journal=readJournal(runtime);
@@ -707,6 +762,41 @@ test('Tired with no base resupply can name: the work goes on, journalled strande
     const said=journal.filter(entry=>entry.event==='line').map(entry=>String(entry.text));
     assert.ok(said.some(text=>/resupply found no base: working on/.test(text)),said.join('\n'));
   } finally {unbind();rmSync(runtime,{recursive:true,force:true});}
+});
+
+// U31 verify: the stop flag lives on the run, and `stopped()` read false once nothing was bound, so the
+// pilot's own loop, still flying when its run closed (abandoned at the cap), was told to go on. A library
+// job in flight is interrupted by the binding's runtime being disposed, and never ends `done`.
+test('a loop still flying when its run is unbound reads stopped(), and a job in flight ends',async()=>{
+  bind({account:{state:{}} as unknown as Account,emit:()=>{},pilot:()=>({}) as Pilot,command:async()=>({})});
+  const job=edge(jobEffect('loop','',Effect.gen(function*() {
+    for(let n=0;n<200;n++) {
+      if(stopped())return yield* Effect.fail(new Stopped());
+      yield* Effect.sleep('5 millis');
+    }
+    return {status:'done' as const,did:'never stopped',detail:{}};
+  })));
+  let laps=0;
+  const own=(async()=>{while(!stopped()&&laps<200){laps++;await new Promise(resolve=>setTimeout(resolve,5));}})();
+  await new Promise(resolve=>setTimeout(resolve,20));
+  unbind();
+  assert.equal(stopped(),true,'nothing bound is nothing to fly');
+  await own;
+  assert.ok(laps<20,`the pilot's loop flew on unbound: ${laps} laps`);
+  assert.notEqual((await job).status,'done');
+});
+
+// U31 verify: account().commands now runs through onBinding, not the deleted command() seam; a refusal is
+// still the lib's own error, with its code, and is sent once.
+test('a refusal to the pilot\'s own command surfaces as the lib\'s error with its code, sent once',async()=>{
+  const sent:string[]=[];
+  bind({account:{state:{}} as unknown as Account,emit:()=>{},pilot:()=>({}) as Pilot,
+    command:async action=>{sent.push(action);throw new SpacemoltError('not_docked','you are not docked');}});
+  try {
+    await assert.rejects(command('spacemolt/sell',{id:'ore',quantity:1}),
+      error=>error instanceof SpacemoltError&&error.code==='not_docked');
+    assert.deepEqual(sent,['spacemolt/sell']);
+  } finally {unbind();}
 });
 
 test('account().commands sends params as the payload, even to an action the lib binds bare',async()=>{

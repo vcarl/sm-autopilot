@@ -46,6 +46,11 @@ export const classify=(action:string)=>(cause:unknown):GameError=>{
  * else is a defect carrying the thrown value. For code still on `await` that wants the failure typed. */
 export const attempt=<A>(label:string,body:()=>Promise<A>)=>Effect.tryPromise({try:body,catch:classify(label)});
 
+/** Re-read the account, a failure classified as a game step's is: for a caller that must not go
+ * on from a read that did not land. */
+export const reread=Effect.gen(function*() {return yield* (yield* Game).refresh;}).pipe(
+  Effect.catchTag('SeamFailed',failed=>Effect.suspend(()=>Effect.fail(classify('refresh')(failed.cause)))));
+
 /** The errors a dropped connection raises: the lib's own two, before its `reconnect:true`
  * has re-authenticated. Anything else is the game refusing, which is not retried. */
 const DISCONNECTED=/WebSocket connection closed|No action_result/;
@@ -79,8 +84,9 @@ export interface Seam {
   readonly refresh?:ReadinessAccount['refresh'];
   /** A line to the stream and the journal. */
   readonly say?:(text:string)=>void;
-  /** After every command, whatever it came to: burn cells, say a mood change. */
-  readonly after?:()=>Promise<void>;
+  /** After every command, whatever it came to: burn cells, say a mood change. Handed this
+   * connection, so what it sends takes the same path. */
+  readonly after?:(game:Context.Service.Shape<typeof Game>)=>Effect.Effect<void>;
   readonly ledger?:Ledger;
 }
 
@@ -137,6 +143,7 @@ export const GameLive=(seam:Seam)=>{
     return yield* sent(action,params);
   }).pipe(
     Effect.catchTag('SeamFailed',failed=>settle(action,failed)),
-    Effect.ensuring(Effect.promise(async()=>{await seam.after?.();})));
-  return Layer.succeed(Game,{command,refresh:refresh?seamed(refresh).pipe(Effect.asVoid):Effect.void});
+    Effect.ensuring(Effect.suspend(()=>seam.after?seam.after(service):Effect.void)));
+  const service={command,refresh:refresh?seamed(refresh).pipe(Effect.asVoid):Effect.void};
+  return Layer.succeed(Game,service);
 };

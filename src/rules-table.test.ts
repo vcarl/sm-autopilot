@@ -88,6 +88,16 @@ test('a travel verdict admits the route the tank covers; the reserve is not adde
   assert.match(verdict(3).reason,/route quotes 4 fuel, have 3; shortfall 1 fuel units/);
 });
 
+// An unread ship's fuel is NaN (menu.ts): the travel verdict said `have NaN`, and `have undefined`
+// before that. It says `?`, as the rest of the menu does for a value it could not read.
+test('a travel verdict for an unread ship says have ?, never NaN',()=>{
+  const verdict=evaluateMenu({mood:'Focused',stance:'Prospector',
+    place:{kind:'space',sites:[{poi_id:'sol_base',quoted_fuel:4,serviced_base:true}]},
+    holdings:{fuel:NaN,max_fuel:NaN,hull:NaN,max_hull:NaN,cargo_free:50,credits:1000},
+    obligations:{},permissions:{},observed:{}}).find(v=>v.job==='Travel to sol_base');
+  assert.match(verdict?.reason??'',/route quotes 4 fuel and have \?;/);
+});
+
 /** Every verdict a stance can be shown, with the barrel line the pilot would paste, or
  * `undefined` where the barrel has no primitive for it at all. The menu offers exactly the
  * rows with a line and leaves the rest unsaid, so this table is the contract between what the

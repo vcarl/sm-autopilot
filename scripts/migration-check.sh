@@ -18,7 +18,8 @@ npm run gen:wire && git diff --exit-code -- src/wire.gen.ts src/wire-drift.gen.t
 npm run gen:play && [ -z "$(git status --porcelain -- play.gen)" ]             # the pilot's declarations, new files too
 node scripts/surface.ts --check
 node scripts/debt.ts --zero src                                        # outside tests and *.gen.ts
-if grep -rn 'tryPromise' src --include='*.ts' | grep -v -e '^src/play/game.ts:' -e '\.test\.ts:'; then echo 'tryPromise outside Game'; exit 1; fi
+# game.ts for the game; journal-webhook.ts for the external webhook POST, the one boundary that isn't the game
+if grep -rn 'tryPromise' src --include='*.ts' | grep -v -e '^src/play/game.ts:' -e '^src/journal-webhook.ts:' -e '\.test\.ts:'; then echo 'tryPromise outside Game'; exit 1; fi
 if grep -rn '// bridge: U' src; then echo 'unconverted crossings remain'; exit 1; fi
 if grep -E '^\| (P0\.[0-9]+[a-z]?|U[0-9]{2}|M-[A-Za-z0-9]+|F-[A-Za-z0-9]+) \|' "$T" | grep -vE '^\| ([^F|][^|]* \| done|F-[A-Za-z0-9]+ \| flown) \|'; then echo 'tracker rows not done'; exit 1; fi
 grep -qE '^\| M-final \| done \|' "$T"                                  # the rows exist at all

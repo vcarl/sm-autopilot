@@ -5,10 +5,10 @@ import {journalRun} from '../run-record.ts';
 import {ServiceBlocked,ServiceUnsafe,serviceShipEffect,words} from '../servicing.ts';
 import {replyBody,rows} from '../storage.ts';
 import {counterEffect} from './counter.ts';
-import {Game,GameLive,field,rawError} from './game.ts';
+import {Game,field} from './game.ts';
 import {readPlaces} from './places.ts';
-import {acct,burnCells,command,edge,jobEffect,line,pilot,runtimeDir,stopped,type Said} from './runtime.ts';
-import {goTo} from './travel.ts';
+import {acct,burnCells,edge,jobEffect,line,pilot,runtimeDir,stopped,type Said} from './runtime.ts';
+import {goToEffect} from './travel.ts';
 import type {Outcome} from './types.ts';
 
 export interface Serviced {
@@ -101,13 +101,6 @@ export const serviceElsewhereEffect=(docked?:string)=>Effect.gen(function*() {
   return out;
 });
 
-/** The Promise twin of `serviceElsewhereEffect`. */
-export async function serviceElsewhere(docked?:string):Promise<Elsewhere[]> {
-  const exit=await Effect.runPromiseExit(serviceElsewhereEffect(docked).pipe(Effect.provide(GameLive({send:command}))));
-  if(exit._tag==='Failure')throw rawError(exit.cause); // bridge: U29, U30, U31 (callers: play/menu.ts, and `resupply` below, which stays Promise for run.ts and runtime.ts)
-  return exit.value;
-}
-
 /** The same advice as one line per row, which is the shape an Outcome's `next` takes. */
 const asNext=(rows:Elsewhere[],system:string):string[]=>rows.length
   ?rows.map(row=>`${row.call} — ${row.why}`)
@@ -132,7 +125,7 @@ export const asBase=(body:unknown)=>body as GetBaseResponse; // cast: frozen sur
  * Tired: resupplying back inside the margins is what clears it (the mood is derived from the
  * ship), and `cleared_tired` says so. `insure` and `dues` are accepted and
  * reported in `short` until a later slice implements them. */
-export const serviceEffect=(opts:NonNullable<Parameters<typeof service>[0]>={})=>jobEffect<Serviced,Game>('service',Object.keys(opts).join(' '),Effect.gen(function*() {
+export const serviceEffect=(opts:NonNullable<Parameters<typeof service>[0]>={})=>jobEffect<Serviced>('service',Object.keys(opts).join(' '),Effect.gen(function*() {
   const game=yield* Game;
   const who=pilot();
   const short:string[]=[];
@@ -197,22 +190,22 @@ export function service(opts:{fuel?:number;hull?:number;insure?:boolean;dues?:bo
  *
  * ponytail: the bases are tried in `serviceElsewhere`'s order (this system first), not by route
  * cost, and a wallet refused here is still flown to the next counter. */
-export async function resupply(opts:{travel?:boolean}={}):Promise<'cleared'|'broke'|'stranded'> {
+export const resupplyEffect=(opts:{travel?:boolean}={})=>Effect.gen(function*() {
   const tired=()=>pilot().mood==='Tired';
-  await burnCells();
-  if(!tired())return 'cleared';
+  yield* burnCells;
+  if(!tired())return 'cleared' as const;
   let broke=false;
   const runtime=runtimeDir(),tired_by=pilot().tired_by;
   const log=(entry:Record<string,unknown>)=>{if(runtime)journalRun(runtime,{tired_by,...entry},'resupply');};
   line(`tired (${tired_by}): the runtime is bringing the ship up`);
-  const at=async(base:string)=>{
-    const done=await service();
+  const at=(base:string)=>Effect.gen(function*() {
+    const done=yield* serviceEffect();
     log({base,status:done.status,spent:done.detail.spent,issued:done.detail.issued,cleared:!tired(),...done.why?{why:done.why}:{}});
     if(done.status==='refused'||done.status==='partial')broke=true;
     return !tired();
-  };
+  });
   const docked=acct().state.location?.docked_at??undefined;
-  if(docked&&await at(docked))return 'cleared';
+  if(docked&&(yield* at(docked)))return 'cleared' as const;
   const failed=():'broke'|'stranded'=>{
     if(broke)return 'broke';
     // Its own event, beside the `resupply` lines: the one outcome that leaves the ship stuck.
@@ -225,14 +218,14 @@ export async function resupply(opts:{travel?:boolean}={}):Promise<'cleared'|'bro
     log({cleared:false,why:'the run is stopping: no flight to another counter'});
     return failed();
   }
-  for(const row of await serviceElsewhere(docked)) {
+  for(const row of yield* serviceElsewhereEffect(docked)) {
     if(stopped())break;
-    const trip=await goTo(row.base);
+    const trip=yield* goToEffect(row.base);
     if(trip.status==='done'&&trip.detail.docked) {
-      if(await at(row.base))return 'cleared';
+      if(yield* at(row.base))return 'cleared' as const;
     } else log({base:row.base,cleared:false,why:`did not reach it: ${trip.why??trip.did}`});
   }
   log({cleared:false,stranded:!broke,why:broke?'no counter reached had anything the wallet covers':'no base this runtime can name was reached and serviced'});
   line(`still tired (${pilot().tired_by}): ${broke?'the wallet covers nothing at the counters reached':'no base this runtime can name was reached and serviced'}`);
   return failed();
-}
+});

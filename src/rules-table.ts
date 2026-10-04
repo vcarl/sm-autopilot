@@ -82,15 +82,15 @@ const serviced=(facts:Facts)=>facts.holdings.fuel>=facts.holdings.max_fuel&&fact
 function trip(facts:Facts,site:Site,tag:Tag):Verdict {
   const {fuel,max_fuel}=facts.holdings;
   const required=site.quoted_fuel,job=`Travel to ${site.poi_id}`;
-  const quote=`route quotes ${site.quoted_fuel} fuel`;
+  const quote=`route quotes ${site.quoted_fuel} fuel`,have=Number.isFinite(fuel)?fuel:'?';
   if(required>max_fuel)return no(tag,job,`${quote}, beyond the ${max_fuel} unit tank; a nearer site or a bigger tank admits it`);
-  if(fuel<required)return no(tag,job,`${quote}, have ${fuel}; shortfall ${required-fuel} fuel units — refuel here or pick a nearer site`);
+  if(fuel<required)return no(tag,job,`${quote}, have ${have}; shortfall ${required-fuel} fuel units — refuel here or pick a nearer site`);
   // `goTo` is the barrel's one flight primitive and it takes any nameable id — a POI, a base or
   // a system — so the option carries the line the pilot pastes. It used to name
   // `travel(ctx,'<poi>')`, a script helper the barrel does not export: a pilot wedged below its
   // fuel reserve out in the open sat Tired for six hours with that sentence as its only exit
   // (live 2026-09-24). The rules already knew the base and the quote; only the call was wrong.
-  return yes(tag,job,`${quote} and have ${fuel}${site.resource?`; ${site.poi_id} lists ${site.resource}`:''}; goTo('${site.poi_id}') flies it`,
+  return yes(tag,job,`${quote} and have ${have}${site.resource?`; ${site.poi_id} lists ${site.resource}`:''}; goTo('${site.poi_id}') flies it`,
     `goTo('${site.poi_id}')`);
 }
 

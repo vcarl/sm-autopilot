@@ -32,7 +32,7 @@ export interface Orientation {
  * most obvious gap ("hold is full", "tax due 16 cr"). Returns `done` always. */
 export declare function orient(): Promise<Outcome<Orientation>>;
 /** `orient` as an Effect, for `edge` and for converted callers; never in a barrel. */
-export declare const orientEffect: () => Effect.Effect<Outcome<Orientation>, never, Game>;
+export declare const orientEffect: () => Effect.Effect<Outcome<Orientation>, never, Game | import("./runtime.ts").Run>;
 export interface ScoutReport {
     /** The live `get_system` answer when you are in it; the map entry when you are not. */
     system: SystemInfo | MapSystemInfo;
@@ -63,4 +63,4 @@ export declare function scout(target?: string): Promise<Outcome<ScoutReport>>;
 /** `scout` as an Effect, for `edge` and for converted callers; never in a barrel. A refusal of the
  * route to the target ends the run, naming the action and the code; a refused quote, nearby or wreck
  * read only leaves its part of the report empty. */
-export declare const scoutEffect: (target?: string) => Effect.Effect<Outcome<ScoutReport>, never, Game>;
+export declare const scoutEffect: (target?: string) => Effect.Effect<Outcome<ScoutReport>, never, Game | import("./runtime.ts").Run>;

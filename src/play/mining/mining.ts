@@ -3,13 +3,13 @@ import type {SurveySystemResponse,SurveyedPoi,V2CargoItem} from '@spacemolt/lib'
 import {Effect,Option,Result,Schema,Struct} from 'effect';
 import {gatherJobEffect,type GatherStep} from '../../gather-job.ts';
 import type {MineYieldRow} from '../../mine.ts';
-import {details} from '../../response-details.ts';
 import * as Wire from '../../wire.gen.ts';
-import {Game,attempt,classify,field,isGameError,type GameError} from '../game.ts';
-import {sell} from '../market.ts';
-import {Stopped,acct,admit,command,edge,jobEffect,measured,pilot,reached,step,stopped} from '../runtime.ts';
+import {Game,field,isGameError,type GameError} from '../game.ts';
+import {sellEffect} from '../market.ts';
+import {Stopped,acct,admit,edge,jobEffect,measured,pilot,reached,step,stopped} from '../runtime.ts';
 import {routeEffect} from '../travel.ts';
 import type {Outcome,Row} from '../types.ts';
+import {replyBody} from '../../storage.ts';
 
 export interface Gathered {
   poi_id:string;base_id:string;
@@ -45,7 +45,7 @@ const decodeHeld=Schema.decodeUnknownOption(Wire.CargoItem_14.schema.mapFields(S
  * no list counts no rows; a row for `item` itself that does not read leaves the count `undefined` (unknown, said).
  * A lost reply is `Game.command`'s to re-issue: `view` is a read. */
 const storeCount=(base:string,item:string)=>Effect.gen(function*() {
-  const items=field(details(yield* (yield* Game).command('spacemolt_storage/view',{station_id:base})),'items');
+  const items=field(replyBody(yield* (yield* Game).command('spacemolt_storage/view',{station_id:base})),'items');
   if(!Array.isArray(items)){step(`spacemolt_storage/view: the reply at ${base} has no items list; counted as empty`);return 0;}
   let count=0,unknown=false;
   for(const raw of items) {
@@ -99,12 +99,11 @@ export function gatherUntil(opts:{poi:string;base?:string;until?:{item:string;qu
  * action and the code, as it did when the Promise twin threw it. */
 const gatherUntilEffect=(opts:Parameters<typeof gatherUntil>[0])=>{
   const label=tripLabel(opts);
-  return jobEffect<Gathered,Game>('gatherUntil',label,Effect.gen(function*() {
+  return jobEffect<Gathered>('gatherUntil',label,Effect.gen(function*() {
     const who=pilot();
     const result:Gathered={poi_id:opts.poi,base_id:opts.base??'',trips:0,yield:[],settled:[],ended:'blocked',cargo:[]};
     const cargo=()=>acct().state.cargo??[];
-    // bridge: U31 (admit keeps its Promise form with the module singletons it reads)
-    const stop=yield* attempt('gatherUntil',()=>admit('gatherUntil'));
+    const stop=yield* admit('gatherUntil');
     if(stop)return {status:'refused' as const,did:'gathered nothing',why:stop,detail:result};
     const baseId=opts.base??acct().state.location?.docked_at;
     if(!baseId)return {status:'refused' as const,did:'gathered nothing',why:'no base to return to: pass base, or dock first',detail:result};
@@ -149,7 +148,7 @@ const gatherUntilEffect=(opts:Parameters<typeof gatherUntil>[0])=>{
       lastLine=Date.now();
       // `moodNow`: the pilot record, not `plan.mood`, says what each leg flies on — the runtime
       // imposes Tired mid-trip and the leg home is quoted against the mood in force by then.
-      const trek=yield* gatherJobEffect(acct(),command,plan,{onStep,mine,checkpoint:async()=>{if(stopped())throw new Stopped();},
+      const trek=yield* gatherJobEffect(acct(),plan,{onStep,mine,checkpoint:()=>stopped()?Effect.fail(new Stopped()):Effect.void,
         moodNow:()=>pilot().mood??'Cautious'});
       result.trips=trip;
       result.yield=sum([...result.yield,...trek.yield]);
@@ -157,8 +156,7 @@ const gatherUntilEffect=(opts:Parameters<typeof gatherUntil>[0])=>{
       const held=trek.settled?.held??[];
       if(opts.then==='sell'&&(deposited.length||held.length)) {
         const rows=[...deposited.map(row=>({...row})),...held.map(row=>({...row}))];
-        // bridge: U15 (sell keeps its Promise form until play/market converts)
-        const sold=yield* attempt('gatherUntil',()=>sell(rows,deposited.length?{from:'store'}:{}));
+        const sold=yield* sellEffect(rows,deposited.length?{from:'store'}:{});
         // A sell that did not reach its detail settles nothing: a refusal, or one the runtime folded
         // (`said`, a stop included), carries an empty detail. The pilot's outcome is unchanged.
         const got=reached(sold);
@@ -201,8 +199,7 @@ const gatherUntilEffect=(opts:Parameters<typeof gatherUntil>[0])=>{
     return {status:'done' as const,did,detail:result,
       next:[...(opts.then==='sell'?[]:sellStowed(result.settled)),
         ...(result.ended==='depleted'?['the site is depleting; scout another belt']:[])]};
-  // The reconcile and refresh outside the steps fail as the raw lib error, which the job judged as the Promise twin threw it.
-  }).pipe(Effect.catchTag('SeamFailed',error=>Effect.suspend(()=>Effect.fail(classify('gatherUntil')(error.cause))))));
+  }));
 };
 
 /** Survey the system you are in for hidden deep-core deposits. Not built in slice 1. */

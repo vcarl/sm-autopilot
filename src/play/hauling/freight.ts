@@ -6,7 +6,7 @@ import {Effect,Option,Result,Schema,Struct} from 'effect';
 import {replyBody} from '../../storage.ts';
 import {TravelBlocked} from '../../travel.ts';
 import * as Wire from '../../wire.gen.ts';
-import {Game,attempt,field} from '../game.ts';
+import {Game,field} from '../game.ts';
 import {folded,withdrawEffect} from '../storage.ts';
 import {Stopped,acct,admit,edge,jobEffect,pilot,step,stopped} from '../runtime.ts';
 import {goToEffect,routeEffect} from '../travel.ts';
@@ -108,7 +108,7 @@ export function freightBoard(opts:{destination?:string;limit?:number}={}):Promis
 /** `freightBoard` as an Effect, for `edge` and for converted callers; never in a barrel. A refusal or a lost reply on a
  * read ends it naming the action and the code; a destination that is no place is an unroutable listing, not a failed board. */
 export const freightBoardEffect=(opts:{destination?:string;limit?:number}={})=>
-  jobEffect<Board,Game>('freightBoard',[opts.destination,opts.limit?`≤${opts.limit}`:''].filter(Boolean).join(' '),folded<Board>('freightBoard',emptyBoard,Effect.gen(function*() {
+  jobEffect<Board>('freightBoard',[opts.destination,opts.limit?`≤${opts.limit}`:''].filter(Boolean).join(' '),folded<Board>('freightBoard',emptyBoard,Effect.gen(function*() {
     const game=yield* Game;
     const docked=acct().state.location?.docked_at;
     if(!docked)return {status:'refused' as const,did:'read no board',why:'not docked; the shipping board is a station counter',detail:emptyBoard()};
@@ -182,11 +182,10 @@ export function haul(shipmentId:string):Promise<Outcome<Hauled>> {return edge(ha
 /** `haul` as an Effect, for `edge` and for converted callers; never in a barrel. A refusal ends it naming the action and
  * the code; a lost reply on the accept or the deliver is never re-sent, and the active list is re-read. */
 export const haulEffect=(shipmentId:string)=>
-  jobEffect<Hauled,Game>('haul',shipmentId,folded<Hauled>('haul',none,Effect.gen(function*() {
+  jobEffect<Hauled>('haul',shipmentId,folded<Hauled>('haul',none,Effect.gen(function*() {
     const game=yield* Game;
     const id=bare(shipmentId);
-    // bridge: U31 (admit keeps its Promise form with the module singletons it reads)
-    const blocked=yield* attempt('haul',()=>admit('haul'));
+    const blocked=yield* admit('haul');
     if(blocked)return {status:'refused' as const,did:`did not haul ${id}`,why:blocked,detail:none()};
 
     const live=(yield* readActive()).find(row=>row.contract.id===id);

@@ -11,7 +11,7 @@ import {hereEffect,named as poiName,others} from './counter.ts';
 import {Game,isGameError,type GameError} from './game.ts';
 import {knownBooks} from './market.ts';
 import {activeEffect} from './missions.ts';
-import {acct,checkStop,edge,jobEffect,pilot,runtimeDir,step} from './runtime.ts';
+import {Stopped,acct,edge,jobEffect,pilot,runtimeDir,step,stopped} from './runtime.ts';
 import type {Outcome} from './types.ts';
 
 /** How far off the direct route one distress call may sit, in jumps. ponytail: tunable. */
@@ -297,7 +297,7 @@ export function goTo(id:string):Promise<Outcome<Trip>> {return edge(goToEffect(i
 /** `goTo` as an Effect, for `edge` and for converted callers; never in a barrel. A refusal or a lost reply on
  * a leg ends the trip naming the action and the code; a lost reply on a jump, travel or dock is never re-sent, and
  * the ship's place is re-read from the game. */
-export const goToEffect=(id:string)=>jobEffect<Trip,Game>('goTo',id,Effect.gen(function*() {
+export const goToEffect=(id:string)=>jobEffect<Trip>('goTo',id,Effect.gen(function*() {
   const game=yield* Game;
   const who=pilot();
   const target=id;
@@ -362,7 +362,7 @@ export const goToEffect=(id:string)=>jobEffect<Trip,Game>('goTo',id,Effect.gen(f
   });
   const fly=(destination:{system_id:string;poi_id?:string})=>travelToEffect(acct(),destination,{
     maxJumps:null,
-    checkpoint:async()=>checkStop(),
+    checkpoint:()=>stopped()?Effect.fail(new Stopped()):Effect.void,
     onJump:()=>{jumps++;step(`jump ${jumps} of ${planned}, fuel ${acct().state.ship?.fuel}`);},
     refuelWith:refuel,
   });

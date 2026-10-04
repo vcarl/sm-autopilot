@@ -26,24 +26,6 @@
         "typescript/no-non-null-assertion": "off",
         "typescript/ban-ts-comment": "off"
       }
-    },
-    {
-      "files": [
-        "src/alerts.ts",
-        "src/bridge.ts",
-        "src/heartbeat.ts",
-        "src/journal-webhook.ts",
-        "src/play/menu.ts",
-        "src/readiness.ts",
-        "src/response-details.ts",
-        "src/run.ts"
-      ],
-      "rules": {
-        "typescript/no-explicit-any": "off",
-        "typescript/consistent-type-assertions": "off",
-        "typescript/no-non-null-assertion": "off",
-        "typescript/ban-ts-comment": "off"
-      }
     }
   ]
 }

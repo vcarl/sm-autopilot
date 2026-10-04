@@ -5,7 +5,8 @@ import {spawnSync} from 'node:child_process';
 import {existsSync,mkdtempSync,readFileSync,writeFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
-import {createShutdown,journalResult,MENU_CHARS,MENU_ROWS,serve,type Pilot,type ServeOptions} from './bridge.ts';
+import {Result,Schema} from 'effect';
+import {answerLine,createShutdown,journalResult,MENU_CHARS,MENU_ROWS,readPilot,Request,serve,writePilot,type Pilot,type ServeOptions} from './bridge.ts';
 import {controllerLock} from './controller-lock.ts';
 import type {ReadinessAccount} from './readiness.ts';
 import type {RunResult} from './run.ts';
@@ -216,4 +217,93 @@ test('the menu says whether a battle holds the ship, before any other fact',asyn
   assert.equal(fighting.battle?.opponent,'Molt Grazer');
   assert.ok(Number(fighting.battle?.tick)>=1,JSON.stringify(fighting.battle));
   assert.equal(Object.keys(fighting).indexOf('battle'),0,'first key: the juncture renders it first');
+});
+
+test('a request that does not decode is answered with what is wrong with it, and nothing runs', async () => {
+  const held=heldRun();
+  const f=fixture({pilot:()=>PILOT,runPilot:held.runPilot,runtime:mkdtempSync(join(tmpdir(),'spacemolt-bridge-'))});
+  await assert.rejects(f.dispatch('fly',{}),/Unknown or malformed request "fly"/);
+  await assert.rejects(f.dispatch('run',{juncture:{juncture_id:7}}),/juncture_id/);
+  await assert.rejects(f.dispatch('answer',{answer:3}),/answer/);
+  assert.equal(held.started.length,0,'a run that did not decode never started');
+  // A null juncture field is what juncture.py sends for an `at` it never read: it decodes, and is carried.
+  void f.dispatch('run',{juncture:{juncture_id:'j1',at:null}});
+  await settle();
+  assert.deepEqual(held.started[0]?.juncture,{juncture_id:'j1',at:null});
+  held.finish({accepted:true,started:'now',status:'done',reason:'done'});
+});
+
+test('a stdin line is decoded once: one that does not decode is answered with what is wrong, and the next still answers', async () => {
+  const runtime=mkdtempSync(join(tmpdir(),'spacemolt-bridge-'));
+  const f=fixture({pilot:()=>PILOT,runtime});
+  const streamed:(string|undefined)[]=[];
+  const bad=await answerLine(f.dispatch,'{"id":"1","action":',id=>streamed.push(id),runtime);
+  assert.equal(bad.ok,false);
+  assert.match(String(bad.error),/^Unreadable request: /);
+  const noAction=await answerLine(f.dispatch,'{"id":"2"}',id=>streamed.push(id),runtime);
+  assert.match(String(noAction.error),/action/);
+  const unknown=await answerLine(f.dispatch,'{"id":"3","action":"fly"}',id=>streamed.push(id),runtime);
+  assert.deepEqual({id:unknown.id,ok:unknown.ok},{id:'3',ok:false});
+  assert.match(String(unknown.error),/"fly"/);
+  const status=await answerLine(f.dispatch,'{"id":"4","action":"status","params":{}}',id=>streamed.push(id),runtime);
+  assert.deepEqual(status,{id:'4',ok:true,result:{running:false,last:null}});
+  const journal=readFileSync(join(runtime,'gameplay.jsonl'),'utf8').trim().split('\n').map(row=>JSON.parse(row));
+  const lines=journal.filter(row=>row.event==='request');
+  assert.equal(lines.length,4,'every line is journalled, the unreadable ones with the line itself');
+  assert.equal(lines[0].line,'{"id":"1","action":');
+  assert.equal(journal.some(row=>row.event==='defect'),false,'a bad request is not a bug');
+  assert.deepEqual(streamed,[],'nothing ran, so nothing took the stream');
+});
+
+test('a pilot write keeps every field that decodes and names each it dropped, never refusing the rest', async () => {
+  const runtime=mkdtempSync(join(tmpdir(),'spacemolt-bridge-'));
+  let record:Pilot={...PILOT};
+  const f=fixture({pilot:()=>record,setPilot:next=>{record=next;},runtime});
+  // A bad stance beside a new objective: the objective lands, and the old plan's stance retires
+  // with it as it did on main, where an unknown stance flew as no stance.
+  const both=await f.dispatch('pilot',{set:{stance:'Pirate',objective:'haul ore',instruction:{text:'dock first',at:'2026-10-03T00:00:00Z'}}});
+  assert.equal(record.objective,'haul ore');
+  assert.deepEqual(record.instruction,{text:'dock first',at:'2026-10-03T00:00:00Z'});
+  assert.equal(record.stance,undefined);
+  assert.match(JSON.stringify(both),/"dropped":\{"stance":/);
+  // A bad permission keeps the permissions it had; the goal beside it lands.
+  record={...record,permissions:{credit_reserve:100}};
+  const perm=await f.dispatch('pilot',{set:{permissions:{credit_reserve:'500'},goal:'mine'}});
+  assert.deepEqual(record.permissions,{credit_reserve:100});
+  assert.equal(record.goal,'mine');
+  assert.match(JSON.stringify(perm),/"dropped":\{"permissions":/);
+  const line=readFileSync(join(runtime,'gameplay.jsonl'),'utf8').trim().split('\n').map(row=>JSON.parse(row)).filter(row=>row.event==='pilot').at(-1);
+  assert.ok(line.dropped.permissions,'the journal line names the dropped field');
+  // A key the record does not name is dropped, never written, and is not news.
+  const mood=await f.dispatch('pilot',{set:{mood:'Tired'}});
+  assert.equal(JSON.stringify(mood).includes('dropped'),false);
+  assert.equal('mood' in record,false);
+});
+
+test('pilot.json reads back field by field: an old mood is dropped, a bad field is named and the rest read', () => {
+  const dir=mkdtempSync(join(tmpdir(),'spacemolt-bridge-')),path=join(dir,'pilot.json');
+  assert.deepEqual(readPilot(path),{},'no record is a pilot with no goal and no stance');
+  writeFileSync(path,JSON.stringify({...PILOT,mood:'Focused'}));
+  assert.deepEqual(readPilot(path),PILOT);
+  writePilot(path,{...PILOT,goal:'mine'});
+  assert.deepEqual(readPilot(path),{...PILOT,goal:'mine'});
+  writeFileSync(path,JSON.stringify({objective:'haul ore',goal:null,stance:'Pirate',permissions:{credit_reserve:'500'}}));
+  const named:Record<string,string>[]=[];
+  assert.deepEqual(readPilot(path,dropped=>named.push(dropped)),{objective:'haul ore'});
+  assert.deepEqual(Object.keys(named[0]??{}),['stance','permissions']);
+  writeFileSync(path,'{"objective":');
+  assert.throws(()=>readPilot(path),/Unreadable pilot record/,'only a file that is not JSON is unreadable');
+});
+
+test('every request service.py, __init__.py, juncture.py and play.py send decodes', () => {
+  const sent:[string,unknown][]=[
+    ['status',{}],['menu',{}],['check',{}],['stop',{}],['stop',{reason:'objective'}],
+    ['run',{}],['run',{juncture:{juncture_id:'abc',at:'2026-10-03T00:00:00Z'}}],['run',{juncture:{juncture_id:'abc',at:null}}],
+    ['answer',{answer:''}],['answer',{answer:'yes'}],
+    ['pilot',{set:{goal:'mine',stance:'Prospector'}}],
+    ['pilot',{set:{objective:null,objective_done:null,objective_completed:'haul ore'}}],
+    ['pilot',{set:{instruction:{text:'dock',at:'2026-10-03T00:00:00Z'},objective:'x',permissions:{credit_reserve:'500'}}}],
+  ];
+  for(const [action,params] of sent)
+    assert.ok(Result.isSuccess(Schema.decodeUnknownResult(Request)({action,params})),`${action} ${JSON.stringify(params)}`);
 });

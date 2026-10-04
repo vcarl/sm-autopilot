@@ -7,16 +7,15 @@
 import {readFileSync} from 'node:fs';
 import {join} from 'node:path';
 import {Effect,Option,Result,Schema,Struct} from 'effect';
-import type {ReadinessCommand} from '../../readiness.ts';
-import {details} from '../../response-details.ts';
 import {sightingTicksOld} from '../../sighting-memory.ts';
 import * as Wire from '../../wire.gen.ts';
-import {Game,attempt,field,type GameError} from '../game.ts';
+import {Game,field,type GameError} from '../game.ts';
 import {scoutEffect} from '../orient.ts';
 import {keepJson} from '../places.ts';
-import {Stopped,acct,admit,command,edge,jobEffect,pilot,reached,runtimeDir,step,stopped} from '../runtime.ts';
+import {Stopped,acct,admit,edge,jobEffect,pilot,reached,runtimeDir,step,stopped} from '../runtime.ts';
 import {goToEffect} from '../travel.ts';
 import type {Outcome} from '../types.ts';
+import {replyBody} from '../../storage.ts';
 
 /** What this runtime saw standing in a system: its police level and security status (`get_system`
  * answers them only from inside, and `get_map` carries neither), the pirates `get_nearby` counted
@@ -50,13 +49,9 @@ type MapRow=typeof MapRow.Type;
 const decodeMapRow=Schema.decodeUnknownOption(MapRow);
 /** The rows of a `get_map` reply that decode; a reply with no map, or a row that is not one, adds nothing. */
 export const mapOf=(reply:unknown):MapRow[]=>{
-  const systems=field(details(reply),'systems');
+  const systems=field(replyBody(reply),'systems');
   return Array.isArray(systems)?systems.flatMap(row=>{const decoded=decodeMapRow(row);return Option.isSome(decoded)?[decoded.value]:[];}):[];
 };
-/** The whole galaxy, one read: every system with its links and whether you have been there. */
-export async function readMap(send:ReadinessCommand):Promise<MapRow[]> {
-  return mapOf(await send('spacemolt/get_map',{}));
-}
 /** Jumps from `here` to every system within `max`, one breadth-first walk over the map's links. */
 export function jumpsFrom(map:readonly MapRow[],here:string,max=Infinity):Map<string,number> {
   const links=new Map(map.map(row=>[row.system_id,row.connections]));
@@ -124,8 +119,7 @@ export const exploreNearbyEffect=(opts:{systems?:number;jumps?:number;survey?:bo
   return jobEffect('exploreNearby',`${count} within ${jumps} jumps`,Effect.gen(function*() {
     const game=yield* Game;
     const detail:Explored={visited:[],unvisited:[],ended:'done'},short:string[]=[];
-    // bridge: U31 (admit keeps its Promise form with the module singletons it reads)
-    const blocked=yield* attempt('exploreNearby',()=>admit('exploreNearby'));
+    const blocked=yield* admit('exploreNearby');
     if(blocked)return {status:'refused' as const,did:'explored nothing',why:blocked,detail};
     const map=mapOf(yield* game.command('spacemolt/get_map',{})),tried=new Set<string>();
     // The map was read before the first hop, so a system flown to this run still reads unvisited.
@@ -141,7 +135,7 @@ export const exploreNearbyEffect=(opts:{systems?:number;jumps?:number;survey?:bo
       if(avoid.size) {
         const reply=yield* game.command('spacemolt/find_route',{id:next.system_id});
         // No decodable route is no route: nothing to avoid on it.
-        const routed=decodeRoute(details(reply));
+        const routed=decodeRoute(replyBody(reply));
         const through=(Option.isSome(routed)?routed.value.route??[]:[]).find(row=>avoid.has(row.system_id));
         if(through){step(`${next.system_id} skipped: the route crosses ${through.system_id}`);continue;}
       }
@@ -165,7 +159,7 @@ export const exploreNearbyEffect=(opts:{systems?:number;jumps?:number;survey?:bo
       let survey:string|undefined;
       if(opts.survey) {
         const surveyed=yield* Effect.result(game.command('spacemolt/survey_system',{}).pipe(
-          Effect.map(reply=>{const said=decodeSurvey(details(reply));return Option.isSome(said)?said.value.message:'surveyed';})));
+          Effect.map(reply=>{const said=decodeSurvey(replyBody(reply));return Option.isSome(said)?said.value.message:'surveyed';})));
         survey=Result.isFailure(surveyed)?`survey refused: ${told(surveyed.failure)}`:surveyed.success;
       }
       const pois=seen.pois;

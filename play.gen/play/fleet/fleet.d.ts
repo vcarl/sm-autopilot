@@ -56,7 +56,7 @@ export declare function assign(name: string, circuit: Circuit, caps: {
  * `refused` or `failed` through `jobEffect`, in the server's own code. Nothing here is a game mutation. */
 export declare const assignEffect: (name: string, circuit: Circuit, caps: {
     float: number;
-}) => Effect.Effect<Outcome<Hand>, never, Game>;
+}) => Effect.Effect<Outcome<Hand>, never, Game | import("../runtime.ts").Run>;
 /** Put the parked freighter `name` on a new circuit: `routes({circuit: {hold}})` for its hold,
  * within the scope its circuit was planned in (`circuit.scope`: maxStops, maxLegJumps, maxJumps),
  * which passes over the rings a freighter drained within `REST_TICKS`, then `assign` of the top
@@ -67,7 +67,7 @@ export declare function reassign(name: string): Promise<Outcome<{
     freighter: FreighterRow | null;
 }>>;
 /** `reassign` as an Effect; never in a barrel. */
-export declare const reassignEffect: (name: string) => Effect.Effect<Outcome<Hand>, never, Game>;
+export declare const reassignEffect: (name: string) => Effect.Effect<Outcome<Hand>, never, Game | import("../runtime.ts").Run>;
 /** Ask the freighter `name` home: it finishes the stop it is on, buying nothing more, deposits its profit, and parks
  * docked there with its cargo aboard. With `{after:'lap'}` it finishes the lap it is on instead, selling and buying
  * as usual, then parks. Either way it is not re-planned; `assign` or `reassign` sets it flying again. */

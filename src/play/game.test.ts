@@ -77,7 +77,7 @@ const dropping=(error:Error,seam:Partial<Seam>={})=>{
   const said:string[]=[];
   const calls={sends:0,refreshes:0,afters:0};
   const layer=GameLive({send:async(action,params)=>{if(++calls.sends===1)throw error;return {sent:action,params};},
-    refresh:async()=>{calls.refreshes++;},say:text=>said.push(text),after:async()=>{calls.afters++;},...seam});
+    refresh:async()=>{calls.refreshes++;},say:text=>said.push(text),after:()=>Effect.sync(()=>{calls.afters++;}),...seam});
   return {layer,said,calls};
 };
 const issue=(action:string)=>Effect.gen(function*(){return yield* (yield* Game).command(action,{});});

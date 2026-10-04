@@ -10,12 +10,13 @@ import type {ReadinessAccount,ReadinessCommand} from '../../readiness.ts';
 import {check} from '../../run.ts';
 import {bridgeWorld,TICK,type WorldOptions} from '../../test-support/bridge-world.ts';
 import {assign,reassign,tiedUp} from '../fleet/fleet.ts';
-import {readJournal} from '../../run-record.ts';
+import {journalCommand,quoteNext,readJournal} from '../../run-record.ts';
 import {GameLive} from '../game.ts';
 import {knownBooks} from '../market.ts';
-import {menu,renderMenu} from '../menu.ts';
+import {menuEffect,renderMenu} from '../menu.ts';
 import {readPlaces} from '../places.ts';
-import {acct,bind,unbind} from '../runtime.ts';
+import {acct,bind,onBinding,unbind} from '../runtime.ts';
+const menu=(runtime?:string)=>onBinding(menuEffect(runtime));
 import {REST_TICKS,routes,type Circuit} from '../trading/trading.ts';
 import {markDrained,ring} from './drained.ts';
 import {BOOK_TTL_MS,gate,launch,market,mender,readFleet,recallLoop,RECONNECT_MS,REPLAN_TICKS,row,script,scriptPath,stopFreighters,writeFleet,type Entry} from './host.ts';
@@ -1177,4 +1178,22 @@ test('a sale whose reply is lost is never sold again: the account re-read finds 
   assert.ok(!h.reports.some(r=>/again in a minute|refused/.test(r.why??'')),JSON.stringify(h.reports));
   assert.equal(done.net,(await clockedLap(freighter(130,[],{cargo:[{item_id:'gem',quantity:10}],cargoUsed:10}))).done.net,'the lap nets what the same lap with every reply nets');
   assert.deepEqual(defects,[]);
+});
+
+// The quote a trade line carries was one module global: a freighter's refuel in the shared bridge
+// overwrote the pilot's held quote, so the pilot's next sell went out with none.
+test('a freighter refuel between the pilot\'s quote and its trade leaves the pilot\'s trade line its quote',async()=>{
+  const runtime=mkdtempSync(join(tmpdir(),'freighter-quote-'));
+  try {
+    const {world,f,reports}=freighter(115);
+    await world.account.refresh();
+    quoteNext('spacemolt/sell','gem',{bid:150});
+    const done=await lap(f,GEMS);
+    assert.equal(done.park,undefined,reports.map(r=>r.why).filter(Boolean).join('; '));
+    assert.ok(world.count('spacemolt/refuel')>0,'the lap refuelled');
+    journalCommand(runtime,'spacemolt/sell',{id:'gem',quantity:1},true,{delta:{details:{action:'sell',item_id:'gem',quantity_sold:1,total_earned:150}}});
+    journalCommand(runtime,'spacemolt/refuel',{},true,{delta:{details:{action:'refuel',cost:5}}});
+    const trades=readJournal(runtime).filter(line=>line.event==='trade');
+    assert.deepEqual(trades.map(line=>line.quote),[{bid:150},undefined],'the sell keeps its quote; the pilot\'s refuel takes none of the freighter\'s');
+  } finally {rmSync(runtime,{recursive:true,force:true});}
 });

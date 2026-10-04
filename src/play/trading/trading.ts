@@ -12,7 +12,7 @@
 import type {MarketListingItem,OrderLevel,SellResponse} from '@spacemolt/lib';
 import {Effect,Option,Result,Schema,Struct} from 'effect';
 import {miningInventory} from '../../mining-inventory.ts';
-import type {ReadinessAccount,ReadinessCommand} from '../../readiness.ts';
+import type {ReadinessAccount} from '../../readiness.ts';
 import {walkBook} from '../../order-book.ts';
 import {journalRun} from '../../run-record.ts';
 import {words} from '../../servicing.ts';
@@ -22,9 +22,9 @@ import * as Wire from '../../wire.gen.ts';
 import {bookEffect,buyEffect,knownBooks,marketTick,sellEffect,ticksOld} from '../market.ts';
 import {counterEffect} from '../counter.ts';
 import {readDrained,ring} from '../freighter/drained.ts';
-import {Game,GameLive,attempt,field,message,type GameError} from '../game.ts';
+import {Game,GameLive,field,message,type GameError} from '../game.ts';
 import {markPlace,readMobile,readPlaces} from '../places.ts';
-import {Stopped,acct,admit,checkStop,command,edge,jobEffect,reached,runtimeDir,step,stopped,type Said} from '../runtime.ts';
+import {Stopped,acct,admit,checkStop,edge,jobEffect,reached,runtimeDir,step,stopped,type Said} from '../runtime.ts';
 import {withdrawEffect} from '../storage.ts';
 import {goToEffect} from '../travel.ts';
 import type {Outcome,Row} from '../types.ts';
@@ -37,9 +37,9 @@ export const seatLine=(seat:Seat,facts:Record<string,unknown>,event:string)=>{
   if(seat.runtime)journalRun(seat.runtime,{...seat.freighter===undefined?{}:{freighter:seat.freighter},...facts},event);
 };
 /** Whose connection and files a search reads through: the pilot's for `routes()`, or a freighter's
- * own when its host re-plans it, so a host loop never touches the play runtime. The Effect code sends
- * through the `Game` it runs under; `command` is for the Promise callers that still read through the seat. */
-export interface Seat {account:ReadinessAccount;command:ReadinessCommand;runtime:string|undefined;
+ * own when its host re-plans it, so a host loop never touches the play runtime. It sends through the
+ * `Game` it runs under. */
+export interface Seat {account:ReadinessAccount;runtime:string|undefined;
   /** The freighter's name, when the seat is one: its journal lines carry it. */
   freighter?:string;
   /** The live book where the ship is docked, and the tick it was read on, when the seat reads it its own way (a
@@ -48,7 +48,7 @@ export interface Seat {account:ReadinessAccount;command:ReadinessCommand;runtime
   /** Throws to end a search early. */
   stop():void}
 /** The pilot's seat: the play runtime. */
-export const pilotSeat=():Seat=>({account:acct(),command,runtime:runtimeDir(),stop:checkStop});
+export const pilotSeat=():Seat=>({account:acct(),runtime:runtimeDir(),stop:checkStop});
 
 /** The seat's stop as an Effect: the pilot's `Stopped` is the typed stop, any other throw is a bug and dies with its value. */
 export const halt=(seat:Seat)=>Effect.suspend(()=>{
@@ -114,7 +114,7 @@ export const BUYERS=3;
 export function spreads(items?:string[]):Promise<Outcome<{spreads:Spread[];sources:string[]}>> {return edge(spreadsEffect(items));}
 type Spreads={spreads:Spread[];sources:string[]};
 /** `spreads` as an Effect, for `edge` and for converted callers; never in a barrel. */
-export const spreadsEffect=(items?:string[])=>jobEffect<Spreads,Game>('spreads',(items??[]).join(' '),Effect.gen(function*() {
+export const spreadsEffect=(items?:string[])=>jobEffect<Spreads>('spreads',(items??[]).join(' '),Effect.gen(function*() {
   const game=yield* Game;
   const none:Spreads={spreads:[],sources:[]};
   const at=yield* counterEffect();
@@ -496,7 +496,7 @@ export function tradeRun(opts:{stops:RunStop[]}):Promise<Outcome<Traded>> {retur
  * re-sent: the hold and the wallet are re-read against what they were before it, and the run is `partial`. */
 export const tradeRunEffect=(opts:{stops:RunStop[]})=>{
   const route=opts.stops??[];
-  return jobEffect<Traded,Game>('tradeRun',route.map(stop=>items(stop).length?`${stop.at} (${items(stop).join(', ')})`:stop.at).join(' → '),Effect.gen(function*() {
+  return jobEffect<Traded>('tradeRun',route.map(stop=>items(stop).length?`${stop.at} (${items(stop).join(', ')})`:stop.at).join(' → '),Effect.gen(function*() {
     const game=yield* Game;
     const stops:Visit[]=[];
     let earned=0,spent=0,fuel=0,fuelPrice:number|undefined;
@@ -510,8 +510,7 @@ export const tradeRunEffect=(opts:{stops:RunStop[]})=>{
     let elsewhere:Book[]=[];
     const detail=():Traded=>({stops,unsold:unsoldWhy(Object.entries(miningInventory(acct().state)).filter(([,quantity])=>quantity>0)
       .map(([item_id,quantity])=>({item_id,quantity})),elsewhere),fuel,net:Math.round(earned-spent-fuel*(fuelPrice??0))});
-    // bridge: U31 (admit keeps its Promise form with the module singletons it reads)
-    const blocked=yield* attempt('tradeRun',()=>admit('tradeRun'));
+    const blocked=yield* admit('tradeRun');
     if(blocked)return {status:'refused',did:'ran no trade',why:blocked,detail:detail()};
     if(!route.length)return {status:'refused',did:'ran no trade',why:'no stops: pass {stops:[{at, buy?}, …]}',detail:detail()};
     const said=()=>stops.map(visit=>`${visit.at}: ${[...visit.sold.map(fill=>`sold ${fill.quantity_sold} ${fill.item_id}`),
@@ -749,12 +748,12 @@ const SLACK=0.1;
  * ponytail: goods in this base's store are not weighed; `tradeRun` takes them with `from:'store'`. */
 export function routes(opts:RouteOpts={}):Promise<Outcome<{routes:Route[];sources:string[]}>> {return edge(routesEffect(opts));}
 /** `routes` as an Effect, for `edge` and for converted callers; never in a barrel. */
-export const routesEffect=(opts:RouteOpts={})=>jobEffect<Found,Game>('routes',(opts.items??[]).join(' '),searchEffect(pilotSeat(),opts));
+export const routesEffect=(opts:RouteOpts={})=>jobEffect<Found>('routes',(opts.items??[]).join(' '),searchEffect(pilotSeat(),opts));
 export type RouteOpts={items?:string[];circuit?:{hold:number}}&Scope;
 type Found={routes:Route[];sources:string[]};
 
 /** `routes()` itself, read through `seat`: the one planner, whether the pilot or a freighter's host asks. Sends through the `Game`
- * it runs under; the Promise twin `search` builds one over the seat's own `command`. */
+ * it runs under. */
 export const searchEffect=(seat:Seat,opts:RouteOpts={}):Effect.Effect<Said<Found>,GameError|Stopped,Game>=>Effect.gen(function*() {
   const game=yield* Game;
   const none:Found={routes:[],sources:[]};

@@ -6,11 +6,11 @@
  */
 import {Effect,Option,Result,Schema,Struct} from 'effect';
 import type {FacilityTypeSummary,OwnedFacilityEntry} from '@spacemolt/lib';
-import {details} from '../../../response-details.ts';
 import * as Wire from '../../../wire.gen.ts';
-import {Game,attempt,field,type GameError} from '../../game.ts';
+import {Game,field,type GameError} from '../../game.ts';
 import {acct,admit,edge,jobEffect,pilot} from '../../runtime.ts';
 import type {Outcome} from '../../types.ts';
+import {replyBody} from '../../../storage.ts';
 
 /** A refusal or a lost reply as the pilot reads it: the action and the server's code, or that the reply is gone. */
 const told=(error:GameError|Schema.SchemaError)=>error._tag==='SchemaError'?error.message
@@ -51,7 +51,7 @@ const decodeBuilt=Schema.decodeUnknownOption(Wire.FacilityBuildResponse.mapField
  * the hold. */
 const storeRows=Effect.gen(function*() {
   const reply=yield* (yield* Game).command('spacemolt_storage/view',{});
-  const {items}=yield* decodeStore(details(reply)).pipe(Effect.orDie);
+  const {items}=yield* decodeStore(replyBody(reply)).pipe(Effect.orDie);
   return items.map(row=>({item_id:row.item_id,quantity:row.quantity}));
 });
 
@@ -71,7 +71,7 @@ export const facilitiesEffect=()=>jobEffect('facilities','',Effect.gen(function*
   const game=yield* Game;
   const failed:string[]=[];
   let owned:Owned[]=[],graceCycles=DEFAULT_GRACE_CYCLES,runwayCycles=Infinity;
-  const ownedRead=yield* Effect.result(game.command('spacemolt_facility/owned',{}).pipe(Effect.flatMap(reply=>decodeOwned(details(reply)))));
+  const ownedRead=yield* Effect.result(game.command('spacemolt_facility/owned',{}).pipe(Effect.flatMap(reply=>decodeOwned(replyBody(reply)))));
   if(Result.isFailure(ownedRead))failed.push(`owned: ${told(ownedRead.failure)}`);
   else {
     const reply=ownedRead.success;
@@ -84,7 +84,7 @@ export const facilitiesEffect=()=>jobEffect('facilities','',Effect.gen(function*
   const docked=acct().state.location?.docked_at;
   const here:Rentable[]=[];
   if(docked) {
-    const listRead=yield* Effect.result(game.command('spacemolt_facility/list',{}).pipe(Effect.flatMap(reply=>decodeList(details(reply)))));
+    const listRead=yield* Effect.result(game.command('spacemolt_facility/list',{}).pipe(Effect.flatMap(reply=>decodeList(replyBody(reply)))));
     if(Result.isFailure(listRead))failed.push(`here: ${told(listRead.failure)}`);
     else {
       const reply=listRead.success;
@@ -110,7 +110,7 @@ export const facilitiesEffect=()=>jobEffect('facilities','',Effect.gen(function*
   // and this pilot can build neither an infrastructure, faction, nor service type anyway.
   const buildable:FacilityTypeSummary[]=[];
   for(const category of ['production','personal'] as const) {
-    const typesRead=yield* Effect.result(game.command('spacemolt_facility/types',{category,per_page:50}).pipe(Effect.flatMap(reply=>decodeTypes(details(reply)))));
+    const typesRead=yield* Effect.result(game.command('spacemolt_facility/types',{category,per_page:50}).pipe(Effect.flatMap(reply=>decodeTypes(replyBody(reply)))));
     if(Result.isFailure(typesRead))failed.push(`${category} types: ${told(typesRead.failure)}`);
     else buildable.push(...typesRead.success.types.filter(type=>type.buildable!==false));
   }
@@ -139,11 +139,10 @@ export const buildFacilityEffect=(type:string)=>jobEffect('buildFacility',type,E
   const game=yield* Game;
   const none={facility_id:'',rent_per_cycle:0};
   const refuse=(why:string,next:string[]=[])=>({status:'refused' as const,did:`did not build ${type}`,why,detail:none,next});
-  // bridge: U31 (admit keeps its Promise form with the module singletons it reads)
-  const blocked=yield* attempt('buildFacility',()=>admit('buildFacility'));
+  const blocked=yield* admit('buildFacility');
   if(blocked)return refuse(blocked);
 
-  const owned=game.command('spacemolt_facility/owned',{}).pipe(Effect.flatMap(reply=>decodeOwnedList(details(reply)).pipe(Effect.orDie)));
+  const owned=game.command('spacemolt_facility/owned',{}).pipe(Effect.flatMap(reply=>decodeOwnedList(replyBody(reply)).pipe(Effect.orDie)));
   const docked=acct().state.location?.docked_at;
   const before=(yield* owned).facilities;
   const mine=before.find(entry=>entry.type===type&&entry.base_id===docked);
@@ -153,8 +152,8 @@ export const buildFacilityEffect=(type:string)=>jobEffect('buildFacility',type,E
 
   const typedReply=yield* game.command('spacemolt_facility/types',{facility_type:type});
   // Anything but the detail view is the game saying it has no such type.
-  if(field(details(typedReply),'kind')!=='detail')return refuse(`no facility type '${type}'`);
-  const typed=yield* decodeTyped(details(typedReply)).pipe(Effect.orDie);
+  if(field(replyBody(typedReply),'kind')!=='detail')return refuse(`no facility type '${type}'`);
+  const typed=yield* decodeTyped(replyBody(typedReply)).pipe(Effect.orDie);
 
   const store=yield* storeRows;
   const held=(item:string)=>store.find(row=>row.item_id===item)?.quantity??0;
@@ -174,7 +173,7 @@ export const buildFacilityEffect=(type:string)=>jobEffect('buildFacility',type,E
   if(Result.isFailure(commit))
     return {status:'failed' as const,did:`did not build ${type}`,why:`${type} was not built at ${docked}: ${told(commit.failure)}`,detail:none};
   // A reply with no id still reads back from owned() by type, as it always did.
-  const built=decodeBuilt(details(commit.success));
+  const built=decodeBuilt(replyBody(commit.success));
 
   const after=(yield* owned).facilities;
   const landed=after.find(entry=>Option.isSome(built)&&entry.facility_id===built.value.facility_id)??after.find(entry=>entry.type===type&&entry.base_id===docked);

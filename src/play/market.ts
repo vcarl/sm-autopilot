@@ -11,10 +11,10 @@ import {quoteNext} from '../run-record.ts';
 import {listing,words} from '../servicing.ts';
 import {replyBody,rows} from '../storage.ts';
 import {counterEffect} from './counter.ts';
-import {Game,attempt,field,message} from './game.ts';
-import {bench,moduleSpec,room,whyNotFit} from './hangar.ts';
+import {Game,field,message} from './game.ts';
+import {bench,moduleSpecEffect,room,whyNotFit} from './hangar.ts';
 import {Stopped,acct,admit,edge,jobEffect,pilot,reached,runtimeDir,step,stopped,wanted} from './runtime.ts';
-import {withdraw} from './storage.ts';
+import {withdrawEffect} from './storage.ts';
 import {num} from './rows.ts';
 import type {Outcome,Row,Want} from './types.ts';
 
@@ -129,7 +129,7 @@ export const bookEffect=()=>Effect.gen(function*() {
  * Pass item ids for others. Capped at 40 rows. Over `view_market` it adds: the filter to
  * what you hold, your held/stored counts beside each book, and the cap. Reads only. `next`
  * names the best thing to sell here by `best_buy × min(best_buy_qty, held)`. */
-export const pricesEffect=(items?:string[])=>jobEffect<{quotes:Quote[]},Game>('prices',(items??[]).join(' '),Effect.gen(function*() {
+export const pricesEffect=(items?:string[])=>jobEffect<{quotes:Quote[]}>('prices',(items??[]).join(' '),Effect.gen(function*() {
   const at=yield* atCounter();
   if('broke' in at)return {status:'failed',did:'prices broke',why:at.broke,detail:{quotes:[]}};
   if('refused' in at)return {status:'refused',did:'read no prices',why:at.refused,detail:{quotes:[]}};
@@ -179,7 +179,7 @@ export interface Sold {
  *
  * Trains trading (xp scales with credit volume). Not docked or no market here: `refused`. */
 export const sellEffect=(items:Want[],opts:{from?:'hold'|'store';floor?:Record<string,number>}={})=>
-  jobEffect<Sold,Game>('sell',items.map(row=>`${row.quantity??'all'} ${row.item_id}`).join(', ')+(opts.from==='store'?' from store':''),Effect.gen(function*() {
+  jobEffect<Sold>('sell',items.map(row=>`${row.quantity??'all'} ${row.item_id}`).join(', ')+(opts.from==='store'?' from store':''),Effect.gen(function*() {
     const game=yield* Game;
     let docked=acct().state.location?.docked_at??'';
     const empty=():Sold=>({base_id:docked,fills:[],short:[],total:0});
@@ -260,7 +260,7 @@ export const sellEffect=(items:Want[],opts:{from?:'hold'|'store';floor?:Record<s
       while(left.size) {
         if(stopped())return yield* Effect.fail(new Stopped());
         const wanted=[...left].map(([item_id,quantity])=>Number.isFinite(quantity)?{item_id,quantity}:{item_id});
-        const took=yield* attempt('withdraw',()=>withdraw(wanted)); // bridge: U13
+        const took=yield* withdrawEffect(wanted);
         // A withdraw that broke or was stopped built no detail (`{}`): what it said is the sell's why.
         const out=reached(took);
         if(!loads&&(!out||took.status==='refused'&&!out.moved.length))
@@ -333,11 +333,10 @@ export interface Bought {
  * `next` saying what to remove; `{force:true}` skips that check for a pilot buying a spare.
  * Trains trading. Tired or Relaxed: refused. */
 export const buyEffect=(itemId:string,quantity:number,opts:{deliverTo?:'cargo'|'storage';maxEach?:number;force?:boolean}={})=>
-  jobEffect<Bought,Game>('buy',`${quantity} ${itemId}`,Effect.gen(function*() {
+  jobEffect<Bought>('buy',`${quantity} ${itemId}`,Effect.gen(function*() {
     const game=yield* Game;
     const none={estimate:asEstimate({})};
-    // bridge: U31 (admit keeps its Promise form with the module singletons it reads)
-    const stop=yield* attempt('buy',()=>admit('buy'));
+    const stop=yield* admit('buy');
     if(stop)return {status:'refused',did:`did not buy ${itemId}`,why:stop,detail:none};
     const at=yield* atCounter();
     if('broke' in at)return {status:'failed',did:'buy broke',why:at.broke,detail:none};
@@ -345,7 +344,7 @@ export const buyEffect=(itemId:string,quantity:number,opts:{deliverTo?:'cargo'|'
     // A module that cannot be fitted is a dead 2,080 cr: the grid is checked before the buy.
     if(!opts.force) {
       // No spec is no fit check, said: the buy goes on to the estimate, as it did when the read was dropped silently.
-      const read=yield* Effect.result(attempt('moduleSpec',()=>moduleSpec(itemId))); // bridge: U14
+      const read=yield* Effect.result(moduleSpecEffect(itemId));
       if(Result.isFailure(read))step(`no fit check for ${itemId}: ${words(read.failure)}`);
       const spec=Result.isSuccess(read)?read.success:null;
       const why=spec&&whyNotFit(spec,bench());

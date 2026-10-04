@@ -1,5 +1,4 @@
 import { Effect, Schema } from 'effect';
-import type { ReadinessCommand } from '../../readiness.ts';
 import { Game } from '../game.ts';
 import type { Outcome } from '../types.ts';
 /** What this runtime saw standing in a system: its police level and security status (`get_system`
@@ -41,8 +40,6 @@ declare const MapRow: Schema.Struct<{
 type MapRow = typeof MapRow.Type;
 /** The rows of a `get_map` reply that decode; a reply with no map, or a row that is not one, adds nothing. */
 export declare const mapOf: (reply: unknown) => MapRow[];
-/** The whole galaxy, one read: every system with its links and whether you have been there. */
-export declare function readMap(send: ReadinessCommand): Promise<MapRow[]>;
 /** Jumps from `here` to every system within `max`, one breadth-first walk over the map's links. */
 export declare function jumpsFrom(map: readonly MapRow[], here: string, max?: number): Map<string, number>;
 /** Every other system within `max` jumps, nearest first, with the facts the map and memory hold. */
@@ -93,5 +90,5 @@ export declare const exploreNearbyEffect: (opts?: {
     jumps?: number;
     survey?: boolean;
     avoid?: string[];
-}) => Effect.Effect<Outcome<Explored>, never, Game>;
+}) => Effect.Effect<Outcome<Explored>, never, Game | import("../runtime.ts").Run>;
 export {};

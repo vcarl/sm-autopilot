@@ -3,7 +3,7 @@
 import type {Account} from '@spacemolt/lib';
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import {mkdtempSync,readFileSync,existsSync} from 'node:fs';
+import {mkdtempSync,readFileSync,existsSync,writeFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {MAX_AGE_MS,PER_TYPE,markAlertsDelivered,pendingAlerts,readAlerts,recordAlert} from './alerts.ts';
@@ -125,6 +125,14 @@ test('a facility alert collapses by base, keeps the latest numbers, and is deliv
   // A frame after the hand-over is new news, not a collapse into something already told.
   recordAlert(runtime,'facility_rent_warning','base:hera_outpost',{...RENT,missed_cycles:4});
   assert.deepEqual(pendingAlerts(runtime).map(item=>item.body.missed_cycles),[4]);
+});
+
+test('an alert item that cannot be read is dropped alone, a torn file is no alerts', () => {
+  const runtime=temp(),good={type:'player_died',key:'k',at:'2026-10-03T00:00:00Z',first_at:'2026-10-03T00:00:00Z',n:1,body:{},delivered_at:null};
+  writeFileSync(join(runtime,'alerts.json'),JSON.stringify({items:[{type:'player_died',key:'half'},good]}));
+  assert.deepEqual(readAlerts(runtime).map(item=>item.key),['k']);
+  writeFileSync(join(runtime,'alerts.json'),'{"items":[');
+  assert.deepEqual(readAlerts(runtime),[]);
 });
 
 test('the alert buffer is bounded by count and by age, undelivered included', () => {

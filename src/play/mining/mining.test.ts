@@ -1,11 +1,12 @@
 import assert from 'node:assert/strict';
 import {SpacemoltError,type Account} from '@spacemolt/lib';
 import {test} from 'node:test';
-import {details} from '../../response-details.ts';
 import type {ReadinessAccount} from '../../readiness.ts';
 import {bridgeWorld} from '../../test-support/bridge-world.ts';
 import {bind,unbind,type Pilot} from '../runtime.ts';
 import {gatherUntil,sellStowed,tripLabel} from './mining.ts';
+/** A reply's body, loosely: the test pokes at fields the world sent. */
+const details=(reply:any):any=>reply?.structuredContent??reply?.delta?.details??reply??{};
 
 test('the next move names the stowed items as a paste-able sale from the store',()=>{
   assert.deepEqual(sellStowed([{item_id:'aluminum_ore',quantity:112},{item_id:'iridium_ore',quantity:8}]),

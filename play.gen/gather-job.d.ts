@@ -1,8 +1,8 @@
 import { Effect } from 'effect';
-import { Game, SeamFailed } from './play/game.ts';
+import { Game, type GameError } from './play/game.ts';
 import { type MineOptions, type MineYieldRow } from './mine.ts';
 import type { Mood } from './mood-policy.ts';
-import type { ReadinessAccount, ReadinessCommand } from './readiness.ts';
+import type { ReadinessAccount } from './readiness.ts';
 import { type ServiceOutcome } from './servicing.ts';
 import type { SettleOutcome } from './settle-cargo.ts';
 import { type TravelOptions } from './travel.ts';
@@ -63,12 +63,9 @@ export interface GatherOutcome {
  * failed, and nothing is re-issued here (each primitive reconciles its own lost reply).
  * The end state is a claim about the world, so an authoritative read closes the job:
  * docked at home, the hold settled, serviced to the mood's margins, or it is a failure
- * naming what differed.
- *
- * `command` is a parameter only because the unconverted callees (travel, servicing,
- * reconcile) still take a Promise command; the Effect's own commands go through `Game`.
+ * naming what differed. Every command goes through `Game`.
  */
-export declare const gatherJobEffect: (account: ReadinessAccount, command: ReadinessCommand, plan: GatherPlan, options?: GatherOptions) => Effect.Effect<{
+export declare const gatherJobEffect: (account: ReadinessAccount, plan: GatherPlan, options?: GatherOptions) => Effect.Effect<{
     reason: string;
     moved?: Reconciliation;
     outcome: "failed" | "blocked";
@@ -82,4 +79,4 @@ export declare const gatherJobEffect: (account: ReadinessAccount, command: Readi
     yield: MineYieldRow[];
     settled: null;
     serviced: null;
-}, SeamFailed, Game>;
+}, GameError, Game>;

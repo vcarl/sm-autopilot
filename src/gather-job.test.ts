@@ -89,7 +89,7 @@ function fixture() {
     // The plan is the caller's own object, so a test may move its mood mid-job the way the
     // runtime does, and hand the job the hooks a runner passes it.
     run:(plan:GatherPlan={home,site,mood:'Cautious'},options?:GatherOptions):Promise<GatherOutcome>=>
-      Effect.runPromise(gatherJobEffect(account,command,plan,options).pipe(Effect.provide(GameLive({send:command}))))};
+      Effect.runPromise(gatherJobEffect(account,plan,options).pipe(Effect.provide(GameLive({send:command}))))};
 }
 
 test('a gather job stows what it mined and sells nothing; the starting hold stays aboard',async()=>{
@@ -225,7 +225,7 @@ test('a lost storage view is read again, not taken for no store',async()=>{
   const views=()=>f.calls.filter(call=>call.action==='spacemolt_storage/view').length;
   // The backoff runs on the TestClock: time moves only when the test moves it.
   const result:GatherOutcome=await Effect.runPromise(Effect.gen(function*() {
-    const fiber=yield* Effect.forkChild(gatherJobEffect(f.account,f.command,{home,site,mood:'Cautious'}));
+    const fiber=yield* Effect.forkChild(gatherJobEffect(f.account,{home,site,mood:'Cautious'}));
     for(let tick=0;views()<2&&tick<10;tick++) {
       yield* TestClock.adjust('1 second');
       yield* Effect.promise(()=>new Promise(resolve=>setImmediate(resolve)));

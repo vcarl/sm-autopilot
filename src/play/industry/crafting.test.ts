@@ -10,7 +10,7 @@ import type {ReadinessAccount} from '../../readiness.ts';
 import {readJournal} from '../../run-record.ts';
 import {bridgeWorld,type WorldOptions} from '../../test-support/bridge-world.ts';
 import {GameLive,type Game} from '../game.ts';
-import {bind,stop,unbind,type Pilot} from '../runtime.ts';
+import {boundRun,bind,stop,unbind,type Pilot,type Run} from '../runtime.ts';
 import {craft,craftEffect,jobs,materials,quote,recipes,revalidated,supply,useCatalog} from './crafting.ts';
 
 /** The catalog behind the fake bench's one recipe: 5 iron ore into 2 steel plate. */
@@ -495,7 +495,7 @@ test('a buy whose reply is lost is never re-sent: the store says it arrived, and
 });
 
 /** Run one Effect against a world on the TestClock, a minute at a time. `during` runs between minutes. */
-const clocked=<A,E>(f:ReturnType<typeof rig>,effect:Effect.Effect<A,E,Game>,minutes:number,during:(minute:number)=>void=()=>{})=>
+const clocked=<A,E>(f:ReturnType<typeof rig>,effect:Effect.Effect<A,E,Game|Run>,minutes:number,during:(minute:number)=>void=()=>{})=>
   Effect.runPromise(Effect.gen(function*() {
     const fiber=yield* Effect.forkChild(effect);
     for(let minute=0;minute<minutes;minute++) {
@@ -504,7 +504,7 @@ const clocked=<A,E>(f:ReturnType<typeof rig>,effect:Effect.Effect<A,E,Game>,minu
       during(minute);
     }
     return yield* Fiber.join(fiber);
-  }).pipe(Effect.provide(Layer.mergeAll(GameLive({send:f.command,refresh:()=>f.account.refresh()}),TestClock.layer()))));
+  }).pipe(Effect.provide(Layer.mergeAll(GameLive({send:f.command,refresh:()=>f.account.refresh()}),TestClock.layer(),boundRun()))));
 const slow={get store(){return stocked.store;},craft:{polls:10_000,eta_ticks:100}};
 
 // Time comes from the clock the wait sleeps on: ten minutes of polling pass in a test that sleeps for none of them.

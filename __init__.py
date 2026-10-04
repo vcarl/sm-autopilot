@@ -352,7 +352,10 @@ def _direct(arguments: dict[str, Any] | None = None, **_: Any) -> str:
     if permissions:
         # A bound this call does not name keeps the value it had: asking widens nothing else.
         patch["permissions"] = {**(read_pilot().get("permissions") or {}), **permissions}
-    record = call("pilot", {"set": patch})["record"]
+    written = call("pilot", {"set": patch})
+    record = written["record"]
+    # The bridge keeps every field that decodes and names each it left as it was.
+    dropped = written.get("dropped") or {}
     stopped = False
     if new_objective:
         _rewrite_job()
@@ -375,6 +378,7 @@ def _direct(arguments: dict[str, Any] | None = None, **_: Any) -> str:
             + f" The pilot takes it up at the next juncture — within {IDLE_SCHEDULE} of the last "
             f"one ending — and {after}."
             + said
+            + "".join(f" Not written: {name} ({why})." for name, why in dropped.items())
             + " Standing now: "
             + json.dumps({"objective": record.get("objective"),
                           "permissions": record.get("permissions") or {}},

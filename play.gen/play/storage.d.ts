@@ -3,7 +3,8 @@
 import type { V2CargoItem, ViewStorageResponse } from '@spacemolt/lib';
 import { Effect } from 'effect';
 import { Game, type GameError } from './game.ts';
-import { type Said, type Stopped } from './runtime.ts';
+import { type Run, type Said } from './runtime.ts';
+import type { ArrivalUnresolved, TravelBlocked } from '../travel.ts';
 import type { Outcome, Row, Want } from './types.ts';
 export interface Moved {
     base_id: string;
@@ -30,13 +31,13 @@ export declare class OffSpec extends OffSpec_base<{
     readonly message: string;
 }> {
 }
-/** A reply off the spec is `failed`, saying so: not a defect, not a crash. */
-export declare const folded: <D>(fn: string, empty: () => D, body: Effect.Effect<Said<D>, GameError | Stopped | OffSpec, Game>) => Effect.Effect<Said<D>, GameError | Stopped, Game>;
+/** A reply off the spec is `failed`, saying so: not a defect, not a crash. By class, not `catchTag`: the counter's dock can fail with travel's classes, whose `_tag` is a plain string. */
+export declare const folded: <D, R extends Game | Run = Game | Run>(fn: string, empty: () => D, body: Effect.Effect<Said<D>, GameError | TravelBlocked | ArrivalUnresolved | OffSpec, R>) => Effect.Effect<Said<D>, GameError | TravelBlocked | ArrivalUnresolved, R>;
 /** Units of each row that fit `room` cargo: every want when they all fit, else each row's
  * share of the room in proportion to its footprint, floored, the leftover handed out in order. */
 export declare function share(room: number, wants: number[], sizes: number[]): number[];
-export declare const stowEffect: (items: Want[]) => Effect.Effect<Outcome<Moved>, never, Game>;
-export declare const withdrawEffect: (items: Want[]) => Effect.Effect<Outcome<Moved>, never, Game>;
+export declare const stowEffect: (items: Want[]) => Effect.Effect<Outcome<Moved>, never, Game | Run>;
+export declare const withdrawEffect: (items: Want[]) => Effect.Effect<Outcome<Moved>, never, Game | Run>;
 /** Deposit the named rows from the hold into the store here. Over `storage/deposit` it
  * adds: the `storage` counter checked first, each row bounded by what the hold shows, and
  * the store re-read after. Omit a row's `quantity` to mean all held. Refused when not docked
@@ -49,7 +50,7 @@ export declare function stow(items: Want[]): Promise<Outcome<Moved>>;
  * `no room`, and the status is `partial`. Omit a row's `quantity` to mean all stored. Refused when not docked; a row
  * the store does not hold is `short` and `done`. Costs nothing. */
 export declare function withdraw(items: Want[]): Promise<Outcome<Moved>>;
-export declare const storageEffect: (baseId?: string) => Effect.Effect<Outcome<ViewStorageResponse>, never, Game>;
+export declare const storageEffect: (baseId?: string) => Effect.Effect<Outcome<ViewStorageResponse>, never, Game | Run>;
 /** Read the store at this base, or at a named base or station POI without going there. Works
  * undocked and in another system. `locations` is the whole account's map of holdings. Over
  * `storage/view` it adds: items capped at 40 rows (the count is in `next`). Reads only. */

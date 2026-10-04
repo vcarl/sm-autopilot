@@ -1,6 +1,6 @@
 import type { GameState } from '@spacemolt/lib';
 import { Effect } from 'effect';
-import type { ReadinessAccount, ReadinessCommand } from './readiness.ts';
+import type { ReadinessAccount } from './readiness.ts';
 import { Game, type GameError } from './play/game.ts';
 import { type Reconciliation } from './reconcile.ts';
 export declare class TravelBlocked extends Error {
@@ -56,12 +56,11 @@ export interface BattleNow {
     opponent: string;
     tick: number;
 }
-export declare const battleNowEffect: () => Effect.Effect<{
-    opponent: string;
-    tick: number;
-} | undefined, never, Game>;
-/** The Promise twin of `battleNowEffect`, for callers not yet converted. */
-export declare function battleNow(send: ReadinessCommand): Promise<BattleNow | undefined>;
+export declare const battleNowEffect: () => Effect.Effect<BattleNow | undefined, never, Game>;
+/** The read a run closes on (`run.ts`), under U21's rule: what decides whether a fight is left unattended
+ * cannot take a lost reply as "no battle". A lost one is re-read twice (a read is safe to repeat); one still
+ * lost is `unknown`, and the battle flag is left as it was. A refusal is still no battle. */
+export declare const battleAtCloseEffect: () => Effect.Effect<"unknown" | BattleNow | undefined, never, Game>;
 export interface TravelDestination {
     system_id: string;
     poi_id?: string;
@@ -74,39 +73,26 @@ export interface TravelDestination {
  * was refused a 4-fuel trip for want of Focused's 24 (operator's decision, 2026-09-26). */
 export interface TravelOptions {
     maxJumps?: number | null;
-    checkpoint?: (settled?: boolean) => Promise<void>;
-    beforeMove?: () => Promise<void>;
-    refuel?: (minimum: number) => Promise<void>;
-    /** `refuel` as an Effect, for an Effect caller: it wins over `refuel` when both are given. */
+    /** A pilot stop is a `TravelBlocked` it fails with; anything it throws is a defect. */
+    checkpoint?: (settled?: boolean) => Effect.Effect<void, TravelBlocked | ArrivalUnresolved>;
+    beforeMove?: () => Effect.Effect<void>;
+    /** Docked and short of the quote: buy at least `minimum` fuel. Its failure is its own to say; the fuel check decides. */
     refuelWith?: (minimum: number) => Effect.Effect<void, never, Game>;
     onJump?: () => void;
-    now?: () => number;
-    sleep?: (ms: number) => Promise<void>;
     maxWaitMs?: number;
     pollMs?: number;
     liveReadMs?: number;
 }
-/** Account.refresh always queries get_status. A cargo/hull push must never postpone it. */
-export declare function waitForArrival(account: ReadinessAccount, predicate: (state: GameState) => boolean, options?: TravelOptions): Promise<void>;
-/** A Promise step of travel's: the lib's refusal or a lost reply is its tag, travel's own refusals thrown from
- * it (a pilot stop is a `TravelBlocked`, an unconfirmed arrival `ArrivalUnresolved`) are failures as they are,
- * and anything else is a defect. */
-export declare const travelStep: <A>(label: string, body: () => Promise<A>) => Effect.Effect<A, GameError | TravelBlocked | ArrivalUnresolved, never>;
+/** Account.refresh always queries get_status. A cargo/hull push must never postpone it. Time is
+ * the `Clock`'s, so a test world drives it. `label` names a failed read or checkpoint. */
+export declare const waitForArrivalEffect: (account: ReadinessAccount, predicate: (state: GameState) => boolean, options?: TravelOptions, label?: string) => Effect.Effect<undefined, TravelBlocked | ArrivalUnresolved, never>;
 /** One shared movement path; policy, spending and command ownership stay with the caller. Every game
  * command goes through `Game`, so a refusal is a tag: `InBattle` ends in travel's own `InBattle`, any
  * other refusal or lost reply fails with its tag, and a lost reply is never re-sent. Travel's own
  * refusals (`TravelBlocked`, `FuelRouteShortfall`, `InBattle`) and the dock's `DockBlocked` are failures,
- * so a caller that wants them reads the error channel; the unconverted Promise callers still branch on
- * `instanceof` through `rawError`. `ArrivalUnresolved` and `Stopped` (thrown from a checkpoint) cross from
- * the Promise seams through `travelStep`, so they are failures too; anything else a hook throws is a defect. */
+ * so a caller that wants them reads the error channel. `ArrivalUnresolved` is the arrival wait's own
+ * failure, and `Stopped` (a checkpoint's own failure) is a failure too; anything a hook throws is a defect. */
 export declare const travelToEffect: (account: ReadinessAccount, destination: TravelDestination, options: TravelOptions) => Effect.Effect<{
     jumps: number;
     location: import("@spacemolt/lib").V2Location | undefined;
-}, GameError | TravelBlocked | ArrivalUnresolved, Game>;
-/** The Promise twin of `travelToEffect`, for callers not yet converted: a failure exit throws the
- * raw error, so a refusal reaches them as the lib's `SpacemoltError` and travel's own classes as
- * themselves. */
-export declare function travelTo(account: ReadinessAccount, command: ReadinessCommand, destination: TravelDestination, options?: TravelOptions): Promise<{
-    jumps: number;
-    location: import("@spacemolt/lib").V2Location | undefined;
-}>;
+}, GameError | TravelBlocked | ArrivalUnresolved | import("./dock.ts").DockBlocked, Game>;

@@ -5,7 +5,7 @@ import {Effect,Option,Schema,Struct} from 'effect';
 import {miningInventory} from '../../mining-inventory.ts';
 import {replyBody} from '../../storage.ts';
 import * as Wire from '../../wire.gen.ts';
-import {Game,attempt,field,type GameError} from '../game.ts';
+import {Game,field,reread,type GameError} from '../game.ts';
 import {acct,checkStop,edge,jobEffect,step} from '../runtime.ts';
 import type {Outcome} from '../types.ts';
 
@@ -54,7 +54,7 @@ const told=(reason:Reason)=>typeof reason==='string'?reason:`${reason.action}: $
  * reply ends it, and the loot is never re-sent. */
 export const lootWreckEffect=(wreck:EnrichedWreck)=>Effect.gen(function*() {
   const game=yield* Game;
-  const refresh=attempt('refresh',()=>acct().refresh()); // bridge: U31
+  const refresh=reread;
   const items:LootedItem[]=[],modules:LootedModule[]=[];
   const left:{row:ShipCargoItem;reason:Reason}[]=[];
   const modulesLeft:{module:LootedModule;reason:Reason}[]=[];
@@ -92,7 +92,7 @@ const say=(rows:LootedItem[])=>rows.map(row=>`${row.quantity} ${row.item_id}`).j
 /** `salvage` as an Effect, for `edge` and for converted callers; never in a barrel. A tow the game refuses or
  * a lost reply ends the run, naming the action; a refused loot is said in the wreck's line and in `did`. */
 export const salvageEffect=(opts:{tow?:string}={})=>
-  jobEffect<Salvaged,Game>('salvage',opts.tow?`tow ${opts.tow}`:'',Effect.gen(function*() {
+  jobEffect<Salvaged>('salvage',opts.tow?`tow ${opts.tow}`:'',Effect.gen(function*() {
     const game=yield* Game;
     const result:Salvaged={wrecks:[],looted:[],left:[]};
     result.wrecks=yield* wrecksHereEffect();

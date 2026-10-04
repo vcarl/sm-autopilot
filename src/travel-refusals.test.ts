@@ -4,7 +4,8 @@ import {SpacemoltError} from '@spacemolt/lib';
 import {Effect,Result} from 'effect';
 import type {ReadinessCommand} from './readiness.ts';
 import {GameLive,Rejected,ReplyLost,type Game} from './play/game.ts';
-import {battleEnded,battleNow,battleNowEffect,InBattle,TravelBlocked,travelTo,travelToEffect} from './travel.ts';
+import {battleEnded,battleNowEffect,InBattle,TravelBlocked,travelToEffect} from './travel.ts';
+import {onWorldClock,travelTo} from './test-support/travel.ts';
 import {FakeLibGoalAccount} from './test-support/fake-lib-account.ts';
 
 /** One local hop from a dock, where each command the server may refuse answers the way the live one
@@ -29,7 +30,7 @@ function world(refuse:{undock?:SpacemoltError;travel?:SpacemoltError;status?:Spa
   const opts={now:()=>0,sleep:async()=>{}};
   return {account,destination,command,sent,opts,
     run:()=>travelTo(account,command,destination,opts),
-    effect:()=>Effect.runPromise(Effect.result(travelToEffect(account,destination,opts)).pipe(Effect.provide(GameLive({send:command}))))};
+    effect:()=>Effect.runPromise(onWorldClock(Effect.result(travelToEffect(account,destination,{})),opts).pipe(Effect.provide(GameLive({send:command}))))};
 }
 const inBattle=()=>new SpacemoltError('in_battle',"cannot perform this action while in combat. Use the 'battle' command to fight or flee.");
 
@@ -98,7 +99,7 @@ test('battleNow: a refusal or a lost reply is no battle and clears the remembere
   await assert.rejects(held.run(),InBattle);
   // The server refuses battle/status: no battle, so the next move is not pre-refused.
   const refused=world({status:new SpacemoltError('not_in_battle','you are not in a battle')});
-  assert.equal(await battleNow(refused.command),undefined);
+  assert.equal(await run(battleNowEffect(),refused),undefined);
   const free=world();
   await free.run();
   assert.equal(free.sent('spacemolt/travel'),1);
@@ -108,7 +109,7 @@ test('battleNow: a refusal or a lost reply is no battle and clears the remembere
   // A battle: the first non-player or NPC participant, and the tick.
   const fight=world({status:{battle_id:'b1',tick_duration:10,participants:[
     {kind:'player',player_id:'me',is_npc:false},{kind:'npc',username:'Slag-Tortoise',is_npc:true}]}});
-  assert.deepEqual(await battleNow(fight.command),{opponent:'Slag-Tortoise',tick:10});
+  assert.deepEqual(await run(battleNowEffect(),fight),{opponent:'Slag-Tortoise',tick:10});
   // And it is remembered: the move is refused without a command.
   const after=world();
   await assert.rejects(after.run(),InBattle);

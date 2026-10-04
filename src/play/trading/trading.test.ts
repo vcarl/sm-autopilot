@@ -6,7 +6,7 @@ import {join} from 'node:path';
 import test from 'node:test';
 import {Effect} from 'effect';
 import {GameLive} from '../game.ts';
-import type {ReadinessAccount} from '../../readiness.ts';
+import type {ReadinessAccount,ReadinessCommand} from '../../readiness.ts';
 import {bridgeWorld,TICK,type WorldOptions} from '../../test-support/bridge-world.ts';
 import {buy,knownBooks,prices,sell} from '../market.ts';
 import {bind,stop,unbind,type Pilot} from '../runtime.ts';
@@ -14,7 +14,7 @@ import {goTo} from '../travel.ts';
 import {check} from '../../run.ts';
 import {readPlaces} from '../places.ts';
 import {farBooksEffect,pilotSeat,routes,runCall,spreads,tradeRun,type Seat} from './trading.ts';
-import {candidates,exploreEffect,scoutMarkets} from './scout.ts';
+import {candidatesEffect,exploreEffect,scoutMarkets} from './scout.ts';
 
 /** `lost` names the sends the world carries out and whose reply never arrives. */
 function world(record:Pilot,options:WorldOptions={},runtime?:string,raises:(action:string)=>void=()=>{},lost:(action:string)=>boolean=()=>false) {
@@ -816,15 +816,15 @@ test('a ledger row that does not read is left out and journalled, and the rest o
   } finally {unbind();rmSync(runtime,{recursive:true,force:true});}
 });
 
-/** `farBooksEffect` over a seat's own `command`, as a freighter's host runs it. */
-const farBooks=(here:string,now:number,seat:Seat=pilotSeat())=>Effect.runPromise(farBooksEffect(here,now,seat).pipe(Effect.provide(GameLive({send:seat.command}))));
+/** `farBooksEffect` over a seat and its own `send`, as a freighter's host runs it. */
+const farBooks=(here:string,now:number,send:ReadinessCommand,seat:Seat=pilotSeat())=>Effect.runPromise(farBooksEffect(here,now,seat).pipe(Effect.provide(GameLive({send}))));
 
 test("a freighter's seat journals a ledger row that does not read to its own runtime, not the pilot's",async()=>{
   const runtime=mkdtempSync(join(tmpdir(),'spacemolt-routes-')),own=mkdtempSync(join(tmpdir(),'spacemolt-seat-'));
   const f=world({mood:'Focused'},{cargo:[],cargoUsed:0,store:[],markets:SCRAP_ONLY,
     tradeIntel:[...LEDGER,{base_id:'odd_base',submitted_at_tick:'soon' as unknown as number,items:[]}]},runtime);
   try {
-    const books=await farBooks('sol_base',TICK,{account:f.account as unknown as ReadinessAccount,command:f.command,runtime:own,stop:()=>{}});
+    const books=await farBooks('sol_base',TICK,f.command,{account:f.account as unknown as ReadinessAccount,runtime:own,stop:()=>{}});
     assert.deepEqual(books.map(book=>book.base_id),['range_base']);
     assert.deepEqual(journal(own).filter(line=>line.event==='trade_skipped').map(line=>line.id),['odd_base']);
     assert.deepEqual(journal(runtime).filter(line=>line.event==='trade_skipped'),[]);
@@ -833,13 +833,13 @@ test("a freighter's seat journals a ledger row that does not read to its own run
 
 test('a ledger entry whose item list is null reads as a book with no rows, not a skipped row',async()=>{
   const runtime=mkdtempSync(join(tmpdir(),'spacemolt-routes-'));
-  world({mood:'Focused'},{cargo:[{item_id:'ore',quantity:12}],cargoUsed:12,store:[],markets:SCRAP_ONLY,
+  const f=world({mood:'Focused'},{cargo:[{item_id:'ore',quantity:12}],cargoUsed:12,store:[],markets:SCRAP_ONLY,
     tradeIntel:[...LEDGER,{base_id:'empty_base',submitted_at_tick:900,items:null}]},runtime);
   try {
     const out=await spreads(['ore']);
     assert.equal(out.status,'done',out.why);
     assert.deepEqual(out.detail.spreads.map(row=>row.base_id),['range_base']);
-    const empty=(await farBooks('sol_base',TICK)).find(book=>book.base_id==='empty_base');
+    const empty=(await farBooks('sol_base',TICK,f.command)).find(book=>book.base_id==='empty_base');
     assert.deepEqual(empty?.items,[]);
     assert.deepEqual(journal(runtime).filter(line=>line.event==='trade_skipped'),[]);
   } finally {unbind();rmSync(runtime,{recursive:true,force:true});}
@@ -916,7 +916,7 @@ test("a freighter's seat with no bound run journals an unreadable intel map and 
     :action==='spacemolt/get_system'?{structuredContent:{system:null}}:game.command(action,params);
   try {
     const seat={account:game.account as unknown as ReadinessAccount,command,runtime:own,freighter:'hauler',stop:()=>{}};
-    assert.ok((await candidates(seat,TICK)).some(row=>row.base_id==='reach_base'),'the places file still stands');
+    assert.ok((await Effect.runPromise(candidatesEffect(seat,TICK).pipe(Effect.provide(GameLive({send:seat.command}))))).some(row=>row.base_id==='reach_base'),'the places file still stands');
     assert.deepEqual(await Effect.runPromise(exploreEffect(seat).pipe(Effect.provide(GameLive({send:seat.command})))),[]);
     const unread=journal(own).filter(line=>line.event==='scout_unread');
     assert.deepEqual(unread.map(line=>[line.action,line.freighter]),[['query_intel','hauler'],['get_system','hauler']]);

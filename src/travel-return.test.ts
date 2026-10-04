@@ -2,7 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {FakeLibGoalAccount,type FakeCommandHandlers} from './test-support/fake-lib-account.ts';
 import type {ReadinessCommand} from './readiness.ts';
-import {travelTo,TravelBlocked} from './travel.ts';
+import {TravelBlocked} from './travel.ts';
+import {travelTo} from './test-support/travel.ts';
 
 function fixture(local:boolean) {
   const home={system_id:'a',poi_id:'gate',base_id:'home'};

@@ -189,7 +189,7 @@ export const salvage = (…): Promise<Outcome<Salvaged>> => edge(salvageEffect(�
 - **Calling an unconverted function.** A converted function reaches an unconverted Promise function
   only through `Effect.tryPromise({try, catch: classify})`. Each such crossing gets a `// bridge: U<nn>`
   comment naming the unit that will remove it. Converting that unit removes the crossing. At the end
-  of the project, `tryPromise` appears only in `game.ts`.
+  of the project, `tryPromise` appears only in `game.ts`, and in `journal-webhook.ts` for the webhook POST.
 
 ## 3. Units
 
@@ -397,7 +397,8 @@ npm run gen:wire && git diff --exit-code -- src/wire.gen.ts src/wire-drift.gen.t
 npm run gen:play && [ -z "$(git status --porcelain -- play.gen)" ]             # the pilot's declarations, new files too
 node scripts/surface.ts --check
 node scripts/debt.ts --zero src                                        # outside tests and *.gen.ts
-if grep -rn 'tryPromise' src --include='*.ts' | grep -v -e '^src/play/game.ts:' -e '\.test\.ts:'; then echo 'tryPromise outside Game'; exit 1; fi
+# game.ts for the game; journal-webhook.ts for the external webhook POST, the one boundary that isn't the game
+if grep -rn 'tryPromise' src --include='*.ts' | grep -v -e '^src/play/game.ts:' -e '^src/journal-webhook.ts:' -e '\.test\.ts:'; then echo 'tryPromise outside Game'; exit 1; fi
 if grep -rn '// bridge: U' src; then echo 'unconverted crossings remain'; exit 1; fi
 if grep -E '^\| (P0\.[0-9]+[a-z]?|U[0-9]{2}|M-[A-Za-z0-9]+|F-[A-Za-z0-9]+) \|' "$T" | grep -vE '^\| ([^F|][^|]* \| done|F-[A-Za-z0-9]+ \| flown) \|'; then echo 'tracker rows not done'; exit 1; fi
 grep -qE '^\| M-final \| done \|' "$T"                                  # the rows exist at all
@@ -411,7 +412,7 @@ In words, the project is done when:
 - every flight row (`F-U02`, `F-U17`, `F-final`) is exactly `flown` (a `todo` or `failed` flight fails);
 - every gate is green;
 - the debt counts are zero outside tests and generated code (baseline: the tracker's baseline section, which P0.3 re-measures);
-- `tryPromise` appears only in `game.ts`, and no crossings remain;
+- `tryPromise` appears only in `game.ts` and `journal-webhook.ts` (the webhook POST), and no crossings remain;
 - the final Qwen milestone passed;
 - the final flight passed every criterion below.
 
@@ -531,6 +532,13 @@ branch passes when:
   or unhandled rejection. `play.py` appends to that one file and never rotates it, so note its
   size (`wc -c`) before the branch's `serve` and read from there (`tail -c +<size+1>`);
 - for Chrisjen, the ledger's after row is at least the start row.
+
+The two passes share the playground, so the base leaves state the branch starts from: what it
+withdrew, and what it cached (`routes()`/`spreads()` place at most 5 bases a call through
+`find_route`, and the placements persist). A program that ends differently on the branch is
+re-flown on the base after the branch; if the base now ends as the branch did, it is state, not a
+regression (F-final: `routes` `partial` on the base, `done` on the branch, `done` on the re-flown
+base).
 
 **Recording.** In the flight's tracker row: the base and branch shas, the pilot(s), the program
 files, the journal file names per version, and each criterion's result. All pass → `flown`. Any

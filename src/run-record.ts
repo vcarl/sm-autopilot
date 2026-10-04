@@ -7,8 +7,8 @@
 import {appendFileSync,existsSync,mkdirSync,readdirSync,readFileSync,renameSync,statSync,writeFileSync} from 'node:fs';
 import {join} from 'node:path';
 import {Option,Schema} from 'effect';
-import {details} from './response-details.ts';
 import {replyLost} from './command-boundary.ts';
+import {replyBody} from './storage.ts';
 
 export const isRecord=(value:unknown):value is Record<string,unknown>=>typeof value==='object'&&value!==null;
 
@@ -187,7 +187,7 @@ export function journalCommand(runtime:string,action:string,params:Record<string
   const held=quoted?.action===action&&(quoted.id===undefined||quoted.id===params?.id)?quoted.quote:undefined;
   if(quoted?.action===action)quoted=null;
   if(!ok)return;
-  const raw=details(reply);
+  const raw=replyBody(reply);
   const fact=TELEMETRY[name]?.(isRecord(raw)?raw:{});
   if(fact)journalRun(runtime,{...fact,...held?{quote:held}:{},...who},fact.event);
 }

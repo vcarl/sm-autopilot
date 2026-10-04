@@ -503,7 +503,7 @@ const replanEffect=(runtime:string,name:string,account:ReadinessAccount,command:
     return {items:new Map(rows(field(reply,'items')).flatMap(listing).map(row=>[row.item_id,row])),tick:num(reply,'current_tick')??0};
   });
   // The bridge stopping ends a search as the typed `Stopped`; the loop's own `stopping` is what reads it.
-  const seat:Seat={account,command,runtime,freighter:name,stop:()=>{if(loop.stopping)throw new Stopped();},book};
+  const seat:Seat={account,runtime,freighter:name,stop:()=>{if(loop.stopping)throw new Stopped();},book};
   // Candidates flown to this wait: each once, so a wait scouts a finite list and then sits docked.
   const tried=new Set<string>(),shared=market(runtime,name,account,command);
   for(;;) {

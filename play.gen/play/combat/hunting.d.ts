@@ -108,6 +108,7 @@ export interface TickDecision {
 export declare const pace: {
     tickMs: number;
 };
+export declare const FIGHT_CEILING_MS: number;
 /** Break off, and see it through. `spacemolt_battle/retreat` is a RANGE maneuver, not an exit:
  * it sits beside `advance` in `BattleResponse.action`, the live server answers "Retreating from
  * the enemy." and the battle carries on. Re-issuing it waits for an end it cannot bring — on
@@ -204,4 +205,4 @@ export declare const huntEffect: (opts?: {
     strict?: boolean;
     target?: "creature" | "pirate";
     onTick?: (view: TickView) => TickDecision | undefined;
-}) => Effect.Effect<Outcome<Hunted>, never, Game>;
+}) => Effect.Effect<Outcome<Hunted>, never, Game | import("../runtime.ts").Run>;

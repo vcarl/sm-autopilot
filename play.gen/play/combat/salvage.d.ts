@@ -47,7 +47,7 @@ export declare const lootWreckEffect: (wreck: EnrichedWreck) => Effect.Effect<{
  * a lost reply ends the run, naming the action; a refused loot is said in the wreck's line and in `did`. */
 export declare const salvageEffect: (opts?: {
     tow?: string;
-}) => Effect.Effect<Outcome<Salvaged>, never, Game>;
+}) => Effect.Effect<Outcome<Salvaged>, never, Game | import("../runtime.ts").Run>;
 /** Loot every wreck here (`salvage/wrecks` then `salvage/loot`), modules first, then cargo,
  * until the hold is full. Your own wreck (`victim_id` is you) is looted first. `tow: '<wreck
  * id>'` attaches a tow line to that wreck instead of looting it — a tow costs the speed the

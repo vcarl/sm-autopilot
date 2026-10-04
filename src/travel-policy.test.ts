@@ -1,8 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import {Effect} from 'effect';
 import type {ReadinessCommand} from './readiness.ts';
 import {FakeLibGoalAccount,type FakeCommandHandlers} from './test-support/fake-lib-account.ts';
-import {travelTo,TravelBlocked} from './travel.ts';
+import {TravelBlocked} from './travel.ts';
+import {travelTo} from './test-support/travel.ts';
 
 function fixture(local:boolean,fuel:number,cost=10.25) {
   const initial={location:{system_id:'a',poi_id:'gate',docked_at:'base' as string|null,in_transit:false},
@@ -69,11 +71,11 @@ test('the route-cost boundary survives capacity, refuel and departure refreshes'
         f.server.location.docked_at=null;f.server.ship.fuel=50.5;return {};
       };
       const trip=travelTo(f.account,f.command,f.destination,{
-        refuel:async minimum=>{
+        refuelWith:minimum=>Effect.promise(async()=>{
           refuels.push(minimum);f.server.ship.fuel=mode==='partial-refuel'?minimum-0.25:minimum;
           await f.account.refresh();
-        },
-        beforeMove:async()=>{if(mode==='before-undock')f.server.ship.fuel=50.5;},
+        }),
+        beforeMove:()=>Effect.sync(()=>{if(mode==='before-undock')f.server.ship.fuel=50.5;}),
       });
       if(mode==='refuel') {
         await trip;

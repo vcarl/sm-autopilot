@@ -1,10 +1,10 @@
 import type {GameState} from '@spacemolt/lib';
-import {Effect,Result} from 'effect';
-import type {ReadinessAccount,ReadinessCommand} from './readiness.ts';
-import {Game,GameLive,attempt,classify,field,message,rawError,type GameError} from './play/game.ts';
+import {Clock,Effect,Result,Schedule} from 'effect';
+import type {ReadinessAccount} from './readiness.ts';
+import {Game,attempt,field,message,type GameError} from './play/game.ts';
 import {routeSteps} from './normal-route.ts';
 import {dockAtEffect} from './dock.ts';
-import {position,reconcileMove,type Position,type Reconciliation} from './reconcile.ts';
+import {position,reconcile,type Position,type Reconciliation} from './reconcile.ts';
 
 export class TravelBlocked extends Error {readonly _tag:string='TravelBlocked';}
 export interface FuelRouteEvidence {
@@ -73,11 +73,8 @@ export interface BattleNow {opponent:string;tick:number}
 /** A reply's body, as `details()` finds it. The live server omits spec fields, so it is read with
  * `field()`, never decoded: a decode failure would turn "no battle" into an error. */
 const payload=(reply:unknown):unknown=>field(reply,'structuredContent')??field(field(reply,'delta'),'details')??reply;
-export const battleNowEffect=()=>Effect.gen(function*() {
-  const sent=yield* Effect.result((yield* Game).command('spacemolt_battle/status',{}));
-  // Every tag of GameError (a refusal of any kind, a lost reply) is "no battle": the union is exhausted here.
-  if(Result.isFailure(sent)){battleHolds=false;return undefined;}
-  const status=payload(sent.success);
+const battleIn=(reply:unknown):BattleNow|undefined=>{
+  const status=payload(reply);
   if(!field(status,'battle_id')){battleHolds=false;return undefined;}
   battleHolds=true;
   const participants=field(status,'participants');
@@ -85,13 +82,25 @@ export const battleNowEffect=()=>Effect.gen(function*() {
   const theirs=rows.find(row=>field(row,'kind')!=='player'||field(row,'is_npc'));
   return {opponent:String(field(theirs,'username')??field(theirs,'player_id')??'an unnamed opponent'),
     tick:Number(field(status,'tick_duration')??0)};
+};
+export const battleNowEffect=()=>Effect.gen(function*() {
+  const sent=yield* Effect.result((yield* Game).command('spacemolt_battle/status',{}));
+  // Every tag of GameError (a refusal of any kind, a lost reply) is "no battle": the union is exhausted here.
+  if(Result.isFailure(sent)){battleHolds=false;return undefined;}
+  return battleIn(sent.success);
 });
-/** The Promise twin of `battleNowEffect`, for callers not yet converted. */
-export async function battleNow(send:ReadinessCommand):Promise<BattleNow|undefined> {
-  const exit=await Effect.runPromiseExit(battleNowEffect().pipe(Effect.provide(GameLive({send}))));
-  if(exit._tag==='Failure')throw rawError(exit.cause); // bridge: U30, U33 (their conversion calls the twin and deletes this)
-  return exit.value;
-}
+/** The read a run closes on (`run.ts`), under U21's rule: what decides whether a fight is left unattended
+ * cannot take a lost reply as "no battle". A lost one is re-read twice (a read is safe to repeat); one still
+ * lost is `unknown`, and the battle flag is left as it was. A refusal is still no battle. */
+export const battleAtCloseEffect=()=>Effect.gen(function*() {
+  const sent=yield* Effect.result((yield* Game).command('spacemolt_battle/status',{}).pipe(
+    Effect.retry({times:2,schedule:Schedule.exponential('1 second'),while:error=>error._tag==='ReplyLost'})));
+  if(Result.isFailure(sent)) {
+    if(sent.failure._tag==='ReplyLost')return 'unknown' as const;
+    battleHolds=false;return undefined;
+  }
+  return battleIn(sent.success);
+});
 
 export interface TravelDestination {system_id:string;poi_id?:string;base_id?:string}
 /** A leg is admitted when the tank covers its quoted route, and nothing more. The mood's fuel
@@ -101,60 +110,56 @@ export interface TravelDestination {system_id:string;poi_id?:string;base_id?:str
  * was refused a 4-fuel trip for want of Focused's 24 (operator's decision, 2026-09-26). */
 export interface TravelOptions {
   maxJumps?:number|null;
-  checkpoint?:(settled?:boolean)=>Promise<void>;
-  beforeMove?:()=>Promise<void>;
-  refuel?:(minimum:number)=>Promise<void>;
-  /** `refuel` as an Effect, for an Effect caller: it wins over `refuel` when both are given. */
+  /** A pilot stop is a `TravelBlocked` it fails with; anything it throws is a defect. */
+  checkpoint?:(settled?:boolean)=>Effect.Effect<void,TravelBlocked|ArrivalUnresolved>;
+  beforeMove?:()=>Effect.Effect<void>;
+  /** Docked and short of the quote: buy at least `minimum` fuel. Its failure is its own to say; the fuel check decides. */
   refuelWith?:(minimum:number)=>Effect.Effect<void,never,Game>;
   onJump?:()=>void;
-  now?:()=>number;sleep?:(ms:number)=>Promise<void>;
   maxWaitMs?:number;pollMs?:number;liveReadMs?:number;
 }
 
 /** The wait ran out, and the read it ran out on is the deadline's own authoritative one. A
  * ship sitting somewhere it was never sent is an unsolicited move, and the refusal names
  * which kind (C13) rather than leaving the caller to work it out. */
-async function unresolved(account:ReadinessAccount,from:Position) {
-  const drift=await reconcileMove(account,from,{read:false});
+function unresolved(account:ReadinessAccount,from:Position) {
+  const drift=reconcile(account.state,from);
   if(!drift.moved)return new ArrivalUnresolved('Arrival not verified within travel wait bound; reconcile before further movement');
   const error=new ArrivalUnresolved(`Arrival not verified: unsolicited move (${drift.cause}): ${drift.evidence}`);
   error.moved=drift;
   return error;
 }
 
-/** Account.refresh always queries get_status. A cargo/hull push must never postpone it. */
-export async function waitForArrival(account:ReadinessAccount,predicate:(state:GameState)=>boolean,options:TravelOptions={}) {
-  const now=options.now??Date.now,sleep=options.sleep??(ms=>new Promise(resolve=>setTimeout(resolve,ms)));
-  const deadline=now()+(options.maxWaitMs??600000);
-  let liveAt=now();
-  await account.refresh();
+/** Account.refresh always queries get_status. A cargo/hull push must never postpone it. Time is
+ * the `Clock`'s, so a test world drives it. `label` names a failed read or checkpoint. */
+export const waitForArrivalEffect=(account:ReadinessAccount,predicate:(state:GameState)=>boolean,options:TravelOptions={},label='waitForArrival')=>Effect.gen(function*() {
+  const refresh=attempt(label,()=>account.refresh());
+  const checkpoint=(settled?:boolean)=>options.checkpoint?.(settled)??Effect.void;
+  const deadline=(yield* Clock.currentTimeMillis)+(options.maxWaitMs??600000);
+  let liveAt=yield* Clock.currentTimeMillis;
+  yield* refresh;
   const departed=position(account.state);
   let authoritative=true;
   while(true) {
     // Pushes can suggest arrival, but only a status read can confirm it.
     if(predicate(account.state)&&!authoritative) {
-      await account.refresh();liveAt=now();authoritative=true;
+      yield* refresh;liveAt=yield* Clock.currentTimeMillis;authoritative=true;
     }
     if(predicate(account.state))break;
-    await options.checkpoint?.();
-    const remaining=deadline-now();
-    if(remaining<=0)throw await unresolved(account,departed);
-    await sleep(Math.min(options.pollMs??2000,remaining));
+    yield* checkpoint();
+    const remaining=deadline-(yield* Clock.currentTimeMillis);
+    if(remaining<=0)return yield* Effect.fail(unresolved(account,departed));
+    yield* Effect.sleep(Math.min(options.pollMs??2000,remaining));
     authoritative=false;
-    if(now()-liveAt>=(options.liveReadMs??30000)||now()>=deadline) {
-      await account.refresh();liveAt=now();authoritative=true;
+    const now=yield* Clock.currentTimeMillis;
+    if(now-liveAt>=(options.liveReadMs??30000)||now>=deadline) {
+      yield* refresh;liveAt=yield* Clock.currentTimeMillis;authoritative=true;
     }
   }
-  await options.checkpoint?.(true);
-  if(!predicate(account.state))throw new ArrivalUnresolved('Location changed at arrival checkpoint');
-}
+  yield* checkpoint(true);
+  if(!predicate(account.state))return yield* Effect.fail(new ArrivalUnresolved('Location changed at arrival checkpoint'));
+});
 
-
-/** A Promise step of travel's: the lib's refusal or a lost reply is its tag, travel's own refusals thrown from
- * it (a pilot stop is a `TravelBlocked`, an unconfirmed arrival `ArrivalUnresolved`) are failures as they are,
- * and anything else is a defect. */
-export const travelStep=<A>(label:string,body:()=>Promise<A>)=>Effect.tryPromise({try:body,
-  catch:cause=>cause instanceof TravelBlocked||cause instanceof ArrivalUnresolved?cause:classify(label)(cause)});
 
 // Retry only definitive server rejections. A lost reply (transport, pending command) stays the
 // caller's reconciliation responsibility, even if a later read looks safe.
@@ -183,9 +188,8 @@ const stable=(s:GameState):s is Located=>Boolean(s.location?.system_id&&!s.locat
  * command goes through `Game`, so a refusal is a tag: `InBattle` ends in travel's own `InBattle`, any
  * other refusal or lost reply fails with its tag, and a lost reply is never re-sent. Travel's own
  * refusals (`TravelBlocked`, `FuelRouteShortfall`, `InBattle`) and the dock's `DockBlocked` are failures,
- * so a caller that wants them reads the error channel; the unconverted Promise callers still branch on
- * `instanceof` through `rawError`. `ArrivalUnresolved` and `Stopped` (thrown from a checkpoint) cross from
- * the Promise seams through `travelStep`, so they are failures too; anything else a hook throws is a defect. */
+ * so a caller that wants them reads the error channel. `ArrivalUnresolved` is the arrival wait's own
+ * failure, and `Stopped` (a checkpoint's own failure) is a failure too; anything a hook throws is a defect. */
 export const travelToEffect=(account:ReadinessAccount,destination:TravelDestination,options:TravelOptions)=>Effect.gen(function*() {
   const game=yield* Game;
   if(battleHolds)return yield* Effect.fail(new InBattle('a battle already refused this ship\'s last move and nothing has ended it since'));
@@ -196,13 +200,12 @@ export const travelToEffect=(account:ReadinessAccount,destination:TravelDestinat
   const refresh=()=>attempt('refresh',()=>account.refresh());
   yield* refresh();
   const shipId=account.state.ship?.id;
-  const checkpoint=async(settled=false)=>{
-    await options.checkpoint?.(settled);
-    if(account.state.ship?.id!==shipId)throw new ArrivalUnresolved('Ship changed during travel; reconcile before further movement');
-  };
-  const hold=(settled?:boolean)=>travelStep('checkpoint',()=>checkpoint(settled));
-  const waits={...options,checkpoint};
-  const settle=(predicate:(state:GameState)=>boolean)=>travelStep('waitForArrival',()=>waitForArrival(account,predicate,waits)); // bridge: U08 (waitForArrival stays a Promise for dockAtEffect's arrival wait)
+  const hold=(settled=false)=>Effect.gen(function*() {
+    yield* options.checkpoint?.(settled)??Effect.void;
+    if(account.state.ship?.id!==shipId)return yield* Effect.fail(new ArrivalUnresolved('Ship changed during travel; reconcile before further movement'));
+  });
+  const waits={...options,checkpoint:hold};
+  const settle=(predicate:(state:GameState)=>boolean)=>waitForArrivalEffect(account,predicate,waits);
   // The live ship, re-read where the old code asserted it: the quote proved it a moment ago.
   const shipNow=()=>{const ship=account.state.ship;return ship?Effect.succeed(ship):blocked('Canonical fuel required before departure');};
   // A prior move owns transit until it settles; only then may we quote a new leg.
@@ -255,10 +258,10 @@ export const travelToEffect=(account:ReadinessAccount,destination:TravelDestinat
       if(plan.required>ship.max_fuel)return yield* fuelShortfall('capacity');
     });
     yield* requireCapacity();
-    const refuelWith=options.refuelWith,refuel=options.refuel;
-    if((yield* shipNow()).fuel<plan.required&&account.state.location?.docked_at&&(refuelWith||refuel)&&!refueled) {
+    const refuelWith=options.refuelWith;
+    if((yield* shipNow()).fuel<plan.required&&account.state.location?.docked_at&&refuelWith&&!refueled) {
       refueled=true;
-      yield* refuelWith?refuelWith(plan.required):travelStep('refuel',async()=>{await refuel?.(plan.required);});
+      yield* refuelWith(plan.required);
       yield* hold();plan=yield* quote();
       yield* requireCapacity();
     }
@@ -269,7 +272,7 @@ export const travelToEffect=(account:ReadinessAccount,destination:TravelDestinat
     });
     yield* requireFuel();
     yield* hold();
-    yield* travelStep('beforeMove',async()=>{await options.beforeMove?.();});
+    yield* options.beforeMove?.()??Effect.void;
     // Hooks may await other work while the server changes. Revalidate the quote
     // before undocking as well as before the jump/travel command.
     yield* refresh();
@@ -330,12 +333,3 @@ export const travelToEffect=(account:ReadinessAccount,destination:TravelDestinat
   }
   return {jumps,location:structuredClone(account.state.location)};
 });
-
-/** The Promise twin of `travelToEffect`, for callers not yet converted: a failure exit throws the
- * raw error, so a refusal reaches them as the lib's `SpacemoltError` and travel's own classes as
- * themselves. */
-export async function travelTo(account:ReadinessAccount,command:ReadinessCommand,destination:TravelDestination,options:TravelOptions={}) {
-  const exit=await Effect.runPromiseExit(travelToEffect(account,destination,options).pipe(Effect.provide(GameLive({send:command}))));
-  if(exit._tag==='Failure')throw rawError(exit.cause); // bridge: U11 (its conversion calls the twin and deletes this)
-  return exit.value;
-}

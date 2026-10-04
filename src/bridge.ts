@@ -2,6 +2,7 @@
  * `{"id","event":"line","text"}` lines streamed while a `run` proceeds. Requests are
  * handled concurrently, so `stop` and `status` answer while a run is in flight. */
 import {Account} from '@spacemolt/lib';
+import {Effect,Result,Schema} from 'effect';
 import {createHash} from 'node:crypto';
 import {existsSync,mkdirSync,readFileSync,renameSync,writeFileSync} from 'node:fs';
 import {resolve} from 'node:path';
@@ -9,25 +10,40 @@ import {createInterface} from 'node:readline';
 import {fileURLToPath} from 'node:url';
 import {markAlertsDelivered,pendingAlerts,recordAlert} from './alerts.ts';
 import {foldBattleDamage,foldBattleEnded,foldBattleUpdate} from './combat-memory.ts';
-import {battleEnded,battleNow} from './travel.ts';
+import {battleEnded,battleNowEffect} from './travel.ts';
 import {controllerLock} from './controller-lock.ts';
 import {GAME_WS_URL,readCredentials} from './credentials.ts';
 import type {ReadinessAccount,ReadinessCommand} from './readiness.ts';
-import {details} from './response-details.ts';
 import {moodNow,resolveWalkAway} from './mood-policy.ts';
-import {stanceMood,type Facts,type StanceName} from './rules-table.ts';
+import {STANCES,stanceMood} from './rules-table.ts';
 import {bootJournal,journalCommand,journalConnection,journalRun,readRun} from './run-record.ts';
 import {startHeartbeat} from './heartbeat.ts';
 import {flushJournalDrain,startJournalDrain} from './journal-webhook.ts';
 import {check as checkPilot,runPilot as defaultRunPilot,type RunResult} from './run.ts';
-import {menu as buildMenu,renderMenu,threatsHere} from './play/menu.ts';
+import {menuEffect,renderMenu,threatsHere} from './play/menu.ts';
 import {fleetBrief,resumeFreighters,stopFreighters} from './play/freighter/host.ts';
-import {answer as answerQuestion,bind,isBound,pendingQuestion,present,progress,stop as stopRun,unbind,
+import {answer as answerQuestion,bind,isBound,onBinding,pendingQuestion,present,progress,stop as stopRun,unbind,
   type Pilot as Flying} from './play/runtime.ts';
 
 /** `attach` is how a request takes the run's stream: the loop routes streamed lines to the
  * request that last called it, which is whichever request is now waiting on the run. */
-export type Dispatch=(action:string,params?:Record<string,unknown>,attach?:()=>void)=>Promise<unknown>;
+export type Dispatch=(action:string,params?:unknown,attach?:()=>void)=>Promise<unknown>;
+
+/** A request from `service.py`, decoded once where it enters: the action, and the params it reads. */
+const Juncture=Schema.Struct({juncture_id:Schema.optionalKey(Schema.NullOr(Schema.String)),at:Schema.optionalKey(Schema.NullOr(Schema.String))});
+export const Request=Schema.Union([
+  Schema.Struct({action:Schema.Literal('run'),params:Schema.optionalKey(Schema.Struct({juncture:Schema.optionalKey(Schema.NullOr(Juncture))}))}),
+  Schema.Struct({action:Schema.Literal('answer'),params:Schema.optionalKey(Schema.Struct({answer:Schema.optionalKey(Schema.String)}))}),
+  Schema.Struct({action:Schema.Literal('pilot'),params:Schema.optionalKey(Schema.Struct({set:Schema.optionalKey(Schema.Record(Schema.String,Schema.Unknown))}))}),
+  // `stop` carries a `reason`, which only the request's journal line reads.
+  Schema.Struct({action:Schema.Literals(['check','stop','status','menu']),params:Schema.optionalKey(Schema.Unknown)}),
+]);
+const decodeRequest=Schema.decodeUnknownResult(Request);
+/** One stdin line: the id the reply carries, and the request it names. */
+const decodeLine=Schema.decodeUnknownResult(Schema.fromJsonString(Schema.Struct({id:Schema.optionalKey(Schema.String),
+  action:Schema.String,params:Schema.optionalKey(Schema.Unknown)})));
+const isRecord=(value:unknown):value is Record<string,unknown>=>typeof value==='object'&&value!==null;
+const field=(row:unknown,key:string):unknown=>isRecord(row)?row[key]:undefined;
 
 /** The actions whose answer is an outcome: a journal line keeps its shape, trimmed. */
 const OUTCOME_ACTIONS=new Set(['run','answer','status','pilot','menu','stop','check']);
@@ -46,7 +62,7 @@ const OUTCOME_KEYS=new Set(['accepted','reason','status','record','running',
  * live diagnosis ever needs more than the call and the refusal. */
 export const MENU_ROWS=5,MENU_CHARS=100;
 /** One menu list as the journal keeps it: the short form of each row, capped both ways. */
-const menuRows=(list:unknown[],short:(row:any)=>string):string[]=>{
+const menuRows=(list:readonly unknown[],short:(row:unknown)=>string):string[]=>{
   const kept=list.slice(0,MENU_ROWS).map(row=>{const line=short(row);
     return line.length>MENU_CHARS?`${line.slice(0,MENU_CHARS-1)}…`:line;});
   return list.length>MENU_ROWS?[...kept,`+${list.length-MENU_ROWS} more`]:kept;
@@ -59,20 +75,16 @@ const menuRows=(list:unknown[],short:(row:any)=>string):string[]=>{
  * pilot's whole view of the world, and `moves:1` says nothing about which move was offered.
  * Every other action's arrays — storage views, market rows, mission lists — stay counts. */
 export function journalResult(action:string,result:unknown):unknown {
-  if(result===null||typeof result!=='object')return result;
-  const body=result as Record<string,any>;
-  if(!OUTCOME_ACTIONS.has(action))return result;
+  if(!isRecord(result)||!OUTCOME_ACTIONS.has(action))return result;
   const kept:Record<string,unknown>={};
-  for(const key of Object.keys(body))if(OUTCOME_KEYS.has(key))kept[key]=body[key];
-  if(body.last&&typeof body.last==='object')kept.last={status:body.last.status,did:body.last.did};
-  for(const key of ['moves','not_now'])
-    if(Array.isArray(body[key]))kept[key]=body[key].length;
-  if(action==='menu') {
-    if(Array.isArray(body.moves))kept.moves=menuRows(body.moves,row=>String(row?.call??''));
-    // A refused move's reason is the informative half — the call alone says only that it was
-    // not offered — so `not_now` keeps both, which is why it is the list that hits the cap.
-    if(Array.isArray(body.not_now))kept.not_now=menuRows(body.not_now,row=>`${row?.move??''}: ${row?.why??''}`);
-  }
+  for(const key of Object.keys(result))if(OUTCOME_KEYS.has(key))kept[key]=result[key];
+  if(isRecord(result.last))kept.last={status:result.last.status,did:result.last.did};
+  const {moves,not_now}=result;
+  if(Array.isArray(moves))kept.moves=action==='menu'?menuRows(moves,row=>String(field(row,'call')??'')):moves.length;
+  // A refused move's reason is the informative half — the call alone says only that it was
+  // not offered — so `not_now` keeps both, which is why it is the list that hits the cap.
+  if(Array.isArray(not_now))kept.not_now=action==='menu'
+    ?menuRows(not_now,row=>`${field(row,'move')??''}: ${field(row,'why')??''}`):not_now.length;
   return kept;
 }
 
@@ -133,7 +145,7 @@ export const PUSH_PER_MINUTE=20;
  * kilobyte of frame to the journal. */
 export function pushScalars(payload:unknown):Record<string,unknown> {
   const kept:Record<string,unknown>={};
-  for(const [key,value] of Object.entries((payload??{}) as Record<string,unknown>))
+  for(const [key,value] of Object.entries(isRecord(payload)?payload:{}))
     if(value!==null&&typeof value!=='object')
       kept[key]=typeof value==='string'?value.slice(0,60):value;
   return kept;
@@ -153,7 +165,7 @@ export function pushJournal(account:{on:(type:string,handler:(payload:Record<str
     return kept.n<=PUSH_PER_MINUTE;
   };
   for(const type of PUSH_TYPES)account.on(type,(payload:Record<string,unknown>)=>{
-    const body=(payload??{}) as Record<string,unknown>;
+    const body:Record<string,unknown>=payload??{};
     // Most `ok` variants key on `action`, seven on `type`; a variant with neither is the
     // wildlife kill notice, which the pilot's own hunt step already reports.
     // The two frames that end a battle, wherever the run has got to: the mover's `in_battle`
@@ -185,19 +197,20 @@ export function pushJournal(account:{on:(type:string,handler:(payload:Record<str
 }
 
 /** `pilot.json` as stored. The bridge is its only writer (the `pilot` request); the mood is never
- * in it — it is derived from the ship on every read (`flying`). */
-export interface Pilot {name?:string;objective?:string;objective_done?:boolean;objective_completed?:string;
-  goal?:string;stance?:StanceName;permissions?:Facts['permissions'];instruction?:{text:string;at:string}}
-/** The keys the record keeps. Anything else — a stored mood from an older runner included — is
- * dropped on read and never written. */
-export const PILOT_KEYS=['name','objective','objective_done','objective_completed','goal','stance','permissions','instruction'] as const;
-const stored=(record:Record<string,unknown>):Pilot=>
-  Object.fromEntries(PILOT_KEYS.filter(key=>record[key]!==undefined&&record[key]!==null).map(key=>[key,record[key]])) as Pilot;
+ * in it — it is derived from the ship on every read (`flying`). A key it does not name — a stored
+ * mood from an older runner included — is dropped on read and never written. */
+const PilotRecord=Schema.Struct({name:Schema.optionalKey(Schema.String),objective:Schema.optionalKey(Schema.String),
+  objective_done:Schema.optionalKey(Schema.Boolean),objective_completed:Schema.optionalKey(Schema.String),
+  goal:Schema.optionalKey(Schema.String),stance:Schema.optionalKey(Schema.Literals(STANCES.map(stance=>stance.name))),
+  permissions:Schema.optionalKey(Schema.Struct({max_liability:Schema.optionalKey(Schema.Number),credit_reserve:Schema.optionalKey(Schema.Number)})),
+  instruction:Schema.optionalKey(Schema.Struct({text:Schema.String,at:Schema.String}))});
+export type Pilot=typeof PilotRecord.Type;
+const decodePilot=Schema.decodeUnknownResult(PilotRecord);
+const decodeJson=Schema.decodeUnknownResult(Schema.fromJsonString(Schema.Unknown));
 
 /** The record as the play runtime reads it: the stored fields and the mood the ship is in now. */
 export function flying(record:Pilot,state:ReadinessAccount['state']):Flying {
-  const ship=state.ship as {fuel:number;hull:number;max_hull:number}|undefined;
-  return {...record,...moodNow(stanceMood(record.stance),ship)};
+  return {...record,...moodNow(stanceMood(record.stance),state.ship)};
 }
 export interface ServeOptions {
   pilot?:()=>Pilot;
@@ -212,22 +225,41 @@ export interface ServeOptions {
   onAbandoned?:()=>void;
 }
 
-export function readPilot(path:string):Pilot {
+/** Each field of `row` that decodes, the keys it clears (null), and why each other field was dropped:
+ * one bad field never costs the rest. A key the record does not name decodes to nothing. */
+function pilotFields(row:unknown):{record:Pilot;cleared:string[];dropped:Record<string,string>} {
+  let record:Pilot={};
+  const cleared:string[]=[],dropped:Record<string,string>={};
+  for(const [key,value] of Object.entries(isRecord(row)?row:{})) {
+    if(value===null){cleared.push(key);continue;}
+    const one=decodePilot({[key]:value});
+    if(Result.isFailure(one))dropped[key]=one.failure.message;else record={...record,...one.success};
+  }
+  return {record,cleared,dropped};
+}
+
+/** The record with each field that does not decode dropped and named to `onDropped`, never refused
+ * whole: on main an unknown stance flew as no stance, and a hand edit must not ground the pilot.
+ * Only a file that is not JSON at all is unreadable. */
+export function readPilot(path:string,onDropped?:(dropped:Record<string,string>)=>void):Pilot {
   if(!existsSync(path))return {};
-  try {return stored(JSON.parse(readFileSync(path,'utf8')));}
-  catch(error){throw new Error(`Unreadable pilot record ${path}: ${error instanceof Error?error.message:String(error)}`);}
+  const read=decodeJson(readFileSync(path,'utf8'));
+  if(Result.isFailure(read))throw new Error(`Unreadable pilot record ${path}: ${read.failure.message}`);
+  const {record,dropped}=pilotFields(read.success);
+  if(Object.keys(dropped).length)onDropped?.(dropped);
+  return record;
 }
 
 /** Temp file then rename, so a reader never catches half a pilot. */
 export function writePilot(path:string,pilot:Pilot):void {
   const temp=`${path}.${process.pid}.tmp`;
-  writeFileSync(temp,`${JSON.stringify(stored(pilot as Record<string,unknown>),null,2)}\n`,{mode:0o600});
+  writeFileSync(temp,`${JSON.stringify(pilot,null,2)}\n`,{mode:0o600});
   renameSync(temp,path);
 }
 
 /** Pure dispatch over an account + command pair, so tests never connect. */
 export function serve(account:Account,command:ReadinessCommand,options:ServeOptions={}):Dispatch {
-  const record=options.pilot??(()=>({} as Pilot));
+  const record=options.pilot??(():Pilot=>({}));
   const pilot=()=>flying(record(),account.state);
   const runner=options.runPilot??defaultRunPilot;
   const runtime=options.runtime;
@@ -236,8 +268,12 @@ export function serve(account:Account,command:ReadinessCommand,options:ServeOpti
   let running:{started:string}|null=null,last:Record<string,unknown>|null=null;
   /** The run in flight while a request is following it, and how an `ask()` wakes that request. */
   let flight:Promise<Record<string,unknown>>|null=null,asked:(()=>void)|null=null;
-  const busy=()=>{const question=pendingQuestion();
-    return {running:true as const,...running!,...isBound()?progress():{},...question?{question}:{},
+  /** The play runtime has one binding slot: a menu and a run take it in turn, never under each other.
+   * U31 verify: a run that bound while a menu's read was out was unbound by the menu's `finally`. */
+  let slot:Promise<unknown>=Promise.resolve();
+  const exclusive=<T>(work:()=>Promise<T>):Promise<T>=>{const next=slot.then(work);slot=next.catch(()=>{});return next;};
+  const busy=(flight:{started:string})=>{const question=pendingQuestion();
+    return {running:true as const,...flight,...isBound()?progress():{},...question?{question}:{},
       fuel:account.state.ship?.fuel,hull:account.state.ship?.hull,credits:account.state.player?.credits};};
   /** The last run as a reader of `status` gets it: what was done, why, and the report. The
    * whole Outcome — ship, location, nearby players, every skill — stays in `run.json` and
@@ -245,7 +281,7 @@ export function serve(account:Account,command:ReadinessCommand,options:ServeOpti
   const brief=(result:RunResult):Record<string,unknown>=>({...result.sha?{sha:result.sha}:{},
     started:result.started,ended:true,...result.ended_at?{ended_at:result.ended_at}:{},status:result.status,did:result.reason,
     ...result.why?{why:result.why}:{},prose:result.prose,commands:result.commands});
-  const lastOutcome=()=>last??(kept()?.ended?{...kept()!.outcome as Record<string,unknown>}:null);
+  const lastOutcome=()=>{if(last)return last;const run=kept();return run?.ended?{...run.outcome}:null;};
 
   /** The pause as a waiting request answers it: the question, and that the run is still on. */
   const paused=()=>{const question=pendingQuestion();
@@ -255,29 +291,29 @@ export function serve(account:Account,command:ReadinessCommand,options:ServeOpti
   const follow=async():Promise<Record<string,unknown>>=>{
     const now=paused();
     if(now||!flight)return now??{accepted:false,reason:'nothing is running'};
-    const question=new Promise<Record<string,unknown>>(wake=>{asked=()=>wake(paused()!);});
+    const question=new Promise<Record<string,unknown>>(wake=>{asked=()=>{const pause=paused();if(pause)wake(pause);};});
     try {return await Promise.race([flight,question]);} finally {asked=null;}
   };
   /** Run `pilot/index.ts`: validate, execute, stream, and answer with the report when it ends,
    * or early with the question when the program asks one. Called again while the program is
    * paused, it starts nothing and hands the question back: that is how a later session picks
    * up a question the one that started the run left unanswered. */
-  const run=async(params:Record<string,unknown>,attach?:()=>void)=>{
+  const run=async(juncture:typeof Juncture.Type|null|undefined,attach?:()=>void)=>{
     if(!runtime)throw new Error('This runner has no runtime directory to run a pilot from');
     if(running) {
       const now=paused();
       if(now) {attach?.();return {...now,reattached:true};}
       // Kept: a second run would overwrite the program still flying.
-      return {accepted:false,reason:'a run is already in flight',...busy()};
+      return {accepted:false,reason:'a run is already in flight',...busy(running)};
     }
     running={started:new Date().toISOString()};
     attach?.();
     flight=(async()=>{
       try {
-        const result=await runner({account,command,pilot,runtime,
+        const result=await exclusive(()=>runner({account,command,pilot,runtime,
           emit:options.emit??(()=>{}),onAsk:()=>asked?.(),
-          ...params.juncture&&typeof params.juncture==='object'?{juncture:params.juncture as {juncture_id?:string;at?:string}}:{}});
-        if(!result.accepted)return result as unknown as Record<string,unknown>;
+          ...juncture?{juncture}:{}}));
+        if(!result.accepted)return {...result};
         last=brief(result);
         if(result.abandoned)options.onAbandoned?.();
         return {accepted:true,...last,...result.abandoned?{abandoned:true}:{}};
@@ -289,11 +325,11 @@ export function serve(account:Account,command:ReadinessCommand,options:ServeOpti
     return follow();
   };
   /** Resume the paused program with the answer, then wait on the run exactly as `run` does. */
-  const answer=async(params:Record<string,unknown>,attach?:()=>void)=>{
+  const answer=async(text:string,attach?:()=>void)=>{
     const question=running?pendingQuestion():null;
     if(!question)return {accepted:false,reason:'no question is pending',
-      ...running?busy():{running:false,last:lastOutcome()}};
-    const given=String(params.answer??'').trim();
+      ...running?busy(running):{running:false,last:lastOutcome()}};
+    const given=text.trim();
     const picked=question.choices
       ?question.choices.find(choice=>choice.trim().toLowerCase()===given.toLowerCase())
       :given||undefined;
@@ -308,10 +344,16 @@ export function serve(account:Account,command:ReadinessCommand,options:ServeOpti
    * each is taken with, what is not on it and why, and how the last run ended. The play
    * runtime is bound for the reads and released after; a run in flight answers `busy`. */
   const menu=async()=>{
-    if(running)return {busy:true,...busy()};
+    if(running)return {busy:true,...busy(running)};
+    return exclusive(menuBound);
+  };
+  const menuBound=async()=>{
     bind({account,command,pilot,...runtime?{runtime}:{},emit:()=>{}});
     try {
-      const built=await buildMenu(runtime);
+      // The menu's reads and the battle read, through the binding's runtime like a run's.
+      const {built,fight}=await onBinding(Effect.gen(function*() {
+        return {built:yield* menuEffect(runtime),fight:yield* battleNowEffect()};
+      }));
       const {location,ship,player,modules}=account.state;
       // Read after the reads, never before: they refreshed the ship the mood is derived from.
       const who=pilot();
@@ -320,7 +362,6 @@ export function serve(account:Account,command:ReadinessCommand,options:ServeOpti
       // the read-modify-write race the instruction's `_deliver` carries.
       const waiting=runtime?pendingAlerts(runtime):[];
       if(runtime)markAlertsDelivered(runtime,waiting);
-      const fight=await battleNow(command);
       const threats=threatsHere(location,location?.docked_at??null);
       return {
         // First key, first fact: the juncture renders it ahead of everything else.
@@ -355,11 +396,14 @@ export function serve(account:Account,command:ReadinessCommand,options:ServeOpti
   /** Set fields of `pilot.json`; a null removes one. The only writer of the record: Python's
    * reflect and direct send this rather than editing the file, so nothing races a read-modify-write.
    * A cleared field shows in the `pilot` journal line's `prev` like any other. */
-  const setRecord=async(params:Record<string,unknown>={})=>{
+  const setRecord=async(patch:{readonly [key:string]:unknown}={})=>{
     const write=options.setPilot;
     if(!write)throw new Error('this runner cannot write the pilot record');
     const prev:Record<string,unknown>={...record()};
-    const set={...(params.set??{}) as Record<string,unknown>};
+    // A field that does not decode is left as it was and named in the answer, never a refusal of
+    // the whole write: the objective or instruction beside a bad stance still lands.
+    const {record:valid,cleared,dropped}=pilotFields(patch);
+    const set:Record<string,unknown>={...valid,...Object.fromEntries(cleared.map(key=>[key,null]))};
     // A new objective retires the plan made for the old one: the goal and the stance (which
     // picks the career skill a juncture carries) go with it, unless this same write sets them.
     // The same text again is not new; retiring the objective (null) leaves the plan standing.
@@ -367,39 +411,67 @@ export function serve(account:Account,command:ReadinessCommand,options:ServeOpti
       for(const key of ['goal','stance'])if(!(key in set)&&key in prev)set[key]=null;
     const next:Record<string,unknown>={...prev};
     for(const [key,value] of Object.entries(set))if(value===null)delete next[key];else next[key]=value;
-    write(next as Pilot);
+    const decoded=decodePilot(next);
+    // edge: every value in `next` was decoded already; a failure here is a bug, not a pilot's input
+    if(Result.isFailure(decoded))throw new Error(`pilot record not written: ${decoded.failure.message}`);
+    write(decoded.success);
     const written=record();
+    const named=Object.keys(dropped).length?{dropped}:{};
     if(runtime)journalRun(runtime,{set:Object.keys(set),
-      prev:Object.fromEntries(Object.keys(set).map(key=>[key,prev[key]??null])),record:written},'pilot');
-    return {record:written};
+      prev:Object.fromEntries(Object.keys(set).map(key=>[key,prev[key]??null])),record:written,...named},'pilot');
+    return {record:written,...named};
   };
 
-  const actions:Record<string,(params:Record<string,unknown>,attach?:()=>void)=>Promise<unknown>>={
-    run:(params,attach)=>run(params,attach),
-    answer,
-    check:async()=>{
-      if(!runtime)throw new Error('This runner has no runtime directory');
-      const gate=await checkPilot(runtime);
-      return {ok:gate.ok,entry:gate.entry,sha:gate.sha,errors:gate.errors};
-    },
-    stop:async(_params,attach)=>{
-      if(!running)return {stopping:false,reason:'nothing is running'};
-      const withdrawn=pendingQuestion();
-      stopRun();
-      if(!withdrawn)return {stopping:true,...busy()};
-      // Paused, nobody is waiting on the run: the stop does, and hands back its report, so the
-      // one who stopped it is holding the outcome rather than a promise of one.
-      attach?.();
-      return {...await follow(),stopping:true,withdrawn};
-    },
-    status:async()=>running?busy():{running:false,last:lastOutcome()},
-    pilot:setRecord,
-    menu,
+  const stop=async(attach?:()=>void)=>{
+    if(!running)return {stopping:false,reason:'nothing is running'};
+    const withdrawn=pendingQuestion();
+    stopRun();
+    if(!withdrawn)return {stopping:true,...busy(running)};
+    // Paused, nobody is waiting on the run: the stop does, and hands back its report, so the
+    // one who stopped it is holding the outcome rather than a promise of one.
+    attach?.();
+    return {...await follow(),stopping:true,withdrawn};
   };
+
+  // A request that does not decode is refused here, by name, and nothing runs: the loop answers it.
   return async(action,params={},attach)=>{
-    if(!Object.hasOwn(actions,action))throw new Error(`Unknown action: ${action}`);
-    return actions[action]!(params,attach);
+    const decoded=decodeRequest({action,params});
+    if(Result.isFailure(decoded))throw new Error(`Unknown or malformed request ${JSON.stringify(action)}: ${decoded.failure.message}`);
+    const request=decoded.success;
+    switch(request.action) {
+      case 'run':return run(request.params?.juncture,attach);
+      case 'answer':return answer(request.params?.answer??'',attach);
+      case 'check': {
+        if(!runtime)throw new Error('This runner has no runtime directory');
+        const gate=await checkPilot(runtime);
+        return {ok:gate.ok,entry:gate.entry,sha:gate.sha,errors:gate.errors};
+      }
+      case 'stop':return stop(attach);
+      case 'status':return running?busy(running):{running:false,last:lastOutcome()};
+      case 'pilot':return setRecord(request.params?.set);
+      case 'menu':return menu();
+    }
   };
+}
+
+/** One stdin line to its reply, journalled. The line is decoded once, here; one that does not
+ * decode is answered with what is wrong with it, and nothing runs. Never throws, so one bad
+ * request never ends the loop, and nothing is replayed. */
+export async function answerLine(dispatch:Dispatch,line:string,stream:(id:string|undefined)=>void,
+  runtime:string):Promise<Record<string,unknown>> {
+  const read=decodeLine(line);
+  if(Result.isFailure(read)) {
+    const response={ok:false,error:`Unreadable request: ${read.failure.message}`};
+    journalRun(runtime,{line:line.slice(0,200),response},'request');
+    return response;
+  }
+  const request=read.success,{id}=request;
+  const response:Record<string,unknown>=await dispatch(request.action,request.params,()=>stream(id)).then(
+    result=>({id,ok:true,result}),
+    (error:unknown)=>({id,ok:false,error:error instanceof Error?error.message:String(error)}));
+  journalRun(runtime,{request,
+    response:{...response,...'result' in response?{result:journalResult(request.action,response.result)}:{}}},'request');
+  return response;
 }
 
 /** Ends the bridge's own process once its owner is gone: SIGTERM, SIGINT, and stdin ending all
@@ -416,7 +488,7 @@ export function createShutdown(account:{close:()=>unknown},
     started=true;
     schedule(finish,graceMs);
     try {Promise.resolve(account.close()).then(finish,finish);}
-    catch {finish();} // never connected
+    catch {finish();} // edge: never connected, so close throws before it can settle
   };
 }
 
@@ -456,13 +528,13 @@ async function main() {
   await account.authenticate(credentials());
   // Every game command goes through here: journalled compactly, whether it took or not.
   const command:ReadinessCommand=async(action,params)=>{
-    const [tool,name]=action.split('/');
+    const [tool='',name='']=action.split('/');
     const since=Date.now();
     try {
-      const reply=await account.send(tool!,name!,params);
+      const reply=await account.send(tool,name,params);
       journalCommand(runtime,action,params,true,reply,{ms:Date.now()-since});
       return reply;
-    } catch(error) {
+    } catch(error) { // edge: journalled and rethrown unchanged; `GameLive` classifies it
       journalCommand(runtime,action,params,false,error,{ms:Date.now()-since});
       throw error;
     }
@@ -471,11 +543,15 @@ async function main() {
   pushJournal(account,runtime);
   journalConnection(runtime,account);
   const pilotFile=resolve(runtime,'..','pilot.json');
+  // A field dropped on read is journalled once per change, not on every read of the record.
+  let droppedSeen='';
+  const droppedOnRead=(dropped:Record<string,string>)=>{const seen=JSON.stringify(dropped);
+    if(seen!==droppedSeen)journalRun(runtime,{fields:dropped},'pilot_dropped');droppedSeen=seen;};
   // The request whose run is in flight gets the stream.
   let streamTo:string|undefined;
   const emit=(text:string)=>console.log(JSON.stringify({id:streamTo,event:'line',text}));
   const dispatch=serve(account,command,
-    {pilot:()=>readPilot(pilotFile),setPilot:next=>writePilot(pilotFile,next),runtime,emit,
+    {pilot:()=>readPilot(pilotFile,droppedOnRead),setPilot:next=>writePilot(pilotFile,next),runtime,emit,
       // A script cut off at the cap may still be running inside this process; ending the process
       // is the only way to be sure it sends nothing more. A second's grace lets the report be
       // sent; the next request starts a fresh bridge.
@@ -487,18 +563,7 @@ async function main() {
   resumeFreighters(runtime);
   console.log(JSON.stringify({event:'ready',...interrupted?{interrupted:interrupted.outcome}:{}}));
   const handle=async(line:string)=>{
-    let request:{id?:string;action:string;params?:Record<string,unknown>}|undefined;
-    let response:Record<string,unknown>;
-    try {
-      request=JSON.parse(line);
-      const id=request!.id;
-      response={id,ok:true,result:await dispatch(request!.action,request!.params??{},()=>{streamTo=id;})};
-    } catch(error) {
-      response={id:request?.id,ok:false,error:error instanceof Error?error.message:String(error)};
-    }
-    journalRun(runtime,{request,
-      response:{...response,...'result' in response
-        ?{result:journalResult(String(request?.action??''),response.result)}:{}}},'request');
+    const response=await answerLine(dispatch,line,id=>{streamTo=id;},runtime);
     console.log(JSON.stringify(response));
   };
   for await(const line of createInterface({input:process.stdin,terminal:false})) {

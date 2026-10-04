@@ -61,7 +61,7 @@ export function tiedUp(holding:Holding,circuit:Circuit):string|undefined {
 export function assign(name:string,circuit:Circuit,caps:{float:number}):Promise<Outcome<{freighter:FreighterRow|null}>> {return edge(assignEffect(name,circuit,caps));}
 /** `assign` as an Effect, for `edge` and for `reassign`; never in a barrel. A failed `get_map` or ledger read ends the job
  * `refused` or `failed` through `jobEffect`, in the server's own code. Nothing here is a game mutation. */
-export const assignEffect=(name:string,circuit:Circuit,caps:{float:number})=>jobEffect<Hand,Game>('assign',name,Effect.gen(function*() {
+export const assignEffect=(name:string,circuit:Circuit,caps:{float:number})=>jobEffect<Hand>('assign',name,Effect.gen(function*() {
   const refuse=(why:string)=>({status:'refused' as const,did:`assigned no freighter ${name}`,why,detail:{freighter:null}});
   const runtime=runtimeDir();
   if(!runtime)return refuse('this run has no runtime directory to keep a freighter in');
@@ -113,7 +113,7 @@ export const assignEffect=(name:string,circuit:Circuit,caps:{float:number})=>job
  * stowed at its first stop down to `FREE_HOLD` free, and the `why` says so. */
 export function reassign(name:string):Promise<Outcome<{freighter:FreighterRow|null}>> {return edge(reassignEffect(name));}
 /** `reassign` as an Effect; never in a barrel. */
-export const reassignEffect=(name:string)=>jobEffect<Hand,Game>('reassign',name,Effect.gen(function*() {
+export const reassignEffect=(name:string)=>jobEffect<Hand>('reassign',name,Effect.gen(function*() {
   const refuse=(why:string)=>({status:'refused' as const,did:`reassigned no freighter ${name}`,why,detail:{freighter:null}});
   const runtime=runtimeDir(),entry=runtime?readFleet(runtime)[name]:undefined;
   if(!entry)return refuse(`no freighter named ${name} is assigned`);
@@ -129,7 +129,7 @@ export const reassignEffect=(name:string)=>jobEffect<Hand,Game>('reassign',name,
  * docked there with its cargo aboard. With `{after:'lap'}` it finishes the lap it is on instead, selling and buying
  * as usual, then parks. Either way it is not re-planned; `assign` or `reassign` sets it flying again. */
 export function recall(name:string,opts:{after?:'lap'}={}):Promise<Outcome<{freighter:FreighterRow|null}>> {
-  return edge(jobEffect<Hand,Game>('recall',name,Effect.sync(()=>{
+  return edge(jobEffect<Hand>('recall',name,Effect.sync(()=>{
     const runtime=runtimeDir();
     const why=runtime?recallLoop(runtime,name,opts.after):'this run has no runtime directory';
     if(why||!runtime)return {status:'refused' as const,did:`recalled no freighter ${name}`,why:why??'',detail:{freighter:null}};
@@ -142,7 +142,7 @@ export function recall(name:string,opts:{after?:'lap'}={}):Promise<Outcome<{frei
  * the last lap's net against the lap_net predicted, the cargo aboard at cost, a stop after the lap
  * scheduled, its auto-reassigns, the cargo it stowed and where, and why it parked or waits. Reads only. */
 export function freighters():Promise<Outcome<{freighters:FreighterRow[]}>> {
-  return edge(jobEffect<{freighters:FreighterRow[]},Game>('freighters','',Effect.sync(()=>{
+  return edge(jobEffect<{freighters:FreighterRow[]}>('freighters','',Effect.sync(()=>{
     const runtime=runtimeDir();
     const rows=runtime?Object.entries(readFleet(runtime)).map(([name,entry])=>row(name,entry)):[];
     return {status:'done' as const,did:rows.length?rows.map(r=>`${r.name} ${r.state} lap ${r.lap}${r.stop?` at ${r.stop}`:''}, returned ${r.returned} cr`

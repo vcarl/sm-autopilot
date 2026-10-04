@@ -4,9 +4,9 @@
 import type {SystemPoi} from '@spacemolt/lib';
 import {Effect} from 'effect';
 import {dockAtEffect} from '../dock.ts';
-import {Game,GameLive,field,rawError} from './game.ts';
+import {Game,field} from './game.ts';
 import {replyBody} from '../storage.ts';
-import {acct,command,step} from './runtime.ts';
+import {acct,step} from './runtime.ts';
 
 /** The part of a `get_system` row the counter reads. A row is kept when it has an `id`, and takes
  * each other field when it is a string: a partial row costs nothing, a malformed one only its field. */
@@ -43,9 +43,3 @@ export const counterEffect=()=>Effect.gen(function*() {
   const at=acct().state.location;
   return {refused:`not docked: at ${named(at?.poi_id,row)} in ${at?.system_name??at?.system_id??'?'}, no station here${others(bases)}`};
 });
-/** The Promise twin of `counterEffect`: throws the lib's raw error or `DockBlocked`, as it always did. */
-export async function counter():Promise<{docked:string}|{refused:string}> {
-  const exit=await Effect.runPromiseExit(counterEffect().pipe(Effect.provide(GameLive({send:command}))));
-  if(exit._tag==='Failure')throw rawError(exit.cause); // bridge: U13 (callers: play/storage.ts)
-  return exit.value;
-}

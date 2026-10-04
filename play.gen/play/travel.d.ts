@@ -88,4 +88,4 @@ export declare function goTo(id: string): Promise<Outcome<Trip>>;
 /** `goTo` as an Effect, for `edge` and for converted callers; never in a barrel. A refusal or a lost reply on
  * a leg ends the trip naming the action and the code; a lost reply on a jump, travel or dock is never re-sent, and
  * the ship's place is re-read from the game. */
-export declare const goToEffect: (id: string) => Effect.Effect<Outcome<Trip>, never, Game>;
+export declare const goToEffect: (id: string) => Effect.Effect<Outcome<Trip>, never, Game | import("./runtime.ts").Run>;

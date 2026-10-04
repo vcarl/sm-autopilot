@@ -3,19 +3,21 @@
  * before the entrypoint is imported; there is exactly one pilot per process.
  *
  * Inside, the same module holds what the library needs and the pilot does not see: the
- * command seam (journal + Tired imposition), the measuring `job()` wrapper, the step line,
- * and the rules check helpers ask before starting work.
+ * measuring `job()` wrapper, the step line, and the rules check helpers ask before starting work.
+ * Everything a run keeps is its `Run` service, built by `bind()` beside its own `Game`; an Effect
+ * asks for it by type, and the Promise surface reaches it through the binding.
  *
- * ponytail: a module singleton, not AsyncLocalStorage. One account per bridge process today;
- * a multi-account runtime is a second process per account (DESIGN.md "Fleet").
+ * ponytail: the pilot's surface (`pilot()`, `stopped()`, `note()`, `account()`) is synchronous and
+ * carries no context, so the binding itself is one module slot, not AsyncLocalStorage. One pilot
+ * per bridge process today; a multi-account runtime is a second process per account (DESIGN.md "Fleet").
  */
 import type { Account } from '@spacemolt/lib';
-import { Effect } from 'effect';
+import { Cause, Context, Effect, Layer } from 'effect';
 import type { ReadinessAccount, ReadinessCommand } from '../readiness.ts';
 import { type RunRecord } from '../run-record.ts';
 import type { DockBlocked } from '../dock.ts';
 import { TravelBlocked, type ArrivalUnresolved } from '../travel.ts';
-import { Game, type GameError } from './game.ts';
+import { Game, type GameError, type Ledger } from './game.ts';
 import type { Outcome, Present, Row, Status, Want } from './types.ts';
 export type Mood = 'Cautious' | 'Focused' | 'Opportunistic' | 'Aggressive' | 'Relaxed' | 'Tired';
 export type Stance = 'Prospector' | 'Industrialist' | 'Trader' | 'Carrier' | 'Hunter' | 'Scout';
@@ -76,12 +78,54 @@ export interface Call {
     started_at?: string;
     seconds?: number;
 }
-export declare const runCalls: () => Call[];
 /** A question the program is paused on, as run.json and the tools carry it. */
 export type Question = NonNullable<RunRecord['question']>;
+interface Snapshot {
+    at: number;
+    credits: number;
+    fuel: number;
+    hull: number;
+    cargo: Record<string, number>;
+    xp: Record<string, number>;
+}
+declare const Run_base: Context.ServiceClass<Run, "Run", {
+    readonly binding: Binding;
+    /** Set by `stop()`; every library function checks it between commands. */
+    stopFlag: boolean;
+    readonly started: number;
+    /** How many jobs deep the program is: 1 is a call `main()` made itself. */
+    depth: number;
+    /** What the command path keeps for `progress()`; `GameLive` writes it. */
+    readonly wire: Ledger;
+    last: {
+        fn: string;
+        step?: string;
+    };
+    /** Where the pilot's next `outcome()` measures from. */
+    mark: Snapshot | null;
+    /** The opening read of the job now running, so a helper inside it can say what it measured. */
+    jobMark: Snapshot | null;
+    calls: Call[];
+    asking: {
+        question: Question;
+        resolve: (answer: string) => void;
+        reject: (error: unknown) => void;
+    } | null;
+    /** The mood last said, so a crossing into or out of Tired is said once. */
+    lastMood: Mood | undefined;
+    /** How the last resupply ended short, if it did: `admit` lets the work go on either way. */
+    short: "broke" | "stranded" | undefined;
+    burning: boolean;
+    burnFailed: boolean;
+    unwatch: (() => void) | undefined;
+}>;
+/** One run: everything `bind()` starts afresh, provided beside the binding's `Game`. */
+export declare class Run extends Run_base {
+}
+export declare const runCalls: () => Call[];
 /** The question the program is paused on, or null. */
 export declare const pendingQuestion: () => Question | null;
-/** Bind the runtime for one run. Resets the stop flag and the counters. */
+/** Bind the runtime for one run: a fresh `Run`, and a `Game` over this binding's command. */
 export declare function bind(binding: Binding): void;
 export declare function unbind(): void;
 export declare const isBound: () => boolean;
@@ -133,18 +177,15 @@ export declare function wanted(rows: Want[]): {
 } | {
     refused: string;
 };
-/** Every game command a helper sends: `Game.command` (game.ts) through the binding's runtime,
- * its failure handed back as the raw error. Journalled by the bridge's command; counted, and a
- * mood change it caused is said by the layer's `after`.
- *
- * A connection that drops mid-command is not the trip ending: the lib reconnects and
- * re-authenticates by itself, so the layer waits for that, re-reads the world, and re-issues the
- * command exactly once when it is one the live world can restate. A mutation that may have
- * landed is never re-sent — it fails with "outcome unknown, re-observe" instead.
- *
- * A `run*` besides `edge` (the others are marked `// bridge:`), and the
- * string seam: U31 deletes it with the callers that still `await command(...)`. */
-export declare function command(action: string, params?: Record<string, unknown>): Promise<unknown>;
+/** The Promise seam for an Effect that is not a pilot function — the pilot's own
+ * `account().commands`, the bridge's menu: run through the binding's runtime, a failure thrown
+ * as the raw error the lib raised, so `instanceof SpacemoltError` and `.code` still work.
+ * Journalled by the bridge's command; counted, and a mood change it caused is said by the
+ * layer's `after`. The one `run*` besides `edge`. */
+export declare function onBinding<A, E>(effect: Effect.Effect<A, E, Game | Run>): Promise<A>;
+/** The bound run as a layer, for an Effect run against a `Game` of its own rather than through `edge`
+ * (a test on the TestClock). */
+export declare const boundRun: () => Layer.Layer<Run, never, never>;
 export declare const acct: () => ReadinessAccount;
 export declare const runtimeDir: () => string | undefined;
 /** One streamed line: journalled first, then sent. */
@@ -172,7 +213,7 @@ export declare const progress: () => {
  * and the work goes on: cleared, or journalled when it could not be. Inside another helper it
  * only refuses — flying off mid-trade would leave the outer helper at the wrong counter — and the
  * resupply waits for the next top-level call or the run's end. */
-export declare function admit(fn: string): Promise<string | null>;
+export declare const admit: (fn: string) => Effect.Effect<string | null, never, Game | Run>;
 /** The ship, wallet, hold, place, skills and active missions as the account already holds them:
  * the run's `start_state`/`end_state`. Reads memory only. Storage is not in account state, so it
  * is not here — it would cost a `storage/view` per run.
@@ -196,18 +237,18 @@ export declare const job: <Detail>(fn: string, args: string, body: () => Promise
 /** `job` for an Effect body: the same bookkeeping, every failure folded into the Outcome by
  * `said`. A defect is a `failed` Outcome too, as a throw is in `job`, and its stack goes to a
  * `defect` line. Never exported from a barrel. */
-export declare const jobEffect: <D, R>(fn: string, args: string, body: Effect.Effect<Said<D>, GameError | TravelBlocked | ArrivalUnresolved | DockBlocked, R>) => Effect.Effect<Outcome<D>, never, Game | R>;
+export declare const jobEffect: <D, R extends Game | Run = Game | Run>(fn: string, args: string, body: Effect.Effect<Said<D>, GameError | TravelBlocked | ArrivalUnresolved | DockBlocked, R>) => Effect.Effect<Outcome<D>, never, Game | Run | R>;
 /** The Promise a pilot function returns: `effect` run through the binding's runtime. A defect
  * outside any job is a `failed` Outcome and a `defect` line. */
-export declare function edge<D>(effect: Effect.Effect<Outcome<D>, never, Game>): Promise<Outcome<D>>;
+export declare function edge<D>(effect: Effect.Effect<Outcome<D>, never, Game | Run>): Promise<Outcome<D>>;
 /** An Outcome's detail when the job built one, `undefined` when it is `said`'s `{}`. An internal caller reads
  * a helper's detail through this: status alone does not tell, since a stop is `partial` and an escaped refusal `refused`. */
 export declare function reached<Detail>(outcome: Outcome<Detail>): Detail | undefined;
+/** A bug, not a game outcome: its stack goes to the journal. The stop is not one. */
+export declare function defect(fn: string, cause: Cause.Cause<unknown>): void;
 /** What has come aboard since the running job's opening read: the cargo diff a helper's own
  * `did` must be written from, rather than a tally it kept while the world moved. */
 export declare function measured(): Row[];
-/** After every command and state push: when the derived mood crossed into or out of Tired, the
- * journal and the stream say so. Nothing is written to the record — the mood is the facts.
- * A fuel crossing the cells aboard can clear is not said: `burnCells` clears it first. */
-export declare function watchMood(): void;
-export declare function burnCells(): Promise<void>;
+/** `burn` for the run's own resupply, which may burn before it services. */
+export declare const burnCells: Effect.Effect<void, never, Game | Run>;
+export {};

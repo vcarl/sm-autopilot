@@ -42,7 +42,7 @@ export declare function freightBoard(opts?: {
 export declare const freightBoardEffect: (opts?: {
     destination?: string;
     limit?: number;
-}) => Effect.Effect<Outcome<Board>, never, Game>;
+}) => Effect.Effect<Outcome<Board>, never, Game | import("../runtime.ts").Run>;
 export interface Hauled {
     contract: ShippingActiveContract['contract'];
     settlement?: ShippingSettlementResponse;
@@ -70,4 +70,4 @@ export interface Hauled {
 export declare function haul(shipmentId: string): Promise<Outcome<Hauled>>;
 /** `haul` as an Effect, for `edge` and for converted callers; never in a barrel. A refusal ends it naming the action and
  * the code; a lost reply on the accept or the deliver is never re-sent, and the active list is re-read. */
-export declare const haulEffect: (shipmentId: string) => Effect.Effect<Outcome<Hauled>, never, Game>;
+export declare const haulEffect: (shipmentId: string) => Effect.Effect<Outcome<Hauled>, never, Game | import("../runtime.ts").Run>;

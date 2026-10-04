@@ -10,7 +10,13 @@ import type {ReadinessAccount} from '../readiness.ts';
 import {readJournal} from '../run-record.ts';
 import {FakeLibGoalAccount} from '../test-support/fake-lib-account.ts';
 import {Game} from './game.ts';
-import {bind,checkStop,command,edge,job,jobEffect,runCalls,stop,Stopped,unbind} from './runtime.ts';
+import {account,bind,checkStop,edge,job,jobEffect,runCalls,stop,Stopped,unbind} from './runtime.ts';
+
+/** A raw `tool/action` command the way a pilot sends one, through `account().commands`. */
+const command=(action:string,params:Record<string,unknown>={}):Promise<unknown>=>{
+  const [tool='',name='']=action.split('/');
+  return (account().commands as any)[tool][name](params);
+};
 
 /** A bound run whose `spacemolt/jump` answers with `outcome`: a reply, or what the server raised.
  * Commands go through the binding's own runtime, so the real classify path runs. */
@@ -95,11 +101,11 @@ test('the Promise job folds a refusal the server raised the same way: refused, n
   assert.deepEqual({status:out.status,why:out.why},{status:'refused',why:'jump: in_battle — in combat'});
 }));
 
-// The Promise `command()` is what every unconverted caller (dock, mine, travel, settle-cargo)
-// still awaits. They branch on the lib's own error, so it must come out as the very object.
+// A raw command a pilot sends itself (`account().commands`) branches on the lib's own error, so it
+// must come out as the very object.
 for(const error of [new SpacemoltError('in_battle','in combat'),new SpacemoltError('not_in_faction','join a faction first'),
   new SpacemoltError('mutation_timeout','No action_result'),new ConnectionClosedError(),new TypeError('a bug')])
-  test(`command() rejects with the very error the lib threw: ${error.constructor.name} ${error.message}`,()=>flying(error,async()=>{
+  test(`a raw command rejects with the very error the lib threw: ${error.constructor.name} ${error.message}`,()=>flying(error,async()=>{
     await assert.rejects(command('spacemolt/jump',{id:'sol'}),thrown=>thrown===error);
   }));
 

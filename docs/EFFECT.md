@@ -382,7 +382,10 @@ Promise-based calls it.
 
 - **Going in:** `Effect.tryPromise({try, catch})`. `catch` has to return a tagged error, and
   `classify` is that function. Never use the one-argument form, which gives an `UnknownError`.
-- **Going out:** one `ManagedRuntime.make(GameLive(account))` per binding (`bind()`): each
+  It is written in two places only: `play/game.ts` for the game, and `journal-webhook.ts` for the
+  journal's external webhook POST.
+- **Going out:** one `ManagedRuntime` per binding (`bind()`), providing its `Game` and its `Run` (the
+  run's own state, which an Effect asks for by type rather than reading a module variable): each
   freighter has its own account and binding, so each gets its own runtime. The Promise facade
   is `runtime.runPromiseExit(effect)`, mapping the `Exit` to an `Outcome` with a `status` and a
   `why`. A failure becomes `refused` or `failed` in the error's own words, and nothing is thrown.

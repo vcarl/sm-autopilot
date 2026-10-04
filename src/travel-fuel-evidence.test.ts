@@ -1,7 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import {Effect} from 'effect';
 import {ConnectionClosedError,SpacemoltError} from '@spacemolt/lib';
 import * as travel from './travel.ts';
+import {travelTo} from './test-support/travel.ts';
 import type {ReadinessCommand} from './readiness.ts';
 import {FakeLibGoalAccount} from './test-support/fake-lib-account.ts';
 
@@ -49,15 +51,15 @@ test('fuel refusals retain authoritative fractional evidence at every departure 
     assert.equal(f.account.state.ship!.fuel,100,'cache still suggests ample fuel');
     // No reserve rides on the route: the tank covering the quote is the whole admission.
     const options:travel.TravelOptions={
-      beforeMove:async()=>{if(stage==='hook')f.server.ship.fuel-=deficit;}};
+      beforeMove:()=>Effect.sync(()=>{if(stage==='hook')f.server.ship.fuel-=deficit;})};
     if(!deficit) {
-      const result=await travel.travelTo(f.account,f.command,f.destination,options);
+      const result=await travelTo(f.account,f.command,f.destination,options);
       assert.deepEqual(result.location,f.server.location);
       assert.equal(f.server.ship.fuel,0);
       assert.equal(result.jumps,2);
       continue;
     }
-    await assert.rejects(travel.travelTo(f.account,f.command,f.destination,options),error=>{
+    await assert.rejects(travelTo(f.account,f.command,f.destination,options),error=>{
       assert.ok(error instanceof travel.TravelBlocked);
       assert.ok('evidence' in error,'fuel refusal must expose structured evidence');
     assert.ok(error instanceof travel.FuelRouteShortfall);
@@ -102,8 +104,8 @@ test('invalidated departure context never becomes fuel-crossing evidence',async(
       if(stage==='undock'&&name==='spacemolt/undock')invalidate();
       return result;
     };
-    await assert.rejects(travel.travelTo(f.account,command,f.destination,{
-      beforeMove:async()=>{if(stage==='hook')invalidate();},
+    await assert.rejects(travelTo(f.account,command,f.destination,{
+      beforeMove:()=>Effect.sync(()=>{if(stage==='hook')invalidate();}),
     }),error=>{
       assert.ok(error instanceof travel.TravelBlocked,`${stage}/${context}/${loss}: contextual refusal`);
       assert.ok(!(error instanceof travel.FuelRouteShortfall),`${stage}/${context}/${loss}: invalid quote cannot establish fuel crossing`);
@@ -130,12 +132,12 @@ test('tank changes during any route quote invalidate context before fuel classif
       }
       return result;
     };
-    await assert.rejects(travel.travelTo(f.account,command,f.destination,{
-      refuel:async minimum=>{
+    await assert.rejects(travelTo(f.account,command,f.destination,{
+      refuelWith:minimum=>Effect.promise(async()=>{
         refuels++;assert.equal(minimum,20);
         f.server.ship.fuel=20-deficit;
         await f.account.refresh();
-      },
+      }),
     }),error=>{
       const scenario=`${stage}/${capacity}/${deficit}`;
       assert.ok(error instanceof travel.TravelBlocked,scenario);
@@ -153,7 +155,7 @@ test('tank changes during any route quote invalidate context before fuel classif
 
 test('capacity refusals are distinct; invalid quotes and uncertain commands are never fuel crossings',async()=>{
   const f=fixture();f.server.ship.max_fuel=19.5;f.server.ship.fuel=16;
-  await assert.rejects(travel.travelTo(f.account,f.command,f.destination,{}),error=>{
+  await assert.rejects(travelTo(f.account,f.command,f.destination,{}),error=>{
     assert.ok(error instanceof travel.TravelBlocked);
     assert.ok('evidence' in error,'fuel refusal must expose structured evidence');
       assert.ok(error instanceof travel.FuelRouteShortfall);
@@ -167,18 +169,18 @@ test('capacity refusals are distinct; invalid quotes and uncertain commands are 
   for(const cost of [26,54,54.25]) {
     const g=fixture();g.server.ship.max_fuel=50;g.server.ship.fuel=10;
     let refuels=0;
-    const options:travel.TravelOptions={refuel:async minimum=>{
+    const options:travel.TravelOptions={refuelWith:minimum=>Effect.promise(async()=>{
       refuels++;assert.equal(minimum,20);
       g.server.ship.fuel=50;g.configure({cost});
       assert.equal(g.account.state.ship!.fuel,10,'refill does not update cache');
       await g.account.refresh();
-    }};
+    })};
     if(cost===26) {
-      const result=await travel.travelTo(g.account,g.command,g.destination,options);
+      const result=await travelTo(g.account,g.command,g.destination,options);
       assert.deepEqual(result.location,g.server.location);
       assert.equal(result.jumps,2);
     } else {
-      await assert.rejects(travel.travelTo(g.account,g.command,g.destination,options),error=>{
+      await assert.rejects(travelTo(g.account,g.command,g.destination,options),error=>{
         assert.ok(error instanceof travel.FuelRouteShortfall);
         const shortfall=cost-50;
         assert.equal(error.evidence.kind,'capacity','refreshed quote must recheck tank capacity');
@@ -195,7 +197,7 @@ test('capacity refusals are distinct; invalid quotes and uncertain commands are 
   const pending=new SpacemoltError('in_transit','pending');Object.assign(pending,{pendingCommand:{}});
   for(const error of [undefined,pending,new ConnectionClosedError('lost')]) {
     const g=fixture();g.configure({invalid:!error,error:error!});
-    await assert.rejects(travel.travelTo(g.account,g.command,g.destination,{}),caught=>{
+    await assert.rejects(travelTo(g.account,g.command,g.destination,{}),caught=>{
       assert.ok(!(caught instanceof travel.FuelRouteShortfall));
       if(error)assert.equal(caught,error);else assert.ok(caught instanceof travel.TravelBlocked);
       return true;

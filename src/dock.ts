@@ -2,7 +2,7 @@ import {SpacemoltError,type GameState} from '@spacemolt/lib';
 import {Data,Effect,Result} from 'effect';
 import {Game,attempt} from './play/game.ts';
 import type {ReadinessAccount} from './readiness.ts';
-import {travelStep,waitForArrival,type TravelOptions} from './travel.ts';
+import {waitForArrivalEffect,type TravelOptions} from './travel.ts';
 
 /** `message` is what the pilot is told; `gather-job.ts` reads it and checks `instanceof`. */
 export class DockBlocked extends Data.TaggedError('DockBlocked')<{readonly message:string}> {}
@@ -19,7 +19,7 @@ const settled=(state:GameState)=>Boolean(state.location?.system_id&&!state.locat
 export const dockAtEffect=(account:ReadinessAccount,baseId?:string,options:TravelOptions={})=>Effect.gen(function*() {
   const game=yield* Game;
   const refresh=attempt('refresh',()=>account.refresh());
-  yield* travelStep('travel/arrival',()=>waitForArrival(account,settled,options)); // bridge: U09 (travel's conversion calls its Effect twin)
+  yield* waitForArrivalEffect(account,settled,options,'travel/arrival');
   const confirm=(already:boolean):Effect.Effect<DockResult|null,DockBlocked>=>{
     const docked=account.state.location?.docked_at;
     if(!docked)return Effect.succeed(null);

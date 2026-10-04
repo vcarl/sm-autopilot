@@ -1,5 +1,12 @@
-import type { ReadinessAccount, ReadinessCommand } from '../readiness.ts';
-import { type Facts } from '../rules-table.ts';
+/** The menu: anti-stagnation guidance, not a list of admissible jobs. Every move is a real
+ * library call with literal arguments taken from the present, passed through the same rules
+ * the helper applies (`jobStop`, the mood's margins, permissions, Tired); a move the rules
+ * refuse is under `not_now` with the reason. The juncture delivers it once, headed by the
+ * stagnation `menuDue` names. Reads only; writes nothing (DESIGN §4). */
+import { Effect, Schema } from 'effect';
+import type { ReadinessAccount } from '../readiness.ts';
+import { type CounterName } from '../rules-table.ts';
+import { Game } from './game.ts';
 import { type Pilot } from './runtime.ts';
 import { type Near } from './exploration/exploration.ts';
 import type { Status } from './types.ts';
@@ -22,14 +29,16 @@ export interface Menu {
 }
 /** One run as the menu remembers it: the first work call `main()` made, how it ended, what
  * the whole run gained, and where the ship ended up. Written by `run` into the journal. */
-export interface RunSummary {
-    fn: string;
-    arg: string;
-    status: Status;
-    credits: number;
-    items: number;
-    xp: number;
-    at: string;
+declare const Work: Schema.Struct<{
+    readonly fn: Schema.String;
+    readonly arg: Schema.String;
+    readonly status: Schema.Literals<readonly ["done", "partial", "refused", "failed"]>;
+    readonly credits: Schema.Number;
+    readonly items: Schema.Number;
+    readonly xp: Schema.Number;
+    readonly at: Schema.optionalKey<Schema.String>;
+}>;
+export interface RunSummary extends Schema.Schema.Type<typeof Work> {
 }
 /** The run that just ended, from the runtime's record of top-level calls. `status` is the run's
  * own final status — trusted, UNLESS it is only there because some later top-level call read
@@ -52,7 +61,7 @@ export declare function menuDue(runs: RunSummary[]): string | null;
 /** Whether Piloting clears a hull class's `piloting_required`, and by how much when it does
  * not: the line `not_now` names, or null when the class asks nothing this pilot's skill has
  * not already cleared (including a class that asks nothing at all), or when the Piloting skill
- * itself is unread — `get_skills` failed and `attempt()` swallowed it, so `piloting` is
+ * itself is unread — `get_skills` failed and its section was left out, so `piloting` is
  * `undefined` here, not 0; an unknown level is not a gap, it is offered as before. */
 export declare function pilotingGap(required: number | undefined, piloting?: {
     level: number;
@@ -73,14 +82,88 @@ export declare function threatsHere(location: ReadinessAccount['state']['locatio
  * The stance decides which counters are worth a round trip: only a Hunter's J8 reads
  * `observed.targets`, only a Carrier's J4/J5 read the board, only a Trader's J6 reads a
  * spread, so those reads are behind the stance that consumes them and a menu build costs the
- * same as before for everyone else. Every one of them is `attempt`ed: a counter that refuses
- * leaves its field absent, which is the answer the rule already gave before it was wired. */
-export declare function factsNow(account: ReadinessAccount, send: ReadinessCommand, who: Pilot, runtime?: string): Promise<Facts>;
+ * same as before for everyone else. Every one of them is a `look`: a counter that refuses
+ * leaves its field absent, which is the answer the rule already gave before it was wired.
+ * So are the refresh (the cached state stands), `get_system` (no sites), `get_base` (no counters, no posted prices) and
+ * the route quote (no sites). */
+export declare const factsNowEffect: (account: ReadinessAccount, who: Pilot, runtime?: string) => Effect.Effect<{
+    mood: import("./runtime.ts").Mood;
+    place: {
+        board?: {
+            contracts?: {
+                id: string;
+                cargo: number;
+                liability: number;
+            }[];
+            passengers?: number;
+        };
+        sites: {
+            serviced_base?: boolean;
+            resource?: string;
+            poi_id: string;
+            quoted_fuel: number;
+        }[];
+        service_prices?: {
+            fuel?: number;
+            hull?: number;
+        };
+        counters: CounterName[];
+        workshop: boolean;
+        base_id?: string;
+        kind: "base" | "poi" | "space";
+    };
+    holdings: {
+        fuel: number;
+        max_fuel: number;
+        hull: number;
+        max_hull: number;
+        cargo_free: number;
+        credits: number;
+        inputs: string[];
+    };
+    obligations: {
+        passengers: number;
+    } | {
+        passengers?: never;
+    };
+    permissions: {
+        credit_reserve?: number;
+        max_liability?: number;
+    };
+    observed: {
+        threats?: string[];
+        targets?: string[];
+        spread?: {
+            item_id: string;
+            base_id: string;
+            margin: number;
+            age: number;
+        };
+    };
+    stance?: import("./runtime.ts").Stance;
+}, never, Game>;
 export declare const leadCall: (who: Pilot) => string;
 /** The menu from where the ship stands: the present in one read, the last ten runs, the
  * skills, the store, and when docked the board, the market and the yard. At most five
  * moves, ranked with the move that clears a stated blocker first, then to break the repetition
  * seen, then by what the goal names, then by what similar runs measured. Under Tired: only service here or the nearest serviced base. */
-export declare function menu(runtime?: string): Promise<Menu>;
+export declare const menuEffect: (runtime?: string) => Effect.Effect<{
+    neighbours: Near[];
+    moves: Move[];
+    not_now: {
+        move: string;
+        why: string;
+    }[];
+    stagnation?: string;
+} | {
+    neighbours?: never;
+    moves: Move[];
+    not_now: {
+        move: string;
+        why: string;
+    }[];
+    stagnation?: string;
+}, never, Game>;
 /** The menu as text: one line per move with the call in backticks, then what is not on it. */
 export declare function renderMenu(built: Menu): string;
+export {};

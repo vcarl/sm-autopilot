@@ -16,7 +16,7 @@ import type {Outcome} from './types.ts';
 export function reflection():Promise<Outcome<ReflectReport>> {return edge(reflectionEffect());}
 
 /** `reflection` as an Effect, for `edge` and for converted callers; never in a barrel. */
-export const reflectionEffect=()=>jobEffect<ReflectReport,Game>('reflection','',Effect.gen(function*() {
+export const reflectionEffect=()=>jobEffect<ReflectReport>('reflection','',Effect.gen(function*() {
   const runtime=runtimeDir();
   // The report re-reads the account first, through the binding's own seam; what that seam threw is classified as `command` classifies it.
   const report=yield* reflectReportEffect(acct(),pilot(),runtime).pipe(
@@ -32,7 +32,7 @@ export const reflectionEffect=()=>jobEffect<ReflectReport,Game>('reflection','',
 export function rest(base?:string):Promise<Outcome<Serviced>> {return edge(restEffect(base));}
 
 /** `rest` as an Effect, for `edge` and for converted callers; never in a barrel. */
-export const restEffect=(base?:string)=>jobEffect<Serviced,Game>('rest',base??'',Effect.gen(function*() {
+export const restEffect=(base?:string)=>jobEffect<Serviced>('rest',base??'',Effect.gen(function*() {
   if(base) {
     const trip=yield* goToEffect(base);
     if(trip.status!=='done')return {status:trip.status,did:`did not reach ${base}`,why:trip.why??trip.did,

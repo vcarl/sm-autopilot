@@ -17,7 +17,7 @@ import {journalRun} from '../../run-record.ts';
 import {words} from '../../servicing.ts';
 import {replyBody} from '../../storage.ts';
 import * as Wire from '../../wire.gen.ts';
-import {Game,attempt,field,message,type GameError} from '../game.ts';
+import {Game,field,message,type GameError} from '../game.ts';
 import {bookEffect,buyEffect} from '../market.ts';
 import {kept,offSpec,told} from '../rows.ts';
 import {Stopped,acct,admit,edge,jobEffect,pilot,reached,runtimeDir,step,stopped} from '../runtime.ts';
@@ -243,7 +243,7 @@ const noRecipes=():{recipes:Craftable[]}=>({recipes:[]});
  * `did` says how many covered recipes were cut. Refused when there is no bench here, which is
  * itself the answer: the ore is in the wrong place. */
 export const recipesEffect=(search?:string)=>
-  jobEffect<{recipes:Craftable[]},Game>('recipes',search??'',folded<{recipes:Craftable[]}>('recipes',noRecipes,Effect.gen(function*() {
+  jobEffect<{recipes:Craftable[]}>('recipes',search??'',folded<{recipes:Craftable[]}>('recipes',noRecipes,Effect.gen(function*() {
     const at=yield* bench('recipes');
     if('refused' in at)return {status:'refused',did:'read no recipes',why:at.refused,detail:noRecipes(),
       next:['goTo a base whose services include crafting, then recipes() again']};
@@ -327,7 +327,7 @@ const noQuoted=():Quoted=>({...asQuote({}),venue:'',venue_type:'',labor:0,fee:0,
  * the inputs the store is short of, each priced to buy and to sell. Nothing is committed.
  * `next` names the buy or the mining that would close the gap. */
 export const quoteEffect=(recipeId:string,quantity=1,opts:{at?:'workshop'|string}={})=>
-  jobEffect<Quoted,Game>('quote',`${quantity} × ${recipeId}${opts.at?` at ${opts.at}`:''}`,folded<Quoted>('quote',noQuoted,Effect.gen(function*() {
+  jobEffect<Quoted>('quote',`${quantity} × ${recipeId}${opts.at?` at ${opts.at}`:''}`,folded<Quoted>('quote',noQuoted,Effect.gen(function*() {
     const none=noQuoted();
     if(!Number.isInteger(quantity)||quantity<1)
       return {status:'refused',did:`did not quote ${recipeId}`,why:'quantity must be a whole number of output units, at least one',detail:none};
@@ -394,11 +394,10 @@ const noSupplied=():Supplied=>({stowed:[],bought:[],short:[],spent:0});
  * `credits − permissions.credit_reserve`. A buy or a stow whose reply is lost is never re-sent:
  * the store is re-read, and what it still lacks is `short`. */
 export const supplyEffect=(recipeId:string,quantity=1,opts:{at?:'workshop'|string;maxSpend?:number}={})=>
-  jobEffect<Supplied,Game>('supply',`${quantity} × ${recipeId}${opts.at?` at ${opts.at}`:''}`,folded<Supplied>('supply',noSupplied,Effect.gen(function*() {
+  jobEffect<Supplied>('supply',`${quantity} × ${recipeId}${opts.at?` at ${opts.at}`:''}`,folded<Supplied>('supply',noSupplied,Effect.gen(function*() {
     const none=noSupplied();
     const refuse=(why:string,next:string[]=[])=>({status:'refused' as const,did:`supplied no ${recipeId}`,why,detail:none,next});
-    // bridge: U31 (admit keeps its Promise form with the module singletons it reads)
-    const blocked=yield* attempt('supply',()=>admit('supply'));
+    const blocked=yield* admit('supply');
     if(blocked)return refuse(blocked);
     if(!Number.isInteger(quantity)||quantity<1)
       return refuse('quantity must be a whole number of output units, at least one');
@@ -490,12 +489,11 @@ const noCrafted=():Crafted=>({job:asCommit({}),made:[],venue:'',venue_type:'',la
  * At the workshop it trains crafting, and engineering for components and modules; a facility
  * trains nothing. */
 export const craftEffect=(recipeId:string,quantity=1,opts:{at?:'workshop'|string}={})=>
-  jobEffect<Crafted,Game>('craft',`${quantity} × ${recipeId}${opts.at?` at ${opts.at}`:''}`,folded<Crafted>('craft',noCrafted,Effect.gen(function*() {
+  jobEffect<Crafted>('craft',`${quantity} × ${recipeId}${opts.at?` at ${opts.at}`:''}`,folded<Crafted>('craft',noCrafted,Effect.gen(function*() {
     const game=yield* Game;
     const none=noCrafted();
     const refuse=(why:string,next:string[]=[])=>({status:'refused' as const,did:`crafted no ${recipeId}`,why,detail:none,next});
-    // bridge: U31 (admit keeps its Promise form with the module singletons it reads)
-    const blocked=yield* attempt('craft',()=>admit('craft'));
+    const blocked=yield* admit('craft');
     if(blocked)return refuse(blocked);
     if(!Number.isInteger(quantity)||quantity<1)
       return refuse('quantity must be a whole number of output units, at least one');
@@ -653,7 +651,7 @@ export interface Queued {
 /** Every job this pilot has queued, at every base, and which of them are paused because the
  * ship is not docked there. Works undocked. Reads only. */
 export const jobsEffect=()=>
-  jobEffect<{jobs:Queued[]},Game>('jobs','',Effect.gen(function*() {
+  jobEffect<{jobs:Queued[]}>('jobs','',Effect.gen(function*() {
     const docked=acct().state.location?.docked_at??null;
     const rows:Queued[]=(yield* queue()).map(({row})=>{
       const venue_type=row.venue_type;
@@ -688,7 +686,7 @@ const noMaterials=():Materials=>({steps:[],leaves:[]});
  * docked — this base's store already hold of each intermediate. From the catalog: reads only,
  * works undocked, needs no bench. `failed` when the catalog cannot be read. */
 export const materialsEffect=(itemId:string,quantity:number)=>
-  jobEffect<Materials,Game>('materials',`${quantity} ${itemId}`,folded<Materials>('materials',noMaterials,Effect.gen(function*() {
+  jobEffect<Materials>('materials',`${quantity} ${itemId}`,folded<Materials>('materials',noMaterials,Effect.gen(function*() {
     const none=noMaterials();
     if(!Number.isInteger(quantity)||quantity<1)
       return {status:'refused',did:`walked no tree for ${itemId}`,why:'quantity must be a whole number of output units, at least one',detail:none};

@@ -69,7 +69,7 @@ const read=<A>(missing:string[],name:string,action:string,decode:(body:unknown)=
 export function orient():Promise<Outcome<Orientation>> {return edge(orientEffect());}
 
 /** `orient` as an Effect, for `edge` and for converted callers; never in a barrel. */
-export const orientEffect=()=>jobEffect<Orientation,Game>('orient','',Effect.gen(function*() {
+export const orientEffect=()=>jobEffect<Orientation>('orient','',Effect.gen(function*() {
   const missing:string[]=[];
   // Before every other read: a pilot that does not know it is in a fight spends its first
   // move on something the server will refuse `in_battle`, or dies making it (2026-09-25).
@@ -159,7 +159,7 @@ export function scout(target?:string):Promise<Outcome<ScoutReport>> {return edge
 /** `scout` as an Effect, for `edge` and for converted callers; never in a barrel. A refusal of the
  * route to the target ends the run, naming the action and the code; a refused quote, nearby or wreck
  * read only leaves its part of the report empty. */
-export const scoutEffect=(target?:string)=>jobEffect<ScoutReport,Game>('scout',target??'',Effect.gen(function*() {
+export const scoutEffect=(target?:string)=>jobEffect<ScoutReport>('scout',target??'',Effect.gen(function*() {
   const game=yield* Game;
   const {location}=acct().state;
   let system=target??location?.system_id??'';

@@ -1,17 +1,17 @@
 import type {GameState} from '@spacemolt/lib';
 import {Data,Effect,Result,Schedule} from 'effect';
 import {DockBlocked,dockAtEffect} from './dock.ts';
-import {Game,SeamFailed,attempt,isGameError,message,rawError,type GameError} from './play/game.ts';
+import {Game,SeamFailed,attempt,field,isGameError,message,type GameError} from './play/game.ts';
 import {mineToFullEffect,type MineOptions,type MineYieldRow} from './mine.ts';
 import {causeText} from './command-boundary.ts';
 import {miningInventory} from './mining-inventory.ts';
 import type {Mood} from './mood-policy.ts';
-import type {ReadinessAccount,ReadinessCommand} from './readiness.ts';
-import {ServiceBlocked,serviceShip,type ServiceOutcome} from './servicing.ts';
+import type {ReadinessAccount} from './readiness.ts';
+import {ServiceBlocked,serviceShipEffect,type ServiceOutcome,type ServiceUnsafe} from './servicing.ts';
 import type {SettleOutcome} from './settle-cargo.ts';
-import {details} from './response-details.ts';
-import {ArrivalUnresolved,TravelBlocked,travelTo,type TravelOptions} from './travel.ts';
-import {movedOutcome,position,reconcileMove,type Position,type Reconciliation} from './reconcile.ts';
+import {ArrivalUnresolved,TravelBlocked,travelToEffect,type TravelOptions} from './travel.ts';
+import {movedOutcome,position,reconcileMoveEffect,type Position,type Reconciliation} from './reconcile.ts';
+import {replyBody} from './storage.ts';
 
 export interface GatherPlan {
   home:{system_id:string;poi_id:string;base_id:string};
@@ -55,11 +55,12 @@ const blocking=(error:unknown)=>error instanceof TravelBlocked||error instanceof
 /** Stowing needs a dock to stow at; the settle step reads it as a failure, as it always did. */
 class NotDocked extends Data.TaggedError('NotDocked')<{readonly message:string}> {}
 type Report=Omit<GatherStep,'name'>;
-type StepError=GameError|SeamFailed|DockBlocked|NotDocked;
+type StepError=GameError|SeamFailed|DockBlocked|NotDocked|TravelBlocked|ArrivalUnresolved|ServiceBlocked|ServiceUnsafe;
 /** A step's failure as the value the old `catch` saw: the lib's own error under a tag. */
 const raw=(error:StepError):unknown=>error instanceof SeamFailed||isGameError(error)?error.cause:error;
-/** A Promise callee the migration has not reached: its throw is the raw error, judged by the step fold. */
-const cross=<A>(body:()=>Promise<A>)=>Effect.tryPromise({try:body,catch:cause=>new SeamFailed({cause})});
+/** The legs that once ran behind a Promise seam (travel, dock, service) judged any throw as the
+ * step's own failure, a die included, and still do: a dropped socket mid-service fails the step, not the job. */
+const judged=<A,E,R>(leg:Effect.Effect<A,E,R>)=>leg.pipe(Effect.catchDefect(cause=>Effect.fail(new SeamFailed({cause}))));
 
 /** What the closing read must agree with before the job may call itself done. */
 function differences(state:GameState,plan:GatherPlan,settled:SettleOutcome|null,mine:Set<string>):string[] {
@@ -95,7 +96,7 @@ const hasStorage=Effect.gen(function*() {
   const viewed=yield* Effect.result(game.command('spacemolt_storage/view',{}).pipe(
     Effect.retry({times:2,schedule:Schedule.exponential('1 second'),while:error=>error._tag==='ReplyLost'})));
   if(Result.isFailure(viewed)&&viewed.failure._tag==='ReplyLost')return yield* viewed.failure;
-  return Result.isSuccess(viewed)&&Array.isArray(details(viewed.success).items);
+  return Result.isSuccess(viewed)&&Array.isArray(field(replyBody(viewed.success),'items'));
 });
 
 /** Stow what the site gives in the station store. Nothing is ever offered at the market
@@ -165,12 +166,9 @@ const stowYield=(account:ReadinessAccount,mine:Set<string>)=>Effect.gen(function
  * failed, and nothing is re-issued here (each primitive reconciles its own lost reply).
  * The end state is a claim about the world, so an authoritative read closes the job:
  * docked at home, the hold settled, serviced to the mood's margins, or it is a failure
- * naming what differed.
- *
- * `command` is a parameter only because the unconverted callees (travel, servicing,
- * reconcile) still take a Promise command; the Effect's own commands go through `Game`.
+ * naming what differed. Every command goes through `Game`.
  */
-export const gatherJobEffect=(account:ReadinessAccount,command:ReadinessCommand,
+export const gatherJobEffect=(account:ReadinessAccount,
   plan:GatherPlan,options:GatherOptions={})=>Effect.gen(function*() {
   const steps:GatherStep[]=[];
   let mined:MineYieldRow[]=[],settled:SettleOutcome|null=null,serviced:ServiceOutcome|null=null;
@@ -194,7 +192,7 @@ export const gatherJobEffect=(account:ReadinessAccount,command:ReadinessCommand,
     // act, and a step that mutates on a stale belief is the one thing this must not do. A
     // failure here is the job's, not the step's: it rejects the whole job.
     const here=expected;
-    const drift=here?yield* cross(()=>reconcileMove(account,here)):null; // bridge: U09
+    const drift=here?yield* reconcileMoveEffect(account,here):null;
     if(drift?.moved) {
       moved=drift;
       report={outcome:movedOutcome(drift.cause),reason:`unsolicited move (${drift.cause}): ${drift.evidence}`};
@@ -221,7 +219,7 @@ export const gatherJobEffect=(account:ReadinessAccount,command:ReadinessCommand,
   });
 
   let stop=yield* step('travel',Effect.gen(function*() {
-    yield* cross(()=>travelTo(account,command,plan.site,legOptions())); // bridge: U09
+    yield* judged(travelToEffect(account,plan.site,legOptions()));
     yield* refresh;
     for(const row of account.state.location?.resources??[])gives.add(String(row.item_id));
   }));
@@ -254,14 +252,10 @@ export const gatherJobEffect=(account:ReadinessAccount,command:ReadinessCommand,
   }));
   if(stop)return stop;
 
-  stop=yield* step('return',cross(()=>travelTo(account,command,{system_id:plan.home.system_id,poi_id:plan.home.poi_id},legOptions())).pipe(Effect.asVoid)); // bridge: U09
+  stop=yield* step('return',judged(travelToEffect(account,{system_id:plan.home.system_id,poi_id:plan.home.poi_id},legOptions())).pipe(Effect.asVoid));
   if(stop)return stop;
 
-  stop=yield* step('dock',Effect.gen(function*() {
-    const exit=yield* Effect.exit(dockAtEffect(account,plan.home.base_id,options));
-    // The step judges the raw throw, as it did when dockAt threw it.
-    if(exit._tag==='Failure')return yield* new SeamFailed({cause:rawError(exit.cause)}); // bridge: U09 (waitForArrival throws through dockAtEffect's attempt)
-  }));
+  stop=yield* step('dock',judged(dockAtEffect(account,plan.home.base_id,options)).pipe(Effect.asVoid));
   if(stop)return stop;
 
   stop=yield* step('settle',Effect.gen(function*() {
@@ -276,7 +270,7 @@ export const gatherJobEffect=(account:ReadinessAccount,command:ReadinessCommand,
   // Tired's row is "service only", so the planning mood's tighter budget is what refuses the
   // resupply the job just flew home for.
   stop=yield* step('service',Effect.gen(function*() {
-    serviced=yield* cross(()=>serviceShip(account,command,{mood:mood()})); // bridge: U12
+    serviced=yield* judged(serviceShipEffect(account,{mood:mood()}));
   }));
   if(stop)return stop;
 

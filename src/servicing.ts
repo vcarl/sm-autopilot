@@ -1,7 +1,7 @@
 import type {GameState,MarketListingItem,OrderLevel} from '@spacemolt/lib';
 import {Data,Effect,Result} from 'effect';
-import {Game,GameLive,attempt,field,rawError,type GameError} from './play/game.ts';
-import type {ReadinessAccount,ReadinessCommand} from './readiness.ts';
+import {Game,attempt,field,type GameError} from './play/game.ts';
+import type {ReadinessAccount} from './readiness.ts';
 import {replyBody,rows} from './storage.ts';
 import {resolveServiceSpend,type Mood} from './mood-policy.ts';
 import {FUEL_CELL,cellReserve} from './mining-inventory.ts';
@@ -20,6 +20,9 @@ export interface ServiceOptions {
   runtime?:string;
   /** False skips the fuel-cell top-up: a freighter's hold is its circuit's to plan. */
   cells?:boolean;
+  /** False keeps this fill's prices off the pilot's next `trade` line: the quote is one per
+   * bridge, and a freighter serviced in it is not the pilot (its trades carry no quote). */
+  quotes?:boolean;
 }
 /** The fuel-cell top-up that follows a fill: cells aboard against the reserve, what was bought
  * for what, and `skipped` saying why nothing was when the reserve was due. */
@@ -86,14 +89,6 @@ export const serviceShipEffect=(account:ReadinessAccount,options:ServiceOptions)
     return options.cells===false?done:{...done,cells:yield* topUpCellsEffect(account,options)};
   });
 
-/** The Promise twin of `serviceShipEffect`: throws what it always threw — the lib's raw error,
- * `ServiceBlocked`, or the custody refusals (`ServiceUnsafe`, same messages). */
-export async function serviceShip(account:ReadinessAccount,command:ReadinessCommand,options:ServiceOptions):Promise<ServiceOutcome> {
-  const exit=await Effect.runPromiseExit(serviceShipEffect(account,options).pipe(Effect.provide(GameLive({send:command}))));
-  if(exit._tag==='Failure')throw rawError(exit.cause); // bridge: U11 (caller: gather-job.ts)
-  return exit.value;
-}
-
 /** A live cell price over this multiple of the remembered median is not paid. */
 export const CELL_PRICE_BOUND=1.5;
 const median=(values:number[])=>{
@@ -157,7 +152,7 @@ const topUpCellsEffect=(account:ReadinessAccount,options:ServiceOptions)=>Effect
     const n=Math.min(want,Number(field(quote,'available')??want));
     if(!(n>0))return skip(`${base} has none available`);
     if(!Number.isFinite(cost)||credits-cost<floor)return skip(`${n} cost ${cost}; credits ${credits} would fall under the reserve ${floor}`);
-    quoteNext('spacemolt/buy',FUEL_CELL,{ask,estimate_total:cost,estimate_available:field(quote,'available')??null});
+    if(options.quotes!==false)quoteNext('spacemolt/buy',FUEL_CELL,{ask,estimate_total:cost,estimate_available:field(quote,'available')??null});
     const bought=yield* Effect.result(game.command('spacemolt/buy',{id:FUEL_CELL,quantity:n}));
     // Only a lost reply keeps going: the buy may have landed, so the hold is re-read, never the buy re-sent.
     if(Result.isFailure(bought)&&bought.failure._tag!=='ReplyLost')return yield* bought.failure;
@@ -239,7 +234,7 @@ const fill=(account:ReadinessAccount,options:ServiceOptions)=>Effect.gen(functio
   let spent=0;
   for(const service of admitted) {
     yield* verify;
-    quoteNext(service.action,undefined,{posted_unit:service.action==='spacemolt/refuel'?unitFuel??null:perHull??null,
+    if(options.quotes!==false)quoteNext(service.action,undefined,{posted_unit:service.action==='spacemolt/refuel'?unitFuel??null:perHull??null,
       need:service.need,estimate:service.estimate??null});
     const reply=replyBody(yield* game.command(service.action,{}));
     issued.push(service.action);

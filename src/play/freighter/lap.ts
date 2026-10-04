@@ -238,7 +238,7 @@ const tried=<E>(f:Freighter,at:string,what:string,send:Effect.Effect<unknown,E,G
 
 /** Tired's service margin is the wallet itself; the reserve is 0, and the fill is checked after. A
  * counter that refuses a service is passed by: the next quote says whether the tank still reaches. */
-const serviceEffect=(f:Freighter,stop:Stop)=>tried(f,stop.at,'service',serviceShipEffect(f.account,{mood:'Tired',cells:false}));
+const serviceEffect=(f:Freighter,stop:Stop)=>tried(f,stop.at,'service',serviceShipEffect(f.account,{mood:'Tired',cells:false,quotes:false}));
 
 /** Fly to `stop` and dock, unless docked there already; how many jumps it took. */
 const flyEffect=(f:Freighter,stop:Stop)=>Effect.gen(function*() {

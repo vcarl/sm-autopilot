@@ -3,14 +3,17 @@ import test from 'node:test';
 import {existsSync,mkdirSync,mkdtempSync,readFileSync,readlinkSync,rmSync,symlinkSync,writeFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
-import type {Account} from '@spacemolt/lib';
+import {ConnectionClosedError,SpacemoltError,type Account} from '@spacemolt/lib';
 import type {ReadinessAccount} from './readiness.ts';
 import {check,pilotHome,playDir,runPilot} from './run.ts';
 import {closeInterrupted,journalCommand,readJournal as readJournalLines,readRun,writeRun} from './run-record.ts';
-const readJournal=(runtime:string,limit?:number):Record<string,any>[]=>readJournalLines(runtime,limit); // bridge: U30
+const readJournal=readJournalLines;
+/** A journal field that must be an object, narrowed so the assertions read its keys. */
+const rec=(value:unknown):Record<string,unknown>=>{assert.ok(typeof value==='object'&&value!==null,`not an object: ${JSON.stringify(value)}`);return Object.fromEntries(Object.entries(value));};
 import {bridgeWorld,type WorldOptions} from './test-support/bridge-world.ts';
 import {flying} from './bridge.ts';
 import {pace} from './play/combat/hunting.ts';
+import {battleEnded} from './travel.ts';
 
 const PILOT={name:'kvothe',mood:'Focused' as const,stance:'Prospector' as const};
 
@@ -61,7 +64,7 @@ test('a first run installs the example, and the three gates refuse before anythi
     // a reader of the journal can see what was refused and why.
     const logged=readJournal(f.runtime).find(entry=>entry.event==='run'&&entry.phase==='refused')!;
     assert.ok(logged,'the refusal is in the journal');
-    assert.match(logged.errors.join(' '),/stopped\(\)/);
+    assert.match(JSON.stringify(logged.errors),/stopped\(\)/);
     assert.ok(existsSync(join(f.runtime,'programs',`${logged.sha}.ts`)),'the refused program is kept');
   } finally {f.close();}
 });
@@ -88,7 +91,7 @@ test('the run summary says how the run ended, not how its first call did',async(
       "export default async function main(){ await goTo('belt'); return outcome('gave up at the belt','partial'); }\n");
     const result=await runPilot(f.deps);
     assert.equal(result.status,'partial');
-    const work=readJournal(f.runtime).find(entry=>entry.phase==='ended')!.work;
+    const work=rec(readJournal(f.runtime).find(entry=>entry.phase==='ended')!.work);
     assert.equal(work.fn,'goTo');
     assert.equal(work.status,'partial',JSON.stringify(work));
   } finally {f.close();}
@@ -103,7 +106,7 @@ test('a later call that refused does not stamp its refusal on the work call',asy
       "export default async function main(){ await goTo('belt'); return completeMissions(); }\n");
     const result=await runPilot(f.deps);
     assert.equal(result.status,'refused');
-    const work=readJournal(f.runtime).find(entry=>entry.phase==='ended')!.work;
+    const work=rec(readJournal(f.runtime).find(entry=>entry.phase==='ended')!.work);
     assert.equal(work.fn,'goTo');
     assert.equal(work.status,'done',JSON.stringify(work));
   } finally {f.close();}
@@ -119,7 +122,7 @@ test('a paying call after a refused one lifts the summary off the stale refusal'
       "export default async function main(){ await sell([]); return sell([{item_id:'ore',quantity:5}]); }\n");
     const result=await runPilot(f.deps);
     assert.equal(result.status,'done');
-    const work=readJournal(f.runtime).find(entry=>entry.phase==='ended')!.work;
+    const work=rec(readJournal(f.runtime).find(entry=>entry.phase==='ended')!.work);
     assert.equal(work.fn,'sell');
     assert.equal(work.status,'done',JSON.stringify(work));
   } finally {f.close();}
@@ -132,7 +135,7 @@ test('the run summary names the first work call, past the reads that planned it'
     f.write("import {goTo, quote, recipes} from 'play';\n"+
       "export default async function main(){ await recipes(); await quote('refine_ore'); return goTo('belt'); }\n");
     await runPilot(f.deps);
-    const work=readJournal(f.runtime).find(entry=>entry.phase==='ended')!.work;
+    const work=rec(readJournal(f.runtime).find(entry=>entry.phase==='ended')!.work);
     assert.equal(work.fn,'goTo',JSON.stringify(work));
   } finally {f.close();}
 });
@@ -164,7 +167,7 @@ test('a run whose report cannot be rendered still journals its end, with the err
     assert.equal(result.accepted,true);
     const ended=readJournal(f.runtime).find(entry=>entry.phase==='ended');
     assert.ok(ended,'run/ended is journalled');
-    assert.match(ended.why,/report.*boom/);
+    assert.match(String(ended.why),/report.*boom/);
     assert.equal(readRun(f.runtime)!.ended,true);
   } finally {f.close();}
 });
@@ -213,6 +216,23 @@ test('a run that would hand back with a battle live breaks it off and says so',a
     await f.command('spacemolt/travel',{id:'belt'});
     assert.equal(f.account.server.location.poi_id,'belt');
   } finally {f.close();pace.tickMs=10_000;}
+});
+
+// A run cut off at the cap (24 + 2 min) then broke off a live fight for up to the fight ceiling (5 min):
+// 31 minutes, past `service.REQUEST_TIMEOUT`'s 30. The break-off now gets only what is left before the answer is due.
+test('a capped run with a battle that will not end still answers by its deadline, saying the battle is live',async()=>{
+  pace.tickMs=1;
+  const grazer={creature_id:'c1',species:'molt_grazer',name:'Molt Grazer'};
+  const f=harness({wildlife:{creatures:[grazer],polls:1e9,damage:0,fleeTicks:1e9}});
+  try {
+    f.write("export default async function main(){ await new Promise(()=>{}); }\n");
+    await f.command('spacemolt/hunt',{id:'c1'});
+    const since=Date.now();
+    const result=await runPilot({...f.deps,capMs:20,graceMs:20,closeMs:300});
+    assert.ok(Date.now()-since<20+20+300+2000,`answered after ${Date.now()-since} ms`);
+    assert.equal(result.abandoned,true);
+    assert.match(result.why??'',/could not break off; the battle is still live/);
+  } finally {f.close();pace.tickMs=10_000;battleEnded();}
 });
 
 test('a pilot with no stance runs its script, and the script can bring the ship up',async()=>{
@@ -328,7 +348,7 @@ test('a promise the program left unawaited ends the run failed with its error, a
     assert.match(result.why!,/unhandled rejection: No response to spacemolt\/get_active_missions/);
     const ended=readJournal(f.runtime).find(entry=>entry.phase==='ended')!;
     assert.equal(ended.outcome,'failed');
-    assert.match(ended.why,/get_active_missions/);
+    assert.match(String(ended.why),/get_active_missions/);
   } finally {
     if(!process.listenerCount('unhandledRejection'))for(const fn of runner)process.on('unhandledRejection',fn);
     f.close();
@@ -382,13 +402,107 @@ test('telemetry: a run stamps its id on its command lines, and journals its stat
     const commands=journal.filter(entry=>entry.event==='command');
     assert.ok(commands.length&&commands.every(entry=>entry.run_id===started.run_id),JSON.stringify(commands[0]));
     assert.equal(started.juncture_id,'j1');
-    assert.ok(started.since_juncture_s>=5);
-    for(const state of [started.start_state,ended.end_state])
+    assert.ok(Number(started.since_juncture_s)>=5);
+    for(const state of [rec(started.start_state),rec(ended.end_state)])
       for(const key of ['credits','fuel','max_fuel','hull','max_hull','cargo_used','cargo_capacity','cargo','skills','system','poi','docked_at'])
         assert.ok(key in state,`${key} in ${JSON.stringify(state)}`);
     assert.equal(ended.run_id,started.run_id);
-    const call=ended.calls[0];
+    const call=rec(Array.isArray(ended.calls)?ended.calls[0]:undefined),cost=rec(call.cost),gained=rec(call.gained);
     assert.equal(call.fn,'goTo');
-    assert.ok('credits' in call.cost&&'fuel' in call.cost&&'items' in call.gained&&call.started_at&&call.seconds>=0,JSON.stringify(call));
+    assert.ok('credits' in cost&&'fuel' in cost&&'items' in gained&&call.started_at&&Number(call.seconds)>=0,JSON.stringify(call));
+  } finally {f.close();}
+});
+
+// The run's close reads the battle. A refusal there is "no battle" (a game condition, never a bug); a lost reply is
+// re-read and never taken as "no battle" (U21's rule); only a real bug is a `defect` line, and even it must not cost
+// the run its report or Tired its resupply.
+const defects=(runtime:string)=>readJournal(runtime).filter(entry=>entry.event==='defect');
+/** `action` throws `error` its first `times` calls, then reaches the world. */
+const failing=(f:ReturnType<typeof harness>,error:Error,times=Infinity,action='spacemolt_battle/status'):typeof f.command=>{
+  let left=times;
+  return async(sent,params)=>{
+    if(sent===action&&left-->0)throw error;
+    return f.command(sent,params);
+  };
+};
+const lost=()=>new ConnectionClosedError('socket closed',1006);
+test('the closing read of the battle is refused: the run ends and no defect line is written',async()=>{
+  const f=harness();
+  try {
+    f.write("export default async function main(){}\n");
+    const command=failing(f,new SpacemoltError('not_in_battle','you are not in a battle'));
+    const result=await runPilot({...f.deps,command});
+    assert.equal(result.accepted,true,result.errors?.join('\n'));
+    assert.ok(readJournal(f.runtime).some(entry=>entry.phase==='ended'),'the end is journalled');
+    assert.deepEqual(defects(f.runtime),[]);
+  } finally {f.close();}
+});
+
+// U30 verifier: a lost closing read was "no battle" (as on main), so a live fight behind one lost reply was handed back unattended.
+test('a lost closing read of the battle is read again, and the live battle behind it is broken off',async()=>{
+  pace.tickMs=1;
+  const grazer={creature_id:'c1',species:'molt_grazer',name:'Molt Grazer'};
+  const f=harness({wildlife:{creatures:[grazer],polls:30,damage:0,fleeTicks:1}});
+  try {
+    f.write("export default async function main(){}\n");
+    await f.command('spacemolt/hunt',{id:'c1'});
+    const result=await runPilot({...f.deps,command:failing(f,lost(),1)});
+    assert.equal(result.accepted,true,result.errors?.join('\n'));
+    assert.match(f.lines.join('\n'),/the run returned with a battle still live against Molt Grazer/);
+    assert.match(result.why!,/broken off before the run closed/);
+    assert.deepEqual(defects(f.runtime),[]);
+  } finally {f.close();pace.tickMs=10_000;}
+});
+
+test('a closing read of the battle lost three times is not "no battle": the run breaks off and its reads decide',async()=>{
+  pace.tickMs=1;
+  const f=harness();
+  try {
+    f.write("export default async function main(){}\n");
+    const sent:string[]=[];
+    const command=failing(f,lost(),3);
+    const result=await runPilot({...f.deps,command:async(action,params)=>{sent.push(action);return command(action,params);}});
+    assert.equal(result.accepted,true,result.errors?.join('\n'));
+    assert.match(f.lines.join('\n'),/status was lost three times/);
+    assert.ok(sent.includes('spacemolt_battle/stance'),'it broke off rather than taking the lost reads as no battle');
+    // The world has no battle: disengage's own read finds that, so nothing is reported as held.
+    assert.doesNotMatch(result.why??'',/mid-fight|mid-battle/);
+    assert.deepEqual(defects(f.runtime),[]);
+  } finally {f.close();pace.tickMs=10_000;}
+});
+
+test('a bug in breaking off at the close is a defect line, and the run still ends saying the battle is live',async()=>{
+  pace.tickMs=1;
+  const grazer={creature_id:'c1',species:'molt_grazer',name:'Molt Grazer'};
+  const f=harness({wildlife:{creatures:[grazer],polls:30,damage:0,fleeTicks:1}});
+  try {
+    f.write("export default async function main(){}\n");
+    await f.command('spacemolt/hunt',{id:'c1'});
+    const result=await runPilot({...f.deps,command:failing(f,new TypeError('a bug'),Infinity,'spacemolt_battle/stance')});
+    assert.equal(result.accepted,true,result.errors?.join('\n'));
+    assert.ok(defects(f.runtime).some(entry=>entry.fn==='disengage'),JSON.stringify(defects(f.runtime)));
+    assert.match(result.why!,/could not break off; the battle is still live/);
+    const ended=readJournal(f.runtime).find(entry=>entry.phase==='ended');
+    assert.equal(ended?.outcome,'partial');
+  // The battle is left held in travel's memory, as it should be; the next test's world has none.
+  } finally {f.close();pace.tickMs=10_000;battleEnded();}
+});
+
+test('a bug in the closing read of the battle is a defect line, and the report and the resupply still happen',async()=>{
+  const f=harness();
+  try {
+    f.account.server.location={system_id:'sol',poi_id:'belt',docked_at:null,in_transit:false};
+    f.account.server.ship.fuel=15;
+    await f.account.refresh();
+    f.write("export default async function main(){}\n");
+    const command=failing(f,new TypeError('a bug'));
+    const who=()=>flying(PILOT,f.account.state as never);
+    const result=await runPilot({...f.deps,command,pilot:who});
+    assert.equal(result.accepted,true,result.errors?.join('\n'));
+    assert.equal(defects(f.runtime).length,1,JSON.stringify(defects(f.runtime)));
+    assert.equal(defects(f.runtime)[0]!.fn,'closeBattle');
+    assert.match(f.lines.join('\n'),/reading the battle threw/);
+    assert.ok(readJournal(f.runtime).some(entry=>entry.phase==='ended'),'the end is journalled');
+    assert.equal(f.account.server.ship.fuel,f.account.server.ship.max_fuel,'Tired was still resupplied');
   } finally {f.close();}
 });

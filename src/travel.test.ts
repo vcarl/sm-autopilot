@@ -1,9 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import {Effect} from 'effect';
 import {SpacemoltError} from '@spacemolt/lib';
 import type {ReadinessCommand} from './readiness.ts';
 import {FakeLibGoalAccount,type FakeCommandHandlers} from './test-support/fake-lib-account.ts';
-import {travelTo,TravelBlocked} from './travel.ts';
+import {TravelBlocked} from './travel.ts';
+import {travelTo} from './test-support/travel.ts';
 
 test('fuel lost after undocking reports the refreshed shortfall before jump or local travel',async()=>{
   for(const local of [false,true]) {
@@ -75,7 +77,7 @@ test('travel re-quotes actual remaining fuel, bounds definitive retries, and nev
       return account.send(tool!,action!,payload);
     };
     const options={now:()=>now,sleep:async(ms:number)=>{now+=ms;},
-      refuel:async()=>{refuels++;server.ship.fuel=100;await account.refresh();}};
+      refuelWith:()=>Effect.promise(async()=>{refuels++;server.ship.fuel=100;await account.refresh();})};
     const target={system_id:'b',poi_id:'b_station'};
     if(mode==='return') {
       await travelTo(account,command,target,options);server.ship.cargo_used=80;

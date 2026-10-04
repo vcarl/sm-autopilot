@@ -51,7 +51,7 @@ export interface Venue {
  * itself the answer: the ore is in the wrong place. */
 export declare const recipesEffect: (search?: string) => Effect.Effect<Outcome<{
     recipes: Craftable[];
-}>, never, Game>;
+}>, never, Game | import("../runtime.ts").Run>;
 export declare function recipes(search?: string): Promise<Outcome<{
     recipes: Craftable[];
 }>>;
@@ -89,7 +89,7 @@ export type Quoted = CraftQuoteResponse & Venue & {
  * `next` names the buy or the mining that would close the gap. */
 export declare const quoteEffect: (recipeId: string, quantity?: number, opts?: {
     at?: "workshop" | string;
-}) => Effect.Effect<Outcome<Quoted>, never, Game>;
+}) => Effect.Effect<Outcome<Quoted>, never, Game | import("../runtime.ts").Run>;
 export declare function quote(recipeId: string, quantity?: number, opts?: {
     at?: 'workshop' | string;
 }): Promise<Outcome<Quoted>>;
@@ -122,7 +122,7 @@ export interface Supplied {
 export declare const supplyEffect: (recipeId: string, quantity?: number, opts?: {
     at?: "workshop" | string;
     maxSpend?: number;
-}) => Effect.Effect<Outcome<Supplied>, never, Game>;
+}) => Effect.Effect<Outcome<Supplied>, never, Game | import("../runtime.ts").Run>;
 export declare function supply(recipeId: string, quantity?: number, opts?: {
     at?: 'workshop' | string;
     maxSpend?: number;
@@ -154,7 +154,7 @@ export interface Crafted extends Venue {
  * trains nothing. */
 export declare const craftEffect: (recipeId: string, quantity?: number, opts?: {
     at?: "workshop" | string;
-}) => Effect.Effect<Outcome<Crafted>, never, Game>;
+}) => Effect.Effect<Outcome<Crafted>, never, Game | import("../runtime.ts").Run>;
 export declare function craft(recipeId: string, quantity?: number, opts?: {
     at?: 'workshop' | string;
 }): Promise<Outcome<Crafted>>;
@@ -177,7 +177,7 @@ export interface Queued {
  * ship is not docked there. Works undocked. Reads only. */
 export declare const jobsEffect: () => Effect.Effect<Outcome<{
     jobs: Queued[];
-}>, never, Game>;
+}>, never, Game | import("../runtime.ts").Run>;
 export declare function jobs(): Promise<Outcome<{
     jobs: Queued[];
 }>>;
@@ -201,6 +201,6 @@ export interface Materials {
 /** Everything `quantity` of `itemId` takes, down to raw leaves, net of what the hold and — when
  * docked — this base's store already hold of each intermediate. From the catalog: reads only,
  * works undocked, needs no bench. `failed` when the catalog cannot be read. */
-export declare const materialsEffect: (itemId: string, quantity: number) => Effect.Effect<Outcome<Materials>, never, Game>;
+export declare const materialsEffect: (itemId: string, quantity: number) => Effect.Effect<Outcome<Materials>, never, Game | import("../runtime.ts").Run>;
 export declare function materials(itemId: string, quantity: number): Promise<Outcome<Materials>>;
 export {};

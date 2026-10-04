@@ -1,10 +1,11 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {ConnectionClosedError,SpacemoltError,type Account} from '@spacemolt/lib';
-import {details} from '../response-details.ts';
 import {bridgeWorld,type WorldOptions} from '../test-support/bridge-world.ts';
 import {buyShip,refit,shipsForSale} from './hangar.ts';
 import {bind,unbind,type Pilot} from './runtime.ts';
+/** A reply's body, loosely: the test pokes at fields the world sent. */
+const details=(reply:any):any=>reply?.structuredContent??reply?.delta?.details??reply??{};
 
 /** A world the game answers as the live server does, with hooks that make one command fail the way the
  * server fails it (a refusal: `SpacemoltError`, a `Rejected`; or a lost reply) or answer with a reply

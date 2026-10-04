@@ -6,7 +6,7 @@ import {resolveWalkAway} from '../../mood-policy.ts';
 import {replyBody,rows as listOf} from '../../storage.ts';
 import {battleEnded} from '../../travel.ts';
 import * as Wire from '../../wire.gen.ts';
-import {Game,attempt,field,isGameError,type GameError} from '../game.ts';
+import {Game,field,reread,isGameError,type GameError} from '../game.ts';
 import {activeEffect} from '../missions.ts';
 import {acct,admit,checkStop,edge,jobEffect,pilot,reached,runtimeDir,step,stopped} from '../runtime.ts';
 import {goToEffect,routeEffect} from '../travel.ts';
@@ -112,7 +112,7 @@ export interface TickDecision {
  * once and acts once a tick; five minutes is a fight that is not going to end. `pace` is a
  * knob only because the tests cannot sit through real ticks. */
 export const pace={tickMs:10_000};
-const FIGHT_CEILING_MS=5*60_000;
+export const FIGHT_CEILING_MS=5*60_000;
 
 /** What the hunt reads of one creature or pirate, with the row the server sent kept for the frozen `Fight.target`.
  * A creature carries what `decline` reads; a pirate has no `creature`. */
@@ -154,8 +154,7 @@ function preyIn(body:unknown,pirates:boolean):Prey[] {
 }
 
 const told=(error:GameError)=>error._tag==='ReplyLost'?`reply lost on ${error.action}`:`${error.action}: ${error.code} — ${error.message}`;
-// bridge: U31 (acct().refresh is readiness, converted with the module state)
-const refresh=attempt('refresh',()=>acct().refresh());
+const refresh=reread;
 
 /** The loadout floor, in the one form the state can answer: a fitted module whose `type` is
  * `weapon`, holding rounds for its `ammo_type`. An empty magazine with its ammunition in the
@@ -285,7 +284,7 @@ export const disengageEffect=(bound=FIGHT_CEILING_MS)=>Effect.gen(function*() {
   }
 });
 export async function disengage(bound=FIGHT_CEILING_MS):Promise<boolean> {
-  const out=await edge(jobEffect<{ended:boolean},Game>('disengage','',disengageEffect(bound).pipe(Effect.map(end=>
+  const out=await edge(jobEffect<{ended:boolean}>('disengage','',disengageEffect(bound).pipe(Effect.map(end=>
     end==='over'?{status:'done' as const,did:'the battle has ended',detail:{ended:true}}
       :{status:'partial' as const,did:'still in the battle',detail:{ended:false},why:end==='on'
         ?'the bound ran out with the battle on; nothing will move the ship until it ends'
@@ -553,12 +552,11 @@ export const huntEffect=(opts:{poi?:string;look?:string[];fights?:number;species
   // Where to look, in order. `poi` is the single-place case of `look`; naming neither looks
   // exactly once, where the ship already stands.
   const trail=opts.look?.length?opts.look:opts.poi?[opts.poi]:[];
-  return jobEffect<Hunted,Game>('hunt',[trail.join('/'),species.join('+'),opts.target,asked>1?`×${asked}`:''].filter(Boolean).join(' '),Effect.gen(function*() {
+  return jobEffect<Hunted>('hunt',[trail.join('/'),species.join('+'),opts.target,asked>1?`×${asked}`:''].filter(Boolean).join(' '),Effect.gen(function*() {
     const game=yield* Game;
     const result:Hunted={poi_id:trail[0]??acct().state.location?.poi_id??'',fights:[],looked:[],ended:'asked'};
     const refuse=(why:string)=>({status:'refused' as const,did:'hunted nothing',why,detail:result});
-    // bridge: U31 (admit keeps its Promise form with the module singletons it reads)
-    const blocked=yield* attempt('hunt',()=>admit('hunt'));
+    const blocked=yield* admit('hunt');
     if(blocked)return refuse(blocked);
     const gap=yield* loadoutEffect();
     if(gap)return refuse(gap);

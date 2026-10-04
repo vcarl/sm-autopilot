@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import {SpacemoltError} from '@spacemolt/lib';
 import {FakeLibGoalAccount,type FakeCommandHandlers} from './test-support/fake-lib-account.ts';
 import type {ReadinessCommand} from './readiness.ts';
-import {travelTo,TravelBlocked,type TravelOptions} from './travel.ts';
+import {TravelBlocked,type TravelOptions} from './travel.ts';
+import {travelTo} from './test-support/travel.ts';
 
 function fixture(lossAt?:string) {
   const home={system_id:'a',poi_id:'station',base_id:'home'};

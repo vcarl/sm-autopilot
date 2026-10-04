@@ -9,7 +9,7 @@ import {mkdirSync,mkdtempSync,rmSync,writeFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {serve,type Pilot} from './bridge.ts';
-import type {ReadinessAccount} from './readiness.ts';
+import type {ReadinessAccount,ReadinessCommand} from './readiness.ts';
 import {readRun} from './run-record.ts';
 import {bridgeWorld} from './test-support/bridge-world.ts';
 
@@ -22,14 +22,14 @@ const ASKS="import {ask, note, outcome} from 'play';\n"+
   "  return outcome(`went ${pick}`);\n"+
   "}\n";
 
-function harness(source:string) {
+function harness(source:string,wrap?:(command:ReadinessCommand)=>ReadinessCommand,onLine?:(text:string)=>void) {
   const runtime=mkdtempSync(join(tmpdir(),'spacemolt-ask-'));
   mkdirSync(join(runtime,'pilot'),{recursive:true});
   writeFileSync(join(runtime,'pilot','index.ts'),source);
   const game=bridgeWorld({services:['refuel','repair']});
   const lines:string[]=[];
-  const dispatch=serve(game.account as unknown as Account,game.command,
-    {pilot:()=>PILOT,runtime,emit:text=>lines.push(text)});
+  const dispatch=serve(game.account as unknown as Account,wrap?wrap(game.command):game.command,
+    {pilot:()=>PILOT,runtime,emit:text=>{lines.push(text);onLine?.(text);}});
   /** Which requests took the stream over, in order. */
   const attached:string[]=[];
   const send=(action:string,params:Record<string,unknown>={})=>
@@ -141,5 +141,46 @@ test('an ask with empty choices is refused at the call, before anything pauses',
     const ended=await f.send('run');
     assert.equal(ended.paused,undefined);
     assert.match(ended.did,/choices/);
+  } finally {f.close();}
+});
+
+test('a stop after an answer resumed the program reaches its own loop: the run ends partial, not cut off',async()=>{
+  const f=harness("import {ask, outcome, stopped} from 'play';\n"+
+    "export default async function main(){\n"+
+    "  const pick=await ask({question:'Go?',choices:['yes','no']});\n"+
+    "  while(!stopped()) await new Promise(resolve=>setTimeout(resolve,5));\n"+
+    "  return outcome(`stopped after ${pick}`,'partial');\n"+
+    "}\n");
+  try {
+    await f.send('run');
+    const resumed=f.send('answer',{answer:'yes'});
+    await new Promise(resolve=>setTimeout(resolve,30));
+    assert.equal((await f.send('stop')).stopping,true);
+    const ended=await resumed;
+    assert.equal(ended.status,'partial');
+    assert.equal(ended.did,'stopped after yes');
+    assert.equal(ended.abandoned,undefined);
+  } finally {f.close();}
+});
+
+// U31 verify: the menu binds the runtime for its reads and unbinds after. A run that bound while a menu's
+// read was still out had its binding unbound under it by the menu's `finally`: the program lost its run.
+test('a run started while a menu is still reading binds after the menu has unbound, never under it',async()=>{
+  let release=()=>{};
+  const held=new Promise<void>(resolve=>{release=resolve;});
+  let holding=true;
+  const f=harness(ASKS,command=>async(action,params)=>{if(holding)await held;return command(action,params);},
+    text=>{if(text.startsWith('run started'))release();});
+  try {
+    const menu=f.send('menu');
+    await new Promise(resolve=>setTimeout(resolve,10));
+    const run=f.send('run');
+    // The run binds only once the menu is done; without that, 'run started' is what releases the menu.
+    setTimeout(()=>{holding=false;release();},1500);
+    assert.ok((await menu).present,'the menu answered');
+    const paused=await run;
+    assert.equal(paused.paused,true,JSON.stringify(paused));
+    const ended=await f.send('answer',{answer:'north'});
+    assert.equal(ended.did,'went north');
   } finally {f.close();}
 });

@@ -1,8 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import {Effect} from 'effect';
 import {ConnectionClosedError,SpacemoltError} from '@spacemolt/lib';
 import type {ReadinessCommand} from './readiness.ts';
-import {ArrivalUnresolved,TravelBlocked,travelTo} from './travel.ts';
+import {ArrivalUnresolved,TravelBlocked} from './travel.ts';
+import {travelTo} from './test-support/travel.ts';
 import {FakeLibGoalAccount} from './test-support/fake-lib-account.ts';
 
 // Port the navigation reconciliation contract through the production movement path.
@@ -72,7 +74,7 @@ function fixture(kind:'jump'|'travel',mode:'arrived'|'elsewhere'|'fuel'|'timeout
       // Unrelated pushes cannot make cached location authoritative or delay reads.
       account.state.ship!.cargo_used=++server.ship.cargo_used;
     },
-    checkpoint:async(isSettled=false)=>{
+    checkpoint:(isSettled=false)=>Effect.sync(()=>{
       if(isSettled) {
         assert.ok(server.location.system_id);
         assert.equal(server.location.in_transit,false);
@@ -80,7 +82,7 @@ function fixture(kind:'jump'|'travel',mode:'arrived'|'elsewhere'|'fuel'|'timeout
         assert.equal(account.refreshes.at(-1),time);
         settled.push(time);
       }
-    },
+    }),
   };
   return {destination,resolved,movementActions,account,server,quotes,sleeps,settled,firstError,secondError,now:()=>time,
     run:()=>travelTo(account,command,destination,options)};

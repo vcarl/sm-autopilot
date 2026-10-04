@@ -10,6 +10,8 @@
  * stop, and reconcile from live state before acting.
  */
 import type {GameState} from '@spacemolt/lib';
+import {Effect} from 'effect';
+import {attempt} from './play/game.ts';
 import type {ReadinessAccount} from './readiness.ts';
 
 export type MoveCause='respawn'|'captured'|'fleet_kick'|'unknown';
@@ -67,16 +69,21 @@ function classify(from:Position,to:Position,state:GameState):MoveCause {
  *
  * `read:false` is for the one caller that has just taken that read itself — an arrival wait
  * refreshes at its own deadline — so the comparison uses the freshest read rather than
- * spending a second one on it.
+ * spending a second one on it (`reconcile`). A failed read is classified as any game step's
+ * is (`attempt`): the lib's refusal or a lost reply its tag, anything else a defect.
  */
-export async function reconcileMove(account:ReadinessAccount,expected:Position,
-  options:{read?:boolean}={}):Promise<Reconciliation> {
-  if(options.read!==false)await account.refresh();
-  const to=position(account.state);
+export const reconcileMoveEffect=(account:ReadinessAccount,expected:Position,
+  options:{read?:boolean}={})=>Effect.gen(function*() {
+  if(options.read!==false)yield* attempt('refresh',()=>account.refresh());
+  return reconcile(account.state,expected);
+});
+/** The comparison alone, against the read already taken. */
+export function reconcile(state:GameState,expected:Position):Reconciliation {
+  const to=position(state);
   const differences=FIELDS.filter(field=>to[field]!==expected[field])
     .map(field=>`${field} ${JSON.stringify(expected[field])} -> ${JSON.stringify(to[field])}`);
   if(!differences.length)return {moved:false,from:expected,to,evidence:''};
-  return {moved:true,cause:classify(expected,to,account.state),from:expected,to,
+  return {moved:true,cause:classify(expected,to,state),from:expected,to,
     evidence:differences.join('; ')};
 }
 

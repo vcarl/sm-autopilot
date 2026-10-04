@@ -3,6 +3,9 @@ import type { Outcome } from './play/types.ts';
 /** 24 minutes, then the stop flag; 2 more for the script to honour it. Both inside the 30 of
  * `service.REQUEST_TIMEOUT`, leaving room for the battle check and the record after. */
 export declare const RUN_CAP_MS: number, RUN_GRACE_MS: number;
+/** What breaking off a fight may take past the cap and its grace: 2 of the 4 minutes `REQUEST_TIMEOUT`
+ * leaves, the rest for the resupply's stop and the record, so a capped run still answers in time. */
+export declare const CLOSE_MS: number;
 /** The pilot's directory, ready to typecheck and run: `pilot/index.ts` (from the example on
  * first use), `node_modules/play` and `node_modules/@spacemolt` linked so the bare specifiers
  * resolve for tsc and for node alike, and the tsconfig tsc is pointed at.
@@ -30,10 +33,12 @@ export interface RunDeps extends Omit<Binding, 'runtime'> {
     /** The wall-clock cap and the grace after it; tests shorten them. */
     capMs?: number;
     graceMs?: number;
+    /** The break-off allowance past both (`CLOSE_MS`); tests shorten it. */
+    closeMs?: number;
     /** The juncture that asked for this run (`runtime/juncture.json` as the Python handler read it). */
     juncture?: {
-        juncture_id?: string;
-        at?: string;
+        readonly juncture_id?: string | null;
+        readonly at?: string | null;
     };
 }
 /** What a run answers with: the sentence, the reason and the rendered report — never the

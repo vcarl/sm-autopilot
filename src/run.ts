@@ -15,14 +15,16 @@ import {createHash,randomUUID} from 'node:crypto';
 import {copyFileSync,existsSync,mkdirSync,readFileSync,readlinkSync,statSync,symlinkSync,unlinkSync,writeFileSync} from 'node:fs';
 import {dirname,join,resolve} from 'node:path';
 import {fileURLToPath,pathToFileURL} from 'node:url';
+import {Cause,Effect,Exit} from 'effect';
 import {checkTree,specifiers} from './play/boundary.ts';
 import {checkPolicy} from './play/policy.ts';
 import {prose} from './play/prose.ts';
 import {runSummary} from './play/menu.ts';
-import {disengage} from './play/combat/hunting.ts';
-import {battleNow,type BattleNow} from './travel.ts';
-import {bind,command,line,outcome as build,progress,runCalls,stateSnapshot,stop,stopped,Stopped,unbind,type Binding} from './play/runtime.ts';
-import {resupply} from './play/service.ts';
+import {disengage,FIGHT_CEILING_MS} from './play/combat/hunting.ts';
+import {battleAtCloseEffect} from './travel.ts';
+import {bind,defect,edge,line,outcome as build,progress,reached,runCalls,stateSnapshot,stop,stopped,Stopped,unbind,type Binding} from './play/runtime.ts';
+import {rawError} from './play/game.ts';
+import {resupplyEffect} from './play/service.ts';
 import type {Outcome} from './play/types.ts';
 import {journalRun,writeRun,type RunRecord} from './run-record.ts';
 import {warmCheck} from './check-service.ts';
@@ -35,11 +37,14 @@ const EXAMPLE=join(PLAY,'pilot','index.ts.example');
 const PLAY_TYPES={play:[join(PLUGIN,'play.gen','play','index.d.ts')],'play/*':[join(PLUGIN,'play.gen','play','*','index.d.ts')]};
 /** The plugin's git HEAD as this bridge loaded it: with the TypeScript fingerprint `service.py`
  * booted it on (`SPACEMOLT_SOURCES`), the code a run's lines were written by. Null outside a checkout. */
-const CODE_SHA=(()=>{try {return execFileSync('git',['rev-parse','HEAD'],{cwd:PLUGIN,encoding:'utf8',stdio:['ignore','pipe','ignore']}).trim();} catch {return null;}})();
+const CODE_SHA=(()=>{try {return execFileSync('git',['rev-parse','HEAD'],{cwd:PLUGIN,encoding:'utf8',stdio:['ignore','pipe','ignore']}).trim();} catch {return null;}})(); // edge: no git or no checkout is the ordinary install, and the stamp is null
 
 /** 24 minutes, then the stop flag; 2 more for the script to honour it. Both inside the 30 of
  * `service.REQUEST_TIMEOUT`, leaving room for the battle check and the record after. */
 export const RUN_CAP_MS=24*60_000,RUN_GRACE_MS=2*60_000;
+/** What breaking off a fight may take past the cap and its grace: 2 of the 4 minutes `REQUEST_TIMEOUT`
+ * leaves, the rest for the resupply's stop and the record, so a capped run still answers in time. */
+export const CLOSE_MS=2*60_000;
 
 /** The pilot's directory, ready to typecheck and run: `pilot/index.ts` (from the example on
  * first use), `node_modules/play` and `node_modules/@spacemolt` linked so the bare specifiers
@@ -57,7 +62,9 @@ export function pilotHome(runtime:string):{dir:string;entry:string;tsconfig:stri
   // bridge never bound, so every run broke with "the play runtime is not bound". Replace it.
   const link=(from:string,to:string)=>{
     try {if(readlinkSync(to)===from)return; unlinkSync(to);}
-    catch(error){if((error as NodeJS.ErrnoException).code!=='ENOENT')throw error;}
+    catch(error){ // edge: a missing link is the first run; any other fs error goes up
+      if(!(error instanceof Error&&'code' in error&&error.code==='ENOENT'))throw error;
+    }
     symlinkSync(from,to,'dir');
   };
   link(PLAY,join(modules,'play'));
@@ -105,11 +112,14 @@ function framed(dir:string,errors:string[]):string[] {
     const hit=FRAME.exec(text);
     if(!hit)return text;
     const [,file,at]=hit;
-    if(!cache.has(file!)) {
-      try {cache.set(file!,readFileSync(resolve(dir,file!),'utf8').split('\n'));}
-      catch {cache.set(file!,[]);}
+    if(file===undefined)return text;
+    let lines=cache.get(file);
+    if(!lines) {
+      try {lines=readFileSync(resolve(dir,file),'utf8').split('\n');}
+      catch {lines=[];} // edge: tsc names files that may not exist (a lib path, a deleted one); the line stays without its source
+      cache.set(file,lines);
     }
-    const source=cache.get(file!)![Number(at)-1];
+    const source=lines[Number(at)-1];
     return source===undefined?text:`${text}\n    ${at} | ${source}`;
   });
 }
@@ -125,8 +135,7 @@ export async function check(runtime:string,{warm=true}:{warm?:boolean}={}):Promi
   if(!boundary.ok)return {ok:false,entry,sha,errors:boundary.errors};
   const policy:string[]=[];
   const seen=new Set<string>(),queue=[entry];
-  while(queue.length) {
-    const path=queue.shift()!;
+  for(let path=queue.shift();path!==undefined;path=queue.shift()) {
     if(seen.has(path))continue;
     seen.add(path);
     const source=readFileSync(path,'utf8');
@@ -141,8 +150,10 @@ export interface RunDeps extends Omit<Binding,'runtime'> {
   /** The wall-clock cap and the grace after it; tests shorten them. */
   capMs?:number;
   graceMs?:number;
+  /** The break-off allowance past both (`CLOSE_MS`); tests shorten it. */
+  closeMs?:number;
   /** The juncture that asked for this run (`runtime/juncture.json` as the Python handler read it). */
-  juncture?:{juncture_id?:string;at?:string};
+  juncture?:{readonly juncture_id?:string|null;readonly at?:string|null};
 }
 /** What a run answers with: the sentence, the reason and the rendered report — never the
  * Outcome itself, which is kilobytes of ship, location and skills. That stays in `run.json`
@@ -174,7 +185,7 @@ function keepProgram(runtime:string,entry:string,sha:string):void {
     mkdirSync(dir,{recursive:true});
     const kept=join(dir,`${sha}.ts`);
     if(!existsSync(kept))copyFileSync(entry,kept);
-  } catch {/* the record of a program is never worth a run */}
+  } catch(error) {journalRun(runtime,{job:'keepProgram',message:`the program was not kept: ${message(error)}`},'log');} // edge: the record of a program is never worth a run
 }
 
 /** A battle still running when the script returns is unattended combat. The pilot is blind
@@ -184,30 +195,49 @@ function keepProgram(runtime:string,entry:string,sha:string):void {
  * where nothing reading its report can miss it: the ship will not travel, jump or undock until
  * the battle ends, whatever the next juncture decides to do.
  *
- * Null when no battle held the ship, which is the ordinary case and costs one read. */
-async function closeBattle():Promise<{opponent:string;ended:boolean}|null> {
-  // Tired must still resupply after this, so a throw here is reported, not allowed to skip the report.
-  let fight:BattleNow|undefined;
-  try {fight=await battleNow(command);} catch(error){line(`reading the battle threw: ${message(error)}`);return null;}
+ * Null when no battle held the ship, which is the ordinary case and costs one read. A refused read is
+ * "no battle"; a lost one is re-read and, still lost, is not taken as "no battle" (U21's rule,
+ * `battleAtCloseEffect`): the run breaks off anyway, and `disengage`'s own reads decide. A defect in the
+ * read is a bug, journalled as one, and is still not allowed to skip the report or Tired's resupply. */
+async function closeBattle(answerBy:number):Promise<{opponent:string;ended:boolean}|null> {
+  // Found in review 2026-10-03: a run cut off at the cap broke off for up to the 5 minute ceiling,
+  // 31 minutes in all, past the request's 30. A bound reached is the battle reported still live.
+  const bound=()=>Math.min(FIGHT_CEILING_MS,Math.max(0,answerBy-Date.now()));
+  const read=await edge(Effect.gen(function*() {
+    const seen=yield* Effect.exit(battleAtCloseEffect());
+    if(Exit.isSuccess(seen))return build('read the battle','done',{fight:seen.value});
+    defect('closeBattle',seen.cause);
+    line(`reading the battle threw: ${Cause.pretty(seen.cause)}`);
+    return build('read the battle','failed',{fight:undefined});
+  }));
+  const fight=reached(read)?.fight;
   if(!fight)return null;
+  if(fight==='unknown') {
+    line("the battle's status was lost three times at the run's end: breaking off in case a fight is live");
+    // `disengage` is an edge: a bug in it is a `defect` line and `false`, never a throw.
+    return await disengage(bound())?null:{opponent:'an opponent the lost status never named',ended:false};
+  }
   line(`the run returned with a battle still live against ${fight.opponent}: breaking off before handing back`);
-  let ended=false;
-  try {ended=await disengage();} catch(error){line(`breaking off threw: ${message(error)}`);}
-  return {opponent:fight.opponent,ended};
+  return {opponent:fight.opponent,ended:await disengage(bound())};
 }
 
-const STATUSES=new Set(['done','partial','refused','failed']);
-const isObject=(value:unknown):value is Record<string,any>=>Boolean(value)&&typeof value==='object';
+const STATUSES=['done','partial','refused','failed'] as const;
+const statusOf=(value:unknown)=>STATUSES.find(status=>status===value);
+const isObject=(value:unknown):value is Record<string,unknown>=>Boolean(value)&&typeof value==='object';
+/** What the play library builds: every field the report reads, checked. */
+const isOutcome=(value:unknown):value is Outcome<unknown>=>isObject(value)&&statusOf(value.status)!==undefined
+  &&typeof value.did==='string'&&isObject(value.gained)&&Array.isArray(value.gained.items)&&isObject(value.gained.xp)
+  &&isObject(value.now)&&isObject(value.now.skills)&&isObject(value.cost)&&Array.isArray(value.next);
 /** What `main()` returned, as an Outcome the report can trust. One the play library built is kept
  * as is; a hand-built one (live 2026-09-28: `gained:{}`, `now:null`) keeps its words — status,
  * did, why, next, detail — and takes the measured cost, gains and present from the runtime. */
 function settle(returned:unknown):Outcome<unknown> {
-  if(!isObject(returned)||!STATUSES.has(returned.status)||typeof returned.did!=='string')
+  const status=isObject(returned)?statusOf(returned.status):undefined;
+  if(!isObject(returned)||status===undefined||typeof returned.did!=='string')
     return build('main returned nothing to report','done',{returned:returned??null});
-  const {gained,now,cost,next}=returned;
-  if(isObject(gained)&&Array.isArray(gained.items)&&isObject(gained.xp)&&isObject(now)&&isObject(now.skills)
-    &&isObject(cost)&&Array.isArray(next))return returned as Outcome<unknown>;
-  const built=build(returned.did,returned.status,returned.detail??{},typeof returned.why==='string'&&returned.why?returned.why:undefined);
+  if(isOutcome(returned))return returned;
+  const {next}=returned;
+  const built=build(returned.did,status,returned.detail??{},typeof returned.why==='string'&&returned.why?returned.why:undefined);
   return Array.isArray(next)?{...built,next:next.filter(text=>typeof text==='string').slice(0,3)}:built;
 }
 const message=(error:unknown)=>error instanceof Error?error.message:String(error);
@@ -266,12 +296,12 @@ export async function runPilot(deps:RunDeps):Promise<RunResult> {
   try {
     result=await Promise.race([broke,(async()=>{
       const url=pathToFileURL(gate.entry);
-      const loaded=await import(`${url.href}?v=${statSync(gate.entry).mtimeMs}-${gate.sha}`) as {default?:()=>Promise<unknown>};
-      if(typeof loaded.default!=='function')throw new Error('pilot/index.ts exports no default function');
-      const returned=await loaded.default();
+      const loaded:unknown=await import(`${url.href}?v=${statSync(gate.entry).mtimeMs}-${gate.sha}`);
+      if(!isObject(loaded)||typeof loaded.default!=='function')throw new Error('pilot/index.ts exports no default function');
+      const returned:unknown=await Reflect.apply(loaded.default,undefined,[]);
       return settle(returned);
     })(),cutOff]);
-  } catch(error) {
+  } catch(error) { // edge: the pilot's own program may throw anything
     // A stop that reached the program's own code (a paused `ask()` rejects with it) is a stop,
     // as it is inside any library call: `partial`, not a broken script.
     result=error instanceof Stopped?build('the run was stopped','partial',{},message(error))
@@ -282,7 +312,7 @@ export async function runPilot(deps:RunDeps):Promise<RunResult> {
     process.off('uncaughtException',onException);
   }
   // Before the report is rendered, so the fact is in the report rather than after it.
-  const held=await closeBattle();
+  const held=await closeBattle(Date.parse(started)+cap+grace+(deps.closeMs??CLOSE_MS));
   if(held) {
     const why=held.ended
       ?`the run ended mid-battle against ${held.opponent}; it was broken off before the run closed`
@@ -297,15 +327,24 @@ export async function runPilot(deps:RunDeps):Promise<RunResult> {
   // its grace, so the run still ends inside the transport's timeout.
   if(!abandoned&&!(held&&!held.ended)&&deps.pilot().mood==='Tired') {
     const timer=setTimeout(stop,Math.max(0,Date.parse(started)+cap+grace-Date.now()));
-    try {await resupply({travel:!stopped()});}
-    catch(error){line(`the resupply at the run's end broke: ${message(error)}`);}
-    finally {clearTimeout(timer);}
+    // A failure is journalled as the bug it always was, and never skips the record.
+    await edge(Effect.gen(function*() {
+      const exit=yield* Effect.exit(resupplyEffect({travel:!stopped()}));
+      if(Exit.isFailure(exit)) {
+        const error=rawError(exit.cause);
+        defect('resupply',Cause.die(error));
+        line(`the resupply at the run's end broke: ${message(error)}`);
+      }
+      return build('resupplied at the run\'s end','done',{});
+    }));
+    clearTimeout(timer);
   }
   // The report is words for the pilot; the end of the run is the record. A report that cannot be
   // rendered says so in the record's reason and the run still ends (live 2026-09-28, L5277).
   let text:string;
   try {text=prose(result,runCalls());}
-  catch(error) {
+  catch(error) { // edge: a report that cannot be rendered is said in the record, never allowed to skip it
+    defect('prose',Cause.die(error));
     const why=`the report could not be rendered: ${message(error)}`;
     result={...result,why:result.why?`${result.why}; ${why}`:why};
     text=`${result.status}: ${result.did}: ${why}.`;

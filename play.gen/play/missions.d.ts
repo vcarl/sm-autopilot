@@ -33,7 +33,7 @@ export declare const missionsEffect: () => Effect.Effect<Outcome<{
     active: Active[];
     max: number;
     slots_free: number;
-}>, never, Game>;
+}>, never, Game | import("./runtime.ts").Run>;
 export declare function missions(): Promise<Outcome<{
     board: Offer[];
     active: Active[];
@@ -43,7 +43,7 @@ export declare function missions(): Promise<Outcome<{
 /** Accept one mission by `mission_id`. Over `accept_mission` it adds: refused when
  * `max_missions` are active, when a `provided_items` load will not fit the hold, when the
  * mission names a no-go system, or under Tired/Relaxed. Costs nothing. */
-export declare const acceptMissionEffect: (id: string) => Effect.Effect<Outcome<AcceptMissionResponse>, never, Game>;
+export declare const acceptMissionEffect: (id: string) => Effect.Effect<Outcome<AcceptMissionResponse>, never, Game | import("./runtime.ts").Run>;
 export declare function acceptMission(id: string): Promise<Outcome<AcceptMissionResponse>>;
 /** Give up one active mission and free its slot. Over `abandon_mission` it adds: the
  * idempotent case (a mission seen active and now gone is `done`, nothing sent; an id this
@@ -52,7 +52,7 @@ export declare function acceptMission(id: string): Promise<Outcome<AcceptMission
  * it. Pass `{force:true}` to drop it anyway. Costs nothing but the mission. */
 export declare const abandonMissionEffect: (id: string, opts?: {
     force?: boolean;
-}) => Effect.Effect<Outcome<AbandonMissionResponse>, never, Game>;
+}) => Effect.Effect<Outcome<AbandonMissionResponse>, never, Game | import("./runtime.ts").Run>;
 export declare function abandonMission(id: string, opts?: {
     force?: boolean;
 }): Promise<Outcome<AbandonMissionResponse>>;
@@ -63,7 +63,7 @@ export declare function abandonMission(id: string, opts?: {
 export declare const completeMissionsEffect: () => Effect.Effect<Outcome<{
     completed: CompleteMissionResponse[];
     remaining: Active[];
-}>, never, Game>;
+}>, never, Game | import("./runtime.ts").Run>;
 export declare function completeMissions(): Promise<Outcome<{
     completed: CompleteMissionResponse[];
     remaining: Active[];

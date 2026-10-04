@@ -7,9 +7,10 @@ import {ConnectionClosedError,SpacemoltError,type MapSystemInfo,type Account} fr
 import type {ReadinessAccount} from '../../readiness.ts';
 import {journalRun} from '../../run-record.ts';
 import {bridgeWorld,type WorldOptions} from '../../test-support/bridge-world.ts';
-import {menu,type RunSummary} from '../menu.ts';
-import {bind,unbind,type Pilot} from '../runtime.ts';
-import {around,exploreNearby,markSeen,nearFacts,readMap,readSeen} from './exploration.ts';
+import {menuEffect,type RunSummary} from '../menu.ts';
+import {bind,onBinding,unbind,type Pilot} from '../runtime.ts';
+const menu=(runtime?:string)=>onBinding(menuEffect(runtime));
+import {around,exploreNearby,mapOf,markSeen,nearFacts,readSeen} from './exploration.ts';
 
 const sys=(system_id:string,connections:string[],over:Partial<MapSystemInfo>={}):MapSystemInfo=>
   ({system_id,name:system_id,connections,visited:false,poi_count:1,online:0,position:{x:0,y:0},visited_at:'',...over});
@@ -177,10 +178,10 @@ test('exploreNearby: a refused map read ends the run as refused, naming the code
   } finally {f.close();}
 });
 
-test('readMap keeps the rows that decode and reads a reply with no map as empty',async()=>{
+test('mapOf keeps the rows that decode and reads a reply with no map as empty',async()=>{
   const row={system_id:'a',name:'A',connections:['b'],visited:false,online:0,poi_count:1,position:{x:0,y:0},visited_at:''};
-  assert.deepEqual((await readMap(async()=>({structuredContent:{systems:[row,{system_id:'broken'}]}}))).map(r=>r.system_id),['a']);
-  assert.deepEqual(await readMap(async()=>({structuredContent:{}})),[]);
+  assert.deepEqual(mapOf({structuredContent:{systems:[row,{system_id:'broken'}]}}).map(r=>r.system_id),['a']);
+  assert.deepEqual(mapOf({structuredContent:{}}),[]);
 });
 
 test('systems.json: a torn file, or a row that is not a look, reads as nothing',()=>{

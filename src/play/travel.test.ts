@@ -9,6 +9,7 @@ import type {ReadinessAccount} from '../readiness.ts';
 import {readJournal} from '../run-record.ts';
 import {bridgeWorld,derived} from '../test-support/bridge-world.ts';
 import {travelToEffect} from '../travel.ts';
+import {onWorldClock} from '../test-support/travel.ts';
 import {acct,bind,edge,jobEffect,stop,unbind,type Pilot} from './runtime.ts';
 import {goTo} from './travel.ts';
 
@@ -135,8 +136,8 @@ test('an arrival the game never confirms fails naming itself, and is not a defec
   const w=worldJournalled(()=>'skip');
   let at=0;
   try {
-    const out=await edge(jobEffect('goTo','deep_range',travelToEffect(acct(),{system_id:'deep_range'},
-      {maxJumps:null,now:()=>at,sleep:async ms=>{at+=ms;},maxWaitMs:5000}).pipe(Effect.as({status:'done' as const,did:'flew',detail:{}}))));
+    const out=await edge(jobEffect('goTo','deep_range',onWorldClock(travelToEffect(acct(),{system_id:'deep_range'},
+      {maxJumps:null,maxWaitMs:5000}),{now:()=>at,sleep:async ms=>{at+=ms;}}).pipe(Effect.as({status:'done' as const,did:'flew',detail:{}}))));
     assert.equal(out.status,'failed',JSON.stringify(out));
     assert.match(out.why??'',/Arrival not verified/);
     assert.deepEqual(w.defects(),[]);

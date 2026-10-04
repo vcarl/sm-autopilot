@@ -24,10 +24,4 @@ export declare const counterEffect: () => Effect.Effect<{
 } | {
     refused: string;
     docked?: never;
-}, import("./codes.ts").GameError | import("../travel.ts").TravelBlocked | import("../travel.ts").ArrivalUnresolved, Game>;
-/** The Promise twin of `counterEffect`: throws the lib's raw error or `DockBlocked`, as it always did. */
-export declare function counter(): Promise<{
-    docked: string;
-} | {
-    refused: string;
-}>;
+}, import("./codes.ts").GameError | import("../travel.ts").TravelBlocked | import("../travel.ts").ArrivalUnresolved | import("../dock.ts").DockBlocked, Game>;
