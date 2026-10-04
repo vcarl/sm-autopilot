@@ -25,7 +25,7 @@ better to do. Handle the ones you have a plan for:
 
 ```ts
 const arrived = yield* goTo('kepler_base').pipe(
-  Effect.catchTag('InBattle', () => Effect.zipRight(disengage(), goTo('kepler_base'))),
+  Effect.catchTag('InBattle', () => Effect.andThen(disengage(), goTo('kepler_base'))),
 );
 ```
 
@@ -80,7 +80,7 @@ All from `'play'`, each a `Data.TaggedError` with fields:
 `NoBuyer {items}`, `NothingHere {poi}`, `HullCritical {hull}`, `NoSlots {active, max}`,
 `UnknownMission {id}`, `NothingCompletable {base}`. `GameError` is their union.
 
-Useful Effect tools: `Effect.catchTag`, `Effect.catchTags`, `Effect.either`, `Effect.retry` with a
+Useful Effect tools: `Effect.catchTag`, `Effect.catchTags`, `Effect.result`, `Effect.retry` with a
 `Schedule`, `Effect.ensuring`, `Effect.all`, `Schema.decodeUnknown`.
 
 ## Places

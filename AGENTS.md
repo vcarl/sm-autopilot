@@ -133,10 +133,19 @@ the pilot's context. Every line has `at` (UTC ISO, `Z`) and `event`.
   pair it with its `started` line by `run_id`.
 - Every line written while a run is bound carries its `run_id`; a freighter's lines carry
   `freighter` instead. Python-written lines (`gate`, `juncture`, `reflection`) never carry `run_id`.
+- `command`: `tool`, `action`, `params` (scalars), `ok`, `summary`, `ms`; on failure `code` (the
+  server's string, or a socket close number) and `lost: true` when the reply is gone, not the
+  outcome (`replyLost` in `command-boundary.ts`: a closed connection, a pending command, an
+  uncertain code).
 - `trade` (buy/sell/refuel/repair: `unit_price`, `fills`, and `quote`, the book or posted price the
   caller held), `mission` (`accepted`/`completed`/`abandoned`; `already_active` for an accept that
   sent nothing; `expired` when a mission seen running is next read expired or past its deadline),
   `stranded`, `death`, and `pilot` with `prev`.
+- `defect`: a die (a bug, not a game error) reaching a `jobEffect` or `edge`: `fn`, `why` (the
+  message), `stack` (`Cause.pretty`). Its Outcome is `failed`.
+- `check`: one per pilot-gate typecheck. `sha` (the checked `pilot/index.ts`, as on the run line), `warm`
+  (the bridge's language service answered; false is the `tsc` child), `check_ms`, `errors` (line count),
+  and `warm_error` when the service threw and the child answered instead.
 - `deps_installed` (`lock_sha256`, `seconds`) when a bridge start ran `npm ci`; `deps_failed`
   (`lock_sha256`, `error`, and `seconds`/`output` when npm ran). Nothing when the stamp matched.
 

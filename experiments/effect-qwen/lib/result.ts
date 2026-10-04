@@ -1,7 +1,7 @@
 // The Result facade over the same Effects: every function returns a Promise that always resolves, with
 // `{ok: true, value}` or `{ok: false, error}` where `error` is typed as that function's own error union.
 // The errors stay in the types (like Effect) and the control flow stays async/await (like today).
-import {Effect, Either, Schema} from 'effect';
+import {Effect, Result, Schema} from 'effect';
 import * as core from './core.ts';
 import type {World} from './core.ts';
 import {BadData, setWorld as setPromiseWorld} from './promise.ts';
@@ -15,8 +15,8 @@ export const setWorld = (w: World) => { current = w; setPromiseWorld(w); };
 const lift = <Args extends unknown[], A, E>(f: (...a: Args) => Effect.Effect<A, E, core.Game>) =>
   (...a: Args): Promise<Result<A, E>> => {
     if (!current) throw new Error('no world');
-    return Effect.runPromise(Effect.either(f(...a)).pipe(Effect.provide(core.gameLayer(current))))
-      .then((e): Result<A, E> => (Either.isLeft(e) ? {ok: false, error: e.left} : {ok: true, value: e.right}));
+    return Effect.runPromise(Effect.result(f(...a)).pipe(Effect.provide(core.gameLayer(current))))
+      .then((e): Result<A, E> => (Result.isFailure(e) ? {ok: false, error: e.failure} : {ok: true, value: e.success}));
   };
 
 export const orient = lift(core.orient);
@@ -43,9 +43,9 @@ export function unwrap<A, E>(r: Result<A, E>): A {
 }
 
 /** Decode a raw value with one of the exported schemas. */
-export function decode<A, I>(schema: Schema.Schema<A, I>, raw: unknown): Result<A, BadData> {
-  const r = Schema.decodeUnknownEither(schema)(raw);
-  return Either.isLeft(r) ? {ok: false, error: new BadData({message: String(r.left.message)})} : {ok: true, value: r.right};
+export function decode<A, I>(schema: Schema.Codec<A, I>, raw: unknown): Result<A, BadData> {
+  const r = Schema.decodeUnknownResult(schema)(raw);
+  return Result.isFailure(r) ? {ok: false, error: new BadData({message: String(r.failure.message)})} : {ok: true, value: r.success};
 }
 
 export {BadData};

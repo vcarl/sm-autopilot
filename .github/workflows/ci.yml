@@ -29,6 +29,12 @@ jobs:
       - run: npm ci
       - run: npm run typecheck
       - run: npm test
+      - run: npm run lint
+      - run: npm run gen:wire && git diff --exit-code -- src/wire.gen.ts src/wire-drift.gen.ts
+      - run: node scripts/surface.ts --check
+      # The patched tsc reports floatingEffect. A CI step, never `prepare`: that would also patch
+      # the tsc a live profile's pilot gate runs.
+      - run: npx effect-language-service patch && npm run typecheck
 
   python:
     runs-on: ubuntu-latest

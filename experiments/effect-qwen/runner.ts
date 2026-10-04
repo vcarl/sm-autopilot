@@ -30,7 +30,7 @@ try {
     const exit = await Effect.runPromiseExit((main as Effect.Effect<unknown, unknown, never>).pipe(Effect.provide(gameLayer(world))));
     if (Exit.isSuccess(exit)) result = {ok: true, value: exit.value};
     else {
-      const f = Cause.failureOption(exit.cause);
+      const f = Cause.findErrorOption(exit.cause);
       result = Option.isSome(f) ? {ok: false, tag: tagOf(f.value) ?? 'untagged', message: String(f.value)}
         : {ok: false, tag: 'defect', message: Cause.pretty(exit.cause).slice(0, 400)};
     }

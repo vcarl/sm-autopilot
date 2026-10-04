@@ -65,23 +65,24 @@ export function makeWorld(over: Partial<World> = {}): World {
 }
 
 // ── the service ────────────────────────────────────────────────────────────
-export class Game extends Context.Tag('Game')<Game, {readonly world: World}>() {}
+export class Game extends Context.Service<Game, {readonly world: World}>()('Game') {}
 
 /** A clock whose sleep costs no wall time; it only counts. Schedules and Effect.sleep use it. */
 function virtualClock(world: World): Clock.Clock {
   let now = Date.now();
   return {
-    [Clock.ClockTypeId]: Clock.ClockTypeId,
-    unsafeCurrentTimeMillis: () => now,
+    currentTimeMillisUnsafe: () => now,
     currentTimeMillis: Effect.sync(() => now),
-    unsafeCurrentTimeNanos: () => BigInt(now) * 1_000_000n,
+    currentTimeNanosUnsafe: () => BigInt(now) * 1_000_000n,
     currentTimeNanos: Effect.sync(() => BigInt(now) * 1_000_000n),
+    monotonicTimeNanosUnsafe: () => BigInt(now) * 1_000_000n,
+    monotonicTimeNanos: Effect.sync(() => BigInt(now) * 1_000_000n),
     sleep: (d: Duration.Duration) => Effect.sync(() => {const ms = Duration.toMillis(d); now += ms; world.slept += ms;}),
-  } as Clock.Clock;
+  };
 }
 
 export const gameLayer = (world: World) =>
-  Layer.merge(Layer.succeed(Game, {world}), Layer.setClock(virtualClock(world)));
+  Layer.merge(Layer.succeed(Game, {world}), Layer.succeed(Clock.Clock, virtualClock(world)));
 
 // ── errors ─────────────────────────────────────────────────────────────────
 export class InBattle extends Data.TaggedError('InBattle')<{readonly enemy: string}> {}
@@ -125,7 +126,7 @@ export type Hunted = {readonly fights: readonly {readonly target: string; readon
 export type Completed = {readonly completed: readonly Mission[]; readonly credits: number};
 
 // ── internals ──────────────────────────────────────────────────────────────
-const W = Effect.map(Game, g => g.world);
+const W = Effect.map(Effect.service(Game), g => g.world);
 const used = (w: World) => w.cargo.reduce((n, r) => n + r.quantity, 0);
 const add = (w: World, item_id: string, quantity: number) => {
   const r = w.cargo.find(c => c.item_id === item_id);

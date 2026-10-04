@@ -55,7 +55,7 @@ ship. `pilot()` returns the record that says what you are for (`objective`), the
 
 | Field | Meaning |
 |---|---|
-| `status` | `done` (end state holds), `partial` (stopped early, work done), `refused` (nothing sent; the rules said no), `failed` (broke mid-way) |
+| `status` | `done` (end state holds), `partial` (stopped early, work done), `refused` (nothing landed; the rules or the game said no, and `why` names the action and the code), `failed` (broke mid-way, or the reply was lost) |
 | `did` | one sentence, past tense |
 | `why` | the reason, when not `done` |
 | `cost` | credits, fuel, hull, minutes, measured |
@@ -71,7 +71,8 @@ Functions named for an end state send nothing when that state already holds. `go
 you are is `done`; `acceptMission` of an active mission is `done`. `stow` of rows you do not hold
 is `done` too — there was nothing to stow — with `short` and `did` saying which rows were not there; the
 same goes for `withdraw` of rows the store does not have and `sell` of rows you do not hold. A
-`refused` means a real precondition failed: no counter here, nothing named. The counter helpers (`prices`, `sell`, `buy`, `missions`, `acceptMission`, `spreads`, `stow`, `withdraw`, `service`) dock themselves when a base sits at the POI you are at; where none does they refuse, naming the POI, the system and the bases in it.
+`refused` means a real precondition failed: no counter here, nothing named, or the game itself
+said no (`in_battle`, `not_docked`). The counter helpers (`prices`, `sell`, `buy`, `missions`, `acceptMission`, `spreads`, `stow`, `withdraw`, `service`) dock themselves when a base sits at the POI you are at; where none does they refuse, naming the POI, the system and the bases in it.
 `buy`, `buyShip`, `gatherUntil` and `hunt` act again on every call: two `buy` calls buy twice.
 
 ## Shapes you will get wrong

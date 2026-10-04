@@ -25,7 +25,7 @@ better to do. Handle the ones you have a plan for:
 
 ```ts
 const arrived = yield* goTo('kepler_base').pipe(
-  Effect.catchTag('InBattle', () => Effect.zipRight(disengage(), goTo('kepler_base'))),
+  Effect.catchTag('InBattle', () => Effect.andThen(disengage(), goTo('kepler_base'))),
 );
 ```
 
@@ -83,25 +83,25 @@ All from `'play'`, each a `Data.TaggedError` with fields:
 ## Recipes — copy these shapes
 
 ```ts
-import {Effect, Either, Schedule, Schema} from 'effect';     // Effect tools come from 'effect', never from 'play'
+import {Effect, Result, Schedule, Schema} from 'effect';     // Effect tools come from 'effect', never from 'play'
 import {goTo, mine, salvage, disengage, note, orient, sell, hunt, readMarket, MarketBook} from 'play';
 
 // Handle several errors at once; each handler returns an Effect.
 const looted = yield* salvage().pipe(Effect.catchTags({
   NoWreck: () => Effect.as(note('no wreck'), null),
-  InBattle: () => Effect.zipRight(disengage(), salvage()),
+  InBattle: () => Effect.andThen(disengage(), salvage()),
 }));
 
-// Look at an error without leaving the generator: Effect.either (no parentheses) inside pipe.
-const r = yield* mine().pipe(Effect.either);
-if (Either.isLeft(r) && r.left._tag === 'HoldFull') { /* hold is full */ }
-else if (Either.isLeft(r)) return yield* Effect.fail(r.left);   // not ours: fail with it
-else yield* note(`mined ${r.right.quantity}`);
+// Look at an error without leaving the generator: Effect.result (no parentheses) inside pipe.
+const r = yield* mine().pipe(Effect.result);
+if (Result.isFailure(r) && r.failure._tag === 'HoldFull') { /* hold is full */ }
+else if (Result.isFailure(r)) return yield* Effect.fail(r.failure);   // not ours: fail with it
+else yield* note(`mined ${r.success.quantity}`);
 
 // Loop until a typed error says stop.
 while (true) {
-  const step = yield* mine().pipe(Effect.either);
-  if (Either.isLeft(step)) { if (step.left._tag === 'HoldFull') break; return yield* Effect.fail(step.left); }
+  const step = yield* mine().pipe(Effect.result);
+  if (Result.isFailure(step)) { if (step.failure._tag === 'HoldFull') break; return yield* Effect.fail(step.failure); }
 }
 
 // Retry only one error, with backoff.
@@ -115,8 +115,8 @@ export default Effect.gen(function* () { /* … */ }).pipe(Effect.ensuring(disen
 // Run reads at once.
 const [here, quotes] = yield* Effect.all([orient(), prices()], {concurrency: 'unbounded'});
 
-// Decode an unknown; a bad value fails with tag 'ParseError'.
-const book = yield* Schema.decodeUnknown(MarketBook)(yield* readMarket());
+// Decode an unknown; a bad value fails with tag 'SchemaError'.
+const book = yield* Schema.decodeUnknownEffect(MarketBook)(yield* readMarket());
 
 // Sell the whole hold: name every row.
 const here = yield* orient();
@@ -127,18 +127,18 @@ yield* sell(here.cargo.map(r => ({item_id: r.item_id})));
 
 - **`yield*`, never `yield`,** and only on an Effect. Inside `Effect.gen` every call to a `'play'` function is
   `yield* f()`. A plain value is not yielded.
-- **Pipe helpers take the handler, not `()`.** `Effect.either`, `Effect.orDie`, `Effect.ignore` go into
-  `.pipe(...)` bare: `.pipe(Effect.either)`, not `.pipe(Effect.either())`. `Effect.catchTag('Tag', e => …)`
+- **Pipe helpers take the handler, not `()`.** `Effect.result`, `Effect.orDie`, `Effect.ignore` go into
+  `.pipe(...)` bare: `.pipe(Effect.result)`, not `.pipe(Effect.result())`. `Effect.catchTag('Tag', e => …)`
   and `Effect.catchTags({Tag: e => …})` return an Effect from each handler — `note(...)`, `Effect.void`,
   `Effect.succeed(x)` — never a plain value.
-- **An Either is `Left`/`Right`, not your error.** After `Effect.either`, test `Either.isLeft(r)` and then
-  `r.left._tag === 'HoldFull'`; `r._tag` is only ever `'Left'` or `'Right'`.
-- **The error classes are PascalCase and come from `'play'`**; `Effect`, `Either`, `Schedule`, `Schema` come
+- **A Result is `Failure`/`Success`, not your error.** After `Effect.result`, test `Result.isFailure(r)` and then
+  `r.failure._tag === 'HoldFull'`; `r._tag` is only ever `'Failure'` or `'Success'`.
+- **The error classes are PascalCase and come from `'play'`**; `Effect`, `Result`, `Schedule`, `Schema` come
   from `'effect'`. There is no `Effect.repeatUntil`, `Effect.recover`, `Effect.isLeft`, `Effect.unit`, no
   `fp-ts`, no `@effect/schema`.
 - **The type is `Effect.Effect<A, E, R>`.** `import {Effect}` gives the namespace; `Effect<…>` alone is an
   error. You rarely need to write the type: let it be inferred.
-- **Don't swallow what you were not asked to handle.** `Effect.catchAll` turns every failure into success;
+- **Don't swallow what you were not asked to handle.** `Effect.catch` turns every failure into success;
   a finalizer is `Effect.ensuring`, not a catch.
 - **Never run or provide it.** No `Effect.runPromise`, no `Effect.provide`, no `Layer`: the default export
   is the Effect, and the runtime runs it.

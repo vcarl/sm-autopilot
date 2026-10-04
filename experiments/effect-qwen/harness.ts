@@ -1,37 +1,41 @@
 // node harness.ts run --doc v1 --variants effect,promise --samples 3 --thinking on [--tasks t1_sequence,...] [--out name]
 // node harness.ts reference            score reference/<variant>/<task>.ts (proves tasks are solvable)
+// node harness.ts run --doc play --variants play --samples 5 --thinking off --out <name>
+//                                      the real pilot surface: src/play/README.md + the task's career README,
+//                                      scored by check() from src/run.ts plus the cast ban
+// node harness.ts reference --doc play score reference/play/<task>.ts the same way, no model
 // node harness.ts rescore <file.jsonl> re-score saved completions in place (after a harness fix); the old file is kept as .bak
 // node harness.ts recheat <file.jsonl ...> re-apply only the cast detector to saved records, in place
 // node harness.ts probe               one tiny request each way, to see latency and the thinking toggle
+// The model server's key is read from $OPENAI_API_KEY.
 import {spawnSync} from 'node:child_process';
 import {appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync} from 'node:fs';
-import {homedir} from 'node:os';
 import {dirname, join, relative} from 'node:path';
 import {fileURLToPath} from 'node:url';
-import {tasks} from './tasks.ts';
+import {playTasks, tasks} from './tasks.ts';
 
 const ROOT = dirname(fileURLToPath(import.meta.url));
+const PLAY = join(ROOT, '../../src/play');
 const MODEL = 'mlx-community--Qwen3.8-27B-4bit';
 const URL_ = 'http://localhost:8000/v1/chat/completions';
 const THINKING_BUDGET = 4096;   // what the kvothe profile sends
 type Variant = 'effect' | 'promise' | 'result';
 
 function apiKey(): string {
-  const env = readFileSync(join(homedir(), '.hermes/profiles/kvothe/.env'), 'utf8');
-  const m = env.match(/^OPENAI_API_KEY=["']?([^"'\n]+)/m);
-  if (!m) throw new Error('no OPENAI_API_KEY in the profile .env');
-  return m[1];
+  const key = process.env.OPENAI_API_KEY;
+  if (!key) throw new Error('set OPENAI_API_KEY to the model server key');
+  return key;
 }
 
-async function ask(system: string, user: string, thinking: boolean) {
+async function ask(system: string, user: string | {role: string; content: string}[], thinking: boolean) {
   for (let attempt = 1; ; attempt++) {
     try { return await askOnce(system, user, thinking); }
     catch (e) { if (attempt >= 4) throw e; console.error(`request failed (${e}); retrying in 60s`); await new Promise(r => setTimeout(r, 60_000)); }
   }
 }
 
-async function askOnce(system: string, user: string, thinking: boolean) {
-  const body: Record<string, unknown> = {model: MODEL, messages: [{role: 'system', content: system}, {role: 'user', content: user}], max_tokens: 12000};
+async function askOnce(system: string, user: string | {role: string; content: string}[], thinking: boolean) {
+  const body: Record<string, unknown> = {model: MODEL, messages: [{role: 'system', content: system}, ...(typeof user === 'string' ? [{role: 'user', content: user}] : user)], max_tokens: 12000};
   if (thinking) body.thinking_budget = THINKING_BUDGET;
   else body.chat_template_kwargs = {enable_thinking: false};
   const t0 = Date.now();
@@ -97,6 +101,22 @@ function score(variant: Variant, code: string, taskId: string, dir: string) {
   return {tsc_ok, tsc_errors, cheat_hits, scenarios, behavior_pass, pass: tsc_ok && cheat_hits.length === 0 && behavior_pass};
 }
 
+/** The play variant: the pilot's own gate (tsc, import boundary, policy) in a throwaway runtime, as
+ * src/play/readme-examples.test.ts runs it, plus the cast ban. No behaviour: the test suite has it. */
+async function scorePlay(code: string, dir: string) {
+  const {check} = await import('../../src/run.ts');   // lazily, so the other variants never load src/
+  mkdirSync(join(dir, 'pilot'), {recursive: true});
+  writeFileSync(join(dir, 'pilot', 'index.ts'), code);
+  const gate = await check(dir);
+  const cheat_hits = cheats(code);
+  return {gate_ok: gate.ok, tsc_ok: !gate.errors.some(e => e.startsWith('tsc:')), tsc_errors: gate.errors, cheat_hits,
+    scenarios: [], behavior_pass: null, pass: gate.ok && cheat_hits.length === 0};
+}
+// The READMEs speak of the pilot's tools; here there are none, and the server turns an attempted call into
+// finish=tool_calls with empty content (P0.8's first run: 18 of 34 samples), which scores the plumbing, not the surface.
+const playSystem = (career: string) => `${readFileSync(join(PLAY, 'README.md'), 'utf8')}\n\n${readFileSync(join(PLAY, career, 'README.md'), 'utf8')}\n\nIn this turn you have no tools: you cannot read files or run anything. Write the program from the docs above.`;
+const NO_CODE = {tsc_ok: false, tsc_errors: ['no code block'], cheat_hits: [], scenarios: [], behavior_pass: false, pass: false};
+
 function userPrompt(taskPrompt: string) {
   return `Task: ${taskPrompt}\n\nWrite pilot/index.ts. Answer with the whole file in one \`\`\`ts block.`;
 }
@@ -109,6 +129,23 @@ if (args[0] === 'probe') {
     const r = await ask('You are terse.', 'Write a TypeScript one-liner that sums an array xs.', thinking);
     console.log(JSON.stringify({thinking, latency_s: r.latency_s, usage: r.usage, finish: r.finish, reasoning_chars: r.reasoning.length, content: r.content.slice(0, 300), error: r.error}));
   }
+} else if (args[0] === 'reference' && opt('doc', '') === 'play') {
+  let passed = 0;
+  for (const t of playTasks) {
+    const s = await scorePlay(readFileSync(join(ROOT, 'reference/play', `${t.id}.ts`), 'utf8'), join(ROOT, 'work/reference/play', t.id));
+    if (s.pass) passed++;
+    console.log('play'.padEnd(8), t.id.padEnd(18), s.pass ? 'PASS' : 'FAIL', s.tsc_errors.join(' ; '), s.cheat_hits.join(' ; '));
+  }
+  // Negative controls, each must FAIL: a cast the gate accepts (the ban), a wrong field (tsc), a bare loop (policy).
+  let leaked = 0;
+  for (const [label, body] of [['cast', 'const o = await orient(); return o as unknown;'], ['field', 'const o = await orient(); return o.detail.nope;'],
+    ['loop', 'while (true) await orient();']]) {
+    const neg = await scorePlay(`import {orient} from 'play';\nexport default async function main() { ${body} }\n`, join(ROOT, 'work/reference/play/negative', label));
+    if (neg.pass) leaked++;
+    console.log('negative', label.padEnd(18), neg.pass ? 'PASSED (BAD)' : 'failed (good)', `gate=${neg.gate_ok}`, `cheats=${neg.cheat_hits.length}`);
+  }
+  console.log(`${passed}/${playTasks.length} play references pass`);
+  if (passed !== playTasks.length || leaked) process.exitCode = 1;
 } else if (args[0] === 'reference') {
   for (const variant of ['effect', 'promise', 'result'] as Variant[])
     for (const t of tasks) {
@@ -164,8 +201,8 @@ if (args[0] === 'probe') {
   writeFileSync(out, '');
   for (const line of readFileSync(file, 'utf8').split('\n').filter(Boolean)) {
     const rec = JSON.parse(line);
-    const s = rec.code ? score(rec.variant, rec.code, rec.task, join(ROOT, 'work', rec.run, rec.variant, rec.task, String(rec.sample)))
-      : {tsc_ok: false, tsc_errors: ['no code block'], cheat_hits: [], scenarios: [], behavior_pass: false, pass: false};
+    const dir = join(ROOT, 'work', rec.run, rec.variant, rec.task, String(rec.sample));
+    const s = !rec.code ? NO_CODE : rec.variant === 'play' ? await scorePlay(rec.code, dir) : score(rec.variant, rec.code, rec.task, dir);
     appendFileSync(out, JSON.stringify({...rec, ...s}) + '\n');
   }
   renameSync(file, file.replace(/\.jsonl$/, `.${Date.now()}.bak`));
@@ -179,7 +216,7 @@ if (args[0] === 'probe') {
     const lines = readFileSync(file, 'utf8').split('\n').filter(Boolean).map(l => {
       const rec = JSON.parse(l);
       const cheat_hits = rec.code ? cheats(rec.code) : [];
-      const pass = rec.tsc_ok && cheat_hits.length === 0 && rec.behavior_pass;
+      const pass = (rec.variant === 'play' ? rec.gate_ok : rec.tsc_ok && rec.behavior_pass) && cheat_hits.length === 0;
       if (pass !== rec.pass) { moved++; console.log(`${file} ${rec.variant}/${rec.task}/${rec.sample} ${rec.pass ? 'PASS' : 'fail'} -> ${pass ? 'PASS' : 'fail'} ${cheat_hits.join(' ; ')}`); }
       return JSON.stringify({...rec, cheat_hits, pass});
     });
@@ -187,8 +224,10 @@ if (args[0] === 'probe') {
     console.log(`recheated ${file}: ${moved} moved`);
   }
 } else if (args[0] === 'run') {
+  apiKey();   // fail now, not after four 60 s retries
   const doc = opt('doc', 'v1');
-  const variants = opt('variants', 'effect,promise').split(',') as Variant[];
+  const variants = opt('variants', 'effect,promise').split(',') as (Variant | 'play')[];
+  const list: {id: string; prompt: string; career?: string}[] = variants.includes('play') ? playTasks : tasks;
   const samples = Number(opt('samples', '3'));
   const thinking = opt('thinking', 'on') === 'on';
   const only = opt('tasks', 'all');
@@ -198,16 +237,22 @@ if (args[0] === 'probe') {
   const done = new Set(existsSync(out) ? readFileSync(out, 'utf8').split('\n').filter(Boolean).map(l => { const j = JSON.parse(l); return `${j.variant}/${j.task}/${j.sample}`; }) : []);
   // Interleave variants and tasks so a partial run still compares like with like.
   for (let sample = 0; sample < samples; sample++)
-    for (const t of tasks.filter(t => only === 'all' || only.split(',').includes(t.id)))
+    for (const t of list.filter(t => only === 'all' || only.split(',').includes(t.id)))
       for (const variant of variants) {
         const key = `${variant}/${t.id}/${sample}`;
         if (done.has(key)) continue;
-        const system = readFileSync(join(ROOT, 'docs', `${variant}.${doc}.md`), 'utf8');
-        const r = await ask(system, userPrompt(t.prompt), thinking);
+        const system = variant === 'play' ? playSystem(t.career!) : readFileSync(join(ROOT, 'docs', `${variant}.${doc}.md`), 'utf8');
+        // Awaited one at a time: the model server is shared with a live pilot, so never two in flight.
+        const first = await ask(system, userPrompt(t.prompt), thinking);
+        // The model reaches for the pilot's tools (finish=tool_calls, no file): one nudge, recorded as `nudged`, so a
+        // sample scores the program it writes, not the tool call this turn cannot serve.
+        const nudged = variant === 'play' && !extract(first.content);
+        const r = nudged ? await ask(system, [{role: 'user', content: userPrompt(t.prompt)}, {role: 'assistant', content: first.content},
+          {role: 'user', content: 'There are no tools in this turn. Answer now with the whole pilot/index.ts in one ```ts block.'}], thinking) : first;
         const code = extract(r.content);
-        const s = code ? score(variant, code, t.id, join(ROOT, 'work', run, variant, t.id, String(sample)))
-          : {tsc_ok: false, tsc_errors: ['no code block'], cheat_hits: [], scenarios: [], behavior_pass: false, pass: false};
-        const rec = {run, doc, variant, task: t.id, sample, thinking, model: MODEL, latency_s: r.latency_s, usage: r.usage, finish: r.finish,
+        const dir = join(ROOT, 'work', run, variant, t.id, String(sample));
+        const s = !code ? NO_CODE : variant === 'play' ? await scorePlay(code, dir) : score(variant, code, t.id, dir);
+        const rec = {run, doc, variant, task: t.id, sample, thinking, model: MODEL, nudged, first_finish: first.finish, latency_s: r.latency_s, usage: r.usage, finish: r.finish,
           reasoning_chars: r.reasoning.length, error: r.error, completion: r.content, reasoning: r.reasoning, code, ...s};
         appendFileSync(out, JSON.stringify(rec) + '\n');
         console.log(`${key} ${s.pass ? 'PASS' : 'fail'} tsc=${s.tsc_ok} cheats=${s.cheat_hits.length} behav=${s.scenarios.filter(x => x.pass).length}/${s.scenarios.length} ${r.latency_s.toFixed(0)}s ${JSON.stringify(r.usage)}`);

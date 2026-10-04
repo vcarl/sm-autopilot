@@ -25,6 +25,7 @@ import {bind,command,line,outcome as build,progress,runCalls,stateSnapshot,stop,
 import {resupply} from './play/service.ts';
 import type {Outcome} from './play/types.ts';
 import {journalRun,writeRun,type RunRecord} from './run-record.ts';
+import {warmCheck} from './check-service.ts';
 
 const PLUGIN=fileURLToPath(new URL('..',import.meta.url));
 const PLAY=join(PLUGIN,'src','play');
@@ -65,12 +66,25 @@ export function pilotHome(runtime:string):{dir:string;entry:string;tsconfig:stri
 const TSC=join(PLUGIN,'node_modules','typescript','bin','tsc');
 function tsc(tsconfig:string):Promise<string[]> {
   return new Promise(resolveTsc=>{
-    execFile(process.execPath,[TSC,'--noEmit','--pretty','false','-p',tsconfig],{cwd:dirname(tsconfig),maxBuffer:4<<20},(error,stdout)=>{
+    execFile(process.execPath,[TSC,'--noEmit','--pretty','false','-p',tsconfig],{cwd:dirname(tsconfig),maxBuffer:4<<20},(error,stdout,stderr)=>{
       if(!error)return resolveTsc([]);
       const lines=String(stdout).split('\n').filter(line=>line.trim());
-      resolveTsc(lines.length?lines:[error.message]);
+      // A child that dies with no diagnostics (a signal, a crash, a spawn failure) says why on stderr, not in error.message.
+      resolveTsc(lines.length?lines:[`${error.message}${error.signal?` (signal ${error.signal})`:''}${String(stderr).trim()?`: ${String(stderr).trim().slice(0,500)}`:''}`]);
     });
   });
+}
+
+/** The warm service unless `warm:false` asks for the `tsc` child; a service that throws falls back to the
+ * child too. Each check journals `check_ms` and which path answered. */
+async function typecheck(runtime:string,tsconfig:string,sha:string,warm:boolean):Promise<string[]> {
+  const t0=performance.now();
+  let errors:string[]|null=null,failed:string|undefined;
+  if(warm)try {errors=warmCheck(tsconfig);} catch(error){failed=message(error);} // edge: the CLI still checks; the failure is journalled
+  const used=errors!==null;
+  errors??=await tsc(tsconfig);
+  journalRun(runtime,{sha,warm:used,check_ms:Math.round(performance.now()-t0),errors:errors.length,...failed===undefined?{}:{warm_error:failed}},'check');
+  return errors;
 }
 
 export interface Check {ok:boolean;entry:string;sha:string;errors:string[]}
@@ -96,10 +110,10 @@ function framed(dir:string,errors:string[]):string[] {
 
 /** The three gates over `pilot/index.ts` and every sibling it imports. Any failure is the
  * run's whole answer; nothing is executed. */
-export async function check(runtime:string):Promise<Check> {
+export async function check(runtime:string,{warm=true}:{warm?:boolean}={}):Promise<Check> {
   const {entry,tsconfig}=pilotHome(runtime);
   const sha=createHash('sha256').update(readFileSync(entry)).digest('hex').slice(0,12);
-  const errors=await tsc(tsconfig);
+  const errors=await typecheck(runtime,tsconfig,sha,warm);
   if(errors.length)return {ok:false,entry,sha,errors:framed(dirname(tsconfig),errors).map(line=>`tsc: ${line}`)};
   const boundary=checkTree(entry);
   if(!boundary.ok)return {ok:false,entry,sha,errors:boundary.errors};

@@ -1,6 +1,6 @@
 // The Promise facade over the same Effects: every function returns a Promise that resolves with the
 // value or rejects with one of the tagged errors (an object with `_tag`). No Effect in the pilot's view.
-import {Data, Effect, Either, Schema} from 'effect';
+import {Data, Effect, Result, Schema} from 'effect';
 import * as core from './core.ts';
 import type {GameError, World} from './core.ts';
 
@@ -11,8 +11,8 @@ export const setWorld = (w: World) => { current = w; };
 const lift = <Args extends unknown[], A, E>(f: (...a: Args) => Effect.Effect<A, E, core.Game>) =>
   (...a: Args): Promise<A> => {
     if (!current) throw new Error('no world');
-    return Effect.runPromise(Effect.either(f(...a)).pipe(Effect.provide(core.gameLayer(current))))
-      .then(e => (Either.isLeft(e) ? Promise.reject(e.left) : e.right));
+    return Effect.runPromise(Effect.result(f(...a)).pipe(Effect.provide(core.gameLayer(current))))
+      .then(e => (Result.isFailure(e) ? Promise.reject(e.failure) : e.success));
   };
 
 export const orient = lift(core.orient);
@@ -35,10 +35,10 @@ export const sleep = (ms: number): Promise<void> => { if (current) current.slept
 
 export class BadData extends Data.TaggedError('BadData')<{readonly message: string}> {}
 /** Decode a raw value with one of the exported schemas; throws BadData when it does not fit. */
-export function decode<A, I>(schema: Schema.Schema<A, I>, raw: unknown): A {
-  const r = Schema.decodeUnknownEither(schema)(raw);
-  if (Either.isLeft(r)) throw new BadData({message: String(r.left.message)});
-  return r.right;
+export function decode<A, I>(schema: Schema.Codec<A, I>, raw: unknown): A {
+  const r = Schema.decodeUnknownResult(schema)(raw);
+  if (Result.isFailure(r)) throw new BadData({message: String(r.failure.message)});
+  return r.success;
 }
 
 export type AnyError = GameError | BadData;

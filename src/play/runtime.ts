@@ -9,11 +9,14 @@
  * ponytail: a module singleton, not AsyncLocalStorage. One account per bridge process today;
  * a multi-account runtime is a second process per account (DESIGN.md "Fleet").
  */
-import type {Account,SkillProgress,V2CargoItem,V2Location,V2Ship} from '@spacemolt/lib';
+import {SpacemoltError,type Account,type SkillProgress,type V2CargoItem,type V2Location,type V2Ship} from '@spacemolt/lib';
+import {Cause,Effect,Exit,ManagedRuntime} from 'effect';
+import {replyLost} from '../command-boundary.ts';
 import type {ReadinessAccount,ReadinessCommand} from '../readiness.ts';
 import {FUEL_CELL} from '../mining-inventory.ts';
 import {journalRun,readRun,stampRun,writeRun} from '../run-record.ts';
 import {TravelBlocked} from '../travel.ts';
+import {Depleted,Game,GameLive,HoldFull,InBattle,Rejected,ReplyLost,classify,type GameError} from './game.ts';
 import {resupply} from './service.ts';
 import type {Outcome,Present,Row,Status,Want} from './types.ts';
 
@@ -51,7 +54,9 @@ export interface Binding {
   run_id?:string;
 }
 
-let bound:Binding|null=null;
+/** The binding, with its own `Game` runtime: commands through it take this binding's journalled
+ * `command()` path (docs/EFFECT.md "The Promise ↔ Effect edge"). */
+let bound:(Binding&{readonly game:ManagedRuntime.ManagedRuntime<Game,never>})|null=null;
 /** How many jobs deep the program is: 1 is a call `main()` made itself. */
 let depth=0;
 let stopFlag=false,commands=0,started=0;
@@ -90,7 +95,8 @@ const need=()=>{if(!bound)throw new Error('the play runtime is not bound: only `
 
 /** Bind the runtime for one run. Resets the stop flag and the counters. */
 export function bind(binding:Binding):void {
-  bound=binding;stopFlag=false;commands=0;asking=null;depth=0;started=Date.now();last={fn:'pilot'};calls=[];
+  bound={...binding,game:ManagedRuntime.make(GameLive({send:(tool,action,params)=>command(`${tool}/${action}`,params??{})}))};
+  stopFlag=false;commands=0;asking=null;depth=0;started=Date.now();last={fn:'pilot'};calls=[];
   lastCommandAt=0;pending=null;lastTick=undefined;burning=false;burnFailed=false;short=undefined;
   mark=snapshot();
   stampRun(binding.run_id?{run_id:binding.run_id}:null);
@@ -99,7 +105,7 @@ export function bind(binding:Binding):void {
   const live=binding.account as unknown as {onStateChange?:(fn:()=>void)=>()=>void};
   unwatch=typeof live.onStateChange==='function'?live.onStateChange(()=>{try {watchMood();} catch {/* a push is not the place to fail */}}):undefined;
 }
-export function unbind():void {unwatch?.();unwatch=undefined;asking=null;bound=null;stampRun(null);}
+export function unbind():void {unwatch?.();unwatch=undefined;asking=null;void bound?.game.dispose();bound=null;stampRun(null);}
 export const isBound=()=>bound!==null;
 
 /** The pilot record as it is right now. Cheap; call it, do not cache it. */
@@ -260,7 +266,8 @@ export async function command(action:string,params:Record<string,unknown>={}):Pr
     if(!back)throw error;
     if(!reissuable(action)) {
       line(`  ${action}: reconnected, but the command may have landed; not re-sent`);
-      throw new Error(`${action}: outcome unknown, re-observe`);
+      // An uncertain code, so `classify` makes it the ReplyLost it is, not a defect.
+      throw new SpacemoltError('connection_closed',`${action}: outcome unknown, re-observe`);
     }
     line(`  ${action}: reconnected; re-issued once`);
     return await sent(action,params);
@@ -390,9 +397,62 @@ const message=(error:unknown)=>error instanceof Error?error.message:String(error
 const seconds=(ms:number)=>`${(ms/1000).toFixed(ms<10_000?1:0)}s`;
 
 /** The measuring wrapper every exported function is defined through: snapshot, run, snapshot,
- * diff. Streams `▶ fn args` on entry and `✓/✗ fn status secs did` on return. A throw is a
- * `failed` Outcome, a `Stopped` a `partial` one; nothing escapes as an exception. */
+ * diff. Streams `▶ fn args` on entry and `✓/✗ fn status secs did` on return. A throw is folded
+ * by `said`; nothing escapes as an exception. */
 export async function job<Detail>(fn:string,args:string,body:()=>Promise<Said<Detail>>):Promise<Outcome<Detail>> {
+  const open=await opening(fn,args);
+  let part:Said<Detail>,threw=false;
+  try {part=await body();}
+  catch(error){threw=true;part=said(fn,error instanceof SpacemoltError||replyLost(error)?classify(fn)(error):error);}
+  return closing(open,part,threw);
+}
+
+/** `job` for an Effect body: the same bookkeeping, every failure folded into the Outcome by
+ * `said`. A defect is a `failed` Outcome too, as a throw is in `job`, and its stack goes to a
+ * `defect` line. Never exported from a barrel. */
+export const jobEffect=<D,R>(fn:string,args:string,body:Effect.Effect<Said<D>,GameError|Stopped,R>):Effect.Effect<Outcome<D>,never,R>=>
+  Effect.gen(function*() {
+    const open=yield* Effect.promise(()=>opening(fn,args));
+    const exit=yield* Effect.exit(body);
+    if(Exit.isSuccess(exit))return yield* Effect.promise(()=>closing(open,exit.value,false));
+    defect(fn,exit.cause);
+    return yield* Effect.promise(()=>closing(open,said<D>(fn,Cause.squash(exit.cause)),true));
+  });
+
+/** The Promise a pilot function returns: `effect` run through the binding's runtime. The only
+ * caller of `run*`. A defect outside any job is a `failed` Outcome and a `defect` line. */
+export async function edge<D>(effect:Effect.Effect<Outcome<D>,never,Game>):Promise<Outcome<D>> {
+  const b=need(),before=snapshot(),outer=last,outerMark=jobMark,outerDepth=depth;
+  const exit=await b.game.runPromiseExit(effect);
+  if(Exit.isSuccess(exit))return exit.value;
+  // A die inside a job's own bookkeeping skipped its restore; the edge puts the stack back.
+  const fn=last.fn;
+  last=outer;jobMark=outerMark;depth=outerDepth;
+  defect(fn,exit.cause);
+  return finish(fn,before,said<D>(fn,Cause.squash(exit.cause)));
+}
+
+/** A failure in its own fields' words. Every definitive refusal tag is `refused`: the server
+ * said no and nothing landed, whether or not its code has a tag of its own. */
+function said<Detail>(fn:string,error:unknown):Said<Detail> {
+  const detail={} as Detail;
+  if(error instanceof Stopped)return {status:'partial',did:`${fn} stopped by the pilot`,why:error.message,detail};
+  if(error instanceof ReplyLost)return {status:'failed',did:`${fn} broke`,why:`reply lost on ${error.action}; state re-read`,detail};
+  if(error instanceof Rejected||error instanceof InBattle||error instanceof HoldFull||error instanceof Depleted)
+    return {status:'refused',did:`${fn} refused by the game`,why:`${error.action}: ${error.code} — ${error.message}`,detail};
+  return {status:'failed',did:`${fn} broke`,why:message(error),detail};
+}
+
+/** A bug, not a game outcome: its stack goes to the journal. The stop is not one. */
+function defect(fn:string,cause:Cause.Cause<unknown>):void {
+  const runtime=bound?.runtime;
+  if(!runtime||!Cause.hasDies(cause)||Cause.squash(cause) instanceof Stopped)return;
+  journalRun(runtime,{fn,why:message(Cause.squash(cause)),stack:Cause.pretty(cause)},'defect');
+}
+
+type Opened={fn:string;args:string;before:Snapshot;outer:typeof last;outerMark:Snapshot|null};
+/** The ▶ line and the opening read. */
+async function opening(fn:string,args:string):Promise<Opened> {
   const outer=last,outerMark=jobMark;
   last={fn};depth++;
   line(`▶ ${fn}${args?` ${args}`:''}`);
@@ -400,14 +460,10 @@ export async function job<Detail>(fn:string,args:string,body:()=>Promise<Said<De
   try {await acct().refresh();before=snapshot();}
   catch(error){before=snapshot();line(`  ${fn}: the opening read failed (${message(error)}); measuring from cached state`);}
   jobMark=before;
-  let part:Said<Detail>,threw=false;
-  try {part=await body();}
-  catch(error) {
-    threw=true;
-    part=error instanceof Stopped
-      ?{status:'partial',did:`${fn} stopped by the pilot`,why:message(error),detail:{} as Detail}
-      :{status:'failed',did:`${fn} broke`,why:message(error),detail:{} as Detail};
-  }
+  return {fn,args,before,outer,outerMark};
+}
+/** The closing read, the measurement, the ✓/✗ line and the `calls` push. */
+async function closing<Detail>({fn,args,before,outer,outerMark}:Opened,part:Said<Detail>,threw:boolean):Promise<Outcome<Detail>> {
   try {await acct().refresh();} catch {/* the closing read failed; the cached state stands */}
   const built=finish(fn,before,part);
   // A did the wrapper wrote knows nothing of what happened; the measurement does.

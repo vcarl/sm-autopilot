@@ -37,8 +37,8 @@ the 2026-09-28 figures at `3811b4ae26` (lib 14.2.0) are in brackets. The counts 
 | Failed `command` journal lines (all profiles) | 1318 (413 name a code) [P0.6 re-reads] | — |
 | Pilot-gate latency (`readme-examples` test, best of 3) | 2.01 s (2.01, 2.09, 2.10) | — |
 | Cold `check()`, one README example (`tsc` child, as `run.ts` spawns it) | 0.63 s (best of 3: 641, 639, 633 ms) | — |
-| Warm `check()`, one README example | _P0.3b_ | — |
-| Qwen `play` variant full-pass rate (n=50) | _P0.8_ | — |
+| Warm `check()`, one README example | 0.22 s at `9890e77d22` (P0.3b); 0.26 s at `ab9520b6f5` (best of 3, same runtime, pilot file changed). First check after boot 0.88 s, `tsc` child 0.82 s there: `effect`'s types now reach the pilot program through runtime.ts. Under the 0.945 s STOP line, not by much | — |
+| Qwen `play` variant full-pass rate (n=50) | 60% (30/50) at `beff55981d`, `--thinking off`, after P0.7; 7 samples nudged; per task p1 5, p2 5, p3 3, p4 4, p5 3, p6 3, p7 0, p8 4, p9 0, p10 3 (`experiments/effect-qwen/results/P0.8.jsonl`) | — |
 
 The counts come from these commands.
 
@@ -56,13 +56,13 @@ tsc -p tsconfig.json --pretty false --erasableSyntaxOnly --verbatimModuleSyntax 
 | P0.1 | done | `f5243e3f91` | effect 4.0.0 (shipped 2026-10-01, so decision 1 skips the rc), oxlint 1.86.0, @effect/language-service 0.87.3 |
 | P0.2 | done | `ca29bbeb48` | 68 errors at lib 15.1.0 (19 outside tests); one exported type widened: freighter `Report.why?: string\|undefined` |
 | P0.3 | done | `7f20151aa4` | debt.ts, surface.ts (693 lines), test glob; baselines above |
-| P0.3b | todo | | warm checker in the bridge, parity test, warm and cold latency |
+| P0.3b | done | `9890e77d22` | language service per pilot tsconfig; parity test over every README example plus a broken file; `check` journal line. `readme-examples` now 4.6–5.1 s (was 2.01): 16 runtimes, each its own program, checked one after another |
 | P0.4 | done | `91257f0fd1` | 70 files on the migration list (not the barrel `src/play/index.ts`); default correctness found 29 (>20), so `categories.correctness` is off. The commit also carries P0.5's `gen:wire` script line |
-| P0.5 | doing | | gen-wire + drift check; held at S1. 711/711 import, 633 assertions, 2,039,827 bytes; generator parked uncommitted at `/tmp/claude-501/genwire/` |
-| P0.6 | todo | | Game, classify, codes.ts, `code`/`lost` on command lines |
-| P0.7 | todo | | jobEffect / edge / ManagedRuntime per bind |
-| P0.8 | todo | | Qwen `play` variant + baseline |
-| P0.9 | todo | | migration-check.sh + CI steps |
+| P0.5 | done | `b4fcfc2730` | 711/711 import, 633 assertions plus 2 lib-bug guards (S1's `NotificationOk.base` added), 2,039,827 bytes; deterministic; the `& {extra: 1}` edit fails typecheck |
+| P0.6 | done | `4fb9a27b6f` | evidence (kvothe only): 2701 failed lines, 1257 coded. Tags `InBattle` 6, `HoldFull` (cargo_full) 10, `Depleted` 7; no `AlreadyDocked` (never observed). `lost` added in `journalCommand` |
+| P0.7 | done | `ab9520b6f5` | all four refusal tags fold to `refused` (they split `Rejected` by code); the Promise `job` classifies a raw SpacemoltError too; freighters never `bind()`, so no runtime there yet (U26/U27). Surface unchanged |
+| P0.8 | done | `8ada192e29`, `beff55981d` | harness on effect 4.0.0; play variant; baseline 60% (n=50), so a milestone passes at ≥ 50%. A first run was discarded: 18/34 samples were tool calls with no file, fixed by `beff55981d` |
+| P0.9 | done | `5073362ed1` | CI not run (no push): every added CI step passes locally (lint, gen-wire diff, `surface.ts --check`, patched typecheck); the script's other checks pass except the expected override list (70 files), `debt.ts --zero src`, and the tracker rows. The crossings check passes (no crossings yet). The patched `tsc` takes ~2 min. `edge.test.ts` silences `globalErrorInEffectFailure` on its one `Effect.fail(new Stopped())` until U02 gives the stop an Effect form |
 
 ## Units
 

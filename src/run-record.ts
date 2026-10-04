@@ -8,6 +8,7 @@ import {appendFileSync,existsSync,mkdirSync,readdirSync,readFileSync,renameSync,
 import {join} from 'node:path';
 import type {Question} from './play/runtime.ts';
 import {details} from './response-details.ts';
+import {replyLost} from './command-boundary.ts';
 
 export interface RunRecord {
   script:string;
@@ -169,8 +170,9 @@ export function journalCommand(runtime:string,action:string,params:Record<string
   // `ms` is wall time around the lib's send, its own rate-limit retries included; `code` is the
   // error's own code (the game's string, or a socket close number), the thing to count by.
   const code=ok?undefined:(reply as {code?:unknown}|null)?.code;
+  // `lost`: the reply is gone, not the outcome (`replyLost`, the same test `classify` makes).
   journalRun(runtime,{tool,action:name,params:scalars,ok,summary:summarise(ok,reply),
-    ...ms===undefined?{}:{ms},...code===undefined?{}:{code},...who},'command');
+    ...ms===undefined?{}:{ms},...code===undefined?{}:{code},...!ok&&replyLost(reply)?{lost:true}:{},...who},'command');
   // A freighter's action is prefixed with its name, so it never takes the pilot's quote.
   const held=quoted?.action===action&&(quoted.id===undefined||quoted.id===params?.id)?quoted.quote:undefined;
   if(quoted?.action===action)quoted=null;

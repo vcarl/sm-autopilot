@@ -27,9 +27,9 @@ export type Status=
   |'done'
   /** Stopped early with real work behind it: hold not full, 1 of 3 fights, stopped by the pilot. */
   |'partial'
-  /** Nothing was sent: the rules, the policy, or the world (no such POI, not docked) said no first. */
+  /** Nothing landed: the rules, the policy, the world (no such POI, not docked) or the game's own refusal said no. */
   |'refused'
-  /** Something broke mid-way. `why` carries the error; the world may have moved. */
+  /** Something broke mid-way, or a reply was lost. `why` carries the error; the world may have moved. */
   |'failed';
 
 export interface Outcome<Detail=unknown> {

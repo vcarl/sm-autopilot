@@ -11,7 +11,7 @@ const sellHold = Effect.gen(function* () {
 export default salvage().pipe(
   Effect.catchTags({
     NoWreck: () => note('no wreck'),
-    InBattle: () => Effect.zipRight(disengage(), salvage()),
-    HoldFull: () => Effect.zipRight(sellHold, salvage()),
+    InBattle: () => Effect.andThen(disengage(), salvage()),
+    HoldFull: () => Effect.andThen(sellHold, salvage()),
   }),
 );

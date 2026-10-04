@@ -90,3 +90,29 @@ export const tasks: Task[] = [
       {name: 'no_fuel', world: {fuel: 10}, check: (w, r) => all(r.ok && 'succeeded; should fail with NoFuel', w.notes[w.notes.length - 1]?.includes('500') !== true && `no credits note: ${JSON.stringify(w.notes)}`)},
     ]},
 ];
+
+// The `play` variant: t1–t10 again, against the real pilot surface (src/play), which answers every
+// call with a Promise<Outcome> and reports failure in `status`. Scored by the pilot's own gate only.
+export type PlayTask = {id: string; mirrors: string; career: string; prompt: string};
+export const playTasks: PlayTask[] = [
+  {id: 'p1_sequence', mirrors: 't1_sequence', career: 'mining',
+    prompt: 'You are docked at frontier_station. Make one mining trip to the belt unknown_edge_mineral_fields with gatherUntil, then sell everything the trip settled into the store, then service the ship. Return the last Outcome.'},
+  {id: 'p2_branch_status', mirrors: 't2_catch_tag', career: 'hauling',
+    prompt: 'Go to kepler_station. If the trip is refused or failed, note its status and its why, and return that Outcome. If it arrived but ended undocked, note that and return the trip. Otherwise service the ship and return that Outcome.'},
+  {id: 'p3_retry', mirrors: 't3_retry', career: 'trading',
+    prompt: 'Go to sol_belt. A trip can fail transiently: if goTo answers failed, wait 1 second, then 2, then 4 … (exponential backoff) and try again, at most 5 retries (6 attempts in all). A refused trip must not be retried: return it at once. Return the last trip Outcome.'},
+  {id: 'p4_until_full', mirrors: 't4_until_full', career: 'mining',
+    prompt: 'You are docked at frontier_station. Mine the belt unknown_edge_mineral_fields until the store holds 200 iron_ore, at most 4 trips. If that is refused, return it. Then sell every row the trips settled except iron_ore, from the store, and return the sell Outcome.'},
+  {id: 'p5_salvage', mirrors: 't5_salvage', career: 'combat',
+    prompt: 'You are at sol_debris (undocked). Salvage the wrecks here. If salvage is refused (no wreck, or the hold is full), note "no wreck" with its why and return it. If it ends partial because the hold filled, go to sol_station, sell every item the salvage gained, come back to sol_debris and salvage once more. Return the last Outcome.'},
+  {id: 'p6_finalizer', mirrors: 't6_finalizer', career: 'combat',
+    prompt: 'Fly to sol_nebula and hunt for 2 fights. Whatever happens — a done hunt, a refused or failed one, or a thrown error — disengage() must run at the end of the program, after the hunt. Return the hunt Outcome.'},
+  {id: 'p7_parallel', mirrors: 't7_parallel', career: 'trading',
+    prompt: 'You are docked at sol_station. Read orient(), prices() and missions() concurrently (all three at once, not one after another), then note one line with: your credits, the item_id with the highest best_buy, and how many missions are on the board. Return the prices Outcome.'},
+  {id: 'p8_decide', mirrors: 't8_schema', career: 'trading',
+    prompt: 'You are docked at sol_station. Read the market with prices(). If it is not done, note "bad book" and return it. Otherwise sell every item you hold (held > 0) whose best_buy is at least 10; keep the rest. If nothing qualifies, note "nothing to sell" and return the prices Outcome; else return the sell Outcome.'},
+  {id: 'p9_missions', mirrors: 't9_missions', career: 'hauling',
+    prompt: 'You are docked at sol_station. List the missions here and accept every board mission whose reward is at least 100, no more than the free slots allow; stop accepting at the first acceptMission that is not done. Then completeMissions(); if that is not done, note its why and carry on. Return an Outcome (built with outcome()) whose did says how many you accepted and whose detail is {accepted: <that number>}.'},
+  {id: 'p10_composed', mirrors: 't10_composed', career: 'mining',
+    prompt: 'You are docked at kepler_station. Make one mining trip to kepler_belt with gatherUntil (base kepler_station); if it is not done, return it. Then sell the copper_ore it settled, from the store, service the ship, and completeMissions() (a not-done result there is fine). Whatever happens, even if a step throws, the last thing the program does is note your current credits (from orient()). Return the service Outcome.'},
+];

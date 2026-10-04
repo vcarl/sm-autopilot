@@ -25,7 +25,7 @@ better to do. Handle the ones you have a plan for:
 
 ```ts
 const arrived = yield* goTo('kepler_base').pipe(
-  Effect.catchTag('InBattle', () => Effect.zipRight(disengage(), goTo('kepler_base'))),
+  Effect.catchTag('InBattle', () => Effect.andThen(disengage(), goTo('kepler_base'))),
 );
 ```
 
@@ -83,7 +83,7 @@ All from `'play'`, each a `Data.TaggedError` with fields:
 ## Start every file with these two lines
 
 ```ts
-import {Effect, Either, Schedule, Schema} from 'effect';
+import {Effect, Result, Schedule, Schema} from 'effect';
 import {orient, scout, goTo, mine, sell, service, prices, readMarket, salvage, hunt, disengage,
   missions, acceptMission, completeMissions, note, MarketBook} from 'play';
 ```
@@ -97,19 +97,19 @@ Several errors from one call, each handler an Effect:
 ```ts
 export default salvage().pipe(Effect.catchTags({
   NoWreck: () => note('no wreck'),
-  InBattle: () => Effect.zipRight(disengage(), salvage()),
+  InBattle: () => Effect.andThen(disengage(), salvage()),
 }));
 ```
 
-Look at an error inside a generator — `Effect.either` bare in `.pipe`, then `Either.isLeft`:
+Look at an error inside a generator — `Effect.result` bare in `.pipe`, then `Result.isFailure`:
 
 ```ts
 export default Effect.gen(function* () {
   while (true) {
-    const step = yield* mine().pipe(Effect.either);
-    if (Either.isRight(step)) continue;                  // mined; go again
-    if (step.left._tag === 'HoldFull') break;            // the stop we wanted
-    return yield* Effect.fail(step.left);                // anything else: fail with it
+    const step = yield* mine().pipe(Effect.result);
+    if (Result.isSuccess(step)) continue;                  // mined; go again
+    if (step.failure._tag === 'HoldFull') break;            // the stop we wanted
+    return yield* Effect.fail(step.failure);                // anything else: fail with it
   }
   yield* goTo('sol_base');
 });
@@ -141,14 +141,14 @@ export default Effect.gen(function* () {
 });
 ```
 
-Decode an unknown; a bad value fails with tag `'ParseError'`, which you catch like any other:
+Decode an unknown; a bad value fails with tag `'SchemaError'`, which you catch like any other:
 
 ```ts
 export default Effect.gen(function* () {
   const raw = yield* readMarket();
-  const book = yield* Schema.decodeUnknown(MarketBook)(raw);
+  const book = yield* Schema.decodeUnknownEffect(MarketBook)(raw);
   yield* note(`${book.rows.length} rows`);
-}).pipe(Effect.catchTag('ParseError', () => note('bad data')));
+}).pipe(Effect.catchTag('SchemaError', () => note('bad data')));
 ```
 
 A helper of your own is a function returning `Effect.gen(...)`; leave its type to inference:
@@ -166,15 +166,15 @@ export default Effect.gen(function* () {
 
 ## Shapes you will get wrong
 
-- **`Either.isLeft` / `Either.isRight`**, from `'effect'`. `Effect.isLeft` and `Data.isLeft` do not exist.
-  `step._tag` is only `'Left'` or `'Right'`; the error's tag is `step.left._tag`.
-- **Pipe helpers go in bare:** `.pipe(Effect.either)`, never `.pipe(Effect.either())`.
+- **`Result.isFailure` / `Result.isSuccess`**, from `'effect'`. `Effect.isLeft` and `Data.isLeft` do not exist; `Effect.isFailure` takes an Effect, not a Result.
+  `step._tag` is only `'Failure'` or `'Success'`; the error's tag is `step.failure._tag`.
+- **Pipe helpers go in bare:** `.pipe(Effect.result)`, never `.pipe(Effect.result())`.
 - **A handler returns an Effect** — `note(...)`, `Effect.void`, `Effect.succeed(x)`, another call — never a
   plain value, and never `Effect.void(x)`.
 - **`yield*`, never `yield`**, and only on an Effect.
 - **Never write an Effect type.** No return annotations, no `Effect<…>`: inference knows. (If you must,
   it is `Effect.Effect<A, E, R>`.)
-- **Don't swallow what you were not asked to handle.** `Effect.catchAll` turns every failure into success.
+- **Don't swallow what you were not asked to handle.** `Effect.catch` turns every failure into success.
 - **Never run or provide it.** No `Effect.runPromise`, `Effect.provide`, `Layer`.
 - **No casts.** No `as`, no `any`, no `@ts-ignore`. If the types disagree, the code is wrong.
 

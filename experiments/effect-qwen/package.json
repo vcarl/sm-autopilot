@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "dependencies": {
-    "effect": "3.22.2"
+    "effect": "4.0.0"
   },
   "devDependencies": {
     "typescript": "5.9.3",
