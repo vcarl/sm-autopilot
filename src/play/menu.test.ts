@@ -785,6 +785,22 @@ test('a stuck abandonMission unblocks acceptMission and ranks onto the menu, and
   } finally {f.close();}
 });
 
+// Live 2026-10-04 (kvothe 22:02Z, run 8389807d): no list of missions held reached the juncture.
+test('the menu carries each held mission by its next step, with the jumps to a base it knows',async()=>{
+  const f=world({mood:'Focused',stance:'Trader'},{cargoUsed:0});
+  try {
+    writeFileSync(join(f.runtime,'places.json'),JSON.stringify({range_base:'deep_range'}));
+    const visit=(base:string,completed:boolean)=>({description:`Visit ${base}`,type:'visit',required:1,current:completed?1:0,completed,target_base:base});
+    f.taken.push({mission_id:'c1',title:'Circuit',type:'diplomacy',difficulty:1,percent_complete:50,expires_in_ticks:360,rewards:{credits:1},
+      objectives:[visit('sol_base',true),visit('range_base',false)]});
+    const before=Date.now(),built=await menu(f.runtime);
+    assert.equal(built.held?.max,5);
+    assert.equal(built.held?.missions[0]?.next,'Visit range_base → range_base, 1 jump [2 of 2]');
+    const due=Date.parse(built.held!.missions[0]!.expires_at!);
+    assert.ok(due>=before+360*TICK_MS&&due<=Date.now()+360*TICK_MS,built.held!.missions[0]!.expires_at);
+  } finally {f.close();}
+});
+
 // The menu is read-only: a read refused or lost leaves its section out, and neither is a bug, so neither writes a `defect` line.
 const READS=/^(get_|view|find_route|list|browse_|inspect|query_)/;
 function faulty(f:Game,record:Pilot,fault:(action:string)=>unknown) {

@@ -59,7 +59,6 @@ test('the menu finds an unvisited system several jumps out, keeps a dangerous on
     assert.ok(built.moves.indexOf(row!)<built.moves.findIndex(m=>m.call==='service()'),JSON.stringify(built.moves));
     assert.match(row!.why,/^b \(3 jumps, never visited, no empire listed, a stronghold\)/);
     assert.match(row!.why,/Next nearest: c 'c' \(4 jumps, never visited, empire solarian\)/);
-    assert.deepEqual(built.neighbours?.map(n=>[n.system_id,n.visited]),[['deep_range',true]]);
   } finally {f.close();}
 });
 

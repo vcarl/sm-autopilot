@@ -6,10 +6,8 @@
 import { Effect, Schema } from 'effect';
 import type { ReadinessAccount } from '../readiness.ts';
 import { type CounterName } from '../rules-table.ts';
-import { type DockRefusal } from './places.ts';
 import { Game } from './game.ts';
 import { type Pilot } from './runtime.ts';
-import { type Near } from './exploration/exploration.ts';
 import type { Status } from './types.ts';
 export type Advances = 'knowledge' | 'skill' | 'credits' | 'influence' | 'ship' | 'objective';
 export interface Move {
@@ -17,8 +15,12 @@ export interface Move {
     why: string;
     advances: Advances;
 }
-/** `neighbours` are the systems one jump out, for the juncture's Present line: a pilot that can
- * read them there need not spend a run looking. */
+/** `held` is each active mission led by its next step, for the juncture's Missions block. */
+export interface Held {
+    title: string;
+    next: string;
+    expires_at?: string;
+}
 export interface Menu {
     stagnation?: string;
     moves: Move[];
@@ -26,24 +28,11 @@ export interface Menu {
         move: string;
         why: string;
     }[];
-    neighbours?: Near[];
-    places?: Places;
+    held?: {
+        max: number;
+        missions: Held[];
+    };
 }
-/** What this pilot knows of the map, for the juncture's Places line: how much of it has been
- * flown, the systems a look found no base in, and the bases that refused a dock. Live 2026-09-30
- * (kvothe): with nowhere else to keep it, the goal became a lossy breadcrumb list, ~341 of 462
- * jumps were repeats, and refused bases were retried hours apart. */
-export interface Places {
-    visited?: number;
-    systems?: number;
-    stationless: string[];
-    refused: ({
-        base_id: string;
-    } & DockRefusal)[];
-}
-export declare function placesKnown(runtime: string | undefined, map?: {
-    visited?: boolean;
-}[]): Places;
 /** One run as the menu remembers it: the first work call `main()` made, how it ended, what
  * the whole run gained, and where the ship ended up. Written by `run` into the journal. */
 declare const Work: Schema.Struct<{
@@ -165,8 +154,22 @@ export declare const leadCall: (who: Pilot) => string;
  * moves, ranked with the move that clears a stated blocker first, then to break the repetition
  * seen, then by what the goal names, then by what similar runs measured. Under Tired: only service here or the nearest serviced base. */
 export declare const menuEffect: (runtime?: string) => Effect.Effect<{
-    places?: Places;
-    neighbours?: Near[];
+    held: {
+        max: number;
+        missions: {
+            expires_at?: string;
+            title: string;
+            next: string;
+        }[];
+    };
+    moves: Move[];
+    not_now: {
+        move: string;
+        why: string;
+    }[];
+    stagnation?: string;
+} | {
+    held?: never;
     moves: Move[];
     not_now: {
         move: string;

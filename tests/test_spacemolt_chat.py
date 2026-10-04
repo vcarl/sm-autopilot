@@ -61,7 +61,7 @@ def test_the_context_quotes_chat_since_the_last_juncture_as_data_with_its_sender
     _chat([_post("2026-10-04T11:00:00.000Z", "seen at the last juncture"),
            _post("2026-10-04T12:05:00.000Z", injected),
            _post("2026-10-04T12:06:00.000Z", "x" * 500, channel="local", sender="Ann"),
-           *[_post(f"2026-10-04T12:1{n}:00.000Z", f"system {n}", channel="system", sender="Bo") for n in range(5)],
+           *[_post(f"2026-10-04T12:1{n}:00.000Z", f"faction {n}", channel="faction", sender="Bo") for n in range(5)],
            {"at": "2026-10-04T12:20:00.000Z", "event": "unread", "counts": {"local": 0, "private": 2}}])
     context = _rendered(monkeypatch)
     lines = context.splitlines()
@@ -75,24 +75,42 @@ def test_the_context_quotes_chat_since_the_last_juncture_as_data_with_its_sender
     long = next(line for line in lines if 'from "Ann"' in line)
     assert '"' + "x" * juncture.CHAT_CHARS + '…"' in long, "cut at CHAT_CHARS"
     assert sum('from "Bo"' in line for line in lines) == juncture.CHAT_PER_CHANNEL
-    assert "system 4" in context and "system 1" not in context, "the newest of a channel are kept"
+    assert "faction 4" in context and "faction 1" not in context, "the newest of a channel are kept"
     assert "+2 older messages" in context
     assert "Unread as of 10-04 12:20Z: private 2." in context
     assert "spacemolt_chat" in context
 
 
-def test_emergency_maydays_fold_into_a_count(monkeypatch):
-    """Audit 10-04 (kvothe): three quoted MAYDAY lines a juncture helped push the suggested moves
-    out of every context since 10-03. They are a count; other emergency words stay quoted."""
+def test_the_games_own_broadcasts_are_neither_shown_nor_counted(monkeypatch):
+    """Live 2026-10-04 (kvothe): every system post was a customs scan and every emergency one a
+    MAYDAY, 42 in a day, crowding the players' words and the moves out. Other emergency words stay."""
     _last_juncture()
     _chat([*[_post(f"2026-10-04T12:1{n}:00.000Z", f"MAYDAY: Wexler {n} is stranded with 3/120 fuel!",
                    channel="emergency", sender=f"Wexler {n}") for n in range(4)],
-           _post("2026-10-04T12:20:00.000Z", "anyone near Sol?", channel="emergency", sender="Ann")])
+           *[_post(f"2026-10-04T12:1{n}:30.000Z", "[CUSTOMS] Hold position for confirmation.",
+                   channel="system", sender="[CUSTOMS] Node Beta") for n in range(5)],
+           _post("2026-10-04T12:20:00.000Z", "anyone near Sol?", channel="emergency", sender="Ann"),
+           {"at": "2026-10-04T12:21:00.000Z", "event": "unread", "counts": {"system": 5, "emergency": 1}}])
     context = _rendered(monkeypatch)
-    assert "MAYDAY: Wexler" not in context, context
-    assert "  4 MAYDAY broadcast(s) on emergency from stranded ships, readable with " \
-           "messages({channel:'emergency'})." in context.splitlines(), context
-    assert 'emergency from "Ann"' in context and "older messages" not in context
+    assert "MAYDAY" not in context and "CUSTOMS" not in context, context
+    assert 'emergency from "Ann"' in context
+    assert "older messages" not in context and "more messages" not in context
+    assert "  Unread as of 10-04 12:21Z: emergency 1." in context.splitlines(), context
+
+
+def test_only_messages_count_as_more_when_the_budget_trims_chat(monkeypatch):
+    """The "+N more" line counts the messages it cut, never the notes beneath them."""
+    _last_juncture()
+    _chat([_post(f"2026-10-04T12:{n:02d}:00.000Z", "z" * 190, sender=f"P{n}") for n in range(1, 11)]
+          + [{"at": "2026-10-04T12:21:00.000Z", "event": "unread", "counts": {"private": 10}}])
+    menu = copy.deepcopy(MENU)
+    menu["goal"] = "g" * 1500
+    monkeypatch.setattr(service, "call", lambda action, params=None: copy.deepcopy(menu))
+    context = juncture.juncture_context({"platform": "cron"})
+    shown = sum('private from "P' in line for line in context.splitlines())
+    assert 0 < shown < 10, context
+    assert f"  +{10 - shown} more messages, readable with messages()." in context.splitlines(), context
+    assert "  Unread as of 10-04 12:21Z: private 10." in context.splitlines()
 
 
 def test_no_chat_means_no_chat_section(monkeypatch):

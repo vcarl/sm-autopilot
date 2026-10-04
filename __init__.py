@@ -480,13 +480,13 @@ TOOL_DEFINITIONS = (
                        "effect at the next juncture, and nothing needs a stance to run.",
                        # Live 2026-09-30 (kvothe): goals averaged ~300 characters — a log of
                        # where it had been — and subtasks ("price an upgrade") were dropped
-                       # every fire. The context carries the loops and places now; the goal is
+                       # every fire. The context carries the runs and missions held now; the goal is
                        # the next step, and the checklist has its own field.
                        {"goal": {"type": "string",
                                  "description": "The next step toward your objective, in one short "
                                                 "line: what the next run does. Not a log of where "
-                                                "you have been; the context carries your runs, "
-                                                "loops and places."},
+                                                "you have been; the context carries your runs "
+                                                "and the missions you hold."},
                         "steps": {"type": "array", "items": {"type": "string"},
                                   "description": "Optional checklist toward the objective, a few "
                                                  "short lines (e.g. 'price an upgrade'). Pass the "

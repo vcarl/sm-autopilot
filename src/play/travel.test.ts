@@ -164,7 +164,6 @@ test('a base that denies the dock: goTo is partial in the game\'s words, and the
     const line=readJournal(runtime).find(entry=>entry.event==='dock_refused');
     assert.equal(line?.base_id,'range_base');
     assert.equal(line?.system_id,'deep_range');
-    assert.deepEqual((await onBinding(menuEffect(runtime))).places?.refused.map(row=>row.base_id),['range_base']);
     // Nothing refuses the next try; a dock that takes clears the memory.
     deny=false;
     assert.equal((await goTo('range_base')).status,'done');

@@ -12,13 +12,13 @@ import {combatLine,readCombat,statsFor} from '../combat-memory.ts';
 import {cellReserve} from '../mining-inventory.ts';
 import {readJournal} from '../run-record.ts';
 import {readFleet} from './freighter/host.ts';
-import {readDockRefusals,readExplored,readPlaces,type DockRefusal} from './places.ts';
+import {readPlaces} from './places.ts';
 import {PACKAGE_CARGO} from './hauling/freight.ts';
 import {Game,field} from './game.ts';
 import {bench,catalogClassEffect,moduleSpecEffect,whyNotFit} from './hangar.ts';
-import {readSightings,recall} from '../sighting-memory.ts';
+import {readSightings,recall,TICK_MS} from '../sighting-memory.ts';
 import {bestFarBid,knownBooks,ticksOld} from './market.ts';
-import {activeEffect,stuck} from './missions.ts';
+import {activeEffect,nextStep,stuck} from './missions.ts';
 import {num} from './rows.ts';
 import {acct,defect,pilot,present,runCalls,step,type Pilot} from './runtime.ts';
 import {serviceElsewhereEffect} from './service.ts';
@@ -30,20 +30,9 @@ import type {Status} from './types.ts';
 
 export type Advances='knowledge'|'skill'|'credits'|'influence'|'ship'|'objective';
 export interface Move {call:string;why:string;advances:Advances}
-/** `neighbours` are the systems one jump out, for the juncture's Present line: a pilot that can
- * read them there need not spend a run looking. */
-export interface Menu {stagnation?:string;moves:Move[];not_now:{move:string;why:string}[];neighbours?:Near[];places?:Places}
-/** What this pilot knows of the map, for the juncture's Places line: how much of it has been
- * flown, the systems a look found no base in, and the bases that refused a dock. Live 2026-09-30
- * (kvothe): with nowhere else to keep it, the goal became a lossy breadcrumb list, ~341 of 462
- * jumps were repeats, and refused bases were retried hours apart. */
-export interface Places {visited?:number;systems?:number;stationless:string[];refused:({base_id:string}&DockRefusal)[]}
-export function placesKnown(runtime:string|undefined,map?:{visited?:boolean}[]):Places {
-  const based=new Set(Object.values(runtime?readPlaces(runtime):{}));
-  return {...map?{visited:map.filter(row=>row.visited).length,systems:map.length}:{},
-    stationless:runtime?[...readExplored(runtime)].filter(id=>!based.has(id)):[],
-    refused:Object.entries(readDockRefusals(runtime)).map(([base_id,row])=>({base_id,...row}))};
-}
+/** `held` is each active mission led by its next step, for the juncture's Missions block. */
+export interface Held {title:string;next:string;expires_at?:string}
+export interface Menu {stagnation?:string;moves:Move[];not_now:{move:string;why:string}[];held?:{max:number;missions:Held[]}}
 /** One run as the menu remembers it: the first work call `main()` made, how it ended, what
  * the whole run gained, and where the ship ended up. Written by `run` into the journal. */
 const Work=Schema.Struct({fn:Schema.String,arg:Schema.String,status:Schema.Literals(['done','partial','refused','failed']),
@@ -374,14 +363,19 @@ export const menuEffect=(runtime?:string)=>Effect.gen(function*() {
   const verdicts=evaluateMenu(facts);
   const system=Option.getOrUndefined(yield* look('spacemolt/get_system'));
   const pois=each('get_system','poi',field(field(system,'system'),'pois'),decodePoi);
-  // The whole map in one read, walked from here: the neighbours for the Present line, and the
+  // The whole map in one read, walked from here: the jumps to a mission's next base, and the
   // nearest unvisited systems for the explore row below.
   const map=location?.system_id?Option.getOrUndefined(yield* section('spacemolt/get_map',Effect.map(game.command('spacemolt/get_map',{}),reply=>mapOf(replyBody(reply))))):undefined;
   const nearby=map&&location?.system_id?around(map,location.system_id,Infinity,readSeen(runtime)):[];
-  const neighbours=nearby.filter(row=>row.jumps===1);
-  // Disk reads only, each lenient; a bug in them still drops only this section.
-  const places=Option.getOrUndefined(yield* section('placesKnown',Effect.sync(()=>placesKnown(runtime,map))));
-  const shown={...neighbours.length?{neighbours}:{},...places?{places}:{}};
+  // Read fresh, ahead of Tired's early return: the juncture names every held mission's next step either way.
+  const mine=Option.getOrUndefined(yield* section('spacemolt/get_active_missions',activeEffect()));
+  const bases=runtime?readPlaces(runtime):{};
+  const jumpsTo=(o:{system_id?:string;target_base?:string})=>{
+    const system=o.system_id??bases[o.target_base??''];
+    return !system||!map?undefined:system===location?.system_id?0:nearby.find(row=>row.system_id===system)?.jumps;
+  };
+  const shown=mine?{held:{max:mine.max_missions,missions:mine.active.map(m=>({title:m.title,next:nextStep(m,jumpsTo),
+    ...!m.community&&m.expires_in_ticks>0?{expires_at:new Date(Date.now()+m.expires_in_ticks*TICK_MS).toISOString()}:{}}))}}:{};
 
   if(who.mood==='Tired') {
     const why=`Tired (${now.tired_by||'margin crossed'})`;
@@ -496,7 +490,6 @@ export const menuEffect=(runtime?:string)=>Effect.gen(function*() {
   }
 
   // Turn in a mission; take a fitting one when a slot is free.
-  const mine=Option.getOrUndefined(yield* section('spacemolt/get_active_missions',activeEffect()));
   const active=mine?.active??[];
   const ready=active.filter(m=>m.community?(m.community_percent??0)>=100:m.percent_complete>=100);
   if(ready.length)moves.push({call:'completeMissions()',why:`${ready.length} mission(s) at 100%: ${ready.map(m=>m.title).join(', ')}`,advances:'credits'});

@@ -248,71 +248,6 @@ def test_the_recent_runs_are_facts_and_include_a_run_refused_at_the_check(monkey
     assert "gatherUntil: +2,626 cr; returned done: mined" in recent[4], recent[4]
 
 
-def test_the_earning_loops_outlive_the_recent_runs(monkeypatch):
-    """Live 2026-10-01 (kvothe): four tradeRuns made +39.6k between 14:13 and 15:25Z; once they
-    left the recent runs, every fire said no loop had earned anything. The loops are read from the
-    journal, rotated files included, grouped by run: what the run was for, its credits and its wall
-    time. Review 10-02: grouped by call, a mining run's sell was the loop and a liquidating
-    `sell all` read as 87,125 cr/h over 1m."""
-    runtime = service.runtime_dir()
-    runtime.mkdir(parents=True, exist_ok=True)
-
-    def run(at: str, rid: str, started: str | None, work: dict, calls: list[dict]) -> dict:
-        return {"at": at, "event": "run", "phase": "ended", "run_id": rid, "outcome": "done",
-                **({"started": started} if started else {}), "work": work, "calls": calls}
-    nova, confed = "nova_terra_central", "confederacy_central_command"
-    (runtime / "gameplay.2026-10-01T20-00-00Z.jsonl").write_text(json.dumps(run(
-        # Journalled before `started` and `stops`: the calls' seconds stand in for the wall time,
-        # and the bases are read from the tradeRun's `did`.
-        "2026-10-01T14:28:00Z", "r1", None, {"fn": "tradeRun", "arg": nova, "credits": 11212},
-        [{"fn": "orient", "credits": 0, "seconds": 1},
-         {"fn": "tradeRun", "arg": nova, "credits": 11212, "seconds": 599,
-          "did": f"{nova}: sold 3 circuit_board → {confed}: took 9 — net 9 cr"}])) + "\n")
-    _write_journal([
-        # work.fn is the first non-read call, here the flight to the route: still a tradeRun loop.
-        run("2026-10-01T15:10:00Z", "r2", "2026-10-01T15:01:00Z", {"fn": "goTo", "arg": confed, "credits": 5071},
-            [{"fn": "goTo", "arg": confed, "credits": 0, "seconds": 30},
-             {"fn": "tradeRun", "arg": confed, "credits": 5071, "seconds": 500, "stops": [confed, nova]}]),
-        # The gather earns nothing and the sell takes the credit: the loop is the gatherUntil.
-        run("2026-10-01T16:20:00Z", "r3", "2026-10-01T16:00:00Z",
-            {"fn": "gatherUntil", "arg": "deep_range_belt", "credits": 1450},
-            [{"fn": "gatherUntil", "arg": "deep_range_belt", "credits": 0, "seconds": 1100},
-             {"fn": "goTo", "arg": "frontier_station", "credits": 0, "seconds": 60},
-             {"fn": "sell", "arg": "all", "credits": 1450, "seconds": 40}]),
-        # A run that was only a sell is its own loop, at its own wall time.
-        run("2026-10-01T16:30:05Z", "r4", "2026-10-01T16:30:00Z", {"fn": "sell", "arg": "all", "credits": 88},
-            [{"fn": "sell", "arg": "all", "credits": 88, "seconds": 4}]),
-    ] + [{"event": "run", "phase": "ended", "outcome": "done", "commands": 3,
-          "calls": [{"fn": "orient", "credits": 0}]}] * 6)
-    context = _rendered(monkeypatch, _menu(12))
-    block = context.split("Your earning loops (from your journal, most credits first):\n")[1].split("\nYour recent")[0]
-    assert block.splitlines() == [
-        f"  tradeRun {nova} ↔ {confed}: 2 laps in 2 runs, +16,283 cr, 51,420 cr/h over 19m, last 10-01 15:10Z",
-        "  gatherUntil deep_range_belt: 1 lap in 1 run, +1,450 cr, 4,350 cr/h over 20m, last 10-01 16:20Z",
-        "  sell all: 1 lap in 1 run, +88 cr, 63,360 cr/h over 5s, last 10-01 16:30Z"], block
-    # Facts only: no verdict on which loop is good.
-    assert not re.search(r"best|worst|productive|should", block)
-
-
-def test_the_places_line_carries_what_the_goal_used_to(monkeypatch):
-    """Live 2026-09-30 (kvothe): the goal doubled as a lossy visited-systems list, ~341 of 462
-    jumps were repeats, and bases that refused docking were retried hours apart."""
-    menu = _menu(12)
-    menu["places"] = {"visited": 47, "systems": 120,
-                      "stationless": [f"sys_{i}" for i in range(10)],
-                      "refused": [{"base_id": "db90abb6", "system_id": "proxima_centauri",
-                                   "message": "Access denied", "at": "2026-10-02T16:37:17Z"}]}
-    # Audit 10-04: the names are an explorer's list; any other stance gets the counts.
-    assert ("Places: visited 47 of 120 systems on the map; no base found in 10 systems; "
-            "docking refused at 1 bases.") in _rendered(monkeypatch, menu).splitlines()
-    menu["stance"] = "Scout"
-    context = _rendered(monkeypatch, menu)
-    assert ("Places: visited 47 of 120 systems on the map; no base found in sys_2, sys_3, sys_4, sys_5, "
-            "sys_6, sys_7, sys_8, sys_9 (+2 more); docking refused at db90abb6 in proxima_centauri "
-            "(10-02 16:37Z: Access denied).") in context.splitlines(), context
-    assert not any(line.startswith("Places:") for line in _rendered(monkeypatch, _menu(12)).splitlines())
-
-
 def test_a_full_hold_out_in_the_open_is_offered_the_move_that_works(monkeypatch):
     """`sell` and `stow` are station counters, and a belt is not a station."""
     undocked = _menu(0)
@@ -356,59 +291,26 @@ def test_the_situation_renders_only_the_permissions_the_code_knows(monkeypatch):
         assert gone not in context, gone
 
 
-def test_the_present_line_names_the_neighbours_and_what_is_known_of_them(monkeypatch):
-    """Live 2026-09-30: every juncture opened with a read-only run just to see the neighbours.
-    Audit 10-04: bare names, since the per-system suffix helped crowd the moves out."""
-    menu = _menu(12)
-    menu["neighbours"] = [
-        {"system_id": "deep_range", "name": "Deep Range", "jumps": 1, "visited": True, "empire": "solarian",
-         "seen": {"police": 3, "pirates": 2, "at": "2026-09-23T13:00:00Z"}},
-        {"system_id": "the_drift", "name": "The Drift", "jumps": 1, "visited": False, "stronghold": True}]
-    context = _rendered(monkeypatch, menu)
-    assert ("Present: docked at first_step_station (first_step). One jump out: "
-            "deep_range, the_drift.") in context.splitlines(), context
-    assert "One jump out" not in _rendered(monkeypatch, _menu(12))
-
-
 def test_opaque_place_ids_are_named_from_the_menu(monkeypatch):
-    """Live 2026-10-02 (kvothe): the Present line, the loops and so the pilot's own replies read
+    """Live 2026-10-02 (kvothe): the Present line and so the pilot's own replies read
     "b495c6003fc83e18f6d8cecbe6929133". The menu carries the names the bridge learned; a bare id
     reads ``Name (id)``, a quoted one is code and stays as it is."""
     base, poi = "b495c6003fc83e18f6d8cecbe6929133", "98eba8b1a7ad0520d6a7c8ea44b2d6aa"
-    runtime = service.runtime_dir()
-    runtime.mkdir(parents=True, exist_ok=True)
-    _write_journal([{"at": "2026-10-02T15:10:00Z", "event": "run", "phase": "ended", "run_id": "r1",
-                     "outcome": "done", "started": "2026-10-02T15:00:00Z",
-                     "work": {"fn": "tradeRun", "arg": base, "credits": 900},
-                     "calls": [{"fn": "tradeRun", "arg": base, "credits": 900, "seconds": 600,
-                                "stops": [base, "nova_terra_central"]}]}])
     menu = _menu(12)
     menu["present"].update({"system": "dheneb", "docked_at": base})
-    menu["places"] = {"refused": [{"base_id": poi, "system_id": "dheneb", "at": "2026-10-02T15:00:00Z",
-                                   "message": "Access denied"}]}
+    menu["held"] = {"max": 5, "missions": [{"title": "Courier", "next": f"Deliver the pouch → {poi}"}]}
     menu["text"] = f"Menu:\n  - `goTo('{base}')` — sell at {base}"
     menu["names"] = {base: "Kestrel Yard", poi: "Hex Star"}
-    menu["stance"] = "Scout"  # the refused bases are named for an explorer only
     context = _rendered(monkeypatch, menu)
     assert f"Present: docked at Kestrel Yard ({base}) (dheneb)." in context, context
-    assert f"docking refused at Hex Star ({poi}) in dheneb" in context, context
-    assert f"tradeRun Kestrel Yard ({base}) ↔ nova_terra_central:" in context, context
+    assert f"Courier — next: Deliver the pouch → Hex Star ({poi})" in context, context
     assert f"`goTo('{base}')` — sell at Kestrel Yard ({base})" in context, context
     del menu["names"]
     assert f"Present: docked at {base} (dheneb)." in _rendered(monkeypatch, menu)
 
 
-def test_the_present_line_caps_the_neighbours_at_a_hub(monkeypatch):
-    menu = _menu(12)
-    menu["neighbours"] = [{"system_id": f"s{n}", "jumps": 1, "visited": True} for n in range(10)]
-    present = next(line for line in _rendered(monkeypatch, menu).splitlines() if line.startswith("Present:"))
-    assert "s5" in present and "s6" not in present, present
-    assert present.endswith(", +4 more."), present
-
-
-def test_skills_and_the_walk_away_line_read_as_what_they_are(monkeypatch):
+def test_the_walk_away_line_reads_as_what_it_is(monkeypatch):
     context = _rendered(monkeypatch, _menu(12))
-    assert "Skills: weapons 3, gunnery 1, tactics 2." in context, context
     assert "Walk-away" not in context
     menu = _menu(12)
     menu["present"]["walk_away"] = 94
@@ -416,19 +318,6 @@ def test_skills_and_the_walk_away_line_read_as_what_they_are(monkeypatch):
     # Audit 10-04: with no weapon fitted the line is only room the moves needed.
     menu["present"]["weapons"] = []
     assert "Walk-away" not in _rendered(monkeypatch, menu)
-
-
-def test_a_skill_with_xp_and_next_level_shows_progress_and_a_bare_level_stays_old_style(monkeypatch):
-    """The bridge is moving skills from a bare level to {level, xp, next_level_xp}; the old
-    bare-number shape (and a dict missing the xp fields) must still read as before. Playtest
-    2026-09-22: the pilot treated skills as bare numbers in its programs, so the object shape
-    carries one trailing hint on the line (not per skill) saying to read `.level`."""
-    menu = _menu(12)
-    menu["present"]["skills"] = {"piloting": {"level": 9, "xp": 1744, "next_level_xp": 2000},
-                                 "gunnery": {"level": 4}, "weapons": 3}
-    context = _rendered(monkeypatch, menu)
-    assert ("Skills: piloting 9 (1744/2000 xp), gunnery 4, weapons 3 "
-            "(each is {level, xp, next_level_xp}; read .level)." in context), context
 
 
 def test_an_instruction_stands_until_a_run_starts_after_it_and_rendering_writes_nothing(monkeypatch):
@@ -503,29 +392,57 @@ def test_an_oversized_situation_fits_the_section_with_every_fact_line(monkeypatc
         assert any(line.startswith(label) for line in context.splitlines()), (label, context)
 
 
-def test_the_loops_and_places_give_way_before_the_recent_runs(monkeypatch):
-    """Review 10-02: kvothe's live contexts ran 3,992–4,000 chars, and the loops, Places, steps
-    and since-objective lines sat outside the drop order, so the recent runs were what shrank.
-    Now the loops go to one and Places to counts first; past that, the cut ends on a line."""
-    _write_journal([{"at": f"2026-10-01T1{n}:00:00Z", "started": f"2026-10-01T0{n}:00:00Z", "event": "run",
-                     "phase": "ended", "outcome": "done", "reason": "r" * 150, "commands": 1,
-                     "work": {"fn": "gatherUntil", "arg": f"belt_{n}", "credits": 100 * (n + 1)},
-                     "calls": [{"fn": "gatherUntil", "arg": f"belt_{n}", "credits": 100 * (n + 1), "seconds": 60}]}
+# Live 2026-10-04 (kvothe 22:02Z, run 8389807d): a five-stop circuit flown out of order into the run
+# cap, with ~3.8k chars of reference in the context and no list of the missions held.
+HELD = {"max": 5, "missions": [
+    {"title": "Five Capitals Diplomatic Circuit",
+     "next": "Verify diplomatic pouch at Sol Central → confederacy_central_command, 3 jumps [2 of 5]",
+     "expires_at": "2026-10-05T03:00:00.000Z"},
+    {"title": "Titanium Extraction Contract", "next": "Mine titanium ore (0/20) → central_nexus, this system"}]}
+
+
+def test_the_missions_held_are_listed_by_their_next_step(monkeypatch):
+    menu = _menu(12)
+    menu["held"] = HELD
+    context = _rendered(monkeypatch, menu)
+    block = context.split("Missions held (2 of 5):\n")[1].split("\nYour recent")[0].splitlines()
+    assert block == [
+        ("  Five Capitals Diplomatic Circuit — next: Verify diplomatic pouch at Sol Central → "
+         "confederacy_central_command, 3 jumps [2 of 5]; expires 10-05 03:00Z"),
+        "  Titanium Extraction Contract — next: Mine titanium ore (0/20) → central_nexus, this system"], block
+    assert "Missions held" not in _rendered(monkeypatch, _menu(12))
+
+
+def test_the_reference_sections_are_gone(monkeypatch):
+    """Cut 10-04 for the missions block: the skills dump, the Places and one-jump-out lines, the
+    earning loops and the since-the-objective deltas. What the bridge still sends is not rendered."""
+    menu = _menu(12)
+    menu["present"]["skills"] = {"piloting": {"level": 9, "xp": 1744, "next_level_xp": 2000}}
+    menu["neighbours"] = [{"system_id": "deep_range", "jumps": 1, "visited": True}]
+    menu["places"] = {"visited": 47, "systems": 120, "stationless": ["sys_1"], "refused": []}
+    menu["objective_start"] = {"at": "2026-09-23T12:25:00Z", "credits": 210958}
+    _write_journal([{"event": "run", "phase": "ended", "at": "2026-10-02T15:00:00Z", "outcome": "done",
+                     "commands": 9, "work": {"fn": "tradeRun", "credits": 6045}}])
+    context = _rendered(monkeypatch, menu)
+    for gone in ("Skills:", "piloting", "Places:", "One jump out", "deep_range", "earning loops",
+                 "Since the objective", "210,958"):
+        assert gone not in context, (gone, context)
+
+
+def test_the_missions_held_never_give_way(monkeypatch):
+    """Over the limit the moves, the hold list, the chat and the older recent runs give way; the
+    missions held are a fact. Past that, the cut ends on a line."""
+    _write_journal([{"at": f"2026-10-01T1{n}:00:00Z", "event": "run", "phase": "ended", "outcome": "done",
+                     "reason": "r" * 150, "commands": 1, "work": {"fn": "gatherUntil", "credits": 100}}
                     for n in range(5)])
     menu = _menu(12, hold=[{"item_id": f"salvaged_component_{i}", "quantity": i} for i in range(400)])
     menu["text"] = "Menu:\n" + "  - `hunt()` — trains gunnery [skill]\n" * 200
     menu["steps"] = ["x" * 620] * 3
-    menu["stance"] = "Scout"  # the stance whose Places line starts named
-    menu["places"] = {"visited": 47, "systems": 120, "stationless": [f"system_{i:03d}" for i in range(40)],
-                      "refused": [{"base_id": f"base_{i}", "message": "Access denied " + "z" * 60,
-                                   "at": "2026-10-01T10:00:00Z"} for i in range(9)]}
+    menu["held"] = HELD
     context = _rendered(monkeypatch, menu)
     assert len(context) <= juncture.SECTION_LIMIT, len(context)
-    recent = context.split("Your recent runs (newest last):\n")[1].splitlines()
-    assert len(recent) >= 3, context
-    assert "Places: visited 47 of 120 systems on the map; no base found in 40 systems; docking refused at 9 bases." \
-        in context.splitlines(), context
-    assert len(context.split("most credits first):\n")[1].split("\nYour recent")[0].splitlines()) == 1, context
+    assert "Missions held (2 of 5):" in context and "Titanium Extraction Contract — next:" in context, context
+    assert len(context.split("Your recent runs (newest last):\n")[1].splitlines()) >= 3, context
     assert "Suggested moves" not in context and "+400 more" in context
     # Fact lines alone over the limit: whole lines are kept, none is cut short.
     menu["objective"] = "o" * 2500
@@ -547,7 +464,7 @@ def test_a_reflection_repeating_the_goal_is_not_said_twice(monkeypatch):
 
 
 # Shaped like kvothe's 10-04 17:27Z render, which ran ~3.9k chars without its moves: a Prospector,
-# unarmed, 18 skills with xp, the Places names, four neighbours, maydays, three loops, five runs.
+# unarmed, maydays, five runs; now with the five missions it held.
 KVOTHE_GOAL = ("Objective met; resources kept unsold in the frontier_station store. Resume earning "
                "credits or take a new objective.")
 KVOTHE_MOVES = """Menu:
@@ -562,23 +479,16 @@ Not now:
 
 
 def _kvothe_menu() -> dict:
-    skills = {name: {"level": level, "xp": 100, "next_level_xp": 1000} for name, level in (
-        ("crafting", 9), ("deep_core_mining", 9), ("engineering", 1), ("exploration", 5), ("gunnery", 5),
-        ("leadership", 2), ("mining", 10), ("navigation", 9), ("piloting", 11), ("refining", 8),
-        ("salvaging", 5), ("scanning", 3), ("shields", 1), ("tactics", 5), ("trading", 12), ("weapons", 3),
-        ("wormhole_navigation", 1), ("xenobiology", 5))}
     return {"now": "2026-10-04T17:27:00.000Z", "stance": "Prospector", "mood": "Focused", "goal": KVOTHE_GOAL,
             "steps": ["recipes() at frontier_station; note inputs and xp",
                       "craft the best refining recipe from stored ore", "check refining level; objective_done at 8"],
             "permissions": {"credit_reserve": 50000},
             "present": {"system": "distant_light", "docked_at": "frontier_station", "fuel": 140, "max_fuel": 140,
                         "hull": 75, "max_hull": 75, "credits": 361649, "cargo_free": 172, "walk_away": 67,
-                        "hold": [{"item_id": "fuel_cell", "quantity": 8}], "weapons": [], "skills": skills},
-            "neighbours": [{"system_id": s, "visited": True, "empire": "outerrim"}
-                           for s in ("altais", "horizon", "the_telescope", "unknown_edge")],
-            "places": {"visited": 296, "systems": 505, "stationless": [f"system_{n:02d}" for n in range(34)],
-                       "refused": [{"base_id": f"{n:032x}", "system_id": "proxima_centauri", "message": "Access denied",
-                                    "at": "2026-10-03T21:34:00Z"} for n in range(3)]},
+                        "hold": [{"item_id": "fuel_cell", "quantity": 8}], "weapons": []},
+            "held": {"max": 5, "missions": [{"title": f"Contract {n}", "next": f"Deliver 20 ore (0/20) → base_{n}, "
+                                             f"{n} jumps [1 of 2]", "expires_at": "2026-10-05T03:00:00Z"}
+                                            for n in range(5)]},
             "moves": [], "not_now": [], "text": KVOTHE_MOVES, "last": None}
 
 
@@ -594,24 +504,18 @@ def test_a_kvothe_sized_context_keeps_its_suggested_moves(monkeypatch):
                                      "sender": f"Wexler {n}", "content": f"MAYDAY: Wexler {n}-QX is stranded at "
                                      "Ramen's Rest in Last Light with 3/120 fuel! Any pilots nearby, please help!"})
                          + "\n")
-    hex_star = "b495c6003fc83e18f6d8cecbe6929133"
-    loops = [{"at": f"2026-10-03T2{n}:10:00Z", "started": f"2026-10-03T2{n}:00:00Z", "event": "run", "phase": "ended",
-              "run_id": f"l{n}", "outcome": "done", "work": {"fn": "tradeRun", "credits": 12000},
-              "calls": [{"fn": "tradeRun", "credits": 12000, "seconds": 600, "stops": [base, hex_star]}]}
-             for n, base in enumerate(["nova_terra_central", "confederacy_central_command",
-                                       "nova_terra_central", "fed_hub"])]
     recent = [{"at": "2026-10-04T17:13:00Z", "event": "run", "phase": "ended", "outcome": "done", "commands": 125,
                "reason": "6 calls gained +960 items: bought 160 copper_ore for 1286 cr (6 of it tax); last call craft done",
                "work": {"fn": "buy", "items": 960, "xp": 1172}, "calls": [{"fn": "buy"}, {"fn": "craft"}]}] * 4 + [
               {"at": "2026-10-04T17:21:00Z", "event": "reflection", "goal": KVOTHE_GOAL, "objective_done": True,
                "objective": "Get crafting, refining and mining to level 8 or higher."}]
-    _write_journal(loops + recent)
+    _write_journal(recent)
     context = _rendered(monkeypatch, _kvothe_menu())
     assert len(context) <= juncture.SECTION_LIMIT, len(context)
     assert "Suggested moves (advice, pasteable into main()):" in context, context
     assert "craft('refine_copper', 20)" in context and "acceptMission: no slot free" in context
-    for label in ("Goal:", "Steps:", "Stance:", "Present:", "Places:", "  Fuel ", "  Fitted weapons:",
-                  "Your recent runs"):
+    for label in ("Goal:", "Steps:", "Stance:", "Present:", "  Fuel ", "  Fitted weapons:",
+                  "Missions held (5 of 5):", "Your recent runs"):
         assert any(line.startswith(label) for line in context.splitlines()), (label, context)
 
 
@@ -707,28 +611,6 @@ def test_reflect_sets_goal_and_stance_through_the_bridge_whatever_the_pilot_is_d
     assert _journal_rows("reflection")[-1]["steps"] == ["price an upgrade", "fly the circuit_board loop"]
     spacemolt._reflect({"steps": []})
     assert sent[-1] == ("pilot", {"set": {"steps": None}}) and "steps" not in juncture.read_pilot()
-
-
-def test_the_context_says_what_moved_since_the_objective_was_set(monkeypatch):
-    """Live 2026-09-30 (kvothe): "train an offensive skill" was met (tactics 4→5) while the pilot
-    kept saying no skill rose. The deltas are facts; nothing says done."""
-    menu = _menu(12)
-    menu["present"]["skills"] = {"weapons": {"level": 3}, "gunnery": {"level": 1}, "tactics": {"level": 5},
-                                 "salvaging": {"level": 1}}
-    menu["present"]["ship_class"] = "hauler"
-    menu["objective_start"] = {"at": "2026-09-23T12:25:00Z", "credits": 210958, "ship_class": "cobble",
-                               "place": "sol_base", "skills": {"weapons": 3, "gunnery": 1, "tactics": 4}}
-    lines = _rendered(monkeypatch, menu).splitlines()
-    objective = next(i for i, line in enumerate(lines) if line.startswith("Objective (carried in):"))
-    # A skill first trained after the start was level 0 then.
-    assert lines[objective + 1] == (
-        "Since the objective was set 1h40m ago (09-23 12:25Z): credits 210,958 → 236,373; tactics 4→5; "
-        "salvaging 0→1; ship cobble → hauler; place sol_base → first_step_station."), lines
-    assert not re.search(r"\b(done|met|complete)\b", lines[objective + 1])
-    # A day or more reads in days and hours, not 221h44m.
-    menu["now"] = "2026-10-02T17:44:00.000Z"
-    assert "set 9d5h ago (09-23 12:25Z)" in _rendered(monkeypatch, menu)
-    assert not any(line.startswith("Since the objective") for line in _rendered(monkeypatch, _menu(12)).splitlines())
 
 
 def test_the_steps_reach_the_context_under_the_goal(monkeypatch):
@@ -900,7 +782,7 @@ def test_a_failed_game_read_still_renders_the_record_and_the_journal(monkeypatch
     for text in ("The game did not answer this time", "Objective (carried in): reach 1,000,000 cr",
                  "Instruction (carried in 10-02 16:34Z): scan markets for cheap materials",
                  "Goal: work the ore route", "Steps: 1) buy at alpha; 2) sell at beta", "Stance: Trader.",
-                 "tradeRun alpha ↔ beta: 1 lap in 1 run, +6,045 cr", "Your recent runs (newest last):"):
+                 "tradeRun: +6,045 cr", "Your recent runs (newest last):"):
         assert text in context, (text, context)
     for absent in ("Present:", "Mood:", "  Fuel ", "Since the objective"):
         assert absent not in context, (absent, context)
