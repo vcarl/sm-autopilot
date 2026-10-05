@@ -16,8 +16,7 @@ is nothing unvisited within `jumps` — widen it.
 
 **Danger is your call.** The map publishes no police level for a system you have never stood in;
 what it does name is the empire that claims it (or none), whether it is a stronghold, and how many
-pilots are online there. Police, security and pirates are learned on arrival, kept in the runtime,
-and shown in the juncture's moves when an objective sends you exploring. `exploreNearby` skips
+pilots are online there. Police, security and pirates are learned on arrival and remembered. `exploreNearby` skips
 nothing you do not name in `avoid`: read the facts and choose.
 
 `scout(id)` reads one system (`detail.system.id` and `.name` either way; each `detail.connections` row says `visited`, so a loop can skip systems you have been to); `goTo(id)` flies there and docks if it is a base (or a system with

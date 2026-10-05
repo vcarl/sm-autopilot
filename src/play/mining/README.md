@@ -44,22 +44,18 @@ export default async function main() {
 The way out: 2,500–10,000 credits, skills 1–3 in mining, trading and navigation, one T1 hull.
 
 `missions()` at every dock: a difficulty-1 "deliver 20 ore" or "visit X" pays for a trip you were
-making anyway. Max 5 active; `detail.slots_free` says how many you may still take.
-Each `detail.active` row leads with `next`, its first objective not yet met ("Visit X → base, 3 jumps
-[2 of 5]"): fly them in that order. `slots_free: 0` with nothing completable means one is stuck: its
-row carries `progress` and a `stuck` reason, and `abandonMission('<id>')` frees the slot (it refuses one you
-could turn in here unless `{force:true}`, and an id never active). `completeMissions()` first: it
-withdraws from the store here for a `deliver N of item` the store covers.
+making anyway.
 
 First purchase at ~2,000 cr: a cargo expander (`buy`, then `refit({install:['cargo_expander_ii']})`),
-correct only if a utility slot is free (the play README's "Getting a better ship").
+correct only if a utility slot is free (see "Getting a better ship").
 
 ## What a good trip looks like
 
 - The belt is one hop or less from a station with `market` and `storage`. Fuel is the cost.
 - The ore has a buyer. Iridium at 53 cr beats aluminum at 6 cr for the same hold.
-- Your laser's power matches the deposit's `supported_power`; a deep-core deposit needs power
-  3+, and mining one trains deep_core_mining, which is worth +5% yield per level.
+- Your laser's power matches the deposit's `supported_power`. Deep-core deposits sit at hidden POIs
+  (`survey_system` reveals them) and need a `deep_core_extractor_*` module fitted; deep_core_mining
+  (+5% deep-core yield a level) trains by mining at power 3+ or by deep surveys.
 - The hold is empty when you leave, but for the fuel cells `service()` keeps aboard (about 5% of it;
   no sell or stow takes them). `gatherUntil` refuses a full hold; `sell(rows)` or `stow(rows)` first.
 
@@ -67,7 +63,12 @@ correct only if a utility slot is free (the play README's "Getting a better ship
 
 - A trip yields the same ore your store already has 400 of. Sell it, refine it (`recipes()`, then `craft()`), or
   change belts.
-- Yield per trip drops: the site is depleting (`ended: 'depleted'`). Move on.
+- Yield per trip drops: the site is depleting (`ended: 'depleted'`). A deposit's `remaining` is its
+  stock: -1 never depletes, 0 is empty for now; a finite one regenerates at least 1 unit a minute
+  toward `max_remaining`. Below a quarter of that, a strong array can lose its lock
+  (`deposit_too_sparse`; `lock_minimum_stock` says how much it needs). Work another deposit meanwhile.
+- A site with several ores picks one each cycle, weighted by `richness` and, as Mining rises, toward
+  rarer ores, so a mixed site returns a mix (a fitted extraction filter re-targets the cycle).
 - The mining skill has passed 5 and the credits per hour are flat: the ceiling is the hull's
   cargo, not your skill. An Archimedes (T1 miner, 185 cargo, ~2,200 cr) or an Excavation
   (T2, 250 cargo, ~8,000 cr) via `shipsForSale()`.
