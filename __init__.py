@@ -1,9 +1,10 @@
 """Hermes plugin: play SpaceMolt by editing pilot/index.ts and running it.
 
 Three toolsets, because a tool name is global and belongs to exactly one of them:
-``spacemolt`` is what a juncture acts with — run, query, answer, check, reflect — ``spacemolt_observe``
+``spacemolt`` is what a juncture acts with — run, answer, check, reflect — ``spacemolt_observe``
 what every client of the runner may call (spacemolt_stop: a fire paused on a question or refused
-mid-run is told to stop the run, so it must hold the tool), and ``spacemolt_observer`` the
+mid-run is told to stop the run, so it must hold the tool; spacemolt_query: the pilot looks before
+it acts, and a human in a chat window asks the game directly), and ``spacemolt_observer`` the
 observer's own window tools: spacemolt_status (the record, the run and the journal in one read)
 and spacemolt_direct (objective, permissions, instruction). A chat window carries observe +
 observer and never a play
@@ -456,7 +457,7 @@ TOOL_DEFINITIONS = (
                                    "description": "The whole of pilot/index.ts, written before "
                                                   "the flight."}},
                        [])},
-    {"name": "spacemolt_query", "toolset": "spacemolt", "handler": _query,
+    {"name": "spacemolt_query", "toolset": "spacemolt_observe", "handler": _query,
      "description": "Look before you act: run a short program that only reads the game, and get "
                     "back what it returned within seconds.",
      "schema": _schema("spacemolt_query",

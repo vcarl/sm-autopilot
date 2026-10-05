@@ -20,7 +20,8 @@ export const QUERY_CAP_MS=90_000;
 /** ponytail: the last 100 streamed lines and 8000 characters of what `main` returned reach the pilot;
  * raise them if a query's answer is ever cut where it mattered. */
 const LINES=100,RETURNED_CHARS=8000;
-const SESSION=new Set(['login','login_link','login_link_poll','login_token','logout','register'].map(name=>`spacemolt_auth/${name}`));
+// The lib calls self_destruct a query; it is the one that does real damage, and a chat window holds this tool too.
+const SESSION=new Set([...['login','login_link','login_link_poll','login_token','logout','register'].map(name=>`spacemolt_auth/${name}`),'spacemolt_battle/self_destruct']);
 
 /** Why a query may not send `action`, or null: every action the lib calls a query, but the session's own. */
 export const notAQuery=(action:string):string|null=>SESSION.has(action)?`${action} is not available in a query`

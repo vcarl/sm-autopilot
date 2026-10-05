@@ -32,6 +32,7 @@ test('the rule is the lib\'s own: a query action passes, a mutation, an unknown 
   assert.match(notAQuery('spacemolt/no_such_thing')??'',/not a read/);
   for(const name of ['login','login_link','login_link_poll','login_token','logout','register'])
     assert.match(notAQuery(`spacemolt_auth/${name}`)??'',/not available in a query/);
+  assert.match(notAQuery('spacemolt_battle/self_destruct')??'',/not available in a query/);
 });
 
 test('a query that reads answers with what main returned, journals one query line, and writes no run.json',async()=>{

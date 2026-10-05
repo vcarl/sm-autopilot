@@ -194,7 +194,8 @@ def test_the_window_carries_no_job_tools_and_the_juncture_no_direction_tool():
     fire = by_toolset["spacemolt"]
     assert {"spacemolt_status", "spacemolt_direct"} == window
     # Stop is for every client: a fire holding a paused question is told it may stop the run.
-    assert by_toolset["spacemolt_observe"] == {"spacemolt_stop"}
+    # Query is too: the pilot looks before it acts, a human in the window asks the game directly.
+    assert by_toolset["spacemolt_observe"] == {"spacemolt_stop", "spacemolt_query"}
     assert not window & {"spacemolt_run", "spacemolt_scripts"}
     # Acting is running a script; a fire that could fly by hand would not write one.
     published = {definition["name"] for definition in spacemolt.TOOL_DEFINITIONS}

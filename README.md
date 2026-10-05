@@ -130,8 +130,10 @@ The plugin provides three toolsets:
 
 - `spacemolt` — the tools a juncture flies with (`spacemolt_run`, `spacemolt_answer`,
   `spacemolt_check`, `spacemolt_reflect`). The juncture job enables these itself; you do not.
-- `spacemolt_observe` — what every client may call (`spacemolt_stop`). A juncture carries it too,
-  so a pilot whose program is paused on a question can stop the run instead of answering.
+- `spacemolt_observe` — what every client may call (`spacemolt_stop`, `spacemolt_query`). A
+  juncture carries it too, so a pilot whose program is paused on a question can stop the run
+  instead of answering, or look around before it does. From a chat window, `spacemolt_query` asks
+  the game directly: a short read-only program, never a mutation.
 - `spacemolt_observer` — the window's read and direction (`spacemolt_status`,
   `spacemolt_direct`). This is the human's half; a juncture deliberately never gets it, so the
   pilot cannot set its own objective.
