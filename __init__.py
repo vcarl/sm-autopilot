@@ -1,7 +1,7 @@
 """Hermes plugin: play SpaceMolt by editing pilot/index.ts and running it.
 
 Three toolsets, because a tool name is global and belongs to exactly one of them:
-``spacemolt`` is what a juncture acts with — run, answer, check, reflect — ``spacemolt_observe``
+``spacemolt`` is what a juncture acts with — run, query, answer, check, reflect — ``spacemolt_observe``
 what every client of the runner may call (spacemolt_stop: a fire paused on a question or refused
 mid-run is told to stop the run, so it must hold the tool), and ``spacemolt_observer`` the
 observer's own window tools: spacemolt_status (the record, the run and the journal in one read)
@@ -146,6 +146,27 @@ def _unanswered(error: Exception, tool: str) -> str:
     logger.warning("%s: %s", tool, error)
     return json.dumps({"accepted": False, "reason": "the flight computer did not answer; nothing "
                                                       "was launched or resumed"}, separators=(",", ":"))
+
+
+def _query(arguments: dict[str, Any] | None = None, **_: Any) -> str:
+    """Run a read-only program from query/index.ts, beside the flight: never pilot/index.ts, so it may go
+    while a flight is under way or waits on a question. Returns its lines and what main returned."""
+    path = runtime_dir() / "query" / "index.ts"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(str((arguments or {}).get("source") or ""), encoding="utf-8")
+    try:
+        juncture = last_juncture()
+        result = call("query", {"juncture": juncture} if juncture else {})
+    except Exception as error:  # noqa: BLE001 - any bridge failure becomes the tool's refusal, not a crash
+        logger.warning("spacemolt_query: %s", error)
+        return json.dumps({"ok": False, "reason": "the flight computer did not answer; nothing was read"},
+                          separators=(",", ":"))
+    if result.get("errors"):
+        return json.dumps({"ok": False, "reason": result.get("reason"), "errors": result["errors"]},
+                          separators=(",", ":"))
+    tail = (f"error: {result['error']}" if result.get("error")
+            else f"returned: {result.get('returned', 'nothing')}")
+    return "\n".join([*(result.get("lines") or []), tail])
 
 
 def _report(result: dict[str, Any], lines: list[str]) -> str:
@@ -435,6 +456,24 @@ TOOL_DEFINITIONS = (
                                    "description": "The whole of pilot/index.ts, written before "
                                                   "the flight."}},
                        [])},
+    {"name": "spacemolt_query", "toolset": "spacemolt", "handler": _query,
+     "description": "Look before you act: run a short program that only reads the game, and get "
+                    "back what it returned within seconds.",
+     "schema": _schema("spacemolt_query",
+                       "Look around before you act: a short program over the play library that "
+                       "only reads (prices, books, missions, the map, storage, your freighters) "
+                       "and returns what you want to know. It is written to query/index.ts, never "
+                       "pilot/index.ts, so it runs while a flight is under way and while it "
+                       "waits on your answer. Every game command it sends must be a read: one that "
+                       "changes anything (travel, dock, buy, sell, accept...) is refused by name "
+                       "and not sent, and ask() is not available. Checked like a flight; stopped "
+                       "after 90 seconds. Returns its lines and what main returned: return only "
+                       "the data you need.",
+                       {"source": {"type": "string",
+                                   "description": "The whole of query/index.ts: imports from "
+                                                  "'play', and `export default async function "
+                                                  "main()` returning what you want to see."}},
+                       ["source"])},
     {"name": "spacemolt_answer", "toolset": "spacemolt", "handler": _answer,
      "description": "Answer the question your program asked with ask(); the flight resumes, and "
                     "this waits for the rest of it as spacemolt_run does.",

@@ -8,6 +8,7 @@ requires_env:
   - SPACEMOLT_CREDENTIALS_FILE
 provides_tools:
   - spacemolt_run
+  - spacemolt_query
   - spacemolt_answer
   - spacemolt_chat
   - spacemolt_check

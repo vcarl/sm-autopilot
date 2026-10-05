@@ -23,6 +23,8 @@ for line in sys.stdin:
         "check": {"ok": True, "entry": "pilot/index.ts", "sha": "abc", "errors": []},
         "stop": {"stopping": False, "reason": "no flight is under way"},
         "status": {"running": False, "last": None},
+        "query": {"ok": True, "query_id": "q1", "sha": "def", "lines": ["✎ looked"],
+                  "returned": json.dumps(request["params"])},
     }
     if request["action"] == "run":
         for text in ("flight launched t0", "▶ service", "✓ service  done", "Done: serviced.", "flight ended  done  3 commands"):
@@ -84,6 +86,18 @@ def test_every_tool_answers_from_the_one_bridge(bridged, tmp_path, monkeypatch):
     # Every call travelled the same connection: the plugin owns one bridge, not one per tool.
     # Five: `run` asks `status` first, before it writes anything (see below).
     assert service._bridge is not None and service._bridge.counter == 5
+
+
+def test_a_query_writes_its_own_file_and_asks_the_bridge_for_a_query(bridged, tmp_path, monkeypatch):
+    """A query never touches pilot/index.ts: it may go while that program flies or waits."""
+    monkeypatch.setenv("SPACEMOLT_RUNTIME_DIR", str(tmp_path / "runtime"))
+    source = "export default async function main() { return 42; }\n"
+    answered = spacemolt._query({"source": source})
+    assert answered.splitlines()[0] == "✎ looked"
+    # The bridge was asked for a `query`, with no juncture since none has rendered here.
+    assert answered.splitlines()[-1] == "returned: {}"
+    assert (service.runtime_dir() / "query" / "index.ts").read_text() == source
+    assert not service.pilot_file().exists()
 
 
 def test_an_edit_to_the_pilot_carries_the_check_and_any_other_edit_passes_through(bridged, tmp_path,
@@ -171,7 +185,7 @@ def test_register_publishes_every_tool_in_the_spacemolt_toolset(monkeypatch):
     for name, (toolset, *_rest) in tools.items():
         by_toolset.setdefault(toolset, set()).add(name)
     assert by_toolset == {
-        "spacemolt": {"spacemolt_run", "spacemolt_answer", "spacemolt_chat", "spacemolt_check", "spacemolt_reflect"},
+        "spacemolt": {"spacemolt_run", "spacemolt_query", "spacemolt_answer", "spacemolt_chat", "spacemolt_check", "spacemolt_reflect"},
         "spacemolt_observe": {"spacemolt_stop"},
         "spacemolt_observer": {"spacemolt_direct", "spacemolt_status"},
     }

@@ -166,6 +166,22 @@ where the base has no such counter, so a read is never a wasted flight.
 `for_sale` is a union: a player `listing` you can buy now (`hull.listing.price`), or a commission
 this yard would build (`hull.quote.credits_only_total`); both carry `class` and a `versus` line.
 
+## Looking before you act: `spacemolt_query`
+
+To see before you launch a flight, send `spacemolt_query` a short program of reads (`prices()`,
+`storage()`, `missions()`, `freighters()`, `account().commands.<tool>.<read>()`) whose `main`
+returns only what you want to know; it answers in seconds. It never touches `pilot/index.ts`, so
+it works while a flight is under way and while one waits on your `ask()` answer. Anything that changes the
+game — travel, dock, buy, sell, accept, `assign` — is refused by name and not sent; `ask()` is not
+available. Stopped after 90 seconds.
+
+```ts
+import {prices} from 'play';
+export default async function main() {
+  return (await prices()).detail;
+}
+```
+
 ## Getting a better ship
 
 - `shipsForSale()` lists the hulls at or under credits minus your `credit_reserve`, biggest
