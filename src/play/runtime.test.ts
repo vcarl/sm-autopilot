@@ -106,7 +106,7 @@ test('goTo resolves a base id to the POI it sits at, docks there, and refuses a 
     stop();
     const halted=await goTo('belt');
     assert.equal(halted.status,'partial');
-    assert.match(halted.why!,/stopped by pilot/);
+    assert.match(halted.why!,/stopped on order/);
   } finally {unbind();}
 });
 

@@ -57,7 +57,7 @@ test("the report reviews the pilot's own files against how the runs ended", asyn
   assert.deepEqual(mine.last.map((run:any)=>run.outcome),['done','refused','failed']);
   assert.match(mine.last.at(-1).reason,/hold was full/);
   // The runs' own `work` key is what the repetition signal reads.
-  assert.ok(report.stagnation.some((line:string)=>/every run .* led with gatherUntil \(3/.test(line)),
+  assert.ok(report.stagnation.some((line:string)=>/every flight .* led with gatherUntil \(3/.test(line)),
     JSON.stringify(report.stagnation));
 });
 

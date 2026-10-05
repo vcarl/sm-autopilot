@@ -71,15 +71,15 @@ for(const [how,body] of [
   test(`the stop ${how} the body is partial, not a defect`,()=>flying({ok:1},async runtime=>{
     const out=await edge(jobEffect('jump','sol',body));
     assert.equal(out.status,'partial');
-    assert.match(out.did,/^jump stopped by the pilot/);
+    assert.match(out.did,/^jump stopped on order/);
     assert.deepEqual(defects(runtime),[]);
   }));
 
 // Live 2026-10-04 (kvothe 22:02Z): a run the cap ended read "tradeRun stopped by the pilot".
 test('a stop the run cap raised says the cap, not the pilot',()=>flying({ok:1},async()=>{
-  const out=await edge(jobEffect('jump','sol',Effect.sync(()=>{stop('the run reached its 24-minute time cap');checkStop();return {status:'done' as const,did:'not reached',detail:{}};})));
+  const out=await edge(jobEffect('jump','sol',Effect.sync(()=>{stop("the flight computer's 24-minute limit");checkStop();return {status:'done' as const,did:'not reached',detail:{}};})));
   assert.equal(out.status,'partial');
-  assert.match(out.did,/^jump stopped: the run reached its 24-minute time cap,/);
+  assert.match(out.did,/^jump stopped: the flight computer's 24-minute limit,/);
 }));
 
 test('a defect in the body is failed, and its stack goes to a defect line',()=>flying(new TypeError('a bug'),async runtime=>{

@@ -10,7 +10,7 @@ export function checkPolicy(source:string,path:string,entry=false):Verdict {
   if(/\bunload_passenger\s*\(\s*\{[^}]*\bid\s*:\s*['"]all['"]/.test(code))
     errors.push(`${path}: unload_passenger with id 'all' strands passengers; carryPassengers handles landings`);
   if(/\bwhile\s*\(\s*true\s*\)|\bfor\s*\(\s*;\s*;\s*\)/.test(code)&&!/\bstopped\s*\(\s*\)/.test(code))
-    errors.push(`${path}: an unbounded loop must check stopped() (a run has no wall-clock cap)`);
+    errors.push(`${path}: an unbounded loop must check stopped() (the flight computer can end a flight at any time)`);
   if(entry&&!/\bexport\s+default\s+async\s+function\s+main\b/.test(code))
     errors.push(`${path}: must export default async function main`);
   return {ok:!errors.length,errors};

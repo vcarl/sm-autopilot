@@ -296,14 +296,14 @@ export async function runPilot(deps:RunDeps):Promise<RunResult> {
   let abandoned=false;
   const cutOff=new Promise<Outcome<unknown>>(resolveCut=>{
     timers.push(setTimeout(()=>{
-      line(`the run reached its wall-clock cap of ${Math.round(cap/60_000)} min: asking it to stop`);
+      line(`the flight reached the flight computer's ${Math.round(cap/60_000)}-minute limit: asking the program to stop`);
       journalRun(runtime,{job:'index.ts',message:'wall-clock cap: stop requested',cap_ms:cap},'log');
-      stop(`the run reached its ${Math.round(cap/60_000)}-minute time cap`);
+      stop(`the flight computer's ${Math.round(cap/60_000)}-minute limit`);
     },cap));
     timers.push(setTimeout(()=>{
       abandoned=true;
-      resolveCut(build('the run was cut off at the wall-clock cap','partial',{},
-        `it did not stop within ${Math.round(grace/1000)}s of being asked`));
+      resolveCut(build('the flight computer ended the flight at its ~25-minute limit','partial',{},
+        `the program did not stop within ${Math.round(grace/1000)}s of being asked`));
     },cap+grace));
   });
   // A promise the program left unawaited, or a throw from one of its callbacks, would otherwise

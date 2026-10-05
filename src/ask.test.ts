@@ -123,7 +123,7 @@ test('a stop while paused rejects the ask with the stop error; the run unwinds p
     assert.equal(stopped.stopping,true);
     assert.equal(stopped.withdrawn.question,'Sell here?');
     assert.equal(stopped.status,'partial','a stop is a stop, however the program was waiting');
-    assert.ok(f.lines.includes('✎ ask threw stopped by pilot'),f.lines.join('\n'));
+    assert.ok(f.lines.includes('✎ ask threw stopped on order'),f.lines.join('\n'));
     const record=readRun(f.runtime)!;
     assert.equal(record.ended,true);
     assert.equal(record.question,undefined);

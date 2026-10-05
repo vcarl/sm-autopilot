@@ -558,7 +558,7 @@ test('a pilot stop mid-wait ends the craft partial and is not a defect',async()=
   try {
     const out=await clocked(f,craftEffect('refine_steel',2),15,minute=>{if(minute===2)stop();});
     assert.equal(out.status,'partial',JSON.stringify(out));
-    assert.match(out.why!,/stopped by pilot/);
+    assert.match(out.why!,/stopped on order/);
     assert.deepEqual(f.defects(),[]);
   } finally {f.close();}
 });

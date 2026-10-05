@@ -142,7 +142,7 @@ type GameShape=Context.Service.Shape<typeof Game>;
  * surface whose helpers are handed their run, when one process must hold two bindings at once. */
 let current:{readonly run:RunState;readonly game:ManagedRuntime.ManagedRuntime<Game|Run,never>}|null=null;
 
-const need=()=>{if(!current)throw new Error('the play runtime is not bound: only `run` may execute pilot code');return current;};
+const need=()=>{if(!current)throw new Error('no flight is under way: pilot code runs only inside a flight');return current;};
 const state=()=>need().run;
 
 export const runCalls=()=>state().calls;
@@ -240,7 +240,7 @@ export function stop(why?:string):void {
 
 /** Thrown from a travel checkpoint when the pilot asked to stop; the leg in flight finishes. */
 export class Stopped extends TravelBlocked {readonly _tag='Stopped';constructor(){super(stopReason());}}
-const PILOT_STOP='stopped by pilot';
+const PILOT_STOP='stopped on order';
 /** The stop's own words: the pilot's, or the cap's. Live 2026-10-04 (kvothe 22:02Z): a run ended by
  * the 24-minute cap read "tradeRun stopped by the pilot", and the pilot never stopped it. */
 export const stopReason=()=>current?.run.stopWhy?`stopped: ${current.run.stopWhy}`:PILOT_STOP;
@@ -408,7 +408,7 @@ export const admit=(fn:string)=>Effect.gen(function*() {
   if(run.depth===1)yield* tiredCheck('call');
   const {mood,tired_by}=who();
   if(mood==='Tired') {
-    say(run,`${fn}: Tired (${tired_by}), ${run.short==='broke'?'resupply unaffordable: working to pay for it':run.short?'resupply found no base: working on':'working on: the runtime resupplies at the next dock'}`);
+    say(run,`${fn}: Tired (${tired_by}), ${run.short==='broke'?'resupply unaffordable: working to pay for it':run.short?'resupply found no base: working on':'working on: the flight computer resupplies at the next dock'}`);
     return null;
   }
   if(mood==='Relaxed')return `${fn} not started: Relaxed may not initiate a job`;
@@ -550,7 +550,7 @@ function said<Detail>(fn:string,error:unknown):Said<Detail> {
   unsaid.add(none);
   // oxlint-disable-next-line typescript/consistent-type-assertions
   const detail=none as Detail; // cast: frozen surface (Outcome<Detail>)
-  if(error instanceof Stopped)return {status:'partial',did:`${fn} ${error.message===PILOT_STOP?'stopped by the pilot':error.message}`,why:error.message,detail};
+  if(error instanceof Stopped)return {status:'partial',did:`${fn} ${error.message}`,why:error.message,detail};
   if(error instanceof ReplyLost)return {status:'failed',did:`${fn} broke`,why:`reply lost on ${error.action}; state re-read`,detail};
   if(error instanceof Rejected||error instanceof InBattle||error instanceof HoldFull||error instanceof Depleted)
     return {status:'refused',did:`${fn} refused by the game`,why:`${error.action}: ${error.code} — ${error.message}`,detail};
@@ -633,7 +633,7 @@ function watchMood(run:RunState):void {
   if(!was||who.mood===was)return;
   if(who.mood==='Tired') {
     if(b.runtime)journalRun(b.runtime,{rule:who.tired_by,mood_before:was},'tired');
-    say(run,`tired: ${who.tired_by}; the runtime resupplies at the next dock, arrival or call, or the run's end`);
+    say(run,`tired: ${who.tired_by}; the flight computer resupplies at the next dock, arrival or call, or the flight's end`);
   } else if(was==='Tired') {
     if(b.runtime)journalRun(b.runtime,{mood:who.mood},'tired_cleared');
     say(run,`tired cleared: back inside the ${who.mood} margins`);

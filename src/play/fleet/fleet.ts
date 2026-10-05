@@ -64,7 +64,7 @@ export function assign(name:string,circuit:Circuit,caps:{float:number}):Promise<
 export const assignEffect=(name:string,circuit:Circuit,caps:{float:number})=>jobEffect<Hand>('assign',name,Effect.gen(function*() {
   const refuse=(why:string)=>({status:'refused' as const,did:`assigned no freighter ${name}`,why,detail:{freighter:null}});
   const runtime=runtimeDir();
-  if(!runtime)return refuse('this run has no runtime directory to keep a freighter in');
+  if(!runtime)return refuse('the flight computer has nowhere to keep a freighter');
   if(!/^[a-z0-9_-]+$/.test(name))return refuse(`${JSON.stringify(name)}: a freighter's name is lower-case letters, digits, _ and -; it names its files`);
   const open=closure(circuit);
   if(open)return refuse(open);
@@ -131,7 +131,7 @@ export const reassignEffect=(name:string)=>jobEffect<Hand>('reassign',name,Effec
 export function recall(name:string,opts:{after?:'lap'}={}):Promise<Outcome<{freighter:FreighterRow|null}>> {
   return edge(jobEffect<Hand>('recall',name,Effect.sync(()=>{
     const runtime=runtimeDir();
-    const why=runtime?recallLoop(runtime,name,opts.after):'this run has no runtime directory';
+    const why=runtime?recallLoop(runtime,name,opts.after):'the flight computer has nowhere to keep a freighter';
     if(why||!runtime)return {status:'refused' as const,did:`recalled no freighter ${name}`,why:why??'',detail:{freighter:null}};
     return {status:'done' as const,did:`recalled ${name}: it parks after the ${opts.after==='lap'?'lap':'stop'} it is on`,
       detail:{freighter:rowOf(runtime,name)},next:['freighters()']};

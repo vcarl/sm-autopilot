@@ -83,7 +83,7 @@ test('a pilot stop between fights ends the hunt partial, and is not a defect',as
   try {
     const out=await hunt();
     assert.equal(out.status,'partial',JSON.stringify(out));
-    assert.match(out.why??'',/stopped by pilot/);
+    assert.match(out.why??'',/stopped on order/);
     assert.equal(f.tries('spacemolt/hunt'),0,'no fight was started under a stop');
     assert.deepEqual(f.defects(),[]);
   } finally {f.close();}

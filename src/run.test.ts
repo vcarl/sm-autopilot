@@ -350,7 +350,7 @@ test('a run past its wall-clock cap is asked to stop, then cut off, and the reco
     const result=await runPilot({...f.deps,capMs:20,graceMs:20});
     assert.equal(result.status,'partial');
     assert.equal(result.abandoned,true,'the bridge is told to exit');
-    assert.match(f.lines.join('\n'),/wall-clock cap/);
+    assert.match(f.lines.join('\n'),/minute limit/);
     assert.equal(readRun(f.runtime)?.ended,true,'run.json was left open');
     const ended=readJournal(f.runtime).find(entry=>entry.phase==='ended')!;
     assert.equal(ended.abandoned,true);

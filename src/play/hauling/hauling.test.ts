@@ -234,7 +234,7 @@ test('a pilot stop mid-board ends partial and is not a defect',async()=>{
   try {
     const out=await freightBoard();
     assert.equal(out.status,'partial',JSON.stringify(out));
-    assert.match(out.why??'',/stopped by pilot/);
+    assert.match(out.why??'',/stopped on order/);
     assert.deepEqual(f.defects(),[]);
   } finally {f.close();}
 });
@@ -312,7 +312,7 @@ test('a pilot stop mid-landing ends partial and is not a defect',async()=>{
   try {
     const out=await carryPassengers('range_base');
     assert.equal(out.status,'partial',JSON.stringify(out));
-    assert.match(out.why??'',/stopped by pilot/);
+    assert.match(out.why??'',/stopped on order/);
     assert.equal(f.count('spacemolt/unload_passenger'),1,'the second rider is not landed after the stop');
     assert.deepEqual(f.defects(),[]);
   } finally {f.close();}

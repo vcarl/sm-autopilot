@@ -150,7 +150,7 @@ export const reflectReportEffect=(account:Pick<ReadinessAccount,'state'>,pilot:P
   const kinds=[...ranJobs.entries()].sort((a,b)=>b[1]-a[1]);
   const [lead]=kinds;
   if(runCount>=3&&kinds.length===1&&lead)
-    stagnation.push(`every run in the journal's span led with ${lead[0]} (${lead[1]} of them)`);
+    stagnation.push(`every flight in your log led with ${lead[0]} (${lead[1]} of them)`);
   const untried=STANCES.map(stance=>stance.name).filter(name=>!chosen.has(name));
   if(untried.length)stagnation.push(`stances never chosen: ${untried.join(', ')}`);
 
@@ -177,7 +177,7 @@ export const reflectReportEffect=(account:Pick<ReadinessAccount,'state'>,pilot:P
     // counters a stance points at, never a hull or a module a stance requires.
     // No ship in the account's state: the zeros above are not readings, so say so.
     missing:[...missing,...ship?[]:['ship'],'ship fit against each stance (no per-stance ship requirement exists yet)',
-      ...baseline?[]:['earlier skill levels (no reflection inside the journal\'s span to measure movement from)']],
+      ...baseline?[]:['earlier skill levels (no reflection in your log to measure movement from)']],
   };
   return report;
 });

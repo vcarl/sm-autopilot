@@ -594,7 +594,7 @@ const stopOnceReassigned=(h:()=>ReturnType<typeof hosted>)=>()=>{
 test('a drained park re-plans on the freighter\'s own connection, unbound, and it flies the next ring',async()=>{
   // Range bids 115, under the 120 floor: sol ↔ range drains. Sol ↔ twin pays.
   const h:ReturnType<typeof hosted>=hosted(115,[SOL,TWIN,RANGE],{},{},stopOnceReassigned(()=>h));
-  assert.throws(()=>acct(),/not bound/,'the play runtime is not bound for this');
+  assert.throws(()=>acct(),/no flight is under way/,'the play runtime is not bound for this');
   try {
     await h.fly();
     const entry=h.now();
@@ -673,7 +673,7 @@ test('a session taken elsewhere in the middle of a re-plan parks that freighter 
   const h:ReturnType<typeof hosted>=hosted(115,[SOL,RANGE],{},{},action=>{
     if(action==='spacemolt_market/view_market'&&drainedYet(h.runtime))throw new Error('session_replaced or disconnected: kicked');
   });
-  assert.throws(()=>acct(),/not bound/);
+  assert.throws(()=>acct(),/no flight is under way/);
   try {
     await h.fly();
     assert.equal(h.now().state,'parked');
@@ -689,7 +689,7 @@ test('a bug in the middle of a re-plan breaks only that loop, journalled under i
   const h:ReturnType<typeof hosted>=hosted(115,[SOL,RANGE],{},{},action=>{
     if(action==='spacemolt_market/view_market'&&drainedYet(h.runtime)&&thrown++===0)throw new TypeError('not a game error');
   });
-  assert.throws(()=>acct(),/not bound/);
+  assert.throws(()=>acct(),/no flight is under way/);
   mock.timers.enable({apis:['setTimeout']});
   try {
     const flying=h.fly();

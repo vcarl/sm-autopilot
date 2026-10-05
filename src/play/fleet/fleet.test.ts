@@ -49,7 +49,7 @@ test('assign over a map whose reply is lost is failed, installs nothing, and is 
 test('assign stopped by the pilot before it reads the books is a stop, installs nothing, and is no defect',async()=>{
   const {out,defects,installed}=await assignOver(()=>{},stop);
   assert.notEqual(out.status,'done');
-  assert.match(out.why??'',/stopped by pilot/);
+  assert.match(out.why??'',/stopped on order/);
   assert.equal(installed,false);
   assert.deepEqual(defects,[]);
 });

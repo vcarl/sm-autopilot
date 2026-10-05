@@ -333,7 +333,7 @@ export function serve(account:Account,command:ReadinessCommand,options:ServeOpti
    * paused, it starts nothing and hands the question back: that is how a later session picks
    * up a question the one that started the run left unanswered. */
   const run=async(juncture:typeof Juncture.Type|null|undefined,attach?:()=>void)=>{
-    if(!runtime)throw new Error('This runner has no runtime directory to run a pilot from');
+    if(!runtime)throw new Error('the flight computer has no program directory');
     if(running) {
       const now=paused();
       if(now) {attach?.();return {...now,reattached:true};}
@@ -429,7 +429,7 @@ export function serve(account:Account,command:ReadinessCommand,options:ServeOpti
    * A cleared field shows in the `pilot` journal line's `prev` like any other. */
   const setRecord=async(patch:{readonly [key:string]:unknown}={})=>{
     const write=options.setPilot;
-    if(!write)throw new Error('this runner cannot write the pilot record');
+    if(!write)throw new Error('the flight computer cannot write the pilot record');
     const prev:Record<string,unknown>={...record()};
     // A field that does not decode is left as it was and named in the answer, never a refusal of
     // the whole write: the objective or instruction beside a bad stance still lands.
@@ -503,7 +503,7 @@ export function serve(account:Account,command:ReadinessCommand,options:ServeOpti
       case 'run':return run(request.params?.juncture,attach);
       case 'answer':return answer(request.params?.answer??'',attach);
       case 'check': {
-        if(!runtime)throw new Error('This runner has no runtime directory');
+        if(!runtime)throw new Error('the flight computer has no program directory');
         const gate=await checkPilot(runtime);
         return {ok:gate.ok,entry:gate.entry,sha:gate.sha,errors:gate.errors};
       }

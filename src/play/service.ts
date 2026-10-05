@@ -205,7 +205,7 @@ const resupplying=({travel,trigger}:{travel?:boolean;trigger:Trigger})=>Effect.g
   const runtime=runtimeDir(),tired_by=pilot().tired_by;
   const log=(entry:Record<string,unknown>)=>{if(runtime)journalRun(runtime,{trigger,tired_by,...before,
     fuel_after:ship()?.fuel??null,hull_after:ship()?.hull??null,seconds:Math.round((Date.now()-started)/100)/10,...entry},'resupply');};
-  line(`tired (${tired_by}): the runtime is bringing the ship up`);
+  line(`tired (${tired_by}): the flight computer is bringing the ship up`);
   const at=(base:string)=>Effect.gen(function*() {
     const done=yield* serviceEffect();
     log({base,status:done.status,spent:done.detail.spent,issued:done.detail.issued,cleared:!tired(),...done.why?{why:done.why}:{}});
@@ -233,8 +233,8 @@ const resupplying=({travel,trigger}:{travel?:boolean;trigger:Trigger})=>Effect.g
       if(yield* at(row.base))return 'cleared' as const;
     } else log({base:row.base,cleared:false,why:`did not reach it: ${trip.why??trip.did}`});
   }
-  log({cleared:false,stranded:!broke,why:broke?'no counter reached had anything the wallet covers':'no base this runtime can name was reached and serviced'});
-  line(`still tired (${pilot().tired_by}): ${broke?'the wallet covers nothing at the counters reached':'no base this runtime can name was reached and serviced'}`);
+  log({cleared:false,stranded:!broke,why:broke?'no counter reached had anything the wallet covers':'no base the flight computer knows was reached and serviced'});
+  line(`still tired (${pilot().tired_by}): ${broke?'the wallet covers nothing at the counters reached':'no base the flight computer knows was reached and serviced'}`);
   return failed();
 });
 
