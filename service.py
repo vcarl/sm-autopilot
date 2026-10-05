@@ -153,7 +153,7 @@ def ensure_node_deps(root: Path) -> None:
         from .juncture import journal_event
         missing = [name for name in ("node", "npm") if shutil.which(name) is None]
         if missing:
-            error = f"{' and '.join(missing)} not found on PATH; install Node.js (>=22.18) for the gateway's user"
+            error = f"{' and '.join(missing)} not found on PATH; install Node.js (>=24.15) for the gateway's user"
             journal_event("deps_failed", lock_sha256=digest, error=error)
             raise RuntimeError(f"SpaceMolt cannot install its Node dependencies: {error}")
         started = time.monotonic()

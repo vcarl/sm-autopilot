@@ -23,7 +23,7 @@ that keeps the pilot alive.
 |---|---|
 | A SpaceMolt account | Its credentials in a file on disk. The plugin never holds them itself. |
 | Hermes | Installed, with a working model configured (`hermes model`). The gateway is what fires junctures, so a pilot only plays while a gateway is running. |
-| Node **22.18.0 or newer** | The bridge runs `node src/bridge.ts` **with no build step**, relying on Node's native TypeScript type stripping being on by default — 22.18.0 (LTS) or 23.6.0 is where that happens. `@spacemolt/lib` itself asks only for Node 22, but an unflagged `node foo.ts` needs the newer floor. The code uses only erasable syntax (no enums, namespaces or parameter properties), so plain stripping is enough; no `--experimental-transform-types`. |
+| Node **24.15.0 or newer** (on 25, 25.7.0 or newer) | The bridge runs `node src/bridge.ts` **with no build step**, relying on Node's native TypeScript type stripping being on by default, and needs `node:sqlite`, which loads without an experimental warning from 24.15.0 (LTS) and 25.7.0. `@spacemolt/lib` itself asks only for Node 22. The code uses only erasable syntax (no enums, namespaces or parameter properties), so plain stripping is enough; no `--experimental-transform-types`. |
 | `npm` on the gateway's `PATH` | The plugin's Node dependencies are needed at runtime, not just for development: the bridge symlinks `node_modules/@spacemolt` into the pilot's working directory and shells out to `node_modules/typescript/bin/tsc` to typecheck the pilot's program before running it. The first bridge start after an install or upgrade runs `npm ci` itself (a stamp in `node_modules` records which `package-lock.json` it installed), so that start takes a minute longer. |
 
 ## Setup

@@ -21,7 +21,7 @@
   "name": "sm-autopilot",
   "version": "2026.10.1",
   "engines": {
-    "node": ">=22.18.0"
+    "node": "^24.15.0 || >=25.7.0"
   },
   "license": "AGPL-3.0-or-later"
 }
