@@ -40,6 +40,10 @@ export declare const attempt: <A>(label: string, body: () => Promise<A>) => Effe
 /** Re-read the account, a failure classified as a game step's is: for a caller that must not go
  * on from a read that did not land. */
 export declare const reread: Effect.Effect<void, GameError, Game>;
+/** The errors a dropped connection raises, before the lib's `reconnect:true` has re-authenticated: since
+ * 15.2.0 its reconnect fails in-flight work with `account is reconnecting`, and a send during it throws
+ * `cannot send: account is reconnecting`. Anything else is the game refusing, which is not retried. */
+export declare const DISCONNECTED: RegExp;
 /** What the command path keeps for `progress()`: counted, when it last heard back, what is on
  * the wire now, and the last game tick any reply carried. The binding owns one. */
 export interface Ledger {

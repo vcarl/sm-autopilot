@@ -138,7 +138,9 @@ the pilot's context. Every line has `at` (UTC ISO, `Z`) and `event`.
 - `command`: `tool`, `action`, `params` (scalars), `ok`, `summary`, `ms`; on failure `code` (the
   server's string, or a socket close number) and `lost: true` when the reply is gone, not the
   outcome (`replyLost` in `command-boundary.ts`: a closed connection, a pending command, an
-  uncertain code).
+  uncertain code; never a send the lib refused, `cannot send: …`, which is `notSent`).
+- `reconnecting` (`attempt`), `reconnected`, `disconnected` (`code`, `reason`) and `rate_limited`
+  (`command`, `attempt`, `delay_ms`: a resend the lib sleeps before), from `journalConnection`.
 - `trade` (buy/sell/refuel/repair: `unit_price`, `fills`, and `quote`, the book or posted price the
   caller held; a buy's quote adds `ask_qty` and `asks`, the first 10 ask levels; a sell's adds `bid_qty`
   and `bids`), `book` (in `books.jsonl` beside the journal, never rotated, so the journal's tail stays small: each `book()` read, unless it is the same as the last one journalled at that base:

@@ -206,15 +206,17 @@ export function journalCommand(runtime:string,action:string,params:Record<string
   if(fact)journalRun(runtime,{...fact,...held?{quote:held}:{},...who},fact.event);
 }
 
-/** The socket's own life on the journal: each reconnect attempt, its success, and a connection
- * lost for good — what a command's `ms` cannot say about the time between commands. */
+/** The socket's own life on the journal: each reconnect attempt, its success, a connection lost for
+ * good, and each rate-limited resend the lib sleeps before — what a command's `ms` cannot say. */
 export function journalConnection(runtime:string,account:{onReconnecting(fn:(attempt:number)=>void):unknown;
-  onReconnected(fn:()=>void):unknown;onDisconnected(fn:(error:{code?:number;reason?:string;message:string})=>void):unknown},
+  onReconnected(fn:()=>void):unknown;onDisconnected(fn:(error:{code?:number;reason?:string;message:string})=>void):unknown;
+  onRateLimited(fn:(info:{command:string;attempt:number;delayMs:number})=>void):unknown},
 freighter?:string):void {
   const who=freighter?{freighter}:{};
   account.onReconnecting(attempt=>journalRun(runtime,{attempt,...who},'reconnecting'));
   account.onReconnected(()=>journalRun(runtime,{...who},'reconnected'));
   account.onDisconnected(error=>journalRun(runtime,{code:error.code,reason:error.reason||error.message,...who},'disconnected'));
+  account.onRateLimited(info=>journalRun(runtime,{command:info.command,attempt:info.attempt,delay_ms:info.delayMs,...who},'rate_limited'));
 }
 
 /** A book or posted price the caller had in hand as it sent `action`: attached to that command's

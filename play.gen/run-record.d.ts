@@ -92,8 +92,8 @@ export declare function journalCommand(runtime: string, action: string, params: 
     freighter?: string;
     ms?: number;
 }): void;
-/** The socket's own life on the journal: each reconnect attempt, its success, and a connection
- * lost for good — what a command's `ms` cannot say about the time between commands. */
+/** The socket's own life on the journal: each reconnect attempt, its success, a connection lost for
+ * good, and each rate-limited resend the lib sleeps before — what a command's `ms` cannot say. */
 export declare function journalConnection(runtime: string, account: {
     onReconnecting(fn: (attempt: number) => void): unknown;
     onReconnected(fn: () => void): unknown;
@@ -101,6 +101,11 @@ export declare function journalConnection(runtime: string, account: {
         code?: number;
         reason?: string;
         message: string;
+    }) => void): unknown;
+    onRateLimited(fn: (info: {
+        command: string;
+        attempt: number;
+        delayMs: number;
     }) => void): unknown;
 }, freighter?: string): void;
 export declare function quoteNext(action: string, id: unknown, quote: Record<string, unknown>): void;

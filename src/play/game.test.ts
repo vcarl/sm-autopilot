@@ -6,8 +6,8 @@ import {join} from 'node:path';
 import {ConnectionClosedError,SpacemoltError} from '@spacemolt/lib';
 import {Cause,Effect,Exit} from 'effect';
 import {FakeLibGoalAccount} from '../test-support/fake-lib-account.ts';
-import {journalCommand,readJournal} from '../run-record.ts';
-import {Game,GameLive,type Seam} from './game.ts';
+import {journalCommand,journalConnection,readJournal} from '../run-record.ts';
+import {DISCONNECTED,Game,GameLive,type Seam} from './game.ts';
 
 /** The bridge's command seam over the fake account, as `bind()` lends it. */
 const wired=(fake:FakeLibGoalAccount<object>)=>(action:string,params:Record<string,unknown>)=>{
@@ -70,6 +70,15 @@ test('a failed command line says lost exactly when the reply is lost, and keeps 
   assert.deepEqual(lines,[{code:1006,lost:true},{code:'mutation_timeout',lost:true},{code:'in_battle',lost:undefined},{code:undefined,lost:undefined}]);
 });
 
+test('a rate-limited resend the lib sleeps before is a raw rate_limited line',()=>{
+  const runtime=mkdtempSync(join(tmpdir(),'spacemolt-game-'));
+  let limited:(info:{command:string;attempt:number;delayMs:number})=>void=()=>{};
+  journalConnection(runtime,{onReconnecting:()=>{},onReconnected:()=>{},onDisconnected:()=>{},onRateLimited:fn=>{limited=fn;}},'hauler');
+  limited({command:'spacemolt.sell',attempt:2,delayMs:2100});
+  const line=readJournal(runtime).find(row=>row.event==='rate_limited');
+  assert.deepEqual([line?.command,line?.attempt,line?.delay_ms,line?.freighter],['spacemolt.sell',2,2100,'hauler']);
+});
+
 // ---- the command path: what the layer does when the connection drops ----
 
 /** A connection that fails its first send with `error`, then answers; the seam's own calls are counted. */
@@ -99,6 +108,25 @@ test('a dropped mutation is never re-sent: it is a lost reply that says to re-ob
   assert.deepEqual({code:lost.cause.code,message:lost.cause.message},{code:'connection_closed',message:'spacemolt/sell: outcome unknown, re-observe'});
   assert.deepEqual(world.calls,{sends:1,refreshes:1,afters:1});
   assert.ok(world.said.includes('  spacemolt/sell: reconnected, but the command may have landed; not re-sent'));
+});
+
+test("15.2.0's reconnect errors take the wait-for-reconnect path; a send it refused is re-sent even when it moves something",async()=>{
+  assert.ok(['WebSocket connection closed','No action_result','account is reconnecting','cannot send: account is reconnecting']
+    .every(text=>DISCONNECTED.test(text)));
+  const inflight=dropping(new ConnectionClosedError('account is reconnecting'),{reconnected:async()=>true});
+  assert.ok((await Effect.runPromise(Effect.flip(issue('spacemolt/sell')).pipe(Effect.provide(inflight.layer))))._tag==='ReplyLost','in flight: it may have landed');
+  const unsent=dropping(new ConnectionClosedError('cannot send: account is reconnecting'),{reconnected:async()=>true});
+  assert.deepEqual(await Effect.runPromise(issue('spacemolt/sell').pipe(Effect.provide(unsent.layer))),{sent:'spacemolt/sell',params:{}});
+  assert.equal(unsent.calls.sends,2,'never sent, so sent once now');
+});
+
+test('a send the lib refused with no reconnect after is a refusal, not a lost reply, and its command line is not lost',async()=>{
+  const error=new ConnectionClosedError('cannot send: account is reconnecting'),world=dropping(error);
+  const refused=await Effect.runPromise(Effect.flip(issue('spacemolt/sell')).pipe(Effect.provide(world.layer)));
+  assert.ok(refused._tag==='Rejected'&&refused.code==='not_sent'&&refused.cause===error);
+  const runtime=mkdtempSync(join(tmpdir(),'spacemolt-game-'));
+  journalCommand(runtime,'spacemolt/sell',{},false,error);
+  assert.equal(readJournal(runtime).find(row=>row.event==='command')?.lost,undefined);
 });
 
 test('a drop no reconnect follows stands as the lost reply, keeping the very error the lib threw',async()=>{

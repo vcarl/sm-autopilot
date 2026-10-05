@@ -12,7 +12,7 @@
  * journalled command as that `send`. Typed, decoded domain methods come with the units. */
 import {SpacemoltError,type Account} from '@spacemolt/lib';
 import {Cause,Context,Data,Effect,Layer,Result} from 'effect';
-import {replyLost} from '../command-boundary.ts';
+import {notSent,replyLost} from '../command-boundary.ts';
 import type {ReadinessAccount,ReadinessCommand} from '../readiness.ts';
 import {ReplyLost,isGameError,refusal,type GameError} from './codes.ts';
 
@@ -38,6 +38,7 @@ export const rawError=(cause:Cause.Cause<unknown>):unknown=>{
  * the tag as `cause`. */
 export const classify=(action:string)=>(cause:unknown):GameError=>{
   if(replyLost(cause))return new ReplyLost({action,cause});
+  if(notSent(cause))return refusal({action,code:'not_sent',message:message(cause),cause});
   if(cause instanceof SpacemoltError)return refusal({action,code:cause.code,message:cause.message,cause});
   throw cause;
 };
@@ -51,9 +52,10 @@ export const attempt=<A>(label:string,body:()=>Promise<A>)=>Effect.tryPromise({t
 export const reread=Effect.gen(function*() {return yield* (yield* Game).refresh;}).pipe(
   Effect.catchTag('SeamFailed',failed=>Effect.suspend(()=>Effect.fail(classify('refresh')(failed.cause)))));
 
-/** The errors a dropped connection raises: the lib's own two, before its `reconnect:true`
- * has re-authenticated. Anything else is the game refusing, which is not retried. */
-const DISCONNECTED=/WebSocket connection closed|No action_result/;
+/** The errors a dropped connection raises, before the lib's `reconnect:true` has re-authenticated: since
+ * 15.2.0 its reconnect fails in-flight work with `account is reconnecting`, and a send during it throws
+ * `cannot send: account is reconnecting`. Anything else is the game refusing, which is not retried. */
+export const DISCONNECTED=/WebSocket connection closed|No action_result|account is reconnecting|cannot send/;
 /** Commands whose end state the live world re-states, so re-issuing one after a lost
  * connection costs at most a repeat of a read (or one more mining tick, measured from
  * cargo). Everything else — sell, buy, accept, deposit — moves something once. */
@@ -135,7 +137,8 @@ export const GameLive=(seam:Seam)=>{
     // The re-read may fail too; the failure below stands, so this one is only looked at, not kept.
     if(refresh)yield* Effect.result(seamed(refresh));
     if(!back)return yield* first.failure;
-    if(!reissuable(action)) {
+    // A send the lib never made has no outcome to re-observe: it is sent now, whatever it is.
+    if(!reissuable(action)&&!notSent(error)) {
       say(`  ${action}: reconnected, but the command may have landed; not re-sent`);
       return yield* new ReplyLost({action,cause:new SpacemoltError('connection_closed',`${action}: outcome unknown, re-observe`)});
     }
