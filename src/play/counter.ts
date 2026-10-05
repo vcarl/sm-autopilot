@@ -10,6 +10,7 @@ import {told} from './rows.ts';
 import {journalRun} from '../run-record.ts';
 import {clearDockRefused,markDockRefused} from './places.ts';
 import {acct,runtimeDir,step} from './runtime.ts';
+import {tiredCheck} from './service.ts';
 
 /** The part of a `get_system` row the counter reads. A row is kept when it has an `id`, and takes
  * each other field when it is a string: a partial row costs nothing, a malformed one only its field. */
@@ -36,9 +37,11 @@ export const others=(bases:string[])=>bases.length?`; bases in this system: ${ba
 /** Dock at `base_id` where the ship stands, or the game's refusal in its own words when it denies
  * access (`access_denied`, live 2026-09-30..10-02: 18 `Access denied` docks): remembered in
  * `docking.json` and journalled (`dock_refused`), so the next juncture can see which bases turned it
- * away. A dock that takes clears the entry. Every other failure stays in the error channel. */
+ * away. A dock that takes clears the entry, and services the ship there when it is Tired (`tiredCheck`).
+ * Every other failure stays in the error channel. */
 export const dockEffect=(base_id:string)=>dockAtEffect(acct(),base_id).pipe(
-  Effect.map(done=>{const runtime=runtimeDir();if(runtime)clearDockRefused(runtime,base_id);return {docked:done.docked_at};}),
+  Effect.tap(()=>{const runtime=runtimeDir();if(runtime)clearDockRefused(runtime,base_id);return tiredCheck('dock');}),
+  Effect.map(done=>({docked:done.docked_at})),
   Effect.catchTag('Rejected',error=>{
     // TravelBlocked's tag is a plain string, so catchTag hands it here too: only a Rejected has a code.
     if(!(error instanceof Rejected)||error.code!=='access_denied')return Effect.fail(error);

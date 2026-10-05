@@ -19,7 +19,7 @@ import {journalRun,readRun,stampRun,writeRun,type RunRecord} from '../run-record
 import type {DockBlocked} from '../dock.ts';
 import {TravelBlocked,type ArrivalUnresolved} from '../travel.ts';
 import {Depleted,Game,GameLive,HoldFull,InBattle,Rejected,ReplyLost,attempt,freshLedger,field,message,rawError,type GameError,type Ledger} from './game.ts';
-import {resupplyEffect} from './service.ts';
+import {tiredCheck} from './service.ts';
 import type {Outcome,Present,Row,Status,Want} from './types.ts';
 
 export type Mood='Cautious'|'Focused'|'Opportunistic'|'Aggressive'|'Relaxed'|'Tired';
@@ -110,6 +110,12 @@ export class Run extends Context.Service<Run,{
   lastMood:Mood|undefined;
   /** How the last resupply ended short, if it did: `admit` lets the work go on either way. */
   short:'broke'|'stranded'|undefined;
+  /** The runtime's own resupply is flying: its docks and arrivals do not start another. */
+  resupplying:boolean;
+  /** The system a resupply flew out of and reached no counter: not flown out of again this run. */
+  strandedIn:string|undefined;
+  /** Resupplies since the last top-level call closed: that call's `did` names them. */
+  readonly resupplied:string[];
   burning:boolean;burnFailed:boolean;
   unwatch:(()=>void)|undefined;
   /** The program's `interrupts` export, read as the run starts; null: nothing interrupts. */
@@ -150,7 +156,7 @@ function recordQuestion(run:RunState,question:Question|null):void {
 export function bind(binding:Binding):void {
   const {account:live}=binding,once=live.reconnectOnce?.bind(live);
   const run:RunState={binding,stopFlag:false,started:Date.now(),depth:0,wire:freshLedger(),last:{fn:'pilot'},
-    mark:null,jobMark:null,calls:[],asking:null,lastMood:undefined,short:undefined,burning:false,burnFailed:false,unwatch:undefined,
+    mark:null,jobMark:null,calls:[],asking:null,lastMood:undefined,short:undefined,resupplying:false,strandedIn:undefined,resupplied:[],burning:false,burnFailed:false,unwatch:undefined,
     interrupts:null,chats:[],heard:[],pauseStopped:false};
   const game=GameLive({send:binding.command,reconnected:()=>reconnected(live),refresh:()=>live.refresh(),say:text=>say(run,text),
     ledger:run.wire,after:served=>burn(run,served).pipe(Effect.andThen(Effect.sync(()=>watchMood(run))),Effect.andThen(pauseOnChat(run))),...once?{reconnect:once}:{}});
@@ -384,21 +390,17 @@ export const progress=()=>{
  * begin something (a gather, a buy, a mission) ask before sending; reads and the safe legs
  * (service, stow, sell, going to a base) do not.
  *
- * Tired is not advice: at a call `main()` made itself, the runtime resupplies first (`resupply`)
- * and the work goes on: cleared, or journalled when it could not be. Inside another helper it
- * only refuses — flying off mid-trade would leave the outer helper at the wrong counter — and the
- * resupply waits for the next top-level call or the run's end. */
+ * Tired is not a gate: at a call `main()` made itself the runtime resupplies first (`tiredCheck`),
+ * as it does at every dock and arrival, and the work goes on whether or not that cleared it —
+ * refusing the work (which earns the credits, or flies where a base may be learned) would strand the ship. */
 export const admit=(fn:string)=>Effect.gen(function*() {
   const run=yield* Run,who=()=>run.binding.pilot();
-  if(who().mood==='Tired'&&run.depth===1){const out=yield* resupplyEffect();run.short=out==='cleared'?undefined:out;}
+  if(run.depth===1)yield* tiredCheck('call');
   const {mood,tired_by}=who();
-  // Tired is only the resupply guarantee: when resupply could not keep it, refusing the work
-  // (which earns the credits, or flies where a base may be learned) would strand the ship.
-  if(mood==='Tired'&&run.short) {
-    say(run,`${fn}: Tired (${tired_by}), ${run.short==='broke'?'resupply unaffordable: working to pay for it':'resupply found no base: working on'}`);
+  if(mood==='Tired') {
+    say(run,`${fn}: Tired (${tired_by}), ${run.short==='broke'?'resupply unaffordable: working to pay for it':run.short?'resupply found no base: working on':'working on: the runtime resupplies at the next dock'}`);
     return null;
   }
-  if(mood==='Tired')return `${fn} not started: Tired (${tired_by??'a margin crossed'}) and the runtime's resupply did not clear it`;
   if(mood==='Relaxed')return `${fn} not started: Relaxed may not initiate a job`;
   return null;
 });
@@ -570,6 +572,7 @@ const closing=<Detail>(run:RunState,{fn,args,before,outer,outerMark}:Opened,part
   const built=finish(run,fn,before,part);
   // A did the wrapper wrote knows nothing of what happened; the measurement does.
   if(threw)built.did=`${built.did}, ${witness(built)}`;
+  if(outer.fn==='pilot'&&run.resupplied.length)built.did=`${built.did}; ${run.resupplied.splice(0).join('; ')}`;
   say(run,`${built.status==='done'?'✓':'✗'} ${fn}  ${built.status}  ${seconds(Date.now()-before.at)}  ${built.did}${built.why?`: ${built.why}`:''}`);
   if(outer.fn==='pilot')run.calls.push({fn,arg:args.split(' ')[0]??'',status:built.status,did:built.did,
     ...built.why===undefined?{}:{why:built.why},
@@ -613,7 +616,7 @@ function watchMood(run:RunState):void {
   if(!was||who.mood===was)return;
   if(who.mood==='Tired') {
     if(b.runtime)journalRun(b.runtime,{rule:who.tired_by,mood_before:was},'tired');
-    say(run,`tired: ${who.tired_by}; the runtime resupplies at the next call or the run's end`);
+    say(run,`tired: ${who.tired_by}; the runtime resupplies at the next dock, arrival or call, or the run's end`);
   } else if(was==='Tired') {
     if(b.runtime)journalRun(b.runtime,{mood:who.mood},'tired_cleared');
     say(run,`tired cleared: back inside the ${who.mood} margins`);

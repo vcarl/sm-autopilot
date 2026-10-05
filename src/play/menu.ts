@@ -349,7 +349,7 @@ type Klass=NonNullable<Effect.Success<ReturnType<typeof catalogClassEffect>>>;
 /** The menu from where the ship stands: the present in one read, the last ten runs, the
  * skills, the store, and when docked the board, the market and the yard. At most five
  * moves, ranked with the move that clears a stated blocker first, then to break the repetition
- * seen, then by what the goal names, then by what similar runs measured. Under Tired: only service here or the nearest serviced base. */
+ * seen, then by what the goal names, then by what similar runs measured. */
 export const menuEffect=(runtime?:string)=>Effect.gen(function*() {
   const game=yield* Game;
   const who=pilot(),moves:Move[]=[],not_now:Menu['not_now']=[];
@@ -367,7 +367,7 @@ export const menuEffect=(runtime?:string)=>Effect.gen(function*() {
   // nearest unvisited systems for the explore row below.
   const map=location?.system_id?Option.getOrUndefined(yield* section('spacemolt/get_map',Effect.map(game.command('spacemolt/get_map',{}),reply=>mapOf(replyBody(reply))))):undefined;
   const nearby=map&&location?.system_id?around(map,location.system_id,Infinity,readSeen(runtime)):[];
-  // Read fresh, ahead of Tired's early return: the juncture names every held mission's next step either way.
+  // Read fresh: the juncture names every held mission's next step.
   const mine=Option.getOrUndefined(yield* section('spacemolt/get_active_missions',activeEffect()));
   const bases=runtime?readPlaces(runtime):{};
   const jumpsTo=(o:{system_id?:string;target_base?:string})=>{
@@ -376,18 +376,6 @@ export const menuEffect=(runtime?:string)=>Effect.gen(function*() {
   };
   const shown=mine?{held:{max:mine.max_missions,missions:mine.active.map(m=>({title:m.title,next:nextStep(m,jumpsTo),
     ...!m.community&&m.expires_in_ticks>0?{expires_at:new Date(Date.now()+m.expires_in_ticks*TICK_MS).toISOString()}:{}}))}}:{};
-
-  if(who.mood==='Tired') {
-    const why=`Tired (${now.tired_by||'margin crossed'})`;
-    // A docked counter refuels and repairs on credits whether or not it posts a price, so the
-    // resupply is the move wherever the ship is standing — no splitting the fill by what is
-    // quoted. Undocked, every base this runtime can name is offered instead: the same rows a
-    // refused `service()` advises, so the menu and the refusal say one thing, and a counter
-    // unreadable until docked is still a move the pilot may take.
-    if(docked)moves.push({call:'service()',why:`${why}: resupply here clears it`,advances:'ship'});
-    else for(const row of Option.getOrElse(yield* section('serviceElsewhere',serviceElsewhereEffect()),()=>[]))moves.push({call:row.call,why:`${why}: ${row.why}`,advances:'ship'});
-    return {...stagnation?{stagnation}:{},moves,not_now,...shown};
-  }
 
   const fuel=ship?.fuel??0;
   const stop=jobStop(facts);

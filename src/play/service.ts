@@ -7,7 +7,7 @@ import {replyBody,rows} from '../storage.ts';
 import {counterEffect} from './counter.ts';
 import {Game,field} from './game.ts';
 import {readPlaces} from './places.ts';
-import {acct,burnCells,edge,jobEffect,line,pilot,runtimeDir,stopped,type Said} from './runtime.ts';
+import {Run,acct,burnCells,edge,jobEffect,line,pilot,runtimeDir,stopped,type Said} from './runtime.ts';
 import {goToEffect} from './travel.ts';
 import type {Outcome} from './types.ts';
 
@@ -182,7 +182,7 @@ export function service(opts:{fuel?:number;hull?:number;insure?:boolean;dues?:bo
  * its margins. Docked, service here; otherwise (or when this counter could not clear it) fly to
  * each base `serviceElsewhere` names and service there, until one clears it. `travel:false`
  * services only where the ship stands — a stopped run does not fly off. Every attempt is
- * journalled as `resupply`. Away from a counter the fuel cells aboard are burned first
+ * journalled as `resupply`, with what triggered it and the ship before and after. Away from a counter the fuel cells aboard are burned first
  * (`burnCells`), which may be all a fuel crossing needs.
  *
  * `cleared` when the ship is no longer Tired; `broke` when a counter was reached but the wallet
@@ -190,13 +190,21 @@ export function service(opts:{fuel?:number;hull?:number;insure?:boolean;dues?:bo
  *
  * ponytail: the bases are tried in `serviceElsewhere`'s order (this system first), not by route
  * cost, and a wallet refused here is still flown to the next counter. */
-export const resupplyEffect=(opts:{travel?:boolean}={})=>Effect.gen(function*() {
+export const resupplyEffect=(opts:{travel?:boolean;trigger:Trigger})=>Effect.gen(function*() {
+  const run=yield* Run;
+  run.resupplying=true;
+  return yield* resupplying(opts).pipe(Effect.ensuring(Effect.sync(()=>{run.resupplying=false;})));
+});
+type Trigger='dock'|'arrival'|'call'|'run_end';
+const resupplying=({travel,trigger}:{travel?:boolean;trigger:Trigger})=>Effect.gen(function*() {
   const tired=()=>pilot().mood==='Tired';
+  const ship=()=>acct().state.ship,started=Date.now(),before={fuel_before:ship()?.fuel??null,hull_before:ship()?.hull??null};
   yield* burnCells;
   if(!tired())return 'cleared' as const;
   let broke=false;
   const runtime=runtimeDir(),tired_by=pilot().tired_by;
-  const log=(entry:Record<string,unknown>)=>{if(runtime)journalRun(runtime,{tired_by,...entry},'resupply');};
+  const log=(entry:Record<string,unknown>)=>{if(runtime)journalRun(runtime,{trigger,tired_by,...before,
+    fuel_after:ship()?.fuel??null,hull_after:ship()?.hull??null,seconds:Math.round((Date.now()-started)/100)/10,...entry},'resupply');};
   line(`tired (${tired_by}): the runtime is bringing the ship up`);
   const at=(base:string)=>Effect.gen(function*() {
     const done=yield* serviceEffect();
@@ -214,8 +222,8 @@ export const resupplyEffect=(opts:{travel?:boolean}={})=>Effect.gen(function*() 
       poi:location?.poi_id??null,docked_at:location?.docked_at??null},'stranded');
     return 'stranded';
   };
-  if(opts.travel===false) {
-    log({cleared:false,why:'the run is stopping: no flight to another counter'});
+  if(travel===false) {
+    log({cleared:false,why:trigger==='run_end'?'the run is stopping: no flight to another counter':'serviced in place: inside a helper, flying off would leave it at the wrong counter'});
     return failed();
   }
   for(const row of yield* serviceElsewhereEffect(docked)) {
@@ -228,4 +236,25 @@ export const resupplyEffect=(opts:{travel?:boolean}={})=>Effect.gen(function*() 
   log({cleared:false,stranded:!broke,why:broke?'no counter reached had anything the wallet covers':'no base this runtime can name was reached and serviced'});
   line(`still tired (${pilot().tired_by}): ${broke?'the wallet covers nothing at the counters reached':'no base this runtime can name was reached and serviced'}`);
   return failed();
+});
+
+/** Tired's guarantee wherever the ship stops: a dock, a goTo's arrival, or a call `main()` made
+ * itself (`admit`). Docked, service here. Flying to another counter is only for the program's
+ * own call (depth 1): inside a helper it would leave the helper at the wrong counter. Never a
+ * refusal: the act that docked or arrived reports as it would, and the top-level call's `did` names
+ * the resupply. The resupply's own docks and arrivals start none, and a system it flew out of to
+ * no counter is not flown out of again this run (one `stranded` line, not one per call). */
+export const tiredCheck=(trigger:'dock'|'arrival'|'call'):Effect.Effect<void,never,Game|Run>=>Effect.gen(function*() {
+  const run=yield* Run;
+  if(run.resupplying||pilot().mood!=='Tired')return;
+  const {location,ship}=acct().state,system=location?.system_id;
+  const travel=trigger!=='dock'&&run.depth<=1&&run.strandedIn!==system;
+  if(!travel&&!location?.docked_at)return;
+  const tired_by=pilot().tired_by,fuel=ship?.fuel,hull=ship?.hull;
+  const out=yield* resupplyEffect({travel,trigger});
+  run.short=out==='cleared'?undefined:out;
+  if(travel&&out==='stranded')run.strandedIn=system;
+  const now=acct().state;
+  run.resupplied.push(`Tired (${tired_by}) ${trigger==='arrival'?'on arrival':`at a ${trigger}`}: ${out==='cleared'?'resupplied':out==='broke'?'resupply unaffordable':'no counter reached'}`
+    +` at ${now.location?.docked_at??now.location?.poi_id??'?'}, fuel ${fuel} → ${now.ship?.fuel}, hull ${hull} → ${now.ship?.hull}`);
 });

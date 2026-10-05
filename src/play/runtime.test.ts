@@ -702,7 +702,7 @@ test('Tired and broke at a counter: the work goes on, journalled, and resupply i
     f.account.server.player.credits=0;
     await f.account.refresh();
     const out=await admitted();
-    assert.equal(out.did,'null','the work was admitted');
+    assert.match(out.did,/^null/,'the work was admitted');
     assert.equal(pilot().mood,'Tired');
     const said=readJournal(runtime).filter(entry=>entry.event==='line').map(entry=>String(entry.text));
     assert.ok(said.some(text=>/resupply unaffordable: working to pay for it/.test(text)),said.join('\n'));
@@ -726,7 +726,7 @@ test('Tired at a top-level call: a refuel reply lost in the resupply is not re-s
     f.account.server.ship.fuel=10;
     await f.account.refresh();
     const out=await admitted();
-    assert.equal(out.did,'null','the work was admitted');
+    assert.match(out.did,/^null/,'the work was admitted');
     assert.equal(sent.filter(action=>action==='spacemolt/refuel').length,1,'the lost refuel was never re-sent');
     const journal=readJournal(runtime);
     assert.ok(journal.some(entry=>entry.event==='resupply'&&/reply lost on spacemolt\/refuel/.test(String(entry.why))),JSON.stringify(journal));
@@ -772,7 +772,7 @@ test('Tired in a system with no base: resupply flies to a base places.json place
     f.account.server.ship.fuel=20;
     await f.account.refresh();
     const out=await admitted();
-    assert.equal(out.did,'null','the work was admitted');
+    assert.match(out.did,/^null/,'the work was admitted');
     assert.equal(pilot().mood,'Focused');
     assert.equal(f.account.server.location.docked_at,'sol_base');
     assert.ok(!readJournal(runtime).some(entry=>entry.event==='stranded'),'resupply named the placed base');
@@ -791,13 +791,73 @@ test('Tired with no base resupply can name: the work goes on, journalled strande
     f.account.server.ship.fuel=20;
     await f.account.refresh();
     const out=await admitted();
-    assert.equal(out.did,'null','the work was admitted');
+    assert.match(out.did,/^null/,'the work was admitted');
     assert.equal(pilot().mood,'Tired');
     const journal=readJournal(runtime);
     assert.ok(journal.some(entry=>entry.event==='stranded'));
     const said=journal.filter(entry=>entry.event==='line').map(entry=>String(entry.text));
     assert.ok(said.some(text=>/resupply found no base: working on/.test(text)),said.join('\n'));
+    // Nothing reachable from here: the next call does not fly the same search again.
+    await admitted();
+    assert.equal(readJournal(runtime).filter(entry=>entry.event==='stranded').length,1,'one stranded line, not one per call');
   } finally {unbind();rmSync(runtime,{recursive:true,force:true});}
+});
+
+/** A Tired-capable binding (the mood derived from the ship, as the bridge binds it) with a journal. */
+function tiredWorld(name:string) {
+  const f=world({}),runtime=mkdtempSync(join(tmpdir(),`spacemolt-${name}-`));
+  bind({account:f.account as unknown as Account,command:f.command,runtime,emit:()=>{},
+    pilot:()=>flying({stance:'Prospector',permissions:{credit_reserve:0}},f.account.state as never)});
+  return {...f,runtime,resupplies:()=>readJournal(runtime).filter(entry=>entry.event==='resupply'),
+    close:()=>{unbind();rmSync(runtime,{recursive:true,force:true});}};
+}
+
+// Tired is checked wherever the ship stops, not only at a juncture's menu: a dock services there,
+// and the act that docked reports as it would, naming the resupply.
+test('Tired at a dock: the counter services the ship, and the call that docked names it',async()=>{
+  const f=tiredWorld('tired-dock');
+  try {
+    f.account.server.location={system_id:'sol',poi_id:'station',docked_at:null,in_transit:false};
+    f.account.server.ship.fuel=10;
+    await f.account.refresh();
+    const out=await prices();
+    assert.equal(f.account.server.location.docked_at,'sol_base');
+    assert.equal(pilot().mood,'Focused');
+    assert.match(out.did,/Tired \(fuel 10 under the Focused reserve 24\) at a dock: resupplied at sol_base, fuel 10 → 120/);
+    const [line,...more]=f.resupplies();
+    assert.deepEqual(more,[]);
+    assert.deepEqual([line!.trigger,line!.base,line!.fuel_before,line!.fuel_after,line!.cleared],['dock','sol_base',10,120,true]);
+    assert.equal(typeof line!.seconds,'number');
+  } finally {f.close();}
+});
+
+// An arrival out at a POI with no counter: the program's own goTo is followed by the resupply flight.
+// The ship is left at the counter; the runtime does not fly it back.
+test('Tired on arrival at a POI: the runtime flies to a counter and services, once, without re-triggering',async()=>{
+  const f=tiredWorld('tired-arrival');
+  try {
+    f.account.server.ship.fuel=20;
+    await f.account.refresh();
+    const trip=await goTo('belt');
+    assert.equal(trip.status,'done',trip.why);
+    assert.match(trip.did,/^arrived at belt.*; Tired \(fuel \d+ under the Focused reserve 24\) on arrival: resupplied at sol_base/);
+    assert.equal(f.account.server.location.docked_at,'sol_base');
+    assert.equal(pilot().mood,'Focused');
+    // The resupply's own goTo docked and arrived: neither started another resupply.
+    assert.deepEqual(f.resupplies().map(line=>[line.trigger,line.base,line.cleared]),[['arrival','sol_base',true]]);
+  } finally {f.close();}
+});
+
+test('not Tired: a dock and an arrival resupply nothing',async()=>{
+  const f=tiredWorld('not-tired');
+  try {
+    const before=f.account.server.player.credits;
+    assert.doesNotMatch((await goTo('belt')).did,/Tired/);
+    assert.doesNotMatch((await goTo('sol_base')).did,/Tired/);
+    assert.deepEqual(f.resupplies(),[]);
+    assert.ok(!f.sent.some(c=>c.action==='spacemolt/refuel'||c.action==='spacemolt/repair'));
+    assert.equal(f.account.server.player.credits,before);
+  } finally {f.close();}
 });
 
 // U31 verify: the stop flag lives on the run, and `stopped()` read false once nothing was bound, so the

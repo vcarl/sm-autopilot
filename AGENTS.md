@@ -154,6 +154,9 @@ the pilot's context. Every line has `at` (UTC ISO, `Z`) and `event`.
   stop's `base_id`, `source`, `age`; null when no book was known), and `cargo_used`/`cargo_capacity`
   after the stop), `mission` (`accepted`/`completed`/`abandoned`; `already_active` for an accept that
   sent nothing; `expired` when a mission seen running is next read expired or past its deadline),
+  `resupply` (one per counter the runtime's Tired resupply tried: `trigger` — `dock`, `arrival`, `call`
+  or `run_end` — `tired_by`, `base`, `status`, `spent`, `issued`, `cleared`, `why`, `fuel_before`/
+  `hull_before` at the resupply's start, `fuel_after`/`hull_after` and `seconds` at this line),
   `stranded`, `death`, and `pilot` with `prev`.
 - `defect`: a die (a bug, not a game error) reaching a `jobEffect` or `edge`: `fn`, `why` (the
   message), `stack` (`Cause.pretty`). Its Outcome is `failed`.

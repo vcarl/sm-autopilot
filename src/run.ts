@@ -362,7 +362,7 @@ export async function runPilot(deps:RunDeps):Promise<RunResult> {
     const timer=setTimeout(stop,Math.max(0,Date.parse(started)+cap+grace-Date.now()));
     // A failure is journalled as the bug it always was, and never skips the record.
     await edge(Effect.gen(function*() {
-      const exit=yield* Effect.exit(resupplyEffect({travel:!stopped()}));
+      const exit=yield* Effect.exit(resupplyEffect({travel:!stopped(),trigger:'run_end'}));
       if(Exit.isFailure(exit)) {
         const error=rawError(exit.cause);
         defect('resupply',Cause.die(error));

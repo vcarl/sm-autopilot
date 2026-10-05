@@ -11,6 +11,7 @@ import {Game,isGameError,type GameError} from './game.ts';
 import {knownBooks} from './market.ts';
 import {activeEffect} from './missions.ts';
 import {readNames} from './places.ts';
+import {tiredCheck} from './service.ts';
 import {Stopped,acct,edge,jobEffect,pilot,runtimeDir,step,stopped} from './runtime.ts';
 import type {Outcome} from './types.ts';
 
@@ -418,6 +419,7 @@ export const goToEffect=(id:string)=>jobEffect<Trip>('goTo',id,Effect.gen(functi
       why:done.refused,detail:{...detail(),jumps}};
     docked=true;step(`docked at ${named}`);
   }
+  yield* tiredCheck('arrival');
   const at=acct().state.location;
   return {status:'done' as const,did:`arrived at ${target}${poi?'':` (${at?.poi_id})`}${docked?named===target?' and docked':` and docked at ${named}`:''} after ${jumps} jump(s)`
     +(at?.docked_at?'':yield* undocked())+(answered.length?`; ${answered.join('; ')}`:''),detail:{...detail(),jumps,docked}};
