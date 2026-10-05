@@ -92,7 +92,8 @@ sees the real types, so these are not style notes.
   'Promise<Outcome<Sold>>'` — the missing `await` is the entire error.
 - **`sell` takes two options and neither names a market.** `sell(rows, {from?, floor?})`:
   `from: 'hold' | 'store'` and `floor: {[item_id]: number}`, nothing else. `buy(item_id, quantity,
-  {deliverTo?, maxEach?, force?})` names no market either. `{market: 'local'}` does not exist; both
+  {deliverTo?, maxEach?, force?})` names no market either; with no `maxEach` it is refused over
+  1.05 × the cheapest ask remembered at another base, and `why` names that base. `{market: 'local'}` does not exist; both
   are always the counter you are docked at. To sell somewhere else, `goTo` it first, or
   `tradeRun({stops: [{at}]})`, which flies there and sells what is aboard. `tradeRun` takes only
   `{stops}`: `{item, sellAt}` and `{buyAt}` do not exist, and a route is one call with no

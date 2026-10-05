@@ -16,6 +16,7 @@ import {bench,moduleSpecEffect,room,whyNotFit} from './hangar.ts';
 import {Stopped,acct,admit,edge,jobEffect,pilot,reached,runtimeDir,step,stopped,wanted} from './runtime.ts';
 import {withdrawEffect} from './storage.ts';
 import {num} from './rows.ts';
+import {walkBook} from '../order-book.ts';
 import type {Outcome,Row,Want} from './types.ts';
 
 /** The lib's per-item book (`best_buy`, `best_buy_qty`, `best_sell`, `best_sell_qty`,
@@ -67,6 +68,36 @@ export function bestFarBid(books:RememberedBook[],item_id:string,here:string|nul
     .flatMap(row=>row.items.filter(i=>i.item_id===item_id&&i.best_buy>0&&i.best_buy_qty>0)
       .map(i=>({base_id:row.base_id,best_buy:i.best_buy,best_buy_qty:i.best_buy_qty,age:ticksOld(row.tick,tick)})))
     .sort((a,b)=>b.best_buy-a.best_buy)[0];
+}
+
+/** ponytail: with no `maxEach`, a buy is refused over OVERPAY × the cheapest ask remembered at another
+ * base. A first guess: tune it from the refusals (the call's `why`) and the `ref_*` on `trade` quotes.
+ * Live 2026-10-04 (kvothe 09:12Z, run b7ad2c0a): supply bought 69 iron_ore at 999 while
+ * confederacy_central_command was remembered asking 2 for 32,928. */
+export const OVERPAY=1.05;
+/** The cheapest ask remembered for `units` of `item_id` at a base other than `here`: the average a
+ * walk of each book's asks pays, among books deep enough for all of them; else, when none is, the
+ * lowest top ask. `age` in ticks when the current tick is known. */
+export interface CheapAsk {base_id:string;price:number;depth:number;age:number|null}
+export function cheapestAsk(books:readonly RememberedBook[],item_id:string,units:number,here:string|null|undefined,now:number):CheapAsk|undefined {
+  const asks=books.filter(book=>book.base_id!==here).flatMap(book=>book.items.filter(row=>row.item_id===item_id&&row.best_sell>0).map(row=>{
+    const levels=row.sell_orders?.length?row.sell_orders:[{price_each:row.best_sell,quantity:row.best_sell_qty}];
+    const walk=walkBook(levels,units),depth=levels.reduce((sum,level)=>sum+level.quantity,0);
+    return {base_id:book.base_id,price:walk.unfilled?row.best_sell:Math.round(walk.average*100)/100,depth,deep:!walk.unfilled,
+      age:now&&book.tick!==undefined?ticksOld(book.tick,now):null};
+  }));
+  const pool=asks.some(ask=>ask.deep)?asks.filter(ask=>ask.deep):asks;
+  const best=pool.sort((a,b)=>a.price-b.price)[0];
+  return best&&{base_id:best.base_id,price:best.price,depth:best.depth,age:best.age};
+}
+/** Why `cost` for `units` of `item_id` here is too dear, if it is: over `maxEach` each when given, else over
+ * OVERPAY × the cheapest ask remembered elsewhere (none known: no cap). `ref` is that ask, for the quote. */
+export function overpay(item_id:string,units:number,cost:number,maxEach:number|undefined,here:string):{why?:string;ref?:CheapAsk} {
+  if(maxEach!==undefined)return cost>maxEach*units?{why:`costs ${cost}, over maxEach ${maxEach} × ${units}`}:{};
+  const ref=cheapestAsk(knownBooks(),item_id,units,here,marketTick());
+  if(!ref||cost<=OVERPAY*ref.price*units)return ref?{ref}:{};
+  return {ref,why:`${item_id} costs ${cost} for ${units} here (${Math.round(cost/units)} each); ${ref.base_id} asks ${ref.price} each, ${ref.depth} deep`
+    +`${ref.age===null?'':` (${ref.age} ticks ago)`}, and over ${OVERPAY}× that is refused: buy there, or pass maxEach to pay this`};
 }
 
 /** ponytail: a fill averaging this far under the top bid it was sent against is worth saying; a
@@ -388,7 +419,8 @@ export interface Bought {
 
 /** Buy at market price, here, after an `estimate_purchase` preview. Over `spacemolt/buy` it
  * adds: the estimate read first and refused when `total_cost` would take the wallet under
- * `permissions.credit_reserve` or over `maxEach × quantity`; the refusal names the numbers. A **module** is checked against the ship's grid first —
+ * `permissions.credit_reserve` or over `maxEach × quantity` — with no `maxEach`, over `OVERPAY` × the
+ * cheapest ask remembered at another base, named with its age; the refusal names the numbers. A **module** is checked against the ship's grid first —
  * free slot of its kind, CPU and power — and refused when it could not be fitted, with
  * `next` saying what to remove; `{force:true}` skips that check for a pilot buying a spare.
  * Trains trading. Tired or Relaxed: refused. */
@@ -422,14 +454,17 @@ export const buyEffect=(itemId:string,quantity:number,opts:{deliverTo?:'cargo'|'
     const cost=num(quote,'total_cost')??0;
     if(!(available>0))return {status:'refused',did:`did not buy ${itemId}`,why:`not on this market: ${typeof message==='string'?message:'0 available'}`,detail:{estimate}};
     if(credits-cost<reserve)return {status:'refused',did:`did not buy ${itemId}`,why:`costs ${cost}; credits ${credits} less reserve ${reserve} leaves ${credits-reserve}`,detail:{estimate}};
-    if(opts.maxEach!==undefined&&cost>opts.maxEach*quantity)return {status:'refused',did:`did not buy ${itemId}`,why:`costs ${cost}, over maxEach ${opts.maxEach} × ${quantity}`,detail:{estimate}};
+    const dear=overpay(itemId,Math.min(quantity,available),cost,opts.maxEach,at.docked);
+    if(dear.why)return {status:'refused',did:`did not buy ${itemId}`,why:dear.why,detail:{estimate},
+      ...dear.ref?{next:[`goTo('${dear.ref.base_id}') and buy there`,`buy('${itemId}', ${quantity}, {maxEach:${Math.ceil(cost/Math.min(quantity,available))}})`]}:{}};
     // The book this buy was sent against, as a sell quotes its own: the last read at this counter.
     // Live 2026-10-01 (kvothe): all 37 tradeRun buys journalled a quote with no ask, bid or book tick.
     const seen=lastRead?.base===at.docked?lastRead:undefined,row=seen?.listed.get(itemId);
     // ponytail: the first 10 ask levels; a deeper book is summarised by `estimate_available`.
     quoteNext('spacemolt/buy',itemId,{bid:row?.best_buy??null,ask:row?.best_sell??null,ask_qty:row?.best_sell_qty??null,
       asks:row?.sell_orders.length?row.sell_orders.slice(0,10).map(({price_each,quantity})=>({price_each,quantity})):null,book_tick:seen?.tick??null,
-      age_s:seen?Math.round((Date.now()-seen.at)/100)/10:null,estimate_quantity:quantity,estimate_total:cost,estimate_available:available});
+      age_s:seen?Math.round((Date.now()-seen.at)/100)/10:null,estimate_quantity:quantity,estimate_total:cost,estimate_available:available,
+      ...dear.ref?{ref_ask:dear.ref.price,ref_base:dear.ref.base_id,ref_age:dear.ref.age}:{}});
     // A refusal or a lost reply goes up to the job, named; the buy is never re-sent after a lost reply.
     const filled=replyBody(yield* game.command('spacemolt/buy',{id:itemId,quantity:Math.min(quantity,available),
       ...opts.deliverTo?{deliver_to:opts.deliverTo}:{}}));

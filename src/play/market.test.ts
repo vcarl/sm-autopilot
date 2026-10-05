@@ -149,6 +149,27 @@ test('a store view the server refuses still quotes the book, stored as 0',async(
   } finally {f.close();}
 });
 
+test('a buy with no maxEach is refused over OVERPAY × the cheapest ask remembered elsewhere; maxEach pays it (live: b7ad2c0a)',async()=>{
+  // Live 2026-10-04 (kvothe 09:12Z, run b7ad2c0a): 69 iron_ore bought at 999 each while confederacy_central_command
+  // was remembered asking 2 for 32,928. The fake asks 12 each here.
+  const f=world({mood:'Focused',permissions:{credit_reserve:0}},{});
+  try {
+    writeFileSync(join(f.runtime,'markets.json'),JSON.stringify([
+      {base_id:'confederacy_central_command',at:'',items:[{item_id:'iron_ore',best_buy:0,best_buy_qty:0,best_sell:2,best_sell_qty:32928}]},
+      {base_id:'thin_base',at:'',items:[{item_id:'iron_ore',best_buy:0,best_buy_qty:0,best_sell:1,best_sell_qty:3}]}]));
+    const out=await buy('iron_ore',69);
+    assert.equal(out.status,'refused');
+    assert.match(out.why!,/^iron_ore costs 828 for 69 here \(12 each\); confederacy_central_command asks 2 each, 32928 deep/,
+      'thin_base asks less, but not for 69');
+    assert.deepEqual(out.next,["goTo('confederacy_central_command') and buy there","buy('iron_ore', 69, {maxEach:12})"]);
+    assert.equal(f.count('spacemolt/buy'),0);
+    assert.equal((await buy('iron_ore',69,{maxEach:1000})).status,'done','an explicit maxEach overrides the cap');
+    writeFileSync(join(f.runtime,'markets.json'),JSON.stringify([
+      {base_id:'confederacy_central_command',at:'',items:[{item_id:'iron_ore',best_buy:0,best_buy_qty:0,best_sell:11.5,best_sell_qty:32928}]}]));
+    assert.equal((await buy('iron_ore',2)).status,'done','12 is within OVERPAY of 11.5');
+  } finally {f.close();}
+});
+
 test('a buy that goes through is done',async()=>{
   const f=world({mood:'Focused',permissions:{credit_reserve:0}},{});
   try {

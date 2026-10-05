@@ -40,6 +40,27 @@ export interface FarBid {
     age: number;
 }
 export declare function bestFarBid(books: RememberedBook[], item_id: string, here: string | null | undefined, tick: number): FarBid | undefined;
+/** ponytail: with no `maxEach`, a buy is refused over OVERPAY × the cheapest ask remembered at another
+ * base. A first guess: tune it from the refusals (the call's `why`) and the `ref_*` on `trade` quotes.
+ * Live 2026-10-04 (kvothe 09:12Z, run b7ad2c0a): supply bought 69 iron_ore at 999 while
+ * confederacy_central_command was remembered asking 2 for 32,928. */
+export declare const OVERPAY = 1.05;
+/** The cheapest ask remembered for `units` of `item_id` at a base other than `here`: the average a
+ * walk of each book's asks pays, among books deep enough for all of them; else, when none is, the
+ * lowest top ask. `age` in ticks when the current tick is known. */
+export interface CheapAsk {
+    base_id: string;
+    price: number;
+    depth: number;
+    age: number | null;
+}
+export declare function cheapestAsk(books: readonly RememberedBook[], item_id: string, units: number, here: string | null | undefined, now: number): CheapAsk | undefined;
+/** Why `cost` for `units` of `item_id` here is too dear, if it is: over `maxEach` each when given, else over
+ * OVERPAY × the cheapest ask remembered elsewhere (none known: no cap). `ref` is that ask, for the quote. */
+export declare function overpay(item_id: string, units: number, cost: number, maxEach: number | undefined, here: string): {
+    why?: string;
+    ref?: CheapAsk;
+};
 /** ` at 6633 each, under the 7153 top bid (2 deep)` when `quantity` fetched `earned` materially under
  * the top of the book read before the sale; '' otherwise. A thin book is walked down its levels.
  * Live 2026-10-01 (kvothe 14:45Z): 10 plasma_injector filled at 6,633 against a 7,153 bid 2 deep, −5.2k unsaid. */
@@ -117,7 +138,8 @@ export interface Bought {
 }
 /** Buy at market price, here, after an `estimate_purchase` preview. Over `spacemolt/buy` it
  * adds: the estimate read first and refused when `total_cost` would take the wallet under
- * `permissions.credit_reserve` or over `maxEach × quantity`; the refusal names the numbers. A **module** is checked against the ship's grid first —
+ * `permissions.credit_reserve` or over `maxEach × quantity` — with no `maxEach`, over `OVERPAY` × the
+ * cheapest ask remembered at another base, named with its age; the refusal names the numbers. A **module** is checked against the ship's grid first —
  * free slot of its kind, CPU and power — and refused when it could not be fitted, with
  * `next` saying what to remove; `{force:true}` skips that check for a pilot buying a spare.
  * Trains trading. Tired or Relaxed: refused. */

@@ -24,14 +24,14 @@ items:[{id:'iron_ore',name:'Iron Ore',base_value:4,extracted_by:'mining'},
 const BOOK=[{item_id:'steel_plate',best_buy:100,best_buy_qty:99,best_sell:110,best_sell_qty:9},
   {item_id:'iron_ore',best_buy:3,best_buy_qty:99,best_sell:4,best_sell_qty:99}];
 
-function world(record:Pilot,options:WorldOptions={}) {
+function world(record:Pilot,options:WorldOptions={},runtime?:string) {
   useCatalog(async()=>CATALOG);
   const game=bridgeWorld({services:['refuel','repair','storage','crafting'],cargoUsed:0,
     market:BOOK,...options});
   const lines:string[]=[];
   let who:Pilot=record;
   bind({account:game.account as unknown as Account,command:game.command,
-    pilot:()=>who,emit:text=>lines.push(text)});
+    pilot:()=>who,emit:text=>lines.push(text),...runtime?{runtime}:{}});
   return {...game,lines,record:()=>who};
 }
 
@@ -236,6 +236,25 @@ test('supply refuses a bill over maxSpend before anything moves',async()=>{
     assert.match(out.why!,/costs 36 cr, over maxSpend 30/);
     assert.equal(mutations(f),0,'nothing stowed, nothing bought');
   } finally {unbind();}
+});
+
+test('supply refuses an input dearer than OVERPAY × an ask remembered elsewhere, naming it, and maxEach pays it (live: b7ad2c0a)',async()=>{
+  // Live 2026-10-04 (kvothe 09:12Z, run b7ad2c0a): 69 iron_ore bought at 999 each while confederacy_central_command
+  // was remembered asking 2 for 32,928.
+  const runtime=mkdtempSync(join(tmpdir(),'spacemolt-supply-'));
+  writeFileSync(join(runtime,'markets.json'),JSON.stringify([{base_id:'confederacy_central_command',at:'',
+    items:[{item_id:'iron_ore',best_buy:0,best_buy_qty:0,best_sell:2,best_sell_qty:32928,buy_orders:[],sell_orders:[]}]}]));
+  const f=world({mood:'Focused'},{store:[]},runtime);
+  try {
+    const out=await supply('refine_steel',2);
+    assert.equal(out.status,'refused');
+    assert.match(out.why!,/^iron_ore costs 60 for 5 here \(12 each\); confederacy_central_command asks 2 each, 32928 deep/);
+    assert.equal(mutations(f),0,'nothing stowed, nothing bought');
+    assert.deepEqual(out.next,["supply('refine_steel', 2, {maxEach:12})"]);
+    const paid=await supply('refine_steel',2,{maxEach:12});
+    assert.equal(paid.status,'done',paid.why);
+    assert.deepEqual(paid.detail.bought,[{item_id:'iron_ore',quantity:5}]);
+  } finally {unbind();rmSync(runtime,{recursive:true,force:true});}
 });
 
 test('supply is partial, with a short row and a did rewrite, when this market does not sell an input',async()=>{

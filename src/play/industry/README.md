@@ -14,7 +14,7 @@ after is the only evidence the output arrived.
 |---|---|
 | `recipes(search?)` | what can be made here from hold + store, each one dry-run and priced, sorted by `margin` |
 | `quote(recipe, qty?, {at?})` | the venue, escrow, labour, fee, ETA and margin; each short input priced to buy and to sell; commits nothing |
-| `supply(recipe, qty?, {at?, maxSpend?})` | this base's store holds every input: stowed from the hold, the rest bought here |
+| `supply(recipe, qty?, {at?, maxSpend?, maxEach?})` | this base's store holds every input: stowed from the hold, the rest bought here |
 | `craft(recipe, qty?, {at?})` | stow, quote, escrow, wait out the queue, confirm the outputs in the store |
 | `jobs()` | every job you have queued, anywhere, and which are paused; works undocked |
 | `materials(item, qty)` | the recipes and raw leaves `qty` of an item takes, net of what you hold; from the catalog |
@@ -75,7 +75,8 @@ export default async function main() {
 - `quote(recipe, qty)` is the server's own dry run, whole, plus `produces_total` (what the whole
   order makes), `output_value`, `margin` (output value less `credits_total`), and `missing`.
 - `supply(recipe, qty)` estimates the whole bill before it moves anything; over `maxSpend` it is
-  refused with nothing bought. What this market does not sell comes back in `short` with its
+  refused with nothing bought. So is an input over 1.05 × the cheapest ask remembered at another
+  base (`why` names it and its age): buy it there, or pass `maxEach` (per unit) to pay this one. What this market does not sell comes back in `short` with its
   `source`, and the status is `partial`. A stocked store is `done` with nothing sent.
 - `craft(recipe, qty)` commits, waits and measures. A job already queued here for the same
   recipe and the same number of runs **is** this job: a re-run re-enters the wait.

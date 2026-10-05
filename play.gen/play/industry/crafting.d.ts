@@ -115,17 +115,20 @@ export interface Supplied {
  * Reads the dry run and the store; an input already stocked is left alone, so a stocked store
  * is `done` with nothing sent. The rest is stowed from the hold first, then bought into the
  * store at this market. The whole bill is estimated (buy fee included) before anything moves:
- * over `maxSpend`, it is refused with nothing stowed or bought. An input this market does not
+ * over `maxSpend`, or an input over `maxEach` each (with none, over `OVERPAY` × the cheapest ask
+ * remembered at another base, named), it is refused with nothing stowed or bought. An input this market does not
  * sell comes back in `short` with its `source`, and the status is `partial`. Each buy keeps
  * `credits − permissions.credit_reserve`. A buy or a stow whose reply is lost is never re-sent:
  * the store is re-read, and what it still lacks is `short`. */
 export declare const supplyEffect: (recipeId: string, quantity?: number, opts?: {
     at?: "workshop" | string;
     maxSpend?: number;
+    maxEach?: number;
 }) => Effect.Effect<Outcome<Supplied>, never, Game | import("../runtime.ts").Run>;
 export declare function supply(recipeId: string, quantity?: number, opts?: {
     at?: 'workshop' | string;
     maxSpend?: number;
+    maxEach?: number;
 }): Promise<Outcome<Supplied>>;
 export interface Crafted extends Venue {
     /** The commit, or the queue row this run re-entered on. */

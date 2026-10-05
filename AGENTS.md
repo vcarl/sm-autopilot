@@ -142,7 +142,7 @@ the pilot's context. Every line has `at` (UTC ISO, `Z`) and `event`.
 - `reconnecting` (`attempt`), `reconnected`, `disconnected` (`code`, `reason`) and `rate_limited`
   (`command`, `attempt`, `delay_ms`: a resend the lib sleeps before), from `journalConnection`.
 - `trade` (buy/sell/refuel/repair: `unit_price`, `fills`, and `quote`, the book or posted price the
-  caller held; a buy's quote adds `ask_qty` and `asks`, the first 10 ask levels; a sell's adds `bid_qty`
+  caller held; a buy's quote adds `ask_qty` and `asks`, the first 10 ask levels, and with no `maxEach` `ref_ask`, `ref_base`, `ref_age`: the cheapest ask remembered elsewhere it was held under `OVERPAY` of; a sell's adds `bid_qty`
   and `bids`), `book` (in `books.jsonl` beside the journal, never rotated, so the journal's tail stays small: each `book()` read, unless it is the same as the last one journalled at that base:
   `base_id`, `book_tick`, and per item with orders its `bid_depth`, `ask_depth`, and first 10 `bids`/`asks`
   as `[price_each, quantity]`; join a quote to it by `base_id` + `book_tick`, or the latest line for that

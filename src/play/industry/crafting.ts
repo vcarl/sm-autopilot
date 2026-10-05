@@ -18,7 +18,7 @@ import {words} from '../../servicing.ts';
 import {replyBody} from '../../storage.ts';
 import * as Wire from '../../wire.gen.ts';
 import {Game,field,message,type GameError} from '../game.ts';
-import {bookEffect,buyEffect} from '../market.ts';
+import {bookEffect,buyEffect,overpay} from '../market.ts';
 import {kept,offSpec,told} from '../rows.ts';
 import {Stopped,acct,admit,edge,jobEffect,pilot,reached,runtimeDir,step,stopped} from '../runtime.ts';
 import {OffSpec,folded,stowEffect} from '../storage.ts';
@@ -389,11 +389,12 @@ const noSupplied=():Supplied=>({stowed:[],bought:[],short:[],spent:0});
  * Reads the dry run and the store; an input already stocked is left alone, so a stocked store
  * is `done` with nothing sent. The rest is stowed from the hold first, then bought into the
  * store at this market. The whole bill is estimated (buy fee included) before anything moves:
- * over `maxSpend`, it is refused with nothing stowed or bought. An input this market does not
+ * over `maxSpend`, or an input over `maxEach` each (with none, over `OVERPAY` × the cheapest ask
+ * remembered at another base, named), it is refused with nothing stowed or bought. An input this market does not
  * sell comes back in `short` with its `source`, and the status is `partial`. Each buy keeps
  * `credits − permissions.credit_reserve`. A buy or a stow whose reply is lost is never re-sent:
  * the store is re-read, and what it still lacks is `short`. */
-export const supplyEffect=(recipeId:string,quantity=1,opts:{at?:'workshop'|string;maxSpend?:number}={})=>
+export const supplyEffect=(recipeId:string,quantity=1,opts:{at?:'workshop'|string;maxSpend?:number;maxEach?:number}={})=>
   jobEffect<Supplied>('supply',`${quantity} × ${recipeId}${opts.at?` at ${opts.at}`:''}`,folded<Supplied>('supply',noSupplied,Effect.gen(function*() {
     const none=noSupplied();
     const refuse=(why:string,next:string[]=[])=>({status:'refused' as const,did:`supplied no ${recipeId}`,why,detail:none,next});
@@ -420,11 +421,17 @@ export const supplyEffect=(recipeId:string,quantity=1,opts:{at?:'workshop'|strin
       .filter(row=>row.quantity>0);
     const rest=open.map(row=>({item_id:row.item_id,
       quantity:row.need-row.have-(bring.find(b=>b.item_id===row.item_id)?.quantity??0)})).filter(row=>row.quantity>0);
-    const offers:{item_id:string;quantity:number;cost:number}[]=[];
+    const offers:{item_id:string;quantity:number;cost:number}[]=[],dear:{why:string;each:number}[]=[];
     for(const row of rest) {
       const est=yield* estimate(row.item_id,row.quantity);
-      if(est)offers.push({...row,cost:est.total_cost??0});
+      if(!est)continue;
+      const cost=est.total_cost??0,units=Math.min(row.quantity,est.available),why=overpay(row.item_id,units,cost,opts.maxEach,bay.base).why;
+      offers.push({...row,cost});
+      if(why)dear.push({why,each:Math.ceil(cost/units)});
     }
+    // Live 2026-10-04 (kvothe 09:12Z, run b7ad2c0a): 69 iron_ore bought at 999 each, a jump from an ask of 2.
+    if(dear.length)return refuse(dear.map(row=>row.why).join('; '),
+      [`supply('${recipeId}', ${quantity}, {${opts.at?`at:'${opts.at}', `:''}maxEach:${Math.max(...dear.map(row=>row.each))}})`]);
     const bill=offers.reduce((sum,row)=>sum+row.cost,0);
     if(opts.maxSpend!==undefined&&bill>opts.maxSpend)
       return refuse(`buying ${list(offers)} for ${name} costs ${bill} cr, over maxSpend ${opts.maxSpend}`,
@@ -439,7 +446,7 @@ export const supplyEffect=(recipeId:string,quantity=1,opts:{at?:'workshop'|strin
     let spent=0;
     for(const row of offers) {
       if(stopped())return yield* Effect.fail(new Stopped());
-      const got=yield* buyEffect(row.item_id,row.quantity,{deliverTo:'storage'});
+      const got=yield* buyEffect(row.item_id,row.quantity,{deliverTo:'storage',...opts.maxEach===undefined?{}:{maxEach:opts.maxEach}});
       // The wallet, not `total_cost`: the reply's cost is the subtotal, and the tax is on top
       // (see market.ts's `buy`); `cost.credits` is what the runtime measured actually left, a lost reply's too.
       spent+=got.cost.credits;
@@ -458,7 +465,7 @@ export const supplyEffect=(recipeId:string,quantity=1,opts:{at?:'workshop'|strin
       why:[`still short ${short.map(row=>`${row.item_id} ${row.have} of ${row.need} (${row.source})`).join(', ')}`,...whys].join('; '),
       detail,next:short.slice(0,3).map(row=>`materials('${row.item_id}', ${row.need-row.have}) names what to mine for it`)};
   })));
-export function supply(recipeId:string,quantity=1,opts:{at?:'workshop'|string;maxSpend?:number}={}):Promise<Outcome<Supplied>> {return edge(supplyEffect(recipeId,quantity,opts));}
+export function supply(recipeId:string,quantity=1,opts:{at?:'workshop'|string;maxSpend?:number;maxEach?:number}={}):Promise<Outcome<Supplied>> {return edge(supplyEffect(recipeId,quantity,opts));}
 
 export interface Crafted extends Venue {
   /** The commit, or the queue row this run re-entered on. */
