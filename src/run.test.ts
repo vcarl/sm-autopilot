@@ -203,12 +203,12 @@ test('a run streams a line per move (journalled first), ends with the prose and 
     const result=await runPilot({...f.deps,started:undefined} as any);
     assert.equal(result.accepted,true);
     assert.equal(result.status,'done',result.reason);
-    assert.match(f.lines[0]!,/^run started .* index\.ts sha [0-9a-f]{12}  mood Focused  stance Prospector$/);
+    assert.match(f.lines[0]!,/^flight launched .* program [0-9a-f]{12}  mood Focused  stance Prospector$/);
     assert.ok(f.lines.includes('✎ off to the belt'),'note() streams');
     assert.ok(f.lines.some(line=>line.startsWith('▶ goTo belt')),f.lines.join('\n'));
     assert.ok(f.lines.some(line=>/^✓ goTo  done/.test(line)));
     assert.ok(f.lines.some(line=>line.startsWith('Done: ')),'the prose report is streamed last');
-    assert.match(f.lines.at(-1)!,/^run ended  done  \d+ commands$/);
+    assert.match(f.lines.at(-1)!,/^flight ended  done  \d+ commands$/);
     // Every streamed line was written to the journal before it was sent.
     const journalled=readJournal(f.runtime).filter(entry=>entry.event==='line').map(entry=>entry.text);
     assert.deepEqual(journalled,f.lines);
@@ -233,8 +233,8 @@ test('a run that would hand back with a battle live breaks it off and says so',a
     await f.command('spacemolt/hunt',{id:'c1'});
     const out=await runPilot(f.deps);
     assert.equal(out.accepted,true,out.errors?.join('\n'));
-    assert.match(f.lines.join('\n'),/the run returned with a battle still live against Molt Grazer/);
-    assert.match(out.why!,/broken off before the run closed/);
+    assert.match(f.lines.join('\n'),/the flight returned with a battle still live against Molt Grazer/);
+    assert.match(out.why!,/broken off before the flight closed/);
     // And the proof: the ship moves again, which a live battle refuses `in_battle`.
     await f.command('spacemolt/travel',{id:'belt'});
     assert.equal(f.account.server.location.poi_id,'belt');
@@ -471,8 +471,8 @@ test('a lost closing read of the battle is read again, and the live battle behin
     await f.command('spacemolt/hunt',{id:'c1'});
     const result=await runPilot({...f.deps,command:failing(f,lost(),1)});
     assert.equal(result.accepted,true,result.errors?.join('\n'));
-    assert.match(f.lines.join('\n'),/the run returned with a battle still live against Molt Grazer/);
-    assert.match(result.why!,/broken off before the run closed/);
+    assert.match(f.lines.join('\n'),/the flight returned with a battle still live against Molt Grazer/);
+    assert.match(result.why!,/broken off before the flight closed/);
     assert.deepEqual(defects(f.runtime),[]);
   } finally {f.close();pace.tickMs=10_000;}
 });

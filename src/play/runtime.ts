@@ -77,13 +77,13 @@ export interface Call {fn:string;arg:string;
 
 /** A question the program is paused on, as run.json and the tools carry it. */
 export type Question=NonNullable<RunRecord['question']>;
-/** A chat post that paused the run: who sent it, on which channel, the text, and when. */
+/** A chat post that paused the flight: who sent it, on which channel, the text, and when. */
 export type ChatPause=NonNullable<Question['chat']>;
-/** A chat post that paused the run, with the answer you gave when it did. */
+/** A chat post that paused the flight, with the answer you gave when it did. */
 export interface Heard {chat:ChatPause;answer:string}
 
-/** What may pause a run: export it from `pilot/index.ts` as `export const interrupts = {…}`. A post
- * pauses the run when its channel is in `channels` (`['private']` when left out) and, when `from` is
+/** What may pause a flight: export it from `pilot/index.ts` as `export const interrupts = {…}`. A post
+ * pauses the flight when its channel is in `channels` (`['private']` when left out) and, when `from` is
  * given, its sender is in it (a name or a player id). No export, nothing interrupts. */
 export const InterruptsRead=Schema.Struct({from:Schema.optionalKey(Schema.Array(Schema.String)),
   channels:Schema.optionalKey(Schema.Array(Schema.Literals(['private','local','system','faction'])))});
@@ -96,7 +96,7 @@ export class Run extends Context.Service<Run,{
   readonly binding:Binding;
   /** Set by `stop()`; every library function checks it between commands. */
   stopFlag:boolean;
-  /** Why the stop came when it was not the pilot's: the run's wall-clock cap (run.ts). */
+  /** Why the stop came when it was not the pilot's: the flight's cap of about 25 minutes (run.ts). */
   stopWhy?:string;
   readonly started:number;
   /** How many jobs deep the program is: 1 is a call `main()` made itself. */
@@ -116,17 +116,17 @@ export class Run extends Context.Service<Run,{
   short:'broke'|'stranded'|undefined;
   /** The runtime's own resupply is flying: its docks and arrivals do not start another. */
   resupplying:boolean;
-  /** The system a resupply flew out of and reached no counter: not flown out of again this run. */
+  /** The system a resupply flew out of and reached no counter: not flown out of again this flight. */
   strandedIn:string|undefined;
   /** Resupplies since the last top-level call closed: that call's `did` names them. */
   readonly resupplied:string[];
   burning:boolean;burnFailed:boolean;
   unwatch:(()=>void)|undefined;
-  /** The program's `interrupts` export, read as the run starts; null: nothing interrupts. */
+  /** The program's `interrupts` export, read as the flight starts; null: nothing interrupts. */
   interrupts:Interrupts|null;
-  /** Posts that matched it and have not paused the run yet, oldest first. */
+  /** Posts that matched it and have not paused the flight yet, oldest first. */
   readonly chats:ChatPause[];
-  /** Posts that paused the run and the answers given, until `heard()` hands them over. */
+  /** Posts that paused the flight and the answers given, until `heard()` hands them over. */
   readonly heard:Heard[];
   /** A stop withdrew a chat pause: the pilot call it paused inside throws `Stopped`, as a paused `ask()` does. */
   pauseStopped:boolean;
@@ -142,7 +142,7 @@ type GameShape=Context.Service.Shape<typeof Game>;
  * surface whose helpers are handed their run, when one process must hold two bindings at once. */
 let current:{readonly run:RunState;readonly game:ManagedRuntime.ManagedRuntime<Game|Run,never>}|null=null;
 
-const need=()=>{if(!current)throw new Error('no flight is under way: pilot code runs only inside a flight');return current;};
+const need=()=>{if(!current)throw new Error('no flight is under way: pilot code works only inside a flight');return current;};
 const state=()=>need().run;
 
 export const runCalls=()=>state().calls;
@@ -215,15 +215,15 @@ const commandsProxy=new Proxy({},{get:(_,tool)=>new Proxy({},{get:(__,action)=>
   }))})});
 const isRecord=(value:unknown):value is Record<string,unknown>=>typeof value==='object'&&value!==null;
 
-/** Write one line to the journal and to the run's stream, under your own words. Use it to
+/** Write one line to the journal and to the flight's stream, under your own words. Use it to
  * say what you decided and why, so the record shows the reasoning, not only the moves. */
 export function note(text:string):void {line(`✎ ${text}`);}
 
-/** True once the pilot (or the observer) asked the run to stop. Every library function checks it
+/** True once the pilot (or the observer) asked the flight to stop. Every library function checks it
  * between commands and returns `partial`; a loop of your own should check it too. */
 // Nothing bound is a run that has closed: a program still flying (abandoned at the cap) must stop.
 export function stopped():boolean {return current?.run.stopFlag??true;}
-/** Ask the run to stop. A program paused on `ask()` is not at a safe point, it is waiting: the
+/** Ask the flight to stop. A program paused on `ask()` is not at a safe point, it is waiting: the
  * ask rejects with `Stopped` there and then, and the question is withdrawn. */
 export function stop(why?:string):void {
   const run=current?.run;
@@ -248,8 +248,8 @@ export const checkStop=()=>{if(stopped())throw new Stopped();};
 
 /** Pause the program and put a question to the model that is running it; resolves to its
  * answer, which is always one of `choices` when they are given. It waits until the answer
- * comes, or rejects with `Stopped` when the run is stopped — by a person, or by the run's
- * wall-clock cap (run.ts).
+ * comes, or rejects with `Stopped` when the flight is stopped — by a person, or by the flight computer's
+ * cap of about 25 minutes (run.ts).
  * A model call takes minutes, so ask at a strategic fork, never once per tick. */
 export function ask(asked:{question:string;choices?:string[]}):Promise<string> {
   const run=state();
@@ -272,11 +272,11 @@ export function ask(asked:{question:string;choices?:string[]}):Promise<string> {
   });
 }
 
-/** The chat posts that paused this run, each with the answer you gave, oldest first. Each is
- * handed over once: a second call returns only what paused the run since the first. */
+/** The chat posts that paused this flight, each with the answer you gave, oldest first. Each is
+ * handed over once: a second call returns only what paused the flight since the first. */
 export function heard():Heard[] {return state().heard.splice(0);}
 
-/** The run's `interrupts` declaration, from the program's export (run.ts). */
+/** The flight's `interrupts` declaration, from the program's export (run.ts). */
 export function listen(declared:Interrupts|null):void {
   const run=state();
   run.interrupts=declared;
@@ -285,7 +285,7 @@ export function listen(declared:Interrupts|null):void {
   if(!declared)run.chats.splice(0);
 }
 
-/** A chat post the bridge heard: queued to pause the run when its declaration names it. True when queued. */
+/** A chat post the bridge heard: queued to pause the flight when its declaration names it. True when queued. */
 export function hear(post:{channel:string;sender?:string|undefined;sender_id?:string|undefined;content:string;at:string}):boolean {
   const run=current?.run,want=run?.interrupts;
   if(!run||!want)return false;
@@ -299,7 +299,7 @@ export function hear(post:{channel:string;sender?:string|undefined;sender_id?:st
   return true;
 }
 
-/** After a command, never inside one: each queued post pauses the run as `ask()` does, one at a time,
+/** After a command, never inside one: each queued post pauses the flight as `ask()` does, one at a time,
  * until it is answered (kept for `heard()`) or the run is stopped (the stop flag ends the work). */
 const pauseOnChat=(run:RunState)=>Effect.gen(function*() {
   for(let chat=run.chats[0];chat&&!run.stopFlag&&!run.asking;chat=run.chats[0]) {
@@ -327,7 +327,7 @@ export function answer(text:string):void {
 
 /** Build an Outcome for a function of your own. You supply the sentence, the status and the
  * detail; the runtime fills `fn`, `cost`, `gained` and `now` from what it measured since the
- * run started or since your last `outcome()` call, whichever is later. Return it from your
+ * flight started or since your last `outcome()` call, whichever is later. Return it from your
  * helper so it composes like ours. */
 export function outcome<Detail=Record<string,unknown>>(did:string,status:Status='done',detail?:Detail,why?:string):Outcome<Detail> {
   const run=state(),before=run.mark??snapshot(run);
@@ -655,7 +655,7 @@ class NoCell extends Data.TaggedError('NoCell')<{readonly message:string}> {}
 
 /** Burn the fuel cells aboard (`refuel({id:'fuel_cell',quantity:1})`, one at a time) until the tank
  * is back over the reserve or the cells run out. Runs after every command, so no path strands
- * with cells in the hold. A burn that fails is journalled and not tried again this run: Tired is
+ * with cells in the hold. A burn that fails is journalled and not tried again this flight: Tired is
  * then declared and resupply takes over. Never fails.
  * ponytail: `Effect.exit` over the loop folds a defect into the `why`, as the old catch-everything did, so a
  * burn can never strand a command. Narrow it to the typed failures once no fake throws a bare Error. */

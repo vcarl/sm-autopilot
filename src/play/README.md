@@ -1,6 +1,6 @@
 # play — how you play SpaceMolt
 
-You are a pilot. Your ship's flight computer runs the program you write, `pilot/index.ts`
+You are a pilot. Your ship's flight computer flies the program you write, `pilot/index.ts`
 (`main()`): `spacemolt_run` loads the whole file (`source`) and flies it. It is the only file you
 write; `spacemolt_check` with no `source` hands it back as it stands. A flight lasts until the
 program returns, or until the computer ends it after about 25 minutes. Between flights you take

@@ -1,4 +1,4 @@
-/** `prose(outcome)`: the report at the end of a run, static text assembled from the value.
+/** `prose(outcome)`: the report at the end of a flight, static text assembled from the value.
  * No model, no per-function template (DESIGN.md "Outcome and prose"). */
 import type {Call} from './runtime.ts';
 import type {Outcome} from './types.ts';
@@ -31,7 +31,7 @@ function thisRun(calls:Call[]):string {
   const lines=shown.map(call=>`  - ${call.fn} ${call.status} ${call.did}`
     +(call.status!=='done'&&call.why?`: ${call.why}`:''));
   if(shown.length<calls.length)lines.unshift(`  - (${calls.length-shown.length} earlier call(s))`);
-  return [`This run: ${calls.length} calls, gained ${got.join(', ')||'nothing'}.`,
+  return [`This flight: ${calls.length} calls, gained ${got.join(', ')||'nothing'}.`,
     ...lines].join('\n');
 }
 
@@ -73,7 +73,7 @@ export function prose(outcome:Outcome<unknown>,calls:Call[]=[]):string {
   const cost=runCost(calls,outcome.cost);
   const spent=[cost.credits?`${n(cost.credits)} cr`:'',cost.fuel?`${n(cost.fuel)} fuel`:'',
     cost.hull?`${n(cost.hull)} hull`:'',cost.minutes?`${n(cost.minutes)} min`:''].filter(Boolean);
-  out.push(spent.length?`Cost this run: ${spent.join(', ')}.`:'Cost: nothing.');
+  out.push(spent.length?`Cost this flight: ${spent.join(', ')}.`:'Cost: nothing.');
 
   const got=[gained.credits?`+${n(gained.credits)} cr`:'',gained.items.length?rows(gained.items):'',
     ...Object.entries(gained.xp).map(([skill,xp])=>{

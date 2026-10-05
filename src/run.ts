@@ -225,11 +225,11 @@ async function closeBattle(answerBy:number):Promise<{opponent:string;ended:boole
   const fight=reached(read)?.fight;
   if(!fight)return null;
   if(fight==='unknown') {
-    line("the battle's status was lost three times at the run's end: breaking off in case a fight is live");
+    line("the battle's status was lost three times at the flight's end: breaking off in case a fight is live");
     // `disengage` is an edge: a bug in it is a `defect` line and `false`, never a throw.
     return await disengage(bound())?null:{opponent:'an opponent the lost status never named',ended:false};
   }
-  line(`the run returned with a battle still live against ${fight.opponent}: breaking off before handing back`);
+  line(`the flight returned with a battle still live against ${fight.opponent}: breaking off before handing back`);
   return {opponent:fight.opponent,ended:await disengage(bound())};
 }
 
@@ -290,7 +290,7 @@ export async function runPilot(deps:RunDeps):Promise<RunResult> {
   // it writes must follow the `run started` it joins to by `run_id`.
   journalRun(runtime,{phase:'started',script:'index.ts',sha:gate.sha,started,stance:who.stance??null,mood:who.mood??null,
     ...juncture,code_sha:CODE_SHA,sources:process.env.SPACEMOLT_SOURCES??null,start_state:stateSnapshot()});
-  line(`run started ${started}  index.ts sha ${gate.sha}  mood ${who.mood??'-'}  stance ${who.stance??'none'}`);
+  line(`flight launched ${started}  program ${gate.sha}  mood ${who.mood??'-'}  stance ${who.stance??'none'}`);
   const cap=deps.capMs??RUN_CAP_MS,grace=deps.graceMs??RUN_GRACE_MS;
   const timers:ReturnType<typeof setTimeout>[]=[];
   let abandoned=false;
@@ -326,7 +326,7 @@ export async function runPilot(deps:RunDeps):Promise<RunResult> {
       const {declared,journal}=interruptsOf(loaded);
       listen(declared);
       journalRun(runtime,journal,'interrupts');
-      if(typeof journal.interrupts_unread==='string')line(`interrupts not read, so nothing interrupts this run: ${journal.interrupts_unread}`);
+      if(typeof journal.interrupts_unread==='string')line(`interrupts not read, so nothing interrupts this flight: ${journal.interrupts_unread}`);
       if(!isObject(loaded)||typeof loaded.default!=='function')throw new Error('pilot/index.ts exports no default function');
       const returned:unknown=await Reflect.apply(loaded.default,undefined,[]);
       return settle(returned);
@@ -334,8 +334,8 @@ export async function runPilot(deps:RunDeps):Promise<RunResult> {
   } catch(error) { // edge: the pilot's own program may throw anything
     // A stop that reached the program's own code (a paused `ask()` rejects with it) is a stop,
     // as it is inside any library call: `partial`, not a broken script.
-    result=error instanceof Stopped?build('the run was stopped','partial',{},message(error))
-      :build('the run broke','failed',{},message(error));
+    result=error instanceof Stopped?build('the flight was stopped','partial',{},message(error))
+      :build('the flight broke','failed',{},message(error));
   } finally {
     // The runtime's own closing commands (resupply, a battle broken off) are not the program's: no pause.
     listen(null);
@@ -348,8 +348,8 @@ export async function runPilot(deps:RunDeps):Promise<RunResult> {
   const held=await closeBattle(Date.parse(started)+cap+grace+(deps.closeMs??CLOSE_MS));
   if(held) {
     const why=held.ended
-      ?`the run ended mid-battle against ${held.opponent}; it was broken off before the run closed`
-      :`the run ended mid-fight against ${held.opponent} and could not break off; the battle is still live`;
+      ?`the flight ended mid-battle against ${held.opponent}; it was broken off before the flight closed`
+      :`the flight ended mid-fight against ${held.opponent} and could not break off; the battle is still live`;
     line(why);
     result={...result,...held.ended?{}:{status:'partial'},why:result.why?`${why}; ${result.why}`:why};
   }
@@ -366,9 +366,9 @@ export async function runPilot(deps:RunDeps):Promise<RunResult> {
       if(Exit.isFailure(exit)) {
         const error=rawError(exit.cause);
         defect('resupply',Cause.die(error));
-        line(`the resupply at the run's end broke: ${message(error)}`);
+        line(`the resupply at the flight's end broke: ${message(error)}`);
       }
-      return build('resupplied at the run\'s end','done',{});
+      return build('resupplied at the flight\'s end','done',{});
     }));
     clearTimeout(timer);
   }
@@ -389,7 +389,7 @@ export async function runPilot(deps:RunDeps):Promise<RunResult> {
     ...result.why?{why:result.why}:{},commands,...work?{work}:{},...abandoned?{abandoned:true}:{},
     // ponytail: the first 40 top-level calls; `calls_total` says how many there were.
     end_state:stateSnapshot(),calls:runCalls().slice(0,40),calls_total:runCalls().length});
-  line(`run ended  ${result.status}  ${commands} commands`);
+  line(`flight ended  ${result.status}  ${commands} commands`);
   unbind();
   record.ended=true;
   record.last_job=result.fn;

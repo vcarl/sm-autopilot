@@ -58,7 +58,7 @@ for line in sys.stdin:
                   "last": None}
     elif action == "stop":
         running = os.path.exists(os.path.join(runtime, "run.running"))
-        result = {"stopping": running} if running else {"stopping": False, "reason": "nothing is running"}
+        result = {"stopping": running} if running else {"stopping": False, "reason": "no flight is under way"}
     elif action == "run":
         # A run that ends at once; nothing streams.
         result = {"accepted": True, "outcome": "done"}
@@ -148,7 +148,7 @@ def test_direction_sets_objective_and_permissions_and_lands_at_the_next_juncture
     [job] = cron_jobs.load_jobs()
     assert job["skills"] == [juncture.qualified(juncture.SHARED_SKILL)]
     # Nothing was flying, so nothing was stopped.
-    assert "runs to its outcome first" in answer
+    assert "flies on to its outcome first" in answer
     # Written by the bridge, the record's one writer.
     assert "pilot" in (bridged / "actions.log").read_text().split()
 
@@ -178,7 +178,7 @@ def test_a_new_objective_stops_the_run_in_flight_and_the_same_one_does_not(bridg
     same = spacemolt._direct({"objective": "fill the hold"})
     assert juncture.read_pilot()["goal"] == "mine the belt", "the same text is not a new objective"
     assert "stop" not in (bridged / "actions.log").read_text().split()
-    assert "runs to its outcome first" in same
+    assert "flies on to its outcome first" in same
     answer = spacemolt._direct({"objective": "explore new areas"})
     assert "stop" in (bridged / "actions.log").read_text().split()
     assert "asked to stop at its next safe point" in answer, answer

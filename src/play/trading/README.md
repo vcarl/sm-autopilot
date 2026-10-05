@@ -97,7 +97,7 @@ either. Whatever is still aboard after the last stop is `unsold` and is not coun
 There is no special case for a full hold, an empty one or a mixed one. "Just sell what is aboard
 over there" is the one-stop route `[{at: 'there'}]`, and "buy here, sell there" is
 `[{at: 'here', buy: 'x'}, {at: 'there'}]`. `routes()` ranks routes with this rule and `tradeRun`
-runs it, so what ranks is what runs.
+flies it, so what ranks is what flies.
 
 ## What a route says
 
@@ -156,7 +156,7 @@ the list with a `why`, a `score` of 0 and the Outcome `partial`.
 `routes({circuit: {hold}})` ranks closed laps to hand a freighter: see
 [fleet](../fleet/README.md#circuits-a-lap-a-freighter-repeats).
 
-## What a run says
+## What a trip says
 
 `tradeRun({stops})` flies the stops in order. Each stop is `{at, buy?, quantity?, from?}`:
 
@@ -176,29 +176,29 @@ It answers `detail: Traded` = `{stops, unsold, fuel, net}`:
 | Field | What it is |
 |---|---|
 | `stops` | one per stop reached: `{at, sold, bought, spent, why?}`. `sold` is the lib's `SellResponse[]` for this counter, `bought` the units taken on, every item together, `spent` what left the wallet for them, sales tax included, and `why` what fell short here or why nothing was taken |
-| `unsold` | `{item_id, quantity}` rows aboard when the run ended. After the last stop, what no stop bought |
+| `unsold` | `{item_id, quantity}` rows aboard when the trip ended. After the last stop, what no stop bought |
 | `fuel` | fuel units the flights burned, measured from the tank |
-| `net` | sales, less `spent` (tax included), less `fuel × fuel_price_all_in` at the first base the run was docked at. Fuel comes from the tank, not the wallet, so it is priced exactly as `Route.net` prices it: realised `net` against the `routes()` row's `net` is like against like |
+| `net` | sales, less `spent` (tax included), less `fuel × fuel_price_all_in` at the first base the trip was docked at. Fuel comes from the tank, not the wallet, so it is priced exactly as `Route.net` prices it: realised `net` against the `routes()` row's `net` is like against like |
 
 Each stop's `did` names what it took and the later bid it was taken for, with that book's age
 (`took 2 dark_matter_residue for sirius_observatory_station's 1020 bid (remembered, 85 ticks old)`):
-a memory until the run stands in front of it. A planned ask gone from the live book is said against
+a memory until the trip stands in front of it. A planned ask gone from the live book is said against
 the book it was planned on, in `did` and `why`.
 
 A sale walks a thin book down its levels; more than 3% under the top bid, `did` says so with its depth.
 
 It never throws. A flight that does not arrive is `partial`, with the stops done so far, and
-`next` is the rest of the route. A `done` run's `next` is pasteable calls only: the same
+`next` is the rest of the route. A `done` trip's `next` is pasteable calls only: the same
 `tradeRun(...)` again when the route bought something and netted a profit, and `routes()`, which
 is all it offers after a route that only sold the hold. Re-running the same call starts again at the first stop and
 re-plans from the hold you have. A load already aboard is carried on and is not bought twice. A
-sale or buy the game refuses is `partial` too, and the run carries on to the next stop.
+sale or buy the game refuses is `partial` too, and the trip carries on to the next stop.
 
 After each stop it looks at the rest of the route against the books it knows: when nothing aboard
 has a bid at any stop ahead, and no stop ahead has a known ask for its `buy` (a `from: 'store'` stop
 and a stop with no known book count as maybe), the flights ahead cannot pay, so it ends there,
 `partial`: `nothing aboard sells at range_base, and no stop ahead has a known ask to buy at —
-range_base not flown`, with `next: ['routes()']`. A run that loops one source until its asks are gone
+range_base not flown`, with `next: ['routes()']`. A trip that loops one source until its asks are gone
 ends this way at the dry stop instead of flying the empty legs.
 
 ## Scouting: reading the books nobody has

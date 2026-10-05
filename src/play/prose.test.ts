@@ -12,7 +12,7 @@ const base:Outcome<{}>={fn:'service',status:'done',did:'serviced at frontier_sta
 
 test('prose answers the four questions in order and drops empty rows',()=>{
   assert.equal(prose(base),
-    'Done: serviced at frontier_station.\nCost this run: 9 cr, 1 min.\n'+
+    'Done: serviced at frontier_station.\nCost this flight: 9 cr, 1 min.\n'+
     'Now: docked at frontier_station (The Telescope), fuel 120/120, hull 105/105, hold 0/120 (fuel cells 0/6), 221,615 cr, mood Focused.');
   const rich=prose({...base,status:'partial',why:'Tired',fn:'gatherUntil',did:'2 trips',
     cost:{credits:0,fuel:0,hull:0,minutes:0},gained:{credits:8589,items:[{item_id:'iridium_ore',quantity:26}],xp:{mining:540}},
@@ -28,14 +28,14 @@ test('a trailing no-op cannot erase the trip: the run block names every call it 
     credits:0,items:0,xp:0,cost:{credits:0,fuel:0,hull:0,minutes:0}};
   const text=prose(base,[trip,noop]);
   // One cost, from the calls: the returned Outcome measures only from its own mark.
-  assert.match(text,/^Done: serviced at frontier_station\.\nCost this run: 18 fuel, 13\.7 min\.\n/);
-  assert.match(text,/\nThis run: 2 calls, gained \+26 items, \+540 xp\.\n/);
+  assert.match(text,/^Done: serviced at frontier_station\.\nCost this flight: 18 fuel, 13\.7 min\.\n/);
+  assert.match(text,/\nThis flight: 2 calls, gained \+26 items, \+540 xp\.\n/);
   assert.match(text,/\n {2}- gatherUntil done mined 26 iridium_ore over 2 trips\n {2}- service done already serviced$/);
   // One call is the returned Outcome's own; no block.
-  assert.equal(prose(base,[noop]).includes('This run:'),false);
+  assert.equal(prose(base,[noop]).includes('This flight:'),false);
   // Older calls are elided so the block stays eight lines.
   const many=prose({...base,next:['rest']},Array.from({length:12},(_,i)=>({...trip,did:`trip ${i}`})));
-  const block=many.split('This run:')[1]!.split('Consider:')[0]!;
+  const block=many.split('This flight:')[1]!.split('Consider:')[0]!;
   assert.equal(block.split('\n').filter(line=>line.startsWith('  - ')).length,8);
   assert.match(many,/ {2}- \(5 earlier call\(s\)\)\n {2}- gatherUntil done trip 5\n/);
   assert.match(many,/Consider:\n {2}- rest$/);
@@ -49,9 +49,9 @@ test('the cost is said once, from the run and not from the returned call\'s own 
   const noop:Call={fn:'service',arg:'',status:'done',did:'already serviced',
     credits:0,items:0,xp:0,cost:{credits:0,fuel:0,hull:0,minutes:0}};
   const text=prose({...base,cost:{credits:0,fuel:0,hull:0,minutes:0}},[fight,noop]);
-  assert.match(text,/\nCost this run: 4 fuel, 28 hull, 9 min\.\n/);
+  assert.match(text,/\nCost this flight: 4 fuel, 28 hull, 9 min\.\n/);
   assert.equal(text.includes('Cost: nothing'),false);
-  assert.equal(/cost /.test(text.split('This run:')[1]!),false,'the run block does not say it again');
+  assert.equal(/cost /.test(text.split('This flight:')[1]!),false,'the run block does not say it again');
 });
 
 test('a call that did not end done carries its why, so the reason is not dropped from the report',()=>{

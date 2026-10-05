@@ -105,7 +105,7 @@ export function refit(change:{install?:string[];remove?:string[]}):Promise<Outco
 }
 
 /** `refit` as an Effect, for `edge` and for converted callers; never in a barrel. A mutation the
- * game refuses or loses ends the run, naming the action and the code; none is ever re-sent. */
+ * game refuses or loses ends the flight, naming the action and the code; none is ever re-sent. */
 export const refitEffect=(change:{install?:string[];remove?:string[]})=>{
   const install=change.install??[],remove=change.remove??[];
   return jobEffect('refit',[...remove.map(id=>`-${id}`),...install.map(id=>`+${id}`)].join(' '),Effect.gen(function*() {
@@ -358,7 +358,7 @@ export function buyShip(id:string,opts:{commission?:boolean;switchTo?:boolean}={
 }
 
 /** `buyShip` as an Effect, for `edge` and for converted callers; never in a barrel. A mutation the
- * game refuses or loses ends the run, naming the action and the code; none is ever re-sent. */
+ * game refuses or loses ends the flight, naming the action and the code; none is ever re-sent. */
 export const buyShipEffect=(id:string,opts:{commission?:boolean;switchTo?:boolean}={})=>
   jobEffect('buyShip',`${id}${opts.commission?' (commission)':''}`,Effect.gen(function*() {
     const game=yield* Game;

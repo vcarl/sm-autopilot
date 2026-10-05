@@ -95,7 +95,7 @@ export function gatherUntil(opts:{poi:string;base?:string;until?:{item:string;qu
   return edge(gatherUntilEffect(opts));
 }
 
-/** `gatherUntil` as an Effect, for `edge`; never in a barrel. A refusal or a lost reply ends the run, naming the
+/** `gatherUntil` as an Effect, for `edge`; never in a barrel. A refusal or a lost reply ends the flight, naming the
  * action and the code, as it did when the Promise twin threw it. */
 const gatherUntilEffect=(opts:Parameters<typeof gatherUntil>[0])=>{
   const label=tripLabel(opts);

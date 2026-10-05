@@ -12,6 +12,7 @@ import copy
 import json
 import os
 import re
+from pathlib import Path
 
 import spacemolt
 from spacemolt import juncture, service
@@ -250,7 +251,7 @@ def test_the_recent_runs_are_facts_and_include_a_run_refused_at_the_check(monkey
     assert "reflect: stance Trader, goal 'walk a price circuit'" in recent[1]
     assert "program refused at the check, nothing flew: tsc: pilot/index.ts(2,5): error TS2339: 'fule'" in recent[2]
     # An interrupted run is what the world shows: the flight ended. The plumbing's reason stays in the journal.
-    assert recent[3].endswith("run: nothing gained; the flight ended early"), recent[3]
+    assert recent[3].endswith(" flight: nothing gained; the flight ended early"), recent[3]
     assert "gatherUntil: +2,626 cr; returned done: mined" in recent[4], recent[4]
 
 
@@ -827,6 +828,8 @@ def test_a_failed_game_read_during_a_run_says_the_run_is_in_flight(monkeypatch):
 #: Our plumbing, which the pilot never hears of: it lives in the world, not in the harness (10-05).
 HARNESS_WORDS = re.compile(r"\b(hermes|cron|juncture|bridge|journal|telemetry|interrupted|gate|skill)",
                            re.IGNORECASE)
+#: The program flies: a flight is launched, under way, ended (10-05). `spacemolt_run`, in backticks, is a name.
+RUN_WORD = re.compile(r"\bruns?\b", re.IGNORECASE)
 
 
 def _descriptions(node):
@@ -870,7 +873,16 @@ def test_the_pilot_hears_the_world_and_never_the_harness(monkeypatch, capsys):
     texts += [re.sub(r"`[^`]*`", "", text) for text in _descriptions(
         [{k: v for k, v in tool.items() if k != "handler"} for tool in spacemolt.TOOL_DEFINITIONS])]
     for text in texts:
-        found = HARNESS_WORDS.search(text)
+        found = HARNESS_WORDS.search(text) or RUN_WORD.search(re.sub(r"`[^`]*`", "", text))
         assert not found, (found and found.group(0), text)
     assert "Instruction (given 09-23 03:21Z): stay in Sol" in texts[1], texts[1]
     assert "tradeRun: nothing gained; the flight ended early" in texts[1], texts[1]
+
+
+def test_the_play_readmes_speak_of_flights_not_runs():
+    """The skills the pilot reads call a program's execution a flight (10-05); a craft's runs
+    are the game's own word, and a call is re-run in code, so only "a run" as a noun is caught."""
+    noun = re.compile(r"\b(a|the|this|each|every|that|your|next|last) runs?\b", re.IGNORECASE)
+    for readme in (Path(spacemolt.__file__).parent / "src" / "play").rglob("README.md"):
+        found = noun.search(re.sub(r"`[^`]*`", "", readme.read_text()))
+        assert not found, (readme, found and found.group(0))

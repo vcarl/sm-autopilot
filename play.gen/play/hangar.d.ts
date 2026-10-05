@@ -72,7 +72,7 @@ export declare function refit(change: {
     remove?: string[];
 }): Promise<Outcome<Fit>>;
 /** `refit` as an Effect, for `edge` and for converted callers; never in a barrel. A mutation the
- * game refuses or loses ends the run, naming the action and the code; none is ever re-sent. */
+ * game refuses or loses ends the flight, naming the action and the code; none is ever re-sent. */
 export declare const refitEffect: (change: {
     install?: string[];
     remove?: string[];
@@ -142,7 +142,7 @@ export declare function buyShip(id: string, opts?: {
     switchTo?: boolean;
 }): Promise<Outcome<Purchase>>;
 /** `buyShip` as an Effect, for `edge` and for converted callers; never in a barrel. A mutation the
- * game refuses or loses ends the run, naming the action and the code; none is ever re-sent. */
+ * game refuses or loses ends the flight, naming the action and the code; none is ever re-sent. */
 export declare const buyShipEffect: (id: string, opts?: {
     commission?: boolean;
     switchTo?: boolean;

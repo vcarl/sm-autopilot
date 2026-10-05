@@ -23,7 +23,7 @@ export const reflectionEffect=()=>jobEffect<ReflectReport>('reflection','',Effec
     Effect.catchTag('SeamFailed',failed=>Effect.suspend(()=>Effect.fail(classify('refresh')(failed.cause)))));
   // The rows the next reflection measures skill movement against.
   if(runtime&&report.skills?.length)journalRun(runtime,{skills:report.skills},'reflection_read');
-  return {status:'done' as const,did:`the runs in review: ${report.stagnation.length
+  return {status:'done' as const,did:`the flights in review: ${report.stagnation.length
     ?report.stagnation.join('; '):'nothing is repeating'}`,detail:report};
 }));
 

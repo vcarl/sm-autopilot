@@ -112,7 +112,7 @@ test('run blocks until the pilot file ends; status, stop and menu answer meanwhi
   const runtime=mkdtempSync(join(tmpdir(),'spacemolt-bridge-'));
   const f=fixture({pilot:()=>PILOT,runPilot:held.runPilot,runtime});
   assert.deepEqual(await f.dispatch('status'),{running:false,last:null});
-  assert.deepEqual(await f.dispatch('stop'),{stopping:false,reason:'nothing is running'});
+  assert.deepEqual(await f.dispatch('stop'),{stopping:false,reason:'no flight is under way'});
 
   const flight=f.dispatch('run',{}) as Promise<any>;
   await settle();

@@ -498,7 +498,7 @@ export interface RunStop {at:string;buy?:string|readonly string[];
   from?:'store'}
 /** A stop's `buy` as a list. */
 const items=(stop:RunStop)=>stop.buy===undefined?[]:typeof stop.buy==='string'?[stop.buy]:[...stop.buy];
-/** The call that runs `stops`, as a pilot pastes it. */
+/** The call that flies `stops`, as a pilot pastes it. */
 export const runCall=(stops:RunStop[])=>`tradeRun(${literal({stops})})`;
 
 /** The docked base's sales tax on `item_id`: `estimate_purchase` is the only read of it. A read that fails is no known rate. */
@@ -521,7 +521,7 @@ function byBase(here:Known,far:FarBook[]):Map<string,Known> {
 }
 const cargo=(account=acct())=>{const ship=account.state.ship;return Math.max(0,(ship?.cargo_capacity??0)-(ship?.cargo_used??0));};
 
-/** What one stop of a run did. */
+/** What one stop of a trip did. */
 export interface Visit {at:string;
   /** The lib's `SellResponse` per row sold here. */
   sold:SellResponse[];
@@ -532,12 +532,12 @@ export interface Visit {at:string;
 export interface Traded {
   /** One per stop reached, in order. */
   stops:Visit[];
-  /** What was aboard when the run ended. After the last stop: what no stop bought. */
+  /** What was aboard when the trip ended. After the last stop: what no stop bought. */
   unsold:Row[];
   /** Fuel units burned on the flights: the tank's measured drop across each `goTo`. */
   fuel:number;
   /** Sales, less what the buys took out of the wallet (tax included), less `fuel` at the
-   * `fuel_price_all_in` of the first base the run was docked at — counted the way `Route.net`
+   * `fuel_price_all_in` of the first base the trip was docked at — counted the way `Route.net`
    * counts it, so the two compare directly. */
   net:number;
 }
@@ -895,7 +895,7 @@ const SLACK=0.1;
 /** Every route worth flying over what this pilot knows — the live book here, the faction ledger,
  * the remembered books — from the hold you have, ranked by trust-weighted net per jump. The search
  * picks only the bases, in order: at every stop the plan sells and fills the hold by the rule
- * `tradeRun` runs, so what ranks is what runs. `items` narrows what is taken on; goods aboard are
+ * `tradeRun` flies, so what ranks is what flies. `items` narrows what is taken on; goods aboard are
  * always weighed. `maxStops` (default `STOPS`, at most `MAX_STOPS`), `maxLegJumps` (default
  * `LEG_JUMPS`) and `maxJumps` (default none; round the lap for a circuit) set how far it looks: a
  * short cycle by default, a galaxy tour with larger numbers.

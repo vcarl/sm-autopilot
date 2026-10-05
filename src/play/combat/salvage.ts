@@ -90,7 +90,7 @@ export const lootWreckEffect=(wreck:EnrichedWreck)=>Effect.gen(function*() {
 const say=(rows:LootedItem[])=>rows.map(row=>`${row.quantity} ${row.item_id}`).join(', ');
 
 /** `salvage` as an Effect, for `edge` and for converted callers; never in a barrel. A tow the game refuses or
- * a lost reply ends the run, naming the action; a refused loot is said in the wreck's line and in `did`. */
+ * a lost reply ends the flight, naming the action; a refused loot is said in the wreck's line and in `did`. */
 export const salvageEffect=(opts:{tow?:string}={})=>
   jobEffect<Salvaged>('salvage',opts.tow?`tow ${opts.tow}`:'',Effect.gen(function*() {
     const game=yield* Game;

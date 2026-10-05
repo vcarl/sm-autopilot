@@ -103,7 +103,7 @@ test('a run with no source while paused starts nothing and hands the pending que
     assert.equal(again.paused,true);
     assert.equal(again.reattached,true);
     assert.equal(again.question.asked_at,first.question.asked_at,'the same question, not a second run asking it');
-    assert.equal(f.lines.filter(line=>line.startsWith('run started')).length,1);
+    assert.equal(f.lines.filter(line=>line.startsWith('flight launched')).length,1);
     // After that it behaves like run: the answer blocks to the end.
     assert.equal((await f.send('answer',{answer:'north'})).status,'done');
   } finally {f.close();}
@@ -170,7 +170,7 @@ test('a run started while a menu is still reading binds after the menu has unbou
   const held=new Promise<void>(resolve=>{release=resolve;});
   let holding=true;
   const f=harness(ASKS,command=>async(action,params)=>{if(holding)await held;return command(action,params);},
-    text=>{if(text.startsWith('run started'))release();});
+    text=>{if(text.startsWith('flight launched'))release();});
   try {
     const menu=f.send('menu');
     await new Promise(resolve=>setTimeout(resolve,10));

@@ -44,7 +44,7 @@ export declare const lootWreckEffect: (wreck: EnrichedWreck) => Effect.Effect<{
     empty: boolean;
 }, GameError, Game>;
 /** `salvage` as an Effect, for `edge` and for converted callers; never in a barrel. A tow the game refuses or
- * a lost reply ends the run, naming the action; a refused loot is said in the wreck's line and in `did`. */
+ * a lost reply ends the flight, naming the action; a refused loot is said in the wreck's line and in `did`. */
 export declare const salvageEffect: (opts?: {
     tow?: string;
 }) => Effect.Effect<Outcome<Salvaged>, never, Game | import("../runtime.ts").Run>;

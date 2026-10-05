@@ -324,7 +324,7 @@ export function serve(account:Account,command:ReadinessCommand,options:ServeOpti
    * A question already pending is answered at once. */
   const follow=async():Promise<Record<string,unknown>>=>{
     const now=paused();
-    if(now||!flight)return now??{accepted:false,reason:'nothing is running'};
+    if(now||!flight)return now??{accepted:false,reason:'no flight is under way'};
     const question=new Promise<Record<string,unknown>>(wake=>{asked=()=>{const pause=paused();if(pause)wake(pause);};});
     try {return await Promise.race([flight,question]);} finally {asked=null;}
   };
@@ -338,7 +338,7 @@ export function serve(account:Account,command:ReadinessCommand,options:ServeOpti
       const now=paused();
       if(now) {attach?.();return {...now,reattached:true};}
       // Kept: a second run would overwrite the program still flying.
-      return {accepted:false,reason:'a run is already in flight',...busy(running)};
+      return {accepted:false,reason:'a flight is already under way',...busy(running)};
     }
     running={started:new Date().toISOString()};
     attach?.();
@@ -484,7 +484,7 @@ export function serve(account:Account,command:ReadinessCommand,options:ServeOpti
   };
 
   const stop=async(attach?:()=>void)=>{
-    if(!running)return {stopping:false,reason:'nothing is running'};
+    if(!running)return {stopping:false,reason:'no flight is under way'};
     const withdrawn=pendingQuestion();
     stopRun();
     if(!withdrawn)return {stopping:true,...busy(running)};

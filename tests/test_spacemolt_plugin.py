@@ -21,11 +21,11 @@ for line in sys.stdin:
         "run": {"accepted": True, "status": "done", "reason": "serviced", "prose": "Done: serviced.",
                 "started": "t0", "commands": 3},
         "check": {"ok": True, "entry": "pilot/index.ts", "sha": "abc", "errors": []},
-        "stop": {"stopping": False, "reason": "nothing is running"},
+        "stop": {"stopping": False, "reason": "no flight is under way"},
         "status": {"running": False, "last": None},
     }
     if request["action"] == "run":
-        for text in ("run started t0", "▶ service", "✓ service  done", "Done: serviced.", "run ended  done  3 commands"):
+        for text in ("flight launched t0", "▶ service", "✓ service  done", "Done: serviced.", "flight ended  done  3 commands"):
             print(json.dumps({"id": request["id"], "event": "line", "text": text}), flush=True)
     print(json.dumps({"id": request["id"], "ok": True, "result": answers[request["action"]]}), flush=True)
 '''
@@ -38,7 +38,7 @@ for line in sys.stdin:
     request = json.loads(line)
     answers = {
         "status": {"running": True, "started": "t0", "fn": "hunt"},
-        "run": {"accepted": False, "reason": "a run is already in flight; stop it or wait", "running": True},
+        "run": {"accepted": False, "reason": "a flight is already under way; stop it or wait", "running": True},
     }
     print(json.dumps({"id": request["id"], "ok": True,
                       "result": answers.get(request["action"], {})}), flush=True)
@@ -73,8 +73,8 @@ def test_every_tool_answers_from_the_one_bridge(bridged, tmp_path, monkeypatch):
     # Playing is running pilot/index.ts: a source passed is written there first, and what
     # comes back is every streamed line, the report last.
     played = spacemolt._run({"source": "export default async function main() {}\n"})
-    assert played.splitlines()[0] == "run started t0"
-    assert played.splitlines()[-2:] == ["Done: serviced.", "run ended  done  3 commands"]
+    assert played.splitlines()[0] == "flight launched t0"
+    assert played.splitlines()[-2:] == ["Done: serviced.", "flight ended  done  3 commands"]
     assert service.pilot_file().read_text() == "export default async function main() {}\n"
     # A check answers the diagnostics beside the file as it stands.
     checked = json.loads(spacemolt._check({}))

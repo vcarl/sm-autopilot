@@ -53,7 +53,7 @@ JUNCTURE_PROMPT = (
     "Between flights: you take stock, write the ship's next flight, launch it, and say how it went.\n"
     "What to expect:\n"
     "- The ship's state above was read from the game just now.\n"
-    "- Your ship's flight computer runs the program you write (`main()`). A flight lasts until the "
+    "- Your ship's flight computer flies the program you write (`main()`). A flight lasts until the "
     "program returns, or until the computer ends it after about 25 minutes. spacemolt_run waits for "
     "it, so its report comes back to you in this same turn.\n"
     "- A wrong field costs a spacemolt_check, a wrong move costs a flight, and looking costs "
@@ -544,7 +544,7 @@ def _recent_line(row: dict[str, Any], goal: Any = None) -> str | None:
     work = row.get("work") if isinstance(row.get("work"), dict) else {}
     # A row journalled before `calls` existed still names its work call, or just "run".
     names = ", ".join(dict.fromkeys(str(c["fn"]) for c in calls)) or (
-        "no calls" if "calls" in row else str(work.get("fn") or "run"))
+        "no calls" if "calls" in row else str(work.get("fn") or "flight"))
     gained = [f"+{work['credits']:,} cr" if work.get("credits") else "",
               f"{work['items']} items" if work.get("items") else "",
               f"{work['xp']} xp" if work.get("xp") else ""]

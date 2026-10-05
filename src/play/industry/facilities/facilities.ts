@@ -134,7 +134,7 @@ export function buildFacility(type:string):Promise<Outcome<Built>> {return edge(
 
 /** `buildFacility` as an Effect, for `edge` and for converted callers; never in a barrel. The
  * build command's own refusal or lost reply is a `failed` Outcome naming it; the reads before and
- * after it end the run as they always have. A build reply without its id is found in owned() by type. */
+ * after it end the flight as they always have. A build reply without its id is found in owned() by type. */
 export const buildFacilityEffect=(type:string)=>jobEffect('buildFacility',type,Effect.gen(function*() {
   const game=yield* Game;
   const none={facility_id:'',rent_per_cycle:0};

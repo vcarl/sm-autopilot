@@ -67,6 +67,6 @@ export interface ScoutReport {
  * as ids you can paste into `gatherUntil` and `goTo`. Reads only. */
 export declare function scout(target?: string): Promise<Outcome<ScoutReport>>;
 /** `scout` as an Effect, for `edge` and for converted callers; never in a barrel. A refusal of the
- * route to the target ends the run, naming the action and the code; a refused quote, nearby or wreck
+ * route to the target ends the flight, naming the action and the code; a refused quote, nearby or wreck
  * read only leaves its part of the report empty. */
 export declare const scoutEffect: (target?: string) => Effect.Effect<Outcome<ScoutReport>, never, Game | import("./runtime.ts").Run>;

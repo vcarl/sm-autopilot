@@ -57,7 +57,7 @@ export interface Built {
 export declare function buildFacility(type: string): Promise<Outcome<Built>>;
 /** `buildFacility` as an Effect, for `edge` and for converted callers; never in a barrel. The
  * build command's own refusal or lost reply is a `failed` Outcome naming it; the reads before and
- * after it end the run as they always have. A build reply without its id is found in owned() by type. */
+ * after it end the flight as they always have. A build reply without its id is found in owned() by type. */
 export declare const buildFacilityEffect: (type: string) => Effect.Effect<Outcome<{
     facility_id: string;
     rent_per_cycle: number;

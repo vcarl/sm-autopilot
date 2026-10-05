@@ -33,7 +33,7 @@ for line in sys.stdin:
         result = {"running": True, "started": "t0", **({"question": Q} if pending else {})}
     elif action == "run":
         result = ({"accepted": True, "paused": True, "question": Q, "started": "t0", "reattached": True}
-                  if pending else {"accepted": False, "reason": "a run is already in flight", "running": True})
+                  if pending else {"accepted": False, "reason": "a flight is already under way", "running": True})
     elif action == "answer":
         if not pending:
             result = {"accepted": False, "reason": "no question is pending", "running": False, "last": None}
@@ -49,9 +49,9 @@ for line in sys.stdin:
     elif action == "stop":
         pending = False
         say("question withdrawn by stop: Which belt?")
-        say("Partial: the run was stopped.")
-        result = {"accepted": True, "status": "partial", "did": "the run was stopped",
-                  "prose": "Partial: the run was stopped.", "stopping": True, "withdrawn": Q}
+        say("Partial: the flight was stopped.")
+        result = {"accepted": True, "status": "partial", "did": "the flight was stopped",
+                  "prose": "Partial: the flight was stopped.", "stopping": True, "withdrawn": Q}
     else:
         result = {}
     print(json.dumps({"id": rid, "ok": True, "result": result}), flush=True)
@@ -117,7 +117,7 @@ def test_an_answer_with_nothing_pending_is_refused_with_the_run_state(paused):
 def test_a_stop_while_paused_withdraws_the_question_and_returns_the_report(paused):
     stopped = spacemolt._stop({})
     assert "Which belt?" in stopped and "withdrawn" in stopped
-    assert "Partial: the run was stopped." in stopped
+    assert "Partial: the flight was stopped." in stopped
     assert "Nothing is waiting on an answer now" in stopped
 
 

@@ -530,7 +530,7 @@ const say=(rows:Row[])=>rows.map(row=>`${row.quantity} ${row.item_id}`).join(', 
  * `onTick` is the pilot's own hand on the stance. It is called once a battle tick with a
  * `TickView` and returns a `TickDecision` or `undefined` for "no change" — synchronously,
  * because a tick is ten seconds and one model call is minutes, so the tactics have to be
- * authored in advance and run inside the fight. It issues no commands itself: `hunt` applies
+ * authored in advance and carried out inside the fight. It issues no commands itself: `hunt` applies
  * one field a tick, validates it, and journals what was asked against what was sent. A callback
  * that throws is logged and the default loop carries on. The mood's walk-away line outranks it
  * always — a decision that would keep fighting under the line is refused and said so. */

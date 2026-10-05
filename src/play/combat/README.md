@@ -120,7 +120,7 @@ export default async function main() {
 
 `hunt({onTick})` hands you the fight, one tick at a time. It is **synchronous** on purpose: a
 tick is ten seconds, too short to think in, so the tactics have to be
-written down in advance and run inside the fight, not decided while it happens.
+written down in advance and carried out inside the fight, not decided while it happens.
 
 The callback never sends a command. It is handed a `TickView` and returns a `TickDecision`, or
 `undefined` for "no change" — which is how "decide every third tick" is written without the

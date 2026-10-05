@@ -113,7 +113,7 @@ const decodeSurvey=Schema.decodeUnknownOption(Wire.SurveySystemResponse.mapField
 const told=(error:GameError)=>error._tag==='ReplyLost'?`reply lost on ${error.action}`:`${error.action}: ${error.code} — ${error.message}`;
 
 /** `exploreNearby` as an Effect, for `edge` and for converted callers; never in a barrel. A survey
- * the game refuses or loses is said in `survey` and the visit goes on; every other failure ends the run. */
+ * the game refuses or loses is said in `survey` and the visit goes on; every other failure ends the flight. */
 export const exploreNearbyEffect=(opts:{systems?:number;jumps?:number;survey?:boolean;avoid?:string[]}={})=>{
   const count=opts.systems??2,jumps=opts.jumps??3,avoid=new Set(opts.avoid??[]);
   return jobEffect('exploreNearby',`${count} within ${jumps} jumps`,Effect.gen(function*() {

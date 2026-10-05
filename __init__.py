@@ -45,7 +45,7 @@ _JOURNAL_DEFAULT, _JOURNAL_CAP = 20, 80
 _INSTRUCTION_LIMIT = 80
 
 _FLIGHT_PROMPT = (
-    "Your ship's flight computer runs the program you write: pilot/index.ts, launched with "
+    "Your ship's flight computer flies the program you write: pilot/index.ts, launched with "
     "spacemolt_run. It is the one file you write, and the play README (with your stance's README, "
     "when you have a stance) is the whole reference. A flight lasts until the program returns, or "
     "until the computer ends it after about 25 minutes, while the game's clock turns; its report is "
@@ -154,7 +154,7 @@ def _report(result: dict[str, Any], lines: list[str]) -> str:
     question = result.get("question") if result.get("paused") else None
     if not question:
         return "\n".join(lines) or json.dumps(result, separators=(",", ":"))
-    head = ("You picked up the question your running program is waiting on; nothing new was "
+    head = ("You picked up the question your program in flight is waiting on; nothing new was "
             "started." if result.get("reattached") else "")
     return "\n\n".join(part for part in ("\n".join(lines), head, question_text(question)) if part)
 
@@ -404,7 +404,7 @@ def _direct(arguments: dict[str, Any] | None = None, **_: Any) -> str:
     said = (f" The sentence {instruction!r} outranks the objective for that one turn."
             if instruction else "")
     after = ("the flight under way was asked to stop at its next safe point" if stopped
-             else "a flight already under way runs to its outcome first")
+             else "a flight already under way flies on to its outcome first")
     return (f"Recorded: {set_what}."
             + (" Any goal, steps and stance set for the old one were cleared." if new_objective else "")
             + f" The pilot takes it up the next time it takes stock — within {IDLE_SCHEDULE} of its "
@@ -419,7 +419,7 @@ def _direct(arguments: dict[str, Any] | None = None, **_: Any) -> str:
 
 TOOL_DEFINITIONS = (
     {"name": "spacemolt_run", "toolset": "spacemolt", "handler": _run,
-     "description": "Launch a flight: the ship's flight computer runs pilot/index.ts against the live "
+     "description": "Launch a flight: the ship's flight computer flies pilot/index.ts against the live "
                     "game, and this returns what it streamed plus the report.",
      "schema": _schema("spacemolt_run",
                        "Play: write pilot/index.ts from `source` and launch it. The flight computer "
@@ -543,7 +543,7 @@ TOOL_DEFINITIONS = (
                        "the bounds it works inside, and/or one sentence of instruction for the "
                        "pilot's next turn only. Pass any one of them; at least one is required. The "
                        "pilot takes this up the next time it takes stock, not now, and a flight "
-                       "under way runs to its outcome first. A permission left unnamed keeps the value it "
+                       "under way flies on to its outcome first. A permission left unnamed keeps the value it "
                        "had. This sets nothing else: goal, steps and stance are the pilot's.",
                        {"instruction": {"type": "string", "maxLength": _INSTRUCTION_LIMIT,
                                         "description": "One sentence for the pilot's next turn, "

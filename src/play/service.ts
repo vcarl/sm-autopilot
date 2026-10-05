@@ -181,7 +181,7 @@ export function service(opts:{fuel?:number;hull?:number;insure?:boolean;dues?:bo
 /** Tired's guarantee, kept by the runtime and not left to the script: bring the ship back inside
  * its margins. Docked, service here; otherwise (or when this counter could not clear it) fly to
  * each base `serviceElsewhere` names and service there, until one clears it. `travel:false`
- * services only where the ship stands — a stopped run does not fly off. Every attempt is
+ * services only where the ship stands — a stopped flight does not fly off. Every attempt is
  * journalled as `resupply`, with what triggered it and the ship before and after. Away from a counter the fuel cells aboard are burned first
  * (`burnCells`), which may be all a fuel crossing needs.
  *
@@ -243,7 +243,7 @@ const resupplying=({travel,trigger}:{travel?:boolean;trigger:Trigger})=>Effect.g
  * own call (depth 1): inside a helper it would leave the helper at the wrong counter. Never a
  * refusal: the act that docked or arrived reports as it would, and the top-level call's `did` names
  * the resupply. The resupply's own docks and arrivals start none, and a system it flew out of to
- * no counter is not flown out of again this run (one `stranded` line, not one per call). */
+ * no counter is not flown out of again this flight (one `stranded` line, not one per call). */
 export const tiredCheck=(trigger:'dock'|'arrival'|'call'):Effect.Effect<void,never,Game|Run>=>Effect.gen(function*() {
   const run=yield* Run;
   if(run.resupplying||pilot().mood!=='Tired')return;

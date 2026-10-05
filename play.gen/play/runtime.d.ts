@@ -87,15 +87,15 @@ export interface Call {
 }
 /** A question the program is paused on, as run.json and the tools carry it. */
 export type Question = NonNullable<RunRecord['question']>;
-/** A chat post that paused the run: who sent it, on which channel, the text, and when. */
+/** A chat post that paused the flight: who sent it, on which channel, the text, and when. */
 export type ChatPause = NonNullable<Question['chat']>;
-/** A chat post that paused the run, with the answer you gave when it did. */
+/** A chat post that paused the flight, with the answer you gave when it did. */
 export interface Heard {
     chat: ChatPause;
     answer: string;
 }
-/** What may pause a run: export it from `pilot/index.ts` as `export const interrupts = {…}`. A post
- * pauses the run when its channel is in `channels` (`['private']` when left out) and, when `from` is
+/** What may pause a flight: export it from `pilot/index.ts` as `export const interrupts = {…}`. A post
+ * pauses the flight when its channel is in `channels` (`['private']` when left out) and, when `from` is
  * given, its sender is in it (a name or a player id). No export, nothing interrupts. */
 export declare const InterruptsRead: Schema.Struct<{
     readonly from: Schema.optionalKey<Schema.$Array<Schema.String>>;
@@ -114,7 +114,7 @@ declare const Run_base: Context.ServiceClass<Run, "Run", {
     readonly binding: Binding;
     /** Set by `stop()`; every library function checks it between commands. */
     stopFlag: boolean;
-    /** Why the stop came when it was not the pilot's: the run's wall-clock cap (run.ts). */
+    /** Why the stop came when it was not the pilot's: the flight's cap of about 25 minutes (run.ts). */
     stopWhy?: string;
     readonly started: number;
     /** How many jobs deep the program is: 1 is a call `main()` made itself. */
@@ -141,18 +141,18 @@ declare const Run_base: Context.ServiceClass<Run, "Run", {
     short: "broke" | "stranded" | undefined;
     /** The runtime's own resupply is flying: its docks and arrivals do not start another. */
     resupplying: boolean;
-    /** The system a resupply flew out of and reached no counter: not flown out of again this run. */
+    /** The system a resupply flew out of and reached no counter: not flown out of again this flight. */
     strandedIn: string | undefined;
     /** Resupplies since the last top-level call closed: that call's `did` names them. */
     readonly resupplied: string[];
     burning: boolean;
     burnFailed: boolean;
     unwatch: (() => void) | undefined;
-    /** The program's `interrupts` export, read as the run starts; null: nothing interrupts. */
+    /** The program's `interrupts` export, read as the flight starts; null: nothing interrupts. */
     interrupts: Interrupts | null;
-    /** Posts that matched it and have not paused the run yet, oldest first. */
+    /** Posts that matched it and have not paused the flight yet, oldest first. */
     readonly chats: ChatPause[];
-    /** Posts that paused the run and the answers given, until `heard()` hands them over. */
+    /** Posts that paused the flight and the answers given, until `heard()` hands them over. */
     readonly heard: Heard[];
     /** A stop withdrew a chat pause: the pilot call it paused inside throws `Stopped`, as a paused `ask()` does. */
     pauseStopped: boolean;
@@ -176,13 +176,13 @@ export declare function pilot(): Pilot;
  * yourself are journalled and margin-checked like any other, but they are NOT idempotent and
  * NOT rules-checked: read the reply before sending the same one again. */
 export declare function account(): Account;
-/** Write one line to the journal and to the run's stream, under your own words. Use it to
+/** Write one line to the journal and to the flight's stream, under your own words. Use it to
  * say what you decided and why, so the record shows the reasoning, not only the moves. */
 export declare function note(text: string): void;
-/** True once the pilot (or the observer) asked the run to stop. Every library function checks it
+/** True once the pilot (or the observer) asked the flight to stop. Every library function checks it
  * between commands and returns `partial`; a loop of your own should check it too. */
 export declare function stopped(): boolean;
-/** Ask the run to stop. A program paused on `ask()` is not at a safe point, it is waiting: the
+/** Ask the flight to stop. A program paused on `ask()` is not at a safe point, it is waiting: the
  * ask rejects with `Stopped` there and then, and the question is withdrawn. */
 export declare function stop(why?: string): void;
 /** Thrown from a travel checkpoint when the pilot asked to stop; the leg in flight finishes. */
@@ -196,19 +196,19 @@ export declare const stopReason: () => string;
 export declare const checkStop: () => void;
 /** Pause the program and put a question to the model that is running it; resolves to its
  * answer, which is always one of `choices` when they are given. It waits until the answer
- * comes, or rejects with `Stopped` when the run is stopped — by a person, or by the run's
- * wall-clock cap (run.ts).
+ * comes, or rejects with `Stopped` when the flight is stopped — by a person, or by the flight computer's
+ * cap of about 25 minutes (run.ts).
  * A model call takes minutes, so ask at a strategic fork, never once per tick. */
 export declare function ask(asked: {
     question: string;
     choices?: string[];
 }): Promise<string>;
-/** The chat posts that paused this run, each with the answer you gave, oldest first. Each is
- * handed over once: a second call returns only what paused the run since the first. */
+/** The chat posts that paused this flight, each with the answer you gave, oldest first. Each is
+ * handed over once: a second call returns only what paused the flight since the first. */
 export declare function heard(): Heard[];
-/** The run's `interrupts` declaration, from the program's export (run.ts). */
+/** The flight's `interrupts` declaration, from the program's export (run.ts). */
 export declare function listen(declared: Interrupts | null): void;
-/** A chat post the bridge heard: queued to pause the run when its declaration names it. True when queued. */
+/** A chat post the bridge heard: queued to pause the flight when its declaration names it. True when queued. */
 export declare function hear(post: {
     channel: string;
     sender?: string | undefined;
@@ -220,7 +220,7 @@ export declare function hear(post: {
 export declare function answer(text: string): void;
 /** Build an Outcome for a function of your own. You supply the sentence, the status and the
  * detail; the runtime fills `fn`, `cost`, `gained` and `now` from what it measured since the
- * run started or since your last `outcome()` call, whichever is later. Return it from your
+ * flight started or since your last `outcome()` call, whichever is later. Return it from your
  * helper so it composes like ours. */
 export declare function outcome<Detail = Record<string, unknown>>(did: string, status?: Status, detail?: Detail, why?: string): Outcome<Detail>;
 /** The rows a pilot asked for, normalised: `quantity` omitted means all of it, carried on as

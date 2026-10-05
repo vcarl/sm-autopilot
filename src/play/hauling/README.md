@@ -30,7 +30,7 @@ export default async function main() {
 }
 ```
 
-`haul` is safe to run twice with the same id: an active contract skips the accept, a package
+`haul` is safe to call twice with the same id: an active contract skips the accept, a package
 already in the hold skips the withdraw, and standing at the destination skips the flight. That
 is how a `partial` resumes — `service()`, then `haul` the same id again.
 

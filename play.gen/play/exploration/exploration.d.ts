@@ -84,7 +84,7 @@ export declare function exploreNearby(opts?: {
     avoid?: string[];
 }): Promise<Outcome<Explored>>;
 /** `exploreNearby` as an Effect, for `edge` and for converted callers; never in a barrel. A survey
- * the game refuses or loses is said in `survey` and the visit goes on; every other failure ends the run. */
+ * the game refuses or loses is said in `survey` and the visit goes on; every other failure ends the flight. */
 export declare const exploreNearbyEffect: (opts?: {
     systems?: number;
     jumps?: number;
