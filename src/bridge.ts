@@ -21,6 +21,7 @@ import {bootJournal,journalCommand,journalConnection,journalRun,readRun} from '.
 import {startHeartbeat} from './heartbeat.ts';
 import {flushJournalDrain,startJournalDrain} from './journal-webhook.ts';
 import {check as checkPilot,runPilot as defaultRunPilot,type RunResult} from './run.ts';
+import {runQuery} from './query.ts';
 import {menuEffect,renderMenu,threatsHere} from './play/menu.ts';
 import {fleetBrief,resumeFreighters,stopFreighters} from './play/freighter/host.ts';
 import {attempt,isGameError,message} from './play/game.ts';
@@ -38,6 +39,7 @@ export type Dispatch=(action:string,params?:unknown,attach?:()=>void)=>Promise<u
 const Juncture=Schema.Struct({juncture_id:Schema.optionalKey(Schema.NullOr(Schema.String)),at:Schema.optionalKey(Schema.NullOr(Schema.String))});
 export const Request=Schema.Union([
   Schema.Struct({action:Schema.Literal('run'),params:Schema.optionalKey(Schema.Struct({juncture:Schema.optionalKey(Schema.NullOr(Juncture))}))}),
+  Schema.Struct({action:Schema.Literal('query'),params:Schema.optionalKey(Schema.Struct({juncture:Schema.optionalKey(Schema.NullOr(Juncture))}))}),
   Schema.Struct({action:Schema.Literal('answer'),params:Schema.optionalKey(Schema.Struct({answer:Schema.optionalKey(Schema.String)}))}),
   Schema.Struct({action:Schema.Literal('chat'),params:Schema.Struct({channel:Schema.Literals(['local','system','faction','private']),
     to:Schema.optionalKey(Schema.String),text:Schema.String})}),
@@ -55,11 +57,11 @@ const isRecord=(value:unknown):value is Record<string,unknown>=>typeof value==='
 const field=(row:unknown,key:string):unknown=>isRecord(row)?row[key]:undefined;
 
 /** The actions whose answer is an outcome: a journal line keeps its shape, trimmed. */
-const OUTCOME_ACTIONS=new Set(['run','answer','status','pilot','menu','stop','check','chat']);
+const OUTCOME_ACTIONS=new Set(['run','query','answer','status','pilot','menu','stop','check','chat']);
 const OUTCOME_KEYS=new Set(['accepted','reason','status','record','running',
   'busy','objective','objective_done','stance','mood','errors','stopping',
   'ok','fn','did','sha','step','commands','elapsed_s','started','stagnation','rest',
-  'paused','reattached','question','withdrawn','sent','code','lost','why',
+  'paused','reattached','question','withdrawn','sent','code','lost','why','query_id','refused','error',
   // A reflection's skill rows, which are small and are the one thing a later reflection cannot
   // read any other way: they are what "raise this by two levels" is judged against, and without
   // them in the record every reflection sees only the level it happens to be looking at.
@@ -501,6 +503,12 @@ export function serve(account:Account,command:ReadinessCommand,options:ServeOpti
     const request=decoded.success;
     switch(request.action) {
       case 'run':return run(request.params?.juncture,attach);
+      // Beside the run, whatever it is doing: a query reads, on a binding of its own (query.ts).
+      case 'query': {
+        if(!runtime)throw new Error('This runner has no runtime directory to run a query from');
+        const juncture=request.params?.juncture;
+        return runQuery({account,command,pilot,runtime,...juncture?{juncture}:{}});
+      }
       case 'answer':return answer(request.params?.answer??'',attach);
       case 'check': {
         if(!runtime)throw new Error('the flight computer has no program directory');

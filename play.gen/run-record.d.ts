@@ -82,6 +82,7 @@ export declare function bootJournal(runtime: string, now?: Date): RunRecord | nu
 /** Add a reader; null removes them all. Returns the remover for the one added. */
 export declare function watchJournal(fn: ((entry: Record<string, unknown>) => void) | null): () => void;
 export declare function stampRun(keys: Record<string, unknown> | null): void;
+export declare const withStamp: <T>(keys: Record<string, unknown>, body: () => T) => T;
 /** The run's own lines in the pilot's journal, beside the request/response pairs. The
  * runner's other self-made changes take the same line under their own event name (S45). */
 export declare function journalRun(runtime: string, entry: Record<string, unknown>, event?: string, file?: string): void;

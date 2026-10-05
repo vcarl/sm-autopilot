@@ -9,7 +9,9 @@ import {flying,held,install,readFleet,recallLoop,row,start} from '../freighter/h
 import type {FreighterRow} from '../freighter/host.ts';
 import {Game} from '../game.ts';
 import {marketTick} from '../market.ts';
-import {acct,edge,jobEffect,reached,runtimeDir,step} from '../runtime.ts';
+import {acct,edge,inQuery,jobEffect,reached,runtimeDir,step} from '../runtime.ts';
+/** A freighter flies on its own account, outside any command a query refuses: a query starts or recalls none. */
+const QUERY_ONLY='a query only reads: assign, reassign and recall a freighter from spacemolt_run';
 import {replyBody} from '../../storage.ts';
 import {farBooksEffect,hops,routesEffect,type Circuit} from '../trading/trading.ts';
 import type {Outcome} from '../types.ts';
@@ -64,6 +66,7 @@ export function assign(name:string,circuit:Circuit,caps:{float:number}):Promise<
 export const assignEffect=(name:string,circuit:Circuit,caps:{float:number})=>jobEffect<Hand>('assign',name,Effect.gen(function*() {
   const refuse=(why:string)=>({status:'refused' as const,did:`assigned no freighter ${name}`,why,detail:{freighter:null}});
   const runtime=runtimeDir();
+  if(inQuery())return refuse(QUERY_ONLY);
   if(!runtime)return refuse('the flight computer has nowhere to keep a freighter');
   if(!/^[a-z0-9_-]+$/.test(name))return refuse(`${JSON.stringify(name)}: a freighter's name is lower-case letters, digits, _ and -; it names its files`);
   const open=closure(circuit);
@@ -116,6 +119,7 @@ export function reassign(name:string):Promise<Outcome<{freighter:FreighterRow|nu
 export const reassignEffect=(name:string)=>jobEffect<Hand>('reassign',name,Effect.gen(function*() {
   const refuse=(why:string)=>({status:'refused' as const,did:`reassigned no freighter ${name}`,why,detail:{freighter:null}});
   const runtime=runtimeDir(),entry=runtime?readFleet(runtime)[name]:undefined;
+  if(inQuery())return refuse(QUERY_ONLY);
   if(!entry)return refuse(`no freighter named ${name} is assigned`);
   const found=yield* routesEffect({circuit:{hold:entry.circuit.hold},...entry.circuit.scope});
   const top=reached(found)?.routes[0]?.circuit;
@@ -131,7 +135,7 @@ export const reassignEffect=(name:string)=>jobEffect<Hand>('reassign',name,Effec
 export function recall(name:string,opts:{after?:'lap'}={}):Promise<Outcome<{freighter:FreighterRow|null}>> {
   return edge(jobEffect<Hand>('recall',name,Effect.sync(()=>{
     const runtime=runtimeDir();
-    const why=runtime?recallLoop(runtime,name,opts.after):'the flight computer has nowhere to keep a freighter';
+    const why=inQuery()?QUERY_ONLY:runtime?recallLoop(runtime,name,opts.after):'the flight computer has nowhere to keep a freighter';
     if(why||!runtime)return {status:'refused' as const,did:`recalled no freighter ${name}`,why:why??'',detail:{freighter:null}};
     return {status:'done' as const,did:`recalled ${name}: it parks after the ${opts.after==='lap'?'lap':'stop'} it is on`,
       detail:{freighter:rowOf(runtime,name)},next:['freighters()']};

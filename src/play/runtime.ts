@@ -8,11 +8,12 @@
  * asks for it by type, and the Promise surface reaches it through the binding.
  *
  * ponytail: the pilot's surface (`pilot()`, `stopped()`, `note()`, `account()`) is synchronous and
- * carries no context, so the binding itself is one module slot, not AsyncLocalStorage. One pilot
+ * carries no context, so the run's binding is one module slot; only a query's is AsyncLocalStorage. One pilot
  * per bridge process today; a multi-account runtime is a second process per account (DESIGN.md "Fleet").
  */
 import type {Account,SkillProgress} from '@spacemolt/lib';
 import {Cause,Context,Data,Effect,Exit,Layer,ManagedRuntime,Result,Schema} from 'effect';
+import {AsyncLocalStorage} from 'node:async_hooks';
 import type {ReadinessAccount,ReadinessCommand} from '../readiness.ts';
 import {FUEL_CELL} from '../mining-inventory.ts';
 import {journalRun,readRun,stampRun,writeRun,type RunRecord} from '../run-record.ts';
@@ -55,6 +56,8 @@ export interface Binding {
   onAsk?:(question:Question)=>void;
   /** A run's id, stamped on every journal line while it is bound. Absent for the menu's reads. */
   run_id?:string;
+  /** A query's binding (`querying`): it reads, and the runtime sends nothing of its own. */
+  query?:boolean;
 }
 
 /** Every top-level call `main()` made this run, as the menu reads a run: the function, its
@@ -136,18 +139,26 @@ type GameShape=Context.Service.Shape<typeof Game>;
 
 /** The run bound now, with its own runtime: commands through it take this binding's journalled
  * `command` (docs/EFFECT.md "The Promise ↔ Effect edge").
- * ponytail: one slot, because the sync helpers (`stopped()`, `pilot()`, `note()`, `step()`) carry no context
- * to find their run by; two bindings may never overlap, so the bridge takes it in turn (`exclusive`), and
- * `unbind` disposes the runtime, interrupting any job still in it. Lift it with AsyncLocalStorage or a
- * surface whose helpers are handed their run, when one process must hold two bindings at once. */
-let current:{readonly run:RunState;readonly game:ManagedRuntime.ManagedRuntime<Game|Run,never>}|null=null;
+ * ponytail: one slot for the run and the menu, because the sync helpers (`stopped()`, `pilot()`, `note()`,
+ * `step()`) carry no context to find their run by; those two never overlap, so the bridge takes it in turn
+ * (`exclusive`), and `unbind` disposes the runtime, interrupting any job still in it. A query alone is found
+ * by its async context (`scoped`); move the run there too if two runs ever share a process. */
+type Bound={readonly run:RunState;readonly game:ManagedRuntime.ManagedRuntime<Game|Run,never>;closed:boolean};
+let slot:Bound|null=null;
+/** A query's binding (`querying`), found by its own async context beside the run's slot: a query reads
+ * while a run flies or waits on `ask()`. Closed when the query ends, so code it left running finds
+ * nothing bound, never the run's slot.
+ * ponytail: a lib resource first created inside a query (a socket a forced reconnect opened) would keep
+ * the query's context; a query passes no forced reconnect, so none is. Revisit if the lib grows lazy timers. */
+const scoped=new AsyncLocalStorage<Bound>();
+const bound=():Bound|null=>{const query=scoped.getStore();return query?(query.closed?null:query):slot;};
 
-const need=()=>{if(!current)throw new Error('no flight is under way: pilot code works only inside a flight');return current;};
+const need=()=>{const current=bound();if(!current)throw new Error('no flight is under way: pilot code works only inside a flight');return current;};
 const state=()=>need().run;
 
 export const runCalls=()=>state().calls;
 /** The question the program is paused on, or null. */
-export const pendingQuestion=():Question|null=>current?.run.asking?.question??null;
+export const pendingQuestion=():Question|null=>bound()?.run.asking?.question??null;
 /** run.json carries the pending question, so the juncture gate (another process) can see it. */
 function recordQuestion(run:RunState,question:Question|null):void {
   const runtime=run.binding.runtime,record=runtime?readRun(runtime):null;
@@ -156,9 +167,10 @@ function recordQuestion(run:RunState,question:Question|null):void {
   writeRun(runtime,record);
 }
 
-/** Bind the runtime for one run: a fresh `Run`, and a `Game` over this binding's command. */
-export function bind(binding:Binding):void {
-  const {account:live}=binding,once=live.reconnectOnce?.bind(live);
+/** A fresh `Run`, and a `Game` over the binding's command. A query's commands are its own reads: nothing
+ * runs after them (no cell burned, no mood said, no chat pause), and it forces no reconnect. */
+function make(binding:Binding):Bound {
+  const {account:live}=binding,once=binding.query?undefined:live.reconnectOnce?.bind(live);
   const run:RunState={binding,stopFlag:false,started:Date.now(),depth:0,wire:freshLedger(),last:{fn:'pilot'},
     mark:null,jobMark:null,calls:[],asking:null,lastMood:undefined,short:undefined,resupplying:false,strandedIn:undefined,resupplied:[],burning:false,burnFailed:false,unwatch:undefined,
     interrupts:null,chats:[],heard:[],pauseStopped:false};
@@ -169,9 +181,17 @@ export function bind(binding:Binding):void {
     return reply;
   };
   const game=GameLive({send,reconnected:()=>reconnected(live),refresh:()=>live.refresh(),say:text=>say(run,text),
-    ledger:run.wire,after:served=>burn(run,served).pipe(Effect.andThen(Effect.sync(()=>watchMood(run))),Effect.andThen(pauseOnChat(run))),...once?{reconnect:once}:{}});
-  current={run,game:ManagedRuntime.make(Layer.merge(game,Layer.succeed(Run,run)))};
+    ledger:run.wire,after:served=>binding.query?Effect.void
+      :burn(run,served).pipe(Effect.andThen(Effect.sync(()=>watchMood(run))),Effect.andThen(pauseOnChat(run))),...once?{reconnect:once}:{}});
+  const made={run,game:ManagedRuntime.make(Layer.merge(game,Layer.succeed(Run,run))),closed:false};
   run.mark=snapshot(run);
+  return made;
+}
+
+/** Bind the runtime for one run: a fresh `Run`, and a `Game` over this binding's command. */
+export function bind(binding:Binding):void {
+  const {account:live}=binding;
+  const {run}=slot=make(binding);
   stampRun(binding.run_id?{run_id:binding.run_id}:null);
   run.lastMood=binding.pilot().mood;
   // A lib Account pushes state between commands (a tick, a fight); the fake in tests does not.
@@ -182,12 +202,22 @@ export function bind(binding:Binding):void {
   });
 }
 export function unbind():void {
-  const was=current;
-  current=null;
+  const was=slot;
+  slot=null;
   if(was){was.run.unwatch?.();was.run.unwatch=undefined;was.run.asking=null;void was.game.dispose();}
   stampRun(null);
 }
-export const isBound=()=>current!==null;
+export const isBound=()=>slot!==null;
+
+/** Run `body` (a query's program) on a binding of its own, beside whatever the run's slot holds. Its
+ * `command` is the query's, which refuses what is not a read. Stopped and closed when `body` settles. */
+export async function querying<T>(binding:Binding,body:()=>Promise<T>):Promise<T> {
+  const made=make({...binding,query:true});
+  try {return await scoped.run(made,body);}
+  finally {made.closed=true;made.run.stopFlag=true;void made.game.dispose();}
+}
+/** True inside a query: what starts something without a game command (a freighter) refuses on it. */
+export const inQuery=()=>Boolean(bound()?.run.binding.query);
 
 /** The pilot record as it is right now. Cheap; call it, do not cache it. */
 export function pilot():Pilot {return state().binding.pilot();}
@@ -199,9 +229,13 @@ export function pilot():Pilot {return state().binding.pilot();}
  * yourself are journalled and margin-checked like any other, but they are NOT idempotent and
  * NOT rules-checked: read the reply before sending the same one again. */
 export function account():Account {
-  const live=state().binding.account;
+  const {account:live,query}=state().binding;
   return new Proxy(live,{get:(target,key)=>{
     if(key==='commands')return commandsProxy;
+    // In a query every send takes the query's command, which refuses what is not a read; the session's own
+    // controls are not a query's to touch.
+    if(query&&typeof key==='string'&&SENDS.has(key))return (tool:string,action:string,params?:unknown)=>sendAs(`${tool}/${action}`,params);
+    if(query&&typeof key==='string'&&SESSION.has(key))return ()=>{throw new Error(`account().${key} is not available in a query`);};
     const value=Reflect.get(target,key);
     return typeof value==='function'?value.bind(target):value;
   }});
@@ -209,11 +243,15 @@ export function account():Account {
 // The lib binds a no-param action as `(requestId)`, so `commands.spacemolt_salvage.sell({id})`
 // sent the params as the request id and timed out ("No response to mutation [object Object]").
 // Every `commands.<tool>.<action>(params)` is `Game.command` instead: params are the payload.
+const sendAs=(action:string,params?:unknown)=>onBinding(Effect.gen(function*() {
+  return yield* (yield* Game).command(action,isRecord(params)?params:{});
+}));
 const commandsProxy=new Proxy({},{get:(_,tool)=>new Proxy({},{get:(__,action)=>
-  (params?:unknown)=>onBinding(Effect.gen(function*() {
-    return yield* (yield* Game).command(`${String(tool)}/${String(action)}`,isRecord(params)?params:{});
-  }))})});
+  (params?:unknown)=>sendAs(`${String(tool)}/${String(action)}`,params)})});
 const isRecord=(value:unknown):value is Record<string,unknown>=>typeof value==='object'&&value!==null;
+/** The Account's own sends, and its session controls, as a query's `account()` takes them. */
+const SENDS=new Set(['send','query','mutate']);
+const SESSION=new Set(['connect','register','login','loginToken','authenticate','logout','close','reconnectOnce']);
 
 /** Write one line to the journal and to the flight's stream, under your own words. Use it to
  * say what you decided and why, so the record shows the reasoning, not only the moves. */
@@ -222,11 +260,11 @@ export function note(text:string):void {line(`✎ ${text}`);}
 /** True once the pilot (or the observer) asked the flight to stop. Every library function checks it
  * between commands and returns `partial`; a loop of your own should check it too. */
 // Nothing bound is a run that has closed: a program still flying (abandoned at the cap) must stop.
-export function stopped():boolean {return current?.run.stopFlag??true;}
+export function stopped():boolean {return bound()?.run.stopFlag??true;}
 /** Ask the flight to stop. A program paused on `ask()` is not at a safe point, it is waiting: the
  * ask rejects with `Stopped` there and then, and the question is withdrawn. */
 export function stop(why?:string):void {
-  const run=current?.run;
+  const run=bound()?.run;
   if(!run)return;
   run.stopFlag=true;
   if(why)run.stopWhy=why;
@@ -243,7 +281,7 @@ export class Stopped extends TravelBlocked {readonly _tag='Stopped';constructor(
 const PILOT_STOP='stopped on order';
 /** The stop's own words: the pilot's, or the cap's. Live 2026-10-04 (kvothe 22:02Z): a run ended by
  * the 24-minute cap read "tradeRun stopped by the pilot", and the pilot never stopped it. */
-export const stopReason=()=>current?.run.stopWhy?`stopped: ${current.run.stopWhy}`:PILOT_STOP;
+export const stopReason=()=>{const why=bound()?.run.stopWhy;return why?`stopped: ${why}`:PILOT_STOP;};
 export const checkStop=()=>{if(stopped())throw new Stopped();};
 
 /** Pause the program and put a question to the model that is running it; resolves to its
@@ -253,6 +291,7 @@ export const checkStop=()=>{if(stopped())throw new Stopped();};
  * A model call takes minutes, so ask at a strategic fork, never once per tick. */
 export function ask(asked:{question:string;choices?:string[]}):Promise<string> {
   const run=state();
+  if(run.binding.query)return Promise.reject(new Error('ask() is not available in a query: a query reads and returns'));
   if(run.stopFlag)return Promise.reject(new Stopped());
   const text=String(asked?.question??'').trim();
   const choices=asked?.choices;
@@ -287,7 +326,7 @@ export function listen(declared:Interrupts|null):void {
 
 /** A chat post the bridge heard: queued to pause the flight when its declaration names it. True when queued. */
 export function hear(post:{channel:string;sender?:string|undefined;sender_id?:string|undefined;content:string;at:string}):boolean {
-  const run=current?.run,want=run?.interrupts;
+  const run=bound()?.run,want=run?.interrupts;
   if(!run||!want)return false;
   const names=[post.sender,post.sender_id].flatMap(name=>name?[name.toLowerCase()]:[]);
   // Private only unless wider channels are listed: a busy or hostile public channel cannot stall a run
@@ -317,7 +356,7 @@ const pauseOnChat=(run:RunState)=>Effect.gen(function*() {
 
 /** Resume the paused program with `text`. The caller has already held it to the choices. */
 export function answer(text:string):void {
-  const run=current?.run,waiting=run?.asking;
+  const run=bound()?.run,waiting=run?.asking;
   if(!run||!waiting)throw new Error('no question is pending');
   run.asking=null;
   recordQuestion(run,null);
@@ -405,6 +444,8 @@ export const progress=()=>{
  * refusing the work (which earns the credits, or flies where a base may be learned) would strand the ship. */
 export const admit=(fn:string)=>Effect.gen(function*() {
   const run=yield* Run,who=()=>run.binding.pilot();
+  // A query sends no resupply of its own: the work's own first send is refused as not a read.
+  if(run.binding.query)return null;
   if(run.depth===1)yield* tiredCheck('call');
   const {mood,tired_by}=who();
   if(mood==='Tired') {
@@ -558,7 +599,7 @@ function said<Detail>(fn:string,error:unknown):Said<Detail> {
 }
 
 /** A bug, not a game outcome: its stack goes to the journal. The stop is not one. */
-export function defect(fn:string,cause:Cause.Cause<unknown>):void {if(current)journalDefect(current.run,fn,cause);}
+export function defect(fn:string,cause:Cause.Cause<unknown>):void {const current=bound();if(current)journalDefect(current.run,fn,cause);}
 function journalDefect(run:RunState,fn:string,cause:Cause.Cause<unknown>):void {
   const runtime=run.binding.runtime;
   if(!runtime||!Cause.hasDies(cause)||Cause.squash(cause) instanceof Stopped)return;

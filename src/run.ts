@@ -53,10 +53,10 @@ export const CLOSE_MS=2*60_000;
  *
  * ponytail: symlinks, which Windows grants only a privileged process. The bridge runs on
  * macOS and Linux; copy the day that changes. */
-export function pilotHome(runtime:string):{dir:string;entry:string;tsconfig:string} {
-  const dir=join(runtime,'pilot'),entry=join(dir,'index.ts');
+export function pilotHome(runtime:string,name:'pilot'|'query'='pilot'):{dir:string;entry:string;tsconfig:string} {
+  const dir=join(runtime,name),entry=join(dir,'index.ts');
   mkdirSync(dir,{recursive:true});
-  if(!existsSync(entry))copyFileSync(EXAMPLE,entry);
+  if(name==='pilot'&&!existsSync(entry))copyFileSync(EXAMPLE,entry);
   const modules=join(runtime,'node_modules');
   mkdirSync(modules,{recursive:true});
   // Live 2026-10-02 (F-U02): a link kept from another checkout ran that checkout's `play`, which this
@@ -72,10 +72,11 @@ export function pilotHome(runtime:string):{dir:string;entry:string;tsconfig:stri
   link(join(PLUGIN,'node_modules','@spacemolt'),join(modules,'@spacemolt'));
   // verbatimModuleSyntax judges a file by its package's `type`; the pilot's files are ES modules.
   writeFileSync(join(runtime,'package.json'),'{"type":"module"}\n');
-  const tsconfig=join(runtime,'tsconfig.json');
+  // A query's program is checked on its own tsconfig: a broken query never refuses a run, nor the reverse.
+  const tsconfig=join(runtime,name==='pilot'?'tsconfig.json':`tsconfig.${name}.json`);
   writeFileSync(tsconfig,JSON.stringify({compilerOptions:{target:'ES2023',module:'NodeNext',moduleResolution:'NodeNext',
     strict:true,verbatimModuleSyntax:true,noEmit:true,allowImportingTsExtensions:true,skipLibCheck:true,types:['node'],paths:PLAY_TYPES,
-    typeRoots:[join(PLUGIN,'node_modules','@types')]},include:['pilot/**/*.ts']},null,2));
+    typeRoots:[join(PLUGIN,'node_modules','@types')]},include:[`${name}/**/*.ts`]},null,2));
   return {dir,entry,tsconfig};
 }
 
@@ -138,8 +139,8 @@ function framed(dir:string,errors:string[]):string[] {
 
 /** The three gates over `pilot/index.ts` and every sibling it imports. Any failure is the
  * run's whole answer; nothing is executed. */
-export async function check(runtime:string,{warm=true}:{warm?:boolean}={}):Promise<Check> {
-  const {entry,tsconfig}=pilotHome(runtime);
+export async function check(runtime:string,{warm=true,name='pilot'}:{warm?:boolean;name?:'pilot'|'query'}={}):Promise<Check> {
+  const {entry,tsconfig}=pilotHome(runtime,name);
   const sha=createHash('sha256').update(readFileSync(entry)).digest('hex').slice(0,12);
   const errors=await typecheck(runtime,tsconfig,sha,warm);
   if(errors.length)return {ok:false,entry,sha,errors:framed(dirname(tsconfig),errors).map(line=>`tsc: ${line}`)};
@@ -191,7 +192,7 @@ export interface RunResult {
 
 /** The pilot's program as it was checked, kept by sha beside the file it overwrote, so a reader
  * of the journal can see exactly what a run or a refusal was about. */
-function keepProgram(runtime:string,entry:string,sha:string):void {
+export function keepProgram(runtime:string,entry:string,sha:string):void {
   try {
     const dir=join(runtime,'programs');
     mkdirSync(dir,{recursive:true});

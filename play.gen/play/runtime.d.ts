@@ -8,7 +8,7 @@
  * asks for it by type, and the Promise surface reaches it through the binding.
  *
  * ponytail: the pilot's surface (`pilot()`, `stopped()`, `note()`, `account()`) is synchronous and
- * carries no context, so the binding itself is one module slot, not AsyncLocalStorage. One pilot
+ * carries no context, so the run's binding is one module slot; only a query's is AsyncLocalStorage. One pilot
  * per bridge process today; a multi-account runtime is a second process per account (DESIGN.md "Fleet").
  */
 import type { Account, SkillProgress } from '@spacemolt/lib';
@@ -57,6 +57,8 @@ export interface Binding {
     onAsk?: (question: Question) => void;
     /** A run's id, stamped on every journal line while it is bound. Absent for the menu's reads. */
     run_id?: string;
+    /** A query's binding (`querying`): it reads, and the runtime sends nothing of its own. */
+    query?: boolean;
 }
 /** Every top-level call `main()` made this run, as the menu reads a run: the function, its
  * first argument, how it ended and what it gained. ponytail: the first whitespace token of
@@ -167,6 +169,11 @@ export declare const pendingQuestion: () => Question | null;
 export declare function bind(binding: Binding): void;
 export declare function unbind(): void;
 export declare const isBound: () => boolean;
+/** Run `body` (a query's program) on a binding of its own, beside whatever the run's slot holds. Its
+ * `command` is the query's, which refuses what is not a read. Stopped and closed when `body` settles. */
+export declare function querying<T>(binding: Binding, body: () => Promise<T>): Promise<T>;
+/** True inside a query: what starts something without a game command (a freighter) refuses on it. */
+export declare const inQuery: () => boolean;
 /** The pilot record as it is right now. Cheap; call it, do not cache it. */
 export declare function pilot(): Pilot;
 /** The connected `@spacemolt/lib` Account: typed state (`account().ship: V2Ship`,

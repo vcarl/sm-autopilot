@@ -57,6 +57,11 @@ imports.
 A run lives inside the fire that started it. When a bridge dies under a run, the next bridge to
 boot closes `run.json` as `interrupted` and re-runs nothing.
 
+A `query` request (`src/query.ts`) runs `query/index.ts` beside the run, flying or paused, on a binding
+of its own (`querying` in `play/runtime.ts`, found through an `AsyncLocalStorage`; the run keeps the
+module slot). Its command refuses anything that is not a query in the lib's `ACTIONS`, and login and its
+kin; `account()`'s raw sends take that command; the runtime sends nothing of its own in it. Capped at 90 s.
+
 The bridge is the only writer of `pilot.json` (the `pilot` request). Python reads it. The mood is
 never stored: the bridge derives it on every read from the stance's working mood and the ship
 (`moodNow`, `flying`), so an older record's `mood` key is dropped on read.
@@ -205,6 +210,12 @@ the pilot's context. Every line has `at` (UTC ISO, `Z`) and `event`.
 - `check`: one per pilot-gate typecheck. `sha` (the checked `pilot/index.ts`, as on the run line), `warm`
   (the bridge's language service answered; false is the `tsc` child), `check_ms`, `errors` (line count),
   and `warm_error` when the service threw and the child answered instead.
+- `query`: one per `spacemolt_query` (`src/query.ts`): `query_id`, `juncture_id`, `sha` (the checked
+  `query/index.ts`, kept in `programs/` as a run's is), `ok`, `ms`; once it ran, `commands`, `calls` (as on
+  `run` `ended`, first 40, `calls_total`), `refused` (each action not sent because it is not a query in the
+  lib's `ACTIONS`, or is login/logout/register), `capped` and `error`; a refused check has `errors`
+  instead. Every line written inside the query (its `check`, `command`, `line`) carries its `query_id`,
+  never a `run_id`. No `run.json`, no `run` lines.
 - `deps_installed` (`lock_sha256`, `seconds`) when a bridge start ran `npm ci`; `deps_failed`
   (`lock_sha256`, `error`, and `seconds`/`output` when npm ran). Nothing when the stamp matched.
 - `chat_interrupt` (`channel`, `sender`, `sender_id`) when a post matched the run's `interrupts` and
@@ -216,7 +227,7 @@ the pilot's context. Every line has `at` (UTC ISO, `Z`) and `event`.
   `post` (`channel`, `content`, `sender`, `sender_id`, where, `sent_at`), `sent` (`channel`,
   `target_id`, `content`, `sent_at`) and `unread` (`counts`). Rotated with the journal.
 
-Joins: `juncture_id` juncture → run; `run_id` run → everything in it; `job_id` + `at` juncture →
+Joins: `juncture_id` juncture → run and query; `run_id` run → everything in it; `query_id` likewise; `job_id` + `at` juncture →
 Hermes' `cron/usage_audit.jsonl` (tokens, LLM time, model).
 
 Rotation: each bridge boot (`bootJournal` in `run-record.ts`, right after the controller lock)

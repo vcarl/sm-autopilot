@@ -12,7 +12,7 @@ export declare const CLOSE_MS: number;
  *
  * ponytail: symlinks, which Windows grants only a privileged process. The bridge runs on
  * macOS and Linux; copy the day that changes. */
-export declare function pilotHome(runtime: string): {
+export declare function pilotHome(runtime: string, name?: 'pilot' | 'query'): {
     dir: string;
     entry: string;
     tsconfig: string;
@@ -25,8 +25,9 @@ export interface Check {
 }
 /** The three gates over `pilot/index.ts` and every sibling it imports. Any failure is the
  * run's whole answer; nothing is executed. */
-export declare function check(runtime: string, { warm }?: {
+export declare function check(runtime: string, { warm, name }?: {
     warm?: boolean;
+    name?: 'pilot' | 'query';
 }): Promise<Check>;
 export interface RunDeps extends Omit<Binding, 'runtime'> {
     runtime: string;
@@ -62,6 +63,9 @@ export interface RunResult {
      * cannot send another command. */
     abandoned?: boolean;
 }
+/** The pilot's program as it was checked, kept by sha beside the file it overwrote, so a reader
+ * of the journal can see exactly what a run or a refusal was about. */
+export declare function keepProgram(runtime: string, entry: string, sha: string): void;
 /** Validate, bind, import fresh, run `main()`, report. Every exit path journals the end,
  * writes the record and unbinds the runtime. */
 export declare function runPilot(deps: RunDeps): Promise<RunResult>;

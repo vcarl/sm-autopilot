@@ -5,6 +5,7 @@
  * `interrupted` at boot (`closeInterrupted`) rather than re-running anything.
  */
 import {appendFileSync,existsSync,mkdirSync,readdirSync,readFileSync,renameSync,statSync,writeFileSync} from 'node:fs';
+import {AsyncLocalStorage} from 'node:async_hooks';
 import {join} from 'node:path';
 import {Option,Schema} from 'effect';
 import {replyLost} from './command-boundary.ts';
@@ -165,12 +166,15 @@ export function watchJournal(fn:((entry:Record<string,unknown>)=>void)|null):()=
  * A line carrying `freighter` is a freighter's, never the pilot's run, and is left unstamped. */
 let stamp:Record<string,unknown>={};
 export function stampRun(keys:Record<string,unknown>|null):void {stamp=keys??{};}
+/** A query's keys (`query_id`), stamped on the lines written in its own async context in place of the run's. */
+const scopedStamp=new AsyncLocalStorage<Record<string,unknown>>();
+export const withStamp=<T>(keys:Record<string,unknown>,body:()=>T):T=>scopedStamp.run(keys,body);
 
 /** The run's own lines in the pilot's journal, beside the request/response pairs. The
  * runner's other self-made changes take the same line under their own event name (S45). */
 export function journalRun(runtime:string,entry:Record<string,unknown>,event='run',file='gameplay.jsonl'):void {
   mkdirSync(runtime,{recursive:true});
-  const line={at:new Date().toISOString(),event,...entry.freighter===undefined?stamp:{},...entry};
+  const line={at:new Date().toISOString(),event,...entry.freighter===undefined?scopedStamp.getStore()??stamp:{},...entry};
   appendFileSync(join(runtime,file),`${JSON.stringify(line)}\n`,{mode:0o600});
   if(file!=='gameplay.jsonl')return;
   // A listener that throws is its own problem: it never costs the pilot the line on disk.
