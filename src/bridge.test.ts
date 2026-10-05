@@ -40,9 +40,9 @@ test('menu answers with moves from the present, each a paste-able call, and the 
   assert.equal(menu.objective,'fill the hold');
   assert.deepEqual([menu.present.docked_at,menu.present.fuel,menu.present.cargo_free],['sol_base',100,0]);
   const calls=menu.moves.map((move:any)=>move.call);
-  assert.ok(calls.includes("sell([{item_id:'ore',quantity:12}])"),calls.join(' | '));
-  assert.ok(menu.not_now.some((row:any)=>row.move==='gatherUntil'&&/hold is full/.test(row.why)),JSON.stringify(menu.not_now));
-  assert.match(menu.text,/^Menu:\n  - `sell\(/);
+  assert.ok(calls.includes("tradeRun({stops:[{at:'sol_base'}]})"),calls.join(' | '));
+  assert.ok(menu.moves.every((move:any)=>/^m\d$/.test(move.id)&&move.gen&&move.facts),JSON.stringify(menu.moves));
+  assert.match(menu.text,/^m1 `/);
   assert.equal(menu.last,null,'nothing has run yet');
   // The juncture renders the situation from this one reply: the clock, the record, the ship.
   assert.ok(Date.parse(menu.now),menu.now);
@@ -53,7 +53,7 @@ test('menu answers with moves from the present, each a paste-able call, and the 
   const blank=await fixture().dispatch('menu') as any;
   assert.equal(blank.stance,undefined);
   assert.equal(blank.mood,'Cautious','no stance flies the Cautious margins');
-  assert.ok(blank.moves.some((move:any)=>move.call.startsWith('sell(')),blank.text);
+  assert.ok(blank.moves.some((move:any)=>move.call.startsWith('tradeRun(')),blank.text);
 });
 
 test('the menu derives the mood from the ship after its reads, writes nothing, and names the walk-away line', async () => {
@@ -188,28 +188,25 @@ test('the journal keeps the outcome of a request and never the prose or a body',
   assert.deepEqual(status,{running:false,last:{status:'done',did:'serviced'}});
 });
 
-test('the journal keeps a menu move by its call and a refusal by its reason', () => {
+test('the journal keeps a menu move by its call', () => {
   const menu=journalResult('menu',{stance:'Hunter',mood:'Tired',objective:'cull the fauna',
-    present:{system:'sys_a',hold:[{item_id:'carbon_ore',quantity:61}]},text:'Menu — …\n  - `hunt()` — …',
-    moves:[{call:'service()',why:'Tired: resupply here clears it',advances:'ship'},
-      {call:"goTo('base_iron')",why:'the nearest serviced base',advances:'ship'}],
-    not_now:[{move:'gatherUntil',why:'fuel 12, the route to belt needs 30'}]}) as any;
-  assert.deepEqual(menu.moves,['service()',"goTo('base_iron')"],'the call is what the journal keeps');
-  assert.deepEqual(menu.not_now,['gatherUntil: fuel 12, the route to belt needs 30']);
+    present:{system:'sys_a',hold:[{item_id:'carbon_ore',quantity:61}]},text:'m1 `completeMissions()` — …',
+    moves:[{id:'m1',gen:'missions',call:'completeMissions()',facts:{credits:1,minutes:1},said:'…'},
+      {id:'m2',gen:'explore',call:"goTo('sys_b')",facts:{credits:0,minutes:3},said:'…'}]}) as any;
+  assert.deepEqual(menu.moves,['completeMissions()',"goTo('sys_b')"],'the call is what the journal keeps');
   assert.equal(menu.mood,'Tired');
   assert.equal(menu.present,undefined,'the world body still never reaches the journal');
   assert.equal(menu.text,undefined,'nor the rendered menu');
 });
 
 test('a long menu is capped both ways and other actions still count their arrays', () => {
-  const menu=journalResult('menu',{moves:[{call:`gatherUntil({poi:'${'x'.repeat(200)}'})`}],
-    not_now:Array.from({length:MENU_ROWS+3},(_,n)=>({move:`m${n}`,why:'no route'}))}) as any;
+  const menu=journalResult('menu',{moves:Array.from({length:MENU_ROWS+3},()=>({call:`gatherUntil({poi:'${'x'.repeat(200)}'})`}))}) as any;
   assert.equal(menu.moves[0].length,MENU_CHARS,'a long call is clipped, never wrapped');
   assert.ok(menu.moves[0].endsWith('…'));
-  assert.equal(menu.not_now.length,MENU_ROWS+1);
-  assert.equal(menu.not_now.at(-1),'+3 more','the rows past the cap are a count');
-  const run=journalResult('run',{status:'done',moves:[{call:'a()'},{call:'b()'}],not_now:[{move:'c'}]}) as any;
-  assert.deepEqual(run,{status:'done',moves:2,not_now:1},'only menu widens; every other action counts');
+  assert.equal(menu.moves.length,MENU_ROWS+1);
+  assert.equal(menu.moves.at(-1),'+3 more','the rows past the cap are a count');
+  const run=journalResult('run',{status:'done',moves:[{call:'a()'},{call:'b()'}]}) as any;
+  assert.deepEqual(run,{status:'done',moves:2},'only menu widens; every other action counts');
 });
 
 // Live 2026-09-25: a pilot woke at hull 3/80 in a battle left over from the previous shift and

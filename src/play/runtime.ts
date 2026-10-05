@@ -60,7 +60,10 @@ export interface Binding {
 /** Every top-level call `main()` made this run, as the menu reads a run: the function, its
  * first argument, how it ended and what it gained. ponytail: the first whitespace token of
  * the job's label stands in for "first argument"; it is the poi/id for every job that takes one. */
-export interface Call {fn:string;arg:string;status:Status;did:string;
+export interface Call {fn:string;arg:string;
+  /** The call as the program wrote it, literal arguments and all, for the jobs that keep it (tradeRun, sell): what
+   * the menu offers again. */
+  call?:string;status:Status;did:string;
   /** The Outcome's own `why`, so the report of a call that did not end `done` carries the
    * reason (the suggested ids of a refused destination) and not only the `did`. */
   why?:string;
@@ -496,12 +499,12 @@ export const job=<Detail>(fn:string,args:string,body:()=>Promise<Said<Detail>>):
 /** `job` for an Effect body: the same bookkeeping, every failure folded into the Outcome by
  * `said`. A defect is a `failed` Outcome too, as a throw is in `job`, and its stack goes to a
  * `defect` line. Never exported from a barrel. */
-export const jobEffect=<D,R extends Game|Run=Game|Run>(fn:string,args:string,body:Effect.Effect<Said<D>,GameError|TravelBlocked|ArrivalUnresolved|DockBlocked,R>)=>jobWith(fn,args,body,true);
+export const jobEffect=<D,R extends Game|Run=Game|Run>(fn:string,args:string,body:Effect.Effect<Said<D>,GameError|TravelBlocked|ArrivalUnresolved|DockBlocked,R>,call?:string)=>jobWith(fn,args,body,true,call);
 
-const jobWith=<D,R>(fn:string,args:string,body:Effect.Effect<Said<D>,GameError|TravelBlocked|ArrivalUnresolved|DockBlocked,R>,journalDefects:boolean):Effect.Effect<Outcome<D>,never,R|Game|Run>=>
+const jobWith=<D,R>(fn:string,args:string,body:Effect.Effect<Said<D>,GameError|TravelBlocked|ArrivalUnresolved|DockBlocked,R>,journalDefects:boolean,call?:string):Effect.Effect<Outcome<D>,never,R|Game|Run>=>
   Effect.gen(function*() {
     const run=yield* Run;
-    const open=yield* opening(run,fn,args);
+    const open={...yield* opening(run,fn,args),...call?{call}:{}};
     const exit=yield* Effect.exit(body);
     if(Exit.isSuccess(exit))return yield* closing(run,open,exit.value,false);
     if(journalDefects)journalDefect(run,fn,exit.cause);
@@ -562,7 +565,7 @@ function journalDefect(run:RunState,fn:string,cause:Cause.Cause<unknown>):void {
   journalRun(runtime,{fn,why:message(Cause.squash(cause)),stack:Cause.pretty(cause)},'defect');
 }
 
-type Opened={fn:string;args:string;before:Snapshot;outer:RunState['last'];outerMark:Snapshot|null};
+type Opened={fn:string;args:string;call?:string;before:Snapshot;outer:RunState['last'];outerMark:Snapshot|null};
 /** The ▶ line and the opening read. A read that fails is said, and the cached state measures. */
 const opening=(run:RunState,fn:string,args:string)=>Effect.gen(function*() {
   const outer=run.last,outerMark=run.jobMark;
@@ -580,7 +583,7 @@ const stopsOf=(detail:unknown):{stops?:string[]}=>{
   return Array.isArray(stops)?{stops:stops.flatMap(stop=>{const at=field(stop,'at');return typeof at==='string'?[at]:[];})}:{};
 };
 /** The closing read, the measurement, the ✓/✗ line and the `calls` push. */
-const closing=<Detail>(run:RunState,{fn,args,before,outer,outerMark}:Opened,part:Said<Detail>,threw:boolean)=>Effect.gen(function*() {
+const closing=<Detail>(run:RunState,{fn,args,call,before,outer,outerMark}:Opened,part:Said<Detail>,threw:boolean)=>Effect.gen(function*() {
   // The closing read may fail; the cached state stands, so it is only looked at.
   yield* Effect.result((yield* Game).refresh);
   const built=finish(run,fn,before,part);
@@ -588,7 +591,7 @@ const closing=<Detail>(run:RunState,{fn,args,before,outer,outerMark}:Opened,part
   if(threw)built.did=`${built.did}, ${witness(built)}`;
   if(outer.fn==='pilot'&&run.resupplied.length)built.did=`${built.did}; ${run.resupplied.splice(0).join('; ')}`;
   say(run,`${built.status==='done'?'✓':'✗'} ${fn}  ${built.status}  ${seconds(Date.now()-before.at)}  ${built.did}${built.why?`: ${built.why}`:''}`);
-  if(outer.fn==='pilot')run.calls.push({fn,arg:args.split(' ')[0]??'',status:built.status,did:built.did,
+  if(outer.fn==='pilot')run.calls.push({fn,arg:args.split(' ')[0]??'',...call?{call}:{},status:built.status,did:built.did,
     ...built.why===undefined?{}:{why:built.why},
     credits:built.gained.credits,cost:built.cost,
     items:built.gained.items.reduce((n,row)=>n+row.quantity,0),xp:Object.values(built.gained.xp).reduce((n,x)=>n+x,0),

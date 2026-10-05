@@ -117,7 +117,7 @@ what follows is the record.
   fuel_price, fuel_price_all_in, fuel_tax_per_unit, life_support, power, services}`.
 - `services` is a flat array of strings, e.g. `["crafting","marine_training","market",
   "medical","missions","personnel","refuel","repair","shipyard","storage"]`. `storage` and
-  `crafting` appearing there is what the menu turns into the Storage and Workshop counters.
+  `crafting` appearing there is what says a base has a store and a workshop.
 - Fuel is quoted three ways: `fuel_price` (2), `fuel_tax_per_unit` (1) and `fuel_price_all_in`
   (3, the one to spend against).
 - **No repair price is quoted anywhere in the reply, and none is needed.** `structuredContent.base`

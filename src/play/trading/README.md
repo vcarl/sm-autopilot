@@ -225,8 +225,7 @@ system's bases as it arrives, and never buys or sells.
 
 A hop that does not arrive is skipped and said in `why`, and the call is `partial`; `refused` when
 none arrived, or in a mood that may not start a job. A base that refused you the dock is not flown to;
-`did` names it. With nothing to scout it is `done` and says so. The menu offers `scoutMarkets()` to a
-docked Trader whenever a candidate lies within `SCOUT_JUMPS`, under the trades. A freighter with no
+`did` names it. With nothing to scout it is `done` and says so. A freighter with no
 circuit that qualifies scouts by the same choice (see [fleet](../fleet/README.md#freighters)).
 
 ```ts

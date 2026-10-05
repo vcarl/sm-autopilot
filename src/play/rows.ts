@@ -3,6 +3,9 @@ import {field,type GameError} from './game.ts';
 import {step} from './runtime.ts';
 import {OffSpec} from './storage.ts';
 
+/** A value as a pilot writes it: single quotes, bare keys. */
+export const literal=(value:unknown)=>JSON.stringify(value).replace(/"/g,"'").replace(/'(\w+)':/g,'$1:');
+
 /** The rows of a reply's list whose read fields decode, as the game sent them. A row that does not is left out and said in a
  * step; an absent or `null` list reads as none (the live server sends `null` for an empty collection). `name` is the row's id for that line. */
 export const kept=(action:string,key:string,list:unknown,decode:(row:unknown)=>Option.Option<unknown>,name:(row:unknown)=>unknown):unknown[]=>

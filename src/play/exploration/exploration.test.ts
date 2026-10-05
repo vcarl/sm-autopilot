@@ -5,9 +5,8 @@ import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {ConnectionClosedError,SpacemoltError,type MapSystemInfo,type Account} from '@spacemolt/lib';
 import type {ReadinessAccount} from '../../readiness.ts';
-import {journalRun} from '../../run-record.ts';
 import {bridgeWorld,type WorldOptions} from '../../test-support/bridge-world.ts';
-import {menuEffect,type RunSummary} from '../menu.ts';
+import {menuEffect} from '../menu.ts';
 import {bind,onBinding,unbind,type Pilot} from '../runtime.ts';
 const menu=(runtime?:string)=>onBinding(menuEffect(runtime));
 import {around,exploreNearby,mapOf,markSeen,nearFacts,readSeen} from './exploration.ts';
@@ -41,41 +40,29 @@ function world(record:Pilot,options:WorldOptions,map:(row:Record<string,any>)=>v
   return {...game,runtime,close:()=>{unbind();rmSync(runtime,{recursive:true,force:true});}};
 }
 
-test('the menu finds an unvisited system several jumps out, keeps a dangerous one with its facts, and names the next ones',async()=>{
+test('told to explore, the menu offers the nearest unvisited system several jumps out, a dangerous one with its facts',async()=>{
   // Live 2026-09-30 (kvothe): told to explore, 41 jumps between visited systems, because the menu
-  // looked only one jump out. Three repeated goTo runs, so the repetition rule is also in play.
+  // looked only one jump out.
   const f=world({mood:'Focused',stance:'Prospector',objective:'explore the unvisited systems'},CHAIN,row=>{
     if(['sol','deep_range','a'].includes(row.system_id))row.visited=true;
     if(row.system_id==='b')row.is_stronghold=true;
     if(row.system_id==='c')row.empire='solarian';
   });
   try {
-    const run:RunSummary={fn:'goTo',arg:'deep_range',status:'done',credits:0,items:0,xp:0,at:'range_base'};
-    for(let i=0;i<3;i++)journalRun(f.runtime,{phase:'ended',script:'index.ts',outcome:'done',work:run});
     const built=await menu(f.runtime);
     const row=built.moves.find(m=>m.call==="goTo('b')");
-    assert.ok(row,JSON.stringify(built.moves));
-    // Fresh, so goTo's repetition does not sink it: it ranks over the other work the menu holds.
-    assert.ok(built.moves.indexOf(row!)<built.moves.findIndex(m=>m.call==='service()'),JSON.stringify(built.moves));
-    assert.match(row!.why,/^b \(3 jumps, never visited, no empire listed, a stronghold\)/);
-    assert.match(row!.why,/Next nearest: c 'c' \(4 jumps, never visited, empire solarian\)/);
+    assert.equal(row?.gen,'explore',JSON.stringify(built.moves));
+    assert.equal(row!.said,'explore: b, 3 jumps, never visited, no empire listed, a stronghold');
   } finally {f.close();}
 });
 
-test('nothing unvisited within range: not_now names the nearest and how far',async()=>{
+test('nothing unvisited within range: no explore move',async()=>{
   const far:WorldOptions={systems:['s1','s2','s3','s4','s5'].map((id,i,all)=>({id,connections:[i?all[i-1]!:'deep_range'],pois:[{id:`${id}_rock`}]}))};
   const f=world({mood:'Focused',stance:'Scout'},far,row=>{if(row.system_id!=='s5')row.visited=true;});
   try {
     const built=await menu(f.runtime);
-    assert.ok(!built.moves.some(m=>m.call.startsWith("goTo('s5')")),JSON.stringify(built.moves));
-    const line=built.not_now.find(row=>row.move==="goTo('s5')");
-    assert.match(line?.why??'',/nothing unvisited within 5 jumps; the nearest is s5 \(6 jumps, never visited/,JSON.stringify(built.not_now));
+    assert.ok(!built.moves.some(m=>m.gen==='explore'),JSON.stringify(built.moves));
   } finally {f.close();}
-  const all=world({mood:'Focused',stance:'Scout'},{},row=>{row.visited=true;});
-  try {
-    const built=await menu(all.runtime);
-    assert.ok(built.not_now.some(row=>row.move==='goTo'&&/every system on the map is visited/.test(row.why)),JSON.stringify(built.not_now));
-  } finally {all.close();}
 });
 
 test('exploreNearby visits and scouts the nearest unvisited systems, keeps what it saw, and honours avoid',async()=>{

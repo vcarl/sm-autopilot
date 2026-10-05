@@ -30,8 +30,8 @@ test('every kind of entry renders one short line carrying its numbers', () => {
     [{event:'request',request:{action:'travel'},response:{ok:false,error:'no route to belt'}},
       /! travel: no route to belt/],
     [{event:'request',request:{action:'menu'},response:{ok:true,result:{stance:'Hunter',mood:'Tired',
-      moves:['service()'],not_now:['gatherUntil: fuel 12, need 30']}}},
-      /menu Hunter\/Tired: service\(\) — not now: gatherUntil: fuel 12, need 30/],
+      moves:['service()',"goTo('sys_b')"]}}},
+      /menu Hunter\/Tired: service\(\) · goTo\('sys_b'\)$/],
   ];
   for(const [entry,shape] of rendered) {
     const text=line(entry);

@@ -369,6 +369,7 @@ type Found = {
     routes: Route[];
     sources: string[];
 };
+export declare const keptSearch: (opts?: RouteOpts, reuse?: boolean) => Effect.Effect<Said<Found>, GameError | Stopped, Game>;
 /** `routes()` itself, read through `seat`: the one planner, whether the pilot or a freighter's host asks. Sends through the `Game`
  * it runs under. */
 export declare const searchEffect: (seat: Seat, opts?: RouteOpts) => Effect.Effect<Said<Found>, GameError | Stopped, Game>;

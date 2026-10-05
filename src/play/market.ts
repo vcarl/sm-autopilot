@@ -13,7 +13,7 @@ import {Game,field,message} from './game.ts';
 import {bench,moduleSpecEffect,room,whyNotFit} from './hangar.ts';
 import {Stopped,acct,admit,edge,jobEffect,pilot,reached,runtimeDir,step,stopped,wanted} from './runtime.ts';
 import {withdrawEffect} from './storage.ts';
-import {num} from './rows.ts';
+import {literal,num} from './rows.ts';
 import {keepBook,keepRow,readBooks} from './world.ts';
 import {walkBook} from '../order-book.ts';
 import type {Outcome,Row,Want} from './types.ts';
@@ -376,7 +376,7 @@ export const sellEffect=(items:Want[],opts:{from?:'hold'|'store';floor?:Record<s
       :blocked.length?`sold nothing at ${docked}`:`nothing to sell at ${docked}`;
     return {status:blocked.length?(landed.length?'partial':'refused'):'done',
       did:said?`${sold}; ${said}`:sold,...why?{why}:{},detail};
-  }));
+  }),`sell(${literal(items)}${opts.from||opts.floor?`, ${literal(opts)}`:''})`);
 export function sell(items:Want[],opts:{from?:'hold'|'store';floor?:Record<string,number>}={}):Promise<Outcome<Sold>> {return edge(sellEffect(items,opts));}
 
 export interface Bought {

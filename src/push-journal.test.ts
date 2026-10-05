@@ -175,7 +175,7 @@ test('a push with no run in flight survives to the next juncture\'s menu call', 
     const again=await dispatch('menu') as any;
     assert.equal('alerts' in again,false,JSON.stringify(again.alerts));
     // The journal still has both, which is how the volume of a group gets measured.
-    assert.deepEqual(lines(runtime).map(entry=>entry.push),['facility_rent_warning','base_destroyed']);
+    assert.deepEqual(lines(runtime).filter(entry=>entry.event==='push').map(entry=>entry.push),['facility_rent_warning','base_destroyed']);
   } finally {watchJournal(null);}
 });
 

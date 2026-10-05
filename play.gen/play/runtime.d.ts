@@ -64,6 +64,9 @@ export interface Binding {
 export interface Call {
     fn: string;
     arg: string;
+    /** The call as the program wrote it, literal arguments and all, for the jobs that keep it (tradeRun, sell): what
+     * the menu offers again. */
+    call?: string;
     status: Status;
     did: string;
     /** The Outcome's own `why`, so the report of a call that did not end `done` carries the
@@ -285,7 +288,7 @@ export declare const job: <Detail>(fn: string, args: string, body: () => Promise
 /** `job` for an Effect body: the same bookkeeping, every failure folded into the Outcome by
  * `said`. A defect is a `failed` Outcome too, as a throw is in `job`, and its stack goes to a
  * `defect` line. Never exported from a barrel. */
-export declare const jobEffect: <D, R extends Game | Run = Game | Run>(fn: string, args: string, body: Effect.Effect<Said<D>, GameError | TravelBlocked | ArrivalUnresolved | DockBlocked, R>) => Effect.Effect<Outcome<D>, never, Game | Run | R>;
+export declare const jobEffect: <D, R extends Game | Run = Game | Run>(fn: string, args: string, body: Effect.Effect<Said<D>, GameError | TravelBlocked | ArrivalUnresolved | DockBlocked, R>, call?: string) => Effect.Effect<Outcome<D>, never, Game | Run | R>;
 /** The Promise a pilot function returns: `effect` run through the binding's runtime. A defect
  * outside any job is a `failed` Outcome and a `defect` line. */
 export declare function edge<D>(effect: Effect.Effect<Outcome<D>, never, Game | Run>): Promise<Outcome<D>>;

@@ -214,9 +214,8 @@ circuit sells it.
 it is on: it flies the rest of the lap as usual, selling and buying, and parks at the lap's last
 stop, `why` `stopped after its lap, as scheduled`. Until then its row carries `stop_after_lap: true`.
 A freighter waiting for a circuit stops at once. A plain recall still stops it sooner, after the
-stop it is on. Neither is followed by a re-plan, and `assign` or `reassign` clears the schedule. The
-menu keeps it as a `Not now` line while freighters fly: they earn by themselves, so stopping one is
-only for when you want it stopped.
+stop it is on. Neither is followed by a re-plan, and `assign` or `reassign` clears the schedule.
+Freighters earn by themselves, so stopping one is only for when you want it stopped.
 
 `freighters()` answers `detail.freighters`, one row each, and the menu carries the same rows as
 `freighters`:
@@ -235,7 +234,7 @@ only for when you want it stopped.
 | `approach` | `{jumps, credits}`: its last flight onto the circuit's first stop from wherever its loop started (after an assign, a reassign or a restart), fuel and repairs on arrival included. Never part of `last_lap_net`, and never a losing lap. Absent when it started docked at the first stop |
 | `stop_after_lap` | `true` while it is scheduled to stop at the end of the lap it is on; absent otherwise |
 | `reassigned` | `{count, ring, lap_net}`: how many times it has re-planned itself, and the ring it last went onto (its bases, as `drained.json` keys them) with the `lap_net` predicted for it. Absent until the first; kept across an `assign` |
-| `stowed` | every stow, oldest first: `98 copper_piping (cost 2898) at nova_terra_central for <you>`, or `… in its own storage` when yours was refused. What it holds for you, and where; absent until the first; kept across an `assign`. `storage(base)` reads the store there; the menu offers it only while you are docked at that base |
+| `stowed` | every stow, oldest first: `98 copper_piping (cost 2898) at nova_terra_central for <you>`, or `… in its own storage` when yours was refused. What it holds for you, and where; absent until the first; kept across an `assign`. `storage(base)` reads the store there |
 | `scouted` | books it read scouting while it had no circuit, all told; absent until the first; kept across an `assign` |
 | `why` | why it parked, where it scouts (`scouting …`), why it waits (`waiting for a circuit: …`), or what fell short at the last stop |
 

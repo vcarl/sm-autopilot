@@ -65,10 +65,8 @@ const OUTCOME_KEYS=new Set(['accepted','reason','status','record','running',
   // them in the record every reflection sees only the level it happens to be looking at.
   'skills']);
 
-/** ponytail: at most 5 rows of a menu list reach the journal, 100 characters each, and the
- * rest is a `+N more` marker. Five is the cap the menu itself ranks down to, so the marker
- * only ever fires on `not_now`; raise either ceiling, or keep a move's `why` as well, if a
- * live diagnosis ever needs more than the call and the refusal. */
+/** ponytail: at most 5 menu moves reach the request line, 100 characters each, and the rest is a
+ * `+N more` marker; the menu offers 4. The `juncture` line keeps each move whole, facts and all. */
 export const MENU_ROWS=5,MENU_CHARS=100;
 /** One menu list as the journal keeps it: the short form of each row, capped both ways. */
 const menuRows=(list:readonly unknown[],short:(row:unknown)=>string):string[]=>{
@@ -88,12 +86,8 @@ export function journalResult(action:string,result:unknown):unknown {
   const kept:Record<string,unknown>={};
   for(const key of Object.keys(result))if(OUTCOME_KEYS.has(key))kept[key]=result[key];
   if(isRecord(result.last))kept.last={status:result.last.status,did:result.last.did};
-  const {moves,not_now}=result;
+  const {moves}=result;
   if(Array.isArray(moves))kept.moves=action==='menu'?menuRows(moves,row=>String(field(row,'call')??'')):moves.length;
-  // A refused move's reason is the informative half — the call alone says only that it was
-  // not offered — so `not_now` keeps both, which is why it is the list that hits the cap.
-  if(Array.isArray(not_now))kept.not_now=action==='menu'
-    ?menuRows(not_now,row=>`${field(row,'move')??''}: ${field(row,'why')??''}`):not_now.length;
   return kept;
 }
 

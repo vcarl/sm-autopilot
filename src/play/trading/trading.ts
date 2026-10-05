@@ -27,6 +27,7 @@ import {readDrained,ring} from '../freighter/drained.ts';
 import {Game,GameLive,field,message,type GameError} from '../game.ts';
 import {markPlace,readMobile,readPlaces} from '../places.ts';
 import {Stopped,acct,admit,checkStop,edge,jobEffect,reached,runtimeDir,step,stopped,type Said} from '../runtime.ts';
+import {literal} from '../rows.ts';
 import {withdrawEffect} from '../storage.ts';
 import {goToEffect} from '../travel.ts';
 import type {Outcome,Row} from '../types.ts';
@@ -497,8 +498,6 @@ export interface RunStop {at:string;buy?:string|readonly string[];
   from?:'store'}
 /** A stop's `buy` as a list. */
 const items=(stop:RunStop)=>stop.buy===undefined?[]:typeof stop.buy==='string'?[stop.buy]:[...stop.buy];
-/** A value as a pilot writes it: single quotes, bare keys. */
-const literal=(value:unknown)=>JSON.stringify(value).replace(/"/g,"'").replace(/'(\w+)':/g,'$1:');
 /** The call that runs `stops`, as a pilot pastes it. */
 export const runCall=(stops:RunStop[])=>`tradeRun(${literal({stops})})`;
 
@@ -757,7 +756,7 @@ export const tradeRunEffect=(opts:{stops:RunStop[]})=>{
     // route that only sold the hold has nothing left to do, so the next move is a new search.
     const again=end.net>0&&route.some(stop=>items(stop).length&&stop.from!=='store');
     return {status:'done',did,detail:end,next:again?[runCall(route),'routes()']:['routes()']};
-  }));
+  }),runCall(route));
 };
 
 /** How far `routes()` looks unless told: `STOPS` stops, each leg at most `LEG_JUMPS` jumps, no cap
@@ -907,9 +906,20 @@ const SLACK=0.1;
  * where they are kept, and `tradeRun` withdraws them before it buys. */
 export function routes(opts:RouteOpts={}):Promise<Outcome<{routes:Route[];sources:string[]}>> {return edge(routesEffect(opts));}
 /** `routes` as an Effect, for `edge` and for converted callers; never in a barrel. */
-export const routesEffect=(opts:RouteOpts={})=>jobEffect<Found>('routes',(opts.items??[]).join(' '),searchEffect(pilotSeat(),opts));
+export const routesEffect=(opts:RouteOpts={})=>jobEffect<Found>('routes',(opts.items??[]).join(' '),keptSearch(opts,false));
 export type RouteOpts={items?:string[];circuit?:{hold:number}}&Scope;
 type Found={routes:Route[];sources:string[]};
+/** ponytail: the last search, kept for a minute while the base, the last market tick read, the hold and the scope
+ * stand. The menu (`reuse`) takes it after a `routes()` or on a juncture rendered twice; the pilot's own `routes()`
+ * always searches, since a second one places bases the first could not. Any book read moves the tick. */
+let kept:{key:string;at:number;found:Said<Found>}|undefined;
+export const keptSearch=(opts:RouteOpts={},reuse=true)=>Effect.gen(function*() {
+  const seat=pilotSeat(),key=()=>JSON.stringify([seat.runtime,seat.account.state.location?.docked_at,marketTick(),miningInventory(seat.account.state),cargo(seat.account),opts]);
+  if(reuse&&kept?.key===key()&&Date.now()-kept.at<60_000)return kept.found;
+  const found=yield* searchEffect(seat,opts);
+  kept={key:key(),at:Date.now(),found};
+  return found;
+});
 
 /** `routes()` itself, read through `seat`: the one planner, whether the pilot or a freighter's host asks. Sends through the `Game`
  * it runs under. */

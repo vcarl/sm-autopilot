@@ -2,7 +2,7 @@
 
 "I'll go see what is out there." The first visit to a system is the only thing that trains
 exploration; every belt, station and price you see feeds every other career's choices. This is 
-the evening to have when the menu keeps offering the same belt.
+the evening to have when the same belt is all you know.
 
 ## Functions
 
@@ -17,8 +17,8 @@ is nothing unvisited within `jumps` — widen it.
 **Danger is your call.** The map publishes no police level for a system you have never stood in;
 what it does name is the empire that claims it (or none), whether it is a stronghold, and how many
 pilots are online there. Police, security and pirates are learned on arrival, kept in the runtime,
-and shown by the menu and the juncture's Present line from then on. `exploreNearby` skips nothing
-you do not name in `avoid`: read the menu's facts and choose.
+and shown in the juncture's moves when an objective sends you exploring. `exploreNearby` skips
+nothing you do not name in `avoid`: read the facts and choose.
 
 `scout(id)` reads one system (`detail.system.id` and `.name` either way; each `detail.connections` row says `visited`, so a loop can skip systems you have been to); `goTo(id)` flies there and docks if it is a base (or a system with
 one base). A circuit of your own is those two in a loop, as below. (`survey()` in mining is not
@@ -58,11 +58,11 @@ export default async function main() {
 
 - Three unvisited systems on a loop that ends where it started, the whole loop above the mood's fuel reserve (under it is Tired, and the circuit ends).
 - At least one station on the loop: a market to read, a board to accept from, fuel to buy.
-- Police above 0 on the legs you already know (the menu names what was seen), and for the legs you do not, a mood that accepts not knowing.
+- Police above 0 on the legs you already know (`scout()` names what was seen), and for the legs you do not, a mood that accepts not knowing.
 
 ## When to reconsider
 
-- `ended` is `'none'`: nothing unvisited within `jumps`; widen it (the menu names the nearest unvisited system and how far), or work from a station further out.
+- `ended` is `'none'`: nothing unvisited within `jumps`; widen it (`detail.unvisited` is what is left in range), or work from a station further out.
 - A visited system had a rich belt and a station with storage: that is a base worth working from.
 
 ## Pitfalls

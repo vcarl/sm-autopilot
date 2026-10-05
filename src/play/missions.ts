@@ -37,7 +37,7 @@ const decodeOffer=Schema.decodeUnknownOption(Wire.MissionInfo.mapFields(fields=>
 // A listed mission is kept on its id alone: a row missing a title, a count or a progress field still holds a slot, so it is
 // counted, not dropped. A field that is there must still read.
 const decodeActive=Schema.decodeUnknownOption(Wire.ActiveMissionInfo.mapFields(fields=>({mission_id:fields.mission_id,title:Schema.optionalKey(fields.title),
-  expires_in_ticks:Schema.optionalKey(fields.expires_in_ticks),percent_complete:Schema.optionalKey(fields.percent_complete),
+  rewards:Schema.optionalKey(Schema.NullOr(Wire.MissionRewardsInfo_1.mapFields(Struct.pick(['credits'])))),expires_in_ticks:Schema.optionalKey(fields.expires_in_ticks),percent_complete:Schema.optionalKey(fields.percent_complete),
   community:fields.community,community_percent:fields.community_percent,
   objectives:Schema.optionalKey(Schema.NullOr(Schema.Array(Wire.ObjectiveProgressInfo.mapFields(fields=>({completed:Schema.optionalKey(fields.completed),
     current:Schema.optionalKey(fields.current),required:Schema.optionalKey(fields.required),description:Schema.optionalKey(fields.description),

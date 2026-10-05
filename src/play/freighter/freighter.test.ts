@@ -360,8 +360,6 @@ test('a drained ring rests: routes passes over it and says so, and reassign assi
 
     const built=await menu(runtime);
     assert.ok(!built.moves.some(m=>m.call.startsWith('reassign')),'a freighter re-plans itself; the menu offers no reassign');
-    assert.deepEqual(built.not_now.filter(row=>row.move.startsWith('recall')),[{move:"recall('b', {after:'lap'})",
-      why:'b flies and re-plans on a drained ring by itself; this stops one after the lap it is on'}],renderMenu(built));
 
     // Past routes and assign's every check on the circuit: only the operator's login is missing.
     const out=await reassign('a');

@@ -138,10 +138,7 @@ function render(entry:Entry):string|null {
       const result=rec(response.result),moves:unknown[]|null=Array.isArray(result.moves)?result.moves:null;
       if(action!=='menu'||!moves)return null;
       const who=[result.stance,result.mood].filter(Boolean).join('/');
-      const offered=moves.length?moves.map(text).join(' · '):'(nothing)';
-      const notNow:unknown[]=Array.isArray(result.not_now)?result.not_now:[];
-      const refused=notNow.length?` — not now: ${notNow.map(text).join(' · ')}`:'';
-      return `menu${who?` ${who}`:''}: ${offered}${refused}`;
+      return `menu${who?` ${who}`:''}: ${moves.length?moves.map(text).join(' · '):'(nothing)'}`;
     }
     default:return null;
   }

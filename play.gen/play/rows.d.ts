@@ -1,6 +1,8 @@
 import { Option, type Schema } from 'effect';
 import { type GameError } from './game.ts';
 import { OffSpec } from './storage.ts';
+/** A value as a pilot writes it: single quotes, bare keys. */
+export declare const literal: (value: unknown) => string;
 /** The rows of a reply's list whose read fields decode, as the game sent them. A row that does not is left out and said in a
  * step; an absent or `null` list reads as none (the live server sends `null` for an empty collection). `name` is the row's id for that line. */
 export declare const kept: (action: string, key: string, list: unknown, decode: (row: unknown) => Option.Option<unknown>, name: (row: unknown) => unknown) => unknown[];
