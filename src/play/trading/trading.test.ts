@@ -149,7 +149,7 @@ const HERE={sol_base:[{item_id:'ore',best_buy:8,best_buy_qty:50,best_sell:10,bes
   {item_id:'gem',best_buy:90,best_buy_qty:50,best_sell:100,best_sell_qty:50}]};
 const RANGE={base_id:'range_base',age:0,items:[
   {item_id:'ore',best_buy:15,best_buy_qty:4,buy_orders:[{price_each:15,quantity:4},{price_each:12,quantity:4},{price_each:9,quantity:10}]},
-  {item_id:'gem',best_buy:110,best_buy_qty:50}]};
+  {item_id:'gem',best_buy:130,best_buy_qty:50}]};
 /** A route's stops in short: `base+item` where it takes something on. */
 const said=(route:{legs:{at:string;buys:{item_id:string}[]}[]})=>route.legs.map(leg=>[leg.at,...leg.buys.map(row=>row.item_id)].join('+')).join(' ');
 const fills=(visit:{sold:{item_id:string;quantity_sold:number}[]})=>visit.sold.map(fill=>[fill.item_id,fill.quantity_sold]);
@@ -161,15 +161,15 @@ test('an empty hold: routes buys here, sells there, and sizes each load where th
     const out=await routes({maxStops:2});
     assert.equal(out.status,'done',out.why);
     const [gem]=out.detail.routes;
-    // 20 gems (the hold) bought at 100 here, sold at 110 there, less 7 fuel for the one jump.
+    // 20 gems (the hold) bought at 100 here, sold at 130 there, less 7 fuel for the one jump.
     assert.equal(gem!.next,"tradeRun({stops:[{at:'sol_base',buy:'gem'},{at:'range_base'}]})");
     assert.equal(gem!.legs[0]!.bought,20);
-    assert.deepEqual(gem!.legs[1]!.sold,[{item_id:'gem',quantity:20,revenue:2200}]);
-    assert.equal(gem!.net,2200-2000-7);
+    assert.deepEqual(gem!.legs[1]!.sold,[{item_id:'gem',quantity:20,revenue:2600}]);
+    assert.equal(gem!.net,2600-2000-7);
     assert.equal(gem!.total_jumps,1);
     assert.deepEqual(gem!.unsold,[]);
-    // Ore, when only ore may be taken on: 4 at 15 and 4 at 12 beat the ask of 10; the ninth unit
-    // fetches 9 and is not moved, though the hold has room for twelve more.
+    // Ore, when only ore may be taken on: 4 at 15 and 4 at 12 clear the ask of 10 by MARGIN; the ninth
+    // unit fetches 9 and is not moved, though the hold has room for twelve more.
     const [ore]=(await routes({items:['ore'],maxStops:2})).detail.routes;
     assert.equal(said(ore!),'sol_base+ore range_base');
     assert.equal(ore!.legs[0]!.bought,8);
@@ -199,35 +199,34 @@ test('spreads lists every buyer an item has, ranked as routes ranks them: a stal
   } finally {unbind();rmSync(runtime,{recursive:true,force:true});}
 });
 
-test('routes ranks a stale fat bid below a fresh thin one',async()=>{
+test('routes ranks a sale on a stale fat bid below one on a fresh thin bid',async()=>{
   // twin_base is in Sol, so its trip is 0 jumps and its bid is higher: only its age sinks it.
-  const runtime=remembered([RANGE,{base_id:'twin_base',age:2000,items:[{item_id:'gem',best_buy:130,best_buy_qty:50}]}]);
-  world({mood:'Focused'},{cargo:[],cargoUsed:0,cargoCapacity:20,store:[],markets:HERE,
+  const runtime=remembered([RANGE,{base_id:'twin_base',age:2000,items:[{item_id:'gem',best_buy:200,best_buy_qty:50}]}]);
+  world({mood:'Focused'},{cargo:[{item_id:'gem',quantity:20}],cargoUsed:20,cargoCapacity:20,store:[],markets:HERE,
     pois:[{id:'twin',base_id:'twin_base'}]},runtime);
   try {
     const out=await routes({items:['gem'],maxStops:2});
     assert.equal(out.status,'done',out.why);
-    const [fresh,stale]=out.detail.routes;
-    assert.equal(said(fresh!),'sol_base+gem range_base');
-    assert.equal(said(stale!),'sol_base+gem twin_base');
-    assert.ok(stale!.net>fresh!.net,'the stale route nets more on paper');
-    assert.equal(stale!.legs[1]!.age,2000);
-    assert.ok(stale!.confidence<0.05);
+    const rows=out.detail.routes,fresh=rows.findIndex(row=>said(row)==='range_base'),stale=rows.findIndex(row=>said(row)==='twin_base');
+    assert.ok(fresh>=0&&stale>fresh,rows.map(said).join(', '));
+    assert.ok(rows[stale]!.net>rows[fresh]!.net,'the stale route nets more on paper');
+    assert.equal(rows[stale]!.legs[0]!.age,2000);
+    assert.ok(rows[stale]!.confidence<0.05);
   } finally {unbind();rmSync(runtime,{recursive:true,force:true});}
 });
 
 test('when every book is hours old, rows still rank by net per jump, not by which near-zero confidence is least near zero',async()=>{
-  // Both in Sol, 0 jumps. old_base pays ten times the net, but its book is 2000 ticks older:
-  // unfloored, 0.5^(6000/360) × 2000 ≈ 0.02 sank it under 0.5^(4000/360) × 200 ≈ 0.09.
+  // Both in Sol, 0 jumps. old_base pays twice the net, but its book is 2000 ticks older:
+  // unfloored, 0.5^(6000/360) × 4000 sank it under 0.5^(4000/360) × 2200.
   const runtime=remembered([{base_id:'old_base',age:6000,system_id:'sol',items:[{item_id:'gem',best_buy:200,best_buy_qty:50}]},
     {base_id:'less_old_base',age:4000,system_id:'sol',items:[{item_id:'gem',best_buy:110,best_buy_qty:50}]}]);
-  world({mood:'Focused'},{cargo:[],cargoUsed:0,cargoCapacity:20,store:[],markets:HERE,
+  world({mood:'Focused'},{cargo:[{item_id:'gem',quantity:20}],cargoUsed:20,cargoCapacity:20,store:[],markets:HERE,
     pois:[{id:'old',base_id:'old_base'},{id:'less_old',base_id:'less_old_base'}]},runtime);
   try {
-    const [top,next]=(await routes({items:['gem'],maxStops:2})).detail.routes;
-    assert.equal(said(top!),'sol_base+gem old_base');
-    assert.equal(said(next!),'sol_base+gem less_old_base');
-    assert.ok(top!.confidence<next!.confidence&&next!.confidence<0.001,'age still reads as distrust on the row');
+    const rows=(await routes({items:['gem'],maxStops:2})).detail.routes;
+    const top=rows.find(row=>said(row)==='old_base'),next=rows.find(row=>said(row)==='less_old_base');
+    assert.ok(top&&next&&rows.indexOf(top)<rows.indexOf(next),rows.map(said).join(', '));
+    assert.ok(top.confidence<next.confidence&&next.confidence<0.001,'age still reads as distrust on the row');
   } finally {unbind();rmSync(runtime,{recursive:true,force:true});}
 });
 
@@ -271,11 +270,11 @@ test('a full hold with a far bid: the top route is one stop there that sells it,
     const out=await routes();
     assert.equal(out.status,'done',out.why);
     const [top,near]=out.detail.routes;
-    // 20 gems aboard fetch 110 each a jump away; the purchase is sunk, so only the 7 fuel comes off.
+    // 20 gems aboard fetch 130 each a jump away; the purchase is sunk, so only the 7 fuel comes off.
     assert.equal(top!.next,"tradeRun({stops:[{at:'range_base'}]})");
-    assert.deepEqual(top!.legs[0]!.sold,[{item_id:'gem',quantity:20,revenue:2200}]);
+    assert.deepEqual(top!.legs[0]!.sold,[{item_id:'gem',quantity:20,revenue:2600}]);
     assert.equal(top!.cost,0);
-    assert.equal(top!.net,2200-7);
+    assert.equal(top!.net,2600-7);
     // Selling here is the same model with the stop here: 90 each, no trip.
     assert.equal(near!.next,"tradeRun({stops:[{at:'sol_base'}]})");
     assert.equal(near!.net,1800);
@@ -437,7 +436,7 @@ test("tradeRun from:'store': a withdraw that broke is the stop's short, not a cr
 });
 
 test('a failed route lookup is a row with a why and a partial, not a throw',async()=>{
-  const runtime=remembered([{base_id:'ghost_base',age:0,items:[{item_id:'gem',best_buy:110,best_buy_qty:50}]}]);
+  const runtime=remembered([{base_id:'ghost_base',age:0,items:[{item_id:'gem',best_buy:130,best_buy_qty:50}]}]);
   world({mood:'Focused'},{cargo:[],cargoUsed:0,cargoCapacity:20,store:[],markets:HERE},runtime);
   try {
     const out=await routes();
@@ -542,24 +541,34 @@ export default async function main() {
   assert.deepEqual(gate.ok?[]:gate.errors,[]);
 });
 
-test('a held good is not dumped for 1 cr while a base off the route bids 445 for it (live: 27 null_matter at nexus)',async()=>{
-  const runtime=remembered([{base_id:'twin_base',age:0,system_id:'sol',items:[{item_id:'null_matter',best_buy:445,best_buy_qty:30}]}]);
-  const f=world({mood:'Focused'},{cargo:[{item_id:'null_matter',quantity:27}],cargoUsed:27,cargoCapacity:100,store:[],
-    pois:[{id:'twin',base_id:'twin_base'}],
-    markets:{sol_base:[{item_id:'null_matter',best_buy:1,best_buy_qty:99,best_sell:0,best_sell_qty:0}]}},runtime);
+test('a held good no later stop bids for is not sold for 1 cr at a stop that came to buy (live: 31d1e8fa, 171 platinum_ore)',async()=>{
+  // Live 2026-10-03 (kvothe 17:19Z, run 31d1e8fa): at ramens_rest, 171 platinum_ore sold at 1 cr each for room for
+  // armor_plate at 300, for frontier_station's 308 bid 46 ticks old, which bids nothing for platinum.
+  const runtime=remembered([{base_id:'range_base',age:46,items:[{item_id:'armor_plate',best_buy:308,best_buy_qty:148}]}]);
+  const f=world({mood:'Focused'},{cargo:[{item_id:'platinum_ore',quantity:171}],cargoUsed:171,cargoCapacity:180,store:[],
+    markets:{sol_base:[{item_id:'platinum_ore',best_buy:1,best_buy_qty:98689,best_sell:0,best_sell_qty:0},
+      {item_id:'armor_plate',best_buy:0,best_buy_qty:0,best_sell:300,best_sell_qty:262}]}},runtime);
   try {
-    const out=await routes();
-    assert.equal(out.status,'done',out.why);
-    assert.deepEqual(out.detail.routes.map(row=>row.next),["tradeRun({stops:[{at:'twin_base'}]})"],
-      'selling here at 1 is not a route: the stop would only be a dump');
-    assert.equal(out.detail.routes[0]!.net,27*445);
-
-    const run=await tradeRun({stops:[{at:'sol_base'}]});
-    assert.equal(run.status,'done',run.why);
-    assert.equal(f.count('spacemolt/sell'),0);
-    assert.deepEqual(run.detail.unsold,[{item_id:'null_matter',quantity:27,why:'twin_base bids 445, off this route'}]);
-    assert.match(run.did,/unsold: 27 null_matter \(twin_base bids 445, off this route\)/);
+    const run=await tradeRun({stops:[{at:'sol_base',buy:'armor_plate'},{at:'range_base'}]});
+    assert.equal(f.count('spacemolt/sell'),0,run.did);
+    assert.equal(f.count('spacemolt/buy'),0,'308 at 46 ticks old does not clear 300 by MARGIN');
+    assert.deepEqual(run.detail.unsold,[{item_id:'platinum_ore',quantity:171}]);
   } finally {unbind();rmSync(runtime,{recursive:true,force:true});}
+});
+
+test('a remembered bid is worth its trust on the buy side: no hold is bought for a bid 127 ticks old (live: 3ad42ee5)',async()=>{
+  // Live 2026-10-04 (kvothe 19:39Z, run 3ad42ee5): 172 circuit_board bought at 361 for confederacy's 412 x 358 bid,
+  // 127 ticks old; on arrival it was 250 x 2, -55.8k.
+  for(const [age,bid,bought] of [[127,412,0],[127,450,0],[0,450,20]] as const) {
+    const runtime=remembered([{base_id:'range_base',age,items:[{item_id:'circuit_board',best_buy:bid,best_buy_qty:358}]}]);
+    const f=world({mood:'Focused'},{cargo:[],cargoUsed:0,cargoCapacity:20,store:[],
+      markets:{sol_base:[{item_id:'circuit_board',best_buy:0,best_buy_qty:0,best_sell:361,best_sell_qty:200}]}},runtime);
+    try {
+      const run=await tradeRun({stops:[{at:'sol_base',buy:'circuit_board'},{at:'range_base'}]});
+      assert.equal(run.detail.stops[0]!.bought,bought,`${bid} bid ${age} ticks old: ${run.did}`);
+      assert.equal(f.count('spacemolt/buy'),bought?1:0);
+    } finally {unbind();rmSync(runtime,{recursive:true,force:true});}
+  }
 });
 
 test('a circuit is read off the middle of three laps: the steady state sells what the last lap carried back',async()=>{
@@ -618,14 +627,12 @@ test('a circuit counts only what a lap both buys and sells: the carry lap one bo
 });
 
 test('a circuit never sells what its lap does not buy (live: 16,681 from 2 targeting computers the lap never bought)',async()=>{
-  // The scout's books (tick 1971711), cut to the three goods that ranked. central_nexus is sol_base (here) and
-  // node_alpha is range_base, the far base this world's find_route can place. Nexus bids targeting_computer 8360 and
-  // asks soma 85; alpha asks targeting_computer 8144 × 2 and bids soma 110 × 10 then 105 × 2, steel 20 × 15 then 19;
-  // beta asks steel 18 and bids soma 110 × 1. Lap one takes alpha's two computers, so the steady lap takes none: the
-  // next is 8443, over nexus's 8360. Beta ↔ alpha (one system, 0 jumps): 50 steel at 19, the 20s gone in lap one:
-  // 950 − 900 − floor(900 × 2.5%) = 28. Beta → alpha → nexus (2 jumps × 7 fuel × 1 cr): beta sells the 1 soma it bids
-  // 110 for and buys 39 steel (the 11 soma lap one over-bought still ride to alpha), alpha takes the 39 at 19, nexus
-  // buys 1 soma at 85: 110 + 741 − 702 − 17 − 85 − 2 − 14 = 31.
+  // The scout's books (tick 1971711), cut to the three goods that ranked, the spreads widened past MARGIN.
+  // central_nexus is sol_base (here) and node_alpha is range_base, the far base this world's find_route can place.
+  // Nexus bids targeting_computer 9700 and asks soma 85; alpha asks targeting_computer 8144 × 2 and bids soma 110 × 10
+  // then 105 × 2, steel 20 × 15 then 19; beta asks steel 14 and bids soma 110 × 1. Lap one takes alpha's two computers,
+  // so the steady lap takes none: the next is 8443, which 9700 does not clear by MARGIN. Beta ↔ alpha (one system,
+  // 0 jumps): 50 steel at 19, the 20s gone in lap one: 950 − 700 − floor(700 × 2.5%) = 233. No ring through nexus pays.
   const runtime=remembered([
     {base_id:'range_base',age:46,system_id:'deep_range',items:[
       {item_id:'targeting_computer',best_sell:8144,best_sell_qty:2,sell_orders:[{price_each:8144,quantity:2},{price_each:8443,quantity:1},{price_each:8610,quantity:1}]},
@@ -635,10 +642,10 @@ test('a circuit never sells what its lap does not buy (live: 16,681 from 2 targe
     {base_id:'node_beta_industrial_station',age:17,system_id:'deep_range',items:[
       {item_id:'targeting_computer',best_buy:35,best_buy_qty:667},
       {item_id:'voidborn_neural_soma',best_buy:110,best_buy_qty:1,buy_orders:[{price_each:110,quantity:1},{price_each:73,quantity:31}],best_sell:464,best_sell_qty:12},
-      {item_id:'steel_plate',best_sell:18,best_sell_qty:140298,sell_orders:[{price_each:18,quantity:140298},{price_each:66,quantity:417}]}]}]);
+      {item_id:'steel_plate',best_sell:14,best_sell_qty:140298,sell_orders:[{price_each:14,quantity:140298},{price_each:66,quantity:417}]}]}]);
   world({mood:'Focused'},{cargo:[],cargoUsed:0,cargoCapacity:1200,store:[],taxBps:250,fuelPrice:1,
     markets:{sol_base:[
-      {item_id:'targeting_computer',best_buy:8360,best_buy_qty:7,buy_orders:[{price_each:8360,quantity:7},{price_each:7600,quantity:15}],best_sell:0,best_sell_qty:0},
+      {item_id:'targeting_computer',best_buy:9700,best_buy_qty:7,buy_orders:[{price_each:9700,quantity:7},{price_each:7600,quantity:15}],best_sell:0,best_sell_qty:0},
       {item_id:'voidborn_neural_soma',best_buy:0,best_buy_qty:0,best_sell:85,best_sell_qty:4440,sell_orders:[{price_each:85,quantity:4440},{price_each:89,quantity:31264}]},
       {item_id:'steel_plate',best_buy:12,best_buy_qty:58,buy_orders:[{price_each:12,quantity:58}],best_sell:180,best_sell_qty:9118}]}},runtime);
   try {
@@ -649,13 +656,8 @@ test('a circuit never sells what its lap does not buy (live: 16,681 from 2 targe
       for(const stop of row.circuit!.stops)for(const sale of stop.sell)
         assert.ok(bought.has(sale.item),`${stop.at} sells ${sale.item}, which no stop on the lap buys`);
     }
-    // Sol → alpha → beta, the ring the other way round, now that a stop's buys are the plan's: beta's
-    // 48 steel ride through sol to alpha beside the 1 soma sol's two free units take (46).
     assert.deepEqual(out.detail.routes.map(row=>[row.net,row.circuit!.stops.map(stop=>stop.at)]),[
-      [28,['node_beta_industrial_station','range_base']],
-      [46,['sol_base','range_base','node_beta_industrial_station']],
-      [31,['node_beta_industrial_station','range_base','sol_base']]],
-      'one row per ring of bases, steel the only thing either repeats');
+      [233,['node_beta_industrial_station','range_base']]],'one row per ring of bases, steel the only thing it repeats');
   } finally {unbind();rmSync(runtime,{recursive:true,force:true});}
 });
 
@@ -1018,7 +1020,17 @@ test('routes and tradeRun name the age of each far book a leg was planned on',as
     assert.match(out.did,/best: sol_base buy 20 gem → range_base \(remembered, 40 ticks old\) sell 20 gem,/);
     assert.deepEqual(out.detail.routes[0]!.legs.map(leg=>[leg.source,leg.age]),[['here',0],['remembered',40]]);
     const run=await tradeRun({stops:[{at:'sol_base',buy:'gem'},{at:'range_base'}]});
-    assert.match(run.did,/^sol_base: took 20 gem for range_base's 110 bid \(remembered, 40 ticks old\) → range_base: /);
+    assert.match(run.did,/^sol_base: took 20 gem for range_base's 130 bid \(remembered, 40 ticks old\) → range_base: /);
+  } finally {unbind();rmSync(runtime,{recursive:true,force:true});}
+});
+
+test('a take names the later bid the plan valued it at: the first stop that bids, not the highest (live: 3ad42ee5)',async()=>{
+  // Live 2026-10-04 (kvothe): the report named the highest top bid later on the route, not the book the plan used.
+  const runtime=remembered([RANGE,{base_id:'twin_base',age:0,system_id:'sol',items:[{item_id:'gem',best_buy:200,best_buy_qty:50}]}]);
+  world({mood:'Focused'},{cargo:[],cargoUsed:0,cargoCapacity:20,store:[],markets:HERE,pois:[{id:'twin',base_id:'twin_base'}]},runtime);
+  try {
+    const run=await tradeRun({stops:[{at:'sol_base',buy:'gem'},{at:'range_base'},{at:'twin_base'}]});
+    assert.match(run.did,/^sol_base: took 20 gem for range_base's 130 bid \(remembered, 0 ticks old\) → /);
   } finally {unbind();rmSync(runtime,{recursive:true,force:true});}
 });
 
@@ -1026,7 +1038,7 @@ test('a planned buy that finds no ask, or fewer units than remembered, says so w
   // Live 2026-10-01 (kvothe 15:25Z): tradeRun at confederacy_central_command reported only "nothing".
   const planned={base_id:'sol_base',age:12,items:[{item_id:'gem',best_sell:100,best_sell_qty:50}]};
   for(const [ask,said] of [[0,/^sol_base: no ask for gem here now \(was 100 for 50, 12 ticks ago\); nothing aboard sells at range_base/],
-    [5,/^sol_base: took 5 gem for range_base's 110 bid \(remembered, 0 ticks old\), gem: 5 on the asks here now \(was 100 for 50, 12 ticks ago\) → /]] as const) {
+    [5,/^sol_base: took 5 gem for range_base's 130 bid \(remembered, 0 ticks old\), gem: 5 on the asks here now \(was 100 for 50, 12 ticks ago\) → /]] as const) {
     const runtime=remembered([planned,RANGE]);
     world({mood:'Focused'},{cargo:[],cargoUsed:0,cargoCapacity:20,store:[],
       markets:{sol_base:[{item_id:'gem',best_buy:90,best_buy_qty:50,best_sell:ask?100:0,best_sell_qty:ask}]}},runtime);
@@ -1130,15 +1142,15 @@ test('a sale comes off the remembered bids, so the next run buys only what is le
   const runtime=mkdtempSync(join(tmpdir(),'spacemolt-routes-'));
   world({mood:'Focused'},{cargo:[{item_id:'gem',quantity:10}],cargoUsed:10,cargoCapacity:20,store:[],markets:{
     sol_base:[{item_id:'gem',best_buy:0,best_buy_qty:0,best_sell:100,best_sell_qty:50}],
-    range_base:[{item_id:'gem',best_buy:110,best_buy_qty:4,best_sell:0,best_sell_qty:0,
-      buy_orders:[{price_each:110,quantity:4},{price_each:105,quantity:8}]}]}},runtime);
+    range_base:[{item_id:'gem',best_buy:130,best_buy_qty:4,best_sell:0,best_sell_qty:0,
+      buy_orders:[{price_each:130,quantity:4},{price_each:125,quantity:8}]}]}},runtime);
   try {
     const first=await tradeRun({stops:[{at:'range_base'}]});
     assert.match(first.did,/^range_base: sold 10 gem/);
     const gem=(base:string)=>knownBooks(runtime).find(book=>book.base_id===base)!.items.find(row=>row.item_id==='gem')!;
-    assert.deepEqual([gem('range_base').buy_orders,gem('range_base').best_buy,gem('range_base').best_buy_qty],[[{price_each:105,quantity:2}],105,2]);
+    assert.deepEqual([gem('range_base').buy_orders,gem('range_base').best_buy,gem('range_base').best_buy_qty],[[{price_each:125,quantity:2}],125,2]);
     const run=await tradeRun({stops:[{at:'sol_base',buy:'gem'},{at:'range_base'}]});
-    assert.match(run.did,/^sol_base: took 2 gem for range_base's 105 bid \(remembered, 0 ticks old\), gem: range_base's bids hold 2 → /);
+    assert.match(run.did,/^sol_base: took 2 gem for range_base's 125 bid \(remembered, 0 ticks old\), gem: range_base's bids hold 2 → /);
     const stop=readJournal(runtime).filter(entry=>entry.event==='stop').find(entry=>entry.base_id==='sol_base')!;
     assert.deepEqual(stop?.items,[{item_id:'gem',ask_depth:50,aboard:0,later_bid_depth:{range_base:2},planned:2,sent:2,bought:2}]);
     // The buy comes off this base's remembered asks the same way, a book with no levels at its top.
@@ -1148,12 +1160,12 @@ test('a sale comes off the remembered bids, so the next run buys only what is le
 
 test('what is already aboard for a later bid counts against it: the buy tops it up to that bid\'s depth',async()=>{
   // Live 2026-10-03 (kvothe, run bc564bea): the carry and the buy were sized against the same 16 bids.
-  const runtime=remembered([{base_id:'range_base',age:30,items:[{item_id:'gem',best_buy:110,best_buy_qty:8}]}]);
+  const runtime=remembered([{base_id:'range_base',age:30,items:[{item_id:'gem',best_buy:130,best_buy_qty:8}]}]);
   world({mood:'Focused'},{cargo:[{item_id:'gem',quantity:5}],cargoUsed:5,cargoCapacity:20,store:[],
     markets:{sol_base:[{item_id:'gem',best_buy:0,best_buy_qty:0,best_sell:100,best_sell_qty:50}]}},runtime);
   try {
     const run=await tradeRun({stops:[{at:'sol_base',buy:'gem'},{at:'range_base'}]});
-    assert.match(run.did,/^sol_base: took 3 gem for range_base's 110 bid \(remembered, 30 ticks old\), gem: range_base's bids hold 8, 5 already aboard → /);
+    assert.match(run.did,/^sol_base: took 3 gem for range_base's 130 bid \(remembered, 30 ticks old\), gem: range_base's bids hold 8, 5 already aboard → /);
     const [stop]=readJournal(runtime).filter(entry=>entry.event==='stop');
     assert.deepEqual(stop?.items,[{item_id:'gem',ask_depth:50,aboard:5,later_bid_depth:{range_base:8},planned:3,sent:3,bought:3}]);
   } finally {unbind();rmSync(runtime,{recursive:true,force:true});}
@@ -1202,7 +1214,7 @@ test('buyers docked adds the live book here beside the remembered ones, and name
   try {
     const out=await buyers('gem');
     assert.equal(out.status,'done',out.why);
-    assert.equal(out.did,'gem: range_base bids 110 for 50 (remembered, 0 ticks old, 1 jumps); sol_base bids 90 for 50 (live, 0 jumps)');
+    assert.equal(out.did,'gem: range_base bids 130 for 50 (remembered, 0 ticks old, 1 jumps); sol_base bids 90 for 50 (live, 0 jumps)');
     assert.deepEqual(out.next,["tradeRun({stops:[{at:'range_base'}]})"]);
     assert.equal(f.count('spacemolt_market/view_market'),1,'docked: the live book is read once');
     assert.equal((await buyers([])).status,'refused');

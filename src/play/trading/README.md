@@ -77,20 +77,20 @@ fresh one near, and both are listed.
 ## The model: a route is a list of stops
 
 A route is an ordered list of stops, `[{at, buy?}, …]`, flown from where you are with the
-hold you have. At every stop one rule decides two things. First, sell each held unit whose bid
-here is at least the best bid for it at any later stop on the route, each weighed by how much its
-book can be trusted. A unit is also never sold for under half the best trusted bid any base **off**
-the route posts: 27 null_matter are not dumped at 1 cr while a remembered book elsewhere bids 445.
-Then fill the room that frees, one unit at a time, with whichever of the stop's `buy` items earns
-most on that unit — its best bid later on the route less its ask here plus tax — while that is above
-0. So a stop takes several items when the best one runs thin: 10 gems while they are 10 deep at 100,
-then ore for the rest of the hold. `routes()` offers every item a stop asks for that some known book
-outbids; `tradeRun` offers the stop's `buy`, one item or a list. Both walk the books
-level by level. The last stop has nothing after it, so it sells everything it bids for above that
-floor; whatever is still aboard after it is `unsold` and is not counted. An `unsold` row kept for a
-better bid off the route says where in its `why` (`node_alpha_processing_station bids 445, off this
-route`); a `routes()` row for that base is how to take it there. A stop whose only sales would be
-under that floor sells nothing, so `routes()` never keeps it as a stop that does something.
+hold you have. A carried unit is worth the bid at the **first** later stop that bids for it, times
+how much that book can be trusted (an hour-old book counts half). At every stop that one worth
+decides two things. First, sell each held unit whose bid here is at least its worth. Then fill the
+room that frees, one unit at a time, with whichever of the stop's `buy` items clears most: its worth
+less its ask here × (1 + tax) × 1.15 (`MARGIN`), while that is not below 0. A remembered bid can be
+gone on arrival; the margin and the trust are what a buy pays for that. So a stop takes several
+items when the best one runs thin: 10 gems while they are 10 deep at 100, then ore for the rest of
+the hold. `routes()` offers every item a stop asks for that some known book outbids; `tradeRun`
+offers the stop's `buy`, one item or a list. Both walk the books level by level.
+
+What no later stop bids for (or more than its bids hold) is sold whole at a stop that takes nothing
+on, and at the last stop; a stop that takes goods on sells it only for the room its buys need, so
+171 platinum_ore are not sold at 1 cr at a stop you came to buy at. Whatever is still aboard after
+the last stop is `unsold` and is not counted.
 
 There is no special case for a full hold, an empty one or a mixed one. "Just sell what is aboard
 over there" is the one-stop route `[{at: 'there'}]`, and "buy here, sell there" is
@@ -118,7 +118,7 @@ Each row of `routes` is a `Route`:
 | Field | What it is |
 |---|---|
 | `legs` | one per stop, in order: `{at, source, age, sold, buys, bought, cost, sales_tax}` (below) |
-| `unsold` | `{item_id, quantity, why?}` rows still aboard after the last stop: nothing on the route bids for them, or a base off the route bids at least twice as much (named in `why`). Not in the net |
+| `unsold` | `{item_id, quantity}` rows still aboard after the last stop: nothing on the route bought them. Not in the net |
 | `revenue` | every sale on the route, level by level |
 | `cost` | every buy on the route, level by level (0 from the store) |
 | `sales_tax` | the tax on the buys. Only the docked base's rate is readable, so a buy at a far stop is taxed at this base's rate and `why` says it is an estimate. `null` when no rate is readable here at all (the net is then untaxed and `why` says so) |
@@ -159,7 +159,7 @@ the list with a `why`, a `score` of 0 and the Outcome `partial`.
 | Option | What it is |
 |---|---|
 | `at` | the base to stop at. `tradeRun` flies there itself; a stop you are docked at is not flown to |
-| `buy` | the item to take on here, or a list of them: the plan fills the hold from the list, unit by unit, whichever earns most, one `buy` each. A `routes()` row's `next` lists what its plan took |
+| `buy` | the item to take on here, or a list of them: the plan fills the hold from the list, unit by unit, whichever clears most, one `buy` each. A `routes()` row's `next` lists what its plan took |
 | `quantity` | a cap on all of `buy` together |
 | `from` | `'store'`: take `buy` out of this base's store, at no cost, instead of off the market |
 
@@ -172,7 +172,7 @@ It answers `detail: Traded` = `{stops, unsold, fuel, net}`:
 | Field | What it is |
 |---|---|
 | `stops` | one per stop reached: `{at, sold, bought, spent, why?}`. `sold` is the lib's `SellResponse[]` for this counter, `bought` the units taken on, every item together, `spent` what left the wallet for them, sales tax included, and `why` what fell short here or why nothing was taken |
-| `unsold` | `{item_id, quantity, why?}` rows aboard when the run ended. After the last stop, what no stop bought, or what a base off the route bids twice as much for (named in `why`) |
+| `unsold` | `{item_id, quantity}` rows aboard when the run ended. After the last stop, what no stop bought |
 | `fuel` | fuel units the flights burned, measured from the tank |
 | `net` | sales, less `spent` (tax included), less `fuel × fuel_price_all_in` at the first base the run was docked at. Fuel comes from the tank, not the wallet, so it is priced exactly as `Route.net` prices it: realised `net` against the `routes()` row's `net` is like against like |
 

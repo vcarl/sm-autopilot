@@ -185,7 +185,8 @@ function planned(f:Freighter,stop:Stop,known:Known|undefined,now:number,cap:(ite
     if(one)items.set(item,listing(item,items.get(item)?.buy_orders??[],
       units(levels(one.sell_orders,one.best_sell,one.best_sell_qty).filter(level=>level.price_each<=max_price),part,0,cap(item))));
   }
-  return {base_id:stop.at,source:'faction ledger',age:age??0,items};
+  // Age 0: `share` is this book's trust here; the planner's own (by age) would discount it twice.
+  return {base_id:stop.at,source:'faction ledger',age:0,items};
 }
 /** What a later stop's book says of a sale of `item` there, when it cut a buy. */
 function heard(f:Freighter,stop:Stop,known:Known|undefined,now:number,item:string):string {

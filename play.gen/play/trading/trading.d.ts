@@ -177,8 +177,8 @@ export interface Leg {
     /** Where this stop's book came from and its age in ticks, as `Spread.source`; `here`/0 when live. */
     source: Spread['source'];
     age: number;
-    /** Held goods sold here: each whose trusted bid here is at least its best trusted bid later on
-     * the route, and at least half the best trusted bid at any base known off it. */
+    /** Held goods sold here: each unit whose trusted bid here is at least its worth later, and what no
+     * later stop bids for — at a stop that takes goods on, only for the room its buys need (see `decide`). */
     sold: Sale[];
     /** Each item taken here, and the totals: units, and what they cost at the asks (0 from the store). */
     buys: Buy[];
@@ -188,16 +188,11 @@ export interface Leg {
      * `routes()` prices a far stop's buy at it, and says so in the row's `why`. */
     sales_tax: number | null;
 }
-/** A held row left aboard, and `why`: the better bid known off the route, when there is one. */
-export type Unsold = Row & {
-    why?: string;
-};
 /** A whole route from the hold you have. `net` = `revenue − cost − sales_tax` (known taxes only). */
 export interface Plan {
     legs: Leg[];
-    /** What is still aboard after the last stop: no stop on the route bids for it as well as a base
-     * off the route does (named in `why`), or nobody known bids at all. Not in the net. */
-    unsold: Unsold[];
+    /** What is still aboard after the last stop: what no stop on the route sold. Not in the net. */
+    unsold: Row[];
     revenue: number;
     cost: number;
     sales_tax: number | null;
@@ -214,15 +209,15 @@ export interface PlanStop {
     /** Sales tax on `buy`; null when not known, which sizes it untaxed. */
     rate: number | null;
 }
-/** ponytail: a unit is not sold for under 1/DUMP of the best trusted bid a base off the route
- * posts. Off-route bids are not weighed by the trip there, so a flat ratio stands in for it: a
- * bid a jump away a little over this one still sells here, and `routes()` ranks the trip. Tunable. */
-export declare const DUMP = 2;
+/** ponytail: a unit is bought only while its worth later clears its ask plus tax by this much more:
+ * the remembered bid it is worth may be gone on arrival. A first guess; tune it from the `stop` lines.
+ * Live 2026-10-04 (kvothe 19:39Z, run 3ad42ee5): 172 circuit_board bought at 361 for confederacy's
+ * 412 bid, 127 ticks old and untrusted; on arrival it was 250 for 2. Four such runs lost ~113k. */
+export declare const MARGIN = 0.15;
 /** The route from the hold you have and `free` room: `decide` at each stop, then the hold and the
  * books move by what it did — a base visited twice is one book, so what the first visit took is
- * gone for the second. `elsewhere` is every other book known, off the route: a held good is not
- * sold on the route for less than one of them bids. Pure. */
-export declare function plan(hold: Record<string, number>, free: number, stops: PlanStop[], elsewhere?: readonly Book[]): Plan;
+ * gone for the second. Pure. */
+export declare function plan(hold: Record<string, number>, free: number, stops: PlanStop[]): Plan;
 /** One stop of a `tradeRun`: the base, and optionally what to take there: one item, or several
  * that the plan fills the hold from, unit by unit, whichever earns most. */
 export interface RunStop {
@@ -249,9 +244,8 @@ export interface Visit {
 export interface Traded {
     /** One per stop reached, in order. */
     stops: Visit[];
-    /** What was aboard when the run ended. After the last stop: what no stop bought, or what a base
-     * off the route bids more for (named in the row's `why`). */
-    unsold: Unsold[];
+    /** What was aboard when the run ended. After the last stop: what no stop bought. */
+    unsold: Row[];
     /** Fuel units burned on the flights: the tank's measured drop across each `goTo`. */
     fuel: number;
     /** Sales, less what the buys took out of the wallet (tax included), less `fuel` at the
