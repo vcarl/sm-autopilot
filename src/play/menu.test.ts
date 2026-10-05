@@ -110,11 +110,12 @@ test('missions: turn in what is done; else the best-paying offer with its issuer
   const mission=(id:string,percent:number,extra:Record<string,unknown>={})=>({mission_id:id,title:`Job ${id}`,type:'delivery',difficulty:1,
     percent_complete:percent,expires_in_ticks:360,rewards:{credits:2_000},objectives:[],...extra});
   try {
-    f.board[0]={...f.board[0]!,giver:{name:'Kael Voss',title:'Quartermaster'},faction_name:'Solarian Confederacy',issuing_base:'Sol Base'} as never;
+    f.board[0]={...f.board[0]!,giver:{name:'Kael Voss',title:'Quartermaster'},faction_name:'Solarian Confederacy',issuing_base:'Sol Base',
+      warnings:['Hostile territory']} as never;
     let built=await menu(f.runtime);
     let row=built.moves.find(m=>m.gen==='missions');
     assert.equal(row?.call,"acceptMission('m1')",JSON.stringify(built.moves));
-    assert.match(row!.said,/^mission: Deliver ore, \+1,000 cr, from Kael Voss \(Quartermaster\), Solarian Confederacy, Sol Base; first: 20 ore to Sol Base \(have 0\)/);
+    assert.match(row!.said,/^mission: Deliver ore, \+1,000 cr, from Kael Voss \(Quartermaster\), Solarian Confederacy, Sol Base; first: 20 ore to Sol Base \(have 0\).*; Hostile territory$/);
 
     f.taken.push(mission('done',100));
     row=(await menu(f.runtime)).moves.find(m=>m.gen==='missions');

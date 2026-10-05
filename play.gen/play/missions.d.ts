@@ -5,6 +5,11 @@ import type { AbandonMissionResponse, AcceptMissionResponse, ActiveMissionInfo, 
 import { Effect } from 'effect';
 import { Game, type GameError } from './game.ts';
 import type { Outcome } from './types.ts';
+/** A board row's own `warnings` and `required_modules`, verbatim: the game's words, nothing derived from its type. */
+export declare const caveats: (m: {
+    warnings?: readonly string[] | undefined;
+    required_modules?: readonly string[] | undefined;
+}) => string[];
 /** A board entry, with the 21 KB of dialog dropped and one line we compute for it. */
 export type Offer = Omit<MissionInfo, 'dialog' | 'description'> & {
     /** What it wants, in one line from `objectives`: "20 aluminum_ore to frontier_station". */

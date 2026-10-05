@@ -12,7 +12,7 @@ import {readJournal} from '../run-record.ts';
 import {TICK_MS} from '../sighting-memory.ts';
 import {readPlaces} from './places.ts';
 import {Game,field} from './game.ts';
-import {activeEffect,nextStep,stuck} from './missions.ts';
+import {activeEffect,caveats,nextStep,stuck} from './missions.ts';
 import {acct,defect,pilot,runCalls,step,type Pilot} from './runtime.ts';
 import {around,jumpsFrom,mapOf,nearFacts,readSeen} from './exploration/exploration.ts';
 import {keptSearch,tickNow} from './trading/trading.ts';
@@ -83,6 +83,7 @@ const fnOf=(call:string)=>call.split('(')[0]??'';
 const Offered=Wire.MissionInfo.mapFields(fields=>({mission_id:fields.mission_id,title:Schema.optionalKey(fields.title),
   rewards:Schema.optionalKey(Schema.NullOr(Wire.MissionRewardsInfo_1.mapFields(Struct.pick(['credits'])))),
   giver:Schema.optionalKey(Schema.NullOr(fields.giver)),faction_name:fields.faction_name,issuing_base:fields.issuing_base,
+  warnings:fields.warnings,required_modules:fields.required_modules,
   objectives:Schema.optionalKey(Schema.NullOr(Schema.Array(Wire.ObjectiveInfo_2.mapFields(fields=>({description:Schema.optionalKey(fields.description),
     target_base_id:fields.target_base_id,system_id:fields.system_id,item_id:fields.item_id,quantity:fields.quantity})))))}));
 const decodeOffered=Schema.decodeUnknownOption(Offered);
@@ -244,7 +245,8 @@ export const menuEffect=(runtime?:string)=>Effect.gen(function*() {
     const have=o?.item_id?(acct().state.cargo??[]).filter(row=>row.item_id===o.item_id).reduce((n,row)=>n+row.quantity,0)
       +readStores(runtime).filter(row=>row.item_id===o.item_id).reduce((n,row)=>n+row.quantity,0):undefined;
     return {credits:m.rewards?.credits??0,minutes:minutes(jumps??1,1),title:m.title??m.mission_id,issuer:issuer(m),
-      next:`${o?.description??''}${have===undefined?'':` (have ${have})`}`,...jumps===undefined?{}:{jumps},...have===undefined?{}:{have}};
+      next:`${o?.description??''}${have===undefined?'':` (have ${have})`}`,...jumps===undefined?{}:{jumps},...have===undefined?{}:{have},
+      ...caveats(m).length?{caveats:caveats(m)}:{}};
   };
   if(ready.length) {
     const credits=ready.reduce((n,m)=>n+(m.rewards?.credits??0),0);
@@ -253,7 +255,7 @@ export const menuEffect=(runtime?:string)=>Effect.gen(function*() {
   } else if(best&&free>0) {
     const facts=offer(best);
     offers.push({gen:'missions',call:`acceptMission('${best.mission_id}')`,facts,
-      said:`mission: ${facts.title}, ${cr(facts.credits)}, from ${facts.issuer}; first: ${facts.next}${facts.jumps===undefined?'':`, ${facts.jumps} jumps`}`});
+      said:`mission: ${facts.title}, ${cr(facts.credits)}, from ${facts.issuer}; first: ${facts.next}${facts.jumps===undefined?'':`, ${facts.jumps} jumps`}${(facts.caveats??[]).map(c=>`; ${c}`).join('')}`});
   } else if(best&&dropped) {
     const facts=offer(best);
     offers.push({gen:'missions',call:`abandonMission('${dropped.mission_id}')`,facts:{...facts,drops:dropped.title,why:stuck(dropped)},

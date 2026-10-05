@@ -31,7 +31,7 @@ const asCompleted=(body:unknown)=>body as CompleteMissionResponse; // cast: froz
 
 /** What is read of a board row, an active row and a reply: the fields the code reads, nothing the spec adds. */
 const decodeOffer=Schema.decodeUnknownOption(Wire.MissionInfo.mapFields(fields=>({mission_id:fields.mission_id,title:Schema.optionalKey(fields.title),type:Schema.optionalKey(fields.type),
-  template_id:fields.template_id,provided_items:fields.provided_items,
+  template_id:fields.template_id,provided_items:fields.provided_items,warnings:fields.warnings,required_modules:fields.required_modules,
   rewards:Schema.optionalKey(Schema.NullOr(Wire.MissionRewardsInfo_1.mapFields(Struct.pick(['credits','skill_xp'])))),
   objectives:Schema.optionalKey(Schema.NullOr(Schema.Array(Wire.ObjectiveInfo_2.mapFields(Struct.pick(['description','item_id','quantity','target_base_id','target_base_name','system_id','system_name'])))))})));
 // A listed mission is kept on its id alone: a row missing a title, a count or a progress field still holds a slot, so it is
@@ -47,6 +47,9 @@ const decodeTitle=Schema.decodeUnknownOption(Wire.AcceptMissionResponse.mapField
 const decodeAbandoned=Schema.decodeUnknownOption(Wire.AbandonMissionResponse.mapFields(Struct.pick(['title'])));
 const decodeEarned=Schema.decodeUnknownOption(Wire.CompleteMissionResponse.mapFields(Struct.pick(['credits_earned'])));
 const missionId=(row:unknown)=>field(row,'mission_id');
+/** A board row's own `warnings` and `required_modules`, verbatim: the game's words, nothing derived from its type. */
+export const caveats=(m:{warnings?:readonly string[]|undefined;required_modules?:readonly string[]|undefined})=>
+  [...m.warnings??[],...m.required_modules?.length?[`required modules: ${m.required_modules.join(', ')}`]:[]];
 
 
 /** A board entry, with the 21 KB of dialog dropped and one line we compute for it. */
@@ -213,7 +216,7 @@ export const missionsEffect=()=>jobEffect<{board:Offer[];active:Active[];max:num
     did:`${free} slot(s) free: ${mine.active.length} of ${mine.max_missions} active${notes.length?` (${notes.join(', ')})`:''}; ${offers.length} on the board, ${fitting.length} fit a library call`
       +(rows.length?`. Held: ${nextLines(rows)}`:''),
     detail:{board:offers,active:rows,max:mine.max_missions,slots_free:free},
-    next:free?fitting.slice(0,Math.min(3,free)).map(o=>`acceptMission('${o.mission_id}') — ${o.title??o.mission_id}, ${o.rewards?.credits??0} cr, fits ${o.fits}`)
+    next:free?fitting.slice(0,Math.min(3,free)).map(o=>`acceptMission('${o.mission_id}') — ${o.title??o.mission_id}, ${o.rewards?.credits??0} cr, fits ${o.fits}${caveats(o).map(c=>`; ${c}`).join('')}`)
       :[ready.length?`completeMissions() turns in ${ready.length} finished mission(s) and frees the slot(s)`
         :'every slot is taken: completeMissions() at the base that wants them',
       ...blocked.slice(0,2).map(r=>`abandonMission('${r.mission_id}') frees a slot — ${r.title}: ${r.stuck}`)]};

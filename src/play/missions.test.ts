@@ -283,6 +283,18 @@ test('a board row with no title or type is still listed and can still be accepte
   } finally {unbind();}
 });
 
+test("a board row's own warnings and required modules reach its next line verbatim",async()=>{
+  world({},async(action,send)=>{
+    if(action!=='spacemolt/get_missions')return send();
+    return {structuredContent:{missions:[{mission_id:'w1',title:'Escort',type:'mining',objectives:[{item_id:'ore',quantity:5,description:'5 ore'}],
+      rewards:{credits:900},warnings:['Pirate activity reported on route'],required_modules:['deep_core_extractor_i']}]}};
+  });
+  try {
+    const board=await missions();
+    assert.match(board.next[0]!,/acceptMission\('w1'\) — Escort, 900 cr, fits gatherUntil; Pirate activity reported on route; required modules: deep_core_extractor_i$/);
+  } finally {unbind();}
+});
+
 test('a withdraw that only partly finished is said as that, and the complete is still sent once',async()=>{
   const sent:string[]=[];
   // The hold has room for 12 of the 20: the withdraw comes back partial, and the complete the server then refuses is still sent.
