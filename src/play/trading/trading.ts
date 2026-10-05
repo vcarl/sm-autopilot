@@ -20,6 +20,7 @@ import {replyBody,rows as listOf} from '../../storage.ts';
 import {inFaction} from '../../trade-intel.ts';
 import * as Wire from '../../wire.gen.ts';
 import {bookEffect,buyEffect,debitBook,knownBooks,marketTick,sellEffect,slipped,ticksOld,type RememberedBook} from '../market.ts';
+import {readStores,storedAt} from '../world.ts';
 import {counterEffect} from '../counter.ts';
 import {baseValues} from '../industry/crafting.ts';
 import {readDrained,ring} from '../freighter/drained.ts';
@@ -460,20 +461,25 @@ export function plan(hold:Record<string,number>,free:number,stops:PlanStop[],val
   const sides=new Map<string,Sides|undefined>();
   for(const {book} of stops)if(!sides.has(book.base_id))sides.set(book.base_id,book.items&&new Map([...book.items]
     .map(([id,row])=>[id,{bids:levels(row,'bids'),asks:levels(row,'asks')}])));
+  // A base's own asks (its store's level among them) are one source however often the route calls there.
+  const over=new Map<string,Record<string,OrderLevel[]>>();
+  for(const {book,asks} of stops)if(asks&&!over.has(book.base_id))over.set(book.base_id,{...asks});
   const legs=stops.map((stop,i):Leg=>{
-    const here=sides.get(stop.book.base_id);
+    const here=sides.get(stop.book.base_id),asks=over.get(stop.book.base_id);
     const later=stops.slice(i+1).map(next=>({trust:trust(next.book.age),sides:sides.get(next.book.base_id)}));
-    const {sold,buys}=decide(aboard,free,here,trust(stop.book.age),later,stop,values);
+    const {sold,buys}=decide(aboard,free,here,trust(stop.book.age),later,asks?{...stop,asks}:stop,values);
     for(const sale of sold) {
       aboard[sale.item_id]=(aboard[sale.item_id]??0)-sale.quantity;free+=sale.quantity;
       const row=here?.get(sale.item_id);if(row)row.bids=drop(row.bids,sale.quantity);
     }
     for(const {item_id,quantity} of buys) {
       aboard[item_id]=(aboard[item_id]??0)+quantity;free-=quantity;
-      const row=here?.get(item_id);if(row&&!stop.asks)row.asks=drop(row.asks,quantity);
+      const row=here?.get(item_id),listed=asks?.[item_id];
+      if(asks&&listed)asks[item_id]=drop(listed,quantity);else if(row)row.asks=drop(row.asks,quantity);
     }
+    // A stored unit costs 0, so it is taxed 0: the rate stands for what the asks cost.
     return {at:stop.book.base_id,source:stop.book.source,age:stop.book.age,sold,buys,
-      bought:buys.reduce((sum,row)=>sum+row.quantity,0),cost:buys.reduce((sum,row)=>sum+row.cost,0),sales_tax:taxOn(buys,stop.asks?0:stop.rate)};
+      bought:buys.reduce((sum,row)=>sum+row.quantity,0),cost:buys.reduce((sum,row)=>sum+row.cost,0),sales_tax:taxOn(buys,stop.rate)};
   });
   const revenue=legs.reduce((sum,leg)=>sum+leg.sold.reduce((part,sale)=>part+sale.revenue,0),0);
   const cost=legs.reduce((sum,leg)=>sum+leg.cost,0),tax=legs.reduce((sum,leg)=>sum+(leg.sales_tax??0),0);
@@ -486,7 +492,8 @@ export function plan(hold:Record<string,number>,free:number,stops:PlanStop[],val
 export interface RunStop {at:string;buy?:string|readonly string[];
   /** A cap on all of `buy` together; the plan sizes it otherwise. */
   quantity?:number;
-  /** `'store'`: `buy` comes out of this base's store, at no cost, instead of off the market. */
+  /** `'store'`: `buy` comes out of this base's store only, never off the market. Without it the store's units
+   * (as `world.db` keeps them) go first, at no cost, then the asks. */
   from?:'store'}
 /** A stop's `buy` as a list. */
 const items=(stop:RunStop)=>stop.buy===undefined?[]:typeof stop.buy==='string'?[stop.buy]:[...stop.buy];
@@ -551,14 +558,14 @@ function dryness(item:string,now:Listing|undefined,before:RememberedBook|undefin
 }
 
 /** Whether the rest of a route can still pay: something aboard that a stop ahead bids for, or a stop
- * ahead with a `buy` it has a known ask for (`from:'store'` counts). A stop with no known book may do
+ * ahead with a `buy` it has a known ask or stored goods for (`from:'store'` counts). A stop with no known book may do
  * either. False means the flights ahead are provably empty, as far as the books go. */
-function ahead(hold:Record<string,number>,stops:readonly RunStop[],known:ReadonlyMap<string,Book>):boolean {
+function ahead(hold:Record<string,number>,stops:readonly RunStop[],known:ReadonlyMap<string,Book>,stock:(at:string,item:string)=>number):boolean {
   return stops.some(stop=>{
     const book=known.get(stop.at)?.items;
     if(!book)return true;
     return Object.entries(hold).some(([id,n])=>n>0&&(book.get(id)?.best_buy??0)>0)
-      ||items(stop).some(id=>stop.from==='store'||depth(book.get(id))>0);
+      ||items(stop).some(id=>stop.from==='store'||depth(book.get(id))>0||stock(stop.at,id)>0);
   });
 }
 
@@ -635,15 +642,17 @@ export const tradeRunEffect=(opts:{stops:RunStop[]})=>{
       const later=route.slice(i+1).map(next=>next.at);
       const hold=miningInventory(acct().state);
       const known=byBase(live,yield* farBooksEffect(here,marketTick()));
-      const wanted=items(stop),store=stop.from==='store'?yield* storeRows():[];
+      // The store here is a source too, at no cost, taken before the asks: read live for `from:'store'`, else as kept.
+      const only=stop.from==='store',wanted=items(stop),store=only?yield* storeRows():storedAt(runtimeDir(),here);
       const stored=(item:string)=>store.filter(row=>row.item_id===item).reduce((sum,row)=>sum+row.quantity,0);
+      const asksHere=(item:string)=>{const row=listed.get(item);return row?levels(row,'asks'):[];};
       // ponytail: one tax read for the stop, on its first item: every rate read live is the station's.
       const [first]=wanted;
-      const rate=first!==undefined&&stop.from!=='store'?yield* taxRate(first):0;
+      const rate=first!==undefined&&!only?yield* taxRate(first):0;
+      const asks=Object.fromEntries(wanted.flatMap(item=>stored(item)||only
+        ?[[item,[...stored(item)?[{price_each:0,quantity:stored(item)}]:[],...only?[]:asksHere(item)]]]:[]));
       const [leg]=plan(hold,cargo(),[
-        {book:live,buy:wanted,...stop.quantity===undefined?{}:{quantity:stop.quantity},
-          ...stop.from==='store'?{asks:Object.fromEntries(wanted.map(item=>[item,stored(item)?[{price_each:0,quantity:stored(item)}]:[]]))}:{},
-          rate},
+        {book:live,buy:wanted,...stop.quantity===undefined?{}:{quantity:stop.quantity},...Object.keys(asks).length?{asks}:{},rate},
         ...later.map(base=>({book:known.get(base)??{base_id:base,source:'remembered' as const,age:0},rate:null}))],values).legs;
       if(!leg){told.push(`${here}: nothing`);continue;}
       if(leg.sold.length) {
@@ -657,25 +666,30 @@ export const tradeRunEffect=(opts:{stops:RunStop[]})=>{
       const dried=stop.from==='store'?[]:wanted.flatMap(item=>dryness(item,listed.get(item),before,marketTick(),
         leg.buys.find(row=>row.item_id===item)?.quantity??0));
       notes.push(...dried);
-      const asked=stop.from==='store'?wanted:wanted.filter(item=>depth(listed.get(item))>0);
-      if(asked.length&&!leg.buys.length)notes.push(`took no ${asked.join(', ')}: nothing ${stop.from==='store'?'in the store':'on the asks'} here clears the first bid for it later on the route, trusted, by ${Math.round(MARGIN*100)}%`);
+      const asked=only?wanted:wanted.filter(item=>depth(listed.get(item))>0||stored(item)>0);
+      if(asked.length&&!leg.buys.length)notes.push(`took no ${asked.join(', ')}: nothing ${only?'in the store':'in the store or on the asks'} here clears the first bid for it later on the route, trusted, by ${Math.round(MARGIN*100)}%`);
       const loaded:{item_id:string;quantity:number}[]=[];
       // What each planned buy sent and got, and why not when it got none: the stop's journal line.
       const sent=new Map<string,{sent:number;bought:number;why?:string}>();
       for(const {item_id,quantity} of leg.buys) {
         const want=Math.min(quantity,cargo());
-        if(!want){notes.push(`took no ${item_id}: no room left after the sales`);sent.set(item_id,{sent:0,bought:0,why:'no room'});}
-        else if(stop.from==='store') {
-          const took=yield* withdrawEffect([{item_id,quantity:want}]);
-          const moved=reached(took)?.moved.reduce((sum,row)=>sum+row.quantity,0)??0;
+        if(!want){notes.push(`took no ${item_id}: no room left after the sales`);sent.set(item_id,{sent:0,bought:0,why:'no room'});continue;}
+        // The store's units first: they are the plan's zero-cost level.
+        const kept=Math.min(want,stored(item_id));
+        let moved=0;
+        if(kept>0) {
+          const took=yield* withdrawEffect([{item_id,quantity:kept}]);
+          moved=reached(took)?.moved.reduce((sum,row)=>sum+row.quantity,0)??0;
           visit.bought+=moved;if(moved)loaded.push({item_id,quantity:moved});
-          sent.set(item_id,{sent:want,bought:moved,...moved?{}:{why:took.why??took.did}});
+          sent.set(item_id,{sent:kept,bought:moved,...moved?{}:{why:took.why??took.did}});
           if(!moved)short.push(`${here}: withdrew no ${item_id}: ${took.why??took.did}`);
-        } else {
+        } else if(only)sent.set(item_id,{sent:0,bought:0,why:'none stored'});
+        if(!only&&want>moved) {
+          const rest=want-moved;
           // What the hold and the wallet were before the buy: a lost reply is measured against these, never re-sent.
           const before={held:miningInventory(acct().state)[item_id]??0,credits:acct().state.player?.credits??0};
           // The plan priced this buy on the book just read, against the route's bids: no cap from a far remembered ask.
-          const got=yield* buyEffect(item_id,want,{maxEach:Infinity});
+          const got=yield* buyEffect(item_id,rest,{maxEach:Infinity});
           const out=reached(got);
           let n=0;
           if(out) {
@@ -695,13 +709,13 @@ export const tradeRunEffect=(opts:{stops:RunStop[]})=>{
             }
           }
           if(n)loaded.push({item_id,quantity:n});
-          sent.set(item_id,{sent:want,bought:n,...got.status==='done'?{}:{why:got.why??got.did}});
+          sent.set(item_id,{sent:kept+rest,bought:moved+n,...got.status==='done'?{}:{why:got.why??got.did}});
           if(got.status!=='done')short.push(`${here}: ${got.why??got.did}`);
         }
       }
       // A take the later bids bound, with more on offer here, names those bids' depth and what was already aboard for them.
       // Live 2026-10-03 (kvothe, run bc564bea): 137 solarian_biotic bought for b495…'s bids, 16 deep on arrival.
-      const have=(item:string)=>stop.from==='store'?stored(item):depth(listed.get(item));
+      const have=(item:string)=>stored(item)+(only?0:depth(listed.get(item)));
       const aboard=(item:string)=>(hold[item]??0)-(leg.sold.find(row=>row.item_id===item)?.quantity??0);
       for(const {item_id,quantity} of loaded) {
         const book=target(item_id,later.map(base=>known.get(base))),bids=depth(book?.items?.get(item_id),'bids');
@@ -714,12 +728,12 @@ export const tradeRunEffect=(opts:{stops:RunStop[]})=>{
       // Live 2026-10-02 (kvothe 18:01Z, run d364ca05): 6 of 66 planned sunspindle bought; no line said what was on offer.
       // Live 2026-10-03 (kvothe): a planned buy that was not made, and the remembered books' ages, were only in prose.
       const dir=runtimeDir(),ship=acct().state.ship;
-      if(dir)journalRun(dir,{base_id:here,book_tick:marketTick(),...stop.from==='store'?{from:'store'}:{},
+      if(dir)journalRun(dir,{base_id:here,book_tick:marketTick(),...only?{from:'store'}:{},
         before_tick:before?.tick??null,items:wanted.map(item_id=>{
           const planned=leg.buys.find(row=>row.item_id===item_id)?.quantity??0;
-          const did=sent.get(item_id)??{sent:0,bought:0,...!have(item_id)?{why:stop.from==='store'?'none stored':'no ask'}:{why:'plan took none'}};
+          const did=sent.get(item_id)??{sent:0,bought:0,...!have(item_id)?{why:only?'none stored':'no ask'}:{why:'plan took none'}};
           const bid_depth=Object.fromEntries(later.flatMap(base=>{const row=known.get(base)?.items?.get(item_id);return row?[[base,depth(row,'bids')]]:[];}));
-          return {item_id,[stop.from==='store'?'stored':'ask_depth']:have(item_id),aboard:aboard(item_id),later_bid_depth:bid_depth,planned,...did};}),
+          return {item_id,...only?{}:{ask_depth:depth(listed.get(item_id))},...only||stored(item_id)?{stored:stored(item_id)}:{},aboard:aboard(item_id),later_bid_depth:bid_depth,planned,...did};}),
         later:later.map(base=>{const book=known.get(base);return {base_id:base,source:book?.items?book.source:null,age:book?.items?book.age:null};}),
         cargo_used:ship?.cargo_used??null,cargo_capacity:ship?.cargo_capacity??null},'stop');
       const why=[...short.filter(line=>line.startsWith(`${here}:`)),...notes].join('; ');
@@ -729,7 +743,7 @@ export const tradeRunEffect=(opts:{stops:RunStop[]})=>{
       // Live 2026-10-02 (kvothe 19:36Z, run e4ca9b3f): nova_terra_central's sunspindle asks drained by
       // the run's own laps, nothing bought, then 6 jumps flown for "nothing → nothing — net −64 cr".
       const idle=route.slice(i+1);
-      if(idle.length&&!ahead(miningInventory(acct().state),idle,known)) {
+      if(idle.length&&!ahead(miningInventory(acct().state),idle,known,(at,item)=>storedAt(runtimeDir(),at).find(row=>row.item_id===item)?.quantity??0)) {
         const end=detail(),why=`nothing aboard sells at ${later.join(', ')}, and no stop ahead has a known ask to buy at — ${idle.map(next=>next.at).join(' → ')} not flown`;
         return {status:'partial',did:`${said()}; ${why} — net ${end.net} cr after ${fuel} fuel at ${fuelPrice??0} cr`,
           why:[...short,why].join('; '),detail:end,next:['routes()']};
@@ -889,8 +903,8 @@ const SLACK=0.1;
  * Reads only. Jumps come from `get_map` and each base's system, which the market memory keeps;
  * fuel per jump from one `find_route`. A stop that could not be placed is a row with a `why` and
  * the Outcome `partial`, never a throw. Undocked, every book is a remembered one, aged against `tickNow`.
- *
- * ponytail: goods in this base's store are not weighed; `tradeRun` takes them with `from:'store'`. */
+ * Goods in your stores, at any base, are a source as their asks are, at no cost: a route may take them on
+ * where they are kept, and `tradeRun` withdraws them before it buys. */
 export function routes(opts:RouteOpts={}):Promise<Outcome<{routes:Route[];sources:string[]}>> {return edge(routesEffect(opts));}
 /** `routes` as an Effect, for `edge` and for converted callers; never in a barrel. */
 export const routesEffect=(opts:RouteOpts={})=>jobEffect<Found>('routes',(opts.items??[]).join(' '),searchEffect(pilotSeat(),opts));
@@ -930,7 +944,19 @@ export const searchEffect=(seat:Seat,opts:RouteOpts={}):Effect.Effect<Said<Found
   for(const book of known.values())for(const row of book.items.values())bid.set(row.item_id,Math.max(bid.get(row.item_id)??0,row.best_buy));
   const offers=new Map([...known].map(([at,book])=>[at,[...book.items.values()].filter(row=>wanted(row.item_id)
     &&levels(row,'asks').length&&(bid.get(row.item_id)??0)>unit(levels(row,'asks'),1)*(1+(rate??0))).map(row=>row.item_id)]));
-  const stopAt=(at:string):PlanStop[]=>{const book=known.get(at);return book?[{book,buy:offers.get(at)??[],rate}]:[];};
+  // The pilot's own stores are sources too, as a zero-cost level under each base's asks: anything some known book bids for.
+  // A freighter's seat is another account's, and a circuit's lap buys at the market, so neither weighs them.
+  const stock=new Map<string,Map<string,number>>();
+  if(!circuit&&seat.freighter===undefined)for(const row of readStores(seat.runtime))
+    if(wanted(row.item_id)&&(bid.get(row.item_id)??0)>0)stock.set(row.base_id,(stock.get(row.base_id)??new Map()).set(row.item_id,row.quantity));
+  const stopAt=(at:string):PlanStop[]=>{
+    const book=known.get(at),kept=stock.get(at);
+    if(!book)return [];
+    if(!kept)return [{book,buy:offers.get(at)??[],rate}];
+    const asks=Object.fromEntries([...kept].map(([item,quantity])=>{const row=book.items.get(item);
+      return [item,[{price_each:0,quantity},...row?levels(row,'asks'):[]]];}));
+    return [{book,buy:[...new Set([...offers.get(at)??[],...kept.keys()])],asks,rate}];
+  };
 
   const taxWhy=(planned:Pick<Plan,'legs'|'sales_tax'>)=>planned.sales_tax===null?['sales tax not known; net is untaxed']
     :planned.legs.filter(leg=>leg.bought&&leg.at!==here).map(leg=>`tax at ${leg.at} estimated at ${here}'s ${Math.round((rate??0)*10_000)} bps`);

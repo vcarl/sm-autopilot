@@ -22,6 +22,7 @@ import {bookEffect,buyEffect,overpay} from '../market.ts';
 import {kept,offSpec,told} from '../rows.ts';
 import {Stopped,acct,admit,edge,jobEffect,pilot,reached,runtimeDir,step,stopped} from '../runtime.ts';
 import {OffSpec,folded,stowEffect} from '../storage.ts';
+import {readStores} from '../world.ts';
 import type {Outcome,Row} from '../types.ts';
 
 /** The catalog recipe beside what it is worth here and what you already hold. */
@@ -392,9 +393,11 @@ export interface Supplied {
   /** Credits the buys actually cost, wallet before vs after (fee-inclusive; `total_cost` alone
    * is the pre-tax subtotal). */
   spent:number;
+  /** Inputs it had to buy or is still short of that your stores at other bases hold, as last read or moved. */
+  elsewhere:{item_id:string;base_id:string;quantity:number}[];
 }
 
-const noSupplied=():Supplied=>({stowed:[],bought:[],short:[],spent:0});
+const noSupplied=():Supplied=>({stowed:[],bought:[],short:[],spent:0,elsewhere:[]});
 /** This base's store holds every input `quantity` of a recipe escrows — at the workshop or
  * wherever `at` names, since that decides the inputs.
  *
@@ -403,13 +406,15 @@ const noSupplied=():Supplied=>({stowed:[],bought:[],short:[],spent:0});
  * store at this market. The whole bill is estimated (buy fee included) before anything moves:
  * over `maxSpend`, or an input over `maxEach` each (with none, over `OVERPAY` × the cheapest ask
  * remembered at another base, named), it is refused with nothing stowed or bought. An input this market does not
- * sell comes back in `short` with its `source`, and the status is `partial`. Each buy keeps
+ * sell comes back in `short` with its `source`, and the status is `partial`. What your stores at other bases
+ * hold of an input it lacks is named in `did` and `elsewhere`, never fetched. Each buy keeps
  * `credits − permissions.credit_reserve`. A buy or a stow whose reply is lost is never re-sent:
  * the store is re-read, and what it still lacks is `short`. */
 export const supplyEffect=(recipeId:string,quantity=1,opts:{at?:'workshop'|string;maxSpend?:number;maxEach?:number}={})=>
   jobEffect<Supplied>('supply',`${quantity} × ${recipeId}${opts.at?` at ${opts.at}`:''}`,folded<Supplied>('supply',noSupplied,Effect.gen(function*() {
     const none=noSupplied();
-    const refuse=(why:string,next:string[]=[])=>({status:'refused' as const,did:`supplied no ${recipeId}`,why,detail:none,next});
+    let away='';
+    const refuse=(why:string,next:string[]=[])=>({status:'refused' as const,did:`supplied no ${recipeId}${away}`,why,detail:none,next});
     const blocked=yield* admit('supply');
     if(blocked)return refuse(blocked);
     if(!Number.isInteger(quantity)||quantity<1)
@@ -426,6 +431,10 @@ export const supplyEffect=(recipeId:string,quantity=1,opts:{at?:'workshop'|strin
 
     const open=gap(yield* storeRows());
     if(!open.length)return {status:'done',did:`${bay.base}'s store already holds every input for ${quoted.runs} run(s) of ${name}`,detail:none};
+    // What the rest of your stores hold of what this one lacks: named, never fetched.
+    const elsewhere=readStores(runtimeDir()).filter(row=>row.base_id!==bay.base&&open.some(gone=>gone.item_id===row.item_id))
+      .map(row=>({item_id:row.item_id,base_id:row.base_id,quantity:row.quantity}));
+    away=elsewhere.length?`; stored elsewhere: ${elsewhere.slice(0,5).map(row=>`${row.quantity} ${row.item_id} at ${row.base_id}`).join(', ')}`:'';
 
     // The plan before any move: the hold covers what it can, the market is asked for the rest.
     const aboard=miningInventory(acct().state);
@@ -469,11 +478,11 @@ export const supplyEffect=(recipeId:string,quantity=1,opts:{at?:'workshop'|strin
 
     const sourceOf=yield* sources();
     const short=gap(yield* storeRows()).map(row=>({...row,source:sourceOf(row.item_id)}));
-    const detail={stowed,bought,short,spent};
+    const detail={stowed,bought,short,spent,elsewhere};
     const did=`${name}: `+[stowed.length?`stowed ${list(stowed)}`:'',bought.length?`bought ${list(bought)} for ${spent} cr`:'']
-      .filter(Boolean).join(', ')+(short.length?'':`; ${bay.base}'s store holds every input`);
+      .filter(Boolean).join(', ')+(short.length?'':`; ${bay.base}'s store holds every input`)+away;
     if(!short.length)return {status:'done',did,detail,next:[`craft('${recipeId}', ${quantity}${opts.at?`, {at:'${opts.at}'}`:''})`]};
-    return {status:'partial',did:did.replace(/: $/,': nothing moved'),
+    return {status:'partial',did:did.replace(/: (;|$)/,': nothing moved$1'),
       why:[`still short ${short.map(row=>`${row.item_id} ${row.have} of ${row.need} (${row.source})`).join(', ')}`,...whys].join('; '),
       detail,next:short.slice(0,3).map(row=>`materials('${row.item_id}', ${row.need-row.have}) names what to mine for it`)};
   })));

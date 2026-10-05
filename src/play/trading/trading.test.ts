@@ -11,6 +11,7 @@ import {bridgeWorld,TICK,type WorldOptions} from '../../test-support/bridge-worl
 import {buy,knownBooks,prices,sell,slipped,debitBook,rememberBook} from '../market.ts';
 import {bind,runCalls,stop,unbind,type Pilot} from '../runtime.ts';
 import {goTo} from '../travel.ts';
+import {storage} from '../storage.ts';
 import {check} from '../../run.ts';
 import {readPlaces} from '../places.ts';
 import {journalCommand,readJournal} from '../../run-record.ts';
@@ -450,12 +451,32 @@ test('a failed route lookup is a row with a why and a partial, not a throw',asyn
   } finally {unbind();rmSync(runtime,{recursive:true,force:true});}
 });
 
-test('the market memory drops a book older than a day at the next read, whatever the count',async()=>{
+test('the market memory keeps every base whatever its age: a consumer discounts by age, the memory never forgets',async()=>{
   const runtime=remembered([{base_id:'range_base',age:100,items:[]},{base_id:'old_base',age:9000,items:[]}]);
   world({mood:'Focused'},{cargo:[],cargoUsed:0,store:[],markets:HERE},runtime);
   try {
     assert.equal((await prices(['ore'])).status,'done');
-    assert.deepEqual(knownBooks(runtime).map(row=>row.base_id),['sol_base','range_base']);
+    assert.deepEqual(knownBooks(runtime).map(row=>row.base_id),['sol_base','range_base','old_base']);
+  } finally {unbind();rmSync(runtime,{recursive:true,force:true});}
+});
+
+test('stored goods are a source by default: routes takes them on where they are kept at no cost, and tradeRun withdraws them before it buys',async()=>{
+  // Live 2026-10-03 (kvothe): ~1,100 copper_ore bought at confederacy/procyon/nova while ~2,700 sat in frontier's store.
+  const runtime=remembered([{base_id:'range_base',age:0,items:[{item_id:'ore',best_buy:15,best_buy_qty:99}]}]);
+  const f=world({mood:'Focused'},{cargo:[],cargoUsed:0,cargoCapacity:20,store:[{item_id:'ore',quantity:8}],
+    markets:{sol_base:[{item_id:'ore',best_buy:8,best_buy_qty:50,best_sell:10,best_sell_qty:50}]}},runtime);
+  try {
+    assert.equal((await storage()).status,'done','the view keeps the store in world.db');
+    const [top]=(await routes({maxStops:2})).detail.routes;
+    assert.equal(top!.next,"tradeRun({stops:[{at:'sol_base',buy:'ore'},{at:'range_base'}]})");
+    // 8 from the store at 0, then the asks while 15 clears 10 × (1 + MARGIN): 12 more at 10.
+    assert.deepEqual(top!.legs[0]!.buys,[{item_id:'ore',quantity:20,cost:120}]);
+    const out=await tradeRun({stops:[{at:'sol_base',buy:'ore'},{at:'range_base'}]});
+    assert.equal(out.status,'done',out.why);
+    assert.equal(f.count('spacemolt_storage/withdraw'),1);
+    assert.equal(out.detail.stops[0]!.bought,20);
+    const stop=journal(runtime).find(line=>line.event==='stop');
+    assert.deepEqual((stop?.items as Record<string,unknown>[])[0],{item_id:'ore',ask_depth:50,stored:8,aboard:0,later_bid_depth:{range_base:99},planned:20,sent:20,bought:20});
   } finally {unbind();rmSync(runtime,{recursive:true,force:true});}
 });
 
@@ -1163,7 +1184,7 @@ test('a sale comes off the remembered bids, so the next run buys only what is le
     const first=await tradeRun({stops:[{at:'range_base'}]});
     assert.match(first.did,/^range_base: sold 10 gem/);
     const gem=(base:string)=>knownBooks(runtime).find(book=>book.base_id===base)!.items.find(row=>row.item_id==='gem')!;
-    assert.deepEqual([gem('range_base').buy_orders,gem('range_base').best_buy,gem('range_base').best_buy_qty],[[{price_each:125,quantity:2}],125,2]);
+    assert.deepEqual([gem('range_base').buy_orders,gem('range_base').best_buy,gem('range_base').best_buy_qty],[[{price_each:125,quantity:2,since:TICK}],125,2]);
     const run=await tradeRun({stops:[{at:'sol_base',buy:'gem'},{at:'range_base'}]});
     assert.match(run.did,/^sol_base: took 2 gem for range_base's 125 bid \(remembered, 0 ticks old\), gem: range_base's bids hold 2 → /);
     const stop=readJournal(runtime).filter(entry=>entry.event==='stop').find(entry=>entry.base_id==='sol_base')!;
@@ -1204,7 +1225,7 @@ test('debitBook takes a fill off the remembered levels, or off a top-only row, a
     debitBook(runtime,'sol_base','gem','asks',50);
     debitBook(runtime,'nowhere','gem','asks',5);
     const gem=(base:string)=>knownBooks(runtime).find(book=>book.base_id===base)?.items.find(row=>row.item_id==='gem');
-    assert.deepEqual([gem('range_base')?.buy_orders,gem('range_base')?.best_buy,gem('range_base')?.best_buy_qty],[[{price_each:105,quantity:6}],105,6]);
+    assert.deepEqual([gem('range_base')?.buy_orders,gem('range_base')?.best_buy,gem('range_base')?.best_buy_qty],[[{price_each:105,quantity:6,since:TICK}],105,6]);
     assert.deepEqual([gem('sol_base')?.sell_orders,gem('sol_base')?.best_sell,gem('sol_base')?.best_sell_qty],[[],0,0],'every unit taken: no ask left');
     assert.deepEqual(knownBooks(runtime).map(book=>book.base_id).sort(),['range_base','sol_base']);
   } finally {rmSync(runtime,{recursive:true,force:true});}

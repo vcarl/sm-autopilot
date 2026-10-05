@@ -12,6 +12,7 @@ import {bridgeWorld,type WorldOptions} from '../../test-support/bridge-world.ts'
 import {GameLive,type Game} from '../game.ts';
 import {boundRun,bind,stop,unbind,type Pilot,type Run} from '../runtime.ts';
 import {craft,craftEffect,jobs,materials,quote,recipes,revalidated,supply,useCatalog} from './crafting.ts';
+import {worldDb} from '../world.ts';
 
 /** The catalog behind the fake bench's one recipe: 5 iron ore into 2 steel plate. */
 const CATALOG={version:'test',recipes:[{id:'refine_steel',name:'Refine Steel',category:'Refining',
@@ -206,7 +207,7 @@ test('supply is done with nothing sent when the store already holds the inputs',
     const out=await supply('refine_steel',2);
     assert.equal(out.status,'done',out.why);
     assert.equal(mutations(f),0);
-    assert.deepEqual(out.detail,{stowed:[],bought:[],short:[],spent:0});
+    assert.deepEqual(out.detail,{stowed:[],bought:[],short:[],spent:0,elsewhere:[]});
   } finally {unbind();}
 });
 
@@ -226,6 +227,19 @@ test('supply stows what the hold carries and buys the rest into the store',async
     assert.equal(again.status,'done');
     assert.equal(f.count('spacemolt/buy'),1,'a second call buys nothing');
   } finally {unbind();}
+});
+
+test('supply names what your stores at other bases hold of what it had to buy',async()=>{
+  const runtime=mkdtempSync(join(tmpdir(),'spacemolt-supply-'));
+  const f=world({mood:'Focused'},{store:[],storedAway:[{base_id:'frontier_station',item_count:2554}]},runtime);
+  try {
+    worldDb(runtime)!.prepare("INSERT INTO stores VALUES('frontier_station','iron_ore',2554,NULL,'x')").run();
+    const out=await supply('refine_steel',2);
+    assert.equal(out.status,'done',out.why);
+    assert.deepEqual(out.detail.elsewhere,[{item_id:'iron_ore',base_id:'frontier_station',quantity:2554}]);
+    assert.match(out.did,/; stored elsewhere: 2554 iron_ore at frontier_station$/);
+    assert.equal(f.count('spacemolt/buy'),1,'named, never fetched');
+  } finally {unbind();rmSync(runtime,{recursive:true,force:true});}
 });
 
 test('supply refuses a bill over maxSpend before anything moves',async()=>{
