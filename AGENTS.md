@@ -78,9 +78,17 @@ paused on a question; a paused run wakes the fire, and the gate prints the quest
 puts at the head of the prompt. Every decision is journalled with its reason.
 
 The **context** (`juncture_context`) is built from live facts at fire time: the bridge's `menu`
-(present, derived mood, threats, suggested moves) and the pilot's own recent runs and reflections
+(present, derived mood, threats, the moves on offer) and the pilot's own recent runs and reflections
 from the journal. It writes nothing but a `juncture` journal line — the skills carried, their
-sizes, and the context itself — so a reviewer can see what the pilot was told.
+sizes, the moves, and the context itself — so a reviewer can see what the pilot was told.
+
+The **moves** (`menuEffect` in `src/play/menu.ts`) are offers, never refusals: at most four
+pasteable calls, one per generator (`route`: `routes()`'s top row; `again`: the last paying loop
+as written; `settle`: held or stored goods to the best known bid that beats the fuel; `missions`:
+complete, accept with its issuer, or drop a stuck one for what the board offers; `explore`: only
+when the objective leads with `goTo`), each with raw facts. They rank by the credits a minute their
+own facts state; the objective's lead call keeps the last slot. The block sits under the ship, is
+capped at `MOVES_CHARS` by the bridge, and is never what a full context gives up.
 
 Cron is reached through the **`cronjob_manage` tool**, via `ctx.dispatch_tool` (the plugin API)
 or the tool registry when there is no plugin context. `check_cronjob_requirements` gates schema
@@ -140,7 +148,10 @@ the pilot's context. Every line has `at` (UTC ISO, `Z`) and `event`.
 - `gate`: `gate_id` (the gate runs in its own process, before any juncture exists).
 - `juncture`: `juncture_id`, `gate_id`/`gate_at` of the latest gate, `job_id` (parsed from cron's
   `cron_<job_id>_<ts>` session id) and `session_id`, `model`, `provider`, `code_sha` (git HEAD),
-  `sources` (the TypeScript fingerprint), `skills_sha`, `context_sha`, `build_s`. The id is kept in
+  `sources` (the TypeScript fingerprint), `skills_sha`, `context_sha`, `build_s`, and `moves`
+  (`[{id, gen, call, facts}]`, exactly the moves rendered; `facts` always has `credits` and `minutes`,
+  the rest is the generator's: jumps, fuel, book ages, issuer, …). Join an offer to what followed by
+  `juncture_id` → `run started`, then `call` against `run ended` `calls[].call` (or `fn`). The id is kept in
   `runtime/juncture.json`; `spacemolt_run` sends it as the run request's `juncture` param.
   `juncture.json` also keeps the `objective` the context was rendered with; every `spacemolt_run`
   report while it differs from the record's says the objective changed.
@@ -154,7 +165,8 @@ the pilot's context. Every line has `at` (UTC ISO, `Z`) and `event`.
   rows a base — skills, place, active missions; memory only, no call).
 - `run` `ended`: `outcome`, `reason` (the run's, from its top earning call when the returned
   call is not it: `ofTheRun` in `prose.ts`; each call's own status is in `calls`), `work` (the run summary: the first work call's `fn` and
-  `status`, total `credits`/`items`/`xp`), `end_state`, and `calls` (each top-level call's `fn`,
+  `status`, `call` when its job keeps it, total `credits`/`items`/`xp`), `end_state`, and `calls` (each
+  top-level call's `fn`, `call` — the call as written, kept by `tradeRun` and `sell` —,
   `status`, `cost`, `gained`, `started_at`, `seconds`; first 40, `calls_total`; `gained.items` counts the
   hold and the stores together, so a unit stowed is not lost and one mined and stowed is gained). No `start_state`:
   pair it with its `started` line by `run_id`.

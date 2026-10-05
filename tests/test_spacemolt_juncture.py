@@ -168,9 +168,15 @@ def _menu(cargo_free: int, *, hold: list | None = None) -> dict:
                         "hold": hold if hold is not None else [{"item_id": "ore", "quantity": 12}],
                         "weapons": [{"id": "autocannon_i", "loaded": 500}],
                         "skills": {"weapons": 3, "gunnery": 1, "tactics": 2}},
-            "moves": [], "not_now": [],
-            "text": "Menu:\n  - `hunt()` — trains gunnery (level 1, the lowest) [skill]",
+            "moves": [{"id": "m1", "gen": "missions", "call": "completeMissions()",
+                       "facts": {"credits": 2000, "minutes": 0.5, "missions": ["Cull"]},
+                       "said": "missions: 1 at 100% (Cull), +2,000 cr"}],
+            "text": "m1 `completeMissions()` — missions: 1 at 100% (Cull), +2,000 cr",
             "last": None}
+
+
+#: Four moves at the bridge's cap, as long as it lets them be.
+FULL_MOVES = "\n".join(f"m{n} `tradeRun({{stops:[{{at:'base_{n}'}}]}})` — " + "f" * 115 for n in range(1, 5))
 
 
 FACT_LINES = ("SpaceMolt juncture", "Objective (carried in):", "Goal:", "Stance:", "Permissions:",
@@ -184,7 +190,7 @@ def _rendered(monkeypatch, menu: dict) -> str:
 
 def test_the_situation_is_labelled_lines_of_live_facts(monkeypatch):
     context = _rendered(monkeypatch, _menu(12))
-    for label in FACT_LINES + ("Suggested moves",):
+    for label in FACT_LINES + ("Moves open now",):
         assert any(line.startswith(label) for line in context.splitlines()), (label, context)
     assert "Run in flight: no." in context.splitlines()[0]
     assert "Stance: Hunter. Mood: Focused." in context
@@ -379,15 +385,16 @@ def test_the_alerts_the_bridge_buffered_reach_the_pilot_as_fact_lines(monkeypatc
 
 
 def test_an_oversized_situation_fits_the_section_with_every_fact_line(monkeypatch):
-    """Over the limit core drops the section whole, so the moves, the hold list and the older
-    recent lines give way."""
+    """Over the limit core drops the section whole, so the hold list and the older recent lines give
+    way; the moves do not."""
     _write_journal([{"event": "run", "phase": "ended", "outcome": "done", "reason": "x" * 400,
                      "why": "y" * 400, "commands": 1}] * 5)
     hold = [{"item_id": f"salvaged_component_{i}", "quantity": i} for i in range(400)]
     menu = _menu(12, hold=hold)
-    menu["text"] = "Menu:\n" + "  - `hunt()` — trains gunnery [skill]\n" * 200
+    menu["text"] = FULL_MOVES
     context = _rendered(monkeypatch, menu)
     assert len(context) <= juncture.SECTION_LIMIT, len(context)
+    assert "  m4 `tradeRun" in context, context
     for label in FACT_LINES:
         assert any(line.startswith(label) for line in context.splitlines()), (label, context)
 
@@ -430,20 +437,20 @@ def test_the_reference_sections_are_gone(monkeypatch):
 
 
 def test_the_missions_held_never_give_way(monkeypatch):
-    """Over the limit the moves, the hold list, the chat and the older recent runs give way; the
-    missions held are a fact. Past that, the cut ends on a line."""
+    """Over the limit the hold list, the chat and the older recent runs give way; the moves and the
+    missions held do not. Past that, the cut ends on a line."""
     _write_journal([{"at": f"2026-10-01T1{n}:00:00Z", "event": "run", "phase": "ended", "outcome": "done",
                      "reason": "r" * 150, "commands": 1, "work": {"fn": "gatherUntil", "credits": 100}}
                     for n in range(5)])
     menu = _menu(12, hold=[{"item_id": f"salvaged_component_{i}", "quantity": i} for i in range(400)])
-    menu["text"] = "Menu:\n" + "  - `hunt()` — trains gunnery [skill]\n" * 200
-    menu["steps"] = ["x" * 620] * 3
+    menu["text"] = FULL_MOVES
+    menu["steps"] = ["x" * 400] * 3
     menu["held"] = HELD
     context = _rendered(monkeypatch, menu)
     assert len(context) <= juncture.SECTION_LIMIT, len(context)
     assert "Missions held (2 of 5):" in context and "Titanium Extraction Contract — next:" in context, context
     assert len(context.split("Your recent runs (newest last):\n")[1].splitlines()) >= 3, context
-    assert "Suggested moves" not in context and "+400 more" in context
+    assert "  m4 `tradeRun" in context and "+400 more" in context
     # Fact lines alone over the limit: whole lines are kept, none is cut short.
     menu["objective"] = "o" * 2500
     menu["steps"] = ["s" * 1500]
@@ -467,15 +474,13 @@ def test_a_reflection_repeating_the_goal_is_not_said_twice(monkeypatch):
 # unarmed, maydays, five runs; now with the five missions it held.
 KVOTHE_GOAL = ("Objective met; resources kept unsold in the frontier_station store. Resume earning "
                "credits or take a new objective.")
-KVOTHE_MOVES = """Menu:
-  - `sell([{item:'copper_ingot',quantity:160}])` — 160 copper_ingot at 41 cr here (6,560 cr) [credits]
-  - `tradeRun('nova_terra_central')` — ranks every known route of up to 3 stops, from the hold you have, \
-by net per jump after book depth, fuel and tax [credits]
-  - `gatherUntil({poi:'colony_debris_field',base:'frontier_station'})` — asteroid_belt Colony Debris \
-Field, 172 free in the hold, settling at frontier_station [credits]
-  - `craft('refine_copper', 20)` — trains refining (level 8, the lowest of the objective's) [skill]
-Not now:
-  - acceptMission: no slot free: 5 of 5 active, none completable"""
+KVOTHE_MOVES = """m1 `tradeRun({stops:[{at:'frontier_station',buy:'copper_ore'},{at:'nova_terra_central'}]})` — \
+route: +6,240 cr net, 3 jumps, ~6.1 min; books nova_terra_central 41t
+m2 `sell([{item_id:'iron_ore',quantity:900}], {from:'store'})` — settle: 2554 iron_ore (store frontier_station) \
+→ frontier_station bid 7×900, live; 0 jumps, +6,300 cr after fuel
+m3 `abandonMission('7f1a3732ebe845ade0ac5435249700b5')` — drop Salvage a wreck (expired); a slot takes \
+Hull Patch Run here, +4,500 cr, from Mira Tal (Dockmaster)
+m4 `completeMissions()` — missions: 1 at 100% (Ore Run), +2,000 cr"""
 
 
 def _kvothe_menu() -> dict:
@@ -489,12 +494,13 @@ def _kvothe_menu() -> dict:
             "held": {"max": 5, "missions": [{"title": f"Contract {n}", "next": f"Deliver 20 ore (0/20) → base_{n}, "
                                              f"{n} jumps [1 of 2]", "expires_at": "2026-10-05T03:00:00Z"}
                                             for n in range(5)]},
-            "moves": [], "not_now": [], "text": KVOTHE_MOVES, "last": None}
+            "moves": [], "text": KVOTHE_MOVES, "last": None}
 
 
 def test_a_kvothe_sized_context_keeps_its_suggested_moves(monkeypatch):
     """Audit 10-04 (kvothe): the context ran over SECTION_LIMIT and the moves, first to give way,
-    were absent from all 106 contexts rendered since 10-03."""
+    were absent from all 106 contexts rendered since 10-03. Now they sit under the ship, whole, and
+    the maydays are capped beneath them."""
     runtime = service.runtime_dir()
     runtime.mkdir(parents=True, exist_ok=True)
     (runtime / juncture.JUNCTURE_FILE).write_text(json.dumps({"juncture_id": "j0", "at": "2026-10-04T17:00:00Z"}))
@@ -512,8 +518,11 @@ def test_a_kvothe_sized_context_keeps_its_suggested_moves(monkeypatch):
     _write_journal(recent)
     context = _rendered(monkeypatch, _kvothe_menu())
     assert len(context) <= juncture.SECTION_LIMIT, len(context)
-    assert "Suggested moves (advice, pasteable into main()):" in context, context
-    assert "craft('refine_copper', 20)" in context and "acceptMission: no slot free" in context
+    assert len(KVOTHE_MOVES) <= 640, "the bridge caps the block at MOVES_CHARS"
+    assert juncture._MOVES_HEAD + "\n  m1 `tradeRun(" in context, context
+    assert KVOTHE_MOVES.replace("\n", "\n  ") in context, context
+    assert context.index("Moves open now") < context.index("Missions held") < context.index("Chat since"), context
+    assert len([line for line in context.splitlines() if "MAYDAY" in line]) == 2, context
     for label in ("Goal:", "Steps:", "Stance:", "Present:", "  Fuel ", "  Fitted weapons:",
                   "Missions held (5 of 5):", "Your recent runs"):
         assert any(line.startswith(label) for line in context.splitlines()), (label, context)
@@ -535,6 +544,10 @@ def test_each_juncture_journals_the_skills_it_carried_and_the_context_it_rendere
     assert [skill["name"] for skill in row["skills"]] == ["spacemolt:play", "spacemolt:trading"]
     assert all(skill["bytes"] > 1000 for skill in row["skills"]), row["skills"]
     assert row["context"] == context and row["context_chars"] == len(context)
+    # The moves rendered, as data: joinable to the next run's calls by `call`; the words stay in the context.
+    assert row["moves"] == [{"id": "m1", "gen": "missions", "call": "completeMissions()",
+                             "facts": {"credits": 2000, "minutes": 0.5, "missions": ["Cull"]}}], row["moves"]
+    assert "m1 `completeMissions()`" in context
     # A chat window is never handed the context, and journals nothing.
     assert juncture.juncture_context({"platform": "discord"}) == ""
     assert len(_journal_rows("juncture")) == 1

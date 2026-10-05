@@ -81,9 +81,10 @@ def test_the_context_quotes_chat_since_the_last_juncture_as_data_with_its_sender
     assert "spacemolt_chat" in context
 
 
-def test_the_games_own_broadcasts_are_neither_shown_nor_counted(monkeypatch):
+def test_customs_scans_are_not_shown_and_maydays_are_capped(monkeypatch):
     """Live 2026-10-04 (kvothe): every system post was a customs scan and every emergency one a
-    MAYDAY, 42 in a day, crowding the players' words and the moves out. Other emergency words stay."""
+    MAYDAY, 42 in a day, crowding the players' words and the moves out. Scans are not shown; the
+    newest two emergencies are, and the rest are a count, so a pilot may still answer one."""
     _last_juncture()
     _chat([*[_post(f"2026-10-04T12:1{n}:00.000Z", f"MAYDAY: Wexler {n} is stranded with 3/120 fuel!",
                    channel="emergency", sender=f"Wexler {n}") for n in range(4)],
@@ -92,8 +93,10 @@ def test_the_games_own_broadcasts_are_neither_shown_nor_counted(monkeypatch):
            _post("2026-10-04T12:20:00.000Z", "anyone near Sol?", channel="emergency", sender="Ann"),
            {"at": "2026-10-04T12:21:00.000Z", "event": "unread", "counts": {"system": 5, "emergency": 1}}])
     context = _rendered(monkeypatch)
-    assert "MAYDAY" not in context and "CUSTOMS" not in context, context
-    assert 'emergency from "Ann"' in context
+    assert "CUSTOMS" not in context, context
+    shown = [line for line in context.splitlines() if "emergency from" in line]
+    assert len(shown) == 2 and "Wexler 3" in shown[0] and 'emergency from "Ann"' in shown[1], shown
+    assert "  +3 more emergencies, readable with messages()." in context.splitlines(), context
     assert "older messages" not in context and "more messages" not in context
     assert "  Unread as of 10-04 12:21Z: emergency 1." in context.splitlines(), context
 
