@@ -5,7 +5,7 @@ import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import test from 'node:test';
 import type {ReadinessAccount} from '../readiness.ts';
-import {bridgeWorld,TICK,type WorldOptions} from '../test-support/bridge-world.ts';
+import {bridgeWorld,rememberAll,TICK,type WorldOptions} from '../test-support/bridge-world.ts';
 import {buy,prices,sell} from './market.ts';
 import {bind,unbind,type Pilot} from './runtime.ts';
 
@@ -52,7 +52,7 @@ test('a fill well under a remembered bid elsewhere is flagged in did, not this b
   const f=world({mood:'Focused'},{cargoUsed:1,cargo:[{item_id:'steel_plate',quantity:4}],
     markets:{sol_base:[{item_id:'steel_plate',best_buy:1,best_buy_qty:99,best_sell:180,best_sell_qty:5}]}});
   try {
-    writeFileSync(join(f.runtime,'markets.json'),JSON.stringify([{base_id:'frontier_station',at:'earlier',
+    rememberAll(f.runtime,JSON.stringify([{base_id:'frontier_station',at:'earlier',
       tick:TICK-5683,items:[{item_id:'steel_plate',best_buy:37,best_buy_qty:9,best_sell:0,best_sell_qty:0}]}]));
     const out=await sell([{item_id:'steel_plate'}]);
     assert.equal(out.status,'done',out.why);
@@ -154,7 +154,7 @@ test('a buy with no maxEach is refused over OVERPAY × the cheapest ask remember
   // was remembered asking 2 for 32,928. The fake asks 12 each here.
   const f=world({mood:'Focused',permissions:{credit_reserve:0}},{});
   try {
-    writeFileSync(join(f.runtime,'markets.json'),JSON.stringify([
+    rememberAll(f.runtime,JSON.stringify([
       {base_id:'confederacy_central_command',at:'',items:[{item_id:'iron_ore',best_buy:0,best_buy_qty:0,best_sell:2,best_sell_qty:32928}]},
       {base_id:'thin_base',at:'',items:[{item_id:'iron_ore',best_buy:0,best_buy_qty:0,best_sell:1,best_sell_qty:3}]}]));
     const out=await buy('iron_ore',69);
@@ -164,7 +164,7 @@ test('a buy with no maxEach is refused over OVERPAY × the cheapest ask remember
     assert.deepEqual(out.next,["goTo('confederacy_central_command') and buy there","buy('iron_ore', 69, {maxEach:12})"]);
     assert.equal(f.count('spacemolt/buy'),0);
     assert.equal((await buy('iron_ore',69,{maxEach:1000})).status,'done','an explicit maxEach overrides the cap');
-    writeFileSync(join(f.runtime,'markets.json'),JSON.stringify([
+    rememberAll(f.runtime,JSON.stringify([
       {base_id:'confederacy_central_command',at:'',items:[{item_id:'iron_ore',best_buy:0,best_buy_qty:0,best_sell:11.5,best_sell_qty:32928}]}]));
     assert.equal((await buy('iron_ore',2)).status,'done','12 is within OVERPAY of 11.5');
   } finally {f.close();}

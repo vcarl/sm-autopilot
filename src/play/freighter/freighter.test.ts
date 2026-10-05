@@ -12,7 +12,7 @@ import {bridgeWorld,TICK,type WorldOptions} from '../../test-support/bridge-worl
 import {assign,reassign,tiedUp} from '../fleet/fleet.ts';
 import {journalCommand,quoteNext,readJournal} from '../../run-record.ts';
 import {GameLive} from '../game.ts';
-import {knownBooks} from '../market.ts';
+import {knownBooks,rememberBook} from '../market.ts';
 import {menuEffect,renderMenu} from '../menu.ts';
 import {readPlaces} from '../places.ts';
 import {acct,bind,onBinding,unbind} from '../runtime.ts';
@@ -623,7 +623,7 @@ test('with no ring that qualifies it waits docked, re-planning every REPLAN_TICK
     assert.ok(!readJournal(h.runtime,4000).some(e=>e.scouting),'no hop flown');
     assert.equal(h.world.account.server.location.docked_at,'range_base','docked where it parked');
     // Twin's book turns up; nothing moves until the next re-plan.
-    writeFileSync(join(h.runtime,'markets.json'),JSON.stringify([SOL,TWIN,RANGE]));
+    rememberBook(h.runtime,TWIN.base_id,TWIN.system_id,TWIN.items as never,TICK);
     mock.timers.tick(60_000);await settle();
     assert.equal(h.now().state,'waiting');
     for(let waited=60_000;waited<REPLAN_TICKS*10_000;waited+=60_000){mock.timers.tick(60_000);await settle();}

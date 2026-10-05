@@ -14,6 +14,21 @@ import {join} from 'node:path';
 import type {ReadinessCommand} from '../readiness.ts';
 import {readJournal} from '../run-record.ts';
 import {FakeLibGoalAccount} from './fake-lib-account.ts';
+import {keepBook,openDirs,worldDb} from '../play/world.ts';
+import type {RememberedBook} from '../play/market.ts';
+
+/** The market memory as these books, first newest, whatever it held: what writing `markets.json` was before world.db. */
+export function rememberAll(runtime:string,books:string):void {
+  worldDb(runtime)!.exec('DELETE FROM markets; DELETE FROM books');
+  for(const book of (JSON.parse(books) as RememberedBook[]).toReversed())keepBook(runtime,book);
+}
+
+// Every test file that builds a world fails if any test in it opened a world.db outside the system temp dir:
+// a test may never write a real profile's memory (09-25, a test's pilot record and cron job landed in ~/.hermes).
+process.on('exit',()=>{
+  const stray=openDirs().filter(dir=>!dir.startsWith(tmpdir()));
+  if(stray.length){console.error(`world.db opened outside ${tmpdir()}: ${stray.join(', ')}`);process.exitCode=1;}
+});
 
 /** A runtime directory a job's `ctx` can write its journal into, and the step lines it wrote.
  *
@@ -85,6 +100,8 @@ export interface WorldOptions {
    * way a pilot learns that the ore nobody buys here sells there. A base listed here answers
    * with exactly these rows, default ore row and all. */
   markets?:Record<string,MarketRow[]>;
+  /** Holdings at other bases, as `storage/view`'s `locations` lists them beside this one. */
+  storedAway?:{base_id:string;item_count:number}[];
   /** The faction trade ledger `query_trade_intel` answers with. Absent means no faction:
    * the command throws, as it does for a pilot with no trade-intel facility. */
   tradeIntel?:{base_id:string;station_name?:string;submitted_at_tick?:number;
@@ -813,7 +830,7 @@ export function bridgeWorld(options:WorldOptions={}) {
       else store.push({item_id:String(params.id),quantity:Number(params.quantity)});
       account.server.player.credits-=Number(params.quantity)*12+tax(Number(params.quantity)*12);
       return {delta:{details:{action:'buy',item_id:params.id,quantity:Number(params.quantity),
-        total_cost:Number(params.quantity)*12,unfilled:0}}};
+        total_cost:Number(params.quantity)*12,unfilled:0,...params.deliver_to==='storage'?{delivered_to_storage:Number(params.quantity)}:{}}}};
     },
     // A counter posts a price only for a service it runs: a station with no repair service
     // posts no `repair_price_per_hull`, which is the live refusal `service` has to survive.
@@ -844,7 +861,7 @@ export function bridgeWorld(options:WorldOptions={}) {
       hint:'',items:store.map(row=>({...row,size:footprint(row.item_id)})),
       ships:[{ship_id:'spare',class_id:'hauler',cargo_used:0,modules:0}],
       locations:[{base_id:'sol_base',base_name:'Sol Base',item_count:store.length,ship_count:1,
-        system:'sol',system_name:'Sol'}]}}),
+        system:'sol',system_name:'Sol'},...(options.storedAway??[]).map(row=>({...row,base_name:row.base_id,ship_count:0,system:'sol',system_name:'Sol'}))]}}),
     // One action, three replies, as the live server answers it: no id is the queue, dry_run
     // is a quote that consumes nothing, and anything else commits the escrow.
     'spacemolt/craft':params=>{
@@ -882,7 +899,8 @@ export function bridgeWorld(options:WorldOptions={}) {
       const moved=take(String(params.item_id),Number(params.quantity));
       const row=store.find(current=>current.item_id===String(params.item_id));
       if(row)row.quantity+=moved;else store.push({item_id:String(params.item_id),quantity:moved});
-      return {delta:{details:{action:'deposit_items',item_id:params.item_id,quantity:99,storage_total:99}}};
+      // `quantity` over-claims; `storage_total` is the store's own count, which world.db keeps.
+      return {delta:{details:{action:'deposit_items',item_id:params.item_id,quantity:99,storage_total:row?row.quantity:moved}}};
     },
     // The store's side of the same counter, bounded by what it holds and what the hold has
     // room for. Like the deposit, the reply over-claims: only the cargo delta is evidence.
@@ -900,7 +918,7 @@ export function bridgeWorld(options:WorldOptions={}) {
       add(item,moved);
       return {delta:{details:{action:'withdraw_items',item_id:item,quantity:99,
         cargo_space:account.server.ship.cargo_capacity-account.server.ship.cargo_used,
-        cargo_total:account.server.ship.cargo_capacity,storage_remaining:99}}};
+        cargo_total:account.server.ship.cargo_capacity,storage_remaining:row?.quantity??0}}};
     },
     // Not served: the game refuses what it does not serve, and the menu leaves its skills out (an assertion here would be a defect).
     'spacemolt_social/chat':params=>{

@@ -96,10 +96,11 @@ const median=(values:number[])=>{
   return sorted.length%2?(sorted[mid]??0):((sorted[mid-1]??0)+(sorted[mid]??0))/2;
 };
 
-const level=(raw:unknown):OrderLevel[]=>{
-  const price=field(raw,'price_each'),quantity=field(raw,'quantity'),mine=field(raw,'my_quantity'),source=field(raw,'source');
+/** A level as the game sends it, and as the book memory keeps it: `since` is the memory's own stamp (world.ts). */
+const level=(raw:unknown):(OrderLevel&{since?:number})[]=>{
+  const price=field(raw,'price_each'),quantity=field(raw,'quantity'),mine=field(raw,'my_quantity'),source=field(raw,'source'),since=field(raw,'since');
   return typeof price==='number'&&typeof quantity==='number'
-    ?[{price_each:price,quantity,...typeof mine==='number'?{my_quantity:mine}:{},...typeof source==='string'?{source}:{}}]:[];
+    ?[{price_each:price,quantity,...typeof mine==='number'?{my_quantity:mine}:{},...typeof source==='string'?{source}:{},...typeof since==='number'?{since}:{}}]:[];
 };
 /** One `view_market` row as the book memory keeps it. The live server omits spec fields, so a row is
  * built from what it carries (a missing number is 0, a missing list empty), never decoded whole. */

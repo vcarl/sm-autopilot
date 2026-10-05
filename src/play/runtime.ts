@@ -21,6 +21,7 @@ import {TravelBlocked,type ArrivalUnresolved} from '../travel.ts';
 import {Depleted,Game,GameLive,HoldFull,InBattle,Rejected,ReplyLost,attempt,freshLedger,field,message,rawError,type GameError,type Ledger} from './game.ts';
 import {tiredCheck} from './service.ts';
 import type {Outcome,Present,Row,Status,Want} from './types.ts';
+import {noteStore,readStores,storedTotals} from './world.ts';
 
 export type Mood='Cautious'|'Focused'|'Opportunistic'|'Aggressive'|'Relaxed'|'Tired';
 export type Stance='Prospector'|'Industrialist'|'Trader'|'Carrier'|'Hunter'|'Scout';
@@ -158,7 +159,13 @@ export function bind(binding:Binding):void {
   const run:RunState={binding,stopFlag:false,started:Date.now(),depth:0,wire:freshLedger(),last:{fn:'pilot'},
     mark:null,jobMark:null,calls:[],asking:null,lastMood:undefined,short:undefined,resupplying:false,strandedIn:undefined,resupplied:[],burning:false,burnFailed:false,unwatch:undefined,
     interrupts:null,chats:[],heard:[],pauseStopped:false};
-  const game=GameLive({send:binding.command,reconnected:()=>reconnected(live),refresh:()=>live.refresh(),say:text=>say(run,text),
+  // Every landed reply that says what the stores hold is kept (world.ts): the one writer of the `stores` table.
+  const send:ReadinessCommand=async(action,params)=>{
+    const reply=await binding.command(action,params);
+    await noteStore(binding.runtime,live.state.location?.docked_at??undefined,action,params,reply,station=>binding.command('spacemolt_storage/view',{station_id:station}));
+    return reply;
+  };
+  const game=GameLive({send,reconnected:()=>reconnected(live),refresh:()=>live.refresh(),say:text=>say(run,text),
     ledger:run.wire,after:served=>burn(run,served).pipe(Effect.andThen(Effect.sync(()=>watchMood(run))),Effect.andThen(pauseOnChat(run))),...once?{reconnect:once}:{}});
   current={run,game:ManagedRuntime.make(Layer.merge(game,Layer.succeed(Run,run)))};
   run.mark=snapshot(run);
@@ -405,9 +412,11 @@ export const admit=(fn:string)=>Effect.gen(function*() {
   return null;
 });
 
+/** `cargo` is the hold and the stores together: a unit stowed is still had, and one mined and stowed is gained.
+ * Live 2026-10-04 (kvothe, runs de8842cf, 23534222, d356ecf9): gatherUntil stowed 344 units each and reported "nothing gained". */
 function snapshot(run:RunState):Snapshot {
   const state=run.binding.account.state;
-  const cargo:Record<string,number>={};
+  const cargo:Record<string,number>=storedTotals(run.binding.runtime);
   for(const row of state.cargo??[])cargo[row.item_id]=(cargo[row.item_id]??0)+row.quantity;
   const xp:Record<string,number>={};
   for(const [id,row] of Object.entries(skillMap(state.skills)))xp[id]=row.xp;
@@ -422,16 +431,21 @@ export function skillMap(skills:unknown):Record<string,SkillProgress> {
 const isProgress=(row:unknown):row is SkillProgress=>isRecord(row)&&typeof row.category==='string'&&typeof row.name==='string'
   &&typeof row.level==='number'&&typeof row.max_level==='number'&&typeof row.next_level_xp==='number'&&typeof row.xp==='number';
 
-/** The ship, wallet, hold, place, skills and active missions as the account already holds them:
- * the run's `start_state`/`end_state`. Reads memory only. Storage is not in account state, so it
- * is not here — it would cost a `storage/view` per run.
- * ponytail: cargo and missions capped at 40 rows, as the storage and market reads are. */
+/** The ship, wallet, hold, stores, place, skills and active missions as the account and `world.db` already hold them:
+ * the run's `start_state`/`end_state`. Reads memory only: `stores` is each base's store as last read or moved.
+ * ponytail: cargo, missions and each base's store capped at 40 rows, as the storage and market reads are. */
+const stores=()=>{
+  const out:Record<string,Record<string,number>>={};
+  for(const row of readStores(state().binding.runtime)){const base=out[row.base_id]??={};if(Object.keys(base).length<40)base[row.item_id]=row.quantity;}
+  return out;
+};
 export function stateSnapshot():Record<string,unknown> {
   const state=acct().state,{ship,location}=state;
   const missions=state.missions?.active;
   return {credits:state.player?.credits??null,fuel:ship?.fuel??null,max_fuel:ship?.max_fuel??null,
     hull:ship?.hull??null,max_hull:ship?.max_hull??null,cargo_used:ship?.cargo_used??null,cargo_capacity:ship?.cargo_capacity??null,
     cargo:(state.cargo??[]).slice(0,40).map(row=>({item_id:row.item_id,quantity:row.quantity})),
+    stores:stores(),
     skills:Object.fromEntries(Object.entries(skillMap(state.skills)).map(([id,row])=>[id,{level:row.level,xp:row.xp}])),
     system:location?.system_id??null,poi:location?.poi_id??null,docked_at:location?.docked_at??null,
     ...Array.isArray(missions)?{missions:missions.slice(0,40).map(m=>({mission_id:m.mission_id,title:m.title,type:m.type,

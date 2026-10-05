@@ -2,8 +2,6 @@
  * the act, never from a plan. */
 import type {BuyResponse,EstimatePurchaseResponse,MarketListingItem,OrderLevel,SellResponse,ViewMarketResponse,ViewStorageResponse} from '@spacemolt/lib';
 import {Effect,Result} from 'effect';
-import {mkdirSync,readFileSync,renameSync,writeFileSync} from 'node:fs';
-import {join} from 'node:path';
 import {disposable,miningInventory} from '../mining-inventory.ts';
 import {markPlace} from './places.ts';
 import {fileIntelEffect} from '../trade-intel.ts';
@@ -16,6 +14,7 @@ import {bench,moduleSpecEffect,room,whyNotFit} from './hangar.ts';
 import {Stopped,acct,admit,edge,jobEffect,pilot,reached,runtimeDir,step,stopped,wanted} from './runtime.ts';
 import {withdrawEffect} from './storage.ts';
 import {num} from './rows.ts';
+import {keepBook,keepRow,readBooks} from './world.ts';
 import {walkBook} from '../order-book.ts';
 import type {Outcome,Row,Want} from './types.ts';
 
@@ -37,18 +36,12 @@ const asSell=(body:unknown)=>body as SellResponse; // cast: frozen surface (Sell
 
 /** A book this pilot has stood in front of, kept so the next base knows what the last one
  * paid. The game publishes no cross-station prices — `view_market` and `analyze_market` are
- * both "here" — so memory is the only far price a factionless pilot can have. */
+ * both "here" — so memory is the only far price a factionless pilot can have. Kept in `world.db`
+ * (world.ts), every base, never evicted by age: a consumer discounts by age itself. */
 export interface RememberedBook {base_id:string;at:string;tick?:number;
   /** The system the base is in, as the ship stood there: what lets `routes()` count jumps between
    * two far bases from the map alone. Absent on entries written before it was kept. */
   system_id?:string;items:MarketListingItem[]}
-const MEMORY='markets.json';
-/** A book older than this many ticks (a day at ten seconds a tick) is dropped at the next
- * write. NPC books move rarely, so a day-old price is still a lead; a week-old one is not. */
-const MEMORY_TICKS=8640;
-/** ponytail: 40 whole books is ~8 MB of JSON read on every `knownBooks()`; the count is only a
- * size ceiling now that age is the evictor. Store top levels only if the read ever shows up. */
-const BASES=40;
 /** How old an entry written before books carried a tick is taken to be. An assumption for
  * pre-ageing files, not a measurement: old enough for the pilot to distrust, not old enough
  * to be worth dropping a price nothing else can supply. */
@@ -120,22 +113,8 @@ export const marketTick=():number=>lastTick;
 /** Every book read in this runtime dir, newest base first. Empty without a runtime. The
  * directory is an argument so a caller outside a bound run (the juncture's `factsNow`) can
  * read the same memory. */
-export function knownBooks(dir=runtimeDir()):RememberedBook[] {
-  if(!dir)return [];
-  try {
-    const stored:unknown=JSON.parse(readFileSync(join(dir,MEMORY),'utf8'));
-    return rows(stored).flatMap(remembered);
-  } catch {return [];} // edge: no memory yet, or a torn file, is no remembered book
-}
-/** One remembered book as the file has it, rebuilt from the fields read: a row with no base or no item list is dropped. */
-const remembered=(raw:unknown):RememberedBook[]=>{
-  const base_id=field(raw,'base_id'),items=field(raw,'items'),at=field(raw,'at'),tick=num(raw,'tick'),system=field(raw,'system_id');
-  return typeof base_id==='string'&&base_id&&Array.isArray(items)
-    ?[{base_id,at:typeof at==='string'?at:'',...tick===undefined?{}:{tick},...typeof system==='string'?{system_id:system}:{},items:items.flatMap(listing)}]:[];
-};
+export const knownBooks=(dir=runtimeDir()):RememberedBook[]=>readBooks(dir);
 
-/** Temp file then rename, as `writeRun` does: a torn write would price a trip on a lie.
- * Evicted by age (`MEMORY_TICKS`), newest first, capped at `BASES`. */
 const remember=(base_id:string,items:MarketListingItem[],tick:number)=>
   rememberBook(runtimeDir(),base_id,acct().state.location?.system_id,items,tick);
 /** Keep `base_id`'s book, read at `tick` in `system_id`, in `dir`'s market memory, and its place.
@@ -143,16 +122,7 @@ const remember=(base_id:string,items:MarketListingItem[],tick:number)=>
 export function rememberBook(dir:string|undefined,base_id:string,system_id:string|undefined,items:MarketListingItem[],tick:number):void {
   if(!dir||!base_id)return;
   markPlace(dir,base_id,system_id??'');
-  writeBooks(dir,[{base_id,at:new Date().toISOString(),tick,...system_id===undefined?{}:{system_id},items},
-    ...knownBooks(dir).filter(row=>row.base_id!==base_id&&ticksOld(row.tick,tick)<=MEMORY_TICKS)].slice(0,BASES));
-}
-function writeBooks(dir:string,kept:RememberedBook[]):void {
-  try {
-    mkdirSync(dir,{recursive:true});
-    const path=join(dir,MEMORY),temp=`${path}.${process.pid}.tmp`;
-    writeFileSync(temp,JSON.stringify(kept),{mode:0o600});
-    renameSync(temp,path);
-  } catch {/* a market this pilot cannot remember is still a market it can trade at */} // edge: memory is a convenience; the file may be unwritable
+  keepBook(dir,{base_id,at:new Date().toISOString(),tick,...system_id===undefined?{}:{system_id},items});
 }
 /** This pilot's own fill, taken off `base_id`'s remembered book: `n` units off the top of its bids (a
  * sale) or asks (a buy), so the next plan does not count units it already sold into or bought off.
@@ -160,13 +130,12 @@ function writeBooks(dir:string,kept:RememberedBook[]):void {
  * before run a803ae2b sold 128 into them; 16 were left, and 121 rode on with no known buyer. */
 export function debitBook(dir:string|undefined,base_id:string,item_id:string,side:'bids'|'asks',n:number):void {
   if(!dir||!base_id||!(n>0))return;
-  const books=knownBooks(dir),row=books.find(book=>book.base_id===base_id)?.items.find(item=>item.item_id===item_id);
+  const row=knownBooks(dir).find(book=>book.base_id===base_id)?.items.find(item=>item.item_id===item_id);
   if(!row)return;
   const [orders,price,qty]=side==='bids'?['buy_orders','best_buy','best_buy_qty'] as const:['sell_orders','best_sell','best_sell_qty'] as const;
   const levels=row[orders]?.length?row[orders]:row[price]>0&&row[qty]>0?[{price_each:row[price],quantity:row[qty]}]:[];
   const left=levels.flatMap(level=>{const take=Math.min(n,level.quantity);n-=take;return level.quantity>take?[{...level,quantity:level.quantity-take}]:[];});
-  Object.assign(row,{[orders]:left,[price]:left[0]?.price_each??0,[qty]:left[0]?.quantity??0});
-  writeBooks(dir,books);
+  keepRow(dir,base_id,{...row,[orders]:left,[price]:left[0]?.price_each??0,[qty]:left[0]?.quantity??0});
 }
 
 /** The book here, whole, read once and filtered in memory: one 190 KB reply beats twenty
@@ -204,7 +173,7 @@ function journalBook(base:string,items:MarketListingItem[],tick:number):void {
   const key=JSON.stringify(rows),at=`${dir}\0${base}`;
   if(journalled.get(at)===key)return;
   journalled.set(at,key);
-  // A book this pilot cannot journal is still a book it can trade at, as with markets.json.
+  // A book this pilot cannot journal is still a book it can trade at, as with world.db.
   try {journalRun(dir,{base_id:base,book_tick:tick,items:rows},'book','books.jsonl');} catch {} // edge: a failed write is dropped; the next read journals it again
 }
 /** The last book `bookEffect()` read, for a `buy` to quote the ask it was sent against.

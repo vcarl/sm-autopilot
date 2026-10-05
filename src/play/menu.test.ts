@@ -10,7 +10,8 @@ import {check} from '../run.ts';
 import {ABSENCE_STALE,TICK_MS,writeLook} from '../sighting-memory.ts';
 import {journalRun,readJournal} from '../run-record.ts';
 import {evaluateMenu,jobStop,type Facts} from '../rules-table.ts';
-import {bridgeWorld,TICK,type WorldOptions} from '../test-support/bridge-world.ts';
+import {bridgeWorld,rememberAll,TICK,type WorldOptions} from '../test-support/bridge-world.ts';
+import {worldDb} from './world.ts';
 import {GameLive} from './game.ts';
 import {factsNowEffect,leadCall,menuDue,menuEffect,pilotingGap,renderMenu,type RunSummary} from './menu.ts';
 import {orient} from './orient.ts';
@@ -163,14 +164,14 @@ test('a remembered far book against this counter is the J6 spread',async()=>{
   try {
     // A book this pilot read at another base on an earlier visit: ore bids 40 there, and the
     // ask here is 12, so the circuit is worth 28 a unit.
-    writeFileSync(join(f.runtime,'markets.json'),JSON.stringify([{base_id:'range_base',at:'earlier',tick:TICK-5,
+    rememberAll(f.runtime,JSON.stringify([{base_id:'range_base',at:'earlier',tick:TICK-5,
       items:[{item_id:'ore',best_buy:40,best_buy_qty:99,best_sell:0,best_sell_qty:0}]}]));
     const seen=await facts(f,who);
     assert.deepEqual(seen.observed.spread,{item_id:'ore',base_id:'range_base',margin:28,age:5});
     assert.equal(verdict(seen,'J6').admissible,true,verdict(seen,'J6').reason);
     assert.match(verdict(seen,'J6').reason,/5 ticks old/,'J6 hands the pilot the age, it does not gate on it');
     // No memory, no spread — which is the answer J6 gave before the field was wired.
-    rmSync(join(f.runtime,'markets.json'));
+    rememberAll(f.runtime,'[]');
     assert.equal((await facts(f,who)).observed.spread,undefined);
     assert.equal(verdict(await facts(f,who),'J6').admissible,false);
   } finally {f.close();}
@@ -181,7 +182,7 @@ test('a remembered book written before books carried a tick is read as 20 ticks 
   const f=world(who);
   try {
     // A pre-ageing markets.json: no `tick` on the entry. The runner's rule is to assume 20.
-    writeFileSync(join(f.runtime,'markets.json'),JSON.stringify([{base_id:'range_base',at:'earlier',
+    rememberAll(f.runtime,JSON.stringify([{base_id:'range_base',at:'earlier',
       items:[{item_id:'ore',best_buy:40,best_buy_qty:99,best_sell:0,best_sell_qty:0}]}]));
     const seen=await facts(f,who);
     assert.deepEqual(seen.observed.spread,{item_id:'ore',base_id:'range_base',margin:28,age:20});
@@ -195,7 +196,7 @@ test('a remembered tick ahead of now — a restart or a season rollover — read
   const who:Pilot={mood:'Opportunistic',stance:'Trader'};
   const f=world(who);
   try {
-    writeFileSync(join(f.runtime,'markets.json'),JSON.stringify([{base_id:'range_base',at:'earlier',tick:TICK+50,
+    rememberAll(f.runtime,JSON.stringify([{base_id:'range_base',at:'earlier',tick:TICK+50,
       items:[{item_id:'ore',best_buy:40,best_buy_qty:99,best_sell:0,best_sell_qty:0}]}]));
     const seen=await facts(f,who);
     assert.deepEqual(seen.observed.spread,{item_id:'ore',base_id:'range_base',margin:28,age:0});
@@ -209,7 +210,7 @@ test("the J6 spread is a Trader's pasteable tradeRun; a refused J6 says so under
   // J6 passes: the move names the item and the far base, carries the age, and compiles.
   const ok=world({mood:'Opportunistic',stance:'Trader'},{cargoUsed:0});
   try {
-    writeFileSync(join(ok.runtime,'markets.json'),far);
+    rememberAll(ok.runtime,far);
     const built=await menu(ok.runtime);
     const run=built.moves.find(m=>m.call==="tradeRun({stops:[{at:'sol_base',buy:'ore'},{at:'range_base'}]})");
     assert.ok(run,`no tradeRun: ${JSON.stringify(built.moves)} / ${JSON.stringify(built.not_now)}`);
@@ -224,7 +225,7 @@ test("the J6 spread is a Trader's pasteable tradeRun; a refused J6 says so under
   // J6 fails with a spread in hand (a mood that may not start a job): not_now, with J6's reason.
   const relaxed=world({mood:'Relaxed',stance:'Trader'},{cargoUsed:0});
   try {
-    writeFileSync(join(relaxed.runtime,'markets.json'),far);
+    rememberAll(relaxed.runtime,far);
     const built=await menu(relaxed.runtime);
     assert.ok(!built.moves.some(m=>m.call.startsWith('tradeRun(')),JSON.stringify(built.moves));
     assert.ok(built.not_now.some(row=>row.move==='tradeRun'&&/Relaxed may not initiate a job/.test(row.why)),JSON.stringify(built.not_now));
@@ -238,7 +239,7 @@ test("the J6 spread is a Trader's pasteable tradeRun; a refused J6 says so under
   // Not a Trader: the same spread in memory is no tradeRun, on the menu or under not_now.
   const miner=world({mood:'Opportunistic',stance:'Prospector'},{cargoUsed:0});
   try {
-    writeFileSync(join(miner.runtime,'markets.json'),far);
+    rememberAll(miner.runtime,far);
     const built=await menu(miner.runtime);
     assert.ok(!built.moves.some(m=>m.call.startsWith('tradeRun('))&&!built.not_now.some(row=>row.move==='tradeRun'),renderMenu(built));
   } finally {miner.close();}
@@ -610,7 +611,7 @@ test("a docked Trader is offered routes(), below a live J6 run, whatever the hol
   // A concrete spread beats the search.
   const ok=world({mood:'Opportunistic',stance:'Trader'},{cargoUsed:0});
   try {
-    writeFileSync(join(ok.runtime,'markets.json'),far);
+    rememberAll(ok.runtime,far);
     const calls=(await menu(ok.runtime)).moves.map(m=>m.call);
     const run=calls.indexOf("tradeRun({stops:[{at:'sol_base',buy:'ore'},{at:'range_base'}]})"),search=calls.indexOf('routes()');
     assert.ok(run>=0&&search>run,JSON.stringify(calls));
@@ -648,12 +649,17 @@ test('a docked Trader with unread books near is offered scoutMarkets(), under th
   const known=world({mood:'Opportunistic',stance:'Trader'},{cargoUsed:0});
   try {
     writeFileSync(join(known.runtime,'places.json'),JSON.stringify({sol_base:'sol',range_base:'deep_range'}));
-    writeFileSync(join(known.runtime,'markets.json'),JSON.stringify(['sol_base','range_base'].map(base_id=>({base_id,at:'',tick:TICK,items:[]}))));
+    rememberAll(known.runtime,JSON.stringify(['sol_base','range_base'].map(base_id=>({base_id,at:'',tick:TICK,items:[]}))));
     const built=await menu(known.runtime);
     assert.ok(!built.moves.some(m=>m.call==='scoutMarkets()')&&!built.not_now.some(row=>row.move==='scoutMarkets()'),renderMenu(built));
   } finally {known.close();}
 });
 
+/** The store here as world.db keeps it: what the menu reads, where a run's views and moves put it. */
+const stocked=(runtime:string,items:Record<string,number>)=>{
+  const put=worldDb(runtime)!.prepare("INSERT OR REPLACE INTO stores VALUES('sol_base',?,?,NULL,'x')");
+  for(const [item,quantity] of Object.entries(items))put.run(item,quantity);
+};
 test('goods with no bid here and a remembered far bid are a pasteable tradeRun in every stance; with no far bid, not_now says so',async()=>{
   // Live 2026-09-24: dark_matter_residue, iridium, vanadium and copper aboard at a station that
   // bid for none of them; the menu offered stow and never the base that did bid.
@@ -663,7 +669,8 @@ test('goods with no bid here and a remembered far bid are a pasteable tradeRun i
   const held=world({mood:'Focused',stance:'Prospector',goal:'obtain credits'},
     {cargoUsed:12,cargoCapacity:12,store:[{item_id:'iridium',quantity:30}],markets:{sol_base:[]}});
   try {
-    writeFileSync(join(held.runtime,'markets.json'),far);
+    rememberAll(held.runtime,far);
+    stocked(held.runtime,{iridium:30});
     const built=await menu(held.runtime);
     const aboard=built.moves.find(m=>m.call==="tradeRun({stops:[{at:'range_base'}]})");
     assert.ok(aboard,renderMenu(built));
@@ -743,6 +750,7 @@ test('an unfitted module in the store, not the hold, is offered as a refit, not 
       return res;
     };
     bind({account:f.account as unknown as Account,command,pilot:()=>record,runtime:f.runtime,emit:()=>{}});
+    stocked(f.runtime,{cargo_expander_ii:1});
     const built=await menu(f.runtime);
     const refit=built.moves.find(m=>m.call==="refit({install:['cargo_expander_ii']})");
     assert.ok(refit,`no refit from the store: ${JSON.stringify(built.moves)}`);
@@ -829,7 +837,7 @@ test('a failed re-read of the account leaves the menu built from what is cached,
 
 test('a bug in any read leaves only that section out, and journals a defect line naming it',async()=>{
   for(const action of ['spacemolt/get_system','spacemolt/get_base','spacemolt/find_route','spacemolt/get_map','spacemolt_market/view_market',
-    'spacemolt/get_active_missions','spacemolt/get_missions','spacemolt_storage/view']) {
+    'spacemolt/get_active_missions','spacemolt/get_missions']) {
     const record:Pilot={mood:'Focused',stance:'Prospector',objective:'obtain credits'};
     const f=world(record,{cargoUsed:6});
     try {

@@ -18,6 +18,7 @@ import {Game,field} from './game.ts';
 import {bench,catalogClassEffect,moduleSpecEffect,whyNotFit} from './hangar.ts';
 import {readSightings,recall,TICK_MS} from '../sighting-memory.ts';
 import {bestFarBid,knownBooks,ticksOld} from './market.ts';
+import {storedAt} from './world.ts';
 import {activeEffect,nextStep,stuck} from './missions.ts';
 import {num} from './rows.ts';
 import {acct,defect,pilot,present,runCalls,step,type Pilot} from './runtime.ts';
@@ -136,8 +137,6 @@ const decodeShipment=Schema.decodeUnknownOption(Shipment);
 const Book=Wire.MarketListingItem.mapFields(Struct.pick(['item_id','best_buy','best_buy_qty','best_sell','best_sell_qty']));
 type Book=typeof Book.Type;
 const decodeBook=Schema.decodeUnknownOption(Book);
-const Stored=Wire.CargoItem_14.schema.mapFields(Struct.pick(['item_id','quantity']));
-const decodeStored=Schema.decodeUnknownOption(Stored);
 const Offered=Wire.MissionInfo.mapFields(fields=>({mission_id:fields.mission_id,title:Schema.optionalKey(fields.title),type:Schema.optionalKey(fields.type),
   rewards:Schema.optionalKey(Schema.NullOr(Wire.MissionRewardsInfo_1.mapFields(Struct.pick(['credits'])))),
   objectives:Schema.optionalKey(Schema.NullOr(Schema.Array(Wire.ObjectiveInfo_2.mapFields(fields=>({description:Schema.optionalKey(fields.description),item_id:fields.item_id})))))}));
@@ -432,8 +431,8 @@ export const menuEffect=(runtime?:string)=>Effect.gen(function*() {
     moves.push({call,why:`${bids.map(({row,local})=>sellLine(row.item_id,row.quantity,local)).join(', ')} at ${docked}`,advances:'credits'});
     if(full)unblocks.add(call);
   }
-  const store=docked?Option.getOrUndefined(yield* look('spacemolt_storage/view')):undefined;
-  const inStore=each('storage/view','item',field(store,'items'),decodeStored);
+  // The store here as `world.db` keeps it: every view and move this pilot made keeps it current.
+  const inStore=docked?storedAt(runtime,docked):[];
   const stored=inStore.flatMap(row=>{const local=book?.get(row.item_id);return row.quantity>0&&local&&local.best_buy>0?[{row,local}]:[];});
   if(stored.length)moves.push({call:`sell(${lit(stored.map(({row})=>({item_id:row.item_id})))}, {from:'store'})`,
     why:`the store here holds ${stored.map(({row,local})=>sellLine(row.item_id,row.quantity,local)).join(', ')}`,advances:'credits'});
