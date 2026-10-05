@@ -36,6 +36,7 @@ play.py              drives the same bridge from a shell, outside Hermes
 src/bridge.ts        the request loop; everything below it is game logic
 src/play/            the library the pilot's program imports, one folder per career
 src/play/README.md   the base skill — what the pilot reads to know how to play at all
+src/play/world.ts    world.db: every base's book and the pilot's stores, the one schema and its statements
 play.gen/            the play barrels' declarations, which the pilot's check reads (`npm run gen:play`)
 src/play/freighter/  freighters: each its own account and connection, hosted in the bridge process
 ```
@@ -108,6 +109,29 @@ An instruction stands until a run starts from a context rendered after the instr
 (`_pending_instruction` compares the run's `juncture_at` with the instruction's `at`). A run from
 a context rendered earlier never saw it, so it does not consume it.
 
+### The world memory
+
+`runtime/world.db` (`src/play/world.ts`, `node:sqlite`, WAL) is what the pilot knows beyond its ship,
+kept by the reads and acts that already happen. The bridge opens it once and is its only writer;
+freighters in its process share the handle. Nothing in Python reads it. Schema is `user_version` 1:
+
+- `markets` (`base_id`, `system_id`, `tick`, `at`) + `books` (`base_id`, `item_id`, `row`: the listing,
+  10 levels a side, each level stamped `since`, the first tick it was seen at that price across
+  unbroken reads). Every `book()` read replaces its base; your own fills are taken off in place
+  (`debitBook`). Kept by count, never by age: a consumer discounts by age itself. `knownBooks()` reads it.
+- `stores` (`base_id`, `item_id`, `quantity`, `tick`, `at`): your station storage. Kept at the run's
+  command seam (`noteStore`, wrapped round the binding's `command` in `bind()`): a `storage/view` replaces
+  its base, and a base its `locations` count differently is re-read from afar (`station_id`) or, when
+  unlisted, emptied; a deposit sets the item to the reply's `storage_total`, a withdraw to its
+  `storage_remaining`, a buy delivered to storage adds `delivered_to_storage`. A freighter's account is
+  not the pilot's, so its commands never touch it.
+
+On first open it imports `markets.json` and, per base, the latest `books.jsonl` line when newer (with
+each level's `since` from the journal's run of reads), in one transaction. The old files are left in
+place and no longer written. The small JSON caches (`places.json`, `explored.json`, `docking.json`,
+`names.json`, `mobile.json`, `drained.json`, `systems.json`, `combat.json`, `sightings.json`) and the
+fetched `catalog.json` stay files: moving them would add code, not delete it.
+
 ### Telemetry
 
 `runtime/gameplay.jsonl` is also the analysis record: raw, joinable facts, no verdicts, never in
@@ -126,12 +150,13 @@ the pilot's context. Every line has `at` (UTC ISO, `Z`) and `event`.
   carry an instruction; a busy one cannot, so it leaves `at` (and `objective`) alone.
 - `run` `started`: `run_id`, `juncture_id`, `juncture_at` (the `at` of the render the run came
   from; also written to `run.json`), `since_juncture_s` (from that render), `code_sha`, `sources`,
-  `start_state` (credits, fuel, hull, cargo, skills, place, active missions — account memory only,
-  no storage).
+  `start_state` (credits, fuel, hull, cargo, `stores` — `{base_id: {item_id: quantity}}` from `world.db`, 40
+  rows a base — skills, place, active missions; memory only, no call).
 - `run` `ended`: `outcome`, `reason` (the run's, from its top earning call when the returned
   call is not it: `ofTheRun` in `prose.ts`; each call's own status is in `calls`), `work` (the run summary: the first work call's `fn` and
   `status`, total `credits`/`items`/`xp`), `end_state`, and `calls` (each top-level call's `fn`,
-  `status`, `cost`, `gained`, `started_at`, `seconds`; first 40, `calls_total`). No `start_state`:
+  `status`, `cost`, `gained`, `started_at`, `seconds`; first 40, `calls_total`; `gained.items` counts the
+  hold and the stores together, so a unit stowed is not lost and one mined and stowed is gained). No `start_state`:
   pair it with its `started` line by `run_id`.
 - Every line written while a run is bound carries its `run_id`; a freighter's lines carry
   `freighter` instead. Python-written lines (`gate`, `juncture`, `reflection`) never carry `run_id`.
@@ -148,7 +173,7 @@ the pilot's context. Every line has `at` (UTC ISO, `Z`) and `event`.
   as `[price_each, quantity]`; join a quote to it by `base_id` + `book_tick`, or the latest line for that
   base), `stop` (one per `tradeRun` stop that read a book: `base_id`, `book_tick`, `from:'store'` when it
   was, `before_tick` of the remembered book the route was planned on here, per planned item its
-  `ask_depth` (or `stored`), `aboard` (held after the stop's sales, before its buys), `later_bid_depth`
+  `ask_depth` (absent for `from:'store'`) and `stored` (when the store here holds it), `aboard` (held after the stop's sales, before its buys), `later_bid_depth`
   (`{base_id: units}` on the bids of each later stop whose book has the item, as the plan read it), the plan's `planned`, `sent`, `bought`, and `why` when it took none or the buy was not `done`
   (`no ask`, `none stored`, `plan took none`, `no room`, or the buy's own refusal), `later` (each later
   stop's `base_id`, `source`, `age`; null when no book was known), and `cargo_used`/`cargo_capacity`
@@ -157,7 +182,9 @@ the pilot's context. Every line has `at` (UTC ISO, `Z`) and `event`.
   `resupply` (one per counter the runtime's Tired resupply tried: `trigger` — `dock`, `arrival`, `call`
   or `run_end` — `tired_by`, `base`, `status`, `spent`, `issued`, `cleared`, `why`, `fuel_before`/
   `hull_before` at the resupply's start, `fuel_after`/`hull_after` and `seconds` at this line),
-  `stranded`, `death`, and `pilot` with `prev`.
+  `store` (one per change to `world.db`'s stores: `base_id`, `via` — `view`, `deposit`, `withdraw` or
+  `buy` — `tick` when the reply had one, and `items`, `{item_id: quantity now}` for each item that
+  changed, 0 when gone), `stranded`, `death`, and `pilot` with `prev`.
 - `defect`: a die (a bug, not a game error) reaching a `jobEffect` or `edge`: `fn`, `why` (the
   message), `stack` (`Cause.pretty`). Its Outcome is `failed`.
 - `check`: one per pilot-gate typecheck. `sha` (the checked `pilot/index.ts`, as on the run line), `warm`
@@ -262,6 +289,7 @@ Most bugs here are found by reading what a live pilot did, not by tests. Everyth
 | `spacemolt/runtime/gameplay.jsonl` + `gameplay.<stamp>.jsonl` | the journal; rotated at every bridge boot, so a day spans several files |
 | `spacemolt/runtime/programs/<sha>.ts` | every program the pilot ran; a run's `source` names it |
 | `spacemolt/runtime/run.json` | the run now (or last); `ended:false` means one is in flight |
+| `spacemolt/runtime/world.db` | every base's book and your stores as last read (`sqlite3 -readonly`) |
 | `spacemolt/runtime/bridge.stderr*.log` | the bridge's stderr, rotated with the journal |
 | `spacemolt/pilot.json` | objective, goal, stance, the standing instruction |
 | `cron/output/<job_id>/<local time>.md` | each fire's final reply: what the model said it did |

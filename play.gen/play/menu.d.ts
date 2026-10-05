@@ -152,7 +152,7 @@ export declare const leadCall: (who: Pilot) => string;
 /** The menu from where the ship stands: the present in one read, the last ten runs, the
  * skills, the store, and when docked the board, the market and the yard. At most five
  * moves, ranked with the move that clears a stated blocker first, then to break the repetition
- * seen, then by what the goal names, then by what similar runs measured. Under Tired: only service here or the nearest serviced base. */
+ * seen, then by what the goal names, then by what similar runs measured. */
 export declare const menuEffect: (runtime?: string) => Effect.Effect<{
     held: {
         max: number;

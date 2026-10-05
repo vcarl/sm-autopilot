@@ -2,6 +2,7 @@
 import type { GetBaseResponse } from '@spacemolt/lib';
 import { Effect } from 'effect';
 import { Game } from './game.ts';
+import { Run } from './runtime.ts';
 import type { Outcome } from './types.ts';
 export interface Serviced {
     /** The counter as it was read before the spend. A posted `fuel_price_all_in` or
@@ -60,7 +61,7 @@ export declare const asBase: (body: unknown) => GetBaseResponse;
  * Tired: resupplying back inside the margins is what clears it (the mood is derived from the
  * ship), and `cleared_tired` says so. `insure` and `dues` are accepted and
  * reported in `short` until a later slice implements them. */
-export declare const serviceEffect: (opts?: NonNullable<Parameters<typeof service>[0]>) => Effect.Effect<Outcome<Serviced>, never, Game | import("./runtime.ts").Run>;
+export declare const serviceEffect: (opts?: NonNullable<Parameters<typeof service>[0]>) => Effect.Effect<Outcome<Serviced>, never, Game | Run>;
 export declare function service(opts?: {
     fuel?: number;
     hull?: number;
@@ -71,7 +72,7 @@ export declare function service(opts?: {
  * its margins. Docked, service here; otherwise (or when this counter could not clear it) fly to
  * each base `serviceElsewhere` names and service there, until one clears it. `travel:false`
  * services only where the ship stands — a stopped run does not fly off. Every attempt is
- * journalled as `resupply`. Away from a counter the fuel cells aboard are burned first
+ * journalled as `resupply`, with what triggered it and the ship before and after. Away from a counter the fuel cells aboard are burned first
  * (`burnCells`), which may be all a fuel crossing needs.
  *
  * `cleared` when the ship is no longer Tired; `broke` when a counter was reached but the wallet
@@ -79,6 +80,16 @@ export declare function service(opts?: {
  *
  * ponytail: the bases are tried in `serviceElsewhere`'s order (this system first), not by route
  * cost, and a wallet refused here is still flown to the next counter. */
-export declare const resupplyEffect: (opts?: {
+export declare const resupplyEffect: (opts: {
     travel?: boolean;
-}) => Effect.Effect<"stranded" | "broke" | "cleared", never, Game | import("./runtime.ts").Run>;
+    trigger: Trigger;
+}) => Effect.Effect<"stranded" | "broke" | "cleared", never, Game | Run>;
+type Trigger = 'dock' | 'arrival' | 'call' | 'run_end';
+/** Tired's guarantee wherever the ship stops: a dock, a goTo's arrival, or a call `main()` made
+ * itself (`admit`). Docked, service here. Flying to another counter is only for the program's
+ * own call (depth 1): inside a helper it would leave the helper at the wrong counter. Never a
+ * refusal: the act that docked or arrived reports as it would, and the top-level call's `did` names
+ * the resupply. The resupply's own docks and arrivals start none, and a system it flew out of to
+ * no counter is not flown out of again this run (one `stranded` line, not one per call). */
+export declare const tiredCheck: (trigger: "dock" | "arrival" | "call") => Effect.Effect<void, never, Game | Run>;
+export {};

@@ -225,7 +225,7 @@ export default async function main() {
 
 ## What memory knows about a species
 
-Every fight is folded into `combat.json` beside `markets.json` — one record per fight, about a
+Every fight is folded into `combat.json` beside `world.db` — one record per fight, about a
 dozen numbers, never a transcript. Three things come off it, and they reach you in two places:
 the juncture's observed targets, beside the creature's name, and `view.stats` inside the fight.
 

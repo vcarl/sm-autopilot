@@ -111,6 +111,12 @@ export interface Supplied {
     /** Credits the buys actually cost, wallet before vs after (fee-inclusive; `total_cost` alone
      * is the pre-tax subtotal). */
     spent: number;
+    /** Inputs it had to buy or is still short of that your stores at other bases hold, as last read or moved. */
+    elsewhere: {
+        item_id: string;
+        base_id: string;
+        quantity: number;
+    }[];
 }
 /** This base's store holds every input `quantity` of a recipe escrows — at the workshop or
  * wherever `at` names, since that decides the inputs.
@@ -120,7 +126,8 @@ export interface Supplied {
  * store at this market. The whole bill is estimated (buy fee included) before anything moves:
  * over `maxSpend`, or an input over `maxEach` each (with none, over `OVERPAY` × the cheapest ask
  * remembered at another base, named), it is refused with nothing stowed or bought. An input this market does not
- * sell comes back in `short` with its `source`, and the status is `partial`. Each buy keeps
+ * sell comes back in `short` with its `source`, and the status is `partial`. What your stores at other bases
+ * hold of an input it lacks is named in `did` and `elsewhere`, never fetched. Each buy keeps
  * `credits − permissions.credit_reserve`. A buy or a stow whose reply is lost is never re-sent:
  * the store is re-read, and what it still lacks is `short`. */
 export declare const supplyEffect: (recipeId: string, quantity?: number, opts?: {

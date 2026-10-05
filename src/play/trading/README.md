@@ -41,7 +41,8 @@ stands in. A base both remembered and on the ledger is read from the **fresher**
 goes to the memory), whichever copy pays more: `spreads()`, `routes()`, `tradeRun` and `assign`
 all see that one book. The
 memory is free and always there: every `book()` read — by `prices()`, `sell()`, `recipes()`,
-`quote()` — writes that base's whole book to `markets.json` in the runtime dir, kept for a day of ticks.
+`quote()` — keeps that base's book in `world.db` in the runtime dir, every base, however old (its age is
+always said).
 Your own fills come off it as they land: what `sell()` sold leaves that base's remembered bids, what
 `buy()` bought leaves its asks, so the next plan does not count on a bid you already filled.
 So the second visit knows what the first one saw, across runs and across restarts. It follows
@@ -103,7 +104,9 @@ runs it, so what ranks is what runs.
 `routes({items?})` answers `detail: {routes, sources}`. `items` narrows what is taken on at a
 stop; goods aboard are always weighed. `sources` is as for `spreads()`. It reads only: it
 computes, you choose. Undocked, every book is a remembered one, its age said, and `did` says so. Goods
-in the store here are not weighed; take them with `from: 'store'` (below).
+in your stores, at any base, are a source like an ask that costs nothing: a stop takes them on where they
+are kept, and `tradeRun` withdraws them before it buys (the stores are as last read or moved: `storage()`
+re-reads them).
 
 The search picks only the bases, in order; the rule above picks what each stop sells and takes on.
 It grows routes one stop at a time, keeping the best 20 at each length, within the scope:
@@ -162,7 +165,7 @@ the list with a `why`, a `score` of 0 and the Outcome `partial`.
 | `at` | the base to stop at. `tradeRun` flies there itself; a stop you are docked at is not flown to |
 | `buy` | the item to take on here, or a list of them: the plan fills the hold from the list, unit by unit, whichever clears most, one `buy` each. A `routes()` row's `next` lists what its plan took |
 | `quantity` | a cap on all of `buy` together |
-| `from` | `'store'`: take `buy` out of this base's store, at no cost, instead of off the market |
+| `from` | `'store'`: take `buy` out of this base's store only, never off the market. Without it the store's units go first, then the asks |
 
 At each stop it reads the live book, re-plans the rest of the route against it (later stops at
 their best known books), and does the first leg of that plan: `sell`, then a `buy` or `withdraw` per item.

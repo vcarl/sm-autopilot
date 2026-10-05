@@ -230,7 +230,8 @@ export interface RunStop {
     buy?: string | readonly string[];
     /** A cap on all of `buy` together; the plan sizes it otherwise. */
     quantity?: number;
-    /** `'store'`: `buy` comes out of this base's store, at no cost, instead of off the market. */
+    /** `'store'`: `buy` comes out of this base's store only, never off the market. Without it the store's units
+     * (as `world.db` keeps them) go first, at no cost, then the asks. */
     from?: 'store';
 }
 /** The call that runs `stops`, as a pilot pastes it. */
@@ -350,8 +351,8 @@ export declare const REST_TICKS = 360;
  * Reads only. Jumps come from `get_map` and each base's system, which the market memory keeps;
  * fuel per jump from one `find_route`. A stop that could not be placed is a row with a `why` and
  * the Outcome `partial`, never a throw. Undocked, every book is a remembered one, aged against `tickNow`.
- *
- * ponytail: goods in this base's store are not weighed; `tradeRun` takes them with `from:'store'`. */
+ * Goods in your stores, at any base, are a source as their asks are, at no cost: a route may take them on
+ * where they are kept, and `tradeRun` withdraws them before it buys. */
 export declare function routes(opts?: RouteOpts): Promise<Outcome<{
     routes: Route[];
     sources: string[];

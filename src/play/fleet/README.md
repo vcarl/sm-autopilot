@@ -164,7 +164,7 @@ that ring's predicted `lap_net`. It passes over any ring another of your freight
 When no circuit qualifies, it scouts: `state: 'scouting'`, one hop at a time to the nearest book
 nobody has read lately within `SCOUT_JUMPS` (4), the same choice `scoutMarkets()` makes (see
 [trading](../trading/README.md#scouting-reading-the-books-nobody-has)). At a base it docks, services,
-reads the book, files it to the ledger and remembers it in your `markets.json`, lists the system's
+reads the book, files it to the ledger and remembers it in your `world.db`, lists the system's
 bases, and re-plans on what it read; a system never listed it flies to for its bases, then docks at
 one. It never buys scouting; cargo aboard that it bought is sold where a bid covers its cost, and
 credits over the float go home, as at any stop. A hop that fails three times (`STOP_TRIES`), or cannot be
@@ -294,7 +294,7 @@ row, and with none it waits, re-planning every `REPLAN_TICKS` (see
 connection, your live book (remembered and filed), your runtime dir. A freighter's host runs the
 same `search` on the freighter's own seat: its connection for the live book where it is docked, the
 tax, fuel price and map reads, `find_route` from where it is, and the faction ledger (it is a faction
-member); your runtime dir's `markets.json`, `places.json` and `drained.json` by path. It never touches
+member); your runtime dir's `world.db`, `places.json` and `drained.json` by path. It never touches
 your play runtime, so a freighter re-plans while you fly, and yields to the event loop as yours does.
 `search` is the host's, not a pilot call: it is not in `play`.
 

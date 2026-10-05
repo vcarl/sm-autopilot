@@ -136,6 +136,12 @@ declare const Run_base: Context.ServiceClass<Run, "Run", {
     lastMood: Mood | undefined;
     /** How the last resupply ended short, if it did: `admit` lets the work go on either way. */
     short: "broke" | "stranded" | undefined;
+    /** The runtime's own resupply is flying: its docks and arrivals do not start another. */
+    resupplying: boolean;
+    /** The system a resupply flew out of and reached no counter: not flown out of again this run. */
+    strandedIn: string | undefined;
+    /** Resupplies since the last top-level call closed: that call's `did` names them. */
+    readonly resupplied: string[];
     burning: boolean;
     burnFailed: boolean;
     unwatch: (() => void) | undefined;
@@ -254,17 +260,12 @@ export declare const progress: () => {
  * begin something (a gather, a buy, a mission) ask before sending; reads and the safe legs
  * (service, stow, sell, going to a base) do not.
  *
- * Tired is not advice: at a call `main()` made itself, the runtime resupplies first (`resupply`)
- * and the work goes on: cleared, or journalled when it could not be. Inside another helper it
- * only refuses — flying off mid-trade would leave the outer helper at the wrong counter — and the
- * resupply waits for the next top-level call or the run's end. */
+ * Tired is not a gate: at a call `main()` made itself the runtime resupplies first (`tiredCheck`),
+ * as it does at every dock and arrival, and the work goes on whether or not that cleared it —
+ * refusing the work (which earns the credits, or flies where a base may be learned) would strand the ship. */
 export declare const admit: (fn: string) => Effect.Effect<string | null, never, Game | Run>;
 /** `get_skills` answers a map keyed by skill id (live, C23 replay); some shapes nest it. */
 export declare function skillMap(skills: unknown): Record<string, SkillProgress>;
-/** The ship, wallet, hold, place, skills and active missions as the account already holds them:
- * the run's `start_state`/`end_state`. Reads memory only. Storage is not in account state, so it
- * is not here — it would cost a `storage/view` per run.
- * ponytail: cargo and missions capped at 40 rows, as the storage and market reads are. */
 export declare function stateSnapshot(): Record<string, unknown>;
 export declare function present(): Present;
 /** What a helper hands back; the wrapper measures the rest. */

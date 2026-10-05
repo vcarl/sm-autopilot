@@ -12,7 +12,8 @@ export type Quote = MarketListingItem & {
 };
 /** A book this pilot has stood in front of, kept so the next base knows what the last one
  * paid. The game publishes no cross-station prices — `view_market` and `analyze_market` are
- * both "here" — so memory is the only far price a factionless pilot can have. */
+ * both "here" — so memory is the only far price a factionless pilot can have. Kept in `world.db`
+ * (world.ts), every base, never evicted by age: a consumer discounts by age itself. */
 export interface RememberedBook {
     base_id: string;
     at: string;
@@ -72,7 +73,7 @@ export declare const marketTick: () => number;
 /** Every book read in this runtime dir, newest base first. Empty without a runtime. The
  * directory is an argument so a caller outside a bound run (the juncture's `factsNow`) can
  * read the same memory. */
-export declare function knownBooks(dir?: string | undefined): RememberedBook[];
+export declare const knownBooks: (dir?: string | undefined) => RememberedBook[];
 /** Keep `base_id`'s book, read at `tick` in `system_id`, in `dir`'s market memory, and its place.
  * What `book()` does for the pilot, and a freighter's host for a book it scouted. */
 export declare function rememberBook(dir: string | undefined, base_id: string, system_id: string | undefined, items: MarketListingItem[], tick: number): void;

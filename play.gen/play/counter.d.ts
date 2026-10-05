@@ -19,12 +19,13 @@ export declare const others: (bases: string[]) => string;
 /** Dock at `base_id` where the ship stands, or the game's refusal in its own words when it denies
  * access (`access_denied`, live 2026-09-30..10-02: 18 `Access denied` docks): remembered in
  * `docking.json` and journalled (`dock_refused`), so the next juncture can see which bases turned it
- * away. A dock that takes clears the entry. Every other failure stays in the error channel. */
+ * away. A dock that takes clears the entry, and services the ship there when it is Tired (`tiredCheck`).
+ * Every other failure stays in the error channel. */
 export declare const dockEffect: (base_id: string) => Effect.Effect<{
     docked: string;
 } | {
     refused: string;
-}, Rejected | import("./codes.ts").InBattle | import("./codes.ts").HoldFull | import("./codes.ts").Depleted | import("./codes.ts").ReplyLost | import("../travel.ts").TravelBlocked | import("../travel.ts").ArrivalUnresolved | import("../dock.ts").DockBlocked, Game>;
+}, Rejected | import("./codes.ts").InBattle | import("./codes.ts").HoldFull | import("./codes.ts").Depleted | import("./codes.ts").ReplyLost | import("../travel.ts").TravelBlocked | import("../travel.ts").ArrivalUnresolved | import("../dock.ts").DockBlocked, Game | import("./runtime.ts").Run>;
 /** Docked already, or docked now when a base sits at this POI; otherwise why not, naming the
  * POI, the system, and the bases in this system. */
 export declare const counterEffect: () => Effect.Effect<{
@@ -33,4 +34,4 @@ export declare const counterEffect: () => Effect.Effect<{
 } | {
     refused: string;
     docked?: never;
-}, import("./codes.ts").GameError | import("../travel.ts").TravelBlocked | import("../travel.ts").ArrivalUnresolved | import("../dock.ts").DockBlocked, Game>;
+}, import("./codes.ts").GameError | import("../travel.ts").TravelBlocked | import("../travel.ts").ArrivalUnresolved | import("../dock.ts").DockBlocked, Game | import("./runtime.ts").Run>;

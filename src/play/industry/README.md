@@ -77,7 +77,8 @@ export default async function main() {
 - `supply(recipe, qty)` estimates the whole bill before it moves anything; over `maxSpend` it is
   refused with nothing bought. So is an input over 1.05 × the cheapest ask remembered at another
   base (`why` names it and its age): buy it there, or pass `maxEach` (per unit) to pay this one. What this market does not sell comes back in `short` with its
-  `source`, and the status is `partial`. A stocked store is `done` with nothing sent.
+  `source`, and the status is `partial`. What your stores at other bases hold of an input it had to
+  buy is named in `did` and `elsewhere`; nothing is fetched from them. A stocked store is `done` with nothing sent.
 - `craft(recipe, qty)` commits, waits and measures. A job already queued here for the same
   recipe and the same number of runs **is** this job: a re-run re-enters the wait.
 - `jobs()` marks a workshop job `paused` when the ship is not docked at its base.
