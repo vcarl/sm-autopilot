@@ -54,7 +54,7 @@ export default async function main() {
     note(`${stop.poi_id}: ${stop.saw} seen, ${stop.legal} legal${stop.flew ? ' (flew there)' : ''}`);
 
   if (out.detail.ended === 'nothing found') {      // every place looked at, none held it
-    note('that list is empty; pick another system next run');
+    note('that list is empty; pick another system next flight');
     return out;
   }
   if (out.detail.ended === 'fuel') return out;     // the tank cannot cover the next hop; go refuel
@@ -82,10 +82,9 @@ Three things to know about it:
 of real time, one status read, one decision and at most one command each, because the server
 takes one mutation a tick: it sets the `fire` stance and focuses the quarry at the open (ships
 fire by themselves under their stance; there is no fire command), then closes the range while
-the quarry is out of reach or running. A journal line a tick carries the tick number and the
-quarry's hull and zone, so the record answers "how often did we act" directly. The trip around
+the quarry is out of reach or running. The trip around
 it is yours: `goTo` out, `hunt`, `goTo` back, `stow`, `service`. That is the point — the same `hunt` call works whether you
-flew there this run or are standing at the belt already.
+flew there this flight or are standing at the belt already.
 
 ## Worked example
 
@@ -106,7 +105,7 @@ export default async function main() {
   if (out.status !== 'done') return out;
 
   const first = await hunt();                              // one fight where you now stand
-  if (first.detail.ended === 'nothing here') { note('quiet belt; hunt({look}) a list next run'); return first; }
+  if (first.detail.ended === 'nothing here') { note('quiet belt; hunt({look}) a list next flight'); return first; }
   const second = await hunt();                             // and another
   if (second.status === 'refused') return second;          // no rounds left, or the rules said no
 
@@ -120,13 +119,13 @@ export default async function main() {
 ## Fighting with your own hand on the stance
 
 `hunt({onTick})` hands you the fight, one tick at a time. It is **synchronous** on purpose: a
-tick is ten seconds and one model call is one to three minutes, so the tactics have to be
+tick is ten seconds, too short to think in, so the tactics have to be
 written down in advance and run inside the fight, not decided while it happens.
 
 The callback never sends a command. It is handed a `TickView` and returns a `TickDecision`, or
 `undefined` for "no change" — which is how "decide every third tick" is written without the
 library baking in a cadence. `hunt` applies one field a tick (the server takes one mutation a
-tick), validates it, and journals what was asked against what was sent.
+tick) and validates it.
 
 ### The stances
 
@@ -176,10 +175,8 @@ exit is how a ship was lost on 2026-09-24. Leaving is `disengage`, and nothing e
 ### The bounds you cannot argue with
 
 - **The walk-away floor wins.** Ask to keep firing below `view.floor` and the floor breaks the
-  fight off anyway, and the journal says `override: onTick asked {…}, and the <mood> walk-away
-  line <n> wins`. The mood's margin is the operator's bound, like `credit_reserve`, not yours.
-- **A throw is caught.** The line is journalled (`onTick threw (…); the default loop continues`)
-  and the default loop carries on. A bug in your tactics never strands the ship mid-fight.
+  fight off anyway. The mood's margin is not yours to move, like `credit_reserve`.
+- **A throw is caught** and the default loop carries on. A bug in your tactics never strands the ship mid-fight.
 - **One mutation a tick.** Return two fields and only the first in the order above is sent.
 
 ### With no callback
@@ -225,9 +222,9 @@ export default async function main() {
 
 ## What memory knows about a species
 
-Every fight is folded into `combat.json` beside `world.db` — one record per fight, about a
+Every fight is folded into memory — one record per fight, about a
 dozen numbers, never a transcript. Three things come off it, and they reach you in two places:
-the juncture's observed targets, beside the creature's name, and `view.stats` inside the fight.
+what you see when you take stock, beside the creature's name, and `view.stats` inside the fight.
 
 | Number | How it is measured |
 |---|---|
@@ -239,8 +236,6 @@ the juncture's observed targets, beside the creature's name, and `view.stats` in
 `stats.thin` is true while the sample is under three fights, and then every number above is an
 anecdote. `newest_ticks_old` says how old the freshest of them is. `ship_classes` is the hulls
 those fights were flown in: a win rate across two hulls is two questions answered as one.
-
-A ship lost is now buffered as an alert, so the next juncture reads it. It did not use to be.
 
 ## Where the fauna are
 
@@ -280,7 +275,7 @@ A ship lost is now buffered as an alert, so the next juncture reads it. It did n
 - Creatures train xenobiology; pirates train bounty_hunting.
 - Looting a wreck, here or through `salvage`, trains salvaging.
 
-The numbers are measured, not claimed: `gained.xp` is the per-skill delta the runtime read
+The numbers are measured, not claimed: `gained.xp` is the per-skill delta read
 before and after, and `gained.items` is the cargo delta — a `loot` reply over-states quantity.
 
 ## Who is legal

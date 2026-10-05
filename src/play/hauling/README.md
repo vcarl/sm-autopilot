@@ -85,8 +85,8 @@ destination with the highest total estimated fare on the board.
   the origin has a storage counter before accepting; a mission board alone does not guarantee
   one. `haul` withdraws `package:<id>` and confirms it is aboard before leaving.
 - `unload_passenger` with `all` at an intermediate stop strands everyone at −1 standing each.
-  `carryPassengers` only ever lands a passenger at their own stop; the policy validator refuses
-  the literal on `account()`.
+  `carryPassengers` only ever lands a passenger at their own stop; the flight computer refuses the
+  literal on `account()`.
 - A stale board: the listing can be gone when you accept. `haul` re-reads the contract first.
 
 ## When to reconsider

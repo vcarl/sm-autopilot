@@ -41,11 +41,11 @@ stands in. A base both remembered and on the ledger is read from the **fresher**
 goes to the memory), whichever copy pays more: `spreads()`, `routes()`, `tradeRun` and `assign`
 all see that one book. The
 memory is free and always there: every `book()` read — by `prices()`, `sell()`, `recipes()`,
-`quote()` — keeps that base's book in `world.db` in the runtime dir, every base, however old (its age is
+`quote()` — remembers that base's book, every base, however old (its age is
 always said).
 Your own fills come off it as they land: what `sell()` sold leaves that base's remembered bids, what
 `buy()` bought leaves its asks, so the next plan does not count on a bid you already filled.
-So the second visit knows what the first one saw, across runs and across restarts. It follows
+So the second visit knows what the first one saw, across flights. It follows
 that the way to *learn* a price is to go and stand in front of it: `goTo(base)` then
 `prices()`, once, and that base is in the memory for good.
 
@@ -53,7 +53,7 @@ Filing to the ledger is automatic too: every `book()` read, and every freighter 
 base's priced book (`submit_trade_intel`) once per tick, so you never call it. A book over about
 50 KB drops the connection, and a second filing for a base replaces the first, so a big book is
 cut to its most tradeable rows (a bid and an ask first, then by value). A failed filing costs that
-base that tick only, and is said once per process; without a faction ledger nothing files. What you and your faction filed comes back in `spreads()`
+base that tick only; without a faction ledger nothing files. What you and your faction filed comes back in `spreads()`
 rows as `source: 'faction ledger'` with `seen` the age of its `submitted_at_tick`, and in `routes()`
 legs as `source`/`age` the same way; a base read both ways ranks on the fresher of the two.
 
