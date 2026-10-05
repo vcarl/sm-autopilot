@@ -147,69 +147,10 @@ source and age, `sirius_observatory_station (remembered, 85 ticks old) sell 2 da
 — and its legs carry each sale. A stop that could not be placed leaves its row in
 the list with a `why`, a `score` of 0 and the Outcome `partial`.
 
-## Circuits: a lap a freighter repeats
+## Circuits
 
-A route need not come back to where it started; one handed to a freighter must, because the
-freighter flies it again and again. `routes({circuit: {hold: 50}})` ranks those instead: every row
-is a closed lap of 2 to `maxStops` different bases, planned for an **empty** hold of `hold` units
-(what is aboard you now is ignored), with at least one buy. The lap is planned into the next one,
-so the last stop takes on what the first stop outbids, and the way back pays too. `maxLegJumps`
-counts the hop home, and `maxJumps` the whole lap.
-
-A lap is planned three times over and the **middle** lap is the one read: the first starts empty,
-and the last has nothing after it to carry for. The lap starts at its first buy, so lap one has
-already traded on every book the middle lap reads. It is one plan over one set of books, so what
-lap one took is gone for lap two, and the middle lap can sell more than it buys. A lap repeats only
-what it both buys and sells, so each item counts `min(sold, bought)` units, sold at its best bids
-and bought at its cheapest asks; an item sold with none bought on the lap is carry from lap one and
-is not counted. One ring of bases is one row: its rotations rank as the best of them.
-
-**A drained ring rests.** When a freighter parks because its circuit ran dry — three stops in a
-row with no trade, or three laps that lost money — its ring of bases (the stops in order, any
-rotation) and the game tick are written to `drained.json` in your runtime dir. For `REST_TICKS`
-(360 ticks, about an hour; unmeasured, to be tuned once a drained book is watched refilling)
-`routes({circuit})` does not plan that ring, and its `did` ends `skipped N ring(s) a freighter
-drained within 360 ticks: <ring>; …`. NPC books refill slowly; two laps can empty one. The
-freighter rotates itself: its host runs this same search for its hold and scope and flies the top
-row, and with none it waits, re-planning every `REPLAN_TICKS` (see
-[fleet](../fleet/README.md#freighters)). `reassign(name)` runs it for a parked freighter by hand.
-
-**One planner, two seats.** `routes()` is `search(seat, opts)` read through your runtime: your
-connection, your live book (remembered and filed), your runtime dir. A freighter's host runs the
-same `search` on the freighter's own seat: its connection for the live book where it is docked, the
-tax, fuel price and map reads, `find_route` from where it is, and the faction ledger (it is a faction
-member); your runtime dir's `markets.json`, `places.json` and `drained.json` by path. It never touches
-your play runtime, so a freighter re-plans while you fly, and yields to the event loop as yours does.
-`search` is the host's, not a pilot call: it is not in `play`.
-
-**A freighter trades by the same planner.** Its circuit's `qty` and `max_price` are caps, not
-orders: at each stop it runs `plan` over the live book there and its host's freshest books of the
-later stops (the ledger's, read by `base_id` and cached `BOOK_TTL_MS`, your memory's, or a
-freighter's own live read), less what the other freighters carry there, a book past `STALE_TICKS`
-at half its depth and one past `IGNORE_TICKS` at none, and buys what that plan says. Each lap is
-planned first on the same books, and one planning at 0 or less parks drained. A ring ranked on a
-17-hour-old book (`TRUST_FLOOR` keeps it in the running) is so flown light until its books are read
-fresh (see [fleet](../fleet/README.md#freighters)). `ledgerItems(entry)` is how a ledger entry
-becomes book rows (`Listing`), for `farBooks` and the host alike.
-
-A circuit row is a `Route` whose numbers are that middle lap's: `legs`, `revenue`, `cost`,
-`sales_tax`; `net` is `lap_net`, `total_jumps` is `lap_jumps`, `score` is
-`max(confidence, 1/64) × lap_net / max(1, lap_jumps)`, `unsold` is empty. A lap is kept only when every stop
-on it trades, `lap_net` is positive and every hop, the last one home included, is on the map. Its
-`next` is the call to paste, `assign('freighter', {…}, {float: 20000})` (see
-[fleet](../fleet/README.md#freighters)), and the lap itself is `circuit`:
-
-| `Circuit` field | What it is |
-|---|---|
-| `closed` | always `true`: the last stop is followed by the first |
-| `hold` | the hold the lap was planned for |
-| `lap_jumps` | jumps round the whole lap, the hop from the last stop back to the first included |
-| `lap_net` | the middle lap's revenue, less cost, tax and `lap_jumps` of fuel at this base's `fuel_price_all_in` |
-| `stops` | in order: `{at, system_id, buys, sell}` |
-| `stops[i].at`, `.system_id` | the base and its system |
-| `stops[i].buys` | `[{item, qty, max_price}]`: take on up to `qty` units of each `item`, one buy each, at asks of at most `max_price`, the planned average ask plus 10%. A circuit written before `buys` has one `buy: {item, qty, max_price}` instead; it still flies, read as `buys: [buy]` |
-| `stops[i].sell` | `[{item, min_price}]`: sell each held `item` at bids of at least `min_price`, the planned average bid less 10%. Nothing else is sold |
-| `scope` | `{maxStops, maxLegJumps, maxJumps?}` the lap was planned within: a freighter's own re-plan, and `reassign`, plan the next circuit alike |
+`routes({circuit: {hold}})` ranks closed laps to hand a freighter: see
+[fleet](../fleet/README.md#circuits-a-lap-a-freighter-repeats).
 
 ## What a run says
 

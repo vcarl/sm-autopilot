@@ -207,44 +207,11 @@ in `try`.
 
 ## Asking yourself a question mid-run
 
-`ask({question, choices?})` pauses the program and hands the question back to you, the
-model that started the run; it resolves to your answer. With `choices`, the answer is always
-exactly one of them. The run's wall-clock cap still runs while it waits: a question unanswered at
-the cap is withdrawn and the run ends `partial`.
-
-```ts
-import {ask, goTo, note, outcome} from 'play';
-
-export default async function main() {
-  const trip = await goTo('far_belt');
-  if (trip.status !== 'done') return trip;
-  // A fork the script cannot judge: the author decides, once, and the run carries on.
-  const pick = await ask({question: 'Pirates are camping the far belt. Push on or turn home?',
-    choices: ['push on', 'turn home']});
-  note(`chose to ${pick}`);
-  if (pick === 'turn home') return goTo('sol_base');
-  return outcome('pushed on past the pirates');
-}
-```
-
-Ask at a strategic fork, where your judgment is what is missing: which market to commit a hold
-to, whether to fight something the numbers say is close. Never ask per tick or per item — every
-answer is a model call, which takes minutes, and the game's clock keeps turning while you think.
-If a rule could decide it, write the rule.
-
-What you see: `spacemolt_run` returns early, with the lines so far and the question below them.
-The protocol, exactly:
-
-- `spacemolt_answer({answer})` resumes the program. That call then blocks like `spacemolt_run`:
-  it returns the rest of the run and its report, or the program's next question. An answer that
-  is not one of the choices is refused and the program keeps waiting.
-- `spacemolt_stop` ends the run instead: `ask` throws the same stop error a stopped run throws,
-  the program unwinds (the run ends `partial`), and the call returns the report.
-- `spacemolt_run` with a new `source` is refused while a question waits; with no `source`, it
-  starts nothing and hands the pending question back.
-
-If your turn ends without an answer, the question waits in the run record, and the next juncture
-opens with it.
+`ask({question, choices?})` pauses the program and hands the question back to you; it resolves to
+your answer (exactly one of `choices`, when given). `spacemolt_run` returns early with it;
+`spacemolt_answer({answer})` resumes the run and blocks like `spacemolt_run`; `spacemolt_stop` ends
+it. The run's cap keeps running while it waits. Every answer is a model call that takes minutes:
+ask only at a strategic fork a rule cannot decide, never per tick or per item.
 
 ## Chat
 
