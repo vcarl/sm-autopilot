@@ -21,6 +21,7 @@ import {inFaction} from '../../trade-intel.ts';
 import * as Wire from '../../wire.gen.ts';
 import {bookEffect,buyEffect,debitBook,knownBooks,marketTick,sellEffect,slipped,ticksOld,type RememberedBook} from '../market.ts';
 import {counterEffect} from '../counter.ts';
+import {baseValues} from '../industry/crafting.ts';
 import {readDrained,ring} from '../freighter/drained.ts';
 import {Game,GameLive,field,message,type GameError} from '../game.ts';
 import {markPlace,readMobile,readPlaces} from '../places.ts';
@@ -378,6 +379,11 @@ function drop(side:readonly OrderLevel[],n:number):OrderLevel[] {
  * Live 2026-10-04 (kvothe 19:39Z, run 3ad42ee5): 172 circuit_board bought at 361 for confederacy's
  * 412 bid, 127 ticks old and untrusted; on arrival it was 250 for 2. Four such runs lost ~113k. */
 export const MARGIN=0.15;
+/** ponytail: what no later stop bids for sells only at a bid of at least FLOOR × the catalog's `base_value`.
+ * In kvothe's 2,405 remembered bids, ~1,800 are NPC floor bids under 5% of it (1–3 cr, 2 cr × 1000); its
+ * realised sales over 5 cr ran 0.75× it at the 5th percentile. Live 2026-10-03 (run 31d1e8fa): platinum_ore,
+ * worth 175, sold at 1. Tune it from the `unsold` rows. */
+export const FLOOR=0.25;
 /** Units on a side. */
 const deep=(side:readonly OrderLevel[])=>side.reduce((total,level)=>total+level.quantity,0);
 
@@ -389,13 +395,14 @@ const deep=(side:readonly OrderLevel[])=>side.reduce((total,level)=>total+level.
  * unit of whichever `buy` item clears most: worth less ask × (1 + tax) × (1 + MARGIN), while that
  * is not below 0. Goods no later stop bids for, and units past the later buyer's depth, are sold
  * here whole at a stop that takes nothing on or ends the route; at one that takes goods on, only
- * for the room those buys need, best bid first. Every walk is level by level; a run of units
+ * for the room those buys need, best bid first; either way never under FLOOR × the catalog's
+ * `base_value`, when it has one. Every walk is level by level; a run of units
  * that clear alike is taken at once, found by bisection, so a 1200-unit hold is a few steps.
  * ponytail: each item is worth one later book, the first that bids; a split across two later
  * bases is not planned. The fill is greedy per stop: room kept empty here for a better buy at the
  * next stop is not planned. */
 function decide(aboard:Record<string,number>,free:number,here:Sides|undefined,trusted:number,
-  later:{trust:number;sides:Sides|undefined}[],stop:PlanStop):{sold:Sale[];buys:Buy[]} {
+  later:{trust:number;sides:Sides|undefined}[],stop:PlanStop,values:ReadonlyMap<string,number>):{sold:Sale[];buys:Buy[]} {
   // The first later stop that bids for `item_id`; units sold here come off it when it is this base again.
   const buyer=(item_id:string)=>later.map(next=>({trust:next.trust,same:next.sides===here,bids:next.sides?.get(item_id)?.bids??[]})).find(next=>next.bids.length);
   const worth=(item_id:string,n:number,off=0)=>{const next=buyer(item_id);return next?next.trust*unit(next.bids,n+(next.same?off:0)):0;};
@@ -405,7 +412,7 @@ function decide(aboard:Record<string,number>,free:number,here:Sides|undefined,tr
     const bids=here?.get(item_id)?.bids??[],next=buyer(item_id),over=Math.max(0,held-(next?deep(next.bids):0));
     const n=count(held-over,k=>unit(bids,k+1)>0&&trusted*unit(bids,k+1)>=worth(item_id,held-over-k,k));
     if(n)sold.push({item_id,quantity:n,revenue:walkBook(bids,n).gross});
-    const left=drop(bids,n);
+    const left=drop(bids,n).filter(level=>level.price_each>=FLOOR*(values.get(item_id)??0));
     if(over&&left.length)spare.push({item_id,bids:left,held:Math.min(over,deep(left))});
   }
   const freed=free+sold.reduce((total,row)=>total+row.quantity,0);
@@ -447,8 +454,8 @@ const taxOn=(buys:readonly Buy[],rate:number|null)=>!buys.length?0:rate===null?n
 
 /** The route from the hold you have and `free` room: `decide` at each stop, then the hold and the
  * books move by what it did — a base visited twice is one book, so what the first visit took is
- * gone for the second. Pure. */
-export function plan(hold:Record<string,number>,free:number,stops:PlanStop[]):Plan {
+ * gone for the second. `values` is each item's catalog `base_value`, for FLOOR. Pure. */
+export function plan(hold:Record<string,number>,free:number,stops:PlanStop[],values:ReadonlyMap<string,number>=new Map()):Plan {
   const aboard={...hold};
   const sides=new Map<string,Sides|undefined>();
   for(const {book} of stops)if(!sides.has(book.base_id))sides.set(book.base_id,book.items&&new Map([...book.items]
@@ -456,7 +463,7 @@ export function plan(hold:Record<string,number>,free:number,stops:PlanStop[]):Pl
   const legs=stops.map((stop,i):Leg=>{
     const here=sides.get(stop.book.base_id);
     const later=stops.slice(i+1).map(next=>({trust:trust(next.book.age),sides:sides.get(next.book.base_id)}));
-    const {sold,buys}=decide(aboard,free,here,trust(stop.book.age),later,stop);
+    const {sold,buys}=decide(aboard,free,here,trust(stop.book.age),later,stop,values);
     for(const sale of sold) {
       aboard[sale.item_id]=(aboard[sale.item_id]??0)-sale.quantity;free+=sale.quantity;
       const row=here?.get(sale.item_id);if(row)row.bids=drop(row.bids,sale.quantity);
@@ -599,7 +606,7 @@ export const tradeRunEffect=(opts:{stops:RunStop[]})=>{
     if(blocked)return {status:'refused',did:'ran no trade',why:blocked,detail:detail()};
     if(!route.length)return {status:'refused',did:'ran no trade',why:'no stops: pass {stops:[{at, buy?}, …]}',detail:detail()};
     // What each stop reached did, as the did says it: rendered at the stop, against the book read there.
-    const told:string[]=[];
+    const told:string[]=[],values=baseValues(runtimeDir());
     const said=()=>told.join(' → ');
     const short:string[]=[];
     if(acct().state.location?.docked_at)yield* priced;
@@ -637,7 +644,7 @@ export const tradeRunEffect=(opts:{stops:RunStop[]})=>{
         {book:live,buy:wanted,...stop.quantity===undefined?{}:{quantity:stop.quantity},
           ...stop.from==='store'?{asks:Object.fromEntries(wanted.map(item=>[item,stored(item)?[{price_each:0,quantity:stored(item)}]:[]]))}:{},
           rate},
-        ...later.map(base=>({book:known.get(base)??{base_id:base,source:'remembered' as const,age:0},rate:null}))]).legs;
+        ...later.map(base=>({book:known.get(base)??{base_id:base,source:'remembered' as const,age:0},rate:null}))],values).legs;
       if(!leg){told.push(`${here}: nothing`);continue;}
       if(leg.sold.length) {
         const sold=yield* sellEffect(leg.sold.map(({item_id,quantity})=>({item_id,quantity})));
@@ -907,7 +914,7 @@ export const searchEffect=(seat:Seat,opts:RouteOpts={}):Effect.Effect<Said<Found
   const free=cargo(seat.account),aboard=miningInventory(seat.account.state);
   const {items:listed,tick:now}=here?yield* bookOf(seat):{items:new Map<string,MarketListingItem>(),tick:tickNow(seat.runtime)};
   const far=yield* farBooksEffect(here,now,seat);
-  const known=byBase({base_id:here,source:'here',age:0,items:listed},far);
+  const known=byBase({base_id:here,source:'here',age:0,items:listed},far),values=baseValues(seat.runtime);
   if(!here)known.delete(here);
   const sources=[...new Set([...known.values()].map(row=>row.source))];
   const probe=[...listed.values()].find(row=>row.best_sell>0);
@@ -935,7 +942,7 @@ export const searchEffect=(seat:Seat,opts:RouteOpts={}):Effect.Effect<Said<Found
   };
   const evaluate=(ats:string[]):Route=>{
     // Only the docked base's rate is readable; it stands in for every far stop's.
-    const planned=plan(aboard,free,ats.flatMap(stopAt));
+    const planned=plan(aboard,free,ats.flatMap(stopAt),values);
     const why:string[]=[];
     let total:number|null=0,from=here;
     for(const at of ats) {
@@ -964,7 +971,7 @@ export const searchEffect=(seat:Seat,opts:RouteOpts={}):Effect.Effect<Said<Found
   // ponytail: a kept unit is priced at its leg's average; walk the levels if a balanced lap's
   // prediction drifts from the realised net.
   const lapHold=circuit?.hold??0;
-  const middleOf=(ats:string[])=>plan({},lapHold,[...ats,...ats,...ats].flatMap(stopAt)).legs.slice(ats.length,2*ats.length);
+  const middleOf=(ats:string[])=>plan({},lapHold,[...ats,...ats,...ats].flatMap(stopAt),values).legs.slice(ats.length,2*ats.length);
   const lapOf=(given:string[]):Route=>{
     // Where the lap first buys is only known once planned: a stop the plan gives no buy may be first.
     const tried=middleOf(given),first=Math.max(0,tried.findIndex(leg=>leg.bought)),ats=[...given.slice(first),...given.slice(0,first)];

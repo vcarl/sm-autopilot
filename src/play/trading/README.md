@@ -89,8 +89,9 @@ offers the stop's `buy`, one item or a list. Both walk the books level by level.
 
 What no later stop bids for (or more than its bids hold) is sold whole at a stop that takes nothing
 on, and at the last stop; a stop that takes goods on sells it only for the room its buys need, so
-171 platinum_ore are not sold at 1 cr at a stop you came to buy at. Whatever is still aboard after
-the last stop is `unsold` and is not counted.
+171 platinum_ore are not sold at 1 cr at a stop you came to buy at. Either way it never sells under
+a quarter of the item's catalog `base_value` (`FLOOR`), so they are not sold at 1 cr at the last stop
+either. Whatever is still aboard after the last stop is `unsold` and is not counted.
 
 There is no special case for a full hold, an empty one or a mixed one. "Just sell what is aboard
 over there" is the one-stop route `[{at: 'there'}]`, and "buy here, sell there" is

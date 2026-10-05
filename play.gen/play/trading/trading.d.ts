@@ -214,10 +214,15 @@ export interface PlanStop {
  * Live 2026-10-04 (kvothe 19:39Z, run 3ad42ee5): 172 circuit_board bought at 361 for confederacy's
  * 412 bid, 127 ticks old and untrusted; on arrival it was 250 for 2. Four such runs lost ~113k. */
 export declare const MARGIN = 0.15;
+/** ponytail: what no later stop bids for sells only at a bid of at least FLOOR × the catalog's `base_value`.
+ * In kvothe's 2,405 remembered bids, ~1,800 are NPC floor bids under 5% of it (1–3 cr, 2 cr × 1000); its
+ * realised sales over 5 cr ran 0.75× it at the 5th percentile. Live 2026-10-03 (run 31d1e8fa): platinum_ore,
+ * worth 175, sold at 1. Tune it from the `unsold` rows. */
+export declare const FLOOR = 0.25;
 /** The route from the hold you have and `free` room: `decide` at each stop, then the hold and the
  * books move by what it did — a base visited twice is one book, so what the first visit took is
- * gone for the second. Pure. */
-export declare function plan(hold: Record<string, number>, free: number, stops: PlanStop[]): Plan;
+ * gone for the second. `values` is each item's catalog `base_value`, for FLOOR. Pure. */
+export declare function plan(hold: Record<string, number>, free: number, stops: PlanStop[], values?: ReadonlyMap<string, number>): Plan;
 /** One stop of a `tradeRun`: the base, and optionally what to take there: one item, or several
  * that the plan fills the hold from, unit by unit, whichever earns most. */
 export interface RunStop {

@@ -28,6 +28,9 @@ type Recipes = Pick<Catalog, 'version' | 'recipes'> & {
 };
 /** Where the recipe catalog comes from. The tests pass a fixture; nothing else calls it. */
 export declare function useCatalog(load: () => Promise<Recipes>): void;
+/** Each item's catalog `base_value`, from the copy `revalidated` keeps in `dir`; empty with no copy. Never fetches.
+ * ponytail: only a pilot that has read the catalog (any recipe call) has the copy; fetch it here if the floor is ever missing live. */
+export declare function baseValues(dir: string | undefined): Map<string, number>;
 /** The catalog kept in `dir` beside its ETag, so a fresh process pays a ~0-byte 304 rather than
  * the multi-MB body when nothing changed, and a failed fetch falls back to the copy on disk.
  * One `fetch` line each time: status, ms, bytes stored, whether the disk copy answered. */

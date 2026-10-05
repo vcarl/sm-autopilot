@@ -69,6 +69,18 @@ function keptCopy(path:string|undefined):{etag?:string;catalog?:Recipes;unread?:
     recipes:recipes.map(row=>({...row,inputs:[...row.inputs],outputs:[...row.outputs]}))}};
 }
 
+/** Each item's catalog `base_value`, as far as the disk copy reads. Plain fields, not the spec's: one odd row should not blank them all. */
+const Values=Schema.fromJsonString(Schema.Struct({catalog:Schema.Struct({items:Schema.Array(Schema.Struct({id:Schema.String,base_value:Schema.optionalKey(Schema.Number)}))})}));
+const decodeValues=Schema.decodeUnknownOption(Values);
+/** Each item's catalog `base_value`, from the copy `revalidated` keeps in `dir`; empty with no copy. Never fetches.
+ * ponytail: only a pilot that has read the catalog (any recipe call) has the copy; fetch it here if the floor is ever missing live. */
+export function baseValues(dir:string|undefined):Map<string,number> {
+  let text:string;
+  try {text=readFileSync(join(dir??'',CATALOG_FILE),'utf8');} catch {return new Map();} // edge: no copy yet: no values
+  const read=decodeValues(text);
+  return new Map(Option.isSome(read)?read.value.catalog.items.flatMap(item=>item.base_value?[[item.id,item.base_value] as const]:[]):[]);
+}
+
 /** The catalog kept in `dir` beside its ETag, so a fresh process pays a ~0-byte 304 rather than
  * the multi-MB body when nothing changed, and a failed fetch falls back to the copy on disk.
  * One `fetch` line each time: status, ms, bytes stored, whether the disk copy answered. */

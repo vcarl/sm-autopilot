@@ -556,6 +556,21 @@ test('a held good no later stop bids for is not sold for 1 cr at a stop that cam
   } finally {unbind();rmSync(runtime,{recursive:true,force:true});}
 });
 
+test('a held good no later stop bids for is not sold at the last stop under FLOOR × its catalog value (live: 31d1e8fa)',async()=>{
+  // Live 2026-10-03 (kvothe 17:19Z, run 31d1e8fa): 171 platinum_ore, base_value 175, sold at 1 cr each.
+  const BOOK={sol_base:[{item_id:'platinum_ore',best_buy:1,best_buy_qty:98689,best_sell:0,best_sell_qty:0}]};
+  for(const catalog of [true,false]) {
+    const runtime=mkdtempSync(join(tmpdir(),'spacemolt-floor-'));
+    if(catalog)writeFileSync(join(runtime,'catalog.json'),JSON.stringify({catalog:{items:[{id:'platinum_ore',base_value:175}]}}));
+    const f=world({mood:'Focused'},{cargo:[{item_id:'platinum_ore',quantity:171}],cargoUsed:171,cargoCapacity:180,store:[],markets:BOOK},runtime);
+    try {
+      const run=await tradeRun({stops:[{at:'sol_base'}]});
+      assert.equal(f.count('spacemolt/sell'),catalog?0:1,run.did);
+      assert.deepEqual(run.detail.unsold,catalog?[{item_id:'platinum_ore',quantity:171}]:[],'no catalog value: the last stop sells as before');
+    } finally {unbind();rmSync(runtime,{recursive:true,force:true});}
+  }
+});
+
 test('a remembered bid is worth its trust on the buy side: no hold is bought for a bid 127 ticks old (live: 3ad42ee5)',async()=>{
   // Live 2026-10-04 (kvothe 19:39Z, run 3ad42ee5): 172 circuit_board bought at 361 for confederacy's 412 x 358 bid,
   // 127 ticks old; on arrival it was 250 x 2, -55.8k.
