@@ -458,13 +458,13 @@ TOOL_DEFINITIONS = (
                                                   "the flight."}},
                        [])},
     {"name": "spacemolt_query", "toolset": "spacemolt_observe", "handler": _query,
-     "description": "Look before you act: run a short program that only reads the game, and get "
+     "description": "Look before you act: send a short program that only reads the game, and get "
                     "back what it returned within seconds.",
      "schema": _schema("spacemolt_query",
                        "Look around before you act: a short program over the play library that "
                        "only reads (prices, books, missions, the map, storage, your freighters) "
                        "and returns what you want to know. It is written to query/index.ts, never "
-                       "pilot/index.ts, so it runs while a flight is under way and while it "
+                       "pilot/index.ts, so it goes while a flight is under way and while it "
                        "waits on your answer. Every game command it sends must be a read: one that "
                        "changes anything (travel, dock, buy, sell, accept...) is refused by name "
                        "and not sent, and ask() is not available. Checked like a flight; stopped "
