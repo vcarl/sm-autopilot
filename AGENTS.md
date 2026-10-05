@@ -73,9 +73,12 @@ The **gate** (`install_gate`, `gate_main`) is a shim written into `HERMES_HOME/s
 named on the job as a *relative* path — cron resolves relative scripts there, and the tool layer
 rejects absolute ones. Cron runs it before it builds the prompt, and a fire whose gate prints
 `{"wakeAgent": false}` ends with no model turn. It runs outside the gateway, so it reads
-`runtime/run.json`. It suppresses exactly one thing, a run in flight (not ended) that is not
-paused on a question; a paused run wakes the fire, and the gate prints the question, which cron
-puts at the head of the prompt. Every decision is journalled with its reason.
+`runtime/run.json`. It suppresses exactly one thing, a run in flight (not ended, and started
+within `REQUEST_TIMEOUT`) that is not paused on a question; a paused run wakes the fire, and the
+gate prints the question, which cron puts at the head of the prompt. Every decision is journalled
+with its reason. The age bound matters: a record a dead bridge left un-ended is closed only by the
+next bridge, and only a fire starts one (10-05: a forced gateway restart under a run, and every
+fire after it was suppressed).
 
 The **context** (`juncture_context`) is built from live facts at fire time: the bridge's `menu`
 (present, derived mood, threats, the moves on offer) and the pilot's own recent runs and reflections

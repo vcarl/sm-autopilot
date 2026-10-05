@@ -26,7 +26,7 @@ from typing import Any
 
 from hermes_constants import get_hermes_home
 
-from .service import pilot_path, runtime_dir
+from .service import REQUEST_TIMEOUT, pilot_path, runtime_dir
 from .skills_register import SHARED_SKILL, qualified, readme_skills
 
 logger = logging.getLogger(__name__)
@@ -746,13 +746,21 @@ raise SystemExit(gate_main())
 
 
 def run_in_flight() -> bool:
-    """Is a run going on right now? ``run.json`` un-ended. Only a live bridge leaves it so: a
-    bridge that dies mid-run has its record closed ``interrupted`` by the next one at boot."""
+    """Is a run going on right now? ``run.json`` un-ended, and started within ``REQUEST_TIMEOUT``:
+    no live run outlasts that backstop. A bridge that dies mid-run leaves its record un-ended until
+    the next one boots, and only a fire boots one. Live 2026-10-05 (kvothe 06:36Z): a forced gateway
+    restart killed the bridge under a run, and the gate suppressed every fire after it."""
     try:
         record = json.loads((runtime_dir() / "run.json").read_text())
     except (OSError, ValueError):
         return False
-    return record.get("ended", True) is False
+    if record.get("ended", True) is not False:
+        return False
+    try:
+        started = datetime.fromisoformat(str(record.get("started")).replace("Z", "+00:00"))
+    except ValueError:
+        return True
+    return (datetime.now(timezone.utc) - started).total_seconds() < REQUEST_TIMEOUT
 
 
 def pending_question() -> dict[str, Any] | None:

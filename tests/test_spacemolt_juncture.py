@@ -12,6 +12,7 @@ import copy
 import json
 import os
 import re
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import spacemolt
@@ -90,6 +91,16 @@ def test_the_gate_suppresses_a_fire_only_while_a_run_is_in_flight_and_logs_why(c
     line = gate_line()
     assert line == '{"wakeAgent": false}' and _parse_wake_gate(line) is False
 
+    # Live 2026-10-05 (kvothe 06:36Z): a forced restart killed the bridge under a run, and only a fire
+    # boots the next one to close it. A record older than any live run could be wakes the fire.
+    now = datetime.now(timezone.utc)
+    (runtime / "run.json").write_text(json.dumps({"script": "index.ts", "ended": False,
+                                                  "started": (now - timedelta(minutes=5)).isoformat()}))
+    assert gate_line() == '{"wakeAgent": false}'
+    (runtime / "run.json").write_text(json.dumps({"script": "index.ts", "ended": False,
+                                                  "started": (now - timedelta(minutes=31)).isoformat()}))
+    assert gate_line() == idle
+
     # Runs that did nothing are a fact for the log, never a reason to skip the fire.
     (runtime / "run.json").write_text(json.dumps({"script": "index.ts", "ended": True}))
     _write_journal([{"event": "run", "phase": "refused", "errors": ["tsc: x"]},
@@ -97,7 +108,7 @@ def test_the_gate_suppresses_a_fire_only_while_a_run_is_in_flight_and_logs_why(c
                     {"event": "run", "phase": "ended", "outcome": "refused", "commands": 2}])
     assert gate_line() == idle
     decisions = _journal_rows("gate")
-    assert [row["wake"] for row in decisions] == [True, True, False, True]
+    assert [row["wake"] for row in decisions] == [True, True, False, False, True, True]
     assert decisions[2]["reason"].startswith("a run is in flight")
     assert decisions[-1]["unproductive_streak"] == 3
 
@@ -813,15 +824,17 @@ def test_a_failed_game_read_during_a_run_says_the_run_is_in_flight(monkeypatch):
     """Without the game, run.json still says whether a run is flying: the context must not say
     "Run in flight: no" over one that is."""
     service.runtime_dir().mkdir(parents=True, exist_ok=True)
+    started = datetime.now(timezone.utc) - timedelta(minutes=3)
     (service.runtime_dir() / "run.json").write_text(json.dumps(
-        {"script": "index.ts", "started": "2026-10-02T16:40:00Z", "ended": False, "last_job": "tradeRun"}))
+        {"script": "index.ts", "started": started.strftime("%Y-%m-%dT%H:%M:%SZ"), "ended": False,
+         "last_job": "tradeRun"}))
 
     def timed_out(action, params=None):
         raise TimeoutError("No response to spacemolt/get_status within 15000ms")
 
     monkeypatch.setattr(service, "call", timed_out)
     context = juncture.juncture_context({"platform": "cron"})
-    assert context == "A flight is under way — started 10-02 16:40Z, in tradeRun."
+    assert context == f"A flight is under way — started {started.strftime('%m-%d %H:%MZ')}, in tradeRun."
     assert _journal_rows("juncture")[0]["busy"] is True
 
 
