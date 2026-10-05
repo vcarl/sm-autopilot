@@ -134,7 +134,7 @@ def test_direction_sets_objective_and_permissions_and_lands_at_the_next_juncture
     _seed(dict(PILOT))
 
     answer = spacemolt._direct({"objective": "buy a hauler", "permissions": {"credit_reserve": 2000}})
-    assert "next juncture" in answer, "direction is integrated at a juncture, not applied now"
+    assert "next time it takes stock" in answer, "direction is integrated at a juncture, not applied now"
 
     record = juncture.read_pilot()
     assert record["objective"] == "buy a hauler"

@@ -110,7 +110,7 @@ def test_an_answer_with_nothing_pending_is_refused_with_the_run_state(paused):
     spacemolt._answer({"answer": "north"})
     refused = spacemolt._answer({"answer": "north"})
     assert refused.startswith("Nothing to answer: no question is pending")
-    assert "no run is in flight" in refused
+    assert "no flight is under way" in refused
     assert "spacemolt_run" in refused
 
 

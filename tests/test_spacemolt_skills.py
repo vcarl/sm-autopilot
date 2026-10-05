@@ -97,7 +97,7 @@ def test_a_fire_carries_the_stances_readme_and_the_base_one_or_the_base_alone(ct
     readmes = readme_skills(PLUGIN_ROOT)
     first = lambda name: readmes[name].read_text(encoding="utf-8").splitlines()[0]
     prompt = lambda pilot: build({"id": "j1", "name": "n", **job_fields(pilot, gate=False)},
-                                 prerun_script=(True, "No run in flight: the pilot is idle."))
+                                 prerun_script=(True, "No flight under way: the ship is idle."))
     body = prompt({"stance": "Trader"})
     assert first("play") in body and first("trading") in body
     alone = prompt({})
@@ -109,7 +109,7 @@ def test_a_prospector_fire_names_the_crafting_calls_without_the_industry_readme(
     register_skills(ctx, PLUGIN_ROOT)
     readmes = readme_skills(PLUGIN_ROOT)
     body = build({"id": "j1", "name": "n", **job_fields({"stance": "Prospector"}, gate=False)},
-                 prerun_script=(True, "No run in flight: the pilot is idle."))
+                 prerun_script=(True, "No flight under way: the ship is idle."))
     assert readmes["industry"].read_text(encoding="utf-8").splitlines()[0] not in body
     assert "`recipes(search?)`" in body and "`craft(recipe_id, qty?)`" in body
 

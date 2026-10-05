@@ -179,8 +179,8 @@ def _menu(cargo_free: int, *, hold: list | None = None) -> dict:
 FULL_MOVES = "\n".join(f"m{n} `tradeRun({{stops:[{{at:'base_{n}'}}]}})` — " + "f" * 115 for n in range(1, 5))
 
 
-FACT_LINES = ("SpaceMolt juncture", "Objective (carried in):", "Goal:", "Stance:", "Permissions:",
-              "Present:", "  Fuel ", "  Fitted weapons:", "Your recent runs")
+FACT_LINES = ("Between flights", "Objective:", "Goal:", "Stance:", "Permissions:",
+              "Present:", "  Fuel ", "  Fitted weapons:", "Your recent flights")
 
 
 def _rendered(monkeypatch, menu: dict) -> str:
@@ -192,9 +192,9 @@ def test_the_situation_is_labelled_lines_of_live_facts(monkeypatch):
     context = _rendered(monkeypatch, _menu(12))
     for label in FACT_LINES + ("Moves open now",):
         assert any(line.startswith(label) for line in context.splitlines()), (label, context)
-    assert "Run in flight: no." in context.splitlines()[0]
+    assert "No flight under way." in context.splitlines()[0]
     assert "Stance: Hunter. Mood: Focused." in context
-    assert "Your recent runs: none yet." in context
+    assert "Your recent flights: none yet." in context
     assert "hold full" not in context, "room in the hold leaves the full-hold note off"
     assert "hold full: a gather needs free hold" in _rendered(monkeypatch, _menu(0))
 
@@ -243,14 +243,14 @@ def test_the_recent_runs_are_facts_and_include_a_run_refused_at_the_check(monkey
          "work": {"fn": "gatherUntil", "credits": 2626}},
     ])
     context = _rendered(monkeypatch, _menu(12))
-    recent = context.split("Your recent runs (newest last):\n")[1].split("\nSuggested")[0].splitlines()
+    recent = context.split("Your recent flights (newest last):\n")[1].split("\nSuggested")[0].splitlines()
     assert len(recent) == 5, recent
     # The work done leads, ahead of the return value (live 2026-09-29 buried the gains at the tail).
     assert recent[0].endswith("sellAt: +3,000 cr, 5 xp; returned done: sold 276 osmium_ore (14 commands)"), recent[0]
     assert "reflect: stance Trader, goal 'walk a price circuit'" in recent[1]
-    assert "run refused at the check, nothing ran: tsc: pilot/index.ts(2,5): error TS2339: 'fule'" in recent[2]
-    assert "run: nothing gained; returned interrupted" in recent[3]
-    assert recent[3].endswith(": SpacemoltError: No response to spacemolt/get_active_missions within 15000ms"), recent[3]
+    assert "program refused at the check, nothing flew: tsc: pilot/index.ts(2,5): error TS2339: 'fule'" in recent[2]
+    # An interrupted run is what the world shows: the flight ended. The plumbing's reason stays in the journal.
+    assert recent[3].endswith("run: nothing gained; the flight ended early"), recent[3]
     assert "gatherUntil: +2,626 cr; returned done: mined" in recent[4], recent[4]
 
 
@@ -332,7 +332,7 @@ def test_an_instruction_stands_until_a_run_starts_after_it_and_rendering_writes_
     _seed({"name": "kvothe", "instruction": {"text": "stay in Sol tonight", "at": "2026-09-23T03:21:00Z"}})
     before = service.pilot_path().read_bytes()
     first = _rendered(monkeypatch, _menu(12))
-    assert "Instruction (carried in 09-23 03:21Z): stay in Sol tonight" in first
+    assert "Instruction (given 09-23 03:21Z): stay in Sol tonight" in first
     assert "stay in Sol tonight" in _rendered(monkeypatch, _menu(12)), "no run yet, so it stands"
     assert service.pilot_path().read_bytes() == before
     (service.runtime_dir() / "run.json").write_text(
@@ -377,7 +377,7 @@ def test_the_alerts_the_bridge_buffered_reach_the_pilot_as_fact_lines(monkeypatc
     menu = _menu(12)
     menu["alerts"] = ALERTS
     context = _rendered(monkeypatch, menu)
-    assert "Alerts since your last wake (2, shown once):" in context
+    assert "Alerts since you last took stock (2, shown once):" in context
     assert ("  rent overdue at Hera Outpost: 4,200 owed; 2 of 4 missed cycles, "
             "seen 3x since 09-23 11:40Z." in context), context
     assert "  base destroyed at Far Reach: attacker Vex." in context
@@ -449,7 +449,7 @@ def test_the_missions_held_never_give_way(monkeypatch):
     context = _rendered(monkeypatch, menu)
     assert len(context) <= juncture.SECTION_LIMIT, len(context)
     assert "Missions held (2 of 5):" in context and "Titanium Extraction Contract — next:" in context, context
-    assert len(context.split("Your recent runs (newest last):\n")[1].splitlines()) >= 3, context
+    assert len(context.split("Your recent flights (newest last):\n")[1].splitlines()) >= 3, context
     assert "  m4 `tradeRun" in context and "+400 more" in context
     # Fact lines alone over the limit: whole lines are kept, none is cut short.
     menu["objective"] = "o" * 2500
@@ -465,7 +465,7 @@ def test_a_reflection_repeating_the_goal_is_not_said_twice(monkeypatch):
     _write_journal([{"event": "reflection", "goal": goal},
                     {"event": "reflection", "goal": goal, "objective_done": True, "objective": "raise gunnery"},
                     {"event": "reflection", "goal": "an older goal"}])
-    recent = _rendered(monkeypatch, _menu(12)).split("Your recent runs (newest last):\n")[1].split("\nSuggested")[0]
+    recent = _rendered(monkeypatch, _menu(12)).split("Your recent flights (newest last):\n")[1].split("\nSuggested")[0]
     assert recent.splitlines() == ["  09-26 00:00Z reflect: objective 'raise gunnery' retired",
                                    "  09-26 00:00Z reflect: goal 'an older goal'"], recent
 
@@ -524,14 +524,14 @@ def test_a_kvothe_sized_context_keeps_its_suggested_moves(monkeypatch):
     assert context.index("Moves open now") < context.index("Missions held") < context.index("Chat since"), context
     assert len([line for line in context.splitlines() if "MAYDAY" in line]) == 2, context
     for label in ("Goal:", "Steps:", "Stance:", "Present:", "  Fuel ", "  Fitted weapons:",
-                  "Missions held (5 of 5):", "Your recent runs"):
+                  "Missions held (5 of 5):", "Your recent flights"):
         assert any(line.startswith(label) for line in context.splitlines()), (label, context)
 
 
 def test_a_run_in_flight_is_said_in_one_line(monkeypatch):
     context = _rendered(monkeypatch, {"busy": True, "running": True, "started": "2026-09-23T14:00:00Z",
                                       "fn": "gatherUntil", "commands": 40})
-    assert context.startswith("SpaceMolt juncture. Run in flight: yes — started 09-23 14:00Z, in gatherUntil")
+    assert context.startswith("A flight is under way — started 09-23 14:00Z, in gatherUntil")
 
 
 def test_each_juncture_journals_the_skills_it_carried_and_the_context_it_rendered(monkeypatch):
@@ -792,10 +792,10 @@ def test_a_failed_game_read_still_renders_the_record_and_the_journal(monkeypatch
 
     monkeypatch.setattr(service, "call", closed)
     context = juncture.juncture_context({"platform": "cron", "session_id": "cron_abc123_20261002_104212"})
-    for text in ("The game did not answer this time", "Objective (carried in): reach 1,000,000 cr",
-                 "Instruction (carried in 10-02 16:34Z): scan markets for cheap materials",
+    for text in ("The game did not answer this time", "Objective: reach 1,000,000 cr",
+                 "Instruction (given 10-02 16:34Z): scan markets for cheap materials",
                  "Goal: work the ore route", "Steps: 1) buy at alpha; 2) sell at beta", "Stance: Trader.",
-                 "tradeRun: +6,045 cr", "Your recent runs (newest last):"):
+                 "tradeRun: +6,045 cr", "Your recent flights (newest last):"):
         assert text in context, (text, context)
     for absent in ("Present:", "Mood:", "  Fuel ", "Since the objective"):
         assert absent not in context, (absent, context)
@@ -820,5 +820,57 @@ def test_a_failed_game_read_during_a_run_says_the_run_is_in_flight(monkeypatch):
 
     monkeypatch.setattr(service, "call", timed_out)
     context = juncture.juncture_context({"platform": "cron"})
-    assert context == "SpaceMolt juncture. Run in flight: yes — started 10-02 16:40Z, in tradeRun."
+    assert context == "A flight is under way — started 10-02 16:40Z, in tradeRun."
     assert _journal_rows("juncture")[0]["busy"] is True
+
+
+#: Our plumbing, which the pilot never hears of: it lives in the world, not in the harness (10-05).
+HARNESS_WORDS = re.compile(r"\b(hermes|cron|juncture|bridge|journal|telemetry|interrupted|gate|skill)",
+                           re.IGNORECASE)
+
+
+def _descriptions(node):
+    if isinstance(node, dict):
+        for key, value in node.items():
+            yield from ([value] if key == "description" and isinstance(value, str) else _descriptions(value))
+    elif isinstance(node, list | tuple):
+        for value in node:
+            yield from _descriptions(value)
+
+
+def test_the_pilot_hears_the_world_and_never_the_harness(monkeypatch, capsys):
+    """The maintainer, 10-05: the cron player experiences the world it is in, not Hermes, its
+    interruptions or its callback loop. Every prompt-facing text, rendered from a full fixture."""
+    _seed({"name": "kvothe", "instruction": {"text": "stay in Sol", "at": "2026-09-23T03:21:00Z"}})
+    _write_journal([
+        {"event": "run", "phase": "ended", "outcome": "done", "reason": "sold ore", "commands": 3,
+         "work": {"credits": 900}, "calls": [{"fn": "sellAt"}]},
+        {"event": "reflection", "stance": "Trader", "goal": "walk a circuit", "objective_done": True, "objective": "x"},
+        {"event": "run", "phase": "refused", "errors": ["tsc: pilot/index.ts(2,5): error TS2339: 'fule'"]},
+        {"event": "run", "phase": "ended", "outcome": "interrupted",
+         "reason": "the bridge ended while this run was in flight; nothing was re-run",
+         "why": "SpacemoltError: bridge closed", "calls": [{"fn": "tradeRun"}]},
+    ])
+    menu = _menu(0)
+    menu.update(alerts=[{"type": "facility_rent_warning", "key": "b1", "n": 1,
+                         "body": {"base_name": "Sol", "credits_owed": 50}}] * 5,
+                battle={"opponent": "raider", "tick": 4}, threats=["raider"],
+                held={"max": 5, "missions": [{"title": "Cull", "next": "hunt 3 grazers"}]})
+    question = {"question": "sell now?", "choices": ["yes", "no"], "asked_at": "2026-09-23T14:00:00Z"}
+    chat_pause = {"chat": {"channel": "private", "from": "Zed", "sender_id": "p1", "text": "hi"},
+                  "asked_at": "2026-09-23T14:00:00Z", "question": "chat"}
+    texts = [juncture.JUNCTURE_PROMPT, _rendered(monkeypatch, menu),
+             _rendered(monkeypatch, {"busy": True, "started": "2026-09-23T14:00:00Z", "fn": "gatherUntil"}),
+             _rendered(monkeypatch, {"busy": True, "started": "2026-09-23T14:00:00Z", "question": question}),
+             juncture.question_text(question), juncture.question_text(chat_pause),
+             spacemolt._prompt({"platform": "cron"}), spacemolt._prompt({"platform": "discord"})]
+    juncture.gate_main()
+    texts.append(capsys.readouterr().out)
+    # A result key the observer reads (`journal`) is a name, not a word to the pilot.
+    texts += [re.sub(r"`[^`]*`", "", text) for text in _descriptions(
+        [{k: v for k, v in tool.items() if k != "handler"} for tool in spacemolt.TOOL_DEFINITIONS])]
+    for text in texts:
+        found = HARNESS_WORDS.search(text)
+        assert not found, (found and found.group(0), text)
+    assert "Instruction (given 09-23 03:21Z): stay in Sol" in texts[1], texts[1]
+    assert "tradeRun: nothing gained; the flight ended early" in texts[1], texts[1]

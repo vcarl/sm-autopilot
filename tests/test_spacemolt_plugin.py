@@ -129,7 +129,7 @@ def test_a_run_sent_while_one_is_in_flight_is_refused_without_touching_the_scrip
         answer = json.loads(spacemolt._run({"source": "export default async function main() {}\n"}))
 
         assert answer["accepted"] is False
-        assert "in flight" in answer["reason"]
+        assert "under way" in answer["reason"]
         assert script.read_bytes() == before, "the running script was overwritten"
     finally:
         service.close_bridge()
@@ -253,7 +253,7 @@ def test_the_observers_sentence_is_bounded_and_lands_on_the_pilot(monkeypatch):
     assert patch["instruction"]["text"] == sentence
     assert patch["instruction"]["at"].endswith("Z"), "when it was said, so staleness is readable"
     assert "objective" not in patch, "a sentence is not an objective"
-    assert "next juncture" in answer
+    assert "next time it takes stock" in answer
 
 
 def test_status_answers_the_objective_the_run_and_what_happened_in_one_read(bridged, tmp_path,
