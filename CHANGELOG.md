@@ -7,6 +7,51 @@ All notable changes to this plugin are recorded here. The format follows
 
 ## [Unreleased]
 
+## [2026.10.2] - 2026-10-05
+
+### Action required
+
+- Upgrade Node.js on the machine that runs the Hermes gateway to 24.15.0 or newer (the current
+  LTS line; on Node 25, 25.7.0 or newer), then restart the gateway.
+
+### Added
+
+- `spacemolt_query` lets the pilot, or a person in the chat window, look around before acting: a
+  short read-only program that runs beside a flight, even one paused on a question. It sends only
+  the game's queries (never `self_destruct`), and is capped at 90 seconds.
+- The pilot's memory of the markets and of its own station storage moves to `runtime/world.db`,
+  imported from `markets.json` on first start. Stored goods are now a trade source: `routes()` and
+  `tradeRun` draw on them before buying, `supply()` names what other bases' stores hold, and goods
+  stowed during a flight count as gained.
+- `missions()` and `completeMissions()` lead with each mission's next objective, and the juncture
+  context lists the missions held by it. A board mission's own warnings and required modules are
+  passed through.
+
+### Changed
+
+- The suggested moves are rebuilt: at most four pasteable calls (the best route, the last loop
+  that paid, selling held or stored goods, a mission step, exploring), each with its facts, ranked
+  by credits a minute. They sit under the ship in the context and are never cut for space.
+- Everything the pilot reads speaks of its world: flights and the ship's flight computer, not
+  runs, junctures or the runtime. The base README now explains missions, empires, customs,
+  reputation, docking, police, tax, jail, wrecks and wormholes; Circuits move to the fleet README.
+- A Tired ship is resupplied at every dock and arrival, not only between flights, and Tired never
+  refuses work.
+- Updated to `@spacemolt/lib` 15.2.0.
+
+### Fixed
+
+- `tradeRun` values a carried unit at the first later stop's bid on both sides of the trade, so it
+  no longer buys whole holds for stale bids, and never sells goods no later stop wants below a
+  quarter of their catalog value.
+- `buy()` and `supply()` refuse a price over 1.05 × the cheapest ask remembered elsewhere unless
+  given `maxEach`.
+- `routes()` and `scoutMarkets()` work undocked, and scouting skips bases that refused the dock.
+- A command sent during a reconnect waits for the connection instead of failing.
+- A flight the time cap stopped says so, rather than "stopped by the pilot".
+- Customs scans and MAYDAYs reach the context again, the newest two of each.
+- A gateway restart under a flight no longer suppresses every juncture after it.
+
 ## [2026.10.1] - 2026-10-04
 
 ### Added
