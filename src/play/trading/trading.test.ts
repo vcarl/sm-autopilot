@@ -939,20 +939,41 @@ test('a stop before the first hop ends scoutMarkets at the loop, before any cand
   } finally {unbind();rmSync(runtime,{recursive:true,force:true});}
 });
 
-test('scoutMarkets ranks a base that refused the dock last, says so, and flies there only when nothing else is left',async()=>{
-  // Live 2026-10-02 (kvothe 16:37Z): scoutMarkets flew straight back to Proxima's only base a minute
-  // after it said `Access denied`.
+test('scoutMarkets passes a base that refused the dock, and names it',async()=>{
+  // Live 2026-10-03 (kvothe): 46 dock_refused at the same 3 Dheneb bases across 16 scoutMarkets runs, each
+  // flown to because nothing else was left.
   const runtime=mkdtempSync(join(tmpdir(),'spacemolt-scout-refused-'));
   writeFileSync(join(runtime,'places.json'),JSON.stringify({range_base:'deep_range',reach_base:'far_reach'}));
   writeFileSync(join(runtime,'docking.json'),JSON.stringify({range_base:{message:'Access denied',at:'2026-10-02T16:36:00Z'}}));
-  world({mood:'Focused'},{tradeIntel:[],systems:[{id:'far_reach',connections:['deep_range'],pois:[{id:'reach_dock',base_id:'reach_base'}]}]},runtime);
+  const f=world({mood:'Focused'},{tradeIntel:[],systems:[{id:'far_reach',connections:['deep_range'],pois:[{id:'reach_dock',base_id:'reach_base'}]}]},runtime);
   try {
     const first=await scoutMarkets({max:1});
     assert.deepEqual(first.detail.filed,['reach_base'],first.did);
-    assert.match(first.did,/; ranked 1 base\(s\) that refused docking last: range_base$/);
+    assert.match(first.did,/; passed 1 base\(s\) that refused docking: range_base \(Access denied\)$/);
+    const docks=f.count('spacemolt/dock');
     const second=await scoutMarkets({max:1});
-    assert.deepEqual(second.detail.filed,['range_base'],second.did);
-    assert.match(second.did,/; flew to range_base \(Access denied\) though it refused docking before: nothing else was left to scout$/);
+    assert.deepEqual(second.detail.filed,[],second.did);
+    assert.equal(f.count('spacemolt/dock'),docks,'nothing flown to');
+  } finally {unbind();rmSync(runtime,{recursive:true,force:true});}
+});
+
+test('undocked, scoutMarkets scouts and routes plans on remembered books, each age said',async()=>{
+  // Live 2026-09-30..10-04 (kvothe, 21 runs e.g. 5bdb0f7b, 3913826a): both were refused undocked, `ranked no routes`
+  // and `scouted nothing`.
+  const runtime=remembered([{base_id:'sol_base',age:5,system_id:'sol',items:HERE.sol_base},RANGE]);
+  writeFileSync(join(runtime,'places.json'),JSON.stringify({reach_base:'far_reach'}));
+  const f=world({mood:'Focused'},{cargo:[],cargoUsed:0,cargoCapacity:20,store:[],markets:HERE,tradeIntel:[],
+    systems:[{id:'far_reach',connections:['deep_range'],pois:[{id:'reach_dock',base_id:'reach_base'}]}]},runtime);
+  try {
+    await f.command('spacemolt/undock',{});
+    const out=await routes({items:['gem'],maxStops:2});
+    assert.equal(out.status,'done',out.why);
+    assert.match(out.did,/best: sol_base \(remembered, 5 ticks old\) buy 20 gem → range_base \(remembered, 0 ticks old\) sell 20 gem,/);
+    assert.match(out.did,/; not docked: every book is remembered/);
+    assert.equal(f.count('spacemolt_market/view_market'),0,'undocked: memory only');
+    const scouted=await scoutMarkets({max:1});
+    assert.equal(scouted.status,'done',scouted.why);
+    assert.deepEqual(scouted.detail.filed,['reach_base'],scouted.did);
   } finally {unbind();rmSync(runtime,{recursive:true,force:true});}
 });
 

@@ -14,7 +14,7 @@ import {markExplored,markPlace,readDockRefusals,readExplored,readPlaces} from '.
 import {Stopped,acct,admit,edge,jobEffect,stopped} from '../runtime.ts';
 import {goToEffect} from '../travel.ts';
 import type {Outcome} from '../types.ts';
-import {farBooksEffect,halt,pilotSeat,seatInFaction,seatLine,type Seat} from './trading.ts';
+import {farBooksEffect,halt,pilotSeat,seatInFaction,seatLine,tickNow,type Seat} from './trading.ts';
 
 /** ponytail: how far scouting looks, in jumps from where the ship is. Tunable. */
 export const SCOUT_JUMPS=4;
@@ -115,9 +115,9 @@ export interface Scouted {
  * next `candidates` row within `jumps` (default `SCOUT_JUMPS`, 4), re-chosen after every hop. A base
  * is flown to with `goTo` and its book read (remembered and filed, as `prices()` does); a system is
  * flown to and its bases listed and kept, so the next hop can dock at one. Never buys or sells.
- * Refused when not docked (ages are read against a counter's tick) or in a mood that may not start
- * a job. A hop that fails is said and skipped; `partial` when one did. A base that refused the dock
- * is ranked last and `did` says so, and flown to only when nothing else is left. Trains navigation. */
+ * Docked, ages are read against the live book's tick; undocked, against `tickNow`. Refused in a mood
+ * that may not start a job. A hop that fails is said and skipped; `partial` when one did. A base that
+ * refused the dock is not flown to, and `did` names it. Trains navigation. */
 export function scoutMarkets(opts:{jumps?:number;max?:number}={}):Promise<Outcome<Scouted>> {return edge(scoutMarketsEffect(opts));}
 
 /** `scoutMarkets` as an Effect, for `edge`; never in a barrel. A stop, a refusal or a lost reply ends the scout naming the
@@ -125,22 +125,25 @@ export function scoutMarkets(opts:{jumps?:number;max?:number}={}):Promise<Outcom
 export const scoutMarketsEffect=(opts:{jumps?:number;max?:number}={})=>{
   const jumps=opts.jumps??SCOUT_JUMPS,max=opts.max??3;
   return jobEffect<Scouted>('scoutMarkets',`${max} within ${jumps} jumps`,Effect.gen(function*() {
-    const detail:Scouted={filed:[],explored:[],left:0},short:string[]=[],tried=new Set<string>(),refused=new Map<string,string>(),anyway:string[]=[];
+    const detail:Scouted={filed:[],explored:[],left:0},short:string[]=[],tried=new Set<string>(),refused=new Map<string,string>();
     const blocked=yield* admit('scoutMarkets');
     if(blocked)return {status:'refused' as const,did:'scouted nothing',why:blocked,detail};
-    if(!acct().state.location?.docked_at)return {status:'refused' as const,did:'scouted nothing',why:'not docked; book ages are read against a counter\'s tick',detail,
-      next:['goTo a base, then scoutMarkets()']};
-    yield* bookEffect();
+    // Live 2026-09-30..10-04 (kvothe, e.g. 3913826a, 658f971c): undocked was refused, `scouted nothing`.
     const seat=pilotSeat();
+    if(acct().state.location?.docked_at)yield* bookEffect();
+    const now=()=>acct().state.location?.docked_at?marketTick():tickNow(seat.runtime);
     let list:Candidate[];
     for(;;) {
       if(stopped())return yield* Effect.fail(new Stopped());
-      list=(yield* candidatesEffect(seat,marketTick(),jumps)).filter(row=>!tried.has(target(row)));
-      for(const row of list)if(row.refused!==undefined)refused.set(target(row),row.refused);
+      // Live 2026-10-03 (kvothe): 46 dock_refused at the same 3 Dheneb bases across 16 scoutMarkets runs, each
+      // flown to because nothing else was left. A base that refused the dock is passed until a dock there clears it.
+      list=(yield* candidatesEffect(seat,now(),jumps)).filter(row=>{
+        if(row.refused!==undefined)refused.set(target(row),row.refused);
+        return row.refused===undefined&&!tried.has(target(row));
+      });
       const next=list[0];
       if(!next||tried.size>=max)break;
       tried.add(target(next));
-      if(next.refused!==undefined)anyway.push(`${target(next)} (${next.refused})`);
       const trip=yield* goToEffect(target(next));
       if(trip.status!=='done'){short.push(`${target(next)}: ${trip.why??trip.did}`);continue;}
       const bases=yield* exploreEffect(seat);
@@ -149,13 +152,11 @@ export const scoutMarketsEffect=(opts:{jumps?:number;max?:number}={})=>{
       if(docked){yield* bookEffect();detail.filed.push(docked);}
     }
     detail.left=list.length;
-    const passed=[...refused.keys()].filter(id=>!tried.has(id));
     const did=`${detail.filed.length?`read and filed ${detail.filed.length} book(s): ${detail.filed.join(', ')}`:'filed no book'}`
       +(detail.explored.length?`; listed the bases of ${detail.explored.map(row=>`${row.system_id} (${row.bases.length})`).join(', ')}`:'')
       +(tried.size?'':`; nothing to scout within ${jumps} jumps: every base known there has a book younger than ${IGNORE_TICKS} ticks`)
       +(detail.left?`; ${detail.left} more within ${jumps} jumps`:'')
-      +(anyway.length?`; flew to ${anyway.join(', ')} though it refused docking before: nothing else was left to scout`:'')
-      +(passed.length?`; ranked ${passed.length} base(s) that refused docking last: ${passed.join(', ')}`:'');
+      +(refused.size?`; passed ${refused.size} base(s) that refused docking: ${[...refused].map(([id,why])=>`${id} (${why})`).join(', ')}`:'');
     const status=short.length?(detail.filed.length||detail.explored.length?'partial' as const:'refused' as const):'done' as const;
     return {status,did,...short.length?{why:short.join('; ')}:{},detail,
       next:[...detail.left?['scoutMarkets() again for the next ones']:[],'routes() over the books just read']};

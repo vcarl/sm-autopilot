@@ -113,6 +113,9 @@ export declare const buyersEffect: (items: string | readonly string[]) => Effect
 export declare function buyers(items: string | readonly string[]): Promise<Outcome<{
     buyers: Buyer[];
 }>>;
+/** ponytail: undocked there is no live tick to age a book against; the newest book known, advanced
+ * at ten seconds a tick since it was read, stands in. A docked call measures it from the live book. */
+export declare function tickNow(dir?: string | undefined): number;
 /** A ledger entry as this file reads it: the base, its system, the tick it was filed and its top of book per item. Picked
  * from the spec's entry, because the live server omits spec fields and sends `null` for an empty item list. */
 export declare const LedgerEntry: Schema.Struct<{
@@ -347,7 +350,7 @@ export declare const REST_TICKS = 360;
  * short cycle by default, a galaxy tour with larger numbers.
  * Reads only. Jumps come from `get_map` and each base's system, which the market memory keeps;
  * fuel per jump from one `find_route`. A stop that could not be placed is a row with a `why` and
- * the Outcome `partial`, never a throw. Refused when not docked.
+ * the Outcome `partial`, never a throw. Undocked, every book is a remembered one, aged against `tickNow`.
  *
  * ponytail: goods in this base's store are not weighed; `tradeRun` takes them with `from:'store'`. */
 export declare function routes(opts?: RouteOpts): Promise<Outcome<{

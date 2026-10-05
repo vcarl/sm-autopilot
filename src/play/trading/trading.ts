@@ -229,8 +229,8 @@ export const buyersEffect=(items:string|readonly string[])=>{
 export function buyers(items:string|readonly string[]):Promise<Outcome<{buyers:Buyer[]}>> {return edge(buyersEffect(items));}
 /** ponytail: undocked there is no live tick to age a book against; the newest book known, advanced
  * at ten seconds a tick since it was read, stands in. A docked call measures it from the live book. */
-function tickNow():number {
-  const newest=knownBooks().sort((a,b)=>(b.tick??-1)-(a.tick??-1))[0];
+export function tickNow(dir=runtimeDir()):number {
+  const newest=knownBooks(dir).sort((a,b)=>(b.tick??-1)-(a.tick??-1))[0];
   if(newest?.tick===undefined)return marketTick();
   const since=Math.floor((Date.now()-Date.parse(newest.at))/10_000);
   return Math.max(marketTick(),newest.tick+(Number.isFinite(since)?Math.max(0,since):0));
@@ -889,7 +889,7 @@ const SLACK=0.1;
  * short cycle by default, a galaxy tour with larger numbers.
  * Reads only. Jumps come from `get_map` and each base's system, which the market memory keeps;
  * fuel per jump from one `find_route`. A stop that could not be placed is a row with a `why` and
- * the Outcome `partial`, never a throw. Refused when not docked.
+ * the Outcome `partial`, never a throw. Undocked, every book is a remembered one, aged against `tickNow`.
  *
  * ponytail: goods in this base's store are not weighed; `tradeRun` takes them with `from:'store'`. */
 export function routes(opts:RouteOpts={}):Promise<Outcome<{routes:Route[];sources:string[]}>> {return edge(routesEffect(opts));}
@@ -903,9 +903,9 @@ type Found={routes:Route[];sources:string[]};
 export const searchEffect=(seat:Seat,opts:RouteOpts={}):Effect.Effect<Said<Found>,GameError|Stopped,Game>=>Effect.gen(function*() {
   const game=yield* Game;
   const none:Found={routes:[],sources:[]};
-  const here=seat.account.state.location?.docked_at,circuit=opts.circuit;
-  if(!here)return {status:'refused',did:'ranked no routes',why:'not docked; a market is a station counter',
-    detail:none,next:['goTo a base, then routes()']};
+  // Live 2026-09-30..10-04 (kvothe, 21 runs e.g. 5bdb0f7b, 9634fee9): routes() undocked was refused,
+  // `ranked no routes`, though every far book it plans on is remembered. Undocked, all of them are.
+  const here=seat.account.state.location?.docked_at??'',circuit=opts.circuit;
   if(circuit&&!(circuit.hold>0&&Number.isFinite(circuit.hold)))return {status:'refused',did:'ranked no routes',
     why:`circuit.hold ${circuit.hold} is not a positive number of units`,detail:none};
   const most=opts.maxStops??STOPS,legCap=opts.maxLegJumps??LEG_JUMPS,cap=opts.maxJumps??Infinity;
@@ -913,15 +913,17 @@ export const searchEffect=(seat:Seat,opts:RouteOpts={}):Effect.Effect<Said<Found
     why:`maxStops ${most}, maxLegJumps ${legCap}, maxJumps ${cap}: maxStops is a whole number from ${circuit?2:1} to ${MAX_STOPS}, and jumps are 0 or more`,detail:none};
   const scope:Scope={maxStops:most,maxLegJumps:legCap,...Number.isFinite(cap)?{maxJumps:cap}:{}};
   const free=cargo(seat.account),aboard=miningInventory(seat.account.state);
-  const {items:listed,tick:now}=yield* bookOf(seat);
+  const {items:listed,tick:now}=here?yield* bookOf(seat):{items:new Map<string,MarketListingItem>(),tick:tickNow(seat.runtime)};
   const far=yield* farBooksEffect(here,now,seat);
   const known=byBase({base_id:here,source:'here',age:0,items:listed},far);
+  if(!here)known.delete(here);
   const sources=[...new Set([...known.values()].map(row=>row.source))];
   const probe=[...listed.values()].find(row=>row.best_sell>0);
   const rate=probe?yield* taxRate(probe.item_id):null;
 
   const {hop,perJump,lost,later,systems}=yield* chart(here,[...known.keys()],far,seat);
-  const fuelPrice=Number(field(replyBody(yield* game.command('spacemolt/get_base',{})),'fuel_price_all_in')??1);
+  // Undocked there is no counter to read the fuel price at: a unit is priced at 1, and `did` says so.
+  const fuelPrice=here?Number(field(replyBody(yield* game.command('spacemolt/get_base',{})),'fuel_price_all_in')??1):1;
 
   // What each base may sell you: an asked item, `items` allowing, that some known book bids more for than its ask plus tax.
   const wanted=(item:string)=>!opts.items?.length||opts.items.includes(item);
@@ -1065,13 +1067,14 @@ export const searchEffect=(seat:Seat,opts:RouteOpts={}):Effect.Effect<Said<Found
     beam=grown.sort((a,b)=>b.score-a.score).slice(0,BEAM).map(row=>row.route);
   }
 
+  const adrift=here?'':'; not docked: every book is remembered, sales tax unknown, fuel priced at 1 cr a unit';
   const rested=skipped.size?`; skipped ${skipped.size} ring(s) a freighter drained within ${REST_TICKS} ticks: ${[...skipped].join('; ')}`:'';
   const missed=[...lost.keys()];
   const unknown=missed.length?`; ${missed.length} base(s) could not be placed, so no priced route goes there: ${missed.slice(0,5).join(', ')}${missed.length>5?', …':''}`
     +(later.length?` (${later.length} past this call's ${UNPLACED} lookups; each place found is kept, so routes() again places the next ${UNPLACED})`:''):'';
   const rows=[...found.values()].sort((a,b)=>Number(a.total_jumps===null)-Number(b.total_jumps===null)||b.score-a.score).slice(0,ROWS);
   const [top]=rows;
-  if(!top)return {status:'done',did:`no route pays across ${known.size} book(s) (${sources.join(' + ')}) from this hold within ${most} stops, ${legCap} jumps a leg${Number.isFinite(cap)?` and ${cap} in all`:''}${rested}${unknown}`,
+  if(!top)return {status:'done',did:`no route pays across ${known.size} book(s) (${sources.join(' + ')}) from this hold within ${most} stops, ${legCap} jumps a leg${Number.isFinite(cap)?` and ${cap} in all`:''}${rested}${unknown}${adrift}`,
     detail:{routes:[],sources},next:['goTo another base and prices() there to learn its book']};
   const failed=rows.filter(row=>row.total_jumps===null);
   // Short: a hold of ten kinds is `sell 499 of 10 kinds`; the legs in `detail` carry the rest.
@@ -1081,7 +1084,7 @@ export const searchEffect=(seat:Seat,opts:RouteOpts={}):Effect.Effect<Said<Found
   // bought on a memory (live 2026-10-01, kvothe 16:10Z: 2 dark_matter_residue at 690 for a bid gone by arrival).
   const says=(row:Route)=>row.legs.map(leg=>[leg.source==='here'?leg.at:`${leg.at} (${aged(leg)})`,...kinds('sell',leg.sold),...kinds('buy',leg.buys)].join(' ')).join(' → ');
   return {status:failed.length?'partial':'done',
-    did:`ranked ${rows.length} route(s) over ${known.size} book(s) (${sources.join(' + ')}); best: ${says(top)}, net ${top.net} cr${rested}${unknown}`,
+    did:`ranked ${rows.length} route(s) over ${known.size} book(s) (${sources.join(' + ')}); best: ${says(top)}, net ${top.net} cr${rested}${unknown}${adrift}`,
     ...failed.length?{why:failed.map(row=>`${says(row)}: ${row.why}`).join('; ')}:{},
     detail:{routes:rows,sources},next:rows.slice(0,3).map(row=>row.next)};
 });

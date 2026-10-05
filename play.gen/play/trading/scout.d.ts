@@ -49,9 +49,9 @@ export interface Scouted {
  * next `candidates` row within `jumps` (default `SCOUT_JUMPS`, 4), re-chosen after every hop. A base
  * is flown to with `goTo` and its book read (remembered and filed, as `prices()` does); a system is
  * flown to and its bases listed and kept, so the next hop can dock at one. Never buys or sells.
- * Refused when not docked (ages are read against a counter's tick) or in a mood that may not start
- * a job. A hop that fails is said and skipped; `partial` when one did. A base that refused the dock
- * is ranked last and `did` says so, and flown to only when nothing else is left. Trains navigation. */
+ * Docked, ages are read against the live book's tick; undocked, against `tickNow`. Refused in a mood
+ * that may not start a job. A hop that fails is said and skipped; `partial` when one did. A base that
+ * refused the dock is not flown to, and `did` names it. Trains navigation. */
 export declare function scoutMarkets(opts?: {
     jumps?: number;
     max?: number;

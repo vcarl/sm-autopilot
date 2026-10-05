@@ -101,8 +101,8 @@ runs it, so what ranks is what runs.
 
 `routes({items?})` answers `detail: {routes, sources}`. `items` narrows what is taken on at a
 stop; goods aboard are always weighed. `sources` is as for `spreads()`. It reads only: it
-computes, you choose. It is refused when not docked. Goods in the store here are not weighed; take
-them with `from: 'store'` (below).
+computes, you choose. Undocked, every book is a remembered one, its age said, and `did` says so. Goods
+in the store here are not weighed; take them with `from: 'store'` (below).
 
 The search picks only the bases, in order; the rule above picks what each stop sells and takes on.
 It grows routes one stop at a time, keeping the best 20 at each length, within the scope:
@@ -279,8 +279,8 @@ system's bases as it arrives, and never buys or sells.
 | `left` | candidates still within `jumps` after the last hop; `next` says `scoutMarkets() again` while there are any |
 
 A hop that does not arrive is skipped and said in `why`, and the call is `partial`; `refused` when
-none arrived, when you are not docked (ages are read against a counter's tick), or in a mood that may
-not start a job. With nothing to scout it is `done` and says so. The menu offers `scoutMarkets()` to a
+none arrived, or in a mood that may not start a job. A base that refused you the dock is not flown to;
+`did` names it. With nothing to scout it is `done` and says so. The menu offers `scoutMarkets()` to a
 docked Trader whenever a candidate lies within `SCOUT_JUMPS`, under the trades. A freighter with no
 circuit that qualifies scouts by the same choice (see [fleet](../fleet/README.md#freighters)).
 
