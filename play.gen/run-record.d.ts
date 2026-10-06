@@ -17,7 +17,7 @@ export declare const RunRecord: Schema.Struct<{
     /** The run's identity: no counter, no ids to keep unique across restarts. */
     readonly started: Schema.NonEmptyString;
     /** When the context this run was written from was rendered. An instruction given after it
-     * was never seen, so this run does not consume it (juncture.py's `_pending_instruction`). */
+     * was never seen, so this run does not consume it (`pendingInstruction` in context.ts). */
     readonly juncture_at: Schema.optionalKey<Schema.String>;
     readonly last_job: Schema.mutableKey<Schema.optionalKey<Schema.String>>;
     readonly last_step: Schema.optionalKey<Schema.String>;
@@ -69,7 +69,7 @@ export declare function closeInterrupted(runtime: string): RunRecord | null;
  *
  * ponytail: each file is read whole and the tail kept. Rest happens once an evening, so a
  * few MB costs nothing; seek from the end if a journal ever outgrows that. */
-export declare function readJournal(runtime: string, limit?: number): JournalLine[];
+export declare function readJournal(runtime: string, limit?: number, name?: string): JournalLine[];
 /** A bridge's boot, in the journal: a non-empty `gameplay.jsonl` is renamed to
  * `gameplay.<UTC stamp>.jsonl`, then the interrupted-run close and the `boot` line (naming the
  * rotated file as `rotated_from`, so the chain walks back) open the fresh one. Called once the
