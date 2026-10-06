@@ -58,5 +58,12 @@ jobs:
           repository: NousResearch/hermes-agent
           ref: ${{ env.HERMES_REF }}
           path: hermes-agent
+      # The plugin's Python shells out to the bridge's TypeScript (service.py's RENDER_COMMAND),
+      # which imports its npm dependencies.
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24.15.0"
+          cache: npm
+      - run: npm ci
       - run: pip install -e "$HERMES_AGENT_ROOT" pytest
       - run: python -m pytest
