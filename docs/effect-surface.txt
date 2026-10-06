@@ -30,6 +30,8 @@ Board.listings: (ShippingListing & { fuel: number; reachable: boolean; fits: boo
 Board.profile: ShippingProfileResponse
 Bought.bought?: BuyResponse | undefined
 Bought.estimate: EstimatePurchaseResponse
+Browsed.recipes: Recipe[]
+Browsed.total: number
 Built.facility_id: string
 Built.ready_tick?: number | undefined
 Built.rent_per_cycle: number
@@ -53,7 +55,15 @@ Carried.aboard: PassengerView[]
 Carried.landed: { base_id: string; unloaded: UnloadPassengerCommandResponse[]; }[]
 Carried.loaded: PassengerView[]
 Carried.station: StationPassengersResponse
+CatalogFilter.category?: string | undefined
+CatalogFilter.makes?: string | undefined
+CatalogFilter.search?: string | undefined
+CatalogFilter.uses?: string | undefined
 Channel = "private" | "local" | "system" | "faction"
+CheapAsk.age: number | null
+CheapAsk.base_id: string
+CheapAsk.depth: number
+CheapAsk.price: number
 Circuit.closed: true
 Circuit.hold: number
 Circuit.lap_jumps: number
@@ -79,7 +89,7 @@ CombatStats.taken_per_tick: number
 CombatStats.thin: boolean
 CombatStats.win_chance?: number | undefined
 CombatStats.won: number
-Craftable = Recipe & { margin?: number | null; have: (RecipeInput & { have: number; })[]; }
+Craftable = Recipe & { margin?: number | null; have: (RecipeInput & { have: number; })[]; unquoted?: string; }
 Craftable.category: string
 Craftable.crafting_time: number
 Craftable.description: string
@@ -94,6 +104,7 @@ Craftable.name: string
 Craftable.no_recycle?: boolean | undefined
 Craftable.outputs: RecipeOutput[]
 Craftable.package_operation?: string | undefined
+Craftable.unquoted?: string | undefined
 Crafted.facility_id?: string | undefined
 Crafted.fee: number
 Crafted.job: CraftJobResponse | JobView
@@ -197,8 +208,6 @@ Market.claim: (rows: Claim[]) => void
 Market.claimed: (base_id: string, item_id: string) => number
 Market.saw: (base_id: string, known: Known) => void
 Market.tick: () => number
-Materials.leaves: { item_id: string; need: number; have: number; source: string; }[]
-Materials.steps: { recipe: string; runs: number; facility_only: boolean; }[]
 Missing.buy_each: number | null
 Missing.have: number
 Missing.item_id: string
@@ -490,6 +499,21 @@ TickView.shield_pct: number
 TickView.stance?: CombatStance | undefined
 TickView.stats?: CombatStats | undefined
 TickView.tick: number
+TraceNode.ask?: CheapAsk | undefined
+TraceNode.cycle?: true | undefined
+TraceNode.facility_only?: boolean | undefined
+TraceNode.have: number
+TraceNode.inputs: TraceNode[]
+TraceNode.item_id: string
+TraceNode.need: number
+TraceNode.recipe?: string | undefined
+TraceNode.runs?: number | undefined
+TraceNode.source: string
+Traced.alternates: { item_id: string; recipe: string; facility_only: boolean; inputs: { item_id: string; quantity: number; }[]; makes: number; }[]
+Traced.crafting_ticks: number
+Traced.leaves: { item_id: string; need: number; have: number; source: string; aboard: number; stored: { base_id: string; quantity: number; }[]; ask: CheapAsk | null; }[]
+Traced.steps: { recipe: string; runs: number; facility_only: boolean; }[]
+Traced.tree: TraceNode | null
 Traded.fuel: number
 Traded.net: number
 Traded.stops: Visit[]
@@ -570,6 +594,7 @@ src/play/index.ts function buy: (itemId: string, quantity: number, opts?: { deli
 src/play/index.ts function buyShip: (id: string, opts?: { commission?: boolean; switchTo?: boolean; }) => Promise<Outcome<Purchase>>
 src/play/index.ts function buyers: (items: string | readonly string[]) => Promise<Outcome<{ buyers: Buyer[]; }>>
 src/play/index.ts function carryPassengers: (destination?: string | undefined) => Promise<Outcome<Carried>>
+src/play/index.ts function catalog: (filter?: CatalogFilter) => Promise<Outcome<Browsed>>
 src/play/index.ts function chat: (channel: Channel, text: string, to?: string | undefined) => Promise<Outcome<{ readonly channel: string; readonly message: string; readonly sent_at: number; }>>
 src/play/index.ts function completeMissions: () => Promise<Outcome<{ completed: CompleteMissionResponse[]; remaining: Active[]; }>>
 src/play/index.ts function craft: (recipeId: string, quantity?: number, opts?: { at?: string; }) => Promise<Outcome<Crafted>>
@@ -584,7 +609,6 @@ src/play/index.ts function haul: (shipmentId: string) => Promise<Outcome<Hauled>
 src/play/index.ts function heard: () => Heard[]
 src/play/index.ts function hunt: (opts?: { poi?: string; look?: string[]; fights?: number; species?: string | string[]; strict?: boolean; target?: "creature" | "pirate"; onTick?: (view: TickView) => TickDecision | undefined; }) => Promise<Outcome<Hunted>>
 src/play/index.ts function jobs: () => Promise<Outcome<{ jobs: Queued[]; }>>
-src/play/index.ts function materials: (itemId: string, quantity: number) => Promise<Outcome<Materials>>
 src/play/index.ts function messages: (opts?: { channel?: Channel | "emergency"; with?: string; after?: string; limit?: number; }) => Promise<Outcome<{ messages: { readonly sender_id: string; readonly channel: string; readonly content: string; readonly id: string; readonly sender: string; readonly timestamp_utc: string; readonly poi_id?: string; readonly system_id?: string; readonly target_id?: string; readonly target_name?: string; }[]; has_more: boolean; }>>
 src/play/index.ts function missions: () => Promise<Outcome<{ board: Offer[]; active: Active[]; max: number; slots_free: number; }>>
 src/play/index.ts function note: (text: string) => void
@@ -615,14 +639,17 @@ src/play/index.ts function stow: (items: Want[]) => Promise<Outcome<Moved>>
 src/play/index.ts function supply: (recipeId: string, quantity?: number, opts?: { at?: string; maxSpend?: number; maxEach?: number; }) => Promise<Outcome<Supplied>>
 src/play/index.ts function survey: () => Promise<Outcome<{ response: SurveySystemResponse; deposits: SurveyedPoi[]; }>>
 src/play/index.ts function switchShip: (shipId: string) => Promise<Outcome<{ switched: SwitchShipResponse; ship: V2Ship; }>>
+src/play/index.ts function trace: (itemOrRecipe: string, quantity?: number) => Promise<Outcome<Traced>>
 src/play/index.ts function tradeRun: (opts: { stops: RunStop[]; }) => Promise<Outcome<Traded>>
 src/play/index.ts function withdraw: (items: Want[]) => Promise<Outcome<Moved>>
 src/play/index.ts interface Board: Board
 src/play/index.ts interface Bought: Bought
+src/play/index.ts interface Browsed: Browsed
 src/play/index.ts interface Built: Built
 src/play/index.ts interface Buyer: Buyer
 src/play/index.ts interface Candidate: Candidate
 src/play/index.ts interface Carried: Carried
+src/play/index.ts interface CatalogFilter: CatalogFilter
 src/play/index.ts interface Circuit: Circuit
 src/play/index.ts interface CombatStats: CombatStats
 src/play/index.ts interface Crafted: Crafted
@@ -634,7 +661,6 @@ src/play/index.ts interface Hauled: Hauled
 src/play/index.ts interface Heard: Heard
 src/play/index.ts interface Hunted: Hunted
 src/play/index.ts interface Locked: Locked
-src/play/index.ts interface Materials: Materials
 src/play/index.ts interface Missing: Missing
 src/play/index.ts interface Moved: Moved
 src/play/index.ts interface Orientation: Orientation
@@ -655,6 +681,8 @@ src/play/index.ts interface Spread: Spread
 src/play/index.ts interface Supplied: Supplied
 src/play/index.ts interface TickDecision: TickDecision
 src/play/index.ts interface TickView: TickView
+src/play/index.ts interface TraceNode: TraceNode
+src/play/index.ts interface Traced: Traced
 src/play/index.ts interface Traded: Traded
 src/play/index.ts interface Trip: Trip
 src/play/index.ts interface Venue: Venue
@@ -662,7 +690,7 @@ src/play/index.ts type Active: ActiveMissionInfo & { next: string; progress: str
 src/play/index.ts type Channel: "private" | "local" | "system" | "faction"
 src/play/index.ts type ChatPause: { readonly at: string; readonly from: string; readonly channel: string; readonly text: string; readonly sender_id?: string; }
 src/play/index.ts type CombatStance: "fire" | "evade" | "brace" | "flee"
-src/play/index.ts type Craftable: Recipe & { margin?: number | null; have: (RecipeInput & { have: number; })[]; }
+src/play/index.ts type Craftable: Recipe & { margin?: number | null; have: (RecipeInput & { have: number; })[]; unquoted?: string; }
 src/play/index.ts type ForSale: { kind: "listing"; listing: ShipListing; class: ShipClass; versus: string; } | { kind: "commission"; quote: CommissionQuoteResponse; class: ShipClass; versus: string; }
 src/play/index.ts type Interrupts: { readonly from?: readonly string[]; readonly channels?: readonly ("private" | "local" | "system" | "faction")[]; }
 src/play/index.ts type Message: { readonly sender_id: string; readonly channel: string; readonly content: string; readonly id: string; readonly sender: string; readonly timestamp_utc: string; readonly poi_id?: string; readonly system_id?: string; readonly target_id?: string; readonly target_name?: string; }
@@ -682,22 +710,26 @@ src/play/industry/facilities/index.ts interface Built: Built
 src/play/industry/facilities/index.ts interface Rentable: Rentable
 src/play/industry/facilities/index.ts type Owned: OwnedFacilityEntry & { runway_cycles: number; }
 src/play/industry/index.ts function buildFacility: (type: string) => Promise<Outcome<Built>>
+src/play/industry/index.ts function catalog: (filter?: CatalogFilter) => Promise<Outcome<Browsed>>
 src/play/industry/index.ts function craft: (recipeId: string, quantity?: number, opts?: { at?: string; }) => Promise<Outcome<Crafted>>
 src/play/industry/index.ts function facilities: () => Promise<Outcome<Facilities>>
 src/play/industry/index.ts function jobs: () => Promise<Outcome<{ jobs: Queued[]; }>>
-src/play/industry/index.ts function materials: (itemId: string, quantity: number) => Promise<Outcome<Materials>>
 src/play/industry/index.ts function quote: (recipeId: string, quantity?: number, opts?: { at?: string; }) => Promise<Outcome<Quoted>>
 src/play/industry/index.ts function recipes: (search?: string | undefined) => Promise<Outcome<{ recipes: Craftable[]; }>>
 src/play/industry/index.ts function supply: (recipeId: string, quantity?: number, opts?: { at?: string; maxSpend?: number; maxEach?: number; }) => Promise<Outcome<Supplied>>
+src/play/industry/index.ts function trace: (itemOrRecipe: string, quantity?: number) => Promise<Outcome<Traced>>
+src/play/industry/index.ts interface Browsed: Browsed
 src/play/industry/index.ts interface Built: Built
+src/play/industry/index.ts interface CatalogFilter: CatalogFilter
 src/play/industry/index.ts interface Crafted: Crafted
-src/play/industry/index.ts interface Materials: Materials
 src/play/industry/index.ts interface Missing: Missing
 src/play/industry/index.ts interface Queued: Queued
 src/play/industry/index.ts interface Rentable: Rentable
 src/play/industry/index.ts interface Supplied: Supplied
+src/play/industry/index.ts interface TraceNode: TraceNode
+src/play/industry/index.ts interface Traced: Traced
 src/play/industry/index.ts interface Venue: Venue
-src/play/industry/index.ts type Craftable: Recipe & { margin?: number | null; have: (RecipeInput & { have: number; })[]; }
+src/play/industry/index.ts type Craftable: Recipe & { margin?: number | null; have: (RecipeInput & { have: number; })[]; unquoted?: string; }
 src/play/industry/index.ts type Owned: OwnedFacilityEntry & { runway_cycles: number; }
 src/play/industry/index.ts type Quoted: CraftQuoteResponse & Venue & { produces_total: ItemQuantity[]; output_value: number | null; margin: number | null; missing: Missing[]; }
 src/play/mining/index.ts function gatherUntil: (opts: { poi: string; base?: string; until?: { item: string; quantity: number; }; maxTrips?: number; then?: "stow" | "sell"; }) => Promise<Outcome<Gathered>>

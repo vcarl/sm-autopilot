@@ -114,6 +114,14 @@ export const marketTick=():number=>lastTick;
  * directory is an argument so a caller outside a bound run (the juncture's `factsNow`) can
  * read the same memory. */
 export const knownBooks=(dir=runtimeDir()):RememberedBook[]=>readBooks(dir);
+/** ponytail: undocked there is no live tick to age a book against; the newest book known, advanced
+ * at ten seconds a tick since it was read, stands in. A docked call measures it from the live book. */
+export function tickNow(dir=runtimeDir()):number {
+  const newest=knownBooks(dir).sort((a,b)=>(b.tick??-1)-(a.tick??-1))[0];
+  if(newest?.tick===undefined)return marketTick();
+  const since=Math.floor((Date.now()-Date.parse(newest.at))/10_000);
+  return Math.max(marketTick(),newest.tick+(Number.isFinite(since)?Math.max(0,since):0));
+}
 
 const remember=(base_id:string,items:MarketListingItem[],tick:number)=>
   rememberBook(runtimeDir(),base_id,acct().state.location?.system_id,items,tick);

@@ -872,7 +872,7 @@ export function bridgeWorld(options:WorldOptions={}) {
         }
         return {delta:{details:{kind:'queue',jobs:structuredClone(queued),total_jobs:queued.length}}};
       }
-      if(bench.refusal)throw new Error(bench.refusal);
+      if(bench.refusal)throw new SpacemoltError('craft_refused',bench.refusal);
       // A facility id is the venue; the workshop preset or neither is the workshop here.
       const venue=params.facility_id?{venue:String(params.facility_id),venue_type:'facility',facility_id:String(params.facility_id)}
         :{venue:'Sol Base Workshop',venue_type:'workshop'};

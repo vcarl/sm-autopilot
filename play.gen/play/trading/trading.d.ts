@@ -113,9 +113,6 @@ export declare const buyersEffect: (items: string | readonly string[]) => Effect
 export declare function buyers(items: string | readonly string[]): Promise<Outcome<{
     buyers: Buyer[];
 }>>;
-/** ponytail: undocked there is no live tick to age a book against; the newest book known, advanced
- * at ten seconds a tick since it was read, stands in. A docked call measures it from the live book. */
-export declare function tickNow(dir?: string | undefined): number;
 /** A ledger entry as this file reads it: the base, its system, the tick it was filed and its top of book per item. Picked
  * from the spec's entry, because the live server omits spec fields and sends `null` for an empty item list. */
 export declare const LedgerEntry: Schema.Struct<{

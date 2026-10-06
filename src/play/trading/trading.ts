@@ -19,7 +19,7 @@ import {words} from '../../servicing.ts';
 import {replyBody,rows as listOf} from '../../storage.ts';
 import {inFaction} from '../../trade-intel.ts';
 import * as Wire from '../../wire.gen.ts';
-import {bookEffect,buyEffect,debitBook,knownBooks,marketTick,sellEffect,slipped,ticksOld,type RememberedBook} from '../market.ts';
+import {bookEffect,buyEffect,debitBook,knownBooks,marketTick,sellEffect,slipped,tickNow,ticksOld,type RememberedBook} from '../market.ts';
 import {readStores,storedAt} from '../world.ts';
 import {counterEffect} from '../counter.ts';
 import {baseValues} from '../industry/crafting.ts';
@@ -230,14 +230,6 @@ export const buyersEffect=(items:string|readonly string[])=>{
   }));
 };
 export function buyers(items:string|readonly string[]):Promise<Outcome<{buyers:Buyer[]}>> {return edge(buyersEffect(items));}
-/** ponytail: undocked there is no live tick to age a book against; the newest book known, advanced
- * at ten seconds a tick since it was read, stands in. A docked call measures it from the live book. */
-export function tickNow(dir=runtimeDir()):number {
-  const newest=knownBooks(dir).sort((a,b)=>(b.tick??-1)-(a.tick??-1))[0];
-  if(newest?.tick===undefined)return marketTick();
-  const since=Math.floor((Date.now()-Date.parse(newest.at))/10_000);
-  return Math.max(marketTick(),newest.tick+(Number.isFinite(since)?Math.max(0,since):0));
-}
 
 /** ponytail: the ledger is read whole, a page of `LEDGER_PAGE` stations at a time, at most
  * `LEDGER_PAGES` pages (the galaxy has 79 stations) — a bounded call count per read, re-read at

@@ -11,7 +11,7 @@ import {readJournal} from '../../run-record.ts';
 import {bridgeWorld,type WorldOptions} from '../../test-support/bridge-world.ts';
 import {GameLive,type Game} from '../game.ts';
 import {boundRun,bind,stop,unbind,type Pilot,type Run} from '../runtime.ts';
-import {craft,craftEffect,jobs,materials,quote,recipes,revalidated,supply,useCatalog} from './crafting.ts';
+import {craft,craftEffect,jobs,quote,recipes,revalidated,supply,useCatalog} from './crafting.ts';
 import {worldDb} from '../world.ts';
 
 /** The catalog behind the fake bench's one recipe: 5 iron ore into 2 steel plate. */
@@ -64,6 +64,21 @@ test('recipes reports a null margin, not zero, when this counter buys none of th
     assert.match(out.did,/no buyer here for their outputs; see spreads\(\)/);
     assert.match(out.next[0]!,/spreads\(\["steel_plate"\]\)/);
     assert.equal(f.count('spacemolt/craft'),1,'still quoted: the bench is fine, the market is not');
+  } finally {unbind();}
+});
+
+test('recipes says a refused quote is unquoted, never that nobody here buys the output',async()=>{
+  // Live 2026-10-06 (kvothe, query b86b3973): six refused quotes were said as "no buyer here; see spreads()".
+  const f=world({mood:'Focused'},{store:[{item_id:'iron_ore',quantity:20}],craft:{refusal:'not_a_query: spacemolt/craft is not a read'}});
+  try {
+    const out=await recipes();
+    assert.equal(out.status,'done',out.why);
+    assert.equal(out.detail.recipes[0]!.margin,undefined);
+    assert.match(out.detail.recipes[0]!.unquoted!,/not_a_query/);
+    assert.doesNotMatch(out.did,/no buyer/);
+    assert.match(out.did,/1 unquoted \(.*not_a_query/);
+    assert.ok(!out.next.some(row=>row.includes('spreads')),out.next.join('\n'));
+    assert.equal(f.count('spacemolt/craft'),1);
   } finally {unbind();}
 });
 
@@ -183,7 +198,7 @@ test('quote survives a catalog outage and an unsold input',async()=>{
     assert.equal(out.status,'done',out.why);
     assert.equal(out.detail.missing[0]!.buy_each,null,'not sold here: mine it');
     assert.equal(out.detail.missing[0]!.source,'unknown');
-    assert.match(out.next.join('\n'),/materials\('iron_ore', 5\)/);
+    assert.match(out.next.join('\n'),/trace\('iron_ore', 5\)/);
   } finally {unbind();}
 });
 
@@ -316,37 +331,6 @@ test('jobs reads the typed venue field when a row carries no venue_type',async()
     const out=await jobs();
     assert.equal(out.status,'done',out.why);
     assert.deepEqual(out.detail.jobs.map(job=>[job.job_id,job.paused]),[['w2',true]]);
-  } finally {unbind();}
-});
-
-test('materials walks a two-level tree to its raw leaves, net of what is held',async()=>{
-  world({mood:'Focused'},{store:[{item_id:'steel_plate',quantity:2},{item_id:'iron_ore',quantity:3}]});
-  useCatalog(async()=>({...CATALOG,recipes:[...CATALOG.recipes,{id:'assemble_hull',name:'Assemble Hull',
-    category:'Components',description:'',crafting_time:1,inputs:[{item_id:'steel_plate',quantity:3}],
-    outputs:[{item_id:'hull_panel',quantity:1}]}]}) as unknown as Catalog);
-  try {
-    // 2 panels take 6 plate; 2 are stored, so 4 more is 2 runs of 2, which takes 10 ore.
-    const out=await materials('hull_panel',2);
-    assert.equal(out.status,'done',out.why);
-    assert.deepEqual(out.detail.steps,[{recipe:'refine_steel',runs:2,facility_only:false},
-      {recipe:'assemble_hull',runs:2,facility_only:false}]);
-    assert.deepEqual(out.detail.leaves,[{item_id:'iron_ore',need:10,have:3,source:'mining'}]);
-    assert.match(out.next[0]!,/iron_ore: 7 more to get \(mining\)/);
-  } finally {unbind();}
-});
-
-test('materials lists a shared intermediate before every step that consumes it',async()=>{
-  world({mood:'Focused'});
-  // frame takes plate and a panel; the panel takes plate too. Walk order is frame, plate, panel.
-  useCatalog(async()=>({...CATALOG,recipes:[...CATALOG.recipes,
-    {id:'assemble_hull',name:'Assemble Hull',category:'Components',description:'',crafting_time:1,
-      inputs:[{item_id:'steel_plate',quantity:3}],outputs:[{item_id:'hull_panel',quantity:1}]},
-    {id:'assemble_frame',name:'Assemble Frame',category:'Components',description:'',crafting_time:1,
-      inputs:[{item_id:'steel_plate',quantity:1},{item_id:'hull_panel',quantity:1}],outputs:[{item_id:'frame',quantity:1}]}]}) as unknown as Catalog);
-  try {
-    const out=await materials('frame',1);
-    assert.equal(out.status,'done',out.why);
-    assert.deepEqual(out.detail.steps.map(row=>row.recipe),['refine_steel','assemble_hull','assemble_frame']);
   } finally {unbind();}
 });
 

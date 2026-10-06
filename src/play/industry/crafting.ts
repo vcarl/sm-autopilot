@@ -1,5 +1,5 @@
 /** The bench at the base you are docked at — its workshop, or a facility there named by id:
- * recipes, quotes, stocking the store, crafts, the queue, and what a recipe tree comes to.
+ * recipes, quotes, stocking the store, crafts and the queue. Browsing the catalog and tracing a tree are `catalog.ts`'s.
  *
  * Every call here uses the one convention the live game answered to: `source:'storage'`,
  * `deliver_to:'storage'`. The bench escrows the inputs out of THIS base's store and delivers
@@ -33,6 +33,8 @@ export type Craftable=Recipe&{
   margin?:number|null;
   /** Each input against what you hold here (hold + store). */
   have:(RecipeInput&{have:number})[];
+  /** Why the bench gave no quote, when it gave none: the row is unpriced, which says nothing of a buyer. */
+  unquoted?:string;
 };
 
 /** The public catalog (`GET /api/catalog.json`), which carries the recipes; this lib version
@@ -49,7 +51,7 @@ const catalog=()=>(cached??=source().catch(error=>{cached=undefined;throw error;
 /** The catalog could not be read: no network and no copy on disk. A named value, said in the Outcome, never a defect. */
 class CatalogUnavailable extends Data.TaggedError('CatalogUnavailable')<{readonly message:string}> {}
 /** The recipe graph, or why there is none. The promise never rejects: a failed fetch is the typed failure. */
-const graphOf=()=>Effect.promise(()=>catalog().then(
+export const graphOf=()=>Effect.promise(()=>catalog().then(
   loaded=>Result.succeed(RecipeGraph.from(loaded)),
   error=>Result.fail(new CatalogUnavailable({message:message(error)}))));
 
@@ -279,8 +281,9 @@ export const recipesEffect=(search?:string)=>
       // A quote that is refused, lost or off spec leaves the row unpriced and says so: the listing is still the answer.
       const quoted=yield* Effect.result(dryRun(cov.recipe.id,1));
       if(Result.isFailure(quoted)||'refused' in quoted.success) {
-        step(`recipes: no quote for ${cov.recipe.id}: ${Result.isFailure(quoted)?said(quoted.failure):quoted.success.refused}`);
-        made.push({...cov.recipe,have});continue;
+        const why=(Result.isFailure(quoted)?said(quoted.failure):quoted.success.refused)??'the bench gave no reason';
+        step(`recipes: no quote for ${cov.recipe.id}: ${why}`);
+        made.push({...cov.recipe,have,unquoted:why});continue;
       }
       const {quote:priced}=quoted.success;
       const value=worth(allRuns(priced),listed);
@@ -288,21 +291,20 @@ export const recipesEffect=(search?:string)=>
     }
     made.sort((a,b)=>(b.margin??-Infinity)-(a.margin??-Infinity));
     const cut=covered.length-made.length;
-    const best=made[0];
-    // A margin of null everywhere is the honest headline: the bench works, the counter here
+    const best=made.find(row=>typeof row.margin==='number'),unquoted=made.filter(row=>row.unquoted!==undefined);
+    // A margin of null on every quoted row is the honest headline: the bench works, the counter here
     // does not buy what it makes. Saying "margin 0" sent a pilot away from crafting entirely.
-    const unpriced=made.filter(row=>row.margin===null||row.margin===undefined);
-    const noBuyer=made.length>0&&unpriced.length===made.length;
+    // Live 2026-10-06 (kvothe, query b86b3973): six refused quotes were said as "no buyer here"; nobody had looked.
+    const noBuyer=made.length>unquoted.length&&!best;
     return {status:'done',
       did:`${made.length} recipe${made.length===1?'':'s'} can be made at ${at.base} from what is held and stored here`
         +(cut>0?`; ${cut} more covered recipe${cut===1?'':'s'} not quoted`:'')
-        +(noBuyer?`, no buyer here for their outputs; see spreads()`
-          :best&&best.margin!=null?`; best margin ${best.name} ${best.margin} cr`
-          :best?`; best margin ${best.name} unquoted`:''),
+        +(best?`; best margin ${best.name} ${best.margin} cr`:noBuyer?`, no buyer here for their outputs; see spreads()`:'')
+        +(unquoted.length?`; ${unquoted.length} unquoted (${unquoted[0]?.unquoted})`:''),
       detail:{recipes:made},
-      next:noBuyer?[`spreads(${JSON.stringify(outputsOf(made).slice(0,5))}) — which base buys what this bench makes`,
-        `craft anyway and carry it: the margin is unknown here, not zero`]
-        :best&&(best.margin??0)>0?[`quote('${best.id}', 10) then craft('${best.id}', 10)`]:[]};
+      next:best&&(best.margin??0)>0?[`quote('${best.id}', 10) then craft('${best.id}', 10)`]
+        :noBuyer?[`spreads(${JSON.stringify(outputsOf(made.filter(row=>row.unquoted===undefined)).slice(0,5))}) — which base buys what this bench makes`,
+          `craft anyway and carry it: the margin is unknown here, not zero`]:[]};
   })));
 export function recipes(search?:string):Promise<Outcome<{recipes:Craftable[]}>> {return edge(recipesEffect(search));}
 
@@ -377,7 +379,7 @@ export const quoteEffect=(recipeId:string,quantity=1,opts:{at?:'workshop'|string
       detail,
       next:[...output_value===null?[`spreads(${JSON.stringify(outputsOf([{outputs:produces_total}]))}) — which base buys it`]:[],
       ...missing.map(row=>`${row.item_id}: store has ${row.have} of ${row.need}; `
-        +(row.buy_each===null?`not sold here — materials('${row.item_id}', ${row.need-row.have}) names what to mine (${row.source})`
+        +(row.buy_each===null?`not sold here — trace('${row.item_id}', ${row.need-row.have}) names what to mine (${row.source})`
           :`buys at ${row.buy_each} cr each${row.sell_each===null?'':`, sells at ${row.sell_each}`}; supply('${recipeId}', ${quantity}${atArg}) buys it`)),
       ...(detail.margin??0)>0&&!missing.length?[`craft('${recipeId}', ${quantity}${atArg})`]:[]].slice(0,3)};
   })));
@@ -484,7 +486,7 @@ export const supplyEffect=(recipeId:string,quantity=1,opts:{at?:'workshop'|strin
     if(!short.length)return {status:'done',did,detail,next:[`craft('${recipeId}', ${quantity}${opts.at?`, {at:'${opts.at}'}`:''})`]};
     return {status:'partial',did:did.replace(/: (;|$)/,': nothing moved$1'),
       why:[`still short ${short.map(row=>`${row.item_id} ${row.have} of ${row.need} (${row.source})`).join(', ')}`,...whys].join('; '),
-      detail,next:short.slice(0,3).map(row=>`materials('${row.item_id}', ${row.need-row.have}) names what to mine for it`)};
+      detail,next:short.slice(0,3).map(row=>`trace('${row.item_id}', ${row.need-row.have}) names what to mine for it`)};
   })));
 export function supply(recipeId:string,quantity=1,opts:{at?:'workshop'|string;maxSpend?:number;maxEach?:number}={}):Promise<Outcome<Supplied>> {return edge(supplyEffect(recipeId,quantity,opts));}
 
@@ -699,60 +701,3 @@ export const jobsEffect=()=>
       next:paused.slice(0,3).map(row=>`${row.recipe} is a workshop job at ${row.base_id??'its base'}: goTo there and stay docked to finish it`)};
   }));
 export function jobs():Promise<Outcome<{jobs:Queued[]}>> {return edge(jobsEffect());}
-
-/** What one recipe tree comes to, from the catalog. */
-export interface Materials {
-  /** The recipes to run, in the order to run them (deepest first), each with its runs. */
-  steps:{recipe:string;runs:number;facility_only:boolean}[];
-  /** The raw items at the bottom, all of each the tree consumes, beside what the hold and this
-   * base's store hold of it. */
-  leaves:{item_id:string;need:number;have:number;source:string}[];
-}
-
-const noMaterials=():Materials=>({steps:[],leaves:[]});
-/** Everything `quantity` of `itemId` takes, down to raw leaves, net of what the hold and — when
- * docked — this base's store already hold of each intermediate. From the catalog: reads only,
- * works undocked, needs no bench. `failed` when the catalog cannot be read. */
-export const materialsEffect=(itemId:string,quantity:number)=>
-  jobEffect<Materials>('materials',`${quantity} ${itemId}`,folded<Materials>('materials',noMaterials,Effect.gen(function*() {
-    const none=noMaterials();
-    if(!Number.isInteger(quantity)||quantity<1)
-      return {status:'refused',did:`walked no tree for ${itemId}`,why:'quantity must be a whole number of output units, at least one',detail:none};
-    const loaded=yield* graphOf();
-    if(Result.isFailure(loaded))return {status:'failed',did:`walked no tree for ${itemId}`,why:`catalog unavailable: ${loaded.failure.message}`,detail:none};
-    const graph=loaded.success;
-
-    const have:Record<string,number>={...miningInventory(acct().state)};
-    if(acct().state.location?.docked_at)for(const row of yield* storeRows())have[row.item_id]=(have[row.item_id]??0)+row.quantity;
-    const pool={...have};
-    const steps=new Map<string,Materials['steps'][number]>(),depth=new Map<string,number>(),leaves=new Map<string,Materials['leaves'][number]>();
-    // ponytail: the first hand-craftable recipe per item (else the first facility one), no
-    // cost optimisation; a recipe reached twice rounds its runs up twice. Choose by margin
-    // the day a pilot has two real routes to one item.
-    const walk=(item:string,need:number,path:Set<string>)=>{
-      const usable=graph.recipesFor(item).filter(r=>!r.hidden&&!r.package_operation&&r.category!=='Ship Passive');
-      const recipe=graph.source(item)==='crafted'&&!path.has(item)?usable.find(r=>graph.isCraftable(r))??usable[0]:undefined;
-      if(!recipe) {
-        const leaf=leaves.get(item)??{item_id:item,need:0,have:have[item]??0,source:graph.source(item)};
-        leaf.need+=need;leaves.set(item,leaf);return;
-      }
-      const used=Math.min(pool[item]??0,need);
-      pool[item]=(pool[item]??0)-used;
-      if(need-used<=0)return;
-      const runs=Math.ceil((need-used)/(recipe.outputs?.find(out=>out.item_id===item)?.quantity||1));
-      const row=steps.get(recipe.id)??{recipe:recipe.id,runs:0,facility_only:!graph.isCraftable(recipe)};
-      row.runs+=runs;steps.set(recipe.id,row);depth.set(recipe.id,Math.max(depth.get(recipe.id)??0,path.size));
-      const deeper=new Set([...path,item]);
-      for(const inp of recipe.inputs??[])walk(inp.item_id,(inp.quantity??1)*runs,deeper);
-    };
-    walk(itemId,quantity,new Set());
-    const detail={steps:[...steps.values()].sort((a,b)=>(depth.get(b.recipe)??0)-(depth.get(a.recipe)??0)),leaves:[...leaves.values()]};
-    const lacking=detail.leaves.filter(row=>row.have<row.need);
-    return {status:'done',
-      did:`${quantity} ${itemId}: ${detail.steps.length} recipe${detail.steps.length===1?'':'s'}`
-        +(detail.steps.length?` (${detail.steps.map(row=>`${row.runs} × ${row.recipe}`).join(', ')})`:'')
-        +`, raw ${detail.leaves.map(row=>`${row.item_id} ${row.have}/${row.need}`).join(', ')||'nothing'}`,
-      detail,
-      next:lacking.slice(0,3).map(row=>`${row.item_id}: ${row.need-row.have} more to get (${row.source})`)};
-  })));
-export function materials(itemId:string,quantity:number):Promise<Outcome<Materials>> {return edge(materialsEffect(itemId,quantity));}

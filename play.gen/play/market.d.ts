@@ -74,6 +74,9 @@ export declare const marketTick: () => number;
  * directory is an argument so a caller outside a bound run (the juncture's `factsNow`) can
  * read the same memory. */
 export declare const knownBooks: (dir?: string | undefined) => RememberedBook[];
+/** ponytail: undocked there is no live tick to age a book against; the newest book known, advanced
+ * at ten seconds a tick since it was read, stands in. A docked call measures it from the live book. */
+export declare function tickNow(dir?: string | undefined): number;
 /** Keep `base_id`'s book, read at `tick` in `system_id`, in `dir`'s market memory, and its place.
  * What `book()` does for the pilot, and a freighter's host for a book it scouted. */
 export declare function rememberBook(dir: string | undefined, base_id: string, system_id: string | undefined, items: MarketListingItem[], tick: number): void;

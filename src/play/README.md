@@ -150,12 +150,14 @@ and throw `unimplemented`: `survey`, `patrol`, `ships`, `switchShip`. `account()
 commands.
 
 Careers add more: [`mining/`](mining/README.md) (`gatherUntil`),
-[`hauling/`](hauling/README.md), [`industry/`](industry/README.md) (`recipes`, `quote`, `supply`, `craft`, `jobs`, `materials`, `facilities`, `buildFacility`), [`combat/`](combat/README.md) (`hunt`, `salvage`),
+[`hauling/`](hauling/README.md), [`industry/`](industry/README.md) (`catalog`, `trace`, `recipes`, `quote`, `supply`, `craft`, `jobs`, `facilities`, `buildFacility`), [`combat/`](combat/README.md) (`hunt`, `salvage`),
 [`trading/`](trading/README.md) (`buyers`, `spreads`, `routes`, `tradeRun`, `scoutMarkets`), [`exploration/`](exploration/README.md) (`exploreNearby`), [`fleet/`](fleet/README.md) (`assign`, `recall`, `freighters`).
 Every career's functions import from `'play'` whatever your stance. Crafting goes through them,
 never a raw `craft` command: `recipes(search?)` lists what this base can make from hold + store,
 priced; `craft(recipe_id, qty?)` stows, quotes, escrows, waits out the queue and reports the
-output in this base's store — no polling of your own. Both want a base with `crafting`.
+output in this base's store — no polling of your own. Both want a base with `crafting`. To find
+what to make, `catalog({uses: item})` / `catalog({makes: item})` and `trace(item, qty)` read the
+catalog from anywhere, a query included.
 
 ## Reading a counter before you spend at it
 

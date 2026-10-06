@@ -9,12 +9,12 @@ import * as Wire from '../../wire.gen.ts';
 import {jumpsFrom,mapOf} from '../exploration/exploration.ts';
 import {IGNORE_TICKS} from '../freighter/index.ts';
 import {Game} from '../game.ts';
-import {bookEffect,marketTick} from '../market.ts';
+import {bookEffect,marketTick,tickNow} from '../market.ts';
 import {markExplored,markPlace,readDockRefusals,readExplored,readPlaces} from '../places.ts';
 import {Stopped,acct,admit,edge,jobEffect,stopped} from '../runtime.ts';
 import {goToEffect} from '../travel.ts';
 import type {Outcome} from '../types.ts';
-import {farBooksEffect,halt,pilotSeat,seatInFaction,seatLine,tickNow,type Seat} from './trading.ts';
+import {farBooksEffect,halt,pilotSeat,seatInFaction,seatLine,type Seat} from './trading.ts';
 
 /** ponytail: how far scouting looks, in jumps from where the ship is. Tunable. */
 export const SCOUT_JUMPS=4;

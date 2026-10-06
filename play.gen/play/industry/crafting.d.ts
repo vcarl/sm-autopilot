@@ -1,5 +1,5 @@
 /** The bench at the base you are docked at — its workshop, or a facility there named by id:
- * recipes, quotes, stocking the store, crafts, the queue, and what a recipe tree comes to.
+ * recipes, quotes, stocking the store, crafts and the queue. Browsing the catalog and tracing a tree are `catalog.ts`'s.
  *
  * Every call here uses the one convention the live game answered to: `source:'storage'`,
  * `deliver_to:'storage'`. The bench escrows the inputs out of THIS base's store and delivers
@@ -7,8 +7,8 @@
  * store's own delta before and after is the only evidence the output arrived.
  */
 import { fetchCatalogConditional, type Catalog, type CraftJobResponse, type CraftQuoteResponse, type ItemQuantity, type JobView, type Recipe, type RecipeInput } from '@spacemolt/lib';
-import { Effect } from 'effect';
-import { type SourcedItem } from '../../recipe-graph.ts';
+import { Effect, Result } from 'effect';
+import { RecipeGraph, type SourcedItem } from '../../recipe-graph.ts';
 import { Game } from '../game.ts';
 import type { Outcome, Row } from '../types.ts';
 /** The catalog recipe beside what it is worth here and what you already hold. */
@@ -21,6 +21,8 @@ export type Craftable = Recipe & {
     have: (RecipeInput & {
         have: number;
     })[];
+    /** Why the bench gave no quote, when it gave none: the row is unpriced, which says nothing of a buyer. */
+    unquoted?: string;
 };
 /** What this file reads of the catalog: its version, the recipes (handed to the pilot whole, as `Craftable`), and each item's source. */
 type Recipes = Pick<Catalog, 'version' | 'recipes'> & {
@@ -28,6 +30,16 @@ type Recipes = Pick<Catalog, 'version' | 'recipes'> & {
 };
 /** Where the recipe catalog comes from. The tests pass a fixture; nothing else calls it. */
 export declare function useCatalog(load: () => Promise<Recipes>): void;
+declare const CatalogUnavailable_base: new <A extends Record<string, any> = {}>(args: import("effect/Types").VoidIfEmpty<{ readonly [P in keyof A as P extends "_tag" ? never : P]: A[P]; }>) => import("effect/Cause").YieldableError & {
+    readonly _tag: "CatalogUnavailable";
+} & Readonly<A>;
+/** The catalog could not be read: no network and no copy on disk. A named value, said in the Outcome, never a defect. */
+declare class CatalogUnavailable extends CatalogUnavailable_base<{
+    readonly message: string;
+}> {
+}
+/** The recipe graph, or why there is none. The promise never rejects: a failed fetch is the typed failure. */
+export declare const graphOf: () => Effect.Effect<Result.Success<RecipeGraph, never> | Result.Failure<RecipeGraph, never> | Result.Success<never, CatalogUnavailable> | Result.Failure<never, CatalogUnavailable>, never, never>;
 /** Each item's catalog `base_value`, from the copy `revalidated` keeps in `dir`; empty with no copy. Never fetches.
  * ponytail: only a pilot that has read the catalog (any recipe call) has the copy; fetch it here if the floor is ever missing live. */
 export declare function baseValues(dir: string | undefined): Map<string, number>;
@@ -194,26 +206,4 @@ export declare const jobsEffect: () => Effect.Effect<Outcome<{
 export declare function jobs(): Promise<Outcome<{
     jobs: Queued[];
 }>>;
-/** What one recipe tree comes to, from the catalog. */
-export interface Materials {
-    /** The recipes to run, in the order to run them (deepest first), each with its runs. */
-    steps: {
-        recipe: string;
-        runs: number;
-        facility_only: boolean;
-    }[];
-    /** The raw items at the bottom, all of each the tree consumes, beside what the hold and this
-     * base's store hold of it. */
-    leaves: {
-        item_id: string;
-        need: number;
-        have: number;
-        source: string;
-    }[];
-}
-/** Everything `quantity` of `itemId` takes, down to raw leaves, net of what the hold and — when
- * docked — this base's store already hold of each intermediate. From the catalog: reads only,
- * works undocked, needs no bench. `failed` when the catalog cannot be read. */
-export declare const materialsEffect: (itemId: string, quantity: number) => Effect.Effect<Outcome<Materials>, never, Game | import("../runtime.ts").Run>;
-export declare function materials(itemId: string, quantity: number): Promise<Outcome<Materials>>;
 export {};

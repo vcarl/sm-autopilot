@@ -17,8 +17,30 @@ after is the only evidence the output arrived.
 | `supply(recipe, qty?, {at?, maxSpend?, maxEach?})` | this base's store holds every input: stowed from the hold, the rest bought here |
 | `craft(recipe, qty?, {at?})` | stow, quote, escrow, wait out the queue, confirm the outputs in the store |
 | `jobs()` | every job you have queued, anywhere, and which are paused; works undocked |
-| `materials(item, qty)` | the recipes and raw leaves `qty` of an item takes, net of what you hold; from the catalog |
+| `catalog({search?, category?, makes?, uses?})` | the catalog's recipes, printed as text: what makes an item, what an item goes into; twenty at a time |
+| `trace(itemOrRecipe, qty?)` | the whole tree `qty` takes, down to what is mined or bought, net of the hold and every store; each leaf's cheapest remembered ask; the other recipes one level deep |
 | [`facilities/`](facilities/README.md) | owning and renting production: `facilities().here` lists the facilities at this station |
+
+## Planning a craft
+
+```ts
+import {catalog, trace, supply, craft} from 'play';
+
+export default async function main() {
+  await catalog({uses: 'iron_ore'});         // what your ore goes into
+  await catalog({makes: 'hull_plating'});    // or: every way to make what sells
+  await trace('hull_plating', 5);            // the tree, what you hold of it (hold + every store), the rest to mine or buy
+  const stocked = await supply('forge_hull_plating', 5);  // docked at a bench: stock this store
+  if (stocked.status !== 'done') return stocked;
+  return craft('forge_hull_plating', 5);
+}
+```
+
+`catalog` and `trace` read the catalog and what you remember, and send nothing: they work undocked,
+with no bench, and from `spacemolt_query`. So do `recipes`, `quote` and `jobs` (a quote is a dry run).
+`trace` picks one route per item: recipes whose leaves are mined or harvested over bought, hand-craftable
+over facility-only, and the cheaper when remembered asks price both. The others are listed under
+`Alternates`; `trace('<recipe id>')` follows one.
 
 `quote`, `supply` and `craft` want the ship docked at a base whose services include
 `crafting` (or at the named facility's base). That refusal is itself the answer: the ore is at
@@ -40,13 +62,13 @@ the wrong base.
 
 Every row of `quote(...).detail.missing` carries both prices: `buy_each` is what one costs on
 this market with the buy fee already in it; `sell_each` is what one of your own fetches here
-instead. When `buy_each` is `null` this market does not sell it: mine it — `materials(item, n)`
-names the raw leaves under it and each leaf's `source`.
+instead. When `buy_each` is `null` this market does not sell it: mine it — `trace(item, n)`
+names the raw leaves under it, how each is got, and where it was last seen for sale.
 
 ## Worked example
 
 ```ts
-import {orient, quote, supply, craft, materials, note} from 'play';
+import {orient, quote, supply, craft, trace, note} from 'play';
 
 export default async function main() {
   await orient();
@@ -56,7 +78,7 @@ export default async function main() {
   if ((q.detail.margin ?? 0) <= 0) { note(q.did); return q; }
 
   for (const row of q.detail.missing) {
-    if (row.buy_each === null) return materials(row.item_id, row.need - row.have); // mine it
+    if (row.buy_each === null) return trace(row.item_id, row.need - row.have); // mine it
     note(`${row.item_id}: buy ${row.buy_each} vs sell ${row.sell_each ?? 'no bid'}`);
   }
 
@@ -89,7 +111,7 @@ export default async function main() {
 - Stay docked for a workshop job, or craft at a facility and fly.
 - Facilities give no XP. Train crafting at the workshop.
 - Buying costs about 2.5% over the book's price; `buy_each` already includes it.
-- Silicon and iron are often not sold at all. Read `missing` and `materials` before committing.
+- Silicon and iron are often not sold at all. Read `missing` and `trace` before committing.
 - `margin` values the output at the **top** buy level only; a big order fetches less.
 - Outputs go to the store at this base: `sell(rows, {from:'store'})` here, or `withdraw`
   before flying.

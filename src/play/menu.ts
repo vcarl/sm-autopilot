@@ -15,7 +15,8 @@ import {Game,field} from './game.ts';
 import {activeEffect,caveats,nextStep,stuck} from './missions.ts';
 import {acct,defect,pilot,runCalls,step,type Pilot} from './runtime.ts';
 import {around,jumpsFrom,mapOf,nearFacts,readSeen} from './exploration/exploration.ts';
-import {keptSearch,tickNow} from './trading/trading.ts';
+import {keptSearch} from './trading/trading.ts';
+import {tickNow} from './market.ts';
 import {holdings,itemView,readBooks,readStores,type Quoted} from './world.ts';
 import {literal} from './rows.ts';
 import type {Status} from './types.ts';
@@ -34,7 +35,7 @@ export interface RunSummary {fn:string;arg:string;call?:string;status:Status;cre
 /** The calls that only read: a run is named for the first call that is not one of these (live
  * 2026-09-28, a buy/craft/sell run was labelled `quote`). */
 const READS=new Set(['orient','scout','missions','prices','storage','shipsForSale','quote','recipes','routes','spreads','buyers',
-  'reflection','freighters','freightBoard','jobs','materials','facilities']);
+  'reflection','freighters','freightBoard','jobs','catalog','trace','facilities']);
 /** Worse is bigger: `done` is fine, `failed` is worst. Ranks the four `Status` values so two
  * of them can be compared. */
 const STATUS_RANK:Record<Status,number>={done:0,partial:1,refused:2,failed:3};
