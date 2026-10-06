@@ -58,6 +58,22 @@ test('a query that reads answers with what main returned, journals one query lin
   } finally {f.close();}
 });
 
+test('the window\'s look: the record, the flight and the ship\'s log read from a query, sending nothing',async()=>{
+  const f=harness();
+  try {
+    writeFileSync(join(f.runtime,'run.json'),JSON.stringify({script:'pilot/index.ts',started:'2026-10-06T00:00:00Z',ended:false,last_job:'tradeRun'}));
+    writeFileSync(join(f.runtime,'gameplay.jsonl'),`${JSON.stringify({at:'2026-10-06T00:00:01Z',event:'rest',did:'docked and serviced'})}\n`);
+    f.write('query',"import {flight, pilot, shipLog} from 'play';\nexport default async function main(){\n  return {pilot:pilot().stance,flight:flight()?.last_job,log:shipLog(5)};\n}\n");
+    const answer=await f.send('query');
+    assert.equal(answer.ok,true,JSON.stringify(answer));
+    const read=JSON.parse(answer.returned);
+    assert.equal(read.pilot,'Prospector');
+    assert.equal(read.flight,'tradeRun');
+    assert.ok(read.log.some((line:string)=>/rest/.test(line)),read.log);
+    assert.deepEqual(f.game.sent,[],'a file read is no game command');
+  } finally {f.close();}
+});
+
 test('a mutation through account().commands is refused by name and never sent',async()=>{
   const f=harness();
   try {

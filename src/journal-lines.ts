@@ -8,8 +8,6 @@
  * poll, a `where` read, a command a step line already summarises. Rendering never reads the
  * game and never fails — a line it cannot parse is a line it does not print.
  */
-import {resolve} from 'node:path';
-import {fileURLToPath} from 'node:url';
 import {isRecord,readJournal} from './run-record.ts';
 
 /** A chat line, not a paragraph. Long reasons are cut rather than wrapped. */
@@ -144,13 +142,7 @@ function render(entry:Entry):string|null {
   }
 }
 
-/** The tail of a journal file, rendered. The one-shot the plugin's `spacemolt_status` runs
- * for its `journal` key, so the window and the Discord drain read the same lines from the same renderer. */
-if(process.argv[1]&&fileURLToPath(import.meta.url)===resolve(process.argv[1])) {
-  const runtime=process.argv[2]??process.env.SPACEMOLT_RUNTIME_DIR??'';
-  const limit=Math.max(1,Number(process.argv[3]??40));
-  // Read well past the limit: most entries render to nothing, so a tail of N lines is drawn
-  // from a much longer tail of entries.
-  const lines=readJournal(runtime,limit*40).map(renderLine).filter((line):line is string=>Boolean(line));
-  process.stdout.write(`${lines.slice(-limit).join('\n')}\n`);
-}
+/** The journal's last `limit` lines as a person reads them, newest last: the query's `shipLog()`. Read well
+ * past the limit, since most entries render to nothing. */
+export const journalTail=(runtime:string,limit:number):string[]=>
+  readJournal(runtime,limit*40).map(renderLine).filter((line):line is string=>Boolean(line)).slice(-limit);

@@ -128,7 +128,8 @@ def test_the_juncture_job_carries_the_stance_and_passes_the_cron_toolset_clamp()
     resolved = _cron("_resolve_script_path")(stored["script"])
     assert (resolved[0] if isinstance(resolved, tuple) else resolved) is not None, "cron must accept the path"
     assert stored["skills"] == ["spacemolt:play", "spacemolt:mining"]
-    assert stored["enabled_toolsets"] == ["spacemolt", "spacemolt_observe"]
+    # Exactly the player's tools and Hermes' todo list; the observer's are never a fire's.
+    assert stored["enabled_toolsets"] == ["spacemolt_player", "todo"]
 
     # One cron job per pilot: a stance change rewrites it, never adds a second.
     _seed({"name": "kvothe", "stance": "Hunter"})
@@ -143,8 +144,8 @@ def test_the_juncture_job_carries_the_stance_and_passes_the_cron_toolset_clamp()
         "cron.scheduler", "_CronAgentSetup", "_construct_cron_agent",
         "_resolve_cron_disabled_toolsets", "_resolve_cron_enabled_toolsets")
     enabled = _resolve_cron_enabled_toolsets(stored, {})
-    assert {"spacemolt", "spacemolt_observe"} <= set(enabled)
-    assert not {"spacemolt", "spacemolt_observe"} & set(_resolve_cron_disabled_toolsets({}))
+    assert {"spacemolt_player", "todo"} <= set(enabled)
+    assert not {"spacemolt_player", "todo"} & set(_resolve_cron_disabled_toolsets({}))
 
     seen: dict = {}
 
@@ -154,7 +155,7 @@ def test_the_juncture_job_carries_the_stance_and_passes_the_cron_toolset_clamp()
 
     _construct_cron_agent(RecordingAgent, stored, {}, _CronAgentSetup(model="m", runtime={}),
                           workdir=None, session_id="fire-1", session_db=None)
-    assert "spacemolt" in seen["enabled_toolsets"]
+    assert "spacemolt_player" in seen["enabled_toolsets"]
     assert seen["skip_context_files"] is True
 
 
@@ -212,7 +213,9 @@ def test_each_juncture_journals_the_skills_it_carried_and_the_context_it_rendere
 def test_the_cron_prompt_names_only_the_tools_that_are_the_turn():
     named = sorted(definition["name"] for definition in spacemolt.TOOL_DEFINITIONS
                    if definition["name"] in juncture.JUNCTURE_PROMPT)
-    assert named == ["spacemolt_check", "spacemolt_reflect", "spacemolt_run"], named
+    assert named == ["spacemolt_query", "spacemolt_reflect", "spacemolt_run"], named
+    # A check is run's own option, and the plan is kept with Hermes' todo list.
+    assert "`check: true`" in juncture.JUNCTURE_PROMPT and "todo_list" in juncture.JUNCTURE_PROMPT
     assert juncture.job_fields({"stance": "Hunter"})["prompt"] == juncture.JUNCTURE_PROMPT
     # No shift to put down and nothing that must be done before a run.
     for gone in (r"\brest\b", r"\bshift\b", "half an hour"):
@@ -473,6 +476,15 @@ def test_the_pilot_hears_the_world_and_never_the_harness(monkeypatch, capsys):
     for text in texts:
         found = HARNESS_WORDS.search(text) or RUN_WORD.search(re.sub(r"`[^`]*`", "", text))
         assert not found, (found and found.group(0), text)
+    # The tools and toolsets the two-toolset split removed are named nowhere a model reads, and the
+    # fire's texts never send it to the window's brake: it stops a paused flight through answer.
+    readmes = [path.read_text() for path in (Path(spacemolt.__file__).parent / "src" / "play").rglob("README.md")]
+    gone = re.compile(r"spacemolt_(check|chat|status|observe)\b")
+    for text in texts + readmes + [json.dumps(tool["schema"]) for tool in spacemolt.TOOL_DEFINITIONS]:
+        assert not gone.search(text), (gone.search(text).group(0), text)
+    cron_side = texts[:5] + texts[6:7] + readmes + [  # all but the discord prompt
+        json.dumps(tool["schema"]) for tool in spacemolt.TOOL_DEFINITIONS if tool["toolset"] == "spacemolt_player"]
+    assert not [text for text in cron_side if "spacemolt_stop" in text]
     assert "Instruction (given 09-23 03:21Z): stay in Sol" in texts[1], texts[1]
 
 

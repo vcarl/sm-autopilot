@@ -78,11 +78,12 @@ def test_every_tool_answers_from_the_one_bridge(bridged, tmp_path, monkeypatch):
     assert played.splitlines()[0] == "flight launched t0"
     assert played.splitlines()[-2:] == ["Done: serviced.", "flight ended  done  3 commands"]
     assert service.pilot_file().read_text() == "export default async function main() {}\n"
-    # A check answers the diagnostics beside the file as it stands.
-    checked = json.loads(spacemolt._check({}))
+    # run's check answers the diagnostics beside the file as it stands, and flies nothing.
+    checked = json.loads(spacemolt._run({"check": True}))
     assert checked["ok"] is True and checked["source"].startswith("export default")
     assert json.loads(spacemolt._stop({}))["stopping"] is False
-    assert json.loads(spacemolt._status({}))["run"]["running"] is False
+    # answer's stop is the same stop the window sends.
+    assert json.loads(spacemolt._answer({"stop": True}))["stopping"] is False
     # Every call travelled the same connection: the plugin owns one bridge, not one per tool.
     # Five: `run` asks `status` first, before it writes anything (see below).
     assert service._bridge is not None and service._bridge.counter == 5
@@ -154,7 +155,7 @@ def test_register_publishes_every_tool_in_the_spacemolt_toolset(monkeypatch):
     # monkeypatch puts the real one back afterwards, so no later test writes cron jobs through
     # this stub.
     monkeypatch.setattr("spacemolt.juncture._dispatch_tool", None)
-    tools, sections, unloads, skills = {}, {}, [], []
+    tools, sections, unloads, skills, hooks = {}, {}, [], [], []
 
     class RecordingContext:
         def register_skill(self, name, path, **kwargs):
@@ -175,24 +176,26 @@ def test_register_publishes_every_tool_in_the_spacemolt_toolset(monkeypatch):
             unloads.append(callback)
 
         def register_hook(self, name, callback):
-            pass
+            hooks.append((name, callback))
 
     spacemolt.register(RecordingContext())
-    # One prefix, no strays, and each tool in exactly one of the three toolsets: the job tools
-    # a fire flies with, what any client may call, and the window's own read and direction.
+    # One prefix, no strays, and each tool in exactly one of the two toolsets: the player's,
+    # which a fire carries, and the window's look, brake and direction.
     assert tools and all(name.startswith("spacemolt_") for name in tools)
     by_toolset: dict[str, set[str]] = {}
     for name, (toolset, *_rest) in tools.items():
         by_toolset.setdefault(toolset, set()).add(name)
     assert by_toolset == {
-        "spacemolt": {"spacemolt_run", "spacemolt_answer", "spacemolt_chat", "spacemolt_check", "spacemolt_reflect"},
-        "spacemolt_observe": {"spacemolt_stop", "spacemolt_query"},
-        "spacemolt_observer": {"spacemolt_direct", "spacemolt_status"},
+        "spacemolt_player": {"spacemolt_run", "spacemolt_answer", "spacemolt_query", "spacemolt_reflect"},
+        "spacemolt_observer": {"spacemolt_look", "spacemolt_stop", "spacemolt_direct"},
     }
+    # The todo list is captured from every tool result, beside the pilot's edit check.
+    assert ("transform_tool_result", spacemolt._keep_todos) in hooks
     # The pilot plays by running its file; the observer sends a sentence or stops a run.
     assert tools["spacemolt_run"][1]["parameters"]["required"] == []
     assert "pilot/index.ts" in tools["spacemolt_run"][1]["description"]
-    assert "source" in tools["spacemolt_check"][1]["parameters"]["properties"]
+    assert {"source", "check"} <= set(tools["spacemolt_run"][1]["parameters"]["properties"])
+    assert tools["spacemolt_answer"][1]["parameters"]["properties"]["stop"]["type"] == "boolean"
     # Direction is one tool: objective, permissions and the sentence, any one of them enough.
     assert tools["spacemolt_direct"][1]["parameters"]["required"] == []
     assert (tools["spacemolt_direct"][1]["parameters"]["properties"]["instruction"]["maxLength"]
@@ -270,21 +273,35 @@ def test_the_observers_sentence_is_bounded_and_lands_on_the_pilot(monkeypatch):
     assert "next time it takes stock" in answer
 
 
-def test_status_answers_the_objective_the_run_and_what_happened_in_one_read(bridged, tmp_path,
-                                                                           monkeypatch):
-    """The window asked "what is our objective?" and got a mining snapshot, because the record
-    was in no read it had. One tool now carries all three."""
-    monkeypatch.setenv("SPACEMOLT_RUNTIME_DIR", str(tmp_path / "runtime"))
+def test_a_junctures_todo_list_is_kept_as_its_steps_through_the_bridge(tmp_path, monkeypatch):
+    """Hermes keeps todo_list per session and a fire is a new one: a write in the juncture's own
+    session is journalled raw and set as the steps through the bridge's `pilot` request, and the next
+    context shows them."""
+    from spacemolt import juncture
 
-    service.pilot_path().parent.mkdir(parents=True, exist_ok=True)
-    service.pilot_path().write_text(json.dumps({"name": "kvothe", "objective": "buy a hauler",
-                                                "stance": "Prospector", "permissions": {"credit_reserve": 500}}))
-    answer = json.loads(spacemolt._status({}))
-    assert set(answer) == {"pilot", "run", "journal"}
-    assert answer["pilot"]["objective"] == "buy a hauler"
-    assert answer["pilot"]["permissions"] == {"credit_reserve": 500}
-    assert answer["run"]["running"] is False
-    assert answer["journal"] == [], "no journal file yet is an empty account, not an error"
+    monkeypatch.setenv("SPACEMOLT_RUNTIME_DIR", str(tmp_path / "runtime"))
+    sent: list[tuple] = []
+    monkeypatch.setattr(spacemolt, "call", lambda action, params=None, on_line=None: sent.append((action, params)))
+    fire = "cron_abc_20261006_101500"
+    juncture._write_juncture({"juncture_id": "j1", "at": "2026-10-06T10:15:00Z", "session_id": fire})
+    todos = [{"id": "1", "content": "price an upgrade", "status": "completed"},
+             {"id": "2", "content": "sell the ore", "status": "in_progress"},
+             {"id": "3", "content": "buy a hauler", "status": "pending"}]
+    listed = json.dumps({"todos": todos, "revision": 3, "summary": {"total": 3}})
+    keep = spacemolt._keep_todos
+    assert keep(tool_name="todo_list", args={"todos": todos}, result=listed, session_id=fire) is None
+    steps = ["price an upgrade (done)", "sell the ore (in progress)", "buy a hauler"]
+    assert sent == [("pilot", {"set": {"steps": steps}})]
+    rows = [json.loads(line) for line in (service.runtime_dir() / "gameplay.jsonl").read_text().splitlines()]
+    row, = [row for row in rows if row["event"] == "todo"]
+    assert (row["juncture_id"], row["session_id"], row["revision"], row["todos"]) == ("j1", fire, 3, todos)
+    # A read, a chat window's list, a failed write and any other tool keep nothing.
+    keep(tool_name="todo_list", args={}, result=listed, session_id=fire)
+    keep(tool_name="todo_list", args={"todos": todos}, result=listed, session_id="discord-1")
+    keep(tool_name="todo_list", args={"todos": todos}, result=json.dumps({"error": "bad"}), session_id=fire)
+    keep(tool_name="spacemolt_run", args={"todos": todos}, result=listed, session_id=fire)
+    assert len(sent) == 1
+    # The bridge renders the steps it then holds into the next context: src/context.test.ts.
 
 
 def test_a_stance_fire_carries_the_root_readme_and_its_career_readme():

@@ -62,6 +62,18 @@ A `query` request (`src/query.ts`) runs `query/index.ts` beside the run, flying 
 of its own (`querying` in `play/runtime.ts`, found through an `AsyncLocalStorage`; the run keeps the
 module slot). Its command refuses anything that is not a query in the lib's `ACTIONS`, and login and its
 kin; `account()`'s raw sends take that command; the runtime sends nothing of its own in it. Capped at 90 s.
+The pilot's `spacemolt_query` and the window's `spacemolt_look` are one handler and this one request. A
+query reads our own files too, sending nothing: `pilot()` (the record), `flight()` (`run.json`) and
+`shipLog(n)` (the journal's tail, rendered by `journalTail` in `journal-lines.ts`, as the drain renders it).
+
+### Toolsets
+
+Two, because a tool name has exactly one toolset (Hermes rejects a second registration) and cron and
+the platforms name toolsets, never tools. `spacemolt_player` is the fire's: `spacemolt_run` (`check:
+true` only checks), `spacemolt_answer` (`stop: true` stops the paused flight), `spacemolt_query`,
+`spacemolt_reflect`. `spacemolt_observer` is the window's: `spacemolt_look`, `spacemolt_stop`,
+`spacemolt_direct`. A fire never holds the observer's, so it never sets its own objective. The pilot
+replies to chat with `chat()`, which the lib counts as a query, from a query or a flight.
 
 The bridge is the only writer of `pilot.json` (the `pilot` request). Python reads it. The mood is
 never stored: the bridge derives it on every read from the stance's working mood and the ship
@@ -71,7 +83,7 @@ never stored: the bridge derives it on every read from the stance's working mood
 
 One cron job per pilot, named for it, rewritten from the pilot record every time it is touched
 (`ensure_juncture_job`, schedule included). What a fire carries is entirely `job_fields()`: the
-prompt, the skills, the fixed toolsets, and the gate script. The interval is `IDLE_SCHEDULE = "5m"`
+prompt, the skills, the fixed toolsets (`spacemolt_player` and Hermes' `todo`), and the gate script. The interval is `IDLE_SCHEDULE = "5m"`
 and cron re-anchors it on a fire's completion, so it is the pause between junctures. There is no
 other wake: nothing marks the job due (see the last section for why).
 
@@ -127,6 +139,11 @@ prompt.
 `runtime/../pilot.json`: objective (and `objective_start`, the facts when it was set), goal, steps, stance, permissions, instruction. Every field is
 optional — a profile with no record is a pilot with no goal and no stance, and it flies. Written
 only by the bridge's `pilot` request, which `spacemolt_reflect` and `spacemolt_direct` send.
+
+The steps are also the fire's `todo_list`: Hermes keeps that list per session, and every fire is a new
+one, so `_keep_todos` (a `transform_tool_result` hook) takes each write made in the session the latest
+juncture rendered into (`juncture.json`'s `session_id`) and sends it as the steps, each item's status
+after it. A read, another session's list and a failed write are left alone.
 
 An instruction stands until a run starts from a context rendered after the instruction was given
 (`pendingInstruction` in `src/context.ts` compares the run's `juncture_at` with the instruction's `at`;
@@ -218,7 +235,9 @@ the pilot's context. Every line has `at` (UTC ISO, `Z`) and `event`.
 - `check`: one per pilot-gate typecheck. `sha` (the checked `pilot/index.ts`, as on the run line), `warm`
   (the bridge's language service answered; false is the `tsc` child), `check_ms`, `errors` (line count),
   and `warm_error` when the service threw and the child answered instead.
-- `query`: one per `spacemolt_query` (`src/query.ts`): `query_id`, `juncture_id`, `sha` (the checked
+- `todo`: one per `todo_list` write kept as the steps: `juncture_id`, `session_id`, `revision`, and
+  `todos` (the list as Hermes returned it, uncut; the steps keep 20 items of 160 characters).
+- `query`: one per `spacemolt_query` or `spacemolt_look` (`src/query.ts`): `query_id`, `juncture_id`, `sha` (the checked
   `query/index.ts`, kept in `programs/` as a run's is), `ok`, `ms`; once it ran, `commands`, `calls` (as on
   `run` `ended`, first 40, `calls_total`), `refused` (each action not sent because it is not a query in the
   lib's `ACTIONS`, or is login/logout/register), `capped` and `error`; a refused check has `errors`

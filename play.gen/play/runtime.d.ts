@@ -29,6 +29,8 @@ export interface Pilot {
     objective_done?: boolean;
     goal?: string;
     stance?: Stance;
+    /** The pilot's own checklist toward the objective. */
+    steps?: readonly string[];
     /** Derived, never stored: the stance's working mood, or Tired past its margins (`moodNow`). */
     mood?: Mood;
     /** Present only while the mood is Tired: the margin that made it so. */
@@ -176,6 +178,11 @@ export declare function querying<T>(binding: Binding, body: () => Promise<T>): P
 export declare const inQuery: () => boolean;
 /** The pilot record as it is right now. Cheap; call it, do not cache it. */
 export declare function pilot(): Pilot;
+/** The flight under way, or the last one, as the flight computer keeps it: when it started, the call it is in, the
+ * question it waits on, its outcome once ended. Null before the first. Reads a file; sends nothing. */
+export declare function flight(): RunRecord | null;
+/** The ship's log: its last `limit` entries, one line each, newest last. Reads a file; sends nothing. */
+export declare function shipLog(limit?: number): string[];
 /** The connected `@spacemolt/lib` Account: typed state (`account().ship: V2Ship`,
  * `.cargo: V2CargoItem[]`, `.location: V2Location`, `.credits`, `.skills`) and every game
  * command as `account().commands.<tool>.<action>()`. This IS the library; ours are the

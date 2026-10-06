@@ -23,10 +23,6 @@ from hermes_constants import get_hermes_home
 
 HERE = Path(__file__).resolve().parent
 BRIDGE_COMMAND = ["node", "src/bridge.ts"]  # tests point this at a stub
-#: The journal's renderer, run as a one-shot rather than reimplemented in Python: the window
-#: and the Discord drain then read the same lines from the same code.
-RENDER_COMMAND = ["node", "src/journal-lines.ts"]
-RENDER_TIMEOUT = 30.0
 BRIDGE_STDERR = "bridge.stderr.log"
 READY_TIMEOUT = 120.0
 #: A backstop only: the bridge caps a run itself (``RUN_CAP_MS`` + grace in run.ts, 26 min).
@@ -92,20 +88,6 @@ def pilot_file() -> Path:
     """The one file the pilot plays by editing: ``pilot/index.ts`` under the runtime dir.
     The bridge installs the example there on the first `check` or `run`."""
     return runtime_dir() / "pilot" / "index.ts"
-
-
-def render_journal(limit: int) -> str:
-    """The tail of the journal, one human line per thing the pilot did.
-
-    ponytail: a subprocess per call, not a port of ``renderLine`` into Python. One renderer
-    means the window and the drain can never disagree about what a shift looked
-    like; a copy in two languages would drift the first time a step gained a field.
-    """
-    done = subprocess.run([*RENDER_COMMAND, str(runtime_dir()), str(limit)],
-                          cwd=HERE, capture_output=True, text=True, timeout=RENDER_TIMEOUT, check=False)
-    if done.returncode != 0:
-        raise RuntimeError(done.stderr.strip()[-400:] or "the journal would not render")
-    return done.stdout.strip()
 
 
 def rotate_log(path: Path) -> None:

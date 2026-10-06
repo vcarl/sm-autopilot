@@ -16,6 +16,7 @@ import {Cause,Context,Data,Effect,Exit,Layer,ManagedRuntime,Result,Schema} from 
 import {AsyncLocalStorage} from 'node:async_hooks';
 import type {ReadinessAccount,ReadinessCommand} from '../readiness.ts';
 import {FUEL_CELL} from '../mining-inventory.ts';
+import {journalTail} from '../journal-lines.ts';
 import {journalRun,readRun,stampRun,writeRun,type RunRecord} from '../run-record.ts';
 import type {DockBlocked} from '../dock.ts';
 import {TravelBlocked,type ArrivalUnresolved} from '../travel.ts';
@@ -33,6 +34,8 @@ export interface Pilot {
   name?:string;
   objective?:string;objective_done?:boolean;
   goal?:string;stance?:Stance;
+  /** The pilot's own checklist toward the objective. */
+  steps?:readonly string[];
   /** Derived, never stored: the stance's working mood, or Tired past its margins (`moodNow`). */
   mood?:Mood;
   /** Present only while the mood is Tired: the margin that made it so. */
@@ -221,6 +224,11 @@ export const inQuery=()=>Boolean(bound()?.run.binding.query);
 
 /** The pilot record as it is right now. Cheap; call it, do not cache it. */
 export function pilot():Pilot {return state().binding.pilot();}
+/** The flight under way, or the last one, as the flight computer keeps it: when it started, the call it is in, the
+ * question it waits on, its outcome once ended. Null before the first. Reads a file; sends nothing. */
+export function flight():RunRecord|null {const runtime=runtimeDir();return runtime?readRun(runtime):null;}
+/** The ship's log: its last `limit` entries, one line each, newest last. Reads a file; sends nothing. */
+export function shipLog(limit=20):string[] {const runtime=runtimeDir();return runtime?journalTail(runtime,Math.max(1,limit)):[];}
 
 /** The connected `@spacemolt/lib` Account: typed state (`account().ship: V2Ship`,
  * `.cargo: V2CargoItem[]`, `.location: V2Location`, `.credits`, `.skills`) and every game

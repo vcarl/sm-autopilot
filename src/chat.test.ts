@@ -202,27 +202,22 @@ const SAYS="import {chat, outcome} from 'play';\n"+
   "  return outcome(`${said.status}: ${said.why??said.detail.message}`, said.status);\n"+
   "}\n";
 
-test('chat() sends once and keeps the sent line; the juncture tool does the same through the bridge',async()=>{
+test('chat() sends once and keeps the sent line',async()=>{
   const f=harness(SAYS);
   try {
     assert.equal((await f.send('run')).did,'done: Message sent to private');
     assert.deepEqual(f.game.chats,[{target:'private',content:'on my way',target_id:'p-zed'}]);
-    const tool=await f.send('chat',{channel:'local',text:'hello'});
-    assert.deepEqual(tool,{sent:true,channel:'local',sent_at:1_760_000_000});
     assert.deepEqual(f.chatLines().map(row=>[row.event,row.channel,row.content,row.target_id]),
-      [['sent','private','on my way','p-zed'],['sent','local','hello',undefined]]);
+      [['sent','private','on my way','p-zed']]);
   } finally {f.close();}
 });
 
-test('a refused chat keeps the game code, in the Outcome and in the tool reply',async()=>{
+test('a refused chat keeps the game code in the Outcome',async()=>{
   const f=harness(SAYS,{chat:{refuse:'muted'}});
   try {
     const ended=await f.send('run');
     assert.equal(ended.status,'refused');
     assert.match(ended.did,/^refused: spacemolt_social\/chat: muted/);
-    const tool=await f.send('chat',{channel:'private',to:'p-zed',text:'hi'});
-    assert.equal(tool.sent,false);
-    assert.equal(tool.code,'muted');
     assert.deepEqual(f.chatLines(),[],'nothing landed, nothing recorded as sent');
   } finally {f.close();}
 });
@@ -233,11 +228,7 @@ test('a chat whose reply is lost is never re-sent',async()=>{
     const ended=await f.send('run');
     assert.equal(ended.status,'failed');
     assert.match(ended.did,/reply lost/);
-    assert.equal(f.game.count('spacemolt_social/chat'),1);
-    const tool=await f.send('chat',{channel:'local',text:'hi'});
-    assert.equal(tool.sent,false);
-    assert.equal(tool.lost,true);
-    assert.equal(f.game.count('spacemolt_social/chat'),2,'one send per call, none repeated');
+    assert.equal(f.game.count('spacemolt_social/chat'),1,'sent once, never repeated');
   } finally {f.close();}
 });
 

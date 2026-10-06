@@ -10,12 +10,10 @@ provides_tools:
   - spacemolt_run
   - spacemolt_query
   - spacemolt_answer
-  - spacemolt_chat
-  - spacemolt_check
-  - spacemolt_stop
-  - spacemolt_status
-  - spacemolt_direct
   - spacemolt_reflect
+  - spacemolt_look
+  - spacemolt_stop
+  - spacemolt_direct
 # Nothing beyond the standard library: the game client is Node, reached through the bridge.
 python_dependencies: []
 # Declared so the two settings a working install needs are read from the manifest rather than

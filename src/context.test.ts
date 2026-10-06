@@ -424,7 +424,8 @@ test('the context quotes chat since the last juncture as data with its sender', 
   assert.ok(context.includes('faction 4')&&!context.includes('faction 1'),'the newest of a channel are kept');
   assert.ok(context.includes('+2 older messages'));
   assert.ok(context.includes('Unread as of 10-04 12:20Z: private 2.'));
-  assert.ok(context.includes('spacemolt_chat'));
+  assert.ok(context.includes('Reply if you choose: chat() from a spacemolt_query, or in your next flight.'));
+  assert.ok(!context.includes('spacemolt_chat'));
 });
 
 test('customs scans and maydays are capped, not hidden', () => {
@@ -509,6 +510,10 @@ test('the pilot hears the world and never the harness', () => {
     const found=HARNESS_WORDS.exec(text)??RUN_WORD.exec(text.replace(/`[^`]*`/g,''));
     assert.equal(found,null,`${found?.[0]}\n${text}`);
   }
+  // The two-toolset split: the fire carries no check, chat, status or observe tool, and stops a
+  // paused flight through answer, never the window's spacemolt_stop.
+  for(const text of [...texts,chatContext([post('2026-10-04T12:05:00.000Z','hi')])])
+    assert.equal(/spacemolt_(check|chat|status|observe|stop)\b/.exec(text),null,text);
   assert.ok(texts[0]!.includes('Instruction (given 09-23 03:21Z): stay in Sol'),texts[0]);
   assert.ok(texts[0]!.includes('tradeRun: nothing gained; the flight ended early'),texts[0]);
 });
