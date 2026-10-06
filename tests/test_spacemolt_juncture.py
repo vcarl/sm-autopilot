@@ -467,9 +467,11 @@ def test_the_pilot_hears_the_world_and_never_the_harness(monkeypatch, capsys):
     monkeypatch.setattr(service, "call", closed)
     texts = [juncture.JUNCTURE_PROMPT, juncture.juncture_context({"platform": "cron"}),
              juncture.question_text(question), juncture.question_text(chat_pause),
-             spacemolt._prompt({"platform": "cron"}), spacemolt._prompt({"platform": "discord"})]
+             spacemolt._prompt({"platform": "cron"})]
     juncture.gate_main()
     texts.append(capsys.readouterr().out)
+    fire = list(texts)
+    texts.append(spacemolt._prompt({"platform": "discord"}))
     # A result key the observer reads (`journal`) is a name, not a word to the pilot.
     texts += [re.sub(r"`[^`]*`", "", text) for text in _descriptions(
         [{k: v for k, v in tool.items() if k != "handler"} for tool in spacemolt.TOOL_DEFINITIONS])]
@@ -482,7 +484,7 @@ def test_the_pilot_hears_the_world_and_never_the_harness(monkeypatch, capsys):
     gone = re.compile(r"spacemolt_(check|chat|status|observe)\b")
     for text in texts + readmes + [json.dumps(tool["schema"]) for tool in spacemolt.TOOL_DEFINITIONS]:
         assert not gone.search(text), (gone.search(text).group(0), text)
-    cron_side = texts[:5] + texts[6:7] + readmes + [  # all but the discord prompt
+    cron_side = fire + readmes + [
         json.dumps(tool["schema"]) for tool in spacemolt.TOOL_DEFINITIONS if tool["toolset"] == "spacemolt_player"]
     assert not [text for text in cron_side if "spacemolt_stop" in text]
     assert "Instruction (given 09-23 03:21Z): stay in Sol" in texts[1], texts[1]
