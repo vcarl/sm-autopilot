@@ -33,6 +33,23 @@ test('the rule is the lib\'s own: a query action passes, a mutation, an unknown 
   for(const name of ['login','login_link','login_link_poll','login_token','logout','register'])
     assert.match(notAQuery(`spacemolt_auth/${name}`)??'',/not available in a query/);
   assert.match(notAQuery('spacemolt_battle/self_destruct')??'',/not available in a query/);
+  // A craft's dry run moves nothing; the craft itself, and a dry_run that is not `true`, still do not pass.
+  assert.equal(notAQuery('spacemolt/craft',{id:'refine_steel',dry_run:true}),null);
+  assert.match(notAQuery('spacemolt/craft',{id:'refine_steel'})??'',/not a read/);
+  assert.match(notAQuery('spacemolt/craft',{id:'refine_steel',dry_run:'true'})??'',/not a read/);
+});
+
+test('a query sends a craft\'s dry run, and returns a string as text',async()=>{
+  // Live 2026-10-06 (kvothe, query b86b3973): every recipes() quote came back not_a_query.
+  const f=harness();
+  try {
+    f.write('query',program("  const quote:any=await account().commands.spacemolt.craft({id:'refine_steel',quantity:1,dry_run:true});\n  return `quoted ${quote.delta.details.recipe}\\nline two`;"));
+    const answer=await f.send('query');
+    assert.equal(answer.ok,true,JSON.stringify(answer));
+    assert.equal(answer.refused,undefined);
+    assert.equal(f.game.count('spacemolt/craft'),1);
+    assert.equal(answer.returned,'quoted Refine Steel\nline two');
+  } finally {f.close();}
 });
 
 test('a query that reads answers with what main returned, journals one query line, and writes no run.json',async()=>{
@@ -109,7 +126,7 @@ test('a query reads while the run waits on ask(), and leaves the run and its que
     f.write('query',program("  await account().commands.spacemolt_shipping.profile({});\n  return 'looked';"));
     const answer=await f.send('query');
     assert.equal(answer.ok,true,JSON.stringify(answer));
-    assert.equal(answer.returned,'"looked"');
+    assert.equal(answer.returned,'looked','a string is the pilot\'s own text, not JSON');
     assert.deepEqual(readRun(f.runtime),before,'run.json is the run\'s alone');
     const status=await f.send('status');
     assert.equal(status.question.question,'Which belt?','the run is still paused on its question');
