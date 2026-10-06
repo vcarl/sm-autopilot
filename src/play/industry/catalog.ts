@@ -9,12 +9,12 @@ import type {Recipe} from '@spacemolt/lib';
 import {Effect,Result} from 'effect';
 import {miningInventory} from '../../mining-inventory.ts';
 import type {RecipeGraph} from '../../recipe-graph.ts';
-import {cheapestAsk,knownBooks,tickNow,type CheapAsk} from '../market.ts';
+import {cheapestAsk,knownBooks,tickNow,type CheapAsk,type RememberedBook} from '../market.ts';
 import {readNames} from '../places.ts';
 import {acct,edge,jobEffect,line,runtimeDir} from '../runtime.ts';
 import {readStores} from '../world.ts';
 import type {Outcome} from '../types.ts';
-import {graphOf} from './crafting.ts';
+import {baseValues,graphOf} from './crafting.ts';
 
 const CAP=20,TREE_LINES=60,ALTERNATES=8;
 type Rows=readonly {item_id:string;quantity:number}[]|undefined;
@@ -90,6 +90,27 @@ export interface TraceNode {
   ask?:CheapAsk;
   inputs:TraceNode[];
 }
+/** One item's market value as an estimate: the median of every remembered book's best ask, else of their best bids,
+ * else the catalog's `base_value`. Median, so one stale 1-cr ask or a 2,000-cr outlier does not set it; no age is
+ * discounted. `markets` is how many books gave a price (0 for `base value`). */
+export interface UnitValue {unit:number;source:'median ask'|'median bid'|'base value';markets:number}
+const median=(xs:number[])=>{const s=[...xs].sort((a,b)=>a-b),m=Math.floor(s.length/2);return s.length%2?s[m]??0:((s[m-1]??0)+(s[m]??0))/2;};
+export function unitValue(books:readonly RememberedBook[],item_id:string,baseValue?:number):UnitValue|null {
+  const rows=books.flatMap(book=>book.items.filter(row=>row.item_id===item_id));
+  const asks=rows.map(row=>row.best_sell).filter(price=>price>0),bids=rows.map(row=>row.best_buy).filter(price=>price>0);
+  if(asks.length)return {unit:median(asks),source:'median ask',markets:asks.length};
+  if(bids.length)return {unit:median(bids),source:'median bid',markets:bids.length};
+  return baseValue?{unit:baseValue,source:'base value',markets:0}:null;
+}
+/** What the root recipe's direct inputs and its outputs are worth at market, side by side: an estimate, not the cost to
+ * produce. A total is over the valued rows only; `valued` of `of` says how many those are. */
+export interface TraceValue {
+  components:{total:number;valued:number;of:number};
+  output:{total:number;valued:number;of:number};
+  inputs:{item_id:string;quantity:number;unit:number|null;source:UnitValue['source']|null;markets:number}[];
+  outputs:{item_id:string;quantity:number;unit:number|null;source:UnitValue['source']|null;markets:number}[];
+}
+
 /** What one craft comes to, from the catalog and what you remember. */
 export interface Traced {
   /** The recipes to run, in the order to run them (deepest first), each with its runs. */
@@ -102,8 +123,10 @@ export interface Traced {
   alternates:{item_id:string;recipe:string;facility_only:boolean;inputs:{item_id:string;quantity:number}[];makes:number}[];
   /** Runs × each recipe's `crafting_time`: base ticks, before the workshop's skill factor or a facility's throughput. */
   crafting_ticks:number;
+  /** The root recipe's inputs and outputs at market value, for the whole order; null when the root is not crafted. */
+  value:TraceValue|null;
 }
-const noTraced=():Traced=>({steps:[],leaves:[],tree:null,alternates:[],crafting_ticks:0});
+const noTraced=():Traced=>({steps:[],leaves:[],tree:null,alternates:[],crafting_ticks:0,value:null});
 
 /** How a leaf is got, as a verb. An extraction the catalog names that is not here reads as itself. */
 const HOW:Record<string,string>={mining:'mine',ice:'mine',gas:'harvest',unknown:'buy'};
@@ -200,14 +223,29 @@ export const traceEffect=(itemOrRecipe:string,quantity=1)=>
     const tree=walk(found.item,quantity,new Set(),found.recipe);
     const alternates=[...chosen].flatMap(([item,id])=>options(item).filter(recipe=>recipe.id!==id).map(recipe=>({item_id:item,recipe:recipe.id,
       facility_only:!graph.isCraftable(recipe),inputs:(recipe.inputs??[]).map(({item_id,quantity:n})=>({item_id,quantity:n})),makes:makes(recipe,item)})));
+    const root=found.recipe??(tree.recipe===undefined?undefined:graph.recipe(tree.recipe)),values=baseValues(dir);
+    const valued=(rows:Rows,runs:number)=>(rows??[]).map(({item_id,quantity:n})=>{const est=unitValue(books,item_id,values.get(item_id));
+      return {item_id,quantity:n*runs,unit:est?.unit??null,source:est?.source??null,markets:est?.markets??0};});
+    const summed=(rows:TraceValue['inputs'])=>({total:Math.round(rows.reduce((sum,row)=>sum+(row.unit??0)*row.quantity,0)),valued:rows.filter(row=>row.unit!==null).length,of:rows.length});
+    const value=root?(()=>{const runs=Math.ceil(quantity/makes(root,found.item)),inputs=valued(root.inputs,runs),outputs=valued(root.outputs,runs);
+      return {components:summed(inputs),output:summed(outputs),inputs,outputs};})():null;
     const detail:Traced={steps:[...steps.values()].sort((a,b)=>(depth.get(b.recipe)??0)-(depth.get(a.recipe)??0)),leaves:[...leaves.values()],tree,alternates,
-      crafting_ticks:Math.round([...steps.values()].reduce((sum,row)=>sum+row.runs*(graph.recipe(row.recipe)?.crafting_time??0),0)*100)/100};
+      crafting_ticks:Math.round([...steps.values()].reduce((sum,row)=>sum+row.runs*(graph.recipe(row.recipe)?.crafting_time??0),0)*100)/100,value};
+    const cr=(n:number)=>`${n.toLocaleString('en-US')} cr`;
+    /** `≈ 1,240 cr (median ask, 11–18 markets)`, and how many rows had no value at all. */
+    const worth=(sum:TraceValue['components'],rows:TraceValue['inputs'],noun:string)=>{
+      if(!sum.valued)return `no value known`;
+      const kinds=[...new Set(rows.flatMap(row=>row.source?[row.source]:[]))],counts=rows.filter(row=>row.markets).map(row=>row.markets);
+      const spread=counts.length?`, ${Math.min(...counts)===Math.max(...counts)?Math.min(...counts):`${Math.min(...counts)}–${Math.max(...counts)}`} markets`:'';
+      return `≈ ${cr(sum.total)} (${kinds.join(' + ')}${spread})${sum.valued<sum.of?`, ${sum.valued} of ${sum.of} ${noun} valued`:''}`;
+    };
+    const valueLine=value&&`    components ${worth(value.components,value.inputs,'inputs')} · output ${worth(value.output,value.outputs,'outputs')}`;
 
     const asked=(ask:CheapAsk|null|undefined)=>ask?` · cheapest ask ${ask.price} at ${named(ask.base_id)}${ask.age===null?'':` (${ask.age} ticks old)`}`:'';
     const label=(node:TraceNode)=>node.recipe!==undefined
       ?`${node.need}x ${node.item_id}  (${node.recipe})${node.facility_only?' [facility]':''}${node.have?`  have ${node.have}`:''}`
       :`${node.need}x ${node.item_id}  [${how(node)}]${node.have?`  have ${node.have}`:''}${asked(node.ask)}`;
-    const drawn=[label(tree)];
+    const drawn=[label(tree),...valueLine?[valueLine]:[]];
     const draw=(nodes:TraceNode[],prefix:string)=>nodes.forEach((node,i)=>{const last=i===nodes.length-1;
       drawn.push(`${prefix}${last?'└── ':'├── '}${label(node)}`);draw(node.inputs,prefix+(last?'    ':'│   '));});
     draw(tree.inputs,'    ');
@@ -228,7 +266,9 @@ export const traceEffect=(itemOrRecipe:string,quantity=1)=>
     return {status:'done',
       did:`${quantity} ${found.item}: ${plural(detail.steps.length,'recipe')}`
         +(detail.steps.length?` (${detail.steps.map(row=>`${row.runs} × ${row.recipe}`).join(', ')})`:'')
-        +`, raw ${detail.leaves.map(row=>`${row.item_id} ${row.have}/${row.need}`).join(', ')||'nothing'}`,
+        +`, raw ${detail.leaves.map(row=>`${row.item_id} ${row.have}/${row.need}`).join(', ')||'nothing'}`
+        +(value?`; components ≈ ${value.components.valued?cr(value.components.total):'?'}${value.components.valued<value.components.of?` (${value.components.valued} of ${value.components.of} valued)`:''}`
+          +`, output ≈ ${value.output.valued?cr(value.output.total):'?'} at market`:''),
       detail,
       next:lacking.slice(0,3).map(row=>`${row.item_id}: ${row.need-row.have} more to get (${how({source:row.source})}${row.ask?`, or buy at ${named(row.ask.base_id)} for ${row.ask.price}`:''})`)};
   }));

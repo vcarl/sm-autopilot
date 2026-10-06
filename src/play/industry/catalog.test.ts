@@ -8,7 +8,7 @@ import {listing} from '../../servicing.ts';
 import {bridgeWorld} from '../../test-support/bridge-world.ts';
 import {bind,unbind} from '../runtime.ts';
 import {keepBook,worldDb} from '../world.ts';
-import {catalog,trace} from './catalog.ts';
+import {catalog,trace,unitValue} from './catalog.ts';
 import {useCatalog} from './crafting.ts';
 
 const recipe=(id:string,inputs:[string,number][],outputs:[string,number][],more:Record<string,unknown>={})=>({id,name:id.replace(/_/g,' '),
@@ -121,4 +121,34 @@ test('trace takes a unique part of a name, and names the candidates when there a
     assert.match(many.why!,/names more than one: steel_plate, hull_plate, armor_plate/);
     assert.match((await trace('nothing_like_it')).why!,/no item or recipe in the catalog matches/);
   } finally {unbind();}
+});
+
+const row=(item_id:string,ask:number,bid=0)=>listing({item_id,best_buy:bid,best_buy_qty:bid?9:0,best_sell:ask,best_sell_qty:ask?9:0,buy_quantity:0,sell_quantity:0,buy_orders:[],sell_orders:[]});
+const book=(base_id:string,...items:ReturnType<typeof row>[])=>({base_id,at:'',tick:1,items:items.flat()});
+
+test('unitValue: the median ask, else the median bid, else base_value, else unknown; an outlier does not set it',()=>{
+  const books=[book('a',row('steel',10),row('ore',0,4)),book('b',row('steel',12),row('ore',0,6)),book('c',row('steel',2000)),book('d',row('steel',1),row('ore',0,5))];
+  assert.deepEqual(unitValue(books,'steel'),{unit:11,source:'median ask',markets:4},'a 2,000 ask and a 1 ask do not move it');
+  assert.deepEqual(unitValue(books,'ore',99),{unit:5,source:'median bid',markets:3});
+  assert.deepEqual(unitValue(books,'plate',100),{unit:100,source:'base value',markets:0});
+  assert.equal(unitValue(books,'plate'),null);
+});
+
+test('trace prints the root recipe\'s components and output at market value, side by side, and says what it could not value',async()=>{
+  const runtime=mkdtempSync(join(tmpdir(),'spacemolt-trace-'));
+  const f=world(runtime);
+  try {
+    writeFileSync(join(runtime,'catalog.json'),JSON.stringify({catalog:{items:[{id:'hull_plate',base_value:100}]}}));
+    for(const [base,steel] of [['x',10],['y',12],['z',2000]] as const)keepBook(runtime,{...book(base,row('steel_plate',steel),row('iron_ore',3)),at:new Date().toISOString()});
+    keepBook(runtime,{...book('w',row('copper_ore',0,4)),at:new Date().toISOString()});
+    const hull=await trace('press_hull_plate',3);
+    // 3 runs: 6 steel at the median ask 12, 3 copper at the one bid 4; 3 plates at base value 100.
+    assert.match(f.printed(),/^3x hull_plate {2}\(press_hull_plate\)\n {4}components ≈ 84 cr \(median ask \+ median bid, 1–3 markets\) · output ≈ 300 cr \(base value\)$/m);
+    assert.deepEqual(hull.detail.value?.inputs.map(row=>[row.item_id,row.quantity,row.unit,row.source,row.markets]),
+      [['steel_plate',6,12,'median ask',3],['copper_ore',3,4,'median bid',1]]);
+    assert.match(hull.did,/components ≈ 84 cr, output ≈ 300 cr at market/);
+    const bred=await trace('breed_catalyst');
+    assert.match(f.printed(),/components ≈ 3 cr \(median ask, 3 markets\), 1 of 2 inputs valued · output no value known/);
+    assert.match(bred.did,/components ≈ 3 cr \(1 of 2 valued\), output ≈ \? at market/);
+  } finally {unbind();rmSync(runtime,{recursive:true,force:true});}
 });

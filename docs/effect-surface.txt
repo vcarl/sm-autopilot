@@ -509,11 +509,16 @@ TraceNode.need: number
 TraceNode.recipe?: string | undefined
 TraceNode.runs?: number | undefined
 TraceNode.source: string
+TraceValue.components: { total: number; valued: number; of: number; }
+TraceValue.inputs: { item_id: string; quantity: number; unit: number | null; source: "median ask" | "median bid" | "base value" | null; markets: number; }[]
+TraceValue.output: { total: number; valued: number; of: number; }
+TraceValue.outputs: { item_id: string; quantity: number; unit: number | null; source: "median ask" | "median bid" | "base value" | null; markets: number; }[]
 Traced.alternates: { item_id: string; recipe: string; facility_only: boolean; inputs: { item_id: string; quantity: number; }[]; makes: number; }[]
 Traced.crafting_ticks: number
 Traced.leaves: { item_id: string; need: number; have: number; source: string; aboard: number; stored: { base_id: string; quantity: number; }[]; ask: CheapAsk | null; }[]
 Traced.steps: { recipe: string; runs: number; facility_only: boolean; }[]
 Traced.tree: TraceNode | null
+Traced.value: TraceValue | null
 Traded.fuel: number
 Traded.net: number
 Traded.stops: Visit[]

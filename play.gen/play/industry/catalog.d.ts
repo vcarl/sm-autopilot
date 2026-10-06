@@ -7,7 +7,7 @@
  * gathered at random and then checked what it could make. */
 import type { Recipe } from '@spacemolt/lib';
 import { Effect } from 'effect';
-import { type CheapAsk } from '../market.ts';
+import { type CheapAsk, type RememberedBook } from '../market.ts';
 import type { Outcome } from '../types.ts';
 export interface Browsed {
     /** Every matching recipe, in catalog order; only the first 20 are printed. */
@@ -47,6 +47,43 @@ export interface TraceNode {
     ask?: CheapAsk;
     inputs: TraceNode[];
 }
+/** One item's market value as an estimate: the median of every remembered book's best ask, else of their best bids,
+ * else the catalog's `base_value`. Median, so one stale 1-cr ask or a 2,000-cr outlier does not set it; no age is
+ * discounted. `markets` is how many books gave a price (0 for `base value`). */
+export interface UnitValue {
+    unit: number;
+    source: 'median ask' | 'median bid' | 'base value';
+    markets: number;
+}
+export declare function unitValue(books: readonly RememberedBook[], item_id: string, baseValue?: number): UnitValue | null;
+/** What the root recipe's direct inputs and its outputs are worth at market, side by side: an estimate, not the cost to
+ * produce. A total is over the valued rows only; `valued` of `of` says how many those are. */
+export interface TraceValue {
+    components: {
+        total: number;
+        valued: number;
+        of: number;
+    };
+    output: {
+        total: number;
+        valued: number;
+        of: number;
+    };
+    inputs: {
+        item_id: string;
+        quantity: number;
+        unit: number | null;
+        source: UnitValue['source'] | null;
+        markets: number;
+    }[];
+    outputs: {
+        item_id: string;
+        quantity: number;
+        unit: number | null;
+        source: UnitValue['source'] | null;
+        markets: number;
+    }[];
+}
 /** What one craft comes to, from the catalog and what you remember. */
 export interface Traced {
     /** The recipes to run, in the order to run them (deepest first), each with its runs. */
@@ -83,6 +120,8 @@ export interface Traced {
     }[];
     /** Runs × each recipe's `crafting_time`: base ticks, before the workshop's skill factor or a facility's throughput. */
     crafting_ticks: number;
+    /** The root recipe's inputs and outputs at market value, for the whole order; null when the root is not crafted. */
+    value: TraceValue | null;
 }
 /** The tree `quantity` of an item takes — named by item id, recipe id, or a unique part of either — down to what is
  * mined, harvested or bought, net of what the hold and every store already hold of each intermediate. Each item's
