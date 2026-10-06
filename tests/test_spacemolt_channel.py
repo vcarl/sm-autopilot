@@ -15,7 +15,7 @@ import spacemolt
 from spacemolt import juncture, service
 
 # Only the reads a window needs. Every action is logged so a mutating one cannot hide, and
-# `menu` reads the pilot record the way the real bridge does, so direction shows up there.
+# `context` reads the pilot record the way the real bridge does, so direction shows up there.
 FAKE_BRIDGE = '''
 import json, os, sys
 runtime = os.environ["SPACEMOLT_RUNTIME_DIR"]
@@ -48,14 +48,11 @@ for line in sys.stdin:
                 pilot[key] = value
         json.dump(pilot, open(pilot_file, "w"))
         result = {"record": pilot}
-    elif action == "menu":
+    elif action == "context":
         pilot = json.load(open(pilot_file))
-        result = {"stance": pilot.get("stance"), "mood": "Focused",
-                  "objective": pilot.get("objective"), "permissions": pilot.get("permissions"),
-                  "present": {"docked_at": "sol_base", "fuel": 88},
-                  "moves": [], "not_now": [],
-                  "text": "Menu:\\n  - `gatherUntil('belt')` — belt quoted [credits]",
-                  "last": None}
+        result = {"text": "Objective: " + str(pilot.get("objective")) + "\\nStance: " + str(pilot.get("stance"))
+                          + "\\n  - `gatherUntil('belt')` — belt quoted [credits]",
+                  "busy": False, "moves": [{"call": "gatherUntil('belt')"}]}
     elif action == "stop":
         running = os.path.exists(os.path.join(runtime, "run.running"))
         result = {"stopping": running} if running else {"stopping": False, "reason": "no flight is under way"}

@@ -336,7 +336,7 @@ test('pilot.json reads back field by field: an old mood is dropped, a bad field 
 
 test('every request service.py, __init__.py, juncture.py and play.py send decodes', () => {
   const sent:[string,unknown][]=[
-    ['status',{}],['menu',{}],['check',{}],['stop',{}],['stop',{reason:'objective'}],
+    ['status',{}],['menu',{}],['context',{}],['check',{}],['stop',{}],['stop',{reason:'objective'}],
     ['run',{}],['run',{juncture:{juncture_id:'abc',at:'2026-10-03T00:00:00Z'}}],['run',{juncture:{juncture_id:'abc',at:null}}],
     ['answer',{answer:''}],['answer',{answer:'yes'}],
     ['pilot',{set:{goal:'mine',stance:'Prospector'}}],['pilot',{set:{goal:'mine',steps:['price an upgrade','sell']}}],['pilot',{set:{steps:[]}}],

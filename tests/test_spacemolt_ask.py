@@ -164,10 +164,3 @@ def test_the_gate_wakes_a_juncture_for_a_pending_question_and_leads_its_prompt_w
     _paused_on(None)
     assert juncture.gate_main() == 0
     assert capsys.readouterr().out.strip() == '{"wakeAgent": false}'
-
-
-def test_a_fire_on_a_paused_run_is_given_the_question_as_its_context(monkeypatch):
-    monkeypatch.setattr(service, "call", lambda action, params=None: {
-        "busy": True, "running": True, "started": "t0", "question": QUESTION})
-    context = juncture.juncture_context({"platform": "cron"})
-    _says_the_question_and_the_next_call(context)

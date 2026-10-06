@@ -22,6 +22,7 @@ import {startHeartbeat} from './heartbeat.ts';
 import {flushJournalDrain,startJournalDrain} from './journal-webhook.ts';
 import {check as checkPilot,runPilot as defaultRunPilot,type RunResult} from './run.ts';
 import {runQuery} from './query.ts';
+import {recordMenu,renderContext} from './context.ts';
 import {menuEffect,renderMenu,threatsHere} from './play/menu.ts';
 import {fleetBrief,resumeFreighters,stopFreighters} from './play/freighter/host.ts';
 import {attempt,isGameError,message} from './play/game.ts';
@@ -45,7 +46,7 @@ export const Request=Schema.Union([
     to:Schema.optionalKey(Schema.String),text:Schema.String})}),
   Schema.Struct({action:Schema.Literal('pilot'),params:Schema.optionalKey(Schema.Struct({set:Schema.optionalKey(Schema.Record(Schema.String,Schema.Unknown))}))}),
   // `stop` carries a `reason`, which only the request's journal line reads.
-  Schema.Struct({action:Schema.Literals(['check','stop','status','menu']),params:Schema.optionalKey(Schema.Unknown)}),
+  Schema.Struct({action:Schema.Literals(['check','stop','status','menu','context']),params:Schema.optionalKey(Schema.Unknown)}),
 ]);
 const decodeRequest=Schema.decodeUnknownResult(Request);
 /** One stdin line: the id the reply carries, and the request it names. */
@@ -57,11 +58,11 @@ const isRecord=(value:unknown):value is Record<string,unknown>=>typeof value==='
 const field=(row:unknown,key:string):unknown=>isRecord(row)?row[key]:undefined;
 
 /** The actions whose answer is an outcome: a journal line keeps its shape, trimmed. */
-const OUTCOME_ACTIONS=new Set(['run','query','answer','status','pilot','menu','stop','check','chat']);
+const OUTCOME_ACTIONS=new Set(['run','query','answer','status','pilot','menu','context','stop','check','chat']);
 const OUTCOME_KEYS=new Set(['accepted','reason','status','record','running',
   'busy','objective','objective_done','stance','mood','errors','stopping',
   'ok','fn','did','sha','step','commands','elapsed_s','started','stagnation','rest',
-  'paused','reattached','question','withdrawn','sent','code','lost','why','query_id','refused','error',
+  'paused','reattached','question','withdrawn','sent','code','lost','why','query_id','refused','error','menu_error',
   // A reflection's skill rows, which are small and are the one thing a later reflection cannot
   // read any other way: they are what "raise this by two levels" is judged against, and without
   // them in the record every reflection sees only the level it happens to be looking at.
@@ -80,16 +81,17 @@ const menuRows=(list:readonly unknown[],short:(row:unknown)=>string):string[]=>{
 /** One response as the journal keeps it: whether the thing happened, never the prose or the
  * bodies of a read.
  *
- * `menu` is the one action whose arrays are kept rather than counted: its reply IS the
- * pilot's whole view of the world, and `moves:1` says nothing about which move was offered.
- * Every other action's arrays — storage views, market rows, mission lists — stay counts. */
+ * `menu` and `context` are the actions whose arrays are kept rather than counted: their reply IS
+ * the pilot's whole view of the world, and `moves:1` says nothing about which move was offered.
+ * Every other action's arrays — storage views, market rows, mission lists — stay counts. The
+ * context's text is never kept here: the `juncture` line holds it. */
 export function journalResult(action:string,result:unknown):unknown {
   if(!isRecord(result)||!OUTCOME_ACTIONS.has(action))return result;
   const kept:Record<string,unknown>={};
   for(const key of Object.keys(result))if(OUTCOME_KEYS.has(key))kept[key]=result[key];
   if(isRecord(result.last))kept.last={status:result.last.status,did:result.last.did};
   const {moves}=result;
-  if(Array.isArray(moves))kept.moves=action==='menu'?menuRows(moves,row=>String(field(row,'call')??'')):moves.length;
+  if(Array.isArray(moves))kept.moves=action==='menu'||action==='context'?menuRows(moves,row=>String(field(row,'call')??'')):moves.length;
   return kept;
 }
 
@@ -426,6 +428,26 @@ export function serve(account:Account,command:ReadinessCommand,options:ServeOpti
     } finally {unbind();}
   };
 
+  /** The juncture context (context.ts): the menu rendered, with the moves it offered and whether a
+   * run flies, for Python's `juncture` line. */
+  const context=async()=>{
+    let built:Record<string,unknown>,menu_error:string|undefined;
+    try {built=await menu();}
+    catch(error) {
+      // Live 2026-10-02 (kvothe): 20 fires lost the whole section to a failed menu read ("WebSocket
+      // connection closed", "No response to spacemolt/get_status within 15000ms"). Those fires flew
+      // blind of the objective and the instruction, and wrote no juncture, so their runs carried the
+      // previous juncture's id (09-30 16:32Z). The record and the journal need no game: render them,
+      // and say the game was not read.
+      menu_error=error instanceof Error?`${error.name}: ${error.message}`:String(error);
+      let kept:Pilot={};
+      try {kept=record();} catch {/* an unreadable record is a pilot with none, as a fresh one */}
+      built=recordMenu(kept,runtime);
+    }
+    return {text:renderContext(built,runtime),busy:Boolean(built.busy),moves:Array.isArray(built.moves)?built.moves:[],
+      ...menu_error?{menu_error}:{}};
+  };
+
   /** Set fields of `pilot.json`; a null removes one. The only writer of the record: Python's
    * reflect and direct send this rather than editing the file, so nothing races a read-modify-write.
    * A cleared field shows in the `pilot` journal line's `prev` like any other. */
@@ -520,6 +542,7 @@ export function serve(account:Account,command:ReadinessCommand,options:ServeOpti
       case 'pilot':return setRecord(request.params?.set);
       case 'chat':return chat(request.params);
       case 'menu':return menu();
+      case 'context':return context();
     }
   };
 }

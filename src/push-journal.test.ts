@@ -161,7 +161,7 @@ test('a push with no run in flight survives to the next juncture\'s menu call', 
     attacker_name:'Vex',owner_id:'me',system_id:'sol'});
   assert.equal(existsSync(join(runtime,'alerts.json')),true,'buffered on disk, not in a run');
   // A fresh bridge, as a restart or the next juncture would have it: one `menu` call is the
-  // whole of what `juncture_context()` asks for.
+  // whole of what the `context` request reads from the game.
   const world=bridgeWorld();
   const dispatch=serve(world.account as unknown as Account,world.command,
     {pilot:()=>({stance:'Prospector' as const,mood:'Focused' as const}),runtime});

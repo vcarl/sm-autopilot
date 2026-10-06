@@ -34,7 +34,7 @@ export const RunRecord=Schema.Struct({
   /** The run's identity: no counter, no ids to keep unique across restarts. */
   started:Schema.NonEmptyString,
   /** When the context this run was written from was rendered. An instruction given after it
-   * was never seen, so this run does not consume it (juncture.py's `_pending_instruction`). */
+   * was never seen, so this run does not consume it (`pendingInstruction` in context.ts). */
   juncture_at:Schema.optionalKey(Schema.String),
   last_job:Schema.optionalKey(Schema.String).pipe(Schema.mutableKey),
   last_step:Schema.optionalKey(Schema.String),
@@ -98,10 +98,10 @@ export function closeInterrupted(runtime:string):RunRecord|null {
 }
 
 /** The journal files newest first: `gameplay.jsonl`, then each `gameplay.<UTC stamp>.jsonl` a
- * boot rotated away. The stamps sort as time. */
-function journalFiles(runtime:string):string[] {
-  const rotated=existsSync(runtime)?readdirSync(runtime).filter(name=>/^gameplay\..+\.jsonl$/.test(name)).sort().reverse():[];
-  return ['gameplay.jsonl',...rotated].map(name=>join(runtime,name));
+ * boot rotated away. The stamps sort as time. `name` is another record rotated the same way (`chat`). */
+function journalFiles(runtime:string,name='gameplay'):string[] {
+  const rotated=existsSync(runtime)?readdirSync(runtime).filter(file=>file.startsWith(`${name}.`)&&file.endsWith('.jsonl')&&file!==`${name}.jsonl`).sort().reverse():[];
+  return [`${name}.jsonl`,...rotated].map(file=>join(runtime,file));
 }
 
 /** The tail of the journal as data: what the pilot has actually done, for the readers that need
@@ -111,9 +111,9 @@ function journalFiles(runtime:string):string[] {
  *
  * ponytail: each file is read whole and the tail kept. Rest happens once an evening, so a
  * few MB costs nothing; seek from the end if a journal ever outgrows that. */
-export function readJournal(runtime:string,limit=400):JournalLine[] {
+export function readJournal(runtime:string,limit=400,name='gameplay'):JournalLine[] {
   let lines:string[]=[];
-  for(const path of journalFiles(runtime)) {
+  for(const path of journalFiles(runtime,name)) {
     if(lines.length>=limit)break;
     if(existsSync(path))lines=[...readFileSync(path,'utf8').split('\n').filter(line=>line.trim()),...lines];
   }
@@ -132,7 +132,7 @@ export function bootJournal(runtime:string,now=new Date()):RunRecord|null {
   mkdirSync(runtime,{recursive:true});
   const rotated_from=rotate(runtime,'gameplay',now);
   // The chat record rotates with it, the same way and as never deleted: the juncture reads back
-  // across boots for the posts since the last juncture (juncture.py's `journal_tail`).
+  // across boots for the posts since the last juncture (context.ts, and juncture.py's gate).
   rotate(runtime,'chat',now);
   const interrupted=closeInterrupted(runtime);
   journalRun(runtime,{pid:process.pid,...interrupted?{interrupted:interrupted.started}:{},...rotated_from?{rotated_from}:{}},'boot');

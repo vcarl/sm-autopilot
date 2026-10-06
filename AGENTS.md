@@ -30,10 +30,11 @@ TypeScript is the game side — one long-lived process that owns the connection.
 plugin.yaml          manifest: name, toolsets, the settings a working install needs
 __init__.py          register(): the tools, the system-prompt sections, the observer window
 service.py           bridge ownership: one Node child per Hermes process, one request in flight
-juncture.py          the cron job, its prompt, its wake gate, the juncture context
+juncture.py          the cron job, its prompt, its wake gate, the juncture line
 skills_register.py   the play READMEs, registered as this plugin's own namespaced skills
 play.py              drives the same bridge from a shell, outside Hermes
 src/bridge.ts        the request loop; everything below it is game logic
+src/context.ts       the juncture context: the `context` request's text
 src/play/            the library the pilot's program imports, one folder per career
 src/play/README.md   the base skill — what the pilot reads to know how to play at all
 src/play/world.ts    world.db: every base's book and the pilot's stores, the one schema and its statements
@@ -85,10 +86,16 @@ with its reason. The age bound matters: a record a dead bridge left un-ended is 
 next bridge, and only a fire starts one (10-05: a forced gateway restart under a run, and every
 fire after it was suppressed).
 
-The **context** (`juncture_context`) is built from live facts at fire time: the bridge's `menu`
-(present, derived mood, threats, the moves on offer) and the pilot's own recent runs and reflections
-from the journal. It writes nothing but a `juncture` journal line — the skills carried, their
-sizes, the moves, and the context itself — so a reviewer can see what the pilot was told.
+The **context** is rendered by the bridge (the `context` request, `src/context.ts`) from live facts
+at fire time: its own `menu` (present, derived mood, threats, the moves on offer), the pilot's recent
+runs and reflections from the journal, the chat since the last render (`juncture.json`'s `at`) and
+the standing instruction. When the game read fails it renders the record and the journal and says the
+game was not read. `juncture_context` in Python asks for it, and when the bridge cannot be reached at
+all hands over the record's objective, instruction and goal instead. Python writes nothing but a
+`juncture` journal line — the skills carried, their sizes, the moves, the context itself and any
+`menu_error` — so a reviewer can see what the pilot was told. The gate still renders its own
+private-message and question lines in Python (`chat_quote`, `question_text`; `chatQuote` and
+`questionText` are the bridge's copies), because it runs without a bridge.
 
 The **moves** (`menuEffect` in `src/play/menu.ts`) are offers, never refusals: at most four
 pasteable calls, one per generator (`route`: `routes()`'s top row; `again`: the last paying loop
@@ -122,7 +129,8 @@ optional — a profile with no record is a pilot with no goal and no stance, and
 only by the bridge's `pilot` request, which `spacemolt_reflect` and `spacemolt_direct` send.
 
 An instruction stands until a run starts from a context rendered after the instruction was given
-(`_pending_instruction` compares the run's `juncture_at` with the instruction's `at`). A run from
+(`pendingInstruction` in `src/context.ts` compares the run's `juncture_at` with the instruction's `at`;
+Python's `_pending_instruction` does the same for its bridge-less fallback). A run from
 a context rendered earlier never saw it, so it does not consume it.
 
 ### The world memory
@@ -238,7 +246,7 @@ way at the same boot. `service.py` rotates
 `bridge.stderr.log` the same way (`rotate_log`) before it opens it. Rotated files are never deleted.
 Python appends to `gameplay.jsonl` by name per line, so it follows the rename. Readers of the recent
 past go through one tail walker per language — `readJournal` (TS: reflection, the menu, the
-rendered window, `play/service.ts`) and `journal_tail` (Python: the gate, the recent-runs context)
+juncture context and its chat, the rendered window, `play/service.ts`) and `journal_tail` (Python: the gate)
 — which read the current file, then rotated ones newest first, until they have enough.
 
 ## Tests
