@@ -5,9 +5,9 @@
   },
   "devDependencies": {
     "@effect/language-service": "0.87.3",
-    "@types/node": "26.6.4",
+    "@types/node": "24.19.1",
     "oxlint": "1.86.0",
-    "typescript": "7.0.2"
+    "typescript": "5.9.3"
   },
   "type": "module",
   "scripts": {

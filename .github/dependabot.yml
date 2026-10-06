@@ -9,6 +9,14 @@ updates:
       # dependency, so each of its bumps arrives as a pull request of its own.
       dev-dependencies:
         dependency-type: development
+    ignore:
+      # @spacemolt/lib takes typescript as a peer (^5.5), and the pilot gate's warm checker uses
+      # its JS language service API; a major moves only with the lib.
+      - dependency-name: typescript
+        update-types: ["version-update:semver-major"]
+      # The types track the engines floor (Node 24), not the newest Node.
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
   - package-ecosystem: github-actions
     directory: /
     schedule:
