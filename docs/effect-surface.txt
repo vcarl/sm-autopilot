@@ -1,4 +1,4 @@
-Active = ActiveMissionInfo & { progress: string; stuck?: string; }
+Active = ActiveMissionInfo & { next: string; progress: string; stuck?: string; }
 Active.accepted_at: string
 Active.community?: boolean | undefined
 Active.community_percent?: number | undefined
@@ -12,6 +12,7 @@ Active.issuing_base_id?: string | undefined
 Active.issuing_system_id?: string | undefined
 Active.issuing_system_name?: string | undefined
 Active.mission_id: string
+Active.next: string
 Active.objectives?: ObjectiveProgressInfo[] | undefined
 Active.percent_complete: number
 Active.progress: string
@@ -402,7 +403,7 @@ Route.revenue: number
 Route.sales_tax: number | null
 Route.score: number
 Route.total_jumps: number | null
-Route.unsold: Unsold[]
+Route.unsold: Row[]
 Route.why?: string | undefined
 RouteOpts = { items?: string[]; circuit?: { hold: number; }; } & Scope
 RouteOpts.circuit?: { hold: number; } | undefined
@@ -464,6 +465,7 @@ Spread.source: "here" | "faction ledger" | "remembered"
 Stance = "Prospector" | "Industrialist" | "Trader" | "Carrier" | "Hunter" | "Scout"
 Status = "done" | "partial" | "refused" | "failed"
 Supplied.bought: Row[]
+Supplied.elsewhere: { item_id: string; base_id: string; quantity: number; }[]
 Supplied.short: { item_id: string; have: number; need: number; source: string; }[]
 Supplied.spent: number
 Supplied.stowed: Row[]
@@ -491,16 +493,12 @@ TickView.tick: number
 Traded.fuel: number
 Traded.net: number
 Traded.stops: Visit[]
-Traded.unsold: Unsold[]
+Traded.unsold: Row[]
 Trip.docked: boolean
 Trip.docked_at: string | null
 Trip.jumps: number
 Trip.location: V2Location
 Trip.route: FindRouteResponse
-Unsold = Row & { why?: string; }
-Unsold.item_id: string
-Unsold.quantity: number
-Unsold.why?: string | undefined
 Venue.facility_id?: string | undefined
 Venue.fee: number
 Venue.labor: number
@@ -614,7 +612,7 @@ src/play/index.ts function spreads: (items?: string[] | undefined) => Promise<Ou
 src/play/index.ts function stopped: () => boolean
 src/play/index.ts function storage: (baseId?: string | undefined) => Promise<Outcome<ViewStorageResponse>>
 src/play/index.ts function stow: (items: Want[]) => Promise<Outcome<Moved>>
-src/play/index.ts function supply: (recipeId: string, quantity?: number, opts?: { at?: string; maxSpend?: number; }) => Promise<Outcome<Supplied>>
+src/play/index.ts function supply: (recipeId: string, quantity?: number, opts?: { at?: string; maxSpend?: number; maxEach?: number; }) => Promise<Outcome<Supplied>>
 src/play/index.ts function survey: () => Promise<Outcome<{ response: SurveySystemResponse; deposits: SurveyedPoi[]; }>>
 src/play/index.ts function switchShip: (shipId: string) => Promise<Outcome<{ switched: SwitchShipResponse; ship: V2Ship; }>>
 src/play/index.ts function tradeRun: (opts: { stops: RunStop[]; }) => Promise<Outcome<Traded>>
@@ -660,7 +658,7 @@ src/play/index.ts interface TickView: TickView
 src/play/index.ts interface Traded: Traded
 src/play/index.ts interface Trip: Trip
 src/play/index.ts interface Venue: Venue
-src/play/index.ts type Active: ActiveMissionInfo & { progress: string; stuck?: string; }
+src/play/index.ts type Active: ActiveMissionInfo & { next: string; progress: string; stuck?: string; }
 src/play/index.ts type Channel: "private" | "local" | "system" | "faction"
 src/play/index.ts type ChatPause: { readonly at: string; readonly from: string; readonly channel: string; readonly text: string; readonly sender_id?: string; }
 src/play/index.ts type CombatStance: "fire" | "evade" | "brace" | "flee"
@@ -690,7 +688,7 @@ src/play/industry/index.ts function jobs: () => Promise<Outcome<{ jobs: Queued[]
 src/play/industry/index.ts function materials: (itemId: string, quantity: number) => Promise<Outcome<Materials>>
 src/play/industry/index.ts function quote: (recipeId: string, quantity?: number, opts?: { at?: string; }) => Promise<Outcome<Quoted>>
 src/play/industry/index.ts function recipes: (search?: string | undefined) => Promise<Outcome<{ recipes: Craftable[]; }>>
-src/play/industry/index.ts function supply: (recipeId: string, quantity?: number, opts?: { at?: string; maxSpend?: number; }) => Promise<Outcome<Supplied>>
+src/play/industry/index.ts function supply: (recipeId: string, quantity?: number, opts?: { at?: string; maxSpend?: number; maxEach?: number; }) => Promise<Outcome<Supplied>>
 src/play/industry/index.ts interface Built: Built
 src/play/industry/index.ts interface Crafted: Crafted
 src/play/industry/index.ts interface Materials: Materials
