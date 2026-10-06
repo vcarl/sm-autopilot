@@ -49,11 +49,11 @@ def test_the_journal_tail_walks_back_into_rotated_journals():
     assert [json.loads(row)["n"] for row in juncture.journal_tail(8 * line)] == list(range(4, 12))
     assert [json.loads(row)["n"] for row in juncture.journal_tail(2 * line)] == [10, 11]
     assert len(juncture.journal_tail()) == 12
-    # The gate's streak reads through it: runs before the restart still count.
+    # The gate's last run reads through it: a run before the restart is still the last one.
     (runtime / "gameplay.2026-09-28T00-00-00Z.jsonl").write_text(
         "".join(json.dumps({"event": "run", "phase": "refused"}) + "\n" for _ in range(2)))
     (runtime / juncture.JOURNAL_FILE).write_text(json.dumps({"event": "boot", "rotated_from": "x"}) + "\n")
-    assert juncture.unproductive_streak() == 2
+    assert juncture._run_endings()[-1]["phase"] == "refused"
 
 
 def _write_journal(rows: list[dict]) -> None:
@@ -110,7 +110,8 @@ def test_the_gate_suppresses_a_fire_only_while_a_run_is_in_flight_and_logs_why(c
     decisions = _journal_rows("gate")
     assert [row["wake"] for row in decisions] == [True, True, False, False, True, True]
     assert decisions[2]["reason"].startswith("a run is in flight")
-    assert decisions[-1]["unproductive_streak"] == 3
+    # The last run's outcome is a raw fact; no streak or verdict is drawn from it.
+    assert decisions[-1]["last_run"] == "refused" and "unproductive_streak" not in decisions[-1]
 
 
 def test_the_juncture_job_carries_the_stance_and_passes_the_cron_toolset_clamp():

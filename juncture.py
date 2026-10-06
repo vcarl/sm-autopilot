@@ -147,22 +147,6 @@ def _run_endings() -> list[dict[str, Any]]:
     return [row for row in _journal_tail(("run",)) if row.get("phase") in ("ended", "refused")]
 
 
-def unproductive_streak(endings: list[dict[str, Any]] | None = None) -> int:
-    """How many of the latest runs, back to back, did nothing: refused (at the check or by the
-    script), failed, or sent no commands. An interrupted run is skipped, not counted: the bridge
-    died under it, which says nothing about the program. Logged by the gate for a reader of the
-    journal; nothing acts on it."""
-    streak = 0
-    for row in reversed(endings if endings is not None else _run_endings()):
-        if row.get("outcome") == "interrupted":
-            continue
-        if not (row.get("phase") == "refused" or str(row.get("outcome")) in {"refused", "failed"}
-                or not int(row.get("commands") or 0)):
-            break
-        streak += 1
-    return streak
-
-
 def juncture_context(session_info: Mapping[str, Any] | None = None) -> str:
     """The present, the menu, and the pilot's own recent runs — delivered, never fetched (N15).
 
@@ -527,7 +511,6 @@ def gate_main() -> int:
                               else "a private message is waiting" if dms
                               else "no run in flight"),
                       **({"waiting_dms": len(dms)} if dms else {}),
-                      unproductive_streak=unproductive_streak(endings),
                       last_run=(endings[-1].get("outcome") or endings[-1].get("phase")) if endings else None)
     except OSError:
         pass  # the log is never worth the fire
