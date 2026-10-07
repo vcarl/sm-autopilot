@@ -87,7 +87,8 @@ def test_a_new_source_while_paused_is_refused_before_the_file_is_touched(paused)
     assert script.read_text() == "// the program that is waiting on its question\n"
     assert refused.startswith("Refused")
     _says_the_question_and_the_next_call(refused)
-    assert "spacemolt_stop" in refused
+    # The pilot stops a paused flight through answer: spacemolt_stop is the window's.
+    assert "`stop: true`" in refused and "spacemolt_stop" not in refused
 
 
 def test_a_run_with_no_source_while_paused_hands_the_question_back_and_starts_nothing(paused):
@@ -121,10 +122,10 @@ def test_a_stop_while_paused_withdraws_the_question_and_returns_the_report(pause
     assert "Nothing is waiting on an answer now" in stopped
 
 
-def test_status_while_paused_shows_the_question_and_the_calls(paused):
-    status = json.loads(spacemolt._status({}))
-    assert status["run"]["question"]["question"] == "Which belt?"
-    _says_the_question_and_the_next_call(status["question_pending"])
+def test_an_answer_with_stop_withdraws_the_question_and_returns_the_report(paused):
+    stopped = spacemolt._answer({"stop": True})
+    assert "Which belt?" in stopped and "withdrawn" in stopped
+    assert "Partial: the flight was stopped." in stopped
 
 
 def test_every_spacemolt_tool_is_in_the_manifest():

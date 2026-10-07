@@ -1,4 +1,4 @@
-"""A chat window is a client of the runner: it observes, reads the journal, and gives direction.
+"""A chat window is a client of the runner: it looks, stops a flight, and gives direction.
 
 Discord and the command line carry a fixed toolset that never cycles and never holds a job
 tool (N19, N2). An inquiry changes nothing in the game and nothing on disk; direction writes
@@ -7,7 +7,6 @@ the objective and standing bounds carried in only, and lands at the next junctur
 from __future__ import annotations
 
 import json
-import shutil
 import sys
 
 import pytest
@@ -59,6 +58,11 @@ for line in sys.stdin:
     elif action == "run":
         # A run that ends at once; nothing streams.
         result = {"accepted": True, "outcome": "done"}
+    elif action == "query":
+        # What the window's look reads: the program is the caller's; this answers for it.
+        pilot = json.load(open(pilot_file))
+        result = {"ok": True, "lines": [], "returned": json.dumps({"objective": pilot.get("objective")},
+                                                                    separators=(",", ":"))}
     elif action == "status":
         # A script is running exactly while this marker file exists, read per request.
         result = {"running": os.path.exists(os.path.join(runtime, "run.running")), "last": None}
@@ -101,30 +105,25 @@ def bridged(tmp_path, monkeypatch):
     service.close_bridge()
 
 
-def test_an_inquiry_is_answered_from_state_and_journal_with_nothing_changed(bridged):
+def test_look_and_query_are_one_read_that_changes_nothing(bridged):
+    """The window's look is the pilot's query under its own name: one handler, one `query` request,
+    the program written to query/index.ts. The record, the flight and the log are reads inside it
+    (`pilot()`, `flight()`, `shipLog()`), so nothing in the game or on disk moves (T7, T8)."""
     runtime = bridged
-    lines = [_entry("where", True, {"fuel": 88}) for _ in range(57)]
-    lines.append(_entry("dock", True, {"docked": True, "docked_at": "sol_base"}))
-    lines.append(_entry("gather", True, {"outcome": "done", "yield": [{"item_id": "ore", "quantity": 42}]}))
-    lines.append(_entry("travel", False, {"error": "no route to belt with 12 fuel"}))
-    (runtime / "gameplay.jsonl").write_text("\n".join(lines) + "\n")
     _seed(dict(PILOT))
     before = service.pilot_path().read_bytes()
-
-    status = json.loads(spacemolt._status({}))
-    assert status["pilot"]["objective"] == "fill the hold"
-
-    if shutil.which("node"):
-        recent = json.loads(spacemolt._status({}))["journal"]
-        # One line per thing that happened, and the 57 `where` reads are not things that
-        # happened: a read that took is not an action, so it renders to nothing.
-        assert recent == ["12:00 ! travel: no route to belt with 12 fuel"], recent
-        assert all(len(line) <= 160 for line in recent), "a line is a line, not a paragraph"
-        assert len(json.dumps(recent)) < 4000, "the journal answer stays small (N16)"
-
-    # An inquiry asks the game to look, never to act, and moves nothing on disk (T7, T8).
-    assert set((runtime / "actions.log").read_text().split()) == {"status"}
+    by_name = {definition["name"]: definition for definition in spacemolt.TOOL_DEFINITIONS}
+    assert by_name["spacemolt_look"]["handler"] is by_name["spacemolt_query"]["handler"]
+    source = ("import {flight, pilot, shipLog} from 'play';\n"
+              "export default async function main() { return {pilot: pilot(), flight: flight(), log: shipLog(20)}; }\n")
+    answered = by_name["spacemolt_look"]["handler"]({"source": source})
+    assert answered.endswith('returned: {"objective":"fill the hold"}'), answered
+    assert (runtime / "query" / "index.ts").read_text() == source
+    assert set((runtime / "actions.log").read_text().split()) == {"query"}
     assert service.pilot_path().read_bytes() == before
+    # The window's prompt says where those reads are.
+    window_prompt = spacemolt._prompt({"platform": "discord"})
+    assert all(read in window_prompt for read in ("`pilot()`", "`flight()`", "`shipLog(20)`")), window_prompt
 
 
 def test_direction_sets_objective_and_permissions_and_lands_at_the_next_juncture(bridged):
@@ -187,12 +186,12 @@ def test_the_window_carries_no_job_tools_and_the_juncture_no_direction_tool():
     for definition in spacemolt.TOOL_DEFINITIONS:
         by_toolset.setdefault(definition["toolset"], set()).add(definition["name"])
 
+    # Two toolsets: cron and a platform name toolsets, and a tool name has exactly one.
+    assert set(by_toolset) == {"spacemolt_player", "spacemolt_observer"}
     window = by_toolset["spacemolt_observer"]
-    fire = by_toolset["spacemolt"]
-    assert {"spacemolt_status", "spacemolt_direct"} == window
-    # Stop is for every client: a fire holding a paused question is told it may stop the run.
-    # Query is too: the pilot looks before it acts, a human in the window asks the game directly.
-    assert by_toolset["spacemolt_observe"] == {"spacemolt_stop", "spacemolt_query"}
+    fire = by_toolset["spacemolt_player"]
+    assert window == {"spacemolt_look", "spacemolt_stop", "spacemolt_direct"}
+    assert fire == {"spacemolt_run", "spacemolt_query", "spacemolt_answer", "spacemolt_reflect"}
     assert not window & {"spacemolt_run", "spacemolt_scripts"}
     # Acting is running a script; a fire that could fly by hand would not write one.
     published = {definition["name"] for definition in spacemolt.TOOL_DEFINITIONS}
@@ -208,23 +207,25 @@ def test_the_window_carries_no_job_tools_and_the_juncture_no_direction_tool():
     assert not any(name in window_prompt for name in ("spacemolt_run", "spacemolt_scripts"))
 
 
-def test_a_cron_fire_cannot_reach_status_while_the_window_can():
-    """The chain-is-running read is the window's: a juncture already has the answer in the
-    context it was delivered, so a fire that can call it will poll instead of choosing."""
+def test_the_fire_and_the_window_each_hold_their_own_half():
+    """A fire looks with query and stops a paused flight through answer; the window looks with
+    look and brakes with stop. Neither holds the other's name for the same act."""
     by_toolset: dict[str, set[str]] = {}
     for definition in spacemolt.TOOL_DEFINITIONS:
         by_toolset.setdefault(definition["toolset"], set()).add(definition["name"])
     resolve = lambda names: set().union(*(by_toolset.get(name, set()) for name in names))
 
     fire = resolve(juncture.TOOLSETS)
-    window = resolve(("spacemolt_observe", "spacemolt_observer"))
-    assert "spacemolt_status" not in fire, "a juncture reads the chain from its context"
-    assert "spacemolt_status" in window, "the observer's window asks the runner directly"
+    window = resolve(("spacemolt_observer",))
+    assert "spacemolt_query" in fire and "spacemolt_query" not in window
+    assert "spacemolt_look" in window and "spacemolt_look" not in fire
     # Direction comes from outside the pilot: the window sends the sentence, the fire reads it.
     assert "spacemolt_direct" not in fire, "a pilot does not instruct itself"
     assert "spacemolt_direct" in window, "the observer's window is where a sentence is sent"
-    # Both can stop a run: the window as the human's brake, the fire to drop a question.
-    assert "spacemolt_stop" in fire and "spacemolt_stop" in window
+    # The window's brake is stop; the fire drops a question with answer's `stop`.
+    assert "spacemolt_stop" in window and "spacemolt_stop" not in fire
+    assert "stop" in spacemolt.TOOL_DEFINITIONS[[d["name"] for d in spacemolt.TOOL_DEFINITIONS].index(
+        "spacemolt_answer")]["schema"]["parameters"]["properties"]
     assert "spacemolt_answer" in fire and "spacemolt_answer" not in window
 
 

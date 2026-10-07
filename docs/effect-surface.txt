@@ -303,6 +303,7 @@ Pilot.objective?: string | undefined
 Pilot.objective_done?: boolean | undefined
 Pilot.permissions?: { credit_reserve?: number; max_liability?: number; } | undefined
 Pilot.stance?: Stance | undefined
+Pilot.steps?: readonly string[] | undefined
 Pilot.tired_by?: string | undefined
 Present.cargo: V2CargoItem[]
 Present.credits: number
@@ -606,6 +607,7 @@ src/play/index.ts function craft: (recipeId: string, quantity?: number, opts?: {
 src/play/index.ts function disengage: (bound?: number) => Promise<boolean>
 src/play/index.ts function exploreNearby: (opts?: { systems?: number; jumps?: number; survey?: boolean; avoid?: string[]; }) => Promise<Outcome<Explored>>
 src/play/index.ts function facilities: () => Promise<Outcome<Facilities>>
+src/play/index.ts function flight: () => { readonly source?: string; readonly params?: { readonly [x: string]: unknown; }; readonly juncture_at?: string; readonly last_step?: string; readonly script: string; readonly started: string; last_job?: string; ended: boolean; outcome?: { readonly [x: string]: unknown; }; question?: { readonly question: string; readonly asked_at: string; readonly choices?: string[]; readonly chat?: { readonly at: string; readonly from: string; readonly channel: string; readonly text: string; readonly sender_id?: string; }; }; } | null
 src/play/index.ts function freightBoard: (opts?: { destination?: string; limit?: number; }) => Promise<Outcome<Board>>
 src/play/index.ts function freighters: () => Promise<Outcome<{ freighters: FreighterRow[]; }>>
 src/play/index.ts function gatherUntil: (opts: { poi: string; base?: string; until?: { item: string; quantity: number; }; maxTrips?: number; then?: "stow" | "sell"; }) => Promise<Outcome<Gathered>>
@@ -635,6 +637,7 @@ src/play/index.ts function scout: (target?: string | undefined) => Promise<Outco
 src/play/index.ts function scoutMarkets: (opts?: { jumps?: number; max?: number; }) => Promise<Outcome<Scouted>>
 src/play/index.ts function sell: (items: Want[], opts?: { from?: "hold" | "store"; floor?: Record<string, number>; }) => Promise<Outcome<Sold>>
 src/play/index.ts function service: (opts?: { fuel?: number; hull?: number; insure?: boolean; dues?: boolean | "all"; }) => Promise<Outcome<Serviced>>
+src/play/index.ts function shipLog: (limit?: number) => string[]
 src/play/index.ts function ships: () => Promise<Outcome<ListShipsResponse & { active: V2Ship; parked: (StoredShip & { base_id: string; shipyard: boolean; })[]; }>>
 src/play/index.ts function shipsForSale: (opts?: { budget?: number; baseId?: string; classId?: string; }) => Promise<Outcome<{ for_sale: ForSale[]; locked: Locked[]; }>>
 src/play/index.ts function spreads: (items?: string[] | undefined) => Promise<Outcome<{ spreads: Spread[]; sources: string[]; }>>

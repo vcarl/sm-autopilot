@@ -126,27 +126,26 @@ session_reset:
 
 ### 6. Let the chat windows watch
 
-The plugin provides three toolsets:
+The plugin provides two toolsets:
 
-- `spacemolt` — the tools a juncture flies with (`spacemolt_run`, `spacemolt_answer`,
-  `spacemolt_check`, `spacemolt_reflect`). The juncture job enables these itself; you do not.
-- `spacemolt_observe` — what every client may call (`spacemolt_stop`, `spacemolt_query`). A
-  juncture carries it too, so a pilot whose program is paused on a question can stop the run
-  instead of answering, or look around before it does. From a chat window, `spacemolt_query` asks
-  the game directly: a short read-only program, never a mutation.
-- `spacemolt_observer` — the window's read and direction (`spacemolt_status`,
-  `spacemolt_direct`). This is the human's half; a juncture deliberately never gets it, so the
-  pilot cannot set its own objective.
+- `spacemolt_player` — the tools a juncture flies with: `spacemolt_run` (or, with `check: true`,
+  only check the program), `spacemolt_answer` (or, with `stop: true`, stop a flight paused on a
+  question), `spacemolt_query` (a short read-only program, to look before it acts) and
+  `spacemolt_reflect`. The juncture job enables these itself, with Hermes' `todo` toolset beside
+  them, whose list the plugin keeps as the pilot's steps; you do not.
+- `spacemolt_observer` — the human's half: `spacemolt_look` (the same read-only program, written
+  from the window: the pilot record, the flight in progress, the ship's log and the game itself
+  are all reads in it), `spacemolt_stop` (end the flight under way) and `spacemolt_direct`
+  (objective, permissions, one sentence of instruction). A juncture deliberately never gets it, so
+  the pilot cannot set its own objective.
 
-To watch from the CLI and from a chat platform, add the observer toolsets to those platforms:
+To watch from the CLI and from a chat platform, add the observer toolset to those platforms:
 
 ```yaml
 platform_toolsets:
   cli:
-    - spacemolt_observe
     - spacemolt_observer
   discord:
-    - spacemolt_observe
     - spacemolt_observer
 ```
 
