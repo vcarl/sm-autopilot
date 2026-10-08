@@ -91,7 +91,7 @@ test('a mission with several objectives leads with the first one not completed',
 test('a mission whose goods are elsewhere is stuck, and the store cannot unstick it',async()=>{
   const f=world();
   try {
-    // Five of them: a full board, which is the only time abandoning is the way forward.
+    // Five of them: a full board, where abandoning is the only way to a new mission.
     for(let n=0;n<5;n++)f.taken.push(row({mission_id:n?`away${n}`:'away',title:`Far run ${n}`,
       objectives:[{description:'20 ore to Deep Range',item_id:'ore',type:'deliver',
         current:0,required:20,completed:false,in_cargo:0,in_storage:0,target_base:'deep_range'}]}));
@@ -115,6 +115,8 @@ test('completing nothing is refused, not done: "missions done" must not carry fo
     assert.match(out.did,/^nothing completable/);
     assert.equal(out.why,'Deliver ore — next: 20 ore to Sol Base (0/20) → sol_base');
     assert.equal(out.detail.completed.length,0);
+    // Slots free, nothing turned in: the refusal still names how to drop what is held.
+    assert.deepEqual(out.next,["abandonMission('a1') drops it — Deliver ore: needs 20 more ore"]);
   } finally {unbind();}
 });
 

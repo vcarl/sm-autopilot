@@ -221,7 +221,9 @@ export default async function main() {
 one you could turn in here, unless `{force:true}`). Each held row leads with `next`, its first
 objective not yet met ("Visit X → base, 3 jumps [2 of 5]"): the game lists objectives in order, so
 fly them in that order. `completeMissions()` at the base that wants them turns in what is done,
-withdrawing from the store there what a delivery lacks. The credits are nominal: "the wallet cap can
+withdrawing from the store there what a delivery lacks. Refused `nothing completable` means no
+held mission finishes at this dock, and re-running it there turns in nothing again: fly the `next`
+objective, or drop the mission with the `abandonMission(id)` its `next` names. The credits are nominal: "the wallet cap can
 reduce the credits actually added" (`credits_shortfall` on the turn-in; Deep Core Prospecting paid 70
 of 5,000 cr). A board row's `warnings` and `required_modules` are the game's own, and its `next`
 line repeats them ("Requires a basic tow rig module (not currently equipped)"). A deposit a mission

@@ -336,6 +336,9 @@ export const completeMissionsEffect=()=>jobEffect<{completed:CompleteMissionResp
       +`; ${tail}${said.length?`. ${said.join('. ')}`:''}${held}`,
     ...why?{why}:{},
     detail:{completed,remaining:rest},
-    next:free?[]:blocked.slice(0,3).map(r=>`abandonMission('${r.mission_id}') frees a slot — ${r.title}: ${r.stuck}`)};
+    // A turn-in of nothing names the way out even with slots free: live (Kvothe, to 2026-10-08) 101
+    // runs ended "nothing completable; 3 remain, 2 slot(s) free" on the same held missions, and the
+    // refusal said nothing about dropping them.
+    next:free&&completed.length?[]:blocked.slice(0,3).map(r=>`abandonMission('${r.mission_id}') ${free?'drops it':'frees a slot'} — ${r.title}: ${r.stuck}`)};
 }));
 export function completeMissions():Promise<Outcome<{completed:CompleteMissionResponse[];remaining:Active[]}>> {return edge(completeMissionsEffect());}
