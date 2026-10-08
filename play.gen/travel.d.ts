@@ -42,6 +42,7 @@ export declare class InBattle extends TravelBlocked {
     constructor(detail: string);
 }
 export declare const battleEnded: () => void;
+export declare const battleStirred: () => void;
 /** Whether a battle holds the ship, in the one line a pilot has to read before anything else.
  * On 2026-09-25 a pilot woke at hull 3/80 inside a battle left over from the previous shift and
  * died a second after its first move, because nothing it read said it was in a fight. A refusal

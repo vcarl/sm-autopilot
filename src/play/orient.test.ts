@@ -7,6 +7,7 @@ import test from 'node:test';
 import {bridgeWorld} from '../test-support/bridge-world.ts';
 import {orient,scout} from './orient.ts';
 import {bind,unbind,type Pilot} from './runtime.ts';
+import {battleStirred} from '../travel.ts';
 
 /** The world, with a hook that refuses (throws), loses (throws a lost reply) or answers differently for one action.
  * The game refuses an action it does not serve and the shared world asserts instead, which is a defect. */
@@ -80,6 +81,7 @@ test('a bug in a read is not swallowed into missing: the orientation fails',asyn
 test('orient says first that a battle holds the ship',async()=>{
   world({mood:'Focused'},answer('spacemolt_battle/status',{battle_id:'b1',tick_duration:4,
     participants:[{kind:'creature',is_npc:true,username:'Slag-Tortoise'}]}));
+  battleStirred(); // the battle's own frames, as the bridge hears them
   try {
     const out=await orient();
     assert.match(out.did,/^IN BATTLE with Slag-Tortoise \(battle tick 4\)/);

@@ -4,7 +4,7 @@ import {SpacemoltError} from '@spacemolt/lib';
 import {Effect,Result} from 'effect';
 import type {ReadinessCommand} from './readiness.ts';
 import {GameLive,Rejected,ReplyLost,type Game} from './play/game.ts';
-import {battleEnded,battleNowEffect,InBattle,TravelBlocked,travelToEffect} from './travel.ts';
+import {battleEnded,battleNowEffect,battleStirred,InBattle,TravelBlocked,travelToEffect} from './travel.ts';
 import {onWorldClock,travelTo} from './test-support/travel.ts';
 import {FakeLibGoalAccount} from './test-support/fake-lib-account.ts';
 
@@ -103,9 +103,16 @@ test('battleNow: a refusal or a lost reply is no battle and clears the remembere
   const free=world();
   await free.run();
   assert.equal(free.sent('spacemolt/travel'),1);
-  // A lost reply answers the same.
+  // The server's "not in a battle" is remembered: with no battle frame since, it is not asked again.
+  const again=world();
+  assert.equal(await run(battleNowEffect(),again),undefined);
+  assert.equal(again.sent('spacemolt_battle/status'),0);
+  // A battle frame (or a dropped socket) sends the next read to the wire. A lost reply is no battle,
+  // but proves nothing, so the read after it goes to the wire too.
+  battleStirred();
   const lost=world({status:new SpacemoltError('mutation_timeout','no reply in time')});
   assert.equal(await run(battleNowEffect(),lost),undefined);
+  assert.equal(lost.sent('spacemolt_battle/status'),1);
   // A battle: the first non-player or NPC participant, and the tick.
   const fight=world({status:{battle_id:'b1',tick_duration:10,participants:[
     {kind:'player',player_id:'me',is_npc:false},{kind:'npc',username:'Slag-Tortoise',is_npc:true}]}});

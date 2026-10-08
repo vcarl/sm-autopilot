@@ -1,6 +1,9 @@
 /** The pushes the game sends without being asked: which reach the journal, which are
  * buffered for the next wake, and what the human reads. */
-import type {Account} from '@spacemolt/lib';
+import {SpacemoltError,type Account} from '@spacemolt/lib';
+import {Effect} from 'effect';
+import {GameLive} from './play/game.ts';
+import {battleEnded,battleNowEffect} from './travel.ts';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {mkdtempSync,readFileSync,existsSync,writeFileSync} from 'node:fs';
@@ -51,7 +54,7 @@ test('an allowlisted push reaches the journal as its ids and scalars, never its 
 test('the plumbing and the noise are never registered, so nothing double-counts', () => {
   const account=stub();
   pushJournal(account,temp());
-  assert.deepEqual(account.registered(),[...PUSH_TYPES]);
+  assert.deepEqual(account.registered(),['battle_started','battle_joined',...PUSH_TYPES]);
   // The lib's own correlator consumes these and the command seam already journals the reply.
   for(const plumbing of ['action_result','action_error','reconnected'])
     assert.equal(account.registered().includes(plumbing),false,`${plumbing} must stay with the correlator`);
@@ -61,9 +64,27 @@ test('the plumbing and the noise are never registered, so nothing double-counts'
   // they never reach the journal: `combat-memory.test.ts` holds that contract.
   for(const folded of ['battle_update','battle_damage'])
     assert.equal(account.registered().includes(folded),true,`${folded} feeds combat.json`);
-  // `battle_started`, `battle_joined` and `battle_left` carry no number any metric needs.
-  for(const skipped of ['battle_started','battle_joined','battle_left'])
-    assert.equal(account.registered().includes(skipped),false,`${skipped} has nothing to fold`);
+  // `battle_left` carries no number any metric needs; `battle_started` and `battle_joined` are
+  // heard only to send the next battle read to the wire (the next test), never journalled.
+  assert.equal(account.registered().includes('battle_left'),false,'battle_left has nothing to fold');
+});
+
+test('a frame of the ship\'s own battle sends the next battle read to the wire; a remembered "no battle" does not', async () => {
+  const runtime=temp(),account=stub();
+  pushJournal(account,runtime);
+  let reads=0;
+  const send=async(name:string)=>{if(name==='spacemolt_battle/status')reads++;throw new SpacemoltError('not_in_battle','You are not in a battle.');};
+  const now=()=>Effect.runPromise(battleNowEffect().pipe(Effect.provide(GameLive({send}))));
+  battleEnded();
+  await now();await now();
+  assert.equal(reads,1,'the server\'s "not in a battle" is remembered');
+  for(const frame of ['battle_started','battle_joined','battle_update','battle_damage']) {
+    account.fire(frame,{battle_id:'b-1'});
+    await now();await now();
+  }
+  assert.equal(reads,5,'each frame costs exactly one fresh read');
+  assert.equal(lines(runtime).some(entry=>['battle_started','battle_joined'].includes(String(entry.push))),false);
+  battleEnded();
 });
 
 test('a movement nobody asked for is attributed, and the pilot\'s own is left to the command seam', () => {

@@ -13,6 +13,7 @@ import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import type {ReadinessCommand} from '../readiness.ts';
 import {readJournal} from '../run-record.ts';
+import {battleStirred} from '../travel.ts';
 import {FakeLibGoalAccount} from './fake-lib-account.ts';
 import {keepBook,openDirs,worldDb} from '../play/world.ts';
 import type {RememberedBook} from '../play/market.ts';
@@ -579,6 +580,8 @@ export function bridgeWorld(options:WorldOptions={}) {
       const target=fauna.creatures.find(row=>row.creature_id===String(params.id));
       if(!target)throw new Error(`No creature ${params.id} here`);
       battle={target:target.creature_id,left:Math.max(0,fauna.polls),ticks:0,retreats:0,stance:'fire',fled:0};
+      // The live server pushes `battle_started`, which the bridge hears as this.
+      battleStirred();
       return {delta:{details:{command:'attack',message:'Engaging.',pending:true}}};
     },
     // The server's own refusal when the fight is over, which is how a caller learns it ended.

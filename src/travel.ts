@@ -57,7 +57,16 @@ export class InBattle extends TravelBlocked {
  * touching the wire until the battle demonstrably ends: a confirmed `disengage`, a
  * `battle_ended`/`player_died` push, or a move the server accepted. */
 let battleHolds=false;
-export const battleEnded=()=>{battleHolds=false;};
+export const battleEnded=()=>{battleHolds=false;battleClear=false;};
+/** The server already said "no battle", and nothing since says otherwise: no battle frame
+ * pushed, no `in_battle` refusal, no dropped socket. A battle pushes `battle_started` and then a
+ * `battle_update` every tick, so while this holds a status read can only repeat "no battle" —
+ * live (Kvothe, to 2026-10-08) 3.9k of 7.4k status reads did, one each from the run's close,
+ * the next menu and the next orient with nothing between them. Off until the first read, and
+ * knocked off by `battleStirred` (bridge.ts wires the pushes and the reconnect to it). */
+let battleClear=false;
+export const battleStirred=()=>{battleClear=false;};
+const NO_BATTLE=new Set(['not_in_battle','no_active_battle']);
 
 /** Whether a battle holds the ship, in the one line a pilot has to read before anything else.
  * On 2026-09-25 a pilot woke at hull 3/80 inside a battle left over from the previous shift and
@@ -75,29 +84,34 @@ export interface BattleNow {opponent:string;tick:number}
 const payload=(reply:unknown):unknown=>field(reply,'structuredContent')??field(field(reply,'delta'),'details')??reply;
 const battleIn=(reply:unknown):BattleNow|undefined=>{
   const status=payload(reply);
-  if(!field(status,'battle_id')){battleHolds=false;return undefined;}
-  battleHolds=true;
+  if(!field(status,'battle_id')){battleHolds=false;battleClear=true;return undefined;}
+  battleHolds=true;battleClear=false;
   const participants=field(status,'participants');
   const rows:readonly unknown[]=Array.isArray(participants)?participants:[];
   const theirs=rows.find(row=>field(row,'kind')!=='player'||field(row,'is_npc'));
   return {opponent:String(field(theirs,'username')??field(theirs,'player_id')??'an unnamed opponent'),
     tick:Number(field(status,'tick_duration')??0)};
 };
+/** Only the server's own "not in a battle" proves the next read would say the same. */
+const noBattle=(failure:GameError)=>{battleHolds=false;battleClear=failure._tag==='Rejected'&&NO_BATTLE.has(failure.code);};
 export const battleNowEffect=()=>Effect.gen(function*() {
+  if(battleClear&&!battleHolds)return undefined;
   const sent=yield* Effect.result((yield* Game).command('spacemolt_battle/status',{}));
   // Every tag of GameError (a refusal of any kind, a lost reply) is "no battle": the union is exhausted here.
-  if(Result.isFailure(sent)){battleHolds=false;return undefined;}
+  if(Result.isFailure(sent)){noBattle(sent.failure);return undefined;}
   return battleIn(sent.success);
 });
 /** The read a run closes on (`run.ts`), under U21's rule: what decides whether a fight is left unattended
  * cannot take a lost reply as "no battle". A lost one is re-read twice (a read is safe to repeat); one still
  * lost is `unknown`, and the battle flag is left as it was. A refusal is still no battle. */
 export const battleAtCloseEffect=()=>Effect.gen(function*() {
+  // Always asked: this read decides whether a fight is left unattended, so a remembered
+  // "no battle" (which leans on the battle pushes arriving) is not enough here.
   const sent=yield* Effect.result((yield* Game).command('spacemolt_battle/status',{}).pipe(
     Effect.retry({times:2,schedule:Schedule.exponential('1 second'),while:error=>error._tag==='ReplyLost'})));
   if(Result.isFailure(sent)) {
     if(sent.failure._tag==='ReplyLost')return 'unknown' as const;
-    battleHolds=false;return undefined;
+    noBattle(sent.failure);return undefined;
   }
   return battleIn(sent.success);
 });

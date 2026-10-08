@@ -11,7 +11,7 @@ import {fileURLToPath} from 'node:url';
 import {markAlertsDelivered,pendingAlerts,recordAlert} from './alerts.ts';
 import {chatJournal,noteUnread} from './chat.ts';
 import {foldBattleDamage,foldBattleEnded,foldBattleUpdate} from './combat-memory.ts';
-import {battleEnded,battleNowEffect} from './travel.ts';
+import {battleEnded,battleNowEffect,battleStirred} from './travel.ts';
 import {controllerLock} from './controller-lock.ts';
 import {GAME_WS_URL,readCredentials} from './credentials.ts';
 import type {ReadinessAccount,ReadinessCommand} from './readiness.ts';
@@ -165,7 +165,10 @@ export function pushJournal(account:{on:(type:string,handler:(payload:Record<str
     kept.n+=1;
     return kept.n<=PUSH_PER_MINUTE;
   };
+  // A frame of the ship's own battle: a status read may no longer answer "no battle" from memory.
+  for(const type of ['battle_started','battle_joined'])account.on(type,battleStirred);
   for(const type of PUSH_TYPES)account.on(type,(payload:Record<string,unknown>)=>{
+    if(type==='battle_update'||type==='battle_damage')battleStirred();
     const body:Record<string,unknown>=payload??{};
     // Most `ok` variants key on `action`, seven on `type`; a variant with neither is the
     // wildlife kill notice, which the pilot's own hunt step already reports.
@@ -614,6 +617,9 @@ async function main() {
   pushJournal(account,runtime);
   chatJournal(account,runtime);
   journalConnection(runtime,account);
+  // Frames sent while the socket was down are lost: the next battle read goes to the wire.
+  account.onDisconnected(battleStirred);
+  account.onReconnected(battleStirred);
   const pilotFile=resolve(runtime,'..','pilot.json');
   // A field dropped on read is journalled once per change, not on every read of the record.
   let droppedSeen='';
