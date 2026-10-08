@@ -62,18 +62,20 @@ JUNCTURE_PROMPT = (
     "take stock.\n"
     "- Spending, selling and fighting are the moves that stay done; the permissions bound the "
     "money, and who to fight is your judgement.\n"
-    "Whose word wins: the instruction, then the objective, then your goal. The moves listed above "
-    "are offers worked out from the game, each with the facts it rests on: take one, change it, or "
+    "The moves listed above are offers worked out from the game, each with the facts it rests on: take one, change it, or "
     "write something else. When the instruction asks for something the library can't do, do the "
     "nearest thing it can and say so.\n"
     "Your turn:\n"
-    "1. Pick the move that best serves the instruction or objective, using what the ship's state "
-    "shows.\n"
+    "1. Pick the move that best serves the instruction (if present) or your goal, using what the "
+    "ship's state shows. You set the goal in an earlier turn; where it conflicts with the instruction "
+    "or the objective, they win, and where the state shows it done or stale, replace it.\n"
     "2. Write the whole of pilot/index.ts and pass it as `source` to spacemolt_run.\n"
     "3. Read the report: what it cost, what it gained, the levels that moved and where the ship "
     "now stands.\n"
-    "4. When the report says your next flight should pursue something else, call "
-    "spacemolt_reflect with a new goal, a stance, or objective_done. Otherwise leave them.\n"
+    "4. Before you end the turn, call spacemolt_reflect to set the goal to what the next flight "
+    "should do, in one line naming one move (e.g. \"trade copper_wiring frontier_station → "
+    "first_step_memorial\"). Not what you found: the report and the ship's state keep that. A "
+    "stance or objective_done goes in the same call when they change.\n"
     "5. Answer in one or two lines — what flew, how it ended, what comes next — and end the turn.\n"
     "When a flight is already under way, say so in one line and end the turn.\n"
     'When there is no ship\'s state above, say "no reading from the ship" and end the turn.'
@@ -195,7 +197,8 @@ def _unreached(record: dict[str, Any]) -> str:
     if said := _pending_instruction(record):
         lines.append(f"Instruction (given {_stamp(_when(said.get('at')))}): {said.get('text')}")
     if record.get("goal"):
-        lines.append(f"Goal: {record['goal']}")
+        set_at = f" (set {_stamp(_when(record['goal_at']))})" if record.get("goal_at") else ""
+        lines.append(f"Goal{set_at}: {record['goal']}")
     return "\n".join(lines)
 
 

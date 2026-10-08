@@ -77,8 +77,13 @@ test('the pilot request is the one writer of the record, and a null removes a fi
   let record:Pilot={name:'kvothe',objective:'fill the hold'};
   const f=fixture({pilot:()=>record,setPilot:next=>{record=next;}});
   const out=await f.dispatch('pilot',{set:{stance:'Trader',goal:'walk a price circuit',objective:null}}) as any;
-  assert.deepEqual(out.record,{name:'kvothe',stance:'Trader',goal:'walk a price circuit'});
+  const {goal_at:set,...rest}=out.record;
+  assert.deepEqual(rest,{name:'kvothe',stance:'Trader',goal:'walk a price circuit'});
   assert.deepEqual(record,out.record);
+  // The goal carries when it was set, so the juncture can show its age; clearing it clears that.
+  assert.ok(Date.parse(set)<=Date.now(),String(set));
+  await f.dispatch('pilot',{set:{goal:null}});
+  assert.equal(record.goal_at,undefined);
 });
 
 test('a new objective clears the goal and stance unless the same write sets them', async () => {
@@ -98,7 +103,7 @@ test('a new objective clears the goal and stance unless the same write sets them
   assert.ok(start?.at&&typeof start.skills==='object',JSON.stringify(start));
   const line=readFileSync(join(runtime,'gameplay.jsonl'),'utf8').trim().split('\n').map(row=>JSON.parse(row))
     .filter(row=>row.event==='pilot').at(-1);
-  assert.deepEqual(line.prev,{objective:'fill the hold',goal:'mine the belt',steps:['price an upgrade'],stance:'Prospector',objective_start:null});
+  assert.deepEqual(line.prev,{objective:'fill the hold',goal:'mine the belt',steps:['price an upgrade'],stance:'Prospector',goal_at:null,objective_start:null});
   await f.dispatch('pilot',{set:{objective:'trade',stance:'Trader'}});
   assert.equal(record.stance,'Trader','a stance set with it stands');
   assert.notEqual(record.objective_start?.at,undefined);

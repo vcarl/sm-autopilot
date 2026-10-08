@@ -520,10 +520,10 @@ TOOL_DEFINITIONS = (
                        # every fire. The context carries the runs and missions held now; the goal is
                        # the next step, and the checklist has its own field.
                        {"goal": {"type": "string",
-                                 "description": "The next step toward your objective, in one short "
-                                                "line: what the next flight does. Not a log of where "
-                                                "you have been; the ship's state carries your flights "
-                                                "and the missions you hold."},
+                                 "description": "What the next flight should do, in one line naming "
+                                                "one move (e.g. 'trade copper_wiring frontier_station "
+                                                "→ first_step_memorial'). Not what you found: the "
+                                                "report and the ship's state keep that."},
                         "steps": {"type": "array", "items": {"type": "string"},
                                   "description": "Optional checklist toward the objective, a few "
                                                  "short lines (e.g. 'price an upgrade'). Pass the "

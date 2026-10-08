@@ -348,11 +348,11 @@ test('a failed game read still renders the record and the journal', () => {
   const dir=runtime();
   journal(dir,[{event:'run',phase:'ended',at:'2026-10-02T15:00:00Z',started:'2026-10-02T14:50:00Z',outcome:'done',commands:9,
     work:{fn:'tradeRun',credits:6045},calls:[{fn:'tradeRun',stops:['alpha','beta'],seconds:600}]}]);
-  const record:Pilot={name:'kvothe',stance:'Trader',objective:'reach 1,000,000 cr',goal:'work the ore route',steps:['buy at alpha','sell at beta'],
+  const record:Pilot={name:'kvothe',stance:'Trader',objective:'reach 1,000,000 cr',goal:'work the ore route',goal_at:'2026-10-02T15:10:00Z',steps:['buy at alpha','sell at beta'],
     instruction:{text:'scan markets for cheap materials',at:'2026-10-02T16:34:58Z'}};
   const context=renderContext(recordMenu(record,dir),dir);
   for(const text of ['The game did not answer this time','Objective: reach 1,000,000 cr',
-    'Instruction (given 10-02 16:34Z): scan markets for cheap materials','Goal: work the ore route',
+    'Instruction (given 10-02 16:34Z): scan markets for cheap materials','Goal (set 10-02 15:10Z): work the ore route',
     'Steps: 1) buy at alpha; 2) sell at beta','Stance: Trader.','tradeRun: +6,045 cr','Your recent flights (newest last):'])
     assert.ok(context.includes(text),`${text}\n${context}`);
   for(const absent of ['Present:','Mood:','  Fuel ','Since the objective'])assert.ok(!context.includes(absent),absent);

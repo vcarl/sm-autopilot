@@ -214,6 +214,8 @@ const PilotRecord=Schema.Struct({name:Schema.optionalKey(Schema.String),objectiv
   /** Where the ship stood when this objective was set, for the juncture's deltas. */
   objective_start:Schema.optionalKey(ObjectiveStart),
   goal:Schema.optionalKey(Schema.String),
+  /** When the goal was last set (ISO), so the juncture can show its age. Written beside it here. */
+  goal_at:Schema.optionalKey(Schema.String),
   /** The pilot's own checklist toward the objective: short lines, set whole by reflect. */
   steps:Schema.optionalKey(Schema.Array(Schema.String)),
   stance:Schema.optionalKey(Schema.Literals(STANCES.map(stance=>stance.name))),
@@ -403,7 +405,7 @@ export function serve(account:Account,command:ReadinessCommand,options:ServeOpti
         ...fight?{battle:fight}:{},
         now:new Date().toISOString(),
         ...who.stance?{stance:who.stance}:{},mood:who.mood,...who.tired_by?{tired_by:who.tired_by}:{},
-        ...who.goal?{goal:who.goal}:{},
+        ...who.goal?{goal:who.goal,...record().goal_at?{goal_at:record().goal_at}:{}}:{},
         ...record().steps?.length?{steps:record().steps}:{},
         ...who.permissions?{permissions:who.permissions}:{},
         ...who.objective?{objective:who.objective}:{},
@@ -471,6 +473,8 @@ export function serve(account:Account,command:ReadinessCommand,options:ServeOpti
       }
       set.objective_start=objectiveStart(account.state);
     }
+    // The goal carries when it was set; a cleared goal clears it. Stamped here, the record's one writer.
+    if('goal' in set)set.goal_at=set.goal===null?null:new Date().toISOString();
     // A retired objective takes its start with it.
     if(set.objective===null&&'objective_start' in prev)set.objective_start=null;
     const next:Record<string,unknown>={...prev};

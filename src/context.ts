@@ -153,7 +153,7 @@ function runRecordFlying(runtime:string|undefined) {
  * the run `run.json` keeps. Marked `unread` so nothing reads it as the ship. */
 export function recordMenu(record:Pilot,runtime:string|undefined):Row {
   const menu:Row={};
-  for(const key of ['objective','goal','steps','stance','permissions','instruction'] as const)
+  for(const key of ['objective','goal','goal_at','steps','stance','permissions','instruction'] as const)
     if(on(record[key]))menu[key]=record[key];
   const run=runRecordFlying(runtime);
   if(run)Object.assign(menu,{busy:true,started:run.started,fn:run.last_job,question:run.question?.question?run.question:null});
@@ -328,7 +328,7 @@ function situation(menu:Row,said:Row|null,chat:{lines:string[];notes:string[]},r
   // objective reset cleared the goal, and a 270k-credit pilot with days of play was told to
   // "learn the ship". New = no run in the journal took in credits.
   const earned=rows.some(row=>row.phase==='ended'&&isRecord(row.work)&&Math.trunc(Number(or(rec(row.work).credits,0))||0)>0);
-  facts.push(on(menu.goal)?`Goal: ${py(menu.goal)}`:earned?'Goal: none set.':`Goal: none set yet; a first one: ${FIRST_GOAL}`);
+  facts.push(on(menu.goal)?`Goal${on(menu.goal_at)?` (set ${stamp(when(menu.goal_at))})`:''}: ${py(menu.goal)}`:earned?'Goal: none set.':`Goal: none set yet; a first one: ${FIRST_GOAL}`);
   if(on(menu.steps))facts.push(`Steps: ${list(menu.steps).map((step,n)=>`${n+1}) ${py(step)}`).join('; ')}`);
   let mood=py(or(menu.mood,'Cautious'));
   if(on(menu.tired_by))mood+=` (${py(menu.tired_by)})`;
