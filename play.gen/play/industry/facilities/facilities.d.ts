@@ -32,7 +32,7 @@ type Facilities = {
 };
 /** Your facilities everywhere, what is rentable at this station, and what you could build
  * here. Reads only (`facility/owned`, `facility/list`, `facility/types` for the production and
- * personal categories) — never `job_list`, which fails for a facility you are not docked at.
+ * personal categories); the public facilities here go into the facility book `trace()` and `catalog()` read — never `job_list`, which fails for a facility you are not docked at.
  * Each read is independent: one the game refuses, loses or answers off-spec does not fail the
  * others, and `did` says which (a bug still does).
  * `next` warns when the rent runway is under the game's own grace period. */

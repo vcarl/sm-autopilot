@@ -14,7 +14,7 @@ import {bench,moduleSpecEffect,room,whyNotFit} from './hangar.ts';
 import {Stopped,acct,admit,edge,jobEffect,pilot,reached,runtimeDir,step,stopped,wanted} from './runtime.ts';
 import {withdrawEffect} from './storage.ts';
 import {literal,num} from './rows.ts';
-import {keepBook,keepRow,readBooks} from './world.ts';
+import {keepBook,keepRow,readBooks,rememberFacilities} from './world.ts';
 import {walkBook} from '../order-book.ts';
 import type {Outcome,Row,Want} from './types.ts';
 
@@ -156,11 +156,23 @@ export const bookEffect=()=>Effect.gen(function*() {
   lastTick=num(reply,'current_tick')??lastTick;
   const base=acct().state.location?.docked_at??'';
   remember(base,items,lastTick);
+  yield* mapFacilities(base,lastTick);
   journalBook(base,items,lastTick);
   yield* fileIntelEffect(acct(),base,items,lastTick,step);
   const listed=new Map(items.map(item=>[item.item_id,item]));
   lastRead={base,listed,tick:lastTick,at:Date.now()};
   return listed;
+});
+/** The public facilities at `base`, read once per base per process beside its first book, into the facility book: a
+ * trader maps where to rent as it travels. A refused or lost read keeps nothing and costs the book nothing.
+ * ponytail: process-local, so a long-lived bridge does not re-read a base whose fees changed; key it by age if that matters. */
+const mapped=new Set<string>();
+const mapFacilities=(base:string,tick:number)=>Effect.gen(function*() {
+  const dir=runtimeDir();
+  if(!dir||!base||mapped.has(`${dir}\0${base}`))return;
+  mapped.add(`${dir}\0${base}`);
+  const reply=yield* Effect.result((yield* Game).command('spacemolt_facility/list',{}));
+  if(Result.isSuccess(reply))rememberFacilities(dir,base,acct().state.location?.system_id,reply.success,tick);
 });
 /** Each book read, as a `book` line in `books.jsonl` beside the journal (joined by `run_id`, `base_id`, `book_tick`): per item with orders, each side's whole depth and its
  * first 10 levels as `[price_each, quantity]`. A re-read the same as the last one journalled at that base is

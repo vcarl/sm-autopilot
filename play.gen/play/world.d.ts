@@ -7,6 +7,8 @@
  *   never by age: a consumer discounts by age itself.
  * - `stores`: what the account's station storage holds, per base and item, as the game last said:
  *   a `storage/view` replaces a base, a deposit/withdraw/buy-to-storage reply sets an item.
+ * - `facilities`: the public facilities seen at each base, one row per facility type, with its fee per run
+ *   when a `facility/list` there said it; a `no_facility` refusal adds the one it names, fee unknown.
  *
  * Every read is a pure function over these tables. The journal stays the telemetry record: a book read
  * is still a `book` line in `books.jsonl`, a store change a `store` line. */
@@ -88,3 +90,27 @@ export declare function holdings(dir: string | undefined, now: number): {
     quantity: number;
     bid: Quoted | null;
 }[];
+/** A public facility seen at a base. `type` is the facility definition id; a row learnt from a `no_facility`
+ * refusal has only the name the server gave, as both `type` and `name`, and no fee. `tick` is when it was seen. */
+export interface FacilitySeen {
+    base_id: string;
+    type: string;
+    name: string;
+    system_id?: string;
+    recipe_id?: string;
+    fee_per_run?: number;
+    output_per_run?: number;
+    queued_runs?: number;
+    backlog_ticks?: number;
+    tick?: number;
+    at: string;
+}
+/** Every facility row kept, every base. */
+export declare function readFacilities(dir: string | undefined): FacilitySeen[];
+/** A `facility/list` reply, kept as `base_id`'s whole facility book: each public facility type there at its lowest fee
+ * per run. The reply's own `base_id` wins over the one passed. Never throws. */
+export declare function rememberFacilities(dir: string | undefined, base_id: string, system_id: string | undefined, reply: unknown, tick: number | undefined): void;
+/** A `no_facility` refusal for `recipe_id`, which names the nearest public facility that makes it ("… is made in a Alloy
+ * Foundry … Nearest public one: Crimson War Citadel in Krynn (1 jump(s) away) …"), kept as that station having it, fee
+ * unknown. A row already kept there is left alone; a text that does not read keeps nothing. Never throws. */
+export declare function rememberNoFacility(dir: string | undefined, recipe_id: string, text: string, tick: number | undefined): void;

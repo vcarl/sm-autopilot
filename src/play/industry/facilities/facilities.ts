@@ -8,7 +8,9 @@ import {Effect,Option,Result,Schema,Struct} from 'effect';
 import type {FacilityTypeSummary,OwnedFacilityEntry} from '@spacemolt/lib';
 import * as Wire from '../../../wire.gen.ts';
 import {Game,field,type GameError} from '../../game.ts';
-import {acct,admit,edge,jobEffect,pilot} from '../../runtime.ts';
+import {tickNow} from '../../market.ts';
+import {acct,admit,edge,jobEffect,pilot,runtimeDir} from '../../runtime.ts';
+import {rememberFacilities} from '../../world.ts';
 import type {Outcome} from '../../types.ts';
 import {replyBody} from '../../../storage.ts';
 
@@ -59,7 +61,7 @@ type Facilities={owned:Owned[];here:Rentable[];buildable:FacilityTypeSummary[]};
 
 /** Your facilities everywhere, what is rentable at this station, and what you could build
  * here. Reads only (`facility/owned`, `facility/list`, `facility/types` for the production and
- * personal categories) — never `job_list`, which fails for a facility you are not docked at.
+ * personal categories); the public facilities here go into the facility book `trace()` and `catalog()` read — never `job_list`, which fails for a facility you are not docked at.
  * Each read is independent: one the game refuses, loses or answers off-spec does not fail the
  * others, and `did` says which (a bug still does).
  * `next` warns when the rent runway is under the game's own grace period. */
@@ -84,7 +86,9 @@ export const facilitiesEffect=()=>jobEffect('facilities','',Effect.gen(function*
   const docked=acct().state.location?.docked_at;
   const here:Rentable[]=[];
   if(docked) {
-    const listRead=yield* Effect.result(game.command('spacemolt_facility/list',{}).pipe(Effect.flatMap(reply=>decodeList(replyBody(reply)))));
+    const listRead=yield* Effect.result(game.command('spacemolt_facility/list',{}).pipe(
+      Effect.tap(reply=>Effect.sync(()=>rememberFacilities(runtimeDir(),docked,acct().state.location?.system_id,reply,tickNow()))),
+      Effect.flatMap(reply=>decodeList(replyBody(reply)))));
     if(Result.isFailure(listRead))failed.push(`here: ${told(listRead.failure)}`);
     else {
       const reply=listRead.success;

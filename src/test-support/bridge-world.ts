@@ -100,6 +100,8 @@ export interface WorldOptions {
    * way a pilot learns that the ore nobody buys here sells there. A base listed here answers
    * with exactly these rows, default ore row and all. */
   markets?:Record<string,MarketRow[]>;
+  /** The public facilities `facility/list` answers with, at whatever base the ship is docked at. Absent: none. */
+  publicFacilities?:unknown[];
   /** Holdings at other bases, as `storage/view`'s `locations` lists them beside this one. */
   storedAway?:{base_id:string;item_count:number}[];
   /** The faction trade ledger `query_trade_intel` answers with. Absent means no faction:
@@ -931,6 +933,8 @@ export function bridgeWorld(options:WorldOptions={}) {
       const rows=options.chat?.history??[];
       return {structuredContent:{channel:params.target,has_more:false,total_count:rows.length,messages:rows}};
     },
+    'spacemolt_facility/list':()=>({structuredContent:{action:'list',base_id:account.state.location?.docked_at??'',
+      station_facilities:[],player_facilities:[],faction_facilities:[],public_facilities:options.publicFacilities??[]}}),
     'spacemolt/get_skills':async()=>{throw new SpacemoltError('unknown_action','not served here: spacemolt/get_skills');},
   };
   const command:ReadinessCommand=async(action,params)=>{

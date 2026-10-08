@@ -38,7 +38,7 @@ test('first open imports markets.json and, where newer or missing, the latest bo
     // Idempotent: a changed file is not imported again.
     writeFileSync(join(dir,'markets.json'),'[]');
     assert.equal(readBooks(dir).length,3);
-    assert.equal(Number(worldDb(dir)!.prepare('PRAGMA user_version').get()!.user_version),1);
+    assert.equal(Number(worldDb(dir)!.prepare('PRAGMA user_version').get()!.user_version),2);
   } finally {rmSync(dir,{recursive:true,force:true});}
 });
 

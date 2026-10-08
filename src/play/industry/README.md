@@ -18,8 +18,9 @@ after is the only evidence the output arrived.
 | `craft(recipe, qty?, {at?})` | stow, quote, escrow, wait out the queue, confirm the outputs in the store |
 | `jobs()` | every job you have queued, anywhere, and which are paused; works undocked |
 | `catalog({search?, category?, makes?, uses?})` | the catalog's recipes, printed as text: what makes an item, what an item goes into; twenty at a time |
-| `trace(itemOrRecipe, qty?)` | the whole tree `qty` takes, down to what is mined or bought, net of the hold and every store; each leaf's cheapest remembered ask; the other recipes one level deep |
-| [`facilities/`](facilities/README.md) | owning and renting production: `facilities().here` lists the facilities at this station |
+| `trace(itemOrRecipe, qty?)` | the whole tree `qty` takes, down to what is mined or bought, net of the hold and every store; each leaf's cheapest remembered ask; each facility-only step's stations known to rent one; the other recipes one level deep |
+| `facilities()` | what you own everywhere, what is rentable here, what you could build here — reads only |
+| `buildFacility(type)` | a facility of `type` owned at this station; idempotent |
 
 ## Planning a craft
 
@@ -122,4 +123,66 @@ export default async function main() {
 
 - Every craft needs an input you buy at market: that is trading with extra steps.
 - `margin > 0` only here: check `spreads()` for the output before crafting a lot of it.
-- Crafting is at 5+ and you own no facility: see `facilities/`.
+- Crafting is at 5+ and you own no facility: see Owning a facility, below.
+
+## Owning a facility
+
+Not a separate specialty: the stage Industry grows into once a bench's margins are proven at
+someone else's counter, so the pilot who already stands there keeps the fee instead of paying
+it. A facility bills rent every cycle (100 ticks, ~17 min) from your wallet, everywhere it
+stands, whether or not you are docked to see it. Fall behind past the game's own grace period
+and the station repossesses it; a production facility repossessed is never returned.
+
+```ts
+import {facilities, buildFacility, note} from 'play';
+
+export default async function main() {
+  const f = await facilities();
+  if (f.next.length) { note(f.next[0]!); return f; }        // runway under the grace period
+  if (!f.detail.owned.length) return buildFacility('crew_bunk'); // quarters: the prerequisite
+  return f;
+}
+```
+
+- `facilities()` answers three things, each on its own: what you own everywhere, what is
+  rentable at this station, and what you could build here. One the game refuses does not blank
+  the others; `did` names which. `owned` carries `runway_cycles`: the wallet's credits over the
+  TOTAL rent per cycle across every facility you own, because one wallet pays all of them. `next`
+  warns when that runway is under the game's own `grace_cycles`. What is public here is also
+  remembered, for `trace` and `catalog` to name later.
+- `here` is this station's rentable facilities: yours, or public with a fee. A station's own
+  counters (repair, market) carry no fee and are not public, so they never appear. `id` is what
+  `craft`'s `at` option and the owner verbs below take.
+- `buildFacility(type)` ends with the facility owned here, or refuses naming why: not docked,
+  no such type, a build material short in this station's **store** (not the hold), or a price
+  that would breach `credit_reserve`. Already owned here is `done` with nothing sent.
+
+### The owner verbs
+
+Not wrapped yet; reach them as raw commands, proven against the live game:
+
+| Verb | What it does |
+|---|---|
+| `account().commands.spacemolt_facility.set_access({facility_id, access})` | `'private'` (the default on a new facility) or `'public'` — public is what makes it rentable |
+| `account().commands.spacemolt_facility.set_output_price({facility_id, price})` | the price a renter's fee is computed from (fee = output price × outputs per run) |
+| `account().commands.spacemolt_facility.job_add({facility_id, recipe_id, quantity})` | `quantity` counts **output items**, rounded up to whole runs — not runs themselves |
+| `account().commands.spacemolt_facility.job_reorder({facility_id, job_id, position})` | move a queued job |
+| `account().commands.spacemolt_facility.job_cancel({job_id})` | drop a queued job |
+| `account().commands.spacemolt_facility.list_for_sale({facility_id, price})` | sell the facility itself; charges a **non-refundable** 1% listing fee up front |
+| `account().commands.spacemolt_facility.cancel_listing({facility_id})` | pull it back off the market |
+
+As owner you pay only labour on your own jobs; a renter pays labour plus the fee, and the fee
+is yours, not a split.
+
+### Owner pitfalls
+
+- Build materials come out of **this station's storage**, never the hold — `buy(...,
+  {deliverTo:'storage'})` or `stow(...)` them there first.
+- A new facility is **private** by default. `set_access` it public before expecting any
+  rental income at all.
+- `list_for_sale`'s listing fee is charged whether or not the facility sells. Price it once
+  you mean it.
+- `job_list` only answers for a facility whose station you are docked at right now; asking it
+  from elsewhere fails, which is why `facilities()` never calls it.
+- Facility runs give **0 xp**, owned or rented: train crafting at the workshop. Building one
+  grants corporation_management xp once; no passive accrual has been seen.

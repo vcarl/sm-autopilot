@@ -18,11 +18,11 @@ import {words} from '../../servicing.ts';
 import {replyBody} from '../../storage.ts';
 import * as Wire from '../../wire.gen.ts';
 import {Game,field,message,type GameError} from '../game.ts';
-import {bookEffect,buyEffect,overpay} from '../market.ts';
+import {bookEffect,buyEffect,overpay,tickNow} from '../market.ts';
 import {kept,offSpec,told} from '../rows.ts';
 import {Stopped,acct,admit,edge,jobEffect,pilot,reached,runtimeDir,step,stopped} from '../runtime.ts';
 import {OffSpec,folded,stowEffect} from '../storage.ts';
-import {readStores} from '../world.ts';
+import {readStores,rememberNoFacility} from '../world.ts';
 import type {Outcome,Row} from '../types.ts';
 
 /** The catalog recipe beside what it is worth here and what you already hold. */
@@ -72,6 +72,15 @@ function keptCopy(path:string|undefined):{etag?:string;catalog?:Recipes;unread?:
     recipes:recipes.map(row=>({...row,inputs:[...row.inputs],outputs:[...row.outputs]}))}};
 }
 
+/** Each facility definition's name by id, from the copy `revalidated` keeps in `dir`; empty with no copy. Never fetches. */
+const Defs=Schema.fromJsonString(Schema.Struct({catalog:Schema.Struct({facilities:Schema.Array(Schema.Struct({id:Schema.String,name:Schema.String}))})}));
+const decodeDefs=Schema.decodeUnknownOption(Defs);
+export function facilityNames(dir:string|undefined):Map<string,string> {
+  let text:string;
+  try {text=readFileSync(join(dir??'',CATALOG_FILE),'utf8');} catch {return new Map();} // edge: no copy yet: ids stand for names
+  const read=decodeDefs(text);
+  return new Map(Option.isSome(read)?read.value.catalog.facilities.map(row=>[row.id,row.name] as const):[]);
+}
 /** Each item's catalog `base_value`, as far as the disk copy reads. Plain fields, not the spec's: one odd row should not blank them all. */
 const Values=Schema.fromJsonString(Schema.Struct({catalog:Schema.Struct({items:Schema.Array(Schema.Struct({id:Schema.String,base_value:Schema.optionalKey(Schema.Number)}))})}));
 const decodeValues=Schema.decodeUnknownOption(Values);
@@ -190,7 +199,12 @@ const call=(recipeId:string,quantity:number,at?:string)=>
  * the answer, so it comes back as a refusal, with the server's code. A lost reply is the caller's: a read, but not reissued. */
 const dryRun=(recipeId:string,quantity:number,at?:string)=>Effect.gen(function*() {
   const sent=yield* Effect.result((yield* Game).command('spacemolt/craft',{...call(recipeId,quantity,at),dry_run:true}));
-  if(Result.isFailure(sent))return sent.failure._tag==='ReplyLost'?yield* sent.failure:{refused:told(sent.failure)};
+  if(Result.isFailure(sent)) {
+    if(sent.failure._tag==='ReplyLost')return yield* sent.failure;
+    // The nearest public facility it names goes into the facility book `trace()` and `catalog()` read.
+    if(sent.failure.code==='no_facility')rememberNoFacility(runtimeDir(),recipeId,sent.failure.message,tickNow());
+    return {refused:told(sent.failure)};
+  }
   const body=replyBody(sent.success);
   return {quote:yield* decodeQuote(body).pipe(Effect.mapError(offSpec('spacemolt/craft'))),raw:asQuote(body)};
 });

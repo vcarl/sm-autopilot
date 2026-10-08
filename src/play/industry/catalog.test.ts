@@ -7,7 +7,7 @@ import type {Account,Catalog} from '@spacemolt/lib';
 import {listing} from '../../servicing.ts';
 import {bridgeWorld} from '../../test-support/bridge-world.ts';
 import {bind,unbind} from '../runtime.ts';
-import {keepBook,worldDb} from '../world.ts';
+import {keepBook,rememberFacilities,rememberNoFacility,worldDb} from '../world.ts';
 import {catalog,trace,unitValue} from './catalog.ts';
 import {useCatalog} from './crafting.ts';
 
@@ -20,7 +20,7 @@ const CATALOG={version:'test',items:[{id:'iron_ore',extracted_by:'mining'},{id:'
   recipe('basic_iron_smelting',[['iron_ore',10]],[['steel_plate',1]]),
   recipe('nodule_smelting',[['nodule',3]],[['steel_plate',2]]),
   recipe('press_hull_plate',[['steel_plate',2],['copper_ore',1]],[['hull_plate',1]],{category:'Components'}),
-  recipe('facility_hull_plate',[['steel_plate',1]],[['hull_plate',1]],{category:'Components',facility_only:true}),
+  recipe('facility_hull_plate',[['steel_plate',1]],[['hull_plate',1]],{category:'Components',facility_only:true,produced_by_facility_ids:['hull_press']}),
   recipe('craft_armor_plate',[['hull_plate',2],['steel_plate',1]],[['armor_plate',1]],{category:'Defense'}),
   recipe('wire_from_iron',[['iron_ore',5]],[['wire',1]],{category:'Components'}),
   recipe('wire_from_copper',[['copper_ore',2]],[['wire',1]],{category:'Components'}),
@@ -150,5 +150,27 @@ test('trace prints the root recipe\'s components and output at market value, sid
     const bred=await trace('breed_catalyst');
     assert.match(f.printed(),/components ≈ 3 cr \(median ask, 3 markets\), 1 of 2 inputs valued · output no value known/);
     assert.match(bred.did,/components ≈ 3 cr \(1 of 2 valued\), output ≈ \? at market/);
+  } finally {unbind();rmSync(runtime,{recursive:true,force:true});}
+});
+
+test('trace and catalog name where a facility-only step is rented: a listed station with its fee, and one a no_facility refusal named',async()=>{
+  const runtime=mkdtempSync(join(tmpdir(),'spacemolt-trace-'));
+  const f=world(runtime);
+  try {
+    writeFileSync(join(runtime,'names.json'),JSON.stringify({far_depot:'Far Depot'}));
+    rememberFacilities(runtime,'far_depot','sol',{structuredContent:{action:'list',base_id:'far_depot',station_facilities:[],player_facilities:[],faction_facilities:[],
+      public_facilities:[{facility_id:'f1',type:'hull_press',name:'Hull Press',production:{public:true,rental_fee_per_run:40,output_per_run:1,queued_runs:0,backlog_ticks:0}},
+        {facility_id:'f2',type:'hull_press',name:'Hull Press',production:{public:true,rental_fee_per_run:55,queued_runs:3,backlog_ticks:30}},
+        {facility_id:'f3',type:'repair_bay',name:'Repair Bay',production:{public:false,queued_runs:0,backlog_ticks:0}}]}},100);
+    rememberNoFacility(runtime,'facility_hull_plate',"'facility hull plate' is made in a Hull Press, and no facility here can make it. "
+      +'Nearest public one: Crimson War Citadel in Krynn (1 jump(s) away) — travel there to queue it',100);
+    rememberNoFacility(runtime,'facility_hull_plate','a text that names nothing',100);
+    const out=await trace('facility_hull_plate',2);
+    assert.equal(out.status,'done',out.why);
+    assert.match(f.printed(),/^ {2}facility_hull_plate → Hull Press: Far Depot \(sol\) 40 cr\/run, \d+t old; Crimson War Citadel \(Krynn\) fee unknown, \d+t old$/m,
+      'the cheaper of two presses at one station, then the station the refusal named');
+    await catalog({makes:'hull_plate'});
+    assert.match(f.printed(),/\(facility_hull_plate\) {2}\[Components\] {2}2 ticks {2}facility only — Hull Press: Far Depot \(sol\) 40 cr\/run/);
+    assert.equal(f.sent.length,0,'the facility book is memory, not a game command');
   } finally {unbind();rmSync(runtime,{recursive:true,force:true});}
 });

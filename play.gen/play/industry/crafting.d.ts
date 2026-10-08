@@ -40,6 +40,7 @@ declare class CatalogUnavailable extends CatalogUnavailable_base<{
 }
 /** The recipe graph, or why there is none. The promise never rejects: a failed fetch is the typed failure. */
 export declare const graphOf: () => Effect.Effect<Result.Success<RecipeGraph, never> | Result.Failure<RecipeGraph, never> | Result.Success<never, CatalogUnavailable> | Result.Failure<never, CatalogUnavailable>, never, never>;
+export declare function facilityNames(dir: string | undefined): Map<string, string>;
 /** Each item's catalog `base_value`, from the copy `revalidated` keeps in `dir`; empty with no copy. Never fetches.
  * ponytail: only a pilot that has read the catalog (any recipe call) has the copy; fetch it here if the floor is ever missing live. */
 export declare function baseValues(dir: string | undefined): Map<string, number>;

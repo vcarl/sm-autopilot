@@ -7,6 +7,8 @@
  *   never by age: a consumer discounts by age itself.
  * - `stores`: what the account's station storage holds, per base and item, as the game last said:
  *   a `storage/view` replaces a base, a deposit/withdraw/buy-to-storage reply sets an item.
+ * - `facilities`: the public facilities seen at each base, one row per facility type, with its fee per run
+ *   when a `facility/list` there said it; a `no_facility` refusal adds the one it names, fee unknown.
  *
  * Every read is a pure function over these tables. The journal stays the telemetry record: a book read
  * is still a `book` line in `books.jsonl`, a store change a `store` line. */
@@ -18,6 +20,7 @@ import {journalRun} from '../run-record.ts';
 import {listing} from '../servicing.ts';
 import {field} from './game.ts';
 import type {RememberedBook} from './market.ts';
+import {readNames} from './places.ts';
 
 const FILE='world.db';
 /** Levels kept a side: what `books.jsonl` journals too. A row's `buy_quantity`/`sell_quantity` keep the whole depth. */
@@ -66,7 +69,12 @@ const tx=<T>(db:DatabaseSync,body:()=>T):T=>{
  * the journal's run of reads. Once, in one transaction: a torn import is none. The old files are left where they are. */
 function migrate(db:DatabaseSync,dir:string):void {
   const version=Number(db.prepare('PRAGMA user_version').get()?.user_version??0);
-  if(version>=1)return;
+  if(version<1)importFiles(db,dir);
+  if(version<2)tx(db,()=>{db.exec(FACILITIES);db.exec('PRAGMA user_version=2');});
+}
+/** Version 2: the facility book. */
+const FACILITIES=`CREATE TABLE facilities(base_id TEXT NOT NULL,type TEXT NOT NULL,row TEXT NOT NULL,PRIMARY KEY(base_id,type)) WITHOUT ROWID`;
+function importFiles(db:DatabaseSync,dir:string):void {
   tx(db,()=>{
     for(const sql of SCHEMA)db.exec(sql);
     const books=new Map<string,RememberedBook>();
@@ -273,4 +281,63 @@ export function holdings(dir:string|undefined,now:number):{base_id:string;item_i
       age:book.tick===undefined?null:Math.max(0,now-book.tick),since:sinceOf(level)??null});}
   return readStores(dir).map(row=>({base_id:row.base_id,item_id:row.item_id,quantity:row.quantity,bid:bids.get(row.item_id)??null}))
     .sort((a,b)=>(b.bid?.price??0)*Math.min(b.quantity,b.bid?.quantity??0)-(a.bid?.price??0)*Math.min(a.quantity,a.bid?.quantity??0));
+}
+
+// ---- The facility book ---------------------------------------------------------------------
+
+/** A public facility seen at a base. `type` is the facility definition id; a row learnt from a `no_facility`
+ * refusal has only the name the server gave, as both `type` and `name`, and no fee. `tick` is when it was seen. */
+export interface FacilitySeen {base_id:string;type:string;name:string;system_id?:string;recipe_id?:string;
+  fee_per_run?:number;output_per_run?:number;queued_runs?:number;backlog_ticks?:number;tick?:number;at:string}
+/** Every facility row kept, every base. */
+export function readFacilities(dir:string|undefined):FacilitySeen[] {
+  return (worldDb(dir)?.prepare('SELECT row FROM facilities').all()??[]).flatMap(raw=>{
+    // oxlint-disable-next-line typescript/consistent-type-assertions
+    try {const row:unknown=JSON.parse(String(raw.row));return typeof field(row,'base_id')==='string'?[row as FacilitySeen]:[];} catch {return [];} // cast: a row only putFacilities wrote; edge: a torn row
+  });
+}
+function putFacilities(dir:string|undefined,base_id:string,rows:FacilitySeen[],whole:boolean):void {
+  const db=worldDb(dir);
+  if(!db||!base_id)return;
+  tx(db,()=>{
+    if(whole)db.prepare('DELETE FROM facilities WHERE base_id=?').run(base_id);
+    const write=db.prepare(`INSERT OR ${whole?'REPLACE':'IGNORE'} INTO facilities VALUES(?,?,?)`);
+    for(const row of rows)write.run(base_id,row.type,JSON.stringify(row));
+  });
+}
+/** A `facility/list` reply, kept as `base_id`'s whole facility book: each public facility type there at its lowest fee
+ * per run. The reply's own `base_id` wins over the one passed. Never throws. */
+export function rememberFacilities(dir:string|undefined,base_id:string,system_id:string|undefined,reply:unknown,tick:number|undefined):void {
+  try {
+    const body=bodyOf(reply),base=field(body,'base_id');
+    const at=typeof base==='string'&&base?base:base_id,now=new Date().toISOString(),kept=new Map<string,FacilitySeen>();
+    for(const key of ['public_facilities','station_facilities','faction_facilities','player_facilities']) {
+      const listed=field(body,key);
+      for(const entry of Array.isArray(listed)?listed:[]) {
+        const type=field(entry,'type'),name=field(entry,'name'),production=field(entry,'production'),recipe=field(entry,'recipe_id');
+        if(typeof type!=='string'||field(production,'public')!==true)continue;
+        const fee=count(field(production,'rental_fee_per_run')),output=count(field(production,'output_per_run'));
+        const queued=count(field(production,'queued_runs')),backlog=count(field(production,'backlog_ticks'));
+        const row:FacilitySeen={base_id:at,type,name:typeof name==='string'?name:type,...system_id?{system_id}:{},
+          ...typeof recipe==='string'?{recipe_id:recipe}:{},...fee===undefined?{}:{fee_per_run:fee},...output===undefined?{}:{output_per_run:output},
+          ...queued===undefined?{}:{queued_runs:queued},...backlog===undefined?{}:{backlog_ticks:backlog},...tick===undefined?{}:{tick},at:now};
+        const had=kept.get(type);
+        if(!had||(fee??Infinity)<(had.fee_per_run??Infinity))kept.set(type,row);
+      }
+    }
+    putFacilities(dir,at,[...kept.values()],true);
+  } catch {} // edge: a book this memory could not keep is still the game's; the next read keeps it
+}
+/** A `no_facility` refusal for `recipe_id`, which names the nearest public facility that makes it ("… is made in a Alloy
+ * Foundry … Nearest public one: Crimson War Citadel in Krynn (1 jump(s) away) …"), kept as that station having it, fee
+ * unknown. A row already kept there is left alone; a text that does not read keeps nothing. Never throws. */
+export function rememberNoFacility(dir:string|undefined,recipe_id:string,text:string,tick:number|undefined):void {
+  try {
+    const hit=/is made in an? (.+?),.*?Nearest public one: (.+?) in (.+?) \(/s.exec(text);
+    if(!hit)return;
+    const [,name='',station='',system='']=hit;
+    const base_id=Object.entries(readNames(dir)).find(([,known])=>known===station)?.[0]??station;
+    if(readFacilities(dir).some(row=>row.base_id===base_id&&(row.name===name||row.recipe_id===recipe_id)))return;
+    putFacilities(dir,base_id,[{base_id,type:name,name,system_id:system,recipe_id,...tick===undefined?{}:{tick},at:new Date().toISOString()}],false);
+  } catch {} // edge: a hint this memory could not keep; the next refusal says it again
 }

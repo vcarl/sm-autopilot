@@ -8,6 +8,7 @@
 import type { Recipe } from '@spacemolt/lib';
 import { Effect } from 'effect';
 import { type CheapAsk, type RememberedBook } from '../market.ts';
+import { type FacilitySeen } from '../world.ts';
 import type { Outcome } from '../types.ts';
 export interface Browsed {
     /** Every matching recipe, in catalog order; only the first 20 are printed. */
@@ -23,6 +24,12 @@ export interface CatalogFilter {
     makes?: string;
     /** Recipes whose inputs include this item id. */
     uses?: string;
+}
+/** Where a facility-only recipe is rented, from the facility book: its facility's name, then up to three stations known
+ * to have one, cheapest fee first (an unknown fee last), each with its age in ticks. */
+export interface Rentals {
+    name: string;
+    known: FacilitySeen[];
 }
 /** The catalog's recipes, filtered: `makes` an item, `uses` an item, in a `category`, or matching `search`; the filters
  * combine. Prints the first 20 as text; `did` says how many matched and how to narrow. Reads only the catalog. */

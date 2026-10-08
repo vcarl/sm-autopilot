@@ -9,12 +9,13 @@ import type {Recipe} from '@spacemolt/lib';
 import {Effect,Result} from 'effect';
 import {miningInventory} from '../../mining-inventory.ts';
 import type {RecipeGraph} from '../../recipe-graph.ts';
-import {cheapestAsk,knownBooks,tickNow,type CheapAsk,type RememberedBook} from '../market.ts';
+import {cheapestAsk,knownBooks,tickNow,ticksOld,type CheapAsk,type RememberedBook} from '../market.ts';
+import {field} from '../game.ts';
 import {readNames} from '../places.ts';
 import {acct,edge,jobEffect,line,runtimeDir} from '../runtime.ts';
-import {readStores} from '../world.ts';
+import {readFacilities,readStores,type FacilitySeen} from '../world.ts';
 import type {Outcome} from '../types.ts';
-import {baseValues,graphOf} from './crafting.ts';
+import {baseValues,facilityNames,graphOf} from './crafting.ts';
 
 const CAP=20,TREE_LINES=60,ALTERNATES=8;
 type Rows=readonly {item_id:string;quantity:number}[]|undefined;
@@ -39,10 +40,34 @@ export interface CatalogFilter {
   uses?:string;
 }
 
+/** Where a facility-only recipe is rented, from the facility book: its facility's name, then up to three stations known
+ * to have one, cheapest fee first (an unknown fee last), each with its age in ticks. */
+export interface Rentals {name:string;known:FacilitySeen[]}
+const RENTALS=3;
+function rentalsFor(recipe:Recipe,book:readonly FacilitySeen[],defs:ReadonlyMap<string,string>):Rentals {
+  // The catalog dump carries it; the lib's `Recipe` type does not yet.
+  const listed=field(recipe,'produced_by_facility_ids'),ids=(Array.isArray(listed)?listed:[]).filter((id):id is string=>typeof id==='string');
+  // A definition's name from the catalog copy, else as a station listed it.
+  const names=ids.flatMap(id=>defs.get(id)??book.find(row=>row.type===id)?.name??[]);
+  const known=book.filter(row=>row.recipe_id===recipe.id||ids.includes(row.type)||names.includes(row.name))
+    .sort((a,b)=>(a.fee_per_run??Infinity)-(b.fee_per_run??Infinity)||(b.tick??-1)-(a.tick??-1));
+  return {name:names[0]??known[0]?.name??ids[0]??'a facility',known};
+}
+/** The facility book as `trace()` and `catalog()` print it: read once per call. */
+function facilityBook(dir:string|undefined) {
+  const book=readFacilities(dir),defs=facilityNames(dir),names=readNames(dir),now=tickNow(dir);
+  const at=(row:FacilitySeen)=>`${names[row.base_id]??row.base_id}${row.system_id?` (${names[row.system_id]??row.system_id})`:''} `
+    +`${row.fee_per_run===undefined?'fee unknown':`${row.fee_per_run} cr/run`}${row.tick===undefined?'':`, ${ticksOld(row.tick,now)}t old`}`;
+  /** `Hull Press: Far Depot (sol) 40 cr/run, 5t old; …`, or that none is known yet. */
+  return (recipe:Recipe)=>{const {name,known}=rentalsFor(recipe,book,defs);
+    return `${name}: ${known.length?known.slice(0,RENTALS).map(at).join('; ')+(known.length>RENTALS?`; +${known.length-RENTALS} more`:'')
+      :'no station known yet (a craft() dry run names the nearest)'}`;};
+}
+
 /** One recipe as printed: name, id, category, then what goes in and what comes out. */
-const card=(graph:RecipeGraph,recipe:Recipe)=>[
+const card=(graph:RecipeGraph,recipe:Recipe,rent:(recipe:Recipe)=>string)=>[
   `  ${recipe.name}  (${recipe.id})  [${recipe.category}]`+(recipe.crafting_time?`  ${recipe.crafting_time} ticks`:'')
-    +(graph.isCraftable(recipe)||recipe.category==='Ship Passive'?'':'  facility only'),
+    +(graph.isCraftable(recipe)||recipe.category==='Ship Passive'?'':`  facility only — ${rent(recipe)}`),
   `    In: ${listed(recipe.inputs)}`,`    Out: ${listed(recipe.outputs)}`].join('\n');
 
 /** The catalog's recipes, filtered: `makes` an item, `uses` an item, in a `category`, or matching `search`; the filters
@@ -59,7 +84,8 @@ export const catalogEffect=(filter:CatalogFilter={})=>
       &&(!category||low(recipe.category)===category)
       &&(!needle||[recipe.id,recipe.name,recipe.category,...(recipe.outputs??[]).map(out=>out.item_id)].some(text=>low(text).includes(needle))));
     const shown=recipes.slice(0,CAP);
-    if(shown.length)line(shown.map(recipe=>card(graph,recipe)).join('\n'));
+    const rent=facilityBook(runtimeDir());
+    if(shown.length)line(shown.map(recipe=>card(graph,recipe,rent)).join('\n'));
     const asked=Object.entries(filter).filter(([,value])=>value).map(([key,value])=>`${key} ${JSON.stringify(value)}`).join(', ');
     const counts=new Map<string,number>();
     for(const recipe of recipes.length?recipes:graph.recipes.filter(row=>!row.hidden))counts.set(recipe.category,(counts.get(recipe.category)??0)+1);
@@ -242,8 +268,10 @@ export const traceEffect=(itemOrRecipe:string,quantity=1)=>
     const valueLine=value&&`    components ${worth(value.components,value.inputs,'inputs')} · output ${worth(value.output,value.outputs,'outputs')}`;
 
     const asked=(ask:CheapAsk|null|undefined)=>ask?` · cheapest ask ${ask.price} at ${named(ask.base_id)}${ask.age===null?'':` (${ask.age} ticks old)`}`:'';
+    const rent=facilityBook(dir),rentals=detail.steps.flatMap(row=>{const recipe=row.facility_only?graph.recipe(row.recipe):undefined;
+      return recipe?[`  ${row.recipe} → ${rent(recipe)}`]:[];});
     const label=(node:TraceNode)=>node.recipe!==undefined
-      ?`${node.need}x ${node.item_id}  (${node.recipe})${node.facility_only?' [facility]':''}${node.have?`  have ${node.have}`:''}`
+      ?`${node.need}x ${node.item_id}  (${node.recipe})${node.facility_only?' [facility: rent below]':''}${node.have?`  have ${node.have}`:''}`
       :`${node.need}x ${node.item_id}  [${how(node)}]${node.have?`  have ${node.have}`:''}${asked(node.ask)}`;
     const drawn=[label(tree),...valueLine?[valueLine]:[]];
     const draw=(nodes:TraceNode[],prefix:string)=>nodes.forEach((node,i)=>{const last=i===nodes.length-1;
@@ -259,6 +287,7 @@ export const traceEffect=(itemOrRecipe:string,quantity=1)=>
     const alt=detail.alternates.slice(0,ALTERNATES).map(row=>`  ${row.item_id}: ${row.recipe}${row.facility_only?' [facility]':''} (${listed(row.inputs)} → ${row.makes})`);
     line([...drawn.length>TREE_LINES?[...drawn.slice(0,TREE_LINES),`    … ${drawn.length-TREE_LINES} more lines: trace an input on its own`]:drawn,
       '─'.repeat(40),'Raw materials:',...raw,
+      ...rentals.length?['Facilities to rent (inputs from that station\'s store, output lands there):',...rentals]:[],
       ...alt.length?['Alternates:',...alt,...detail.alternates.length>ALTERNATES?[`  … ${detail.alternates.length-ALTERNATES} more in detail.alternates`]:[]]:[],
       ...detail.crafting_ticks?[`Crafting time: ${detail.crafting_ticks} ticks at the base rate (workshop skill shortens it)`]:[]].join('\n'));
 
