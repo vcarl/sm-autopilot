@@ -78,7 +78,8 @@ JUNCTURE_PROMPT = (
     "stance or objective_done goes in the same call when they change. When the flight taught you "
     "something about how the game works that the docs don't say, add it to your beliefs in the "
     "same call, and drop a belief the flight proved wrong.\n"
-    "5. Answer in one or two lines — what flew, how it ended, what comes next — and end the turn.\n"
+    "5. Answer in a couple of lines — what flew and why, how it ended, what comes next — and end "
+    "the turn.\n"
     "When a flight is already under way, say so in one line and end the turn.\n"
     'When there is no ship\'s state above, say "no reading from the ship" and end the turn.'
 )

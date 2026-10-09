@@ -217,6 +217,8 @@ def test_the_cron_prompt_names_only_the_tools_that_are_the_turn():
     # A check is run's own option, and the plan is kept with Hermes' todo list.
     assert "`check: true`" in juncture.JUNCTURE_PROMPT and "todo_list" in juncture.JUNCTURE_PROMPT
     assert juncture.job_fields({"stance": "Hunter"})["prompt"] == juncture.JUNCTURE_PROMPT
+    # The closing lines say why the flight flew, not only what it did: a reviewer reads them cold.
+    assert "what flew and why" in juncture.JUNCTURE_PROMPT
     # No shift to put down and nothing that must be done before a run.
     for gone in (r"\brest\b", r"\bshift\b", "half an hour"):
         assert not re.search(gone, juncture.JUNCTURE_PROMPT.lower()), gone
