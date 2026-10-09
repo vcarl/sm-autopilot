@@ -19,7 +19,7 @@ export function inFaction(account:object,say?:(text:string)=>void):boolean {
   if(field(field(field(account,'state'),'player'),'faction_id'))return true;
   if(say&&!saidNoFaction) {
     saidNoFaction=true;
-    say('no faction: faction intel (trade ledger, intel map) is neither filed nor read');
+    say('no faction: faction intel (trade ledger, intel map) is neither filed nor read; join or create a faction to share it (Factions in the play README)');
   }
   return false;
 }

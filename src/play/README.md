@@ -287,6 +287,27 @@ minute.
 - **Skills.** Each trains by its own act (the game's catalog lists each skill's `training_source`;
   nothing here reads it): mining by mining, exploration by a first visit, salvaging by salvage.
 
+## Factions and owning things
+
+A faction is ordinary play, not an endgame. "You must be in a faction" (live: every trade-intel
+and intel-map call) is fixed by joining or founding one. Membership gives the shared trade
+ledger and intel map (`spreads()` and `routes()` read the ledger; it needs the faction's
+trade-intel facility), a treasury and faction storage (`spacemolt_storage` with `target:
+'faction'`), faction facilities at stations (a `faction_desk` is 100k cr and materials; the
+catalog lists the rest), and stations of your own (`spacemolt_facility.base_cost()` at a lawless
+POI says what founding one takes there, `found_station({name})` founds it).
+
+All raw, `account().commands.spacemolt_faction.<action>()`: `list({limit?})` the factions,
+`info({id})` one (members, `leader_username`, facilities, `owned_bases`); joining needs an invite,
+so ask a leader in chat, then `get_invites()` and `accept_invite({id})` with the faction's id.
+`create({id, text})` founds one: `id` a 2–4 character tag, `text` a unique name; what it costs is
+unverified. `account().player?.faction_id` says whether you are in one.
+
+`get_guide({id: 'base-builder'})` is the game's own guide to building; `get_guide({})` lists every
+guide. A rare ore can be worth more as an input than at a counter: `catalog({uses: 'trade_crystal'})`
+leads to `trade_cipher`, a build material of the faction `trade_ledger`, and to `sensor_array`, a
+material of 500-odd production facilities.
+
 ## Mood and Tired
 
 Your mood is your stance's own (Cautious with none) and sets margins: the fuel and hull lines under

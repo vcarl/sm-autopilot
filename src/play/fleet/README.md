@@ -12,7 +12,8 @@ Five different things get called "fleet". Keep them apart:
 4. **Alts**: several characters, each its own account, is the only way several ships fly at
    once. An alt that only hauls is a **freighter** (below): your ship's computer flies it, on its
    own account, repeating one circuit, with no pilot.
-5. **Factions**: a shared garage and treasury. Advanced stage; not wrapped.
+5. **Factions**: a shared garage, treasury and trade ledger. Not wrapped; see "Factions and owning
+   things" in the play README.
 
 ## Functions
 
