@@ -331,10 +331,28 @@ in `try`.
 
 ## Asking yourself a question mid-flight
 
-`ask({question, choices?})`: the flight computer pauses the flight to ask you, and resolves to your
-answer (exactly one of `choices`, when given). `spacemolt_run` returns with the question;
-`spacemolt_answer({answer})` resumes the flight, `spacemolt_answer({stop: true})` ends it. The flight's clock keeps
-running while it waits, and an answer takes minutes: ask only at a fork a rule cannot decide.
+`ask({question, choices?})` is how a flight hands you a judgment call with fresh numbers in front of
+you: which hull, fight or leave, which of two buyers. You answer it, not the user. `spacemolt_run`
+returns with the question as soon as it is asked; `spacemolt_answer({answer})` resumes the flight
+from that line, with your answer (exactly one of `choices`, when given) as the value of `await
+ask(...)`, and waits on the flight again; `spacemolt_answer({stop: true})` ends it instead. A question
+still open when your turn ends is the first thing you see on the next one. What it costs: the
+flight's 25-minute clock runs while it waits, one question at a time, never in a `spacemolt_query`.
+
+```ts
+import {shipsForSale, buyShip, ask} from 'play';
+
+export default async function main() {
+  const yard = await shipsForSale();
+  const listed = yard.detail.for_sale.flatMap(row => row.kind === 'listing' ? [row] : []).slice(0, 3);
+  if (!listed.length) return yard;
+  const pick = await ask({
+    question: 'Hulls here: ' + listed.map(row => `${row.listing.listing_id} ${row.class.name} ${row.listing.price} cr (${row.versus})`).join('; '),
+    choices: [...listed.map(row => row.listing.listing_id), 'none'],
+  });
+  return pick === 'none' ? yard : buyShip(pick, {switchTo: true});
+}
+```
 
 ## Chat
 
