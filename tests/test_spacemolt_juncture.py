@@ -284,6 +284,15 @@ def test_reflect_sets_goal_and_stance_through_the_bridge_whatever_the_pilot_is_d
     spacemolt._reflect({"steps": []})
     assert sent[-1] == ("pilot", {"set": {"steps": None}}) and "steps" not in juncture.read_pilot()
 
+    # Live (kvothe): "this recipe is facility-only" was found again over nine days. What the pilot
+    # learns about the game is stored whole like the steps, and an empty list clears it.
+    assert "Nothing written" in spacemolt._reflect({"beliefs": "facility-only"})
+    said = spacemolt._reflect({"beliefs": [" Titanium Alloy is facility-only ", ""]})
+    assert sent[-1] == ("pilot", {"set": {"beliefs": ["Titanium Alloy is facility-only"]}}) and "1 belief(s)" in said
+    assert _journal_rows("reflection")[-1]["beliefs"] == ["Titanium Alloy is facility-only"]
+    spacemolt._reflect({"beliefs": []})
+    assert sent[-1] == ("pilot", {"set": {"beliefs": None}}) and "beliefs" not in juncture.read_pilot()
+
 
 _GATEWAY_LOAD = """
 import json, sys
@@ -417,7 +426,8 @@ def test_a_bridge_that_cannot_be_reached_still_hands_over_the_record(monkeypatch
     """No bridge at all ("bridge failed to start", live 2026-10-02): the record needs none, so the
     fire still carries the objective and the standing instruction, and says nothing else was read."""
     _seed({"name": "kvothe", "stance": "Trader", "objective": "reach 1,000,000 cr", "goal": "work the ore route",
-           "goal_at": "2026-10-02T15:10:00Z", "instruction": {"text": "scan markets for cheap materials", "at": "2026-10-02T16:34:58Z"}})
+           "goal_at": "2026-10-02T15:10:00Z", "instruction": {"text": "scan markets for cheap materials", "at": "2026-10-02T16:34:58Z"},
+           "beliefs": ["Titanium Alloy is facility-only", *(f"belief {n} " + "b" * 400 for n in range(30))]})
 
     def closed(action, params=None):
         raise RuntimeError("bridge failed to start")
@@ -426,8 +436,10 @@ def test_a_bridge_that_cannot_be_reached_still_hands_over_the_record(monkeypatch
     context = juncture.juncture_context({"platform": "cron"})
     for text in ("The ship did not answer this time", "Objective: reach 1,000,000 cr",
                  "Instruction (given 10-02 16:34Z): scan markets for cheap materials",
-                 "Goal (set 10-02 15:10Z): work the ore route"):
+                 "Goal (set 10-02 15:10Z): work the ore route", "  - Titanium Alloy is facility-only",
+                 "  +16 more, in pilot().beliefs"):
         assert text in context, (text, context)
+    assert len(context) <= juncture.SECTION_LIMIT, len(context)
     row, = _journal_rows("juncture")
     assert row["menu_error"] == "RuntimeError: bridge failed to start" and row["context"] == context
     # The render carried the instruction, so a run from it consumes it, as any other render.

@@ -75,7 +75,9 @@ JUNCTURE_PROMPT = (
     "4. Before you end the turn, call spacemolt_reflect to set the goal to what the next flight "
     "should do, in one line naming one move (e.g. \"trade copper_wiring frontier_station → "
     "first_step_memorial\"). Not what you found: the report and the ship's state keep that. A "
-    "stance or objective_done goes in the same call when they change.\n"
+    "stance or objective_done goes in the same call when they change. When the flight taught you "
+    "something about how the game works that the docs don't say, add it to your beliefs in the "
+    "same call, and drop a belief the flight proved wrong.\n"
     "5. Answer in one or two lines — what flew, how it ended, what comes next — and end the turn.\n"
     "When a flight is already under way, say so in one line and end the turn.\n"
     'When there is no ship\'s state above, say "no reading from the ship" and end the turn.'
@@ -199,6 +201,13 @@ def _unreached(record: dict[str, Any]) -> str:
     if record.get("goal"):
         set_at = f" (set {_stamp(_when(record['goal_at']))})" if record.get("goal_at") else ""
         lines.append(f"Goal{set_at}: {record['goal']}")
+    if beliefs := [str(belief) for belief in record.get("beliefs") or []]:
+        # ponytail: the first 15, each cut at 200 (BELIEF_CHARS in src/context.ts), so the list stays
+        # well inside SECTION_LIMIT; the bridge's render budgets it exactly.
+        lines.append("Beliefs (yours, about how the game works):")
+        lines += [f"  - {belief[:199] + '…' if len(belief) > 200 else belief}" for belief in beliefs[:15]]
+        if len(beliefs) > 15:
+            lines.append(f"  +{len(beliefs) - 15} more, in pilot().beliefs")
     return "\n".join(lines)
 
 

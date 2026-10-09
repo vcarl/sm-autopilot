@@ -218,6 +218,9 @@ const PilotRecord=Schema.Struct({name:Schema.optionalKey(Schema.String),objectiv
   goal_at:Schema.optionalKey(Schema.String),
   /** The pilot's own checklist toward the objective: short lines, set whole by reflect. */
   steps:Schema.optionalKey(Schema.Array(Schema.String)),
+  /** What the pilot found out about how the game works that the docs do not say, set whole by
+   * reflect. About the game, not the task: a new objective leaves them standing. */
+  beliefs:Schema.optionalKey(Schema.Array(Schema.String)),
   stance:Schema.optionalKey(Schema.Literals(STANCES.map(stance=>stance.name))),
   permissions:Schema.optionalKey(Schema.Struct({max_liability:Schema.optionalKey(Schema.Number),credit_reserve:Schema.optionalKey(Schema.Number)})),
   instruction:Schema.optionalKey(Schema.Struct({text:Schema.String,at:Schema.String}))});
@@ -407,6 +410,7 @@ export function serve(account:Account,command:ReadinessCommand,options:ServeOpti
         ...who.stance?{stance:who.stance}:{},mood:who.mood,...who.tired_by?{tired_by:who.tired_by}:{},
         ...who.goal?{goal:who.goal,...record().goal_at?{goal_at:record().goal_at}:{}}:{},
         ...record().steps?.length?{steps:record().steps}:{},
+        ...record().beliefs?.length?{beliefs:record().beliefs}:{},
         ...who.permissions?{permissions:who.permissions}:{},
         ...who.objective?{objective:who.objective}:{},
         ...who.instruction?{instruction:who.instruction}:{},
@@ -460,6 +464,7 @@ export function serve(account:Account,command:ReadinessCommand,options:ServeOpti
     const set:Record<string,unknown>={...valid,...Object.fromEntries(cleared.map(key=>[key,null]))};
     // A new objective retires the plan made for the old one: the goal, its steps and the stance (which
     // picks the career skill a juncture carries) go with it, unless this same write sets them.
+    // The beliefs stay: they are about the game, not the objective.
     // The same text again is not new; retiring the objective (null) leaves the plan standing.
     if(typeof set.objective==='string'&&set.objective!==prev.objective) {
       for(const key of ['goal','steps','stance'])if(!(key in set)&&key in prev)set[key]=null;

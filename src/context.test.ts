@@ -8,7 +8,7 @@ import {mkdirSync,mkdtempSync,writeFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {journalResult,serve,type Pilot} from './bridge.ts';
-import {CHAT_CHARS,CHAT_PER_CHANNEL,FIRST_GOAL,MOVES_HEAD,SECTION_LIMIT,questionText,recordMenu,renderContext} from './context.ts';
+import {BELIEF_CHARS,CHAT_CHARS,CHAT_PER_CHANNEL,FIRST_GOAL,MOVES_HEAD,SECTION_LIMIT,questionText,recordMenu,renderContext} from './context.ts';
 import {renderLine} from './journal-lines.ts';
 import {bridgeWorld} from './test-support/bridge-world.ts';
 
@@ -338,6 +338,33 @@ test('the steps reach the context under the goal', () => {
   const goal=rows.findIndex(line=>line.startsWith('Goal:'));
   assert.equal(rows[goal+1],'Steps: 1) price an upgrade; 2) fly the circuit_board loop');
   assert.ok(!hasLine(render(menuOf(12)),'Steps:'));
+});
+
+test('the beliefs reach the context under the plan', () => {
+  const rows=render({...menuOf(12),steps:['price an upgrade'],beliefs:['Forge Titanium Alloy is facility-only','faction intel is refused at Sol']}).split('\n');
+  const steps=rows.findIndex(line=>line.startsWith('Steps:'));
+  assert.deepEqual(rows.slice(steps+1,steps+4),['Beliefs (yours, about how the game works):',
+    '  - Forge Titanium Alloy is facility-only','  - faction intel is refused at Sol']);
+  assert.ok(!hasLine(render(menuOf(12)),'Beliefs'));
+});
+
+test('a long beliefs list gives way, and never pushes the section over the limit', () => {
+  // The list is the pilot's to grow and nothing refuses a long one: the render budgets it. Over the
+  // limit it gives way from its end, after the hold, the chat and the older runs, and says how many.
+  const dir=runtime();
+  lines(dir,'gameplay.jsonl',[0,1,2,3,4].map(n=>({at:`2026-10-01T1${n}:00:00Z`,event:'run',phase:'ended',outcome:'done',
+    reason:'r'.repeat(150),commands:1,work:{fn:'gatherUntil',credits:100}})));
+  const beliefs=Array.from({length:60},(_,n)=>`belief ${n} ${'b'.repeat(300)}`);
+  const context=render({...menuOf(12,bigHold()),text:FULL_MOVES,held:HELD,beliefs},dir);
+  assert.ok(context.length<=SECTION_LIMIT,String(context.length));
+  const shown=context.split('\n').filter(line=>line.startsWith('  - belief '));
+  assert.ok(shown.length>0&&shown.length<60,String(shown.length));
+  assert.ok(shown.every(line=>line.length===4+BELIEF_CHARS&&line.endsWith('…')),'each belief is cut to a line');
+  assert.ok(context.includes(`  +${60-shown.length} more, in pilot().beliefs`),context);
+  assert.ok(context.includes('Missions held (2 of 5):')&&context.includes('  m4 `tradeRun'),'the moves and missions stand');
+  assert.equal(recentOf(context).length,1,'the older runs gave way first');
+  // Without the game the record's beliefs still render, inside the limit.
+  assert.ok(renderContext(recordMenu({beliefs},dir),dir).length<=SECTION_LIMIT);
 });
 
 test('a failed game read still renders the record and the journal', () => {

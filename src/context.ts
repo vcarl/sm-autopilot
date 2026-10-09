@@ -2,8 +2,8 @@
  * `menu`, the pilot's journal and the chat record (the `context` request). Python only journals it.
  *
  * Labelled lines, each fact once, budgeted on the final string: over `SECTION_LIMIT` core drops
- * the section whole, so the hold list gives way first, then the chat messages and the older recent
- * lines — never a fact line, the moves (capped at `MOVES_CHARS` in play/menu.ts) or the missions held.
+ * the section whole, so the hold list gives way first, then the chat messages, the older recent
+ * lines and the beliefs — never a fact line, the moves (capped at `MOVES_CHARS` in play/menu.ts) or the missions held.
  *
  * The words are Python's (`juncture.py` rendered this until 10-06), kept to the character: a Python
  * `None` where a value is missing included. */
@@ -26,6 +26,8 @@ const EARNED_LINES=20_000;
 const CHAT_LINES=3_000;
 /** What a pilot with no goal of its own is pointed at. */
 export const FIRST_GOAL='Learn the ship: look around, find what sells, and make the first profit.';
+/** How much of one belief is shown; the rest is cut and marked. A belief is a claim, a line long. */
+export const BELIEF_CHARS=200;
 /** The Chat section: every private message up to this many, and the last few of each other channel. */
 export const CHAT_PRIVATE=10,CHAT_PER_CHANNEL=3;
 /** How much of one message is shown; the rest is cut and marked. */
@@ -153,7 +155,7 @@ function runRecordFlying(runtime:string|undefined) {
  * the run `run.json` keeps. Marked `unread` so nothing reads it as the ship. */
 export function recordMenu(record:Pilot,runtime:string|undefined):Row {
   const menu:Row={};
-  for(const key of ['objective','goal','goal_at','steps','stance','permissions','instruction'] as const)
+  for(const key of ['objective','goal','goal_at','steps','beliefs','stance','permissions','instruction'] as const)
     if(on(record[key]))menu[key]=record[key];
   const run=runRecordFlying(runtime);
   if(run)Object.assign(menu,{busy:true,started:run.started,fn:run.last_job,question:run.question?.question?run.question:null});
@@ -330,6 +332,10 @@ function situation(menu:Row,said:Row|null,chat:{lines:string[];notes:string[]},r
   const earned=rows.some(row=>row.phase==='ended'&&isRecord(row.work)&&Math.trunc(Number(or(rec(row.work).credits,0))||0)>0);
   facts.push(on(menu.goal)?`Goal${on(menu.goal_at)?` (set ${stamp(when(menu.goal_at))})`:''}: ${py(menu.goal)}`:earned?'Goal: none set.':`Goal: none set yet; a first one: ${FIRST_GOAL}`);
   if(on(menu.steps))facts.push(`Steps: ${list(menu.steps).map((step,n)=>`${n+1}) ${py(step)}`).join('; ')}`);
+  // Under the plan, as the plan's footing. Not a fact line: the list is the pilot's to grow, so it
+  // gives way (from its end) before the recent runs do, and the whole list stays in pilot().
+  const beliefsAt=facts.length;
+  const beliefs=list(or(menu.beliefs,[])).map(belief=>{const text=py(belief);return length(text)>BELIEF_CHARS?`${cut(text,BELIEF_CHARS-1)}…`:text;});
   let mood=py(or(menu.mood,'Cautious'));
   if(on(menu.tired_by))mood+=` (${py(menu.tired_by)})`;
   // The mood is derived from the ship, so without the game there is none to name.
@@ -359,7 +365,7 @@ function situation(menu:Row,said:Row|null,chat:{lines:string[];notes:string[]},r
     .map(row=>recentLine(row,menu.goal)).filter((line):line is string=>Boolean(line));
   const names=Object.fromEntries(Object.entries(rec(menu.names)).filter((pair):pair is [string,string]=>typeof pair[1]==='string'));
   const {lines:messages,notes}=chat;
-  const shape={kept:hold.length,recent:recent.length,chat:messages.length};
+  const shape={kept:hold.length,recent:recent.length,chat:messages.length,beliefs:beliefs.length};
   // Audit 10-04 (kvothe): the moves gave way first and were absent from every context for two days.
   // They sit right under the ship now and are never cut; the bridge caps them instead.
   const moves=on(menu.text)?`${MOVES_HEAD}\n  ${py(menu.text).replaceAll('\n','\n  ')}`
@@ -370,7 +376,11 @@ function situation(menu:Row,said:Row|null,chat:{lines:string[];notes:string[]},r
     const shown=[...hold.slice(0,kept),...kept<hold.length?[`+${hold.length-kept} more`]:[]];
     const holdLine=` Hold: ${shown.join(', ')||'empty'} (${py(free)} free).`
       +(free===0?` ${on(p.docked_at)?HOLD_FULL_DOCKED:HOLD_FULL_OUT}.`:'');
-    const lines=[...facts,...unread?[]:[ship+holdLine,...factsAfter],...moves?[moves]:[],...heldLines];
+    const believed=beliefs.slice(0,shape.beliefs);
+    const beliefLines=beliefs.length?[['Beliefs (yours, about how the game works):',...believed.map(belief=>`  - ${belief}`),
+      ...believed.length<beliefs.length?[`  +${beliefs.length-believed.length} more, in pilot().beliefs`]:[]].join('\n')]:[];
+    const lines=[...facts.slice(0,beliefsAt),...beliefLines,...facts.slice(beliefsAt),
+      ...unread?[]:[ship+holdLine,...factsAfter],...moves?[moves]:[],...heldLines];
     if(messages.length||notes.length) {
       const keptChat=messages.slice(0,shape.chat);
       lines.push([CHAT_HEAD,...keptChat,...keptChat.length<messages.length
@@ -382,9 +392,10 @@ function situation(menu:Row,said:Row|null,chat:{lines:string[];notes:string[]},r
     return nameIds(lines.join('\n'),names);
   };
 
-  // Over the limit, give way in this order: the hold list, the chat messages, the older recent runs to one.
+  // Over the limit, give way in this order: the hold list, the chat messages, the older recent runs to
+  // one, the beliefs from the end of the list.
   let text=render();
-  for(const [key,floor] of [['kept',0],['chat',0],['recent',1]] as const) {
+  for(const [key,floor] of [['kept',0],['chat',0],['recent',1],['beliefs',0]] as const) {
     while(length(text)>SECTION_LIMIT&&shape[key]!==floor) {
       const over=key==='kept'?Math.max(1,Math.floor((length(text)-SECTION_LIMIT)/12)):1;
       shape[key]=Math.max(floor,shape[key]-over);
