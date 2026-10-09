@@ -290,11 +290,6 @@ Owned.runway_cycles: number
 Owned.system_id?: string | undefined
 Owned.type: string
 Owned.under_construction?: boolean | undefined
-Patrolled.bounty_credits: number
-Patrolled.fights: Fight[]
-Patrolled.mission?: ActiveMissionInfo | undefined
-Patrolled.seen: V2NearbyPirate[]
-Patrolled.systems: string[]
 Pilot.goal?: string | undefined
 Pilot.instruction?: { text: string; at: string; } | undefined
 Pilot.mood?: Mood | undefined
@@ -542,16 +537,12 @@ Visit.why?: string | undefined
 Want = Pick<V2CargoItem, "item_id"> & { quantity?: number; }
 Want.item_id: string
 Want.quantity?: number | undefined
-src/play/combat/bounties/index.ts function patrol: (opts?: { systems?: string[]; maxTier?: number; fights?: number; } | undefined) => Promise<Outcome<Patrolled>>
-src/play/combat/bounties/index.ts interface Patrolled: Patrolled
 src/play/combat/index.ts function disengage: (bound?: number) => Promise<boolean>
 src/play/combat/index.ts function hunt: (opts?: { poi?: string; look?: string[]; fights?: number; species?: string | string[]; strict?: boolean; target?: "creature" | "pirate"; onTick?: (view: TickView) => TickDecision | undefined; }) => Promise<Outcome<Hunted>>
-src/play/combat/index.ts function patrol: (opts?: { systems?: string[]; maxTier?: number; fights?: number; } | undefined) => Promise<Outcome<Patrolled>>
 src/play/combat/index.ts function salvage: (opts?: { tow?: string; }) => Promise<Outcome<Salvaged>>
 src/play/combat/index.ts interface CombatStats: CombatStats
 src/play/combat/index.ts interface Fight: Fight
 src/play/combat/index.ts interface Hunted: Hunted
-src/play/combat/index.ts interface Patrolled: Patrolled
 src/play/combat/index.ts interface Salvaged: Salvaged
 src/play/combat/index.ts interface TickDecision: TickDecision
 src/play/combat/index.ts interface TickView: TickView
@@ -621,7 +612,6 @@ src/play/index.ts function missions: () => Promise<Outcome<{ board: Offer[]; act
 src/play/index.ts function note: (text: string) => void
 src/play/index.ts function orient: () => Promise<Outcome<Orientation>>
 src/play/index.ts function outcome: <Detail = Record<string, unknown>>(did: string, status?: Status, detail?: Detail | undefined, why?: string | undefined) => Outcome<Detail>
-src/play/index.ts function patrol: (opts?: { systems?: string[]; maxTier?: number; fights?: number; } | undefined) => Promise<Outcome<Patrolled>>
 src/play/index.ts function pilot: () => Pilot
 src/play/index.ts function prices: (items?: string[] | undefined) => Promise<Outcome<{ quotes: Quote[]; }>>
 src/play/index.ts function quote: (recipeId: string, quantity?: number, opts?: { at?: string; }) => Promise<Outcome<Quoted>>
@@ -673,7 +663,6 @@ src/play/index.ts interface Missing: Missing
 src/play/index.ts interface Moved: Moved
 src/play/index.ts interface Orientation: Orientation
 src/play/index.ts interface Outcome: Outcome<Detail>
-src/play/index.ts interface Patrolled: Patrolled
 src/play/index.ts interface Pilot: Pilot
 src/play/index.ts interface Present: Present
 src/play/index.ts interface Purchase: Purchase

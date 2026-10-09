@@ -25,9 +25,6 @@ Each throws `unimplemented` today; `account()` reaches the raw command meanwhile
 - [ ] `exploreNearby({systems?, jumps?, survey?})` walks a circuit of nearby systems, scouting each,
   so charting is one call rather than a hand-written `goTo` + `scout` loop.
   [exploration/README.md](../src/play/exploration/README.md)
-- [ ] `patrol({systems?, maxTier?, fights?})` sweeps lawless systems for pirates up to a tier and
-  a number of fights, never engaging `[POLICE]` or a player.
-  [combat/bounties/README.md](../src/play/combat/bounties/README.md)
 - [ ] `ships()` lists the ships the account owns and where each is stored.
   [fleet/README.md](../src/play/fleet/README.md)
 - [ ] `switchShip(id)` swaps the flown hull at a shipyard, stowing and servicing first.

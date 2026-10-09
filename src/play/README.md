@@ -145,9 +145,8 @@ Each of these has cost a flight: the computer checks the real types, so these ar
 | `ask({question, choices?})` | the flight computer pauses the flight to ask you; resolves to your answer (one of `choices`, when given), throws the stop error if the flight is stopped instead. See "Asking yourself a question mid-flight" |
 | `chat(channel, text, to?)` / `messages(opts?)` / `heard()` | send a message (`to` is the player id of a `private` one), read a channel's history, and the messages that paused this flight with your answers. See "Chat" |
 
-You name what you sell; nothing defaults to everything. Some career functions are not built yet
-and throw `unimplemented`: `survey`, `patrol`. `account()` reaches those
-commands.
+You name what you sell; nothing defaults to everything. One career function is not built yet
+and throws `unimplemented`: `survey`. `account()` reaches that command.
 
 Careers add more: [`mining/`](mining/README.md) (`gatherUntil`),
 [`hauling/`](hauling/README.md), [`industry/`](industry/README.md) (`catalog`, `trace`, `recipes`, `quote`, `supply`, `craft`, `jobs`, `facilities`, `buildFacility`), [`combat/`](combat/README.md) (`hunt`, `salvage`),
