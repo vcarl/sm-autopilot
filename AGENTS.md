@@ -173,10 +173,10 @@ each level's `since` from the journal's run of reads), in one transaction. The o
 place and no longer written. The small JSON caches (`places.json`, `explored.json`, `docking.json`,
 `names.json`, `mobile.json`, `drained.json`, `systems.json`, `combat.json`, `sightings.json`) and the
 fetched `catalog.json` stay files: moving them would add code, not delete it.
-`failures.json` (`src/failures.ts`) is one more: the pilot's last five distinct failures, kept across
+`failures.json` (`src/failures.ts`) is one more: the pilot's last 50 distinct failures, the newest five shown in the context, kept across
 boots and never rotated, folded in by a journal listener the bridge registers (`watchFailures`) from
-`command` failures (not lost, not the connection, not the runtime's own battle probe or intel submit),
-a run's refused or failed calls, a refused check and a `defect`; keyed by the command's name and its
+`command` failures (not lost, not the connection, not the runtime's own battle probe, stance change or intel submit),
+a run's refused or failed calls (keyed on `did`'s first clause, not `why`), a refused check and a `defect`; keyed by the command's name and its
 words with quoted strings and digit-bearing tokens taken out.
 
 ### Telemetry

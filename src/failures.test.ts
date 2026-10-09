@@ -5,7 +5,7 @@ import {mkdirSync,mkdtempSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {renderContext} from './context.ts';
-import {FAILURES,failuresOf,noteFailures,normalize,readFailures} from './failures.ts';
+import {KEPT,failuresOf,noteFailures,normalize,readFailures} from './failures.ts';
 import {journalRun,watchJournal} from './run-record.ts';
 
 const runtime=()=>{const dir=join(mkdtempSync(join(tmpdir(),'spacemolt-failures-')),'runtime');mkdirSync(dir,{recursive:true});return dir;};
@@ -33,14 +33,15 @@ test('a repeat counts and moves first; five are kept, the newest', () => {
     text:"Unknown item 'gold_bar'. Use exact item ID",first_at:'2026-10-06T14:02:00Z',last_at:'2026-10-07T09:00:00Z',count:2});
   // The same words from another command are another failure: the key is the command's name and the words.
   noteFailures(dir,{at:'2026-10-07T10:00:00Z',...command('spacemolt','undock','Access denied')});
-  for(let n=0;n<4;n++)noteFailures(dir,{at:`2026-10-07T11:0${n}:00Z`,event:'defect',fn:`job${n}`,why:'boom'});
+  for(let n=0;n<KEPT-1;n++)noteFailures(dir,{at:new Date(Date.parse('2026-10-07T11:00:00Z')+n*60_000).toISOString(),event:'defect',fn:`job${n}`,why:'boom'});
   kept=readFailures(dir);
-  assert.equal(kept.length,FAILURES);
-  assert.deepEqual(kept.map(row=>row.command),['job3','job2','job1','job0','spacemolt/undock']);
+  assert.equal(kept.length,KEPT);
+  assert.deepEqual([kept[0]?.command,kept.at(-1)?.command],[`job${KEPT-2}`,'spacemolt/undock']);
 });
 
 test('connection noise, the runtime\'s own sends and freighters are not the pilot\'s failures', () => {
   for(const line of [command('spacemolt_battle','status','No active battle. Use attack to engage a target.'),
+    command('spacemolt_battle','stance','You are not in a battle. Use attack to engage a target.'),
     command('spacemolt_intel','submit_trade_intel','nope'),
     command('spacemolt','mine','WebSocket connection closed',{code:1006}),
     command('spacemolt','travel','account is reconnecting',{lost:true}),
@@ -56,11 +57,20 @@ test('a run\'s refused and failed calls, a refused check and a defect are failur
   assert.deepEqual(failuresOf({event:'run',phase:'ended',calls:[{fn:'goTo',arg:'x',status:'done'},
     {fn:'buy',arg:'10',status:'refused',did:'did not buy steel_plate',why:'steel_plate costs 201 for 10 here'},
     {fn:'stow',arg:'',status:'failed',did:'stow nothing'}]}),
-  [{name:'buy',command:'buy(10)',text:'steel_plate costs 201 for 10 here'},{name:'stow',command:'stow()',text:'stow nothing'}]);
+  [{name:'buy',command:'buy(10)',text:'steel_plate costs 201 for 10 here',gist:'did not buy steel_plate'},
+    {name:'stow',command:'stow()',text:'stow nothing',gist:'stow nothing'}]);
   assert.deepEqual(failuresOf({event:'run',phase:'refused',script:'index.ts',errors:['tsc: pilot/index.ts(4,83): error TS2339: no length\n    4 | x']}),
     [{name:'check',command:'check index.ts',text:'tsc: pilot/index.ts(4,83): error TS2339: no length'}]);
   assert.deepEqual(failuresOf({event:'defect',fn:'goTo',why:'Cannot read properties of undefined'}),
     [{name:'goTo',command:'goTo',text:'Cannot read properties of undefined'}]);
+});
+
+test('a call is keyed on its did, not the particulars its why names', () => {
+  // Live kvothe: 150 completeMissions refusals, each why naming the missions then held.
+  const dir=runtime(),refused=(why:string,did:string)=>({event:'run',phase:'ended',calls:[{fn:'completeMissions',arg:'',status:'refused',did,why}]});
+  noteFailures(dir,{at:'2026-10-07T09:00:00Z',...refused('First Haul: 0 of 1','nothing completable; 3 remain, 2 slot(s) free')});
+  noteFailures(dir,{at:'2026-10-07T10:00:00Z',...refused('Leviathan Bounty: 0 of 1','nothing completable; 4 remain, 1 slot(s) free. First Haul: Sell 1 wreck')});
+  assert.deepEqual(readFailures(dir).map(row=>[row.count,row.text]),[[2,'Leviathan Bounty: 0 of 1']]);
 });
 
 test('the bridge keeps them as the journal is written', () => {

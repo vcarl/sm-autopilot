@@ -10,7 +10,7 @@
 import {existsSync,readFileSync} from 'node:fs';
 import {join} from 'node:path';
 import type {Pilot} from './bridge.ts';
-import {type Failure,readFailures} from './failures.ts';
+import {FAILURES,type Failure,readFailures} from './failures.ts';
 import {nameIds} from './play/places.ts';
 import {isRecord,readJournal,readRun} from './run-record.ts';
 
@@ -321,7 +321,7 @@ export function renderContext(menu:Row,runtime:string|undefined):string {
   // again; keep the fire's first `at` if a rerendered context should repeat them.
   const chat=runtime?chatLines(readJournal(runtime,CHAT_LINES,'chat'),on(juncture.juncture_id)?juncture.at:undefined):{lines:[],notes:[]};
   const rows=runtime?readJournal(runtime,EARNED_LINES).filter(row=>row.event==='run'||row.event==='reflection'):[];
-  return situation(menu,pendingInstruction(menu.instruction,runtime),chat,rows,runtime?readFailures(runtime):[]);
+  return situation(menu,pendingInstruction(menu.instruction,runtime),chat,rows,runtime?readFailures(runtime).slice(0,FAILURES):[]);
 }
 
 const readJson=(path:string):Row=>{try {return existsSync(path)?rec(JSON.parse(readFileSync(path,'utf8'))):{};} catch {return {};}};

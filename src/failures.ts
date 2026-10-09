@@ -8,15 +8,18 @@ import {keepJson} from './play/places.ts';
 import {isRecord,watchJournal} from './run-record.ts';
 
 const FILE='failures.json';
-/** How many distinct failures are kept. */
-export const FAILURES=5;
+/** How many distinct failures the context shows, and how many the file keeps: more than are shown, so a
+ * repeat pushed off the shown few keeps its count when it comes back (live kvothe: `dock` "Access
+ * denied" 82 times, counted 3 with five kept). */
+// ponytail: 50 kept, so a failure quiet for ~a week of play (kvothe: >50 distinct in two weeks) restarts its count; raise KEPT if that matters.
+export const FAILURES=5,KEPT=50;
 export interface Failure {key:string;command:string;text:string;first_at:string;last_at:string;count:number}
 type Row=Record<string,unknown>;
-interface Seen {name:string;command:string;text:string}
+interface Seen {name:string;command:string;text:string;gist?:string}
 
 /** The runtime's own sends, not the pilot's acts: travel's battle probe (4,000 "No active battle"
- * lines live) and the trade-intel submit. */
-const NOT_THE_PILOTS=new Set(['spacemolt_battle/status','spacemolt_intel/submit_trade_intel']);
+ * lines live), hunting's stance changes (a fight already over) and the trade-intel submit. */
+const NOT_THE_PILOTS=new Set(['spacemolt_battle/status','spacemolt_battle/stance','spacemolt_intel/submit_trade_intel']);
 /** A failure of the connection, not of the act: the reply is gone, never sent, or the socket closed. */
 const noise=(e:Row)=>e.lost===true||typeof e.code==='number'||e.code==='connect_timeout'
   ||/^(cannot send|Sent before connected)/.test(String(e.summary??''));
@@ -39,7 +42,10 @@ export function failuresOf(e:Row):Seen[] {
   }
   if(e.event==='run'&&e.phase==='ended')return (Array.isArray(e.calls)?e.calls:[]).filter(isRecord)
     .filter(call=>call.status==='refused'||call.status==='failed')
-    .map(call=>({name:str(call.fn),command:`${str(call.fn)}(${str(call.arg)})`,text:str(call.why)||str(call.did)}));
+    // Keyed on `did`'s first clause: a call's `why` names its particulars. Live kvothe: 150 completeMissions
+    // refusals, each naming the missions held, would have been as many distinct failures.
+    .map(call=>({name:str(call.fn),command:`${str(call.fn)}(${str(call.arg)})`,text:str(call.why)||str(call.did),
+      gist:str(call.did).split(/;|\. /)[0]??''}));
   if(e.event==='run'&&e.phase==='refused')
     return [{name:'check',command:`check ${str(e.script)}`,text:firstLine(Array.isArray(e.errors)?e.errors[0]:'')}];
   if(e.event==='defect')return [{name:str(e.fn),command:str(e.fn),text:str(e.why)}];
@@ -49,9 +55,9 @@ export function failuresOf(e:Row):Seen[] {
 /** One failure folded in: a repeat of a kept one counts and takes its latest words; a new one goes
  * first and the oldest falls off. */
 export function foldFailure(kept:readonly Failure[],seen:Seen,at:string):Failure[] {
-  const key=`${seen.name} ${normalize(seen.text)}`,old=kept.find(row=>row.key===key);
+  const key=`${seen.name} ${normalize(seen.gist||seen.text)}`,old=kept.find(row=>row.key===key);
   return [{key,command:seen.command,text:seen.text,first_at:old?.first_at??at,last_at:at,count:(old?.count??0)+1},
-    ...kept.filter(row=>row.key!==key)].slice(0,FAILURES);
+    ...kept.filter(row=>row.key!==key)].slice(0,KEPT);
 }
 
 export function readFailures(runtime:string):Failure[] {
