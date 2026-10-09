@@ -11,7 +11,7 @@ const readJournal=readJournalLines;
 /** A journal field that must be an object, narrowed so the assertions read its keys. */
 const rec=(value:unknown):Record<string,unknown>=>{assert.ok(typeof value==='object'&&value!==null,`not an object: ${JSON.stringify(value)}`);return Object.fromEntries(Object.entries(value));};
 import {bridgeWorld,type WorldOptions} from './test-support/bridge-world.ts';
-import {flying} from './bridge.ts';
+import {flying,pushJournal} from './bridge.ts';
 import {pace} from './play/combat/hunting.ts';
 import {battleEnded} from './travel.ts';
 
@@ -354,6 +354,33 @@ test('a run past its wall-clock cap is asked to stop, then cut off, and the reco
     assert.equal(readRun(f.runtime)?.ended,true,'run.json was left open');
     const ended=readJournal(f.runtime).find(entry=>entry.phase==='ended')!;
     assert.equal(ended.abandoned,true);
+  } finally {f.close();}
+});
+
+// Live 2026-10-09 (kvothe 05:28Z): a death mid-hunt() stopped nothing; the search flew the respawned
+// Cobble 10 jumps to a second death, and the report read "Cost: 90 hull" across the two ships.
+test('a death mid-flight stops the run in the loss\'s words, and the report names it, not a hull cost',async()=>{
+  const f=harness();
+  try {
+    const handlers=new Map<string,(payload:Record<string,unknown>)=>void>();
+    pushJournal({on:(type,handler)=>handlers.set(type,handler)},f.runtime);
+    let died=false;
+    const command:typeof f.deps.command=async(action,params)=>{
+      const reply=await f.deps.command(action,params);
+      if(action==='spacemolt/travel'&&!died) {
+        died=true;
+        Object.assign(f.account.server.ship,{id:'respawn',hull:80,max_hull:80});
+        handlers.get('player_died')!({ship_lost:'Cobble',respawn_base:'sol_base',clone_cost:0,insurance_payout:0});
+      }
+      return reply;
+    };
+    f.write("import {goTo} from 'play';\nexport default async function main(){ for(const at of ['belt','outpost']){ const t=await goTo(at); if(t.status!=='done') return t; } return goTo('sol_base'); }\n");
+    const result=await runPilot({...f.deps,command});
+    assert.equal(result.status,'partial',result.reason);
+    const report=f.lines.join('\n');
+    assert.match(report,/^Ship lost: Cobble, respawned at sol_base\.$/m,report);
+    assert.doesNotMatch(report,/Cost[^\n]*hull/,'no hull cost across two ships');
+    assert.equal(f.sent.filter(sent=>sent.action==='spacemolt/jump').length,0,'nothing flown after the death');
   } finally {f.close();}
 });
 

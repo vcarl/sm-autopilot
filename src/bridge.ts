@@ -168,7 +168,8 @@ export function pushJournal(account:{on:(type:string,handler:(payload:Record<str
   // A frame of the ship's own battle: a status read may no longer answer "no battle" from memory.
   for(const type of ['battle_started','battle_joined'])account.on(type,battleStirred);
   for(const type of PUSH_TYPES)account.on(type,(payload:Record<string,unknown>)=>{
-    if(type==='battle_update'||type==='battle_damage')battleStirred();
+    // An alert is a fight that may be starting here: the remembered "no battle" goes with it.
+    if(type==='battle_update'||type==='battle_damage'||type==='battle_alert')battleStirred();
     const body:Record<string,unknown>=payload??{};
     // Most `ok` variants key on `action`, seven on `type`; a variant with neither is the
     // wildlife kill notice, which the pilot's own hunt step already reports.
@@ -178,6 +179,10 @@ export function pushJournal(account:{on:(type:string,handler:(payload:Record<str
     if(type==='battle_ended'||type==='player_died')battleEnded();
     // Its own event, ahead of the rate cap: a death is the one push an analysis cannot lose.
     if(type==='player_died')journalRun(runtime,pushScalars(body),'death');
+    // The ship the program was flying is gone, so the flight ends at its next safe point, as any stop
+    // does; no run bound, nothing to stop. Live 2026-10-09 (kvothe 05:28Z): a death mid-hunt() read as
+    // the battle ending, and the search flew the respawned 80-hull Cobble 10 jumps to its next death.
+    if(type==='player_died')stopRun(`ship lost: ${String(body.ship_lost??'the ship')}, respawned at ${String(body.respawn_base??'an unnamed base')}`);
     // The combat fold, before the rate cap and before the journal: losing shots to a 20-a-minute
     // ceiling would bias measured accuracy silently, which is worse than not measuring it.
     if(type==='battle_update')foldBattleUpdate(body);

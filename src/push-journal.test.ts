@@ -78,11 +78,11 @@ test('a frame of the ship\'s own battle sends the next battle read to the wire; 
   battleEnded();
   await now();await now();
   assert.equal(reads,1,'the server\'s "not in a battle" is remembered');
-  for(const frame of ['battle_started','battle_joined','battle_update','battle_damage']) {
+  for(const frame of ['battle_started','battle_joined','battle_update','battle_damage','battle_alert']) {
     account.fire(frame,{battle_id:'b-1'});
     await now();await now();
   }
-  assert.equal(reads,5,'each frame costs exactly one fresh read');
+  assert.equal(reads,6,'each frame costs exactly one fresh read');
   assert.equal(lines(runtime).some(entry=>['battle_started','battle_joined'].includes(String(entry.push))),false);
   battleEnded();
 });

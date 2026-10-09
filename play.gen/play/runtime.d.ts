@@ -113,6 +113,7 @@ interface Snapshot {
     credits: number;
     fuel: number;
     hull: number;
+    ship: string | undefined;
     cargo: Record<string, number>;
     xp: Record<string, number>;
 }
@@ -206,6 +207,8 @@ export declare class Stopped extends TravelBlocked {
     readonly _tag = "Stopped";
     constructor();
 }
+/** The stop's own words when it was not the pilot's (a death, the cap), for the report. */
+export declare const stopWhy: () => string | undefined;
 /** The stop's own words: the pilot's, or the cap's. Live 2026-10-04 (kvothe 22:02Z): a run ended by
  * the 24-minute cap read "tradeRun stopped by the pilot", and the pilot never stopped it. */
 export declare const stopReason: () => string;

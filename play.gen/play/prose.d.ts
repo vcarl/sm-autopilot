@@ -12,4 +12,5 @@ import type { Outcome } from './types.ts';
  * with the run's totals and that call's did, and the last call follows as a clause. Every call
  * keeps its own status in `calls`; a run whose returned call is its only earner is left as it is. */
 export declare function ofTheRun(result: Outcome<unknown>, calls: Call[]): Outcome<unknown>;
-export declare function prose(outcome: Outcome<unknown>, calls?: Call[]): string;
+/** `lost`: the ship the flight took off in is gone (run.ts), said plainly under the headline. */
+export declare function prose(outcome: Outcome<unknown>, calls?: Call[], lost?: string): string;

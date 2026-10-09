@@ -23,7 +23,7 @@ import {ofTheRun,prose} from './play/prose.ts';
 import {runSummary} from './play/menu.ts';
 import {disengage,FIGHT_CEILING_MS} from './play/combat/hunting.ts';
 import {battleAtCloseEffect} from './travel.ts';
-import {bind,defect,edge,InterruptsRead,line,listen,outcome as build,progress,reached,runCalls,stateSnapshot,stop,stopped,Stopped,unbind,type Binding,type Interrupts} from './play/runtime.ts';
+import {bind,defect,edge,InterruptsRead,line,listen,outcome as build,progress,reached,runCalls,stateSnapshot,stop,stopped,Stopped,stopWhy,unbind,type Binding,type Interrupts} from './play/runtime.ts';
 import {rawError} from './play/game.ts';
 import {resupplyEffect} from './play/service.ts';
 import type {Outcome} from './play/types.ts';
@@ -287,6 +287,7 @@ export async function runPilot(deps:RunDeps):Promise<RunResult> {
   save();
   const who=deps.pilot();
   bind({...deps,run_id});
+  const startShip=deps.account.state.ship;
   // Before the module loads: a program's top-level code may send commands at import, and every line
   // it writes must follow the `run started` it joins to by `run_id`.
   journalRun(runtime,{phase:'started',script:'index.ts',sha:gate.sha,started,stance:who.stance??null,mood:who.mood??null,
@@ -376,7 +377,12 @@ export async function runPilot(deps:RunDeps):Promise<RunResult> {
   // The report is words for the pilot; the end of the run is the record. A report that cannot be
   // rendered says so in the record's reason and the run still ends (live 2026-09-28, L5277).
   let text:string;
-  try {text=prose(result,runCalls());}
+  // A ship that is not the one the flight took off in was lost: the report says so, in the death's own
+  // words when its push stopped the flight (bridge.ts), never as a hull cost across two ships.
+  const endShip=deps.account.state.ship,why=stopWhy();
+  const lost=startShip?.id&&endShip?.id!==startShip.id
+    ?why?.startsWith('ship lost')?why:`ship lost: the ${startShip.class_id} ${startShip.id}, now in ${endShip?.class_id??'no ship'}`:undefined;
+  try {text=prose(result,runCalls(),lost);}
   catch(error) { // edge: a report that cannot be rendered is said in the record, never allowed to skip it
     defect('prose',Cause.die(error));
     const why=`the report could not be rendered: ${message(error)}`;

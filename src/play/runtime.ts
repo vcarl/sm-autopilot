@@ -97,7 +97,7 @@ export const InterruptsRead=Schema.Struct({from:Schema.optionalKey(Schema.Array(
   channels:Schema.optionalKey(Schema.Array(Schema.Literals(['private','local','system','faction'])))});
 export type Interrupts=typeof InterruptsRead.Type;
 
-interface Snapshot {at:number;credits:number;fuel:number;hull:number;cargo:Record<string,number>;xp:Record<string,number>}
+interface Snapshot {at:number;credits:number;fuel:number;hull:number;ship:string|undefined;cargo:Record<string,number>;xp:Record<string,number>}
 
 /** One run: everything `bind()` starts afresh, provided beside the binding's `Game`. */
 export class Run extends Context.Service<Run,{
@@ -289,6 +289,8 @@ export function stop(why?:string):void {
 /** Thrown from a travel checkpoint when the pilot asked to stop; the leg in flight finishes. */
 export class Stopped extends TravelBlocked {readonly _tag='Stopped';constructor(){super(stopReason());}}
 const PILOT_STOP='stopped on order';
+/** The stop's own words when it was not the pilot's (a death, the cap), for the report. */
+export const stopWhy=()=>bound()?.run.stopWhy;
 /** The stop's own words: the pilot's, or the cap's. Live 2026-10-04 (kvothe 22:02Z): a run ended by
  * the 24-minute cap read "tradeRun stopped by the pilot", and the pilot never stopped it. */
 export const stopReason=()=>{const why=bound()?.run.stopWhy;return why?`stopped: ${why}`:PILOT_STOP;};
@@ -474,7 +476,7 @@ function snapshot(run:RunState):Snapshot {
   for(const row of state.cargo??[])cargo[row.item_id]=(cargo[row.item_id]??0)+row.quantity;
   const xp:Record<string,number>={};
   for(const [id,row] of Object.entries(skillMap(state.skills)))xp[id]=row.xp;
-  return {at:Date.now(),credits:state.player?.credits??0,fuel:state.ship?.fuel??0,hull:state.ship?.hull??0,cargo,xp};
+  return {at:Date.now(),credits:state.player?.credits??0,fuel:state.ship?.fuel??0,hull:state.ship?.hull??0,ship:state.ship?.id,cargo,xp};
 }
 /** `get_skills` answers a map keyed by skill id (live, C23 replay); some shapes nest it. */
 export function skillMap(skills:unknown):Record<string,SkillProgress> {
@@ -531,7 +533,10 @@ function finish<Detail>(run:RunState,fn:string,before:Snapshot,part:Said<Detail>
   for(const [id,value] of Object.entries(after.xp))if(value>(before.xp[id]??0))xp[id]=value-(before.xp[id]??0);
   const credits=after.credits-before.credits;
   return {fn,status:part.status,did:part.did,...part.why===undefined?{}:{why:part.why},
-    cost:{credits:Math.max(0,-credits),fuel:Math.max(0,before.fuel-after.fuel),hull:Math.max(0,before.hull-after.hull),
+    // Two ships' hulls are not one cost: live 2026-10-09 (kvothe 05:28Z) a 170-hull ship lost and an 80-hull
+    // respawn read "Cost: 90 hull". The loss is said by the report's own line (run.ts).
+    cost:{credits:Math.max(0,-credits),fuel:Math.max(0,before.fuel-after.fuel),
+      hull:before.ship===after.ship?Math.max(0,before.hull-after.hull):0,
       minutes:Math.round((after.at-before.at)/6000)/10},
     gained:{credits:Math.max(0,credits),items,xp},
     now:presentOf(run),next:(part.next??[]).slice(0,3),detail:part.detail};

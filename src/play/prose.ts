@@ -64,10 +64,12 @@ export function ofTheRun(result:Outcome<unknown>,calls:Call[]):Outcome<unknown> 
     gained:{credits,items:[...items].map(([item_id,quantity])=>({item_id,quantity})),xp}};
 }
 
-export function prose(outcome:Outcome<unknown>,calls:Call[]=[]):string {
+/** `lost`: the ship the flight took off in is gone (run.ts), said plainly under the headline. */
+export function prose(outcome:Outcome<unknown>,calls:Call[]=[],lost?:string):string {
   const out:string[]=[];
   const head=outcome.status==='done'?'Done':outcome.status.charAt(0).toUpperCase()+outcome.status.slice(1);
   out.push(`${head}: ${outcome.did}${outcome.status!=='done'&&outcome.why?`: ${outcome.why}`:''}.`);
+  if(lost)out.push(`${lost.charAt(0).toUpperCase()}${lost.slice(1)}.`);
 
   const {gained,now}=outcome;
   const cost=runCost(calls,outcome.cost);
