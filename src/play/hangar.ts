@@ -1,5 +1,5 @@
 /** The hangar: modules on the ship you fly, and the next hull. */
-import type {CommissionQuoteResponse,InsurancePolicy,ShipClass,ShipListing,V2Module,V2Ship} from '@spacemolt/lib';
+import type {CommissionQuoteResponse,InsurancePolicy,OwnedShipInfo,ShipClass,ShipListing,V2Module,V2Ship} from '@spacemolt/lib';
 import {Effect,Option,Result,Schema,Struct} from 'effect';
 import * as Wire from '../wire.gen.ts';
 import {Game,field,reread,type GameError} from './game.ts';
@@ -338,6 +338,55 @@ export const shipsForSaleEffect=(opts:{budget?:number;baseId?:string;classId?:st
         best.kind==='commission'?'a commission is buyShip(classId, {commission:true})':'buyShip(listingId)']:[]};
   }));
 
+/** One `switch_ship` sent, its answer read, the account re-read: true when `shipId` is flown after it.
+ * The one place the hull is named on the wire. The lib types the param `{id}` (COMMANDS.md), but the
+ * live server reads `ship_id`: kvothe's `{ship_id}` switched every time (2026-10-07 14:26Z, 2026-10-09
+ * 00:34Z, 02:16Z, 02:43Z), and no `{id}` alone ever did — both 2026-09-30 sends answered `already_active`.
+ * Both keys go, so a server that comes to read `id` still switches. Nothing is re-sent. */
+const swap=(shipId:string,label:string)=>Effect.gen(function*() {
+  const reply=yield* (yield* Game).command('spacemolt_ship/switch_ship',{ship_id:shipId,id:shipId});
+  const decoded=decodeSwitched(replyBody(reply));
+  yield* reread;
+  if(Option.isSome(decoded)) {
+    const swapped=decoded.value;
+    step(`switch to ${swapped.active_ship_class??label}${swapped.cargo_note?`; ${swapped.cargo_note}`:''}`);
+    return swapped.active_ship_id===shipId;
+  }
+  // The reply did not read: the refreshed state says which hull is flown, and nothing is re-sent.
+  const switched=acct().state.ship?.id===shipId;
+  step(`spacemolt_ship/switch_ship: the reply did not read; the account shows ${switched?'the new hull':'the old hull'} flown`);
+  return switched;
+});
+
+export interface Swap {switched:boolean;ship:V2Ship}
+/** `switchShip` as an Effect, for `edge`; never in a barrel. */
+export const switchShipEffect=(shipId:string)=>jobEffect<Swap>('switchShip',shipId,Effect.gen(function*() {
+  // oxlint-disable-next-line typescript/consistent-type-assertions
+  const flying=()=>acct().state.ship??({} as V2Ship); // cast: frozen surface (Swap.ship)
+  const no=(why:string)=>({status:'refused' as const,did:`did not switch to ${shipId}`,why,detail:{switched:false,ship:flying()}});
+  const blocked=yield* admit('switchShip');
+  if(blocked)return no(blocked);
+  if(acct().state.ship?.id===shipId)return {status:'done' as const,did:`already flying ${shipId}`,detail:{switched:true,ship:flying()}};
+  const base=acct().state.location?.docked_at;
+  if(!base)return no('not docked; a hull is switched at the station it is parked at');
+  if(!(yield* serves('shipyard')))return no(`${base} has no shipyard: the switch needs one`);
+  const switched=yield* swap(shipId,shipId);
+  return {status:switched?'done' as const:'failed' as const,did:switched?`switched to ${flying().class_name??shipId}`:`sent a switch to ${shipId}`,
+    ...switched?{}:{why:'the account still shows the old hull flown; ships() says where each is parked'},
+    detail:{switched,ship:flying()},next:switched?[room(acct().state.ship)]:[]};
+}));
+
+/** `ships` as an Effect, for `edge`; never in a barrel. */
+export const shipsEffect=()=>jobEffect<{ships:OwnedShipInfo[]}>('ships','',Effect.gen(function*() {
+  // The read fields decoded, the row kept as the game sent it.
+  // oxlint-disable-next-line typescript/consistent-type-assertions
+  const ships=rowsOf(yield* (yield* Game).command('spacemolt_ship/list_ships',{}),'spacemolt_ship/list_ships','ships',decodeOwned).map(row=>row.raw as OwnedShipInfo); // cast: frozen surface (OwnedShipInfo)
+  const parked=ships.filter(row=>!row.is_active);
+  return {status:'done' as const,
+    did:`flying ${ships.find(row=>row.is_active)?.class_id??'?'}; ${parked.length} parked${parked.length?`: ${parked.map(row=>`${row.class_id} ${row.ship_id} at ${row.location_base_id??row.location??'?'}`).join(', ')}`:''}`,
+    detail:{ships},next:parked.length?['switchShip(ship_id) at the base it is parked at, with a shipyard']:[]};
+}));
+
 export interface Purchase {
   /** The hull you now fly, when the switch happened; otherwise the one you still fly. */
   ship:V2Ship;
@@ -403,7 +452,7 @@ export const buyShipEffect=(id:string,opts:{commission?:boolean;switchTo?:boolea
         return {status:'partial' as const,did:`commissioned ${id}; the quote said ${price} cr`,
           why:'the commission_ship reply was unreadable; the commission may have landed',
           detail:{...nothing(),price},
-          next:['account().commands.spacemolt_ship.list_ships() says when the hull is delivered']};
+          next:['ships() says when the hull is delivered']};
       }
       const built=decoded.value,paid=built.credits_paid??price;
       step(`commission ${id} for ${paid} cr (${built.status})`);
@@ -412,9 +461,7 @@ export const buyShipEffect=(id:string,opts:{commission?:boolean;switchTo?:boolea
         return {status:'partial' as const,did:`commissioned ${id} for ${paid} cr`,
           why:`build is ${built.status}${missing?`; still sourcing ${missing}`:''}`,
           detail:{...nothing(),price:paid},
-          // `ships()` is not built yet (fleet/fleet.ts throws), so the raw command is what can
-          // actually be run. A hint naming an unbuilt function costs a juncture to discover.
-          next:['account().commands.spacemolt_ship.list_ships() says when the hull is delivered']};
+          next:['ships() says when the hull is delivered']};
       }
       bought='';
     } else {
@@ -445,25 +492,14 @@ export const buyShipEffect=(id:string,opts:{commission?:boolean;switchTo?:boolea
         return {status:'partial' as const,did:`bought ${mine.class_id} for ${price} cr`,
           why:`${previous.base_id} has no shipyard: the switch needs one`,
           detail:{ship:flying(),price,switched,previous},
-          next:[`goTo a base with a shipyard, then `+`account().commands.spacemolt_ship.switch_ship({id:'${mine.ship_id}'}) — switchShip is not built yet`]};
-      const reply=yield* game.command('spacemolt_ship/switch_ship',{id:mine.ship_id});
-      const decoded=decodeSwitched(replyBody(reply));
-      yield* reread;
-      if(Option.isSome(decoded)) {
-        const swap=decoded.value;
-        switched=swap.active_ship_id===mine.ship_id;
-        step(`switch to ${swap.active_ship_class??mine.class_id}${swap.cargo_note?`; ${swap.cargo_note}`:''}`);
-      } else {
-        // The reply did not read: the refreshed state says which hull is flown, and nothing is re-sent.
-        switched=acct().state.ship?.id===mine.ship_id;
-        step(`spacemolt_ship/switch_ship: the reply did not read; the account shows ${switched?'the new hull':'the old hull'} flown`);
-      }
+          next:[`goTo a base with a shipyard, then switchShip('${mine.ship_id}')`]};
+      switched=yield* swap(mine.ship_id,mine.class_id);
     }
     return {status:'done' as const,
       did:`bought ${mine.class_name??mine.class_id} for ${price} cr${switched?' and switched to it':''}`,
       detail:{ship:flying(),price,switched,previous},
       next:[switched?room(acct().state.ship)
-        :`account().commands.spacemolt_ship.switch_ship({id:'${mine.ship_id}'}) to fly it — switchShip is not built yet`,
+        :`switchShip('${mine.ship_id}') to fly it`,
         // `refit()` does not compile: the change argument is required, and it moves nothing by
         // itself — each module is named, one id at a time.
         `refit({install:['<module type_id from the hold>']}) moves a module across, one id at a time`]};

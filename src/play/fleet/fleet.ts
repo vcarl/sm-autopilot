@@ -2,7 +2,8 @@
  * from your death, and `switch_ship` at a shipyard swaps which one you fly. Several ships
  * flying at once is several characters: a freighter is one, flying a circuit on its own account
  * from this pilot's process (`assign`). */
-import type {ListShipsResponse,StoredShip,SwitchShipResponse,V2Ship} from '@spacemolt/lib';
+import type {OwnedShipInfo} from '@spacemolt/lib';
+import {shipsEffect,switchShipEffect,type Swap} from '../hangar.ts';
 import {Effect,Option,Schema} from 'effect';
 import {closure,FREE_HOLD,IGNORE_TICKS,type Holding} from '../freighter/index.ts';
 import {flying,held,install,readFleet,recallLoop,row,start} from '../freighter/host.ts';
@@ -17,17 +18,15 @@ import {farBooksEffect,hops,routesEffect,type Circuit} from '../trading/trading.
 import type {Outcome} from '../types.ts';
 import * as Wire from '../../wire.gen.ts';
 
-/** Every ship you own and where it is parked (`ship/list_ships`), with the active one
- * marked and, for each parked hull, the base's shipyard service (needed to switch). Reads
- * only. `next` says which parked hull would suit the current stance. */
-export function ships():Promise<Outcome<ListShipsResponse&{active:V2Ship;parked:(StoredShip&{base_id:string;shipyard:boolean})[]}>> {throw new Error('unimplemented');}
+/** Every ship you own (`ship/list_ships`), each row as the game sends it: `is_active` marks the one
+ * you fly, `location_base_id` where each other is parked. Reads only. */
+export function ships():Promise<Outcome<{ships:OwnedShipInfo[]}>> {return edge(shipsEffect());}
 
-/** Swap to a hull parked at the station you are docked at. Needs a shipyard service here.
- * The hold moves to this base's store first (`stow`), modules stay on their own hulls, and
- * the new hull is serviced and insured before the
- * function returns. Refused undocked, without a shipyard, or when `minimum_crew` is unmet.
- * Costs the service; trains nothing. */
-export function switchShip(shipId:string):Promise<Outcome<{switched:SwitchShipResponse;ship:V2Ship}>> {throw new Error('unimplemented');}
+/** Swap to a hull parked at the station you are docked at. Needs a shipyard service here; the
+ * server moves the hold to this base's store and parks the hull you flew; modules stay on their
+ * own hulls. Refused undocked or without a shipyard; `done` at once when you already fly it.
+ * Costs nothing; trains nothing. */
+export function switchShip(shipId:string):Promise<Outcome<Swap>> {return edge(switchShipEffect(shipId));}
 
 /** ponytail: the most credits a freighter may keep aboard to trade with; everything above its float
  * goes home at every stop. A cap on what one lost freighter can cost, not a measured number. Tunable. */

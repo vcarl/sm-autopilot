@@ -146,7 +146,7 @@ Each of these has cost a flight: the computer checks the real types, so these ar
 | `chat(channel, text, to?)` / `messages(opts?)` / `heard()` | send a message (`to` is the player id of a `private` one), read a channel's history, and the messages that paused this flight with your answers. See "Chat" |
 
 You name what you sell; nothing defaults to everything. Some career functions are not built yet
-and throw `unimplemented`: `survey`, `patrol`, `ships`, `switchShip`. `account()` reaches those
+and throw `unimplemented`: `survey`, `patrol`. `account()` reaches those
 commands.
 
 Careers add more: [`mining/`](mining/README.md) (`gatherUntil`),

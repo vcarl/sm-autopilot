@@ -807,9 +807,12 @@ export function bridgeWorld(options:WorldOptions={}) {
       return {structuredContent:{bare_hull:false,commission_id:`c_${id}`,credits_left:account.server.player.credits,
         credits_paid:row.total,message:'Built.',ship_class:id,source_missing_materials:false,status:'complete'}};
     },
+    // As the live server reads it: the hull is `ship_id`, whatever the lib types (`{id}`). An `{id}`
+    // alone answered `already_active` live (kvothe 2026-09-30); `{ship_id}` switched (2026-10-07 on).
     'spacemolt_ship/switch_ship':params=>{
-      const row=fleet.find(current=>current.ship_id===String(params.id));
-      if(!row)throw new Error(`No ship ${params.id}`);
+      if(params.ship_id===undefined)throw new SpacemoltError('already_active','That is already your active ship.');
+      const row=fleet.find(current=>current.ship_id===String(params.ship_id));
+      if(!row)throw new Error(`No ship ${params.ship_id}`);
       if(row.is_active)throw new SpacemoltError('already_active','That is already your active ship.');
       const was=fleet.find(current=>current.is_active);
       for(const each of fleet)each.is_active=each===row;

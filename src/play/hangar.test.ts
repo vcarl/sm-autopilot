@@ -3,6 +3,7 @@ import test from 'node:test';
 import {ConnectionClosedError,SpacemoltError,type Account} from '@spacemolt/lib';
 import {bridgeWorld,type WorldOptions} from '../test-support/bridge-world.ts';
 import {buyShip,refit,shipsForSale} from './hangar.ts';
+import {ships,switchShip} from './fleet/fleet.ts';
 import {bind,unbind,type Pilot} from './runtime.ts';
 /** A reply's body, loosely: the test pokes at fields the world sent. */
 const details=(reply:any):any=>reply?.structuredContent??reply?.delta?.details??reply??{};
@@ -300,6 +301,24 @@ test('shipsForSale lists a yard commission beside the listings, its quote copied
     assert.equal(out.status,'done',out.why);
     assert.ok(out.detail.for_sale.some(row=>row.kind==='commission'&&row.quote.credits_only_total===700),JSON.stringify(out.detail.for_sale));
     assert.equal(f.tried('spacemolt_ship/commission_quote'),1,'only the classes a listing names are quoted');
+  } finally {unbind();}
+});
+
+// Live 2026-10-09: the pilot reached switch_ship through `account()` cast to any, passing `ship_id` as
+// well as the lib's typed `id`, because switchShip threw `unimplemented` and `{id}` alone never switched.
+test('switchShip flies a parked hull, named the way the server reads it; ships() lists both',async()=>{
+  const f=world({mood:'Focused',permissions:{credit_reserve:0}},{...YARD_SERVICES,hangar:YARD});
+  try {
+    assert.equal((await buyShip('hauler_ii',{commission:true})).detail.switched,false);
+    const parked=(await ships()).detail.ships.find(row=>!row.is_active);
+    assert.equal(parked?.ship_id,'built_hauler_ii');
+    const out=await switchShip(parked!.ship_id);
+    assert.equal(out.status,'done',out.why);
+    assert.equal(out.detail.switched,true);
+    assert.equal(out.detail.ship.id,'built_hauler_ii');
+    assert.equal(f.tried('spacemolt_ship/switch_ship'),1);
+    assert.equal((await switchShip('built_hauler_ii')).status,'done','already flown: no second send');
+    assert.equal(f.tried('spacemolt_ship/switch_ship'),1);
   } finally {unbind();}
 });
 

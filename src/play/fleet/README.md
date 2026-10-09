@@ -19,8 +19,8 @@ Five different things get called "fleet". Keep them apart:
 
 | Function | Promise |
 |---|---|
-| `ships()` | **not built yet — it throws `unimplemented`.** `account().commands.spacemolt_ship.list_ships()` |
-| `switchShip(id)` | **not built yet — it throws `unimplemented`.** `account().commands.spacemolt_ship.switch_ship({id})`, and stow and service by hand first |
+| `ships()` | every hull you own, as `list_ships` sends it: `is_active` marks the one you fly, `location_base_id` where each other is parked |
+| `switchShip(id)` | fly a hull parked at the station you are docked at, which needs a shipyard; the server stores the hold here and parks the hull you flew. Refused undocked or without a shipyard; `done` at once if you already fly it |
 | `assign(name, circuit, {float})` | hand a closed circuit to the freighter `name`, which flies it lap after lap on its own account, sends its profit home to you, and re-plans itself when the circuit drains |
 | `reassign(name)` | by hand, put a parked freighter on the best circuit now: `routes({circuit: {hold}, ...circuit.scope})` for its hold and the scope its circuit was planned in, past the rings resting, then `assign` of the top row at its float |
 | `recall(name)` | bring it home: it finishes the stop it is on (selling, but buying nothing), sends its profit, and parks docked with its cargo aboard |
@@ -35,9 +35,9 @@ import {orient, ships, goTo, switchShip, gatherUntil} from 'play';
 export default async function main() {
   await orient();
   const mine = await ships();
-  const miner = mine.detail.parked.find(s => s.class_id === 'archimedes' && s.shipyard);
-  if (!miner) return mine;                                   // nothing to switch to
-  await goTo(miner.base_id);
+  const miner = mine.detail.ships.find(s => s.class_id === 'archimedes' && !s.is_active && s.location_base_id);
+  if (!miner?.location_base_id) return mine;                 // nothing to switch to
+  await goTo(miner.location_base_id);
   const sw = await switchShip(miner.ship_id);
   if (sw.status !== 'done') return sw;
   return gatherUntil({poi: 'unknown_edge_mineral_fields'});

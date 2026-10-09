@@ -1,5 +1,5 @@
 /** The hangar: modules on the ship you fly, and the next hull. */
-import type { CommissionQuoteResponse, InsurancePolicy, ShipClass, ShipListing, V2Module, V2Ship } from '@spacemolt/lib';
+import type { CommissionQuoteResponse, InsurancePolicy, OwnedShipInfo, ShipClass, ShipListing, V2Module, V2Ship } from '@spacemolt/lib';
 import { Effect, Schema } from 'effect';
 import { Game, type GameError } from './game.ts';
 import type { Outcome } from './types.ts';
@@ -119,6 +119,16 @@ export declare const shipsForSaleEffect: (opts?: {
 }) => Effect.Effect<Outcome<{
     for_sale: ForSale[];
     locked: Locked[];
+}>, never, Game | import("./runtime.ts").Run>;
+export interface Swap {
+    switched: boolean;
+    ship: V2Ship;
+}
+/** `switchShip` as an Effect, for `edge`; never in a barrel. */
+export declare const switchShipEffect: (shipId: string) => Effect.Effect<Outcome<Swap>, never, Game | import("./runtime.ts").Run>;
+/** `ships` as an Effect, for `edge`; never in a barrel. */
+export declare const shipsEffect: () => Effect.Effect<Outcome<{
+    ships: OwnedShipInfo[];
 }>, never, Game | import("./runtime.ts").Run>;
 export interface Purchase {
     /** The hull you now fly, when the switch happened; otherwise the one you still fly. */
