@@ -101,8 +101,8 @@ fire after it was suppressed).
 
 The **context** is rendered by the bridge (the `context` request, `src/context.ts`) from live facts
 at fire time: its own `menu` (present, derived mood, threats, the moves on offer), the pilot's recent
-runs and reflections from the journal, the chat since the last render (`juncture.json`'s `at`) and
-the standing instruction. When the game read fails it renders the record and the journal and says the
+runs and reflections from the journal, the chat since the last render (`juncture.json`'s `at`), the pilot's last five distinct failures
+(`failures.json`, each with its count and age, above the recent runs) and the standing instruction. When the game read fails it renders the record and the journal and says the
 game was not read. `juncture_context` in Python asks for it, and when the bridge cannot be reached at
 all hands over the record's objective, instruction and goal instead. Python writes nothing but a
 `juncture` journal line — the skills carried, their sizes, the moves, the context itself and any
@@ -173,6 +173,11 @@ each level's `since` from the journal's run of reads), in one transaction. The o
 place and no longer written. The small JSON caches (`places.json`, `explored.json`, `docking.json`,
 `names.json`, `mobile.json`, `drained.json`, `systems.json`, `combat.json`, `sightings.json`) and the
 fetched `catalog.json` stay files: moving them would add code, not delete it.
+`failures.json` (`src/failures.ts`) is one more: the pilot's last five distinct failures, kept across
+boots and never rotated, folded in by a journal listener the bridge registers (`watchFailures`) from
+`command` failures (not lost, not the connection, not the runtime's own battle probe or intel submit),
+a run's refused or failed calls, a refused check and a `defect`; keyed by the command's name and its
+words with quoted strings and digit-bearing tokens taken out.
 
 ### Telemetry
 

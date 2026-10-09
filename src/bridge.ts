@@ -19,6 +19,7 @@ import {moodNow,resolveWalkAway} from './mood-policy.ts';
 import {STANCES,stanceMood} from './rules-table.ts';
 import {bootJournal,journalCommand,journalConnection,journalRun,readRun} from './run-record.ts';
 import {startHeartbeat} from './heartbeat.ts';
+import {watchFailures} from './failures.ts';
 import {flushJournalDrain,startJournalDrain} from './journal-webhook.ts';
 import {check as checkPilot,runPilot as defaultRunPilot,type RunResult} from './run.ts';
 import {runQuery} from './query.ts';
@@ -305,7 +306,7 @@ export function serve(account:Account,command:ReadinessCommand,options:ServeOpti
   const pilot=()=>flying(record(),account.state);
   const runner=options.runPilot??defaultRunPilot;
   const runtime=options.runtime;
-  if(runtime) {startJournalDrain();startHeartbeat(runtime);}
+  if(runtime) {startJournalDrain();startHeartbeat(runtime);watchFailures(runtime);}
   const kept=()=>runtime?readRun(runtime):null;
   let running:{started:string}|null=null,last:Record<string,unknown>|null=null;
   /** The run in flight while a request is following it, and how an `ask()` wakes that request. */

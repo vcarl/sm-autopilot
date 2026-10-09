@@ -2,14 +2,15 @@
  * `menu`, the pilot's journal and the chat record (the `context` request). Python only journals it.
  *
  * Labelled lines, each fact once, budgeted on the final string: over `SECTION_LIMIT` core drops
- * the section whole, so the hold list gives way first, then the chat messages and the older recent
- * lines — never a fact line, the moves (capped at `MOVES_CHARS` in play/menu.ts) or the missions held.
+ * the section whole, so the hold list gives way first, then the chat messages, the older recent
+ * lines and the older failures — never a fact line, the moves (capped at `MOVES_CHARS` in play/menu.ts) or the missions held.
  *
  * The words are Python's (`juncture.py` rendered this until 10-06), kept to the character: a Python
  * `None` where a value is missing included. */
 import {existsSync,readFileSync} from 'node:fs';
 import {join} from 'node:path';
 import type {Pilot} from './bridge.ts';
+import {type Failure,readFailures} from './failures.ts';
 import {nameIds} from './play/places.ts';
 import {isRecord,readJournal,readRun} from './run-record.ts';
 
@@ -296,6 +297,20 @@ function held(menu:Row):string|null {
   return `Missions held (${rows.length} of ${py(kept.max)}):\n${rows.join('\n')}`;
 }
 
+const FAILURES_HEAD='Failures you have hit (newest first, repeats counted once):';
+/** How long ago, in the largest whole unit. */
+function ago(at:Date|null,now:Date):string {
+  if(!at)return 'at an unknown time';
+  const m=Math.max(0,Math.floor((now.getTime()-at.getTime())/60_000));
+  return `${m<60?`${m}m`:m<1440?`${Math.floor(m/60)}h`:`${Math.floor(m/1440)}d`} ago`;
+}
+/** One kept failure (`failures.json`): the call, what the game or the lib said, how often and when. */
+function failureLine(row:Failure,now:Date):string {
+  const text=length(row.text)>160?`${cut(row.text,160)}…`:row.text;
+  const times=row.count>1?`${row.count}×, last ${ago(when(row.last_at),now)}, first ${stamp(when(row.first_at))}`:`once, ${ago(when(row.last_at),now)}`;
+  return `${row.command} — ${text} — ${times}.`;
+}
+
 /** The context for `menu`: the flight under way, or the juncture as labelled lines. Reads the
  * journal (recent runs, whether the pilot ever earned), the chat record since the last render
  * (`juncture.json`), and run.json for the instruction; writes nothing. */
@@ -306,12 +321,12 @@ export function renderContext(menu:Row,runtime:string|undefined):string {
   // again; keep the fire's first `at` if a rerendered context should repeat them.
   const chat=runtime?chatLines(readJournal(runtime,CHAT_LINES,'chat'),on(juncture.juncture_id)?juncture.at:undefined):{lines:[],notes:[]};
   const rows=runtime?readJournal(runtime,EARNED_LINES).filter(row=>row.event==='run'||row.event==='reflection'):[];
-  return situation(menu,pendingInstruction(menu.instruction,runtime),chat,rows);
+  return situation(menu,pendingInstruction(menu.instruction,runtime),chat,rows,runtime?readFailures(runtime):[]);
 }
 
 const readJson=(path:string):Row=>{try {return existsSync(path)?rec(JSON.parse(readFileSync(path,'utf8'))):{};} catch {return {};}};
 
-function situation(menu:Row,said:Row|null,chat:{lines:string[];notes:string[]},rows:readonly Row[]):string {
+function situation(menu:Row,said:Row|null,chat:{lines:string[];notes:string[]},rows:readonly Row[],failures:readonly Failure[]):string {
   const now=when(menu.now)??new Date();
   const p=rec(or(menu.present,{}));
   // A menu made from the record alone (`recordMenu`): no ship, no place, no market.
@@ -359,7 +374,8 @@ function situation(menu:Row,said:Row|null,chat:{lines:string[];notes:string[]},r
     .map(row=>recentLine(row,menu.goal)).filter((line):line is string=>Boolean(line));
   const names=Object.fromEntries(Object.entries(rec(menu.names)).filter((pair):pair is [string,string]=>typeof pair[1]==='string'));
   const {lines:messages,notes}=chat;
-  const shape={kept:hold.length,recent:recent.length,chat:messages.length};
+  const failed=failures.map(row=>failureLine(row,now));
+  const shape={kept:hold.length,recent:recent.length,chat:messages.length,failed:failed.length};
   // Audit 10-04 (kvothe): the moves gave way first and were absent from every context for two days.
   // They sit right under the ship now and are never cut; the bridge caps them instead.
   const moves=on(menu.text)?`${MOVES_HEAD}\n  ${py(menu.text).replaceAll('\n','\n  ')}`
@@ -377,14 +393,16 @@ function situation(menu:Row,said:Row|null,chat:{lines:string[];notes:string[]},r
         ?[`  +${messages.length-keptChat.length} more messages, readable with messages().`]:[],...notes].join('\n')
         +'\nReply if you choose: chat() from a spacemolt_query, or in your next flight.');
     }
+    if(shape.failed)lines.push(`${FAILURES_HEAD}\n  ${failed.slice(0,shape.failed).join('\n  ')}`);
     const shownRecent=recent.slice(recent.length-shape.recent);
     lines.push(shownRecent.length?`Your recent flights (newest last):\n  ${shownRecent.join('\n  ')}`:'Your recent flights: none yet.');
     return nameIds(lines.join('\n'),names);
   };
 
-  // Over the limit, give way in this order: the hold list, the chat messages, the older recent runs to one.
+  // Over the limit, give way in this order: the hold list, the chat messages, the older recent runs
+  // to one, the older failures.
   let text=render();
-  for(const [key,floor] of [['kept',0],['chat',0],['recent',1]] as const) {
+  for(const [key,floor] of [['kept',0],['chat',0],['recent',1],['failed',0]] as const) {
     while(length(text)>SECTION_LIMIT&&shape[key]!==floor) {
       const over=key==='kept'?Math.max(1,Math.floor((length(text)-SECTION_LIMIT)/12)):1;
       shape[key]=Math.max(floor,shape[key]-over);
