@@ -32,6 +32,10 @@ function serviceFor(tsconfig:string) {
     directoryExists:ts.sys.directoryExists,getDirectories:ts.sys.getDirectories,realpath:file=>ts.sys.realpath?.(file)??file,
   };
   const made={service:ts.createLanguageService(host,registry),config};
+  // ponytail: the oldest service goes past four tsconfigs (a bridge keeps one runtime's pilot and query).
+  // Each holds ~200MB; run.test.ts makes a runtime per test, and 29 of them ran the test process out of heap.
+  const oldest=services.size>=4?services.keys().next().value:undefined;
+  if(oldest!==undefined){services.get(oldest)?.service.dispose();services.delete(oldest);}
   services.set(tsconfig,made);
   return made;
 }
