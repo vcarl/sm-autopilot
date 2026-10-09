@@ -46,7 +46,9 @@ _FLIGHT_PROMPT = (
     "spacemolt_run. It is the one file you write, and the play README (with your stance's README, "
     "when you have a stance) is the whole reference. A flight lasts until the program returns, or "
     "until the computer ends it after about 25 minutes, while the game's clock turns; its report is "
-    "what happened. Report only what tool results say."
+    "what happened. A program can pause at a fork with ask() and put the question to you; you "
+    "decide it with what the flight has seen so far, and it flies on. Report only what tool "
+    "results say."
 )
 
 _WINDOW_PROMPT = (

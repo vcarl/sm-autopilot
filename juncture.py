@@ -58,6 +58,14 @@ JUNCTURE_PROMPT = (
     "and looking costs almost nothing: spacemolt_query answers a short program of reads in seconds, "
     "and when a fact you need is missing, a flight that only looks (orient(), scout(), note() the "
     "numbers) is a good turn.\n"
+    # Live (kvothe): ask() was never called in ~2,160 programs; every fork was a rule guessed
+    # before the flight saw anything.
+    "- A flight can stop at a fork and ask you: `await ask({question, choices})` pauses it, "
+    "spacemolt_run comes back early in this same turn with the question and the flight's lines so "
+    "far, and your answer sends it on. Use it instead of guessing a rule in advance when the right "
+    "call depends on what the flight will see (which hull to buy once prices are read, whether to "
+    "take a fight once the opponent is scanned). The flight waits and its 25-minute clock keeps "
+    "going while you decide, so ask at a fork, not every step.\n"
     "- Keep your plan with todo_list: the list is kept as your steps and shown above each time you "
     "take stock.\n"
     "- Spending, selling and fighting are the moves that stay done; the permissions bound the "

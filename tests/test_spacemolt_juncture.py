@@ -219,6 +219,10 @@ def test_the_cron_prompt_names_only_the_tools_that_are_the_turn():
     assert juncture.job_fields({"stance": "Hunter"})["prompt"] == juncture.JUNCTURE_PROMPT
     # The closing lines say why the flight flew, not only what it did: a reviewer reads them cold.
     assert "what flew and why" in juncture.JUNCTURE_PROMPT
+    # ask() was never called in ~2,160 live programs: both prompts name it, and the turn's says the
+    # question comes back in the same turn.
+    assert "`await ask({question, choices})`" in juncture.JUNCTURE_PROMPT and "same turn" in juncture.JUNCTURE_PROMPT
+    assert "ask()" in spacemolt._FLIGHT_PROMPT
     # No shift to put down and nothing that must be done before a run.
     for gone in (r"\brest\b", r"\bshift\b", "half an hour"):
         assert not re.search(gone, juncture.JUNCTURE_PROMPT.lower()), gone
