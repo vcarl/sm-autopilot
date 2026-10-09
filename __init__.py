@@ -67,8 +67,10 @@ _WINDOW_PROMPT = (
     'flight ("hunt fauna at the Colony Debris Field and note my weapons level") and an objective'
     " as what done looks like and how you will report it.\n"
     "spacemolt_stop has the flight computer end the flight under way at its next safe point.\n"
-    "Your memory here is shared with your flying self: keep in it what you would remember of "
-    "your life — people, orders, places that matter — and leave the log's numbers to the log."
+    "Your memory here is shared with your flying self, which keeps in it what it has learned about "
+    "how the game works: hypotheses and the observations that bear on them. Add to it what the human "
+    "tells you about the game in that form; orders go through spacemolt_direct, and the log's "
+    "numbers stay in the log."
 )
 
 
