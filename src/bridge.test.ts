@@ -112,20 +112,6 @@ test('a new objective clears the goal and stance unless the same write sets them
   assert.equal(record.objective_start,undefined,'a retired objective takes its start with it');
 });
 
-test('the beliefs outlive the objective, and the menu carries them', async () => {
-  // They are about the game, not the task: a new objective clears the plan and leaves them.
-  const beliefs=['Forge Titanium Alloy is facility-only; Crimson War Citadel rents an Alloy Foundry'];
-  let record:Pilot={name:'kvothe',objective:'fill the hold',goal:'mine the belt',steps:['price an upgrade'],beliefs};
-  const f=fixture({pilot:()=>record,setPilot:next=>{record=next;}});
-  await f.dispatch('pilot',{set:{objective:'explore new areas'}});
-  assert.deepEqual(record.beliefs,beliefs);
-  assert.equal(record.steps,undefined);
-  assert.deepEqual(((await f.dispatch('menu')) as any).beliefs,beliefs);
-  await f.dispatch('pilot',{set:{beliefs:null}});
-  assert.equal(record.beliefs,undefined);
-  assert.ok(!('beliefs' in ((await f.dispatch('menu')) as any)));
-});
-
 test('run blocks until the pilot file ends; status, stop and menu answer meanwhile', async () => {
   const held=heldRun();
   const runtime=mkdtempSync(join(tmpdir(),'spacemolt-bridge-'));

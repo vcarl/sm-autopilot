@@ -83,7 +83,8 @@ never stored: the bridge derives it on every read from the stance's working mood
 
 One cron job per pilot, named for it, rewritten from the pilot record every time it is touched
 (`ensure_juncture_job`, schedule included). What a fire carries is entirely `job_fields()`: the
-prompt, the skills, the fixed toolsets (`spacemolt_player` and Hermes' `todo`), and the gate script. The interval is `IDLE_SCHEDULE = "5m"`
+prompt, the skills, the fixed toolsets (`spacemolt_player`, Hermes' `todo`, and Hermes' `memory` for what the pilot
+learns about the game), and the gate script. The interval is `IDLE_SCHEDULE = "5m"`
 and cron re-anchors it on a fire's completion, so it is the pause between junctures. There is no
 other wake: nothing marks the job due (see the last section for why).
 

@@ -36,8 +36,6 @@ export interface Pilot {
   goal?:string;stance?:Stance;
   /** The pilot's own checklist toward the objective. */
   steps?:readonly string[];
-  /** What the pilot found out about how the game works that the docs do not say. */
-  beliefs?:readonly string[];
   /** Derived, never stored: the stance's working mood, or Tired past its margins (`moodNow`). */
   mood?:Mood;
   /** Present only while the mood is Tired: the margin that made it so. */

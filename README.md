@@ -122,6 +122,8 @@ cron:
   model_drift_guard: false
 session_reset:
   mode: none
+memory:
+  user_profile_enabled: false   # the pilot keeps game notes in memory; it has no user to profile
 ```
 
 ### 6. Let the chat windows watch
@@ -132,7 +134,8 @@ The plugin provides two toolsets:
   only check the program), `spacemolt_answer` (or, with `stop: true`, stop a flight paused on a
   question), `spacemolt_query` (a short read-only program, to look before it acts) and
   `spacemolt_reflect`. The juncture job enables these itself, with Hermes' `todo` toolset beside
-  them, whose list the plugin keeps as the pilot's steps; you do not.
+  them, whose list the plugin keeps as the pilot's steps, and Hermes' `memory`, where the pilot
+  keeps hypotheses and observations about how the game works; you do not.
 - `spacemolt_observer` — the human's half: `spacemolt_look` (the same read-only program, written
   from the window: the pilot record, the flight in progress, the ship's log and the game itself
   are all reads in it), `spacemolt_stop` (end the flight under way) and `spacemolt_direct`

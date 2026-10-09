@@ -128,8 +128,8 @@ def test_the_juncture_job_carries_the_stance_and_passes_the_cron_toolset_clamp()
     resolved = _cron("_resolve_script_path")(stored["script"])
     assert (resolved[0] if isinstance(resolved, tuple) else resolved) is not None, "cron must accept the path"
     assert stored["skills"] == ["spacemolt:play", "spacemolt:mining"]
-    # Exactly the player's tools and Hermes' todo list; the observer's are never a fire's.
-    assert stored["enabled_toolsets"] == ["spacemolt_player", "todo"]
+    # Exactly the player's tools, Hermes' todo list and its memory; the observer's are never a fire's.
+    assert stored["enabled_toolsets"] == ["spacemolt_player", "todo", "memory"]
 
     # One cron job per pilot: a stance change rewrites it, never adds a second.
     _seed({"name": "kvothe", "stance": "Hunter"})
@@ -144,8 +144,8 @@ def test_the_juncture_job_carries_the_stance_and_passes_the_cron_toolset_clamp()
         "cron.scheduler", "_CronAgentSetup", "_construct_cron_agent",
         "_resolve_cron_disabled_toolsets", "_resolve_cron_enabled_toolsets")
     enabled = _resolve_cron_enabled_toolsets(stored, {})
-    assert {"spacemolt_player", "todo"} <= set(enabled)
-    assert not {"spacemolt_player", "todo"} & set(_resolve_cron_disabled_toolsets({}))
+    assert {"spacemolt_player", "todo", "memory"} <= set(enabled)
+    assert not {"spacemolt_player", "todo", "memory"} & set(_resolve_cron_disabled_toolsets({}))
 
     seen: dict = {}
 
@@ -216,6 +216,8 @@ def test_the_cron_prompt_names_only_the_tools_that_are_the_turn():
     assert named == ["spacemolt_query", "spacemolt_reflect", "spacemolt_run"], named
     # A check is run's own option, and the plan is kept with Hermes' todo list.
     assert "`check: true`" in juncture.JUNCTURE_PROMPT and "todo_list" in juncture.JUNCTURE_PROMPT
+    # What it learns about the game goes to Hermes' memory, as hypotheses and observations.
+    assert "in memory: a hypothesis" in juncture.JUNCTURE_PROMPT
     assert juncture.job_fields({"stance": "Hunter"})["prompt"] == juncture.JUNCTURE_PROMPT
     # The closing lines say why the flight flew, not only what it did: a reviewer reads them cold.
     assert "what flew and why" in juncture.JUNCTURE_PROMPT
@@ -289,15 +291,6 @@ def test_reflect_sets_goal_and_stance_through_the_bridge_whatever_the_pilot_is_d
     assert _journal_rows("reflection")[-1]["steps"] == ["price an upgrade", "fly the circuit_board loop"]
     spacemolt._reflect({"steps": []})
     assert sent[-1] == ("pilot", {"set": {"steps": None}}) and "steps" not in juncture.read_pilot()
-
-    # Live (kvothe): "this recipe is facility-only" was found again over nine days. What the pilot
-    # learns about the game is stored whole like the steps, and an empty list clears it.
-    assert "Nothing written" in spacemolt._reflect({"beliefs": "facility-only"})
-    said = spacemolt._reflect({"beliefs": [" Titanium Alloy is facility-only ", ""]})
-    assert sent[-1] == ("pilot", {"set": {"beliefs": ["Titanium Alloy is facility-only"]}}) and "1 belief(s)" in said
-    assert _journal_rows("reflection")[-1]["beliefs"] == ["Titanium Alloy is facility-only"]
-    spacemolt._reflect({"beliefs": []})
-    assert sent[-1] == ("pilot", {"set": {"beliefs": None}}) and "beliefs" not in juncture.read_pilot()
 
 
 _GATEWAY_LOAD = """
@@ -432,8 +425,7 @@ def test_a_bridge_that_cannot_be_reached_still_hands_over_the_record(monkeypatch
     """No bridge at all ("bridge failed to start", live 2026-10-02): the record needs none, so the
     fire still carries the objective and the standing instruction, and says nothing else was read."""
     _seed({"name": "kvothe", "stance": "Trader", "objective": "reach 1,000,000 cr", "goal": "work the ore route",
-           "goal_at": "2026-10-02T15:10:00Z", "instruction": {"text": "scan markets for cheap materials", "at": "2026-10-02T16:34:58Z"},
-           "beliefs": ["Titanium Alloy is facility-only", *(f"belief {n} " + "b" * 400 for n in range(30))]})
+           "goal_at": "2026-10-02T15:10:00Z", "instruction": {"text": "scan markets for cheap materials", "at": "2026-10-02T16:34:58Z"}})
 
     def closed(action, params=None):
         raise RuntimeError("bridge failed to start")
@@ -442,10 +434,8 @@ def test_a_bridge_that_cannot_be_reached_still_hands_over_the_record(monkeypatch
     context = juncture.juncture_context({"platform": "cron"})
     for text in ("The ship did not answer this time", "Objective: reach 1,000,000 cr",
                  "Instruction (given 10-02 16:34Z): scan markets for cheap materials",
-                 "Goal (set 10-02 15:10Z): work the ore route", "  - Titanium Alloy is facility-only",
-                 "  +16 more, in pilot().beliefs"):
+                 "Goal (set 10-02 15:10Z): work the ore route"):
         assert text in context, (text, context)
-    assert len(context) <= juncture.SECTION_LIMIT, len(context)
     row, = _journal_rows("juncture")
     assert row["menu_error"] == "RuntimeError: bridge failed to start" and row["context"] == context
     # The render carried the instruction, so a run from it consumes it, as any other render.

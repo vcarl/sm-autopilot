@@ -48,7 +48,8 @@ _FLIGHT_PROMPT = (
     "until the computer ends it after about 25 minutes, while the game's clock turns; its report is "
     "what happened. A program can pause at a fork with ask() and put the question to you; you "
     "decide it with what the flight has seen so far, and it flies on. Report only what tool "
-    "results say."
+    "results say. Your memory holds what you've learned about how the game works: hypotheses and "
+    "the observations that bear on them, each a fact with its evidence."
 )
 
 _WINDOW_PROMPT = (
@@ -56,7 +57,7 @@ _WINDOW_PROMPT = (
     "flying self flies on without you, taking stock between flights.\n"
     "Off duty your own recollection is hazy. spacemolt_look is how you see: a short program of reads "
     "whose main returns what you want to know. `pilot()` is your standing orders (objective, goal, "
-    "steps, beliefs, stance, instruction), `flight()` the flight under way or the last one, `shipLog(20)` "
+    "steps, stance, instruction), `flight()` the flight under way or the last one, `shipLog(20)` "
     "your ship's log, newest last, and `account()`, `prices()` or `messages()` the game itself. "
     "Look before you speak of your objective, your progress, where you are or what anything cost; "
     "tell it with the log's times, and keep what you did apart from what you meant to do.\n"
@@ -330,33 +331,24 @@ def _reflect(arguments: dict[str, Any] | None = None, **_: Any) -> str:
         # Shape, not content: the bridge stores a list of strings.
         return "Nothing written: steps is a list of short strings."
     steps = [step.strip() for step in steps if step.strip()] if steps is not None else None
-    beliefs = args.get("beliefs")
-    if beliefs is not None and not (isinstance(beliefs, list) and all(isinstance(b, str) for b in beliefs)):
-        return "Nothing written: beliefs is a list of short strings."
-    beliefs = [belief.strip() for belief in beliefs if belief.strip()] if beliefs is not None else None
-    if not (goal or stance or done or steps is not None or beliefs is not None):
-        return "Nothing to write: pass a goal, steps, beliefs, a stance, or objective_done."
+    if not (goal or stance or done or steps is not None):
+        return "Nothing to write: pass a goal, steps, a stance, or objective_done."
     record = read_pilot()
     patch: dict[str, Any] = {**({"goal": goal} if goal else {}), **({"stance": stance} if stance else {})}
     if steps is not None:
         # The whole list each time; an empty one clears it.
         patch["steps"] = steps or None
-    if beliefs is not None:
-        # The same contract as steps; unlike them, a new objective leaves them standing.
-        patch["beliefs"] = beliefs or None
     retired = record.get("objective") if done or record.get("objective_done") else None
     if done or record.get("objective_done"):
         patch.update(objective=None, objective_done=None,
                      **({"objective_completed": retired} if retired else {}))
     call("pilot", {"set": patch})
     journal_event("reflection", **({"goal": goal} if goal else {}), **({"steps": steps} if steps is not None else {}),
-                  **({"beliefs": beliefs} if beliefs is not None else {}),
                   **({"stance": stance} if stance else {}),
                   **({"objective_done": True, "objective": retired} if done else {}))
     _rewrite_job()
     said = [f"goal {goal!r}" if goal else "",
             (f"{len(steps)} step(s)" if steps else "steps cleared") if steps is not None else "",
-            (f"{len(beliefs)} belief(s)" if beliefs else "beliefs cleared") if beliefs is not None else "",
             f"stance {stance}" if stance else "",
             f"objective {retired!r} retired" if retired else ("objective retired" if done else "")]
     return ("Recorded: " + ", ".join(bit for bit in said if bit) + "."
@@ -489,7 +481,7 @@ TOOL_DEFINITIONS = (
      "schema": _schema("spacemolt_look",
                        "See for yourself: a short program over the play library that only reads, "
                        "returning what you want to know. `pilot()` is the standing record (objective, "
-                       "goal, steps, beliefs, stance, the last instruction, the permissions); `flight()` the "
+                       "goal, steps, stance, the last instruction, the permissions); `flight()` the "
                        "flight under way (when it started, the call it is in, a question it waits on) "
                        "or the last one with its outcome; `shipLog(n)` the last n entries of the "
                        "ship's log, newest last, one line per thing the pilot actually did; and the "
@@ -520,10 +512,9 @@ TOOL_DEFINITIONS = (
                                  "description": "End the flight instead of answering."}},
                        [])},
     {"name": "spacemolt_reflect", "toolset": "spacemolt_player", "handler": _reflect,
-     "description": "Set the goal, the steps, your beliefs, the stance, or retire a finished objective. "
-                    "Each is optional.",
+     "description": "Set the goal, the steps, the stance, or retire a finished objective. Each is optional.",
      "schema": _schema("spacemolt_reflect",
-                       "Set what your next flights pursue: a goal, steps, beliefs, a stance, or objective_done "
+                       "Set what your next flights pursue: a goal, steps, a stance, or objective_done "
                        "(any of them; at least one). The stance chooses which career README you "
                        "carry from your next turn; with none you carry the play README alone. It "
                        "takes effect the next time you take stock, and nothing needs a stance to fly.",
@@ -541,18 +532,6 @@ TOOL_DEFINITIONS = (
                                                  "short lines (e.g. 'price an upgrade'). Pass the "
                                                  "whole list each time; [] clears it. Cleared when "
                                                  "the objective changes."},
-                        # Live (kvothe): "this recipe is facility-only" was found again over nine
-                        # days, and faction intel refiled into 563 refusals; its memories/ stayed
-                        # empty. What it learns about the game had nowhere to stand between turns.
-                        "beliefs": {"type": "array", "items": {"type": "string"},
-                                    "description": "What you've found out about how the game works "
-                                                   "that the docs don't say, each a claim you could "
-                                                   "test (e.g. 'Forge Titanium Alloy is facility-only; "
-                                                   "Crimson War Citadel rents an Alloy Foundry'). Pass "
-                                                   "the whole list; [] clears it; drop one when it "
-                                                   "proves wrong. Keep it to about 10-15: prices and "
-                                                   "routes don't belong here, the game and the books "
-                                                   "keep those. Kept when the objective changes."},
                         "stance": {"type": "string", "enum": list(STANCES),
                                    "description": "The career you read up on from your next turn."},
                         "objective_done": {"type": "boolean",
