@@ -552,9 +552,13 @@ export const huntEffect=(opts:{poi?:string;look?:string[];fights?:number;species
   // Where to look, in order. `poi` is the single-place case of `look`; naming neither looks
   // exactly once, where the ship already stands.
   const trail=opts.look?.length?opts.look:opts.poi?[opts.poi]:[];
+  // The hunt so far, kept out here so an outcome the loop never returned (a stop or a refusal thrown
+  // mid-battle) still carries it. Live 2026-10-09 (kvothe 15:24Z): "hunt stopped on order" came back
+  // with the job's empty detail, and the pilot's `out.detail.fights.length` threw.
+  let held:Hunted|undefined;
   return jobEffect<Hunted>('hunt',[trail.join('/'),species.join('+'),opts.target,asked>1?`×${asked}`:''].filter(Boolean).join(' '),Effect.gen(function*() {
     const game=yield* Game;
-    const result:Hunted={poi_id:trail[0]??acct().state.location?.poi_id??'',fights:[],looked:[],ended:'asked'};
+    const result:Hunted=held={poi_id:trail[0]??acct().state.location?.poi_id??'',fights:[],looked:[],ended:'asked'};
     const refuse=(why:string)=>({status:'refused' as const,did:'hunted nothing',why,detail:result});
     const blocked=yield* admit('hunt');
     if(blocked)return refuse(blocked);
@@ -744,5 +748,6 @@ export const huntEffect=(opts:{poi?:string;look?:string[];fights?:number;species
       next:['stow(rows) or sell(rows), then hunt again']};
     return {status:'done',did,detail:result,
       next:loot.length?['stow(rows) at a base: what is in the hold is lost with the hull']:[]};
-  }));
+  })).pipe(Effect.map(outcome=>reached(outcome)||!held?outcome
+    :{...outcome,detail:{...held,ended:outcome.status==='partial'?'stopped' as const:held.ended}}));
 };

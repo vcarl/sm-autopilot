@@ -89,6 +89,26 @@ test('a pilot stop between fights ends the hunt partial, and is not a defect',as
   } finally {f.close();}
 });
 
+// Live 2026-10-09 (kvothe 15:24Z): a stop mid-battle read "hunt stopped on order" with no detail.fights, and the
+// pilot's `out.detail.fights.length` threw; every outcome carries the fights fought so far.
+test('a pilot stop mid-battle ends the hunt partial with its detail: the fights so far, ended stopped',async()=>{
+  const f=world(action=>{if(action==='spacemolt_battle/status')stop();return undefined;},{wildlife:{creatures:[grazer],polls:2,damage:1}});
+  try {
+    const out=await hunt({fights:5});
+    assert.equal(out.status,'partial',JSON.stringify(out));
+    assert.match(out.why??'',/stopped on order/);
+    assert.ok(Array.isArray(out.detail.fights),JSON.stringify(out.detail));
+    assert.equal(out.detail.ended,'stopped');
+  } finally {f.close();}
+  const g=world(action=>{if(action==='spacemolt/hunt')throw new SpacemoltError('invalid_target','that is not a target');return undefined;},
+    {wildlife:{creatures:[grazer],polls:2,damage:1}});
+  try {
+    const out=await hunt();
+    assert.equal(out.status,'refused');
+    assert.deepEqual(out.detail.fights,[],'a refusal escaping the loop keeps the detail too');
+  } finally {g.close();}
+});
+
 // Time comes from the clock the loop sleeps on: five minutes of ten-second ticks pass in a test that sleeps for none of them.
 test('a fight that never ends is given up on at the ceiling, on the TestClock, and is said unresolved',async()=>{
   const f=world(()=>undefined,{wildlife:{creatures:[grazer],polls:10_000,damage:0}});
