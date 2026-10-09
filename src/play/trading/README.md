@@ -273,6 +273,61 @@ export default async function main() {
 }
 ```
 
+## Standing orders: setting the price yourself
+
+`sell()` and `buy()` take the book as it stands: your goods go into the best bids, your credits
+into the best asks. A standing order sets the price and waits for the other side to come to you.
+The book is players' orders (a live `buy` names the player it bought from) and the station's
+own (`source: 'station'`), and the gaps are wide: across the last book read at each of 28 bases, an
+item with both sides had a top ask a median **190×** its top bid (a quarter of them under 23×; 57
+of 1,424 under 1.5×). Many bids are 1–2 cr floors. A real one: `power_distribution_grid` at
+`central_nexus` (2026-10-05), bid 1,595 (7 deep) against ask 5,688 (13 deep). An ask at 3,500
+undercuts every seller there and earns twice the bid, if a buyer comes. How often one comes has
+not been measured: no pilot here has placed one yet.
+
+So take the book when you need the credits or the room now, or the bid is near the ask. Place an
+order when the gap is wide, the goods can wait in the station, and you will be back; place a bid
+under the ask for an input you need there.
+
+All raw, `account().commands.spacemolt_market.<action>()`, at the station the order lives at
+(the engine docks you itself, `auto_docked`). Each throws when refused, so wrap it in `try`.
+
+| Call | What it does |
+|---|---|
+| `create_sell_order({item_id, quantity, price_each})` | lists goods, taken out of your hold and this station's store (`from_cargo`, `from_storage`) and held by the order |
+| `create_buy_order({item_id, quantity, price_each, deliver_to?})` | escrows `quantity × price_each` from your wallet now (`total_escrowed`). Pass `deliver_to: 'storage'`: the lib's default is `'cargo'`, the game's own hint says a fill lands in station storage, and which wins when you are away is unverified |
+| `view_orders({station_id?, item_id?, order_type?})` | your own orders at a station: `price_each`, `quantity`, `filled_quantity`, `remaining` |
+| `modify_order({order_id, price_each})` | moves the price; the reply may carry a new `listing_fee` |
+| `cancel_order({order_id})` | ends it and returns what is still held (`returned_credits`, `returned_items`); `order_id: 'all'` ends every order of yours at this station |
+
+Each takes `orders: [...]` instead for up to 50 at once, so every reply is a union: narrow
+`.delta.details` on `kind === 'single'` before reading a field. The create reply says what
+crossed the book at once (`fills`, `quantity_filled`; an ask at or under the best bid should sell
+there and then, unverified) and what stands (`quantity_listed`, `order_id`). Every listing pays `listing_fee`: the empire's `listing_fee_bps` (`get_empire_info`), or a player station's own
+`market_fee_bps`. Nothing pushes a fill to you (no order event is in the lib's notifications): read
+`view_orders` and your wallet or `storage()` to learn one. `permissions.credit_reserve` does not
+guard a raw order; mind the escrow yourself.
+
+```ts
+import {prices, account, note, outcome} from 'play';
+
+export default async function main() {
+  const look = await prices(['power_distribution_grid']);
+  const q = look.detail.quotes[0];
+  if (!q || !q.held || q.best_sell <= q.best_buy * 2) return look;    // nothing aboard, or no gap worth waiting on
+  const price_each = Math.floor(q.best_sell * 0.95);                    // undercut the cheapest seller
+  try {
+    const placed = await account().commands.spacemolt_market.create_sell_order(
+      {item_id: q.item_id, quantity: q.held, price_each});
+    const d = placed.delta.details;                                     // single or bulk: narrow on kind
+    if (d?.kind === 'single') note(`${q.item_id}: ${d.quantity_filled ?? 0} sold at once, ${d.quantity_listed ?? 0} listed at ${price_each} as ${d.order_id}, fee ${d.listing_fee}`);
+  } catch (error) {
+    return outcome(`create_sell_order refused: ${String(error)}`, 'refused');
+  }
+  return outcome('listed', 'done', (await account().commands.spacemolt_market.view_orders({})).structuredContent);
+}
+```
+
 ## Pitfalls
 
 - A snapshot goes stale before arrival; we have watched a public market's supply vanish. The
@@ -294,7 +349,6 @@ export default async function main() {
 - Two `tradeRun`s that reach the far stop and still leave goods `unsold`: the far book is being
   drained by someone else.
   Change the pair.
-- Trading is at 5+ and every spread is small: standing orders (`account().commands
-  .spacemolt_market.create_buy_order`) earn the spread without flying; this library does
-  not wrap them yet, and a raw order is a real escrow.
+- Every route is thin but the books gape: a standing order earns the gap without flying (see
+  "Standing orders").
 - Capital is growing faster than cargo: the hull is the limit. `shipsForSale()`.
