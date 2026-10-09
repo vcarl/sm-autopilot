@@ -235,7 +235,21 @@ minute.
 - **Empires.** Five (`solarian`, `voidborn`, `crimson`, `nebula`, `outerrim`) claim systems; a
   system's `empire` field names its claimant, absent in unclaimed space. Each one's live policy —
   contraband, taxes, jail, bounties, citizenship terms, reputation drift — is
-  `account().commands.spacemolt.get_empire_info({id})`.
+  `account().commands.spacemolt.get_empire_info({id})`. Yours is `account().player?.empire`.
+  Each builds its own hulls (a catalog ship's `faction`), has its own skill, and its space yields
+  ores found nowhere else (the catalog's own descriptions):
+
+  | Empire | Hulls lean to | Empire skill, per level | Ores only there |
+  |---|---|---|---|
+  | `solarian` | sturdy industrial, survey scanners | `solarian_doctrine`: +1% accuracy | — |
+  | `nebula` | the biggest holds, commercial and passenger, fuel-efficient | `nebula_attunement`: +1% gas yield, sensor range | `nebulium`, `trade_crystal` |
+  | `crimson` | combat, the most weapon slots, boarding | `crimson_fury`: +1% armor bypass, damage when hurt | `fury_crystal`, `plasma_residue` |
+  | `voidborn` | cloaked and scan-resistant, light holds | `voidborn_mastery`: +1% cloak, energy-weapon damage | `exotic_matter`, `null_matter`, `void_essence` |
+  | `outerrim` | fuel-efficient industrial | `outer_rim_survival`: +1% salvage yield, field repair | `dark_matter_residue`, `phase_crystal`, `quantum_fragments` |
+
+  Reported by an outside guide, not verified: Solarian suits miners and traders, Outer Rim crafters;
+  common ores differ by empire too (silicon in Voidborn and Nebula space, not Solarian). Capitals are
+  policed and the frontier is not (Police, below).
 - **Customs.** Entering an empire's space, its customs may post on the `system` channel ordering you
   to hold position while it scans your cargo, then post you clear. Leaving first is "noted and
   logged" ("declined to remain for inspection", "ran"); what that costs the game has not said. The
