@@ -1,7 +1,7 @@
 {
   "dependencies": {
     "@spacemolt/lib": "15.2.0",
-    "effect": "4.0.0"
+    "effect": "4.0.2"
   },
   "devDependencies": {
     "@effect/language-service": "0.87.3",
