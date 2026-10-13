@@ -7,7 +7,7 @@ import {join} from 'node:path';
 import test from 'node:test';
 import {pendingAlerts} from './alerts.ts';
 import {pushJournal} from './bridge.ts';
-import {CAP,THIN,TICK_MS,combatLine,foldBattleDamage,foldBattleEnded,foldBattleUpdate,readCombat,resetCombatFold,statsFor,writeFight,
+import {CAP,ROW_CAP,THIN,TICK_MS,combatLine,foldBattleDamage,foldBattleEnded,foldBattleUpdate,readCombat,resetCombatFold,statsFor,writeFight,
   type FightRecord} from './combat-memory.ts';
 import {readJournal} from './run-record.ts';
 
@@ -227,4 +227,90 @@ test('shots are attributed to the zone in force when they arrived, not to a tick
       `outer lost its shot to the repeated tick: ${JSON.stringify(fight!.by_range)}`);
     assert.equal(fight!.by_range.inner?.at_us.shots,1,JSON.stringify(fight!.by_range));
   } finally {resetCombatFold();rmSync(dir,{recursive:true,force:true});}
+});
+
+test('every tick keeps each combatant\'s zone and stance, and the tick the quarry first fled',()=>{
+  // RED before this commit: the fold kept the opponent's name and class only, so a quarry that
+  // held at distance 3 and slipped away left nothing to say where it was or what it was doing.
+  const dir=mkdtempSync(join(tmpdir(),'spacemolt-ticks-'));
+  try {
+    resetCombatFold();
+    const tick=(t:number,z:string,s:string)=>foldBattleUpdate({battle_id:'b9',tick:t,your_side_id:2,your_zone:'inner',your_stance:'fire',
+      participants:[{side_id:2,player_id:'me',zone:'inner',stance:'fire',hull_pct:90},
+        {side_id:1,player_id:'q1',username:'Ion-Eel',kind:'creature',zone:z,stance:s,hull_pct:40,shield_pct:0}]});
+    tick(7,'inner','fire');tick(8,'mid','flee');tick(9,'outer','flee');
+    foldBattleEnded(dir,{battle_id:'b9',reason:'interrupted',duration:3,
+      participants:[{player_id:'me',side_id:2,survived:true,damage_dealt:5,damage_taken:0}]},'me');
+    const [fight]=readCombat(dir);
+    assert.equal(fight?.battle_id,'b9');
+    assert.deepEqual(fight?.fled,{q1:8});
+    assert.deepEqual(fight?.rows?.map(row=>[row.t,row.z,row.s,row.o.map(one=>[one.id,one.n,one.k,one.z,one.s,one.h,one.sh])]),[
+      [7,'inner','fire',[['q1','Ion-Eel','creature','inner','fire',40,0]]],
+      [8,'inner','fire',[['q1','Ion-Eel','creature','mid','flee',40,0]]],
+      [9,'inner','fire',[['q1','Ion-Eel','creature','outer','flee',40,0]]]]);
+  } finally {resetCombatFold();rmSync(dir,{recursive:true,force:true});}
+});
+
+test('in a fleet battle our row is found by id, and an ally is neither a tick\'s other combatant nor a quarry that fled',()=>{
+  // Review: `us` was the first row on our side, so an ally listed first took our hull and class,
+  // our own row landed in `o`, and a fleeing ally was recorded in `fled` as if it were the quarry.
+  const dir=temp();
+  try {
+    resetCombatFold();
+    for(const t of [1,2])foldBattleUpdate({battle_id:'f1',tick:t,your_side_id:2,your_zone:'inner',
+      participants:[{side_id:2,player_id:'ally',username:'Wingmate',ship_class:'barge',hull_pct:30,stance:t===2?'flee':'fire'},
+        {side_id:2,player_id:'me',ship_class:'cobble',hull_pct:t===1?90:80,stance:'fire'},
+        {side_id:1,player_id:'q1',username:'Ion-Eel',kind:'creature',stance:'fire',hull_pct:50}]},'me');
+    foldBattleEnded(dir,{battle_id:'f1',duration:2,winning_side:2,
+      participants:[{player_id:'me',side_id:2,survived:true,damage_dealt:5,damage_taken:1}]},'me');
+    const [fight]=readCombat(dir);
+    assert.equal(fight?.opponent,'Ion-Eel');
+    assert.equal(fight?.ship_class,'cobble');
+    assert.deepEqual([fight?.hull_pct_from,fight?.hull_pct_to],[90,80]);
+    assert.deepEqual(fight?.rows?.map(row=>row.o.map(one=>one.id)),[['q1'],['q1']]);
+    assert.equal(fight?.fled,undefined,'a fleeing ally is not the quarry leaving');
+  } finally {resetCombatFold();rmSync(dir,{recursive:true,force:true});}
+});
+
+test('a frame with a NaN tick or hull does not lose the fight\'s record on re-read',()=>{
+  // Review: JSON writes NaN as null, the row then fails TickRow's decode, and readCombat drops the fight.
+  const dir=temp();
+  try {
+    resetCombatFold();
+    for(const t of [1,Number.NaN,2])foldBattleUpdate({battle_id:'n1',tick:t,your_side_id:2,your_zone:'inner',
+      participants:[{side_id:2,player_id:'me',hull_pct:Number.isNaN(t)?Number.NaN:90},
+        {side_id:1,player_id:'q1',username:'Ion-Eel',hull_pct:Number.NaN,shield_pct:Infinity}]},'me');
+    foldBattleEnded(dir,{battle_id:'n1',duration:3,winning_side:2,
+      participants:[{player_id:'me',side_id:2,survived:true,damage_dealt:5,damage_taken:1}]},'me');
+    const [fight]=readCombat(dir);
+    assert.equal(fight?.battle_id,'n1','the fight survived the round trip');
+    assert.deepEqual(fight?.rows?.map(row=>row.t),[1,2],'the NaN-tick row is skipped');
+    assert.deepEqual(fight?.rows?.[0]?.o,[{id:'q1',n:'Ion-Eel'}],'non-finite numbers are omitted');
+    assert.deepEqual([fight?.hull_pct_from,fight?.hull_pct_to],[90,90]);
+  } finally {resetCombatFold();rmSync(dir,{recursive:true,force:true});}
+});
+
+test('a stalled fight keeps its last ROW_CAP rows and counts the ones it cut',()=>{
+  const dir=temp();
+  try {
+    resetCombatFold();
+    for(let t=1;t<=ROW_CAP+5;t++)foldBattleUpdate({battle_id:'s1',tick:t,your_side_id:2,
+      participants:[{side_id:2,player_id:'me'},{side_id:1,player_id:'q1',username:'Ion-Eel'}]},'me');
+    foldBattleEnded(dir,{battle_id:'s1',winning_side:2,participants:[]},'me');
+    const [fight]=readCombat(dir);
+    assert.equal(fight?.rows?.length,ROW_CAP);
+    assert.equal(fight?.rows_dropped,5);
+    assert.equal(fight?.rows?.[0]?.t,6,'the end is kept over the start');
+  } finally {resetCombatFold();rmSync(dir,{recursive:true,force:true});}
+});
+
+test('a fight written before rows were kept still reads',()=>{
+  const dir=temp();
+  try {
+    writeFileSync(join(dir,'combat.json'),JSON.stringify({fights:[{opponent:'Slag-Tortoise',ticks:20,by_range:{},
+      dealt:10,taken:4,stances:['fire'],flee_ticks:0,ending:'victory',at:'2026-09-24T00:00:00.000Z'}]}));
+    const [fight]=readCombat(dir);
+    assert.equal(fight?.opponent,'Slag-Tortoise');
+    assert.equal(fight?.rows,undefined);
+  } finally {rmSync(dir,{recursive:true,force:true});}
 });

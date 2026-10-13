@@ -186,7 +186,7 @@ export function pushJournal(account:{on:(type:string,handler:(payload:Record<str
     if(type==='player_died')stopRun(`ship lost: ${String(body.ship_lost??'the ship')}, respawned at ${String(body.respawn_base??'an unnamed base')}`);
     // The combat fold, before the rate cap and before the journal: losing shots to a 20-a-minute
     // ceiling would bias measured accuracy silently, which is worse than not measuring it.
-    if(type==='battle_update')foldBattleUpdate(body);
+    if(type==='battle_update')foldBattleUpdate(body,account.player?.id);
     if(type==='battle_damage')foldBattleDamage(body,account.player?.id);
     if(type==='battle_ended')foldBattleEnded(runtime,body,account.player?.id,account.currentTick);
     if(FOLD_ONLY.has(type))return;

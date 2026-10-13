@@ -26,8 +26,14 @@ export type Shots = typeof Shots.Type;
  * would invent a band to make a sample look thicker, which is a lie about a measurement. It stays
  * visible as itself so the pilot can see how much of the record is unplaced. */
 export declare const bandOf: (zone: string | undefined) => string;
-/** One fight as memory keeps it: aggregates, never a transcript. */
+/** ponytail: the last 200 rows of a fight; older ones are counted in `rows_dropped`, not kept.
+ * A fight is about 25 ticks, so this only bites a stalled one; 60 fights at the cap is ~2 MB.
+ * The end is kept over the start because the end is where the quarry leaves. */
+export declare const ROW_CAP = 200;
+/** One fight as memory keeps it: aggregates, plus the per-tick rows above. */
 declare const FightRecord: Schema.Struct<{
+    /** `battle_update.battle_id`, the join key to `gameplay.jsonl`. Absent on fights written before it was kept. */
+    readonly battle_id: Schema.optionalKey<Schema.String>;
     /** The opponent as the frames name it — `battle_update.participants[].username`, which for
      * wildlife is its display name and is what `get_nearby` calls it too. The frames carry no
      * species id, so this is the key. */
@@ -68,6 +74,25 @@ declare const FightRecord: Schema.Struct<{
     /** Global engine tick at close, and the wall clock the age is read from. */
     readonly tick: Schema.optionalKey<Schema.Number>;
     readonly at: Schema.String;
+    /** Each `battle_update`, oldest first, at most `ROW_CAP`; `rows_dropped` counts the older ones cut. */
+    readonly rows: Schema.optionalKey<Schema.$Array<Schema.Struct<{
+        readonly t: Schema.Number;
+        readonly ms: Schema.Number;
+        readonly z: Schema.optional<Schema.String>;
+        readonly s: Schema.optional<Schema.String>;
+        readonly o: Schema.$Array<Schema.Struct<{
+            readonly id: Schema.String;
+            readonly n: Schema.optional<Schema.String>;
+            readonly k: Schema.optional<Schema.String>;
+            readonly z: Schema.optional<Schema.String>;
+            readonly s: Schema.optional<Schema.String>;
+            readonly h: Schema.optional<Schema.Number>;
+            readonly sh: Schema.optional<Schema.Number>;
+        }>>;
+    }>>>;
+    readonly rows_dropped: Schema.optionalKey<Schema.Number>;
+    /** `player_id` → the first frame tick that combatant was seen in the `flee` stance. */
+    readonly fled: Schema.optionalKey<Schema.$Record<Schema.String, Schema.Number>>;
 }>;
 export type FightRecord = typeof FightRecord.Type;
 /** Whatever is on disk, newest fight first, or nothing: a torn or absent file is no memory. */
@@ -125,8 +150,10 @@ export declare function statsFor(fights: FightRecord[], opponent: string, now?: 
  * damage total as hull would break off many times too early, and the walk-away line it is
  * deciding against is measured in hull. */
 export declare function combatLine(stats: CombatStats): string;
-/** `battle_update`: the tick, the band, the stance in force, and who is on the other side. */
-export declare function foldBattleUpdate(payload: Record<string, unknown>): void;
+/** `battle_update`: the tick, the band, the stance in force, and who is on the other side. `me` is
+ * our `player_id`: in a fleet battle the first row on our side may be an ally's, so ours is found by
+ * id, and only the other side's rows are kept per tick (an ally fleeing is not the quarry leaving). */
+export declare function foldBattleUpdate(payload: Record<string, unknown>, me?: string): void;
 /** `battle_damage`: one shot. `hit_success` is the accuracy measurement, and the shot is credited to
  * the band in force when this frame arrived — the frame carries no band of its own and the tick
  * number cannot stand in for one (see `Live.by_range`). */

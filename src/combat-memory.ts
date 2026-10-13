@@ -4,7 +4,8 @@
  * neither, so combat was played blind — three ships were lost on 2026-09-24 and nothing
  * recorded would have let anyone choose better. These frames are NOT journalled: a battle
  * pushes several a tick and `gameplay.jsonl` is already 36 MB, so they are folded here on
- * arrival into roughly a dozen numbers per fight and dropped.
+ * arrival into roughly a dozen numbers per fight, plus one short row per `battle_update`
+ * (`FightRecord.rows`), and dropped.
  *
  * Like `markets.json`, this is memory the game does not publish: the server has no "how did I
  * do against this species last time" endpoint, so the only way to have the number is to have
@@ -45,8 +46,31 @@ type Tally={-readonly [K in keyof Shots]:Shots[K]};
  * visible as itself so the pilot can see how much of the record is unplaced. */
 export const bandOf=(zone:string|undefined):string=>zone==='engaged'?'inner':zone||'unknown';
 
-/** One fight as memory keeps it: aggregates, never a transcript. */
+/** One other combatant as one `battle_update` saw it. `id` is `player_id`, `n` the username
+ * (`FightRecord.opponent`'s key), `k` the kind; `h`/`sh` hull and shield percent. Every field but
+ * `id` is optional because the frame's are. */
+const TickOther=Schema.Struct({id:Schema.String,n:Schema.optional(Schema.String),k:Schema.optional(Schema.String),
+  z:Schema.optional(Schema.String),s:Schema.optional(Schema.String),
+  h:Schema.optional(Schema.Number),sh:Schema.optional(Schema.Number)});
+/** One `battle_update`: `t` the frame's tick, `ms` the wall clock it arrived at (the tick stalls
+ * live, so `ms` is what joins to the `spacemolt_battle` commands in `gameplay.jsonl`), our raw
+ * `z`one and `s`tance, and every other combatant in `o`.
+ *
+ * Kept because the bands could not say why the quarry gets away: on 2026-10-09 85 of 262 hunt
+ * fights ended in an escape, the quarry holding at distance 3 through 10-19 accepted `advance`
+ * commands, and the frames that carried its zone and stance each tick were folded to its name. */
+const TickRow=Schema.Struct({t:Schema.Number,ms:Schema.Number,z:Schema.optional(Schema.String),
+  s:Schema.optional(Schema.String),o:Schema.Array(TickOther)});
+type TickRow=typeof TickRow.Type;
+/** ponytail: the last 200 rows of a fight; older ones are counted in `rows_dropped`, not kept.
+ * A fight is about 25 ticks, so this only bites a stalled one; 60 fights at the cap is ~2 MB.
+ * The end is kept over the start because the end is where the quarry leaves. */
+export const ROW_CAP=200;
+
+/** One fight as memory keeps it: aggregates, plus the per-tick rows above. */
 const FightRecord=Schema.Struct({
+  /** `battle_update.battle_id`, the join key to `gameplay.jsonl`. Absent on fights written before it was kept. */
+  battle_id:Schema.optionalKey(Schema.String),
   /** The opponent as the frames name it — `battle_update.participants[].username`, which for
    * wildlife is its display name and is what `get_nearby` calls it too. The frames carry no
    * species id, so this is the key. */
@@ -75,6 +99,10 @@ const FightRecord=Schema.Struct({
   hull_pct_from:Schema.optionalKey(Schema.Number),hull_pct_to:Schema.optionalKey(Schema.Number),
   /** Global engine tick at close, and the wall clock the age is read from. */
   tick:Schema.optionalKey(Schema.Number),at:Schema.String,
+  /** Each `battle_update`, oldest first, at most `ROW_CAP`; `rows_dropped` counts the older ones cut. */
+  rows:Schema.optionalKey(Schema.Array(TickRow)),rows_dropped:Schema.optionalKey(Schema.Number),
+  /** `player_id` → the first frame tick that combatant was seen in the `flee` stance. */
+  fled:Schema.optionalKey(Schema.Record(Schema.String,Schema.Number)),
 });
 export type FightRecord=typeof FightRecord.Type;
 
@@ -223,6 +251,7 @@ interface Live {
   stances:string[];flee_ticks:number;
   hull_from?:number;hull_to?:number;
   dealt:number;taken:number;last_tick:number;
+  rows:TickRow[];rows_dropped:number;fled:Record<string,number>;
 }
 let live:Live|null=null;
 
@@ -232,15 +261,17 @@ const bucket=(fold:Live)=>fold.by_range[fold.zone]??=({at_us:{shots:0,hits:0},at
 const isRow=(v:unknown):v is Record<string,unknown>=>typeof v==='object'&&v!==null;
 const participantsOf=(payload:Record<string,unknown>)=>Array.isArray(payload.participants)?payload.participants.filter(isRow):[];
 
-/** `battle_update`: the tick, the band, the stance in force, and who is on the other side. */
-export function foldBattleUpdate(payload:Record<string,unknown>):void {
+/** `battle_update`: the tick, the band, the stance in force, and who is on the other side. `me` is
+ * our `player_id`: in a fleet battle the first row on our side may be an ally's, so ours is found by
+ * id, and only the other side's rows are kept per tick (an ally fleeing is not the quarry leaving). */
+export function foldBattleUpdate(payload:Record<string,unknown>,me?:string):void {
   const battle_id=String(payload.battle_id??'');
   if(!battle_id)return;
   if(live?.battle_id!==battle_id)
-    live={battle_id,zone:'unknown',by_range:{},stances:[],flee_ticks:0,dealt:0,taken:0,last_tick:0};
+    live={battle_id,zone:'unknown',by_range:{},stances:[],flee_ticks:0,dealt:0,taken:0,last_tick:0,rows:[],rows_dropped:0,fled:{}};
   const fold=live;
   const tick=Number(payload.tick??0);
-  fold.last_tick=Math.max(fold.last_tick,tick);
+  if(Number.isFinite(tick))fold.last_tick=Math.max(fold.last_tick,tick);
   fold.our_side=typeof payload.your_side_id==='number'?payload.your_side_id:fold.our_side;
   if(typeof payload.your_zone==='string')fold.zone=bandOf(payload.your_zone);
   const stance=typeof payload.your_stance==='string'?payload.your_stance:'';
@@ -249,12 +280,25 @@ export function foldBattleUpdate(payload:Record<string,unknown>):void {
     if(stance==='flee')fold.flee_ticks+=1;
   }
   const rows=participantsOf(payload);
-  const us=rows.find(row=>row.side_id===fold.our_side);
-  const them=rows.find(row=>row.side_id!==fold.our_side);
+  const str=(v:unknown)=>typeof v==='string'?v:undefined,num=(v:unknown)=>typeof v==='number'&&Number.isFinite(v)?v:undefined;
+  const us=(me===undefined?undefined:rows.find(row=>row.player_id===me))??rows.find(row=>row.side_id===fold.our_side);
+  const others=rows.filter(row=>row!==us&&(fold.our_side===undefined||row.side_id!==fold.our_side));
+  const them=others[0];
   if(typeof us?.ship_class==='string')fold.ship_class=us.ship_class;
-  if(typeof us?.hull_pct==='number'){fold.hull_from??=us.hull_pct;fold.hull_to=us.hull_pct;}
+  const hull=num(us?.hull_pct);
+  if(hull!==undefined){fold.hull_from??=hull;fold.hull_to=hull;}
   if(typeof them?.username==='string')fold.opponent=them.username;
   if(typeof them?.ship_class==='string')fold.opponent_class=them.ship_class;
+  // JSON writes a non-finite tick as null, which fails the row's decode and drops the whole fight on read.
+  if(!Number.isFinite(tick))return;
+  const o=others.map(row=>{
+    const id=String(row.player_id??''),s=str(row.stance);
+    if(s==='flee'&&!(id in fold.fled))fold.fled[id]=tick;
+    // An absent field is `undefined` here and simply not written: `JSON.stringify` drops it.
+    return {id,n:str(row.username),k:str(row.kind),z:str(row.zone),s,h:num(row.hull_pct),sh:num(row.shield_pct)};
+  });
+  fold.rows.push({t:tick,ms:Date.now(),z:str(payload.your_zone),s:stance||undefined,o});
+  if(fold.rows.length>ROW_CAP){fold.rows.shift();fold.rows_dropped+=1;}
 }
 
 /** `battle_damage`: one shot. `hit_success` is the accuracy measurement, and the shot is credited to
@@ -284,14 +328,15 @@ export function foldBattleEnded(dir:string,payload:Record<string,unknown>,me:str
   const reason=String(payload.reason??'unresolved');
   const ending=ours?.survived===false?'defeat'
     :typeof payload.winning_side==='number'&&payload.winning_side===fold.our_side?'victory':reason;
-  const fight:FightRecord={opponent:fold.opponent,
+  const fight:FightRecord={battle_id:fold.battle_id,opponent:fold.opponent,
     ...fold.opponent_class?{opponent_class:fold.opponent_class}:{},
     ...fold.ship_class?{ship_class:fold.ship_class}:{},
     ticks:Number(payload.duration??fold.last_tick)||fold.last_tick,
     by_range:fold.by_range,dealt,taken,stances:fold.stances,flee_ticks:fold.flee_ticks,ending,
     ...fold.hull_from!==undefined?{hull_pct_from:fold.hull_from}:{},
     ...fold.hull_to!==undefined?{hull_pct_to:fold.hull_to}:{},
-    ...tick?{tick}:{},at:now().toISOString()};
+    ...tick?{tick}:{},at:now().toISOString(),
+    rows:fold.rows,...fold.rows_dropped?{rows_dropped:fold.rows_dropped}:{},...Object.keys(fold.fled).length?{fled:fold.fled}:{}};
   writeFight(dir,fight);
   return fight;
 }
