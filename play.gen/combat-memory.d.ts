@@ -65,7 +65,7 @@ declare const FightRecord: Schema.Struct<{
     /** Ticks observed in the `flee` stance. The retreat COMMAND is not in the push frames — the
      * command seam journals every `spacemolt_battle/retreat` — so this is the stance, not the ask. */
     readonly flee_ticks: Schema.Number;
-    /** `victory` when our side won, `defeat` when we did not survive, and the server's own
+    /** `victory` when our side won, `defeat` when we did not survive (or lost an arena match), and the server's own
      * `stalemate`/`mutual_destruction`/`interrupted` otherwise. */
     readonly ending: Schema.String;
     /** Our hull as a percentage of max, first tick to last: the fight's cost. */
@@ -93,13 +93,17 @@ declare const FightRecord: Schema.Struct<{
     readonly rows_dropped: Schema.optionalKey<Schema.Number>;
     /** `player_id` → the first frame tick that combatant was seen in the `flee` stance. */
     readonly fled: Schema.optionalKey<Schema.$Record<Schema.String, Schema.Number>>;
+    /** An arena match: the challenge id it was fought for (a duel's own challenge id). Absent on every other fight. */
+    readonly arena: Schema.optionalKey<Schema.String>;
+    /** The arena's own score of it: `arena.status` wins/losses after against before — `neither` when both stood still. */
+    readonly arena_result: Schema.optionalKey<Schema.String>;
 }>;
 export type FightRecord = typeof FightRecord.Type;
 /** Whatever is on disk, newest fight first, or nothing: a torn or absent file is no memory. */
 export declare function readCombat(dir: string | undefined): FightRecord[];
 /** Temp file then rename, as `remember()` and `writeAlerts` do: a torn write would price the
  * next fight on a lie. Newest first, oldest evicted past `CAP`. */
-export declare function writeFight(dir: string, fight: FightRecord): void;
+export declare function writeFight(dir: string, fight: FightRecord, replace?: boolean): void;
 /** The three metrics the record exists to answer, for one opponent. Every number carries the
  * sample it rests on, because an estimate from one fight is an anecdote and must read as one. */
 export interface CombatStats {
@@ -161,6 +165,19 @@ export declare function foldBattleDamage(payload: Record<string, unknown>, me: s
 /** `battle_ended`: close the fold and write it. The server's own participant totals win over
  * the summed shot frames — a dropped frame would understate them, and these cannot be. */
 export declare function foldBattleEnded(dir: string, payload: Record<string, unknown>, me: string | undefined, tick?: number, now?: () => Date): FightRecord | undefined;
+/** An arena match, closed by the play side. No `battle_ended` push has been logged for an arena battle (kvothe,
+ * 2026-10-09..13: 13 matches, none in `combat.json`), so the fold `battle_update` opened is closed here with what the
+ * match's own reads gave: our row's damage totals, the polls, and `arena.status`'s win/loss delta. A record a push did
+ * write for this battle is marked in place; with no fold and no record, one is written from those numbers alone. */
+export declare function foldArenaEnded(dir: string | undefined, match: {
+    battle_id: string;
+    challenge_id: string;
+    opponent: string;
+    result: 'win' | 'loss' | 'neither';
+    dealt?: number | undefined;
+    taken?: number | undefined;
+    ticks: number;
+}, now?: () => Date): FightRecord | undefined;
 /** Drop the fold in flight. Used by the tests; a real battle ends with `battle_ended`. */
 export declare const resetCombatFold: () => void;
 export {};

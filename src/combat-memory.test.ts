@@ -7,7 +7,7 @@ import {join} from 'node:path';
 import test from 'node:test';
 import {pendingAlerts} from './alerts.ts';
 import {pushJournal} from './bridge.ts';
-import {CAP,ROW_CAP,THIN,TICK_MS,combatLine,foldBattleDamage,foldBattleEnded,foldBattleUpdate,readCombat,resetCombatFold,statsFor,writeFight,
+import {CAP,ROW_CAP,THIN,TICK_MS,combatLine,foldArenaEnded,foldBattleDamage,foldBattleEnded,foldBattleUpdate,readCombat,resetCombatFold,statsFor,writeFight,
   type FightRecord} from './combat-memory.ts';
 import {readJournal} from './run-record.ts';
 
@@ -313,4 +313,23 @@ test('a fight written before rows were kept still reads',()=>{
     assert.equal(fight?.opponent,'Slag-Tortoise');
     assert.equal(fight?.rows,undefined);
   } finally {rmSync(dir,{recursive:true,force:true});}
+});
+
+// No battle_ended push was logged for any of 13 live arena matches (kvothe, 2026-10-09..13), and combat.json held only
+// hunts. The play side closes the fold with the arena's own score, and a battle a push did close is marked, not doubled.
+test('an arena match closes its open fold into combat.json, marked with the challenge and the record delta',()=>{
+  const dir=temp();
+  try {
+    resetCombatFold();
+    for(const t of [1,2])foldBattleUpdate({battle_id:'arena-1',tick:t,your_side_id:2,your_zone:'mid',your_stance:'fire',
+      participants:[{side_id:2,player_id:'me',hull_pct:100-t},{side_id:1,player_id:'npc-1',username:'Ring Levy',zone:'outer'}]});
+    const fight=foldArenaEnded(dir,{battle_id:'arena-1',challenge_id:'first_blood',opponent:'first_blood',result:'loss',dealt:12,taken:40,ticks:2});
+    assert.equal(fight?.opponent,'Ring Levy','the frames name the opponent');
+    assert.deepEqual([fight?.arena,fight?.arena_result,fight?.ending,fight?.dealt,fight?.taken,fight?.rows?.length],
+      ['first_blood','loss','defeat',12,40,2]);
+    // A second close of the same battle (a push that did arrive) replaces the record rather than adding one.
+    foldArenaEnded(dir,{battle_id:'arena-1',challenge_id:'first_blood',opponent:'first_blood',result:'loss',ticks:2});
+    assert.equal(readCombat(dir).filter(row=>row.battle_id==='arena-1').length,1);
+    assert.equal(readCombat(dir)[0]!.rows?.length,2,'the per-tick rows survive the re-mark');
+  } finally {resetCombatFold();rmSync(dir,{recursive:true,force:true});}
 });

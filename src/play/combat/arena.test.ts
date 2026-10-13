@@ -1,16 +1,22 @@
 import assert from 'node:assert/strict';
 import type {Account} from '@spacemolt/lib';
+import {mkdtempSync,rmSync} from 'node:fs';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
 import test from 'node:test';
+import {readCombat} from '../../combat-memory.ts';
 import {bridgeWorld,type WorldOptions} from '../../test-support/bridge-world.ts';
 import {bind,unbind,type Pilot} from '../runtime.ts';
+import {arena,duel} from './arena.ts';
 import {fightBattle,pace} from './hunting.ts';
 
 pace.tickMs=1;
 
-function world(options:WorldOptions={}) {
+function world(options:WorldOptions={},runtime?:string) {
   const game=bridgeWorld({services:['refuel','repair','storage'],cargoUsed:0,...options});
   const lines:string[]=[];
-  bind({account:game.account as unknown as Account,command:game.command,pilot:():Pilot=>({mood:'Focused'}),emit:text=>lines.push(text)});
+  bind({account:game.account as unknown as Account,command:game.command,...runtime?{runtime}:{},
+    pilot:():Pilot=>({mood:'Focused'}),emit:text=>lines.push(text)});
   return {...game,lines};
 }
 const MUTATIONS=new Set(['spacemolt_battle/stance','spacemolt_battle/target','spacemolt_battle/advance','spacemolt_battle/retreat','spacemolt_battle/reload']);
@@ -82,4 +88,66 @@ test('fightBattle with no battle holding the ship is done with no rounds',async(
     assert.equal(out.status,'done');
     assert.equal(out.detail.polls,0);
   } finally {unbind();}
+});
+
+// Live: `rule_ship_tier` refused a tier-2 hull once the fight had been sent. The rule is on the challenge row.
+test('arena() refuses a hull above the challenge\'s tier rule, naming it, and never sends fight',async()=>{
+  const f=world({arena:{challenges:[{challenge_id:'first_blood',max_ship_tier:1}]}});
+  try {
+    f.account.server.ship.class_id='hauler_ii';
+    const out=await arena();
+    assert.equal(out.status,'refused');
+    assert.match(out.why??'',/rule_ship_tier: hauler_ii is tier 2, and first_blood takes tier 0-1/);
+    assert.equal(f.count('spacemolt_arena/fight'),0);
+  } finally {unbind();}
+});
+
+// 11 of 13 live matches were forfeited by a flee. A Focused walk-away line (90 of 100) is crossed here on the first
+// round; the arena fights through it, because losing costs nothing and fleeing forfeits.
+test('arena() fights to the end through the walk-away line, never flees, and scores the match from the record',async()=>{
+  const f=world({arena:{challenges:[{challenge_id:'first_blood'}],damage:10,polls:8,record:{wins:2,losses:5}}});
+  try {
+    const out=await arena();
+    assert.equal(out.status,'done',out.why);
+    assert.equal(f.sent.some(call=>call.action==='spacemolt_battle/stance'&&call.params?.id==='flee'),false);
+    assert.equal(out.detail.result,'win');
+    assert.deepEqual(out.detail.record,{before:{wins:2,losses:5},after:{wins:3,losses:5}});
+    assert.ok(out.detail.battle.dealt!>0&&out.detail.battle.taken!>0,JSON.stringify(out.detail.battle));
+    assert.ok(f.account.server.ship.hull<90,'it fought under the line');
+  } finally {unbind();}
+  const g=world({arena:{challenges:[{challenge_id:'first_blood'}],enemies:[{id:'npc-1',name:'Ring Levy',distance:3,holds:3}],polls:4}});
+  try {
+    const out=await arena({challenge:'first_blood'});
+    assert.equal(out.detail.result,'loss');
+    assert.match(out.did,/first_blood: loss \(arena record 0-1\)/);
+    assert.equal(g.count('spacemolt_arena/fight'),1);
+  } finally {unbind();}
+});
+
+test('duel() fights once the challenge is accepted, and withdraws one never answered',async()=>{
+  const f=world({arena:{acceptOn:3,polls:6}});
+  try {
+    const out=await duel({player:'Rival',max_side_size:1});
+    assert.equal(out.status,'done',out.why);
+    assert.deepEqual(f.sent.find(call=>call.action==='spacemolt_arena/challenge')?.params,{id:'Rival',max_side_size:1});
+    assert.equal(out.detail.result,'win');
+  } finally {unbind();}
+  const g=world({arena:{}});
+  try {
+    const out=await duel({player:'Rival',waitMs:3});
+    assert.equal(out.status,'partial');
+    assert.match(out.why??'',/not accepted in .*; withdrawn/);
+    assert.equal(g.count('spacemolt_arena/cancel'),1);
+  } finally {unbind();}
+});
+
+test('arena() folds the match into combat.json beside the hunts, marked with its challenge and the record delta',async()=>{
+  const runtime=mkdtempSync(join(tmpdir(),'spacemolt-arena-'));
+  world({arena:{challenges:[{challenge_id:'first_blood',enemies:[{name:'Ring Levy',is_boss:true}]}],polls:8}},runtime);
+  try {
+    const out=await arena();
+    const [fight]=readCombat(runtime);
+    assert.deepEqual([fight?.battle_id,fight?.arena,fight?.arena_result,fight?.opponent,fight?.dealt],
+      ['arena-1','first_blood',out.detail.result,'Ring Levy',out.detail.battle.dealt]);
+  } finally {unbind();rmSync(runtime,{recursive:true,force:true});}
 });

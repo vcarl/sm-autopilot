@@ -109,6 +109,11 @@ export declare const pace: {
     tickMs: number;
 };
 export declare const FIGHT_CEILING_MS: number;
+/** The loadout floor, in the one form the state can answer: a fitted module whose `type` is
+ * `weapon`, holding rounds for its `ammo_type`. An empty magazine with its ammunition in the
+ * hold is reloaded rather than refused — that is the whole of "reload when ammo allows". A
+ * reload the game refuses, or whose reply is lost, is said and never re-sent: the read after it decides. */
+export declare const loadoutEffect: () => Effect.Effect<string | null, GameError, Game>;
 /** Break off, and see it through. `spacemolt_battle/retreat` is a RANGE maneuver, not an exit:
  * it sits beside `advance` in `BattleResponse.action`, the live server answers "Retreating from
  * the enemy." and the battle carries on. Re-issuing it waits for an end it cannot bring — on

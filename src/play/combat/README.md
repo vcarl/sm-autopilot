@@ -10,6 +10,9 @@ what to engage is your judgement, and most of the judgement is about what not to
 |---|---|
 | `hunt({species?, strict?, look?, poi?, fights?, target?, onTick?})` | hunt a prey across a range of places: `look` is POI ids tried in order, and the fight happens where the prey actually is. `poi` is the one-place shorthand; naming neither hunts where you stand. `species` is one id or a list — any of them counts; by default it is a *preference*, and `strict: true` makes it a requirement (**Who is legal**). Up to N fights in total, each wreck looted; finding nothing is `done` with zero fights. `onTick` is your own hand on the stance — see **Fighting with your own hand on the stance** |
 | `disengage()` | break off whatever battle holds the ship (`stance flee`, then `brace` if it cannot get away) and wait until the battle has actually ended; true when it has. The one call to make when a move is refused `in_battle` |
+| `fightBattle({floor?, boss?, onTick?})` | fight the battle the ship is **already in** — a pirate's ambush, an arena match — to its end, with no opening attack. `hunt`'s own per-tick loop on whoever the other side fields: focus on `boss` (by name) or the lowest hull, range read from the opponent's row, an empty magazine reloaded, `evade` against an opponent that holds out of reach while hitting you. `floor` is the hull to break off under: your mood's walk-away line by default, `0` to fight to the end |
+| `arena({challenge?})` | fight an NPC arena challenge to its end and score it — see **Arena** |
+| `duel({player, max_side_size?, waitMs?})` | challenge a player in the arena, wait (bounded) for the accept, and fight it the same way |
 | `salvage({tow?})` | loot every wreck here into the hold, your own first; `tow: '<wreck id>'` tows that one instead |
 
 ## You cannot know where the prey is before you get there
@@ -236,6 +239,69 @@ what you see when you take stock, beside the creature's name, and `view.stats` i
 `stats.thin` is true while the sample is under three fights, and then every number above is an
 anecdote. `newest_ticks_old` says how old the freshest of them is. `ship_classes` is the hulls
 those fights were flown in: a win rate across two hulls is two questions answered as one.
+
+## Arena
+
+Consequence-free combat at an arena POI: the match runs on the normal battle engine and your ship and crew are
+restored after it — only ammo and fuel are spent. It is the safe way to train shields and armor against something
+that shoots back, and the one fight where losing costs nothing.
+
+**Fleeing forfeits the match.** So the walk-away line, your mood's floor, and every bail-out you would write for a
+hunt protect nothing here — they only turn a fight you might win into a loss. Live, 12 of 13 matches ended with our
+own ship fleeing. `arena()` fights at floor 0, and a flight that ends mid-match leaves it to finish rather than
+breaking it off (the report says so; the ship stays in the battle until it resolves).
+
+The seven real actions, `account().commands.spacemolt_arena.<action>`. There are no others — `list`, `info`, `rules`,
+`enter`, `join`, `duel`, `start` are all refused:
+
+| Action | Params | What it does |
+|---|---|---|
+| `challenges()` | — | every NPC challenge: `challenge_id`, `name`, `rules`, `objective`, `enemies` (with `is_boss`), `waves`, `locked`, `at_this_arena`, `wins` |
+| `fight({id})` | the challenge id | start an NPC challenge (undocked at its arena POI). Answers `battle_id`, `enemies`, `objective` |
+| `status()` | — | lifetime `arena_wins`/`arena_losses`, `battle_id` of the match you are in, live `match` objective, `incoming`/`outgoing` duel challenges |
+| `challenge({id, max_side_size?})` | player name or id | challenge a player; `max_side_size: 1` is a solo duel |
+| `accept()` / `decline()` | — | answer the challenge waiting for you |
+| `cancel()` | — | withdraw the challenge you sent |
+
+**NPC challenges** (`fight`) start at once. Each carries **rules** every ship on your side must pass —
+`max_ship_tier`/`min_ship_tier`, side size, banned modules, damage types, no ammo weapons, empty hold… — and a ship
+that breaks one refuses the whole side with a `rule_*` error. A `locked` challenge needs the ones in its `requires`
+won first. The **objective** is how it is won beyond knocking out every enemy: `survive_ticks`, `time_limit_ticks`,
+`no_enemy_escape`. **Player duels** (`challenge`) wait for the other pilot's `accept`; `status().outgoing` is your
+challenge still pending, and `status().battle_id` appearing is the accept.
+
+Inside the match it is an ordinary battle: there is **no `attack`** (ships fire on their own under `stance fire`),
+range is `advance`/`retreat`, focus is `target`, and **`spacemolt_battle.reload({id: <weapon module id>})`** refills an
+empty magazine from the hold — matches have opened with empty magazines. `arena()` and `fightBattle()` do all of that
+for you, one command a tick.
+
+No `battle_ended` push arrives for an arena battle, so `arena()` scores the match from `status()`: `result` is
+`win`/`loss` from the lifetime record after against before (`neither` when both stood still). Every match goes into
+combat memory beside your hunts, marked with its challenge.
+
+### Fit for the fight
+
+Range decides it before the stance does. `combat_state.max_weapon_reach` is how far your weapons fire against your
+target, and the target's own `zone_distance` is how far away it is — compare those two, never your own row's
+distance. Look up each weapon's `reach` in the catalog (`account().commands.spacemolt.inspect({id: <weapon type id>})`)
+and the challenge's enemy hulls (`enemies[].ship_class`) before you go: **two reach-2 autocannons lose to a ship that
+holds range 3**, because it never comes into reach and they never fire. Live: an enemy held distance 3 against reach 2
+for the whole match, its shield went 14→100, and its hull stayed at 98%. Bring a weapon that out-reaches what the
+challenge fields — inside the rules, which may cap the tier or ban the module.
+
+```ts
+import {orient, arena, note} from 'play';
+
+export default async function main() {
+  await orient();
+  // The first unlocked challenge held here that is not yet won; arena({challenge: '<id>'}) names one.
+  const out = await arena();
+  if (out.status === 'refused') return out;    // a rule this hull breaks, or no challenge held where you stand
+  const match = out.detail;
+  note(`${match.name}: ${match.result}, ${match.battle.polls} rounds, dealt ${match.battle.dealt ?? '?'}, taken ${match.battle.taken ?? '?'}`);
+  return out;
+}
+```
 
 ## Where the fauna are
 

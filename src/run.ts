@@ -24,7 +24,8 @@ import {runSummary} from './play/menu.ts';
 import {disengage,FIGHT_CEILING_MS} from './play/combat/hunting.ts';
 import {battleAtCloseEffect} from './travel.ts';
 import {bind,defect,edge,InterruptsRead,line,listen,outcome as build,progress,reached,runCalls,stateSnapshot,stop,stopped,Stopped,stopWhy,unbind,type Binding,type Interrupts} from './play/runtime.ts';
-import {rawError} from './play/game.ts';
+import {Game,field,rawError} from './play/game.ts';
+import {replyBody} from './storage.ts';
 import {resupplyEffect} from './play/service.ts';
 import type {Outcome} from './play/types.ts';
 import {journalRun,writeRun,type RunRecord} from './run-record.ts';
@@ -211,8 +212,13 @@ export function keepProgram(runtime:string,entry:string,sha:string):void {
  * Null when no battle held the ship, which is the ordinary case and costs one read. A refused read is
  * "no battle"; a lost one is re-read and, still lost, is not taken as "no battle" (U21's rule,
  * `battleAtCloseEffect`): the run breaks off anyway, and `disengage`'s own reads decide. A defect in the
- * read is a bug, journalled as one, and is still not allowed to skip the report or Tired's resupply. */
-async function closeBattle(answerBy:number):Promise<{opponent:string;ended:boolean}|null> {
+ * read is a bug, journalled as one, and is still not allowed to skip the report or Tired's resupply.
+ *
+ * **An arena match is left to finish.** Fleeing forfeits it, and it costs nothing to lose (ship and crew restored):
+ * live 2026-10-09..13 (kvothe), 11 of 13 arena matches were lost to this very break-off, on programs that had returned
+ * mid-match. The battle status carries no arena flag; `arena.status.battle_id` ("the arena battle you are fighting
+ * in") is the signal. A refused or lost read of it is no arena, and the break-off stands. */
+async function closeBattle(answerBy:number):Promise<{opponent:string;ended:boolean;arena?:string}|null> {
   // Found in review 2026-10-03: a run cut off at the cap broke off for up to the 5 minute ceiling,
   // 31 minutes in all, past the request's 30. A bound reached is the battle reported still live.
   const bound=()=>Math.min(FIGHT_CEILING_MS,Math.max(0,answerBy-Date.now()));
@@ -225,6 +231,16 @@ async function closeBattle(answerBy:number):Promise<{opponent:string;ended:boole
   }));
   const fight=reached(read)?.fight;
   if(!fight)return null;
+  const arena=reached(await edge(Effect.gen(function*() {
+    const sent=yield* Effect.result((yield* Game).command('spacemolt_arena/status',{}));
+    const id=Result.isSuccess(sent)?field(replyBody(sent.success),'battle_id'):undefined;
+    return build('read the arena','done',{battle_id:typeof id==='string'?id:''});
+  })))?.battle_id;
+  if(arena) {
+    const opponent=fight==='unknown'?'an arena opponent':fight.opponent;
+    line(`the flight returned mid-match in the arena (${arena}) against ${opponent}: left to finish, because fleeing forfeits an arena match`);
+    return {opponent,ended:false,arena};
+  }
   if(fight==='unknown') {
     line("the battle's status was lost three times at the flight's end: breaking off in case a fight is live");
     // `disengage` is an edge: a bug in it is a `defect` line and `false`, never a throw.
@@ -349,7 +365,9 @@ export async function runPilot(deps:RunDeps):Promise<RunResult> {
   // Before the report is rendered, so the fact is in the report rather than after it.
   const held=await closeBattle(Date.parse(started)+cap+grace+(deps.closeMs??CLOSE_MS));
   if(held) {
-    const why=held.ended
+    const why=held.arena
+      ?`the flight ended mid-match in the arena against ${held.opponent}; left to finish rather than fled, because fleeing forfeits it — the ship stays in the battle until it resolves`
+      :held.ended
       ?`the flight ended mid-battle against ${held.opponent}; it was broken off before the flight closed`
       :`the flight ended mid-fight against ${held.opponent} and could not break off; the battle is still live`;
     line(why);

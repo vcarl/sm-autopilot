@@ -209,7 +209,7 @@ const MODULES:Record<string,Record<string,unknown>>={
 const CLASSES:Record<string,Record<string,unknown>>={
   cobble:{id:'cobble',name:'Cobble',class:'Hauler',tier:1,cargo_capacity:12,base_speed:3,base_fuel:120,
     utility_slots:2,weapon_slots:1,defense_slots:1,minimum_crew:0},
-  hauler_ii:{id:'hauler_ii',name:'Hauler II',class:'Hauler',cargo_capacity:120,base_speed:2,base_fuel:150,
+  hauler_ii:{id:'hauler_ii',name:'Hauler II',class:'Hauler',tier:2,cargo_capacity:120,base_speed:2,base_fuel:150,
     utility_slots:3,weapon_slots:1,defense_slots:1,minimum_crew:1},
 };
 /** A sealed package occupies 100 cargo whatever its quantity; the bulky ores their catalog

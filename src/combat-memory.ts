@@ -92,7 +92,7 @@ const FightRecord=Schema.Struct({
   /** Ticks observed in the `flee` stance. The retreat COMMAND is not in the push frames — the
    * command seam journals every `spacemolt_battle/retreat` — so this is the stance, not the ask. */
   flee_ticks:Schema.Number,
-  /** `victory` when our side won, `defeat` when we did not survive, and the server's own
+  /** `victory` when our side won, `defeat` when we did not survive (or lost an arena match), and the server's own
    * `stalemate`/`mutual_destruction`/`interrupted` otherwise. */
   ending:Schema.String,
   /** Our hull as a percentage of max, first tick to last: the fight's cost. */
@@ -103,6 +103,10 @@ const FightRecord=Schema.Struct({
   rows:Schema.optionalKey(Schema.Array(TickRow)),rows_dropped:Schema.optionalKey(Schema.Number),
   /** `player_id` → the first frame tick that combatant was seen in the `flee` stance. */
   fled:Schema.optionalKey(Schema.Record(Schema.String,Schema.Number)),
+  /** An arena match: the challenge id it was fought for (a duel's own challenge id). Absent on every other fight. */
+  arena:Schema.optionalKey(Schema.String),
+  /** The arena's own score of it: `arena.status` wins/losses after against before — `neither` when both stood still. */
+  arena_result:Schema.optionalKey(Schema.String),
 });
 export type FightRecord=typeof FightRecord.Type;
 
@@ -121,11 +125,12 @@ export function readCombat(dir:string|undefined):FightRecord[] {
 
 /** Temp file then rename, as `remember()` and `writeAlerts` do: a torn write would price the
  * next fight on a lie. Newest first, oldest evicted past `CAP`. */
-export function writeFight(dir:string,fight:FightRecord):void {
+export function writeFight(dir:string,fight:FightRecord,replace=false):void {
   if(!dir||!fight.opponent)return;
   try {
     mkdirSync(dir,{recursive:true});
-    const kept=[fight,...readCombat(dir)].slice(0,CAP);
+    // `replace`: a later write for the same battle (an arena match closed after its push) takes its record's place.
+    const kept=[fight,...readCombat(dir).filter(row=>!replace||row.battle_id!==fight.battle_id)].slice(0,CAP);
     const path=join(dir,MEMORY),temp=`${path}.${process.pid}.tmp`;
     writeFileSync(temp,`${JSON.stringify({fights:kept})}\n`,{mode:0o600});
     renameSync(temp,path);
@@ -328,16 +333,40 @@ export function foldBattleEnded(dir:string,payload:Record<string,unknown>,me:str
   const reason=String(payload.reason??'unresolved');
   const ending=ours?.survived===false?'defeat'
     :typeof payload.winning_side==='number'&&payload.winning_side===fold.our_side?'victory':reason;
-  const fight:FightRecord={battle_id:fold.battle_id,opponent:fold.opponent,
-    ...fold.opponent_class?{opponent_class:fold.opponent_class}:{},
-    ...fold.ship_class?{ship_class:fold.ship_class}:{},
-    ticks:Number(payload.duration??fold.last_tick)||fold.last_tick,
-    by_range:fold.by_range,dealt,taken,stances:fold.stances,flee_ticks:fold.flee_ticks,ending,
-    ...fold.hull_from!==undefined?{hull_pct_from:fold.hull_from}:{},
-    ...fold.hull_to!==undefined?{hull_pct_to:fold.hull_to}:{},
-    ...tick?{tick}:{},at:now().toISOString(),
-    rows:fold.rows,...fold.rows_dropped?{rows_dropped:fold.rows_dropped}:{},...Object.keys(fold.fled).length?{fled:fold.fled}:{}};
+  const fight=recordOf(fold,fold.opponent,{dealt,taken,ending,ticks:Number(payload.duration??fold.last_tick)||fold.last_tick,
+    ...tick?{tick}:{},at:now().toISOString()});
   writeFight(dir,fight);
+  return fight;
+}
+
+/** The fold as a record, with the totals and ending its close supplies. */
+const recordOf=(fold:Live,opponent:string,end:{dealt:number;taken:number;ending:string;ticks:number;tick?:number;at:string}):FightRecord=>({
+  battle_id:fold.battle_id,opponent,
+  ...fold.opponent_class?{opponent_class:fold.opponent_class}:{},
+  ...fold.ship_class?{ship_class:fold.ship_class}:{},
+  ticks:end.ticks,by_range:fold.by_range,dealt:end.dealt,taken:end.taken,stances:fold.stances,flee_ticks:fold.flee_ticks,ending:end.ending,
+  ...fold.hull_from!==undefined?{hull_pct_from:fold.hull_from}:{},
+  ...fold.hull_to!==undefined?{hull_pct_to:fold.hull_to}:{},
+  ...end.tick?{tick:end.tick}:{},at:end.at,
+  rows:fold.rows,...fold.rows_dropped?{rows_dropped:fold.rows_dropped}:{},...Object.keys(fold.fled).length?{fled:fold.fled}:{}});
+
+/** An arena match, closed by the play side. No `battle_ended` push has been logged for an arena battle (kvothe,
+ * 2026-10-09..13: 13 matches, none in `combat.json`), so the fold `battle_update` opened is closed here with what the
+ * match's own reads gave: our row's damage totals, the polls, and `arena.status`'s win/loss delta. A record a push did
+ * write for this battle is marked in place; with no fold and no record, one is written from those numbers alone. */
+export function foldArenaEnded(dir:string|undefined,match:{battle_id:string;challenge_id:string;opponent:string;
+  result:'win'|'loss'|'neither';dealt?:number|undefined;taken?:number|undefined;ticks:number},now=()=>new Date()):FightRecord|undefined {
+  const fold=live?.battle_id===match.battle_id?live:null;
+  if(fold)live=null;
+  if(!dir)return undefined;
+  const ending=match.result==='win'?'victory':match.result==='loss'?'defeat':'stalemate';
+  const pushed=readCombat(dir).find(row=>row.battle_id===match.battle_id);
+  const end={dealt:match.dealt??pushed?.dealt??fold?.dealt??0,taken:match.taken??pushed?.taken??fold?.taken??0,ending,
+    ticks:pushed?.ticks??(fold?.last_tick||match.ticks),at:now().toISOString()};
+  const fight:FightRecord={...pushed??(fold?recordOf(fold,fold.opponent??match.opponent,end)
+    :{battle_id:match.battle_id,opponent:match.opponent,by_range:{},stances:[],flee_ticks:0,...end}),
+    ...end,arena:match.challenge_id,arena_result:match.result};
+  writeFight(dir,fight,true);
   return fight;
 }
 

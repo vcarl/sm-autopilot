@@ -163,7 +163,7 @@ const refresh=reread;
  * `weapon`, holding rounds for its `ammo_type`. An empty magazine with its ammunition in the
  * hold is reloaded rather than refused — that is the whole of "reload when ammo allows". A
  * reload the game refuses, or whose reply is lost, is said and never re-sent: the read after it decides. */
-const loadoutEffect=()=>Effect.gen(function*() {
+export const loadoutEffect=()=>Effect.gen(function*() {
   const game=yield* Game;
   const weapons=(acct().state.modules??[]).filter(module=>module.type==='weapon');
   if(!weapons.length)return 'no module of type weapon is fitted; the hangar is the stop before the hunt';

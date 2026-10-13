@@ -241,6 +241,22 @@ test('a run that would hand back with a battle live breaks it off and says so',a
   } finally {f.close();pace.tickMs=10_000;}
 });
 
+// Live 2026-10-09..13 (kvothe): 11 of 13 arena matches were forfeited by this close's break-off, on programs that
+// returned mid-match. Fleeing forfeits an arena match and losing one costs nothing, so it is left to finish.
+test('a run that hands back mid-match in the arena leaves the match to finish, and says why',async()=>{
+  pace.tickMs=1;
+  const f=harness({arena:{challenges:[{challenge_id:'first_blood'}],polls:30}});
+  try {
+    f.write("import {orient} from 'play';\nexport default async function main(){ return orient(); }\n");
+    await f.command('spacemolt_arena/fight',{id:'first_blood'});
+    const out=await runPilot(f.deps);
+    assert.equal(out.accepted,true,out.errors?.join('\n'));
+    assert.equal(f.sent.some(call=>call.action==='spacemolt_battle/stance'),false,'no flee, no brace');
+    assert.match(f.lines.join('\n'),/mid-match in the arena \(arena-1\) against Ring Levy: left to finish, because fleeing forfeits/);
+    assert.match(out.why!,/left to finish rather than fled/);
+  } finally {f.close();pace.tickMs=10_000;battleEnded();}
+});
+
 // A run cut off at the cap (24 + 2 min) then broke off a live fight for up to the fight ceiling (5 min):
 // 31 minutes, past `service.REQUEST_TIMEOUT`'s 30. The break-off now gets only what is left before the answer is due.
 test('a capped run with a battle that will not end still answers by its deadline, saying the battle is live',async()=>{

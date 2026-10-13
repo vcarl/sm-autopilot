@@ -148,7 +148,7 @@ Each of these has cost a flight: the computer checks the real types, so these ar
 You name what you sell; nothing defaults to everything.
 
 Careers add more: [`mining/`](mining/README.md) (`gatherUntil`, `survey`),
-[`hauling/`](hauling/README.md), [`industry/`](industry/README.md) (`catalog`, `trace`, `recipes`, `quote`, `supply`, `craft`, `jobs`, `facilities`, `buildFacility`), [`combat/`](combat/README.md) (`hunt`, `salvage`),
+[`hauling/`](hauling/README.md), [`industry/`](industry/README.md) (`catalog`, `trace`, `recipes`, `quote`, `supply`, `craft`, `jobs`, `facilities`, `buildFacility`), [`combat/`](combat/README.md) (`hunt`, `fightBattle`, `arena`, `duel`, `salvage`),
 [`trading/`](trading/README.md) (`buyers`, `spreads`, `routes`, `tradeRun`, `scoutMarkets`), [`exploration/`](exploration/README.md) (`exploreNearby`), [`fleet/`](fleet/README.md) (`assign`, `recall`, `freighters`).
 Every career's functions import from `'play'` whatever your stance. Crafting goes through them,
 never a raw `craft` command: `recipes(search?)` lists what this base can make from hold + store,

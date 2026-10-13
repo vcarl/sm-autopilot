@@ -23,6 +23,12 @@ Active.title: string
 Active.type: string
 Approach.credits: number
 Approach.jumps: number
+ArenaMatch.battle: Battled
+ArenaMatch.challenge_id: string
+ArenaMatch.name: string
+ArenaMatch.objective?: ArenaObjective | undefined
+ArenaMatch.record: { before: { wins: number; losses: number; }; after: { wins: number; losses: number; }; }
+ArenaMatch.result: "win" | "loss" | "neither"
 BattleNow.opponent: string
 BattleNow.tick: number
 Battled.battle_id?: string | undefined
@@ -559,10 +565,13 @@ Visit.why?: string | undefined
 Want = Pick<V2CargoItem, "item_id"> & { quantity?: number; }
 Want.item_id: string
 Want.quantity?: number | undefined
+src/play/combat/index.ts function arena: (opts?: { challenge?: string; }) => Promise<Outcome<ArenaMatch>>
 src/play/combat/index.ts function disengage: (bound?: number) => Promise<boolean>
+src/play/combat/index.ts function duel: (opts: { player: string; max_side_size?: number; waitMs?: number; }) => Promise<Outcome<ArenaMatch>>
 src/play/combat/index.ts function fightBattle: (opts?: { floor?: number; boss?: string; onTick?: (view: TickView) => TickDecision | undefined; }) => Promise<Outcome<Battled>>
 src/play/combat/index.ts function hunt: (opts?: { poi?: string; look?: string[]; fights?: number; species?: string | string[]; strict?: boolean; target?: "creature" | "pirate"; onTick?: (view: TickView) => TickDecision | undefined; }) => Promise<Outcome<Hunted>>
 src/play/combat/index.ts function salvage: (opts?: { tow?: string; }) => Promise<Outcome<Salvaged>>
+src/play/combat/index.ts interface ArenaMatch: ArenaMatch
 src/play/combat/index.ts interface Battled: Battled
 src/play/combat/index.ts interface CombatStats: CombatStats
 src/play/combat/index.ts interface Fight: Fight
@@ -609,6 +618,7 @@ src/play/index.ts const SCOUT_JUMPS: 4
 src/play/index.ts function abandonMission: (id: string, opts?: { force?: boolean; }) => Promise<Outcome<AbandonMissionResponse>>
 src/play/index.ts function acceptMission: (id: string) => Promise<Outcome<AcceptMissionResponse>>
 src/play/index.ts function account: () => Account
+src/play/index.ts function arena: (opts?: { challenge?: string; }) => Promise<Outcome<ArenaMatch>>
 src/play/index.ts function ask: (asked: { question: string; choices?: string[]; }) => Promise<string>
 src/play/index.ts function assign: (name: string, circuit: Circuit, caps: { float: number; }) => Promise<Outcome<{ freighter: FreighterRow | null; }>>
 src/play/index.ts function buildFacility: (type: string) => Promise<Outcome<Built>>
@@ -621,6 +631,7 @@ src/play/index.ts function chat: (channel: Channel, text: string, to?: string | 
 src/play/index.ts function completeMissions: () => Promise<Outcome<{ completed: CompleteMissionResponse[]; remaining: Active[]; }>>
 src/play/index.ts function craft: (recipeId: string, quantity?: number, opts?: { at?: string; }) => Promise<Outcome<Crafted>>
 src/play/index.ts function disengage: (bound?: number) => Promise<boolean>
+src/play/index.ts function duel: (opts: { player: string; max_side_size?: number; waitMs?: number; }) => Promise<Outcome<ArenaMatch>>
 src/play/index.ts function exploreNearby: (opts?: { systems?: number; jumps?: number; survey?: boolean; avoid?: string[]; }) => Promise<Outcome<Explored>>
 src/play/index.ts function facilities: () => Promise<Outcome<Facilities>>
 src/play/index.ts function fightBattle: (opts?: { floor?: number; boss?: string; onTick?: (view: TickView) => TickDecision | undefined; }) => Promise<Outcome<Battled>>
@@ -666,6 +677,7 @@ src/play/index.ts function switchShip: (shipId: string) => Promise<Outcome<Swap>
 src/play/index.ts function trace: (itemOrRecipe: string, quantity?: number) => Promise<Outcome<Traced>>
 src/play/index.ts function tradeRun: (opts: { stops: RunStop[]; }) => Promise<Outcome<Traded>>
 src/play/index.ts function withdraw: (items: Want[]) => Promise<Outcome<Moved>>
+src/play/index.ts interface ArenaMatch: ArenaMatch
 src/play/index.ts interface Battled: Battled
 src/play/index.ts interface Board: Board
 src/play/index.ts interface Bought: Bought
