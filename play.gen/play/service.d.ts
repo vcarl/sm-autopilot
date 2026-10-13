@@ -1,4 +1,4 @@
-/** The service counter: fuel and hull. Insurance and dues wait for a later slice. */
+/** The service counter: fuel, hull and, asked, insurance. Dues wait for a later slice. */
 import type { GetBaseResponse } from '@spacemolt/lib';
 import { Effect } from 'effect';
 import { Game } from './game.ts';
@@ -13,8 +13,37 @@ export interface Serviced {
     spent: number;
     /** What this call was asked for and did not do (`insure`, `dues`, partial targets). */
     short: string[];
+    /** With `insure`: the counter's quote for the flown hull, and the policy bought when one was. */
+    insurance?: Insurance;
     /** True when this call cleared a Tired mood. */
     cleared_tired: boolean;
+}
+/** The insurance counter's answer. `quote` is `spacemolt_salvage/quote`'s, risk-priced for the hull
+ * flown (`fitted_value`, `risk_score` and the `factors` behind it); `policy` is what `insure` bought;
+ * `held` is an active policy `spacemolt_salvage/policies` already lists for this hull's class, which
+ * is why nothing was quoted or bought. */
+export interface Insurance {
+    held?: {
+        policy_id: string;
+        coverage?: number;
+        expires_at?: string;
+        ship_class?: string;
+    };
+    quote?: {
+        premium?: number;
+        coverage?: number;
+        fitted_value?: number;
+        risk_score?: number;
+        refused?: boolean;
+        expires_in?: string;
+        factors: string[];
+    };
+    policy?: {
+        policy_id?: string;
+        premium?: number;
+        coverage?: number;
+        expires_at?: string;
+    };
 }
 /** One base worth flying to for a service, as a move: the call, and everything known about it.
  * The menu offers these and a refused (or partially filled) `service` names them in `next`, so
@@ -59,8 +88,13 @@ export declare const asBase: (body: unknown) => GetBaseResponse;
  * fits — and the call is `partial`, with what was not bought in `short` and `why`.
  *
  * Tired: resupplying back inside the margins is what clears it (the mood is derived from the
- * ship), and `cleared_tired` says so. `insure` and `dues` are accepted and
- * reported in `short` until a later slice implements them. */
+ * ship), and `cleared_tired` says so.
+ *
+ * `insure:true` buys cover after the fill (fuel first: cover must not strand a ship): the policies
+ * held, then the quote, then `insure` when the premium leaves `credit_reserve` standing. Cover already
+ * held for the hull is reported in `detail.insurance.held` and `did`, and nothing is bought. Not bought is `partial`, with the
+ * quote in `detail.insurance` and the reason in `short`. `dues` is accepted and reported in `short`
+ * until a later slice implements it. */
 export declare const serviceEffect: (opts?: NonNullable<Parameters<typeof service>[0]>) => Effect.Effect<Outcome<Serviced>, never, Game | Run>;
 export declare function service(opts?: {
     fuel?: number;

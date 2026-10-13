@@ -138,6 +138,10 @@ export interface WorldOptions {
   systems?:{id:string;connections:string[];pois:{id:string;type?:string;base_id?:string}[]}[];
   /** What `survey_system` answers, as the spec's `SurveySystemResponse` (any part of it). Absent: a bare message. */
   survey?:Record<string,unknown>;
+  /** What the insurance counter quotes (`spacemolt_salvage/quote`'s `quote`) and `insure` bills. Absent: 150 cr for 2,000 cr of cover. */
+  insurance?:{premium?:number;coverage?:number;refused?:boolean};
+  /** The active policies `spacemolt_salvage/policies` lists before any `insure` here adds one. Absent: none. */
+  policies?:Record<string,unknown>[];
 }
 
 /** The freight board and the carrier behind it. A listing's `reserved_exposure` is the
@@ -396,6 +400,7 @@ export function bridgeWorld(options:WorldOptions={}) {
   /** The creatures a look from where the ship stands would answer with. */
   const hereCreatures=()=>fauna.creatures.filter(row=>!row.poi||row.poi===account.server.location.poi_id);
   const wrecks:Record<string,any>[]=[];
+  const policies:Record<string,unknown>[]=structuredClone(options.policies??[]);
   let battle:{target:string;left:number;ticks:number;retreats:number;stance:string;fled:number}|null=null;
   // A battle owns the ship: the live server refuses every move while one is on, by this code.
   const notInBattle=()=>{
@@ -612,6 +617,17 @@ export function bridgeWorld(options:WorldOptions={}) {
     'spacemolt_battle/retreat':()=>{
       if(battle&&battle.retreats++>=fauna.retreatTicks)battle=null;
       return {structuredContent:{action:'retreat',message:'Retreating from the enemy.'}};},
+    // Cover as the spec types it: a risk-priced quote for the flown hull, and a purchase that bills the premium.
+    'spacemolt_salvage/quote':()=>({structuredContent:{message:'Quote ready.',quote:{refused:false,premium:150,coverage:2_000,
+      fitted_value:2_400,risk_score:1.2,expires_in:'7d',factors:[{name:'hull_class',multiplier:1.2,detail:'light hull'}],...options.insurance}}}),
+    'spacemolt_salvage/insure':()=>{
+      const {premium=150,coverage=2_000}=options.insurance??{};
+      if(account.server.player.credits<premium)throw new SpacemoltError('insufficient_credits','Not enough credits for the premium');
+      account.server.player.credits-=premium;
+      policies.push({policy_id:'pol_1',premium,coverage,expires_at:'2026-10-16T00:00:00Z',ship_class:account.server.ship.class_id,self_destruct_excluded:true});
+      return {delta:{details:{message:'Insured.',policy_id:'pol_1',premium,coverage,expires_at:'2026-10-16T00:00:00Z',remaining_credits:account.server.player.credits}}};
+    },
+    'spacemolt_salvage/policies':()=>({structuredContent:{message:`${policies.length} active policies.`,policies:structuredClone(policies)}}),
     'spacemolt_salvage/wrecks':()=>({structuredContent:{count:wrecks.length,
       wrecks:structuredClone(wrecks)}}),
     'spacemolt_salvage/loot':params=>{

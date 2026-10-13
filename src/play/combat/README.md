@@ -263,9 +263,12 @@ those fights were flown in: a win rate across two hulls is two questions answere
   a species that was never present and a `hunt` that refused everything else standing there —
   that is the failure `strict`'s default of `false` exists to stop.
 - The system's `police_level` is above 20 unless you mean to meet pirates.
-- There is no insurance to fall back on. `service({insure: true})` accepts the flag and does
-  nothing — it reports `insure: not implemented yet` and buys no cover — so a hull lost is lost
-  with everything in the hold. The hull line and `disengage()` are the whole of the protection.
+- Cover before the fight: `service({insure: true})`, docked, quotes the hull you fly (priced on
+  its fitted value and risk factors, in `detail.insurance.quote`) and buys the policy when the
+  premium leaves your `credit_reserve` standing; `did` names premium, cover and expiry. Not bought
+  (refused quote, short wallet) is `partial` with the reason. A destroyed hull pays its
+  `insurance_payout` at respawn (the death report names it; a self-destruct is excluded); without
+  a policy it pays 0. Cover is priced on the fitted hull; nothing says it pays for the cargo.
 
 ## What trains what
 

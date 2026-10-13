@@ -31,8 +31,9 @@ Each throws `unimplemented` today; `account()` reaches the raw command meanwhile
   [fleet/README.md](../src/play/fleet/README.md)
 - [ ] `switchShip(id)` swaps the flown hull at a shipyard, stowing and servicing first.
   [fleet/README.md](../src/play/fleet/README.md)
-- [ ] `service({insure: true})` buys cover; today it reports `insure: not implemented yet` and
-  buys nothing. [combat/README.md](../src/play/combat/README.md)
+- [ ] `service({insure: true})` buys cover: quote, then insure within the reserve. Built; **fixture**
+  `node --test src/play/service.test.ts`; awaits one live purchase (a live `quote` once timed out,
+  2026-09-28). [combat/README.md](../src/play/combat/README.md)
 
 ## Live acceptance
 

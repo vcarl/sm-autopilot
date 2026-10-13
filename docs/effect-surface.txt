@@ -177,6 +177,7 @@ Hunted.ended: "asked" | "nothing here" | "nothing found" | "fuel" | "hull" | "ho
 Hunted.fights: Fight[]
 Hunted.looked: Looked[]
 Hunted.poi_id: string
+Insurance.held?: { policy_id: string; coverage?: number; expires_at?: string; ship_class?: string; } | undefined
 Insurance.policy?: { policy_id?: string; premium?: number; coverage?: number; expires_at?: string; } | undefined
 Insurance.quote?: { premium?: number; coverage?: number; fitted_value?: number; risk_score?: number; refused?: boolean; expires_in?: string; factors: string[]; } | undefined
 Known.items: Listing[]

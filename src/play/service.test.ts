@@ -281,3 +281,83 @@ test('serviceElsewhere with no listing falls back to the placed bases, unquoted 
   assert.deepEqual(rows.map(row=>row.base),['range_base']);
   assert.match(rows[0]!.why,/a base this pilot has placed: no route quote \(spacemolt\/find_route: target_not_found — no such thing\)/);
 });
+
+// Three hulls were lost uninsured to a Slag-Tortoise (travel.ts), and the 2026-10-09 death paid
+// `insurance_payout: 0`: `insure` was accepted and bought nothing.
+test('insure quotes, then buys cover within the credit reserve, and a premium under it buys nothing',async()=>{
+  for(const [reserve,bought] of [[100,true],[900,false]] as const) {
+    const game=bridgeWorld({services:['refuel','repair'],cargoUsed:0,insurance:{premium:150,coverage:2_000}});
+    game.account.server.ship.fuel=game.account.server.ship.max_fuel;
+    const sent:string[]=[];
+    const command:typeof game.command=(action,params)=>{sent.push(action);return game.command(action,params);};
+    bind({account:game.account as unknown as Account,command,pilot:()=>({mood:'Cautious',permissions:{credit_reserve:reserve}}),emit:()=>{}});
+    try {
+      const out=await service({insure:true});
+      assert.ok(sent.includes('spacemolt_salvage/quote'),'the quote is read first');
+      if(bought) {
+        assert.equal(out.status,'done',out.why);
+        assert.ok(sent.indexOf('spacemolt_salvage/quote')<sent.indexOf('spacemolt_salvage/insure'));
+        assert.match(out.did,/insured: 150 cr for 2000 cr of cover until 2026-10-16/);
+        assert.equal(out.detail.insurance?.policy?.policy_id,'pol_1');
+        assert.equal(1_000-game.account.server.player.credits,out.detail.spent,'the premium is in what the call spent');
+      } else {
+        assert.equal(out.status,'partial');
+        assert.ok(!sent.includes('spacemolt_salvage/insure'),'nothing is bought under the reserve');
+        assert.match(out.why??'',/^insure: the 150 cr premium would leave \d+ cr, under the credit_reserve of 900$/);
+        assert.equal(out.detail.insurance?.quote?.premium,150);
+        assert.equal(out.detail.spent,1_000-game.account.server.player.credits,'no premium was billed');
+      }
+    } finally {unbind();}
+  }
+});
+
+// Review: nothing read the policies held, so every docked service({insure:true}) bought another.
+test('cover already held for the flown hull is reported, and nothing is quoted or bought',async()=>{
+  const game=bridgeWorld({services:['refuel','repair'],cargoUsed:0,
+    policies:[{policy_id:'pol_0',coverage:2_000,expires_at:'2026-10-20T00:00:00Z',ship_class:'cobble',self_destruct_excluded:true}]});
+  game.account.server.ship.fuel=game.account.server.ship.max_fuel;
+  const sent:string[]=[];
+  const command:typeof game.command=(action,params)=>{sent.push(action);return game.command(action,params);};
+  bind({account:game.account as unknown as Account,command,pilot:()=>({mood:'Cautious'}),emit:()=>{}});
+  try {
+    const out=await service({insure:true});
+    assert.equal(out.status,'done',out.why);
+    assert.ok(sent.includes('spacemolt_salvage/policies'));
+    assert.ok(!sent.includes('spacemolt_salvage/quote')&&!sent.includes('spacemolt_salvage/insure'),sent.join(' '));
+    assert.deepEqual(out.detail.insurance?.held,{policy_id:'pol_0',coverage:2_000,expires_at:'2026-10-20T00:00:00Z',ship_class:'cobble'});
+    assert.match(out.did,/already insured until 2026-10-20T00:00:00Z \(pol_0, 2000 cr of cover\)/);
+    assert.ok(!out.detail.issued.includes('spacemolt_salvage/insure'));
+  } finally {unbind();}
+});
+
+test('a policies read that fails buys nothing and says so',async()=>{
+  const game=bridgeWorld({services:['refuel','repair'],cargoUsed:0});
+  game.account.server.ship.fuel=game.account.server.ship.max_fuel;
+  const sent:string[]=[];
+  const command:typeof game.command=async(action,params)=>{
+    sent.push(action);
+    if(action==='spacemolt_salvage/policies')throw new SpacemoltError('internal','policies down');
+    return game.command(action,params);
+  };
+  bind({account:game.account as unknown as Account,command,pilot:()=>({mood:'Cautious'}),emit:()=>{}});
+  try {
+    const out=await service({insure:true});
+    assert.equal(out.status,'partial');
+    assert.ok(!sent.includes('spacemolt_salvage/insure'));
+    assert.match(out.why??'',/^insure: held cover unread, nothing bought/);
+  } finally {unbind();}
+});
+
+test('a Tired fill whose cover is short is partial and still says Tired cleared',async()=>{
+  const game=bridgeWorld({services:['refuel','repair'],cargoUsed:0,insurance:{refused:true}});
+  game.account.server.ship.fuel=10;
+  const who=derived(()=>({mood:'Cautious'}),game.account);
+  bind({account:game.account as unknown as Account,command:game.command,pilot:who,emit:()=>{}});
+  try {
+    const out=await service({insure:true});
+    assert.equal(out.status,'partial',out.did);
+    assert.match(out.why??'',/^insure: the counter will not cover this hull/);
+    assert.equal(out.detail.cleared_tired,true);
+    assert.deepEqual(out.next,['Tired cleared: the mood before it is back']);
+  } finally {unbind();}
+});

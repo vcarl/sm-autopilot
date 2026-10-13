@@ -1,4 +1,4 @@
-/** The service counter: fuel and hull. Insurance and dues wait for a later slice. */
+/** The service counter: fuel, hull and, asked, insurance. Dues wait for a later slice. */
 import type {GetBaseResponse} from '@spacemolt/lib';
 import {Effect,Result} from 'effect';
 import {journalRun} from '../run-record.ts';
@@ -20,8 +20,20 @@ export interface Serviced {
   spent:number;
   /** What this call was asked for and did not do (`insure`, `dues`, partial targets). */
   short:string[];
+  /** With `insure`: the counter's quote for the flown hull, and the policy bought when one was. */
+  insurance?:Insurance;
   /** True when this call cleared a Tired mood. */
   cleared_tired:boolean;
+}
+
+/** The insurance counter's answer. `quote` is `spacemolt_salvage/quote`'s, risk-priced for the hull
+ * flown (`fitted_value`, `risk_score` and the `factors` behind it); `policy` is what `insure` bought;
+ * `held` is an active policy `spacemolt_salvage/policies` already lists for this hull's class, which
+ * is why nothing was quoted or bought. */
+export interface Insurance {
+  held?:{policy_id:string;coverage?:number;expires_at?:string;ship_class?:string};
+  quote?:{premium?:number;coverage?:number;fitted_value?:number;risk_score?:number;refused?:boolean;expires_in?:string;factors:string[]};
+  policy?:{policy_id?:string;premium?:number;coverage?:number;expires_at?:string};
 }
 
 /** One base worth flying to for a service, as a move: the call, and everything known about it.
@@ -101,6 +113,51 @@ export const serviceElsewhereEffect=(docked?:string)=>Effect.gen(function*() {
   return out;
 });
 
+const num=(body:unknown,key:string)=>{const value=field(body,key);return typeof value==='number'&&Number.isFinite(value)?value:undefined;};
+const str=(body:unknown,key:string)=>{const value=field(body,key);return typeof value==='string'&&value?value:undefined;};
+/** Read the policies held, then quote and buy cover with `insure` when the premium leaves `reserve`
+ * standing. All take no arguments: the lib's `insure()` covers the ship you fly, at the counter you
+ * are docked at. An active policy for the flown hull's class (or one naming no class) is reported as
+ * `held` and nothing is quoted or bought; a policies read that fails buys nothing, since a second
+ * policy is money spent on not knowing. What was not bought is one `short` line in the game's or the
+ * reserve's words; a lost `insure` reply is not re-sent (it is a purchase), and the line says how to
+ * learn whether it landed. */
+const insureEffect=(reserve:number)=>Effect.gen(function*() {
+  const game=yield* Game;
+  const listed=yield* Effect.result(game.command('spacemolt_salvage/policies',{}));
+  if(Result.isFailure(listed))return {short:`insure: held cover unread, nothing bought (${words(listed.failure)}); account().commands.spacemolt_salvage.policies() lists it`};
+  const ship=acct().state.ship,flown=[ship?.class_id,ship?.name].flatMap(name=>name?[name.toLowerCase()]:[]);
+  // ponytail: a policy names a class, not a hull; two hulls of one class read as one insured.
+  const active=rows(field(replyBody(listed.success),'policies'))
+    .find(row=>{const cls=str(row,'ship_class');return !cls||flown.includes(cls.toLowerCase());});
+  if(active) {
+    const coverage=num(active,'coverage'),until=str(active,'expires_at'),cls=str(active,'ship_class');
+    return {insurance:{held:{policy_id:str(active,'policy_id')??'?',...coverage===undefined?{}:{coverage},
+      ...until?{expires_at:until}:{},...cls?{ship_class:cls}:{}}}};
+  }
+  const quoted=yield* Effect.result(game.command('spacemolt_salvage/quote',{}));
+  if(Result.isFailure(quoted))return {short:`insure: no quote (${words(quoted.failure)})`};
+  const body=replyBody(quoted.success),raw=field(body,'quote');
+  const premium=num(raw,'premium'),expires=str(raw,'expires_in');
+  const quote:NonNullable<Insurance['quote']>={...premium===undefined?{}:{premium},
+    ...Object.fromEntries((['coverage','fitted_value','risk_score'] as const).flatMap(key=>{const n=num(raw,key);return n===undefined?[]:[[key,n]];})),
+    ...field(raw,'refused')===true?{refused:true}:{},...expires?{expires_in:expires}:{},
+    factors:rows(field(raw,'factors')).map(row=>`${String(field(row,'name'))} ×${String(field(row,'multiplier'))}${str(row,'detail')?` (${str(row,'detail')})`:''}`)};
+  const said=str(body,'notice')??str(body,'message');
+  if(quote.refused||premium===undefined)
+    return {insurance:{quote},short:`insure: the counter will not cover this hull${said?`: ${said}`:''}${quote.factors.length?` (risk ${quote.risk_score??'?'}: ${quote.factors.join(', ')})`:''}`};
+  const credits=acct().state.player?.credits??0;
+  if(credits-premium<reserve)
+    return {insurance:{quote},short:`insure: the ${premium} cr premium would leave ${credits-premium} cr, under the credit_reserve of ${reserve}`};
+  const bought=yield* Effect.result(game.command('spacemolt_salvage/insure',{}));
+  if(Result.isFailure(bought))return {insurance:{quote},short:`insure: ${words(bought.failure)}`
+    +(bought.failure._tag==='ReplyLost'?'; not re-sent: account().commands.spacemolt_salvage.policies() says whether cover landed':'')};
+  const got=replyBody(bought.success),id=str(got,'policy_id'),coverage=num(got,'coverage')??quote.coverage,until=str(got,'expires_at');
+  const policy={...id?{policy_id:id}:{},premium:num(got,'premium')??premium,
+    ...coverage===undefined?{}:{coverage},...until?{expires_at:until}:{}};
+  return {insurance:{quote,policy}};
+});
+
 /** The same advice as one line per row, which is the shape an Outcome's `next` takes. */
 const asNext=(rows:Elsewhere[],system:string):string[]=>rows.length
   ?rows.map(row=>`${row.call} — ${row.why}`)
@@ -123,13 +180,17 @@ export const asBase=(body:unknown)=>body as GetBaseResponse; // cast: frozen sur
  * fits — and the call is `partial`, with what was not bought in `short` and `why`.
  *
  * Tired: resupplying back inside the margins is what clears it (the mood is derived from the
- * ship), and `cleared_tired` says so. `insure` and `dues` are accepted and
- * reported in `short` until a later slice implements them. */
+ * ship), and `cleared_tired` says so.
+ *
+ * `insure:true` buys cover after the fill (fuel first: cover must not strand a ship): the policies
+ * held, then the quote, then `insure` when the premium leaves `credit_reserve` standing. Cover already
+ * held for the hull is reported in `detail.insurance.held` and `did`, and nothing is bought. Not bought is `partial`, with the
+ * quote in `detail.insurance` and the reason in `short`. `dues` is accepted and reported in `short`
+ * until a later slice implements it. */
 export const serviceEffect=(opts:NonNullable<Parameters<typeof service>[0]>={})=>jobEffect<Serviced>('service',Object.keys(opts).join(' '),Effect.gen(function*() {
   const game=yield* Game;
   const who=pilot();
   const short:string[]=[];
-  if(opts.insure)short.push('insure: not implemented yet; account().commands.spacemolt_salvage.quote/insure');
   if(opts.dues)short.push('dues: not implemented yet; account().commands.spacemolt.prepay_tax / pay_bounty');
   if(opts.fuel!==undefined||opts.hull!==undefined)short.push('partial targets: not implemented yet; a service is a full fill');
   // The surface promises a `GetBaseResponse`; a refusal before the quote has none to give.
@@ -166,15 +227,22 @@ export const serviceEffect=(opts:NonNullable<Parameters<typeof service>[0]>={})=
     return yield* error;
   }
   const done=served.success,cells=done.cells;
+  const insured=opts.insure?yield* insureEffect(who.permissions?.credit_reserve??0):undefined;
+  const policy=insured?.insurance?.policy,held=insured?.insurance?.held;
   const cleared=mood==='Tired'&&pilot().mood!=='Tired';
   const did=done.issued.length
     ?`serviced at ${docked}: ${done.issued.map(action=>action.split('/')[1]).join(' and ')} for ${done.spent} cr; fuel ${done.fuel}, hull ${done.hull}`
     :`already serviced at ${docked}: fuel ${done.fuel}, hull ${done.hull}`;
   const kept=cells?.target?`; fuel cells ${cells.held}/${cells.target}${cells.bought?` (bought ${cells.bought} for ${cells.spent} cr)`:''}${cells.skipped?`, none bought: ${cells.skipped.replace(/^fuel cells: /,'')}`:''}`:'';
-  const detail:Serviced={base,issued:done.issued,spent:done.spent+(cells?.spent??0),short:[...short,...done.short??[]],cleared_tired:cleared};
-  if(done.short)return {status:'partial',did:did+kept,why:done.short.join('; '),detail,
+  const cover=policy?`; insured: ${policy.premium} cr for ${policy.coverage??'?'} cr of cover${policy.expires_at?` until ${policy.expires_at}`:''}`
+    :held?`; already insured until ${held.expires_at??'an unstated expiry'} (${held.policy_id}${held.coverage===undefined?'':`, ${held.coverage} cr of cover`})`:'';
+  const detail:Serviced={base,issued:[...done.issued,...policy?['spacemolt_salvage/insure']:[]],spent:done.spent+(cells?.spent??0)+(policy?.premium??0),
+    short:[...short,...done.short??[],...insured?.short?[insured.short]:[]],cleared_tired:cleared,...insured?.insurance?{insurance:insured.insurance}:{}};
+  if(done.short)return {status:'partial',did:did+kept+cover,why:[...done.short,...insured?.short?[insured.short]:[]].join('; '),detail,
     next:asNext(yield* serviceElsewhereEffect(docked),system())};
-  return {status:'done',did:did+kept,detail,next:cleared?['Tired cleared: the mood before it is back']:[]};
+  const next=cleared?['Tired cleared: the mood before it is back']:[];
+  if(insured?.short)return {status:'partial',did:did+kept,why:insured.short,detail,next};
+  return {status:'done',did:did+kept+cover,detail,next};
 }));
 export function service(opts:{fuel?:number;hull?:number;insure?:boolean;dues?:boolean|'all'}={}):Promise<Outcome<Serviced>> {return edge(serviceEffect(opts));}
 
