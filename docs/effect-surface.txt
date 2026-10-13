@@ -25,6 +25,14 @@ Approach.credits: number
 Approach.jumps: number
 BattleNow.opponent: string
 BattleNow.tick: number
+Battled.battle_id?: string | undefined
+Battled.dealt?: number | undefined
+Battled.hull_after: number
+Battled.hull_before: number
+Battled.last_status?: GetBattleStatusResponse | undefined
+Battled.outcome: "ended" | "broke off" | "unresolved"
+Battled.polls: number
+Battled.taken?: number | undefined
 Board.active: ShippingActiveContract[]
 Board.listings: (ShippingListing & { fuel: number; reachable: boolean; fits: boolean; liability: number; net: number; })[]
 Board.profile: ShippingProfileResponse
@@ -123,7 +131,7 @@ Fight.hull_after: number
 Fight.hull_before: number
 Fight.last_status?: GetBattleStatusResponse | undefined
 Fight.loot: Row[]
-Fight.outcome: "down" | "escaped" | "broke off" | "unresolved"
+Fight.outcome: "broke off" | "unresolved" | "down" | "escaped"
 Fight.target: CreatureInfo | PirateInfo
 Fight.why?: string | undefined
 Fight.wreck?: EnrichedWreck | undefined
@@ -552,8 +560,10 @@ Want = Pick<V2CargoItem, "item_id"> & { quantity?: number; }
 Want.item_id: string
 Want.quantity?: number | undefined
 src/play/combat/index.ts function disengage: (bound?: number) => Promise<boolean>
+src/play/combat/index.ts function fightBattle: (opts?: { floor?: number; boss?: string; onTick?: (view: TickView) => TickDecision | undefined; }) => Promise<Outcome<Battled>>
 src/play/combat/index.ts function hunt: (opts?: { poi?: string; look?: string[]; fights?: number; species?: string | string[]; strict?: boolean; target?: "creature" | "pirate"; onTick?: (view: TickView) => TickDecision | undefined; }) => Promise<Outcome<Hunted>>
 src/play/combat/index.ts function salvage: (opts?: { tow?: string; }) => Promise<Outcome<Salvaged>>
+src/play/combat/index.ts interface Battled: Battled
 src/play/combat/index.ts interface CombatStats: CombatStats
 src/play/combat/index.ts interface Fight: Fight
 src/play/combat/index.ts interface Hunted: Hunted
@@ -613,7 +623,8 @@ src/play/index.ts function craft: (recipeId: string, quantity?: number, opts?: {
 src/play/index.ts function disengage: (bound?: number) => Promise<boolean>
 src/play/index.ts function exploreNearby: (opts?: { systems?: number; jumps?: number; survey?: boolean; avoid?: string[]; }) => Promise<Outcome<Explored>>
 src/play/index.ts function facilities: () => Promise<Outcome<Facilities>>
-src/play/index.ts function flight: () => { readonly source?: string; readonly params?: { readonly [x: string]: unknown; }; readonly juncture_at?: string; readonly last_step?: string; readonly script: string; readonly started: string; last_job?: string; ended: boolean; outcome?: { readonly [x: string]: unknown; }; question?: { readonly question: string; readonly asked_at: string; readonly choices?: string[]; readonly chat?: { readonly at: string; readonly from: string; readonly channel: string; readonly text: string; readonly sender_id?: string; }; }; } | null
+src/play/index.ts function fightBattle: (opts?: { floor?: number; boss?: string; onTick?: (view: TickView) => TickDecision | undefined; }) => Promise<Outcome<Battled>>
+src/play/index.ts function flight: () => { readonly source?: string; readonly params?: { readonly [x: string]: unknown; }; readonly juncture_at?: string; readonly last_step?: string; readonly script: string; readonly started: string; ended: boolean; last_job?: string; outcome?: { readonly [x: string]: unknown; }; question?: { readonly question: string; readonly asked_at: string; readonly choices?: string[]; readonly chat?: { readonly at: string; readonly from: string; readonly channel: string; readonly text: string; readonly sender_id?: string; }; }; } | null
 src/play/index.ts function freightBoard: (opts?: { destination?: string; limit?: number; }) => Promise<Outcome<Board>>
 src/play/index.ts function freighters: () => Promise<Outcome<{ freighters: FreighterRow[]; }>>
 src/play/index.ts function gatherUntil: (opts: { poi: string; base?: string; until?: { item: string; quantity: number; }; maxTrips?: number; then?: "stow" | "sell"; }) => Promise<Outcome<Gathered>>
@@ -655,6 +666,7 @@ src/play/index.ts function switchShip: (shipId: string) => Promise<Outcome<Swap>
 src/play/index.ts function trace: (itemOrRecipe: string, quantity?: number) => Promise<Outcome<Traced>>
 src/play/index.ts function tradeRun: (opts: { stops: RunStop[]; }) => Promise<Outcome<Traded>>
 src/play/index.ts function withdraw: (items: Want[]) => Promise<Outcome<Moved>>
+src/play/index.ts interface Battled: Battled
 src/play/index.ts interface Board: Board
 src/play/index.ts interface Bought: Bought
 src/play/index.ts interface Browsed: Browsed

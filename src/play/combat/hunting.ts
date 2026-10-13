@@ -123,7 +123,10 @@ const Pirate=Wire.PirateInfo.mapFields(Struct.pick(['pirate_id','name']));
 const decodeCreature=Schema.decodeUnknownOption(Creature);
 const decodePirate=Schema.decodeUnknownOption(Pirate);
 // The battle's own rows, each decoded on its own so one malformed row never reads as the battle's end.
-const Participant=Wire.BattleParticipant.mapFields(Struct.pick(['player_id','kind','shield_pct','hull_pct','zone','zone_distance','stance','target_id']));
+// `side_id` and `username` are required in the spec and read as optional here: a row missing one is still a row to
+// fight, and a decode failure would drop it as unread.
+const Participant=Wire.BattleParticipant.mapFields(fields=>({...Struct.pick(fields,['player_id','kind','shield_pct','hull_pct','zone','zone_distance',
+  'stance','target_id','damage_dealt','damage_taken']),side_id:Schema.optionalKey(fields.side_id),username:Schema.optionalKey(fields.username)}));
 const decodeParticipant=Schema.decodeUnknownOption(Participant);
 const Status=Wire.GetBattleStatusResponse.mapFields(fields=>({battle_id:fields.battle_id,tick_duration:fields.tick_duration,
   combat_state:Schema.optionalKey(Schema.NullOr(Schema.Struct({max_weapon_reach:Schema.optionalKey(Wire.BattleCombatState.fields.max_weapon_reach)})))}));
@@ -295,28 +298,45 @@ export async function disengage(bound=FIGHT_CEILING_MS):Promise<boolean> {
 const STANCES=new Set<string>(['fire','evade','brace','flee']);
 const MOVES:Record<string,string>={closeIn:'spacemolt_battle/advance',backOff:'spacemolt_battle/retreat'};
 
-/** One fight, from the first shot to the end of the battle, paced on the battle's own tick.
- * Ships fire by themselves every tick under their stance — there is no fire command — and the
- * server takes one mutation a tick, so this reads the status once a tick, makes one decision
- * and sends at most one command: the pilot's `onTick` decision when it made one, otherwise the
- * `fire` stance and the focus at the open, then `advance` while the quarry is out of reach or
- * running. It breaks off when our hull crosses the mood's line or Tired lands mid-fight, and
- * that line outranks any decision the callback returns. */
-const engage=(target:Prey,floor:()=>number,
-  onTick?:(view:TickView)=>TickDecision|undefined,stats?:CombatStats)=>Effect.gen(function*() {
+/** What the shared loop fights. `target` is a hunt's quarry, fixed by id: its row leaving the status is the fight's
+ * end. Without one, the loop focuses whoever the other side fields — `boss` by name when one is standing, the lowest
+ * hull otherwise — and the battle's own end is the only end. `floor` is the hull the loop breaks off under (0: never);
+ * `tired` breaks off when Tired lands mid-fight, which only a hunt asks for. */
+interface LoopOpts {
+  target?:{id:string;name:string};boss?:string;
+  floor:()=>number;tired:boolean;ceilingMs?:number;
+  onTick?:((view:TickView)=>TickDecision|undefined)|undefined;stats?:CombatStats|undefined;
+}
+/** How the loop ended: `ended` is the battle (or the quarry) gone, `broke off` the floor or Tired, `unresolved` the
+ * ceiling or a ship that cannot fly. `stuck` is a break-off whose battle had not ended when the flee bound ran out. */
+interface LoopEnd {
+  outcome:'ended'|'broke off'|'unresolved';stuck:boolean;polls:number;
+  last?:GetBattleStatusResponse;mine?:typeof Participant.Type;
+  fled:number;seen?:{hull:number;far:number};first?:{hull:number;far:number};
+}
+
+/** One battle already under way, paced on its own tick: the per-tick loop `engage` opens with an attack and
+ * `fightBattle`/`arena` run as they find it. Ships fire by themselves every tick under their stance — there is no fire
+ * command, and no `attack` inside a battle — and the server takes one mutation a tick, so this reads the status once a
+ * tick, makes one decision and sends at most one command: the pilot's `onTick` decision when it made one, otherwise
+ * the default ladder (below). It breaks off when our hull crosses the floor (or Tired lands, for a hunt), and that line
+ * outranks any decision the callback returns. */
+const battleLoop=(opts:LoopOpts)=>Effect.gen(function*() {
   const game=yield* Game;
-  yield* refresh;
-  const hull_before=Number(acct().state.ship?.hull??0);
-  const id=target.id;
-  yield* game.command(target.creature?'spacemolt/hunt':'spacemolt/attack',{id});
-  const deadline=(yield* Clock.currentTimeMillis)+FIGHT_CEILING_MS;
-  let outcome:Fight['outcome']='escaped',last:GetBattleStatusResponse|undefined;
-  let tick=-1,fled=0;
-  let seen:{hull:number;far:number}|undefined,first:{hull:number;far:number}|undefined;
-  let stuck=false;
+  const {floor,onTick,stats}=opts;
+  const deadline=(yield* Clock.currentTimeMillis)+(opts.ceilingMs??FIGHT_CEILING_MS);
+  const end:LoopEnd={outcome:'ended',stuck:false,polls:0,fled:0};
+  let tick=-1;
   // What the open still owes, tracked separately from the decision so a callback taking the
   // tick does not silently cost the fight its stance or its focus.
-  let stanceNow:CombatStance|undefined,focused=false,braced=false,lastHull=hull_before;
+  let stanceNow:CombatStance|undefined,focused:string|undefined,braced=false;
+  let lastHull=Number(acct().state.ship?.hull??0),lastShield:number|undefined,seenId:string|undefined;
+  // Kiting: the target held out of our reach, not opening the range, while we were hit. Live 2026-10-1x (kvothe,
+  // programs/17cc87c935f3.ts): a Ring Levy sat at distance 3 against autocannons reaching 2, shield 14→100, our hull
+  // 98% and falling. ponytail: two such ticks switch to `evade` (50% taken) until the range moves; a starting policy.
+  let held=0,evadeAt:number|undefined;
+  // A weapon whose reload was sent and has not read loaded since: not re-sent each tick on a refusal.
+  const reloadTried=new Set<string>();
   /** The callback, never trusted with the ship: a throw is logged and the default continues.
    * Stranding a ship mid-fight is exactly how the three ships went. */
   const ask=(view:TickView):TickDecision|undefined=>{
@@ -368,35 +388,59 @@ const engage=(target:Prey,floor:()=>number,
       if(inForce.target===asked.focus)skipped.push(`focus ${asked.focus} already in force`);
       else {
         yield* game.command('spacemolt_battle/target',{id:asked.focus});
-        if(asked.focus===id)focused=true;
+        focused=asked.focus;
         return `focus ${asked.focus}`;
       }
     }
     return null;
   });
+  const breakOff=()=>Effect.gen(function*() {
+    // Out of the battle is `broke off`; still in one when the bound ran out is unresolved,
+    // and the caller must say so — no move will work until it ends.
+    end.outcome=(yield* disengageEffect())==='over'?'broke off':'unresolved';
+    end.stuck=end.outcome==='unresolved';
+  });
   for(;;) {
     // The battle answering `not_in_battle` IS its end; that refusal is the evidence.
     const seenNow=yield* battleStatus();
     if(!seenNow)break;
-    // The quarry's own row, by id. Ours answers our shield, never the range to it.
-    const theirs=seenNow==='unknown'?undefined:seenNow.players.find(row=>row.player_id===id);
+    const fixed=opts.target?.id;
     // Unknown is not the end, nor is a quarry row that did not read: the fight carries on under the stance it has,
     // re-read next tick, up to the ceiling. Only a status without the quarry in it is the quarry gone.
-    if(seenNow==='unknown'||(!theirs&&seenNow.unread.includes(id))) {
-      if((yield* Clock.currentTimeMillis)>=deadline){outcome='unresolved';break;}
+    if(seenNow==='unknown'||(fixed!==undefined&&!seenNow.players.some(row=>row.player_id===fixed)&&seenNow.unread.includes(fixed))) {
+      if((yield* Clock.currentTimeMillis)>=deadline){end.outcome='unresolved';break;}
       yield* Effect.sleep(pace.tickMs);
       continue;
     }
     const {status,players:rows}=seenNow;
-    last=seenNow.raw;
-    if(!theirs)break;
+    end.last=seenNow.raw;
+    // Our own row by our player id; the self-only `stance` field, or the one player, when the state names none. Never
+    // `kind === 'player'` alone: in an arena duel the other side is a player too.
+    const me=acct().state.player?.id;
+    const mine=rows.find(row=>row.player_id===me)??rows.find(row=>row.stance!==undefined)??rows.find(row=>row.kind==='player');
+    if(mine)end.mine=mine;
+    // The opponent's own row. Range is ITS `zone_distance` (measured from us), never ours: live (programs/17cc87c935f3.ts)
+    // a loop that advanced on our row's distance stopped at 2 while the enemy held 3, beyond a reach of 2.
+    const enemies=rows.filter(row=>row!==mine&&(mine?.side_id===undefined||row.side_id!==mine.side_id)&&Number(row.hull_pct??1)>0);
+    const theirs=fixed!==undefined?rows.find(row=>row.player_id===fixed)
+      :(opts.boss?enemies.find(row=>row.username===opts.boss):undefined)
+        ??enemies.toSorted((a,b)=>Number(a.hull_pct??100)-Number(b.hull_pct??100))[0];
+    if(!theirs) {
+      if(fixed!==undefined)break;
+      // Nobody standing on the other side, and the battle not over: a wave still due, or the end not yet read.
+      if((yield* Clock.currentTimeMillis)>=deadline){end.outcome='unresolved';break;}
+      yield* Effect.sleep(pace.tickMs);
+      continue;
+    }
+    end.polls++;
     // Observe every poll, regardless of the tick: on the live server `tick_duration` is not
     // monotonic (it sat at 1 for two minutes straight), and a hull crossing the line while it
     // sits still still has to be seen. The tick below only limits ACTIONS to one a tick.
     yield* refresh;
     const ship=acct().state.ship;
     const hull=Number(ship?.hull??0);
-    const mine=rows.find(row=>row.kind==='player');
+    const shield=Number(mine?.shield_pct??0);
+    const name=opts.target?.name??theirs.username??theirs.player_id;
     const reach=Number(status.combat_state?.max_weapon_reach??0);
     const theirHull=Number(theirs.hull_pct??0),far=Number(theirs.zone_distance??0);
     const now=Number(status.tick_duration??tick+1);
@@ -404,9 +448,9 @@ const engage=(target:Prey,floor:()=>number,
     // all". Live, the opening ticks sat at 6 against a reach of 3 and dealt nothing, and the prose
     // said only "outer 6/3" — the fact that explained the zero was there and never spelled out.
     const outOfReach=reach>0&&far>reach;
-    step(`tick ${now} vs ${target.name}: hull ${hull}/${ship?.max_hull??'?'}, shield ${mine?.shield_pct??0}%, theirs ${theirHull}% at ${theirs.zone??'?'} ${far}/${reach}${outOfReach?' — OUT OF REACH, closing costs nothing to try and firing from here deals nothing':''}`);
-    if(ship?.incapacitated){outcome='unresolved';break;}
-    const tired=pilot().mood==='Tired';
+    step(`tick ${now} vs ${name}: hull ${hull}/${ship?.max_hull??'?'}, shield ${shield}%, theirs ${theirHull}% at ${theirs.zone??'?'} ${far}/${reach}${outOfReach?' — OUT OF REACH, closing costs nothing to try and firing from here deals nothing':''}`);
+    if(ship?.incapacitated){end.outcome='unresolved';break;}
+    const tired=opts.tired&&pilot().mood==='Tired';
     // The decision is taken before the floor is checked so a reckless one can be named in the
     // override line; it is ACTED on after, and only if the floor let the fight carry on.
     // Every poll is a round. `tick_duration` is the API's own round counter — "Ticks the battle has
@@ -419,27 +463,28 @@ const engage=(target:Prey,floor:()=>number,
     // length. The counter is still reported to the callback for what it is worth, and its own doc
     // comment says what it is worth.
     const decision=ask({tick:now,hull,max_hull:Number(ship?.max_hull??0),
-      shield_pct:Number(mine?.shield_pct??0),opponent:target.name,opponent_hull:theirHull/100,
+      shield_pct:shield,opponent:name,opponent_hull:theirHull/100,
       range:String(theirs.zone??''),distance:far,reach,damage_taken:Math.max(0,lastHull-hull),
       ...stanceNow?{stance:stanceNow}:{},floor:floor(),...stats?{stats}:{}});
-    lastHull=hull;
+    const hit=hull<lastHull||(lastShield!==undefined&&shield<lastShield);
+    lastHull=hull;lastShield=shield;
     if(hull<floor()||tired) {
       // The mood's margin is the operator's bound, like `credit_reserve`, not the pilot's
       // tactical whim: a decision that would keep fighting under it is refused and said so.
       if(decision&&!decision.disengage)
         step(`override: onTick asked ${JSON.stringify(decision)}, and the ${pilot().mood??'Cautious'} walk-away line ${Math.floor(floor())} wins`);
       step(`breaking off: hull ${hull} under the line ${Math.floor(floor())}${tired?', and Tired':''}`);
-      // Out of the battle is `broke off`; still in one when the bound ran out is unresolved,
-      // and the caller must say so — no move will work until it ends.
-      outcome=(yield* disengageEffect())==='over'?'broke off':'unresolved';
-      if(outcome==='unresolved')stuck=true;
+      yield* breakOff();
       break;
     }
-    if((yield* Clock.currentTimeMillis)>=deadline){outcome='unresolved';break;}
+    if((yield* Clock.currentTimeMillis)>=deadline){end.outcome='unresolved';break;}
     tick=now;
+    if(theirs.player_id!==seenId){seenId=theirs.player_id;delete end.seen;delete end.first;end.fled=0;held=0;}
+    // Out of reach, the range not opening, and hit this tick: they are holding range, not running.
+    held=outOfReach&&hit&&!(end.seen&&far>end.seen.far)?held+1:0;
     // A hull that is not falling while the range opens is the quarry running, not a miss.
-    if(seen)fled=theirHull>=seen.hull&&far>seen.far?fled+1:0;else first={hull:theirHull,far};
-    seen={hull:theirHull,far};
+    if(end.seen)end.fled=theirHull>=end.seen.hull&&far>end.seen.far?end.fled+1:0;else end.first={hull:theirHull,far};
+    end.seen={hull:theirHull,far};
     // One mutation a tick. The pilot's own decision takes it when it made one; whatever the
     // open still owes is sent on a later tick rather than skipped.
     const skipped:string[]=[];
@@ -447,41 +492,115 @@ const engage=(target:Prey,floor:()=>number,
       ?yield* apply(decision,{...mine?.stance?{stance:mine.stance}:{},...mine?.target_id?{target:mine.target_id}:{}},skipped)
       :null;
     if(decision)step(`onTick asked ${JSON.stringify(decision)}; sent ${sent??'nothing it could act on'}${skipped.length?` (skipped: ${skipped.join('; ')})`:''}`);
-    if(sent==='disengage') {
-      outcome=(yield* disengageEffect())==='over'?'broke off':'unresolved';
-      if(outcome==='unresolved')stuck=true;
-      break;
-    }
+    if(sent==='disengage'){yield* breakOff();break;}
     if(sent===null) {
-      // The default ladder, unchanged but for the brace: stance, focus, then the chase.
+      // An empty magazine deals nothing whatever the stance: reload it from the hold (`battle/reload`, one mutation).
+      const modules=acct().state.modules??[],hold=new Set((acct().state.cargo??[]).map(row=>row.item_id));
+      for(const module of modules)if(Number(module.current_ammo??0)>0)reloadTried.delete(module.module_id);
+      const empty=modules.find(module=>module.type==='weapon'&&module.ammo_type&&Number(module.current_ammo??0)===0
+        &&hold.has(module.ammo_type)&&!reloadTried.has(module.module_id));
+      // The default ladder: stance, reload, focus, then the range — evade against a kiter, the brace, and the chase.
       if(!stanceNow){yield* game.command('spacemolt_battle/stance',{id:'fire'});stanceNow='fire';step('stance fire');}
-      else if(!focused){yield* game.command('spacemolt_battle/target',{id});focused=true;step(`focus fire on ${target.name}`);}
+      else if(empty) {
+        reloadTried.add(empty.module_id);
+        const reloaded=yield* Effect.result(game.command('spacemolt_battle/reload',{id:empty.module_id}));
+        step(Result.isSuccess(reloaded)?`reload ${empty.name}: its magazine read empty, ${empty.ammo_type} is in the hold`
+          :`reload ${empty.name}: ${told(reloaded.failure)}; not re-sent until it reads loaded`);
+      }
+      else if(focused!==theirs.player_id){yield* game.command('spacemolt_battle/target',{id:theirs.player_id});focused=theirs.player_id;step(`focus fire on ${name}`);}
+      else if(evadeAt!==undefined&&far!==evadeAt) {
+        yield* game.command('spacemolt_battle/stance',{id:'fire'});stanceNow='fire';
+        step(`stance fire: the range moved ${evadeAt}→${far}`);evadeAt=undefined;held=0;
+      }
+      else if(evadeAt===undefined&&held>=2&&stanceNow!=='evade') {
+        yield* game.command('spacemolt_battle/stance',{id:'evade'});stanceNow='evade';evadeAt=far;
+        step(`stance evade: ${name} has held ${far} against our reach ${reach} for ${held} ticks while hitting us`);
+      }
       // Shields flat, their hull above ours and the walk-away line one bad tick away: one tick
       // of `brace` (0% dealt, 25% taken, shields regen 2×) buys the hull to keep firing to the
       // line instead of reaching it now. Once a fight, so it can never become the fight.
-      else if(!braced&&Number(mine?.shield_pct??0)===0&&theirHull>100*hull/Number(ship?.max_hull??1)
+      else if(!braced&&shield===0&&theirHull>100*hull/Number(ship?.max_hull??1)
         &&hull<floor()+0.05*Number(ship?.max_hull??0)) {
         yield* game.command('spacemolt_battle/stance',{id:'brace'});stanceNow='brace';braced=true;
         step(`stance brace: shields flat, theirs ${theirHull}% against ours, and the line ${Math.floor(floor())} is close`);
       }
-      else if(stanceNow!=='fire'&&braced){yield* game.command('spacemolt_battle/stance',{id:'fire'});stanceNow='fire';step('stance fire again');}
-      else if(far>reach||(fled>0&&far>0))yield* game.command('spacemolt_battle/advance',{});
+      else if(stanceNow!=='fire'&&braced&&evadeAt===undefined){yield* game.command('spacemolt_battle/stance',{id:'fire'});stanceNow='fire';step('stance fire again');}
+      else if(far>reach||(end.fled>0&&far>0))yield* game.command('spacemolt_battle/advance',{});
     }
     yield* Effect.sleep(pace.tickMs);
   }
   yield* refresh;
+  return end;
+});
+
+/** One fight, from the first shot to the end of the battle: the attack, then `battleLoop` on the quarry. */
+const engage=(target:Prey,floor:()=>number,
+  onTick?:(view:TickView)=>TickDecision|undefined,stats?:CombatStats)=>Effect.gen(function*() {
+  const game=yield* Game;
+  yield* refresh;
+  const hull_before=Number(acct().state.ship?.hull??0);
+  yield* game.command(target.creature?'spacemolt/hunt':'spacemolt/attack',{id:target.id});
+  const end=yield* battleLoop({target:{id:target.id,name:target.name},floor,tired:true,onTick,stats});
+  const outcome:Fight['outcome']=end.outcome==='ended'?'escaped':end.outcome;
   // ponytail: the chase is `advance`, and the exit is `stance flee` (see `disengage`). `stance
   // board` would cancel a quarry's retreat outright, but it costs marines and suppresses our
   // weapons; take it the day a hunt needs a boarding party.
-  const why=stuck
+  const why=end.stuck
     ?'broke off at the hull line, but the battle had not ended when the retreat bound ran out: the ship is still in it and cannot travel or jump'
-    :outcome==='escaped'&&fled&&seen&&first
-      ?`hull flat at ${seen.hull}% for ${fled} tick(s) while it opened the range ${first.far}→${seen.far}`
+    :outcome==='escaped'&&end.fled&&end.seen&&end.first
+      ?`hull flat at ${end.seen.hull}% for ${end.fled} tick(s) while it opened the range ${end.first.far}→${end.seen.far}`
       :undefined;
-  const fight:Fight={target:target.raw,...last?{last_status:last}:{},outcome,...why?{why}:{},hull_before,
+  const fight:Fight={target:target.raw,...end.last?{last_status:end.last}:{},outcome,...why?{why}:{},hull_before,
     hull_after:Number(acct().state.ship?.hull??0),loot:[]};
   return fight;
 });
+
+/** A battle fought to its end by `fightBattle` or `arena`: what the loop saw, never a verdict on it. */
+export interface Battled {
+  battle_id?:string;
+  /** `ended`: the battle read over. `broke off`: our hull crossed `floor` and the ship fled. `unresolved`: the
+   * ceiling ran out with it on, or the ship could not fly. */
+  outcome:'ended'|'broke off'|'unresolved';
+  /** Status reads that found someone to fight: the loop's rounds. */
+  polls:number;
+  hull_before:number;hull_after:number;
+  /** Our own row's running totals (`BattleParticipant.damage_dealt`/`damage_taken`, shield and hull together) at the
+   * last status read before the end. Absent when the server published none. */
+  dealt?:number;taken?:number;
+  last_status?:GetBattleStatusResponse;
+}
+
+/** `battleLoop` measured: the hull either side of it and our row's damage totals at the last read. */
+export const battleEffect=(opts:{floor?:number;boss?:string;ceilingMs?:number;
+  onTick?:(view:TickView)=>TickDecision|undefined})=>Effect.gen(function*() {
+  yield* refresh;
+  const hull_before=Number(acct().state.ship?.hull??0);
+  const floor=opts.floor===undefined?()=>resolveWalkAway(pilot().mood??'Cautious')*Number(acct().state.ship?.max_hull??0):()=>Number(opts.floor);
+  const end=yield* battleLoop({floor,tired:false,onTick:opts.onTick,
+    ...opts.boss?{boss:opts.boss}:{},...opts.ceilingMs?{ceilingMs:opts.ceilingMs}:{}});
+  const battled:Battled={outcome:end.outcome,polls:end.polls,hull_before,hull_after:Number(acct().state.ship?.hull??0),
+    ...end.last?{battle_id:end.last.battle_id,last_status:end.last}:{},
+    ...end.mine?.damage_dealt!==undefined?{dealt:end.mine.damage_dealt}:{},
+    ...end.mine?.damage_taken!==undefined?{taken:end.mine.damage_taken}:{}};
+  return battled;
+});
+
+/** Fight the battle the ship is already in — one someone else started (a pirate's ambush, an arena match) — to its
+ * end, without opening an attack: `hunt`'s per-tick loop on whoever the other side fields. Focus goes to `boss` by
+ * name while it stands, else the enemy with the lowest hull; range is read from the opponent's row against our reach;
+ * an empty magazine with rounds in the hold is reloaded; two ticks hit while the opponent holds out of reach switches
+ * to `evade` until the range moves. `floor` is the hull to break off under — the mood's walk-away line by default, and
+ * `0` fights to the end. No battle holding the ship is `done` with `polls: 0`. */
+export function fightBattle(opts:{floor?:number;boss?:string;
+  onTick?:(view:TickView)=>TickDecision|undefined}={}):Promise<Outcome<Battled>> {
+  return edge(jobEffect<Battled>('fightBattle',opts.boss??'',battleEffect(opts).pipe(Effect.map(battled=>{
+    const did=battled.polls?`${battled.polls} round(s), hull ${battled.hull_before}→${battled.hull_after}`:'no battle holds the ship';
+    return battled.outcome==='ended'?{status:'done' as const,did,detail:battled}
+      :{status:'partial' as const,did,detail:battled,why:battled.outcome==='broke off'
+        ?`hull under the line ${opts.floor??'the mood draws'}: broke off`
+        :'the battle had not ended at the ceiling (or the ship could not fly): it still holds the ship'};
+  }))));
+}
 
 const say=(rows:Row[])=>rows.map(row=>`${row.quantity} ${row.item_id}`).join(', ');
 

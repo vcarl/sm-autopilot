@@ -121,6 +121,8 @@ export interface WorldOptions {
   craft?:CraftOptions;
   /** The creatures at this world's POIs, and how a fight with one goes. */
   wildlife?:WildlifeOptions;
+  /** The ship stands undocked at an arena POI: NPC challenges, matches on the battle engine, the lifetime record. */
+  arena?:ArenaOptions;
   /** The modules on the ship and the hulls listed at this base. */
   hangar?:HangarOptions;
   /** The shipping board here, and the carrier record the tier limits come from. */
@@ -205,7 +207,7 @@ const MODULES:Record<string,Record<string,unknown>>={
 };
 /** What `inspect` answers for a ship class id. */
 const CLASSES:Record<string,Record<string,unknown>>={
-  cobble:{id:'cobble',name:'Cobble',class:'Hauler',cargo_capacity:12,base_speed:3,base_fuel:120,
+  cobble:{id:'cobble',name:'Cobble',class:'Hauler',tier:1,cargo_capacity:12,base_speed:3,base_fuel:120,
     utility_slots:2,weapon_slots:1,defense_slots:1,minimum_crew:0},
   hauler_ii:{id:'hauler_ii',name:'Hauler II',class:'Hauler',cargo_capacity:120,base_speed:2,base_fuel:150,
     utility_slots:3,weapon_slots:1,defense_slots:1,minimum_crew:1},
@@ -258,6 +260,22 @@ export interface WildlifeOptions {
    * escape on the next tick; a high number is the faster opponent that kites the flee and
    * keeps the ship in the fight, which is why breaking off needs somewhere to go. */
   fleeTicks?:number;
+}
+
+/** An arena, as `spacemolt_arena` answers for it. A match is the battle engine: `battle/status` reads it, `advance`
+ * closes on every enemy (never nearer than the distance it `holds`), and `stance flee` forfeits it on the spot. */
+export interface ArenaOptions {
+  challenges?:{challenge_id:string;name?:string;max_ship_tier?:number;locked?:boolean;at_this_arena?:boolean;
+    enemies?:{name:string;is_boss?:boolean}[]}[];
+  /** What a match spawns. `distance` is where it opens, `holds` the nearest it lets us come; reach is 2. */
+  enemies?:{id:string;name:string;distance?:number;holds?:number;hull?:number}[];
+  /** Status reads before the match resolves, and the hull we lose on each. */
+  polls?:number;damage?:number;
+  /** Our own row's `zone_distance`. The live row reads it too, and it is not the range to anyone. */
+  ourDistance?:number;
+  record?:{wins:number;losses:number};
+  /** A duel challenge is accepted on this status read; absent, it is never answered. */
+  acceptOn?:number;
 }
 
 /** A bench with one recipe on it: what a dry run answers, what a commit escrows and queues,
@@ -389,7 +407,7 @@ export function bridgeWorld(options:WorldOptions={}) {
     incapacitateOn:0,retreatTicks:0,fleeTicks:0,...options.wildlife,
     creatures:(options.wildlife?.creatures??[]).map(row=>({role:'grazer',hull:60,max_hull:60,
       name:row.species,in_combat:false,branded:false,...row}))};
-  if(options.wildlife) {
+  if(options.wildlife||options.arena) {
     const weapon=fauna.weapon===undefined
       ?{name:'Autocannon I',type_id:'autocannon_i',ammo_type:'autocannon',current_ammo:500}
       :fauna.weapon;
@@ -406,6 +424,28 @@ export function bridgeWorld(options:WorldOptions={}) {
   const notInBattle=()=>{
     if(battle)throw new SpacemoltError('in_battle',
       "cannot perform this action while in combat. Use the 'battle' command to fight or flee.");
+  };
+  // The arena: one match at a time, the lifetime record, and a duel challenge waiting on its answer.
+  const ring={polls:3,damage:0,ourDistance:0,...options.arena,record:{wins:0,losses:0,...options.arena?.record}};
+  let match:{challenge_id:string;left:number;stance:string;dealt:number;taken:number;
+    enemies:{id:string;name:string;distance:number;holds:number;hull:number}[]}|null=null;
+  let outgoing:{challenge_id:string;opponent:string}|null=null,arenaReads=0;
+  const startMatch=(challenge_id:string)=>{
+    match={challenge_id,left:ring.polls,stance:'fire',dealt:0,taken:0,enemies:(ring.enemies??[{id:'npc-1',name:'Ring Levy'}])
+      .map(row=>({distance:2,holds:0,hull:100,...row}))};
+    battleStirred();
+  };
+  /** One arena round per status read: a loaded weapon in reach under `fire` takes 25 off its target, and the match
+   * ends when the polls run out or every enemy is down — a win only in the second case. */
+  const arenaTick=()=>{
+    if(!match)return;
+    const weapon=account.server.modules.find((row:Record<string,any>)=>row.type==='weapon');
+    const target=match.enemies.find(row=>row.hull>0);
+    if(target&&match.stance==='fire'&&target.distance<=2&&Number(weapon?.current_ammo??0)>0){target.hull=Math.max(0,target.hull-25);match.dealt+=25;}
+    account.server.ship.hull=Math.max(0,account.server.ship.hull-ring.damage);match.taken+=ring.damage;
+    if(--match.left>0&&match.enemies.some(row=>row.hull>0))return;
+    if(match.enemies.every(row=>row.hull<=0))ring.record.wins++;else ring.record.losses++;
+    match=null;
   };
   const tick=()=>{
     if(!battle)return;
@@ -593,6 +633,18 @@ export function bridgeWorld(options:WorldOptions={}) {
     },
     // The server's own refusal when the fight is over, which is how a caller learns it ended.
     'spacemolt_battle/status':()=>{
+      if(match) {
+        const now=match;
+        arenaTick();
+        const {ship}=account.server;
+        return {structuredContent:{battle_id:'arena-1',is_participant:true,system_id:'sol',
+          combat_state:{effective_speed:ship.speed,max_weapon_reach:2,incapacitated:false},
+          participants:[{player_id:'ship',kind:'player',side_id:2,stance:now.stance,username:'me',
+            hull_pct:Math.round(100*ship.hull/ship.max_hull),shield_pct:0,zone:'mid',zone_distance:ring.ourDistance,
+            damage_dealt:now.dealt,damage_taken:now.taken},
+          ...now.enemies.map(row=>({player_id:row.id,kind:'pirate',is_npc:true,side_id:1,username:row.name,
+            hull_pct:row.hull,zone:row.distance>2?'outer':'mid',zone_distance:row.distance}))]}};
+      }
       if(!battle)throw new SpacemoltError('no_active_battle','No active battle. Use attack to engage a target.');
       const target=battle.target,ticks=battle.ticks+1;
       tick();
@@ -607,10 +659,59 @@ export function bridgeWorld(options:WorldOptions={}) {
           hull_pct:Math.round(100*row.hull/row.max_hull),
           zone:fauna.flees?'outer':'inner',zone_distance:fauna.flees?2+ticks:2}))]}};
     },
-    'spacemolt_battle/advance':()=>({structuredContent:{action:'advance',message:'Advancing toward the enemy.'}}),
+    'spacemolt_battle/advance':()=>{
+      for(const row of match?.enemies??[])row.distance=Math.max(row.holds,row.distance-1);
+      return {structuredContent:{action:'advance',message:'Advancing toward the enemy.'}};},
     'spacemolt_battle/stance':params=>{
       if(battle)battle.stance=String(params.id);
+      // Fleeing an arena match forfeits it.
+      if(match&&params.id==='flee'){match=null;ring.record.losses++;}
+      if(match)match.stance=String(params.id);
       return {structuredContent:{action:'stance',stance:String(params.id),message:'Stance set.'}};},
+    'spacemolt_battle/reload':params=>{
+      const weapon=account.server.modules.find((row:Record<string,any>)=>row.module_id===String(params.id));
+      if(!weapon)throw new SpacemoltError('module_not_found',`No module ${params.id}`);
+      const rounds=account.server.cargo.find(row=>row.item_id===weapon.ammo_type);
+      if(!rounds)throw new SpacemoltError('no_ammo',`No ${weapon.ammo_type} in cargo`);
+      rounds.quantity-=1;
+      if(!rounds.quantity)account.server.cargo.splice(account.server.cargo.indexOf(rounds),1);
+      weapon.current_ammo=50;
+      return {delta:{details:{action:'reload',weapon_id:weapon.module_id,weapon_name:weapon.name,ammo_id:weapon.ammo_type,
+        ammo_name:weapon.ammo_type,current_ammo:50,magazine_size:50}}};
+    },
+    'spacemolt_arena/challenges':()=>({structuredContent:{action:'challenges',challenges:(ring.challenges??[]).map(row=>({
+      at_this_arena:true,locked:false,name:row.challenge_id,description:'',objective:{},poi_id:'station',poi_name:'Sol Ring',
+      requires:[],series:'ring',stage:1,waves:[],wins:0,enemies:(row.enemies??[]).map(one=>({count:1,flees:false,is_boss:false,
+        ship_class:'skiff',ship_class_name:'Skiff',...one})),...row,rules:{max_side_size:1,...row.max_ship_tier?{max_ship_tier:row.max_ship_tier}:{}}}))}}),
+    'spacemolt_arena/fight':params=>{
+      const row=(ring.challenges??[]).find(one=>one.challenge_id===String(params.id));
+      if(!row)throw new SpacemoltError('challenge_not_found',`No challenge ${params.id}`);
+      if(row.max_ship_tier&&row.max_ship_tier<Number(CLASSES[account.server.ship.class_id]?.tier??0))
+        throw new SpacemoltError('rule_ship_tier',`${account.server.ship.class_id} is above tier ${row.max_ship_tier}`);
+      startMatch(row.challenge_id);
+      return {delta:{details:{action:'fight',battle_id:'arena-1',challenge_id:row.challenge_id,name:row.name??row.challenge_id,
+        enemies:(row.enemies??[]).map(one=>({count:1,flees:false,is_boss:false,ship_class:'skiff',ship_class_name:'Skiff',...one})),
+        enemy_side:1,objective:{},participants:[],waves:[],your_side:2,message:'The match begins.'}}};
+    },
+    'spacemolt_arena/challenge':params=>{
+      outgoing={challenge_id:'duel-1',opponent:String(params.id)};arenaReads=0;
+      return {delta:{details:{action:'challenge',challenge_id:'duel-1',expires_tick:TICK+30,max_side_size:Number(params.max_side_size??0),
+        message:'Challenge sent.',poi_id:'station',target_id:String(params.id),target_name:String(params.id)}}};
+    },
+    'spacemolt_arena/cancel':()=>{
+      if(!outgoing)throw new SpacemoltError('no_challenge','No pending challenge');
+      const id=outgoing.challenge_id;outgoing=null;
+      return {delta:{details:{action:'cancel',challenge_id:id,message:'Withdrawn.'}}};
+    },
+    'spacemolt_arena/status':()=>{
+      if(outgoing&&ring.acceptOn!==undefined&&++arenaReads>=ring.acceptOn){startMatch(outgoing.challenge_id);outgoing=null;}
+      return {structuredContent:{action:'status',arena_wins:ring.record.wins,arena_losses:ring.record.losses,arena_knockouts:0,
+        at_arena:Boolean(options.arena),xp_cap_per_skill:500,xp_used_today:{},
+        ...outgoing?{outgoing:{challenge_id:outgoing.challenge_id,expires_tick:TICK+30,max_side_size:1,opponent_id:outgoing.opponent,
+          opponent_name:outgoing.opponent,poi_id:'station'}}:{},
+        ...match?{battle_id:'arena-1',...match.challenge_id.startsWith('duel')?{}:{match:{challenge_id:match.challenge_id,elapsed_ticks:0,
+          enemies_remaining:match.enemies.filter(row=>row.hull>0).length,name:match.challenge_id,objective:{},waves_remaining:0}}}:{}}};
+    },
     'spacemolt_battle/target':params=>({structuredContent:{action:'target',target:String(params.id),message:'Target set.'}}),
     // A retreat is an attempt, not an exit: the live server takes it and the battle carries on
     // until it resolves. `retreatTicks` is how many accepted retreats that takes.

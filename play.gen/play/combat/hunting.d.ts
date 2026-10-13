@@ -2,7 +2,7 @@
  * that train weapons, gunnery, tactics, and — by being hit — shields and armor. */
 import type { CreatureInfo, EnrichedWreck, GetBattleStatusResponse, PirateInfo } from '@spacemolt/lib';
 import { Effect } from 'effect';
-import { Game } from '../game.ts';
+import { Game, type GameError } from '../game.ts';
 import type { Outcome, Row } from '../types.ts';
 import { type CombatStats } from '../../combat-memory.ts';
 /** Re-exported so a pilot naming the type in its own helper can reach it through `play`. */
@@ -136,6 +136,40 @@ export declare const FLEE_TICKS = 3;
  * `over` is the battle read ended; at the bound, `on` is it read still going and `unknown` is its status never read. */
 export declare const disengageEffect: (bound?: number) => Effect.Effect<"unknown" | "on" | "over", never, Game>;
 export declare function disengage(bound?: number): Promise<boolean>;
+/** A battle fought to its end by `fightBattle` or `arena`: what the loop saw, never a verdict on it. */
+export interface Battled {
+    battle_id?: string;
+    /** `ended`: the battle read over. `broke off`: our hull crossed `floor` and the ship fled. `unresolved`: the
+     * ceiling ran out with it on, or the ship could not fly. */
+    outcome: 'ended' | 'broke off' | 'unresolved';
+    /** Status reads that found someone to fight: the loop's rounds. */
+    polls: number;
+    hull_before: number;
+    hull_after: number;
+    /** Our own row's running totals (`BattleParticipant.damage_dealt`/`damage_taken`, shield and hull together) at the
+     * last status read before the end. Absent when the server published none. */
+    dealt?: number;
+    taken?: number;
+    last_status?: GetBattleStatusResponse;
+}
+/** `battleLoop` measured: the hull either side of it and our row's damage totals at the last read. */
+export declare const battleEffect: (opts: {
+    floor?: number;
+    boss?: string;
+    ceilingMs?: number;
+    onTick?: (view: TickView) => TickDecision | undefined;
+}) => Effect.Effect<Battled, GameError, Game>;
+/** Fight the battle the ship is already in — one someone else started (a pirate's ambush, an arena match) — to its
+ * end, without opening an attack: `hunt`'s per-tick loop on whoever the other side fields. Focus goes to `boss` by
+ * name while it stands, else the enemy with the lowest hull; range is read from the opponent's row against our reach;
+ * an empty magazine with rounds in the hold is reloaded; two ticks hit while the opponent holds out of reach switches
+ * to `evade` until the range moves. `floor` is the hull to break off under — the mood's walk-away line by default, and
+ * `0` fights to the end. No battle holding the ship is `done` with `polls: 0`. */
+export declare function fightBattle(opts?: {
+    floor?: number;
+    boss?: string;
+    onTick?: (view: TickView) => TickDecision | undefined;
+}): Promise<Outcome<Battled>>;
 /** Hunt a prey across a range of places to look. `look` is POI ids in the order to try them: at
  * each one the habitat is read, and the fight happens where the prey actually is. `poi` is the
  * one-place shorthand, and naming neither hunts where you stand. Up to `fights` fights (default
