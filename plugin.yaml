@@ -32,8 +32,9 @@ config_schema:
       SPACEMOLT_JOURNAL_WEBHOOK. Absent, the bridge posts nothing.
   sequential_call_timeout:
     type: integer
-    default: 1860
+    default: 0
     description: >-
-      REQUIRED as profile config timeouts.tools.sequential_call. One spacemolt_run blocks for
-      up to the bridge's own cap (24 min, then 2 min for the script to stop); the core default
-      of 420s kills it first and the report is lost. Set it to 1860 or higher.
+      REQUIRED as profile config timeouts.tools.sequential_call. One spacemolt_run blocks until
+      the flight ends, and a flight has no time limit; the core default of 420s kills it first
+      and the report is lost. Set it to 0, which disables the bound (cron's inactivity watchdog
+      is still touched every 30s while a tool runs).

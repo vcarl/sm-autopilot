@@ -861,7 +861,7 @@ test('not Tired: a dock and an arrival resupply nothing',async()=>{
 });
 
 // U31 verify: the stop flag lives on the run, and `stopped()` read false once nothing was bound, so the
-// pilot's own loop, still flying when its run closed (abandoned at the cap), was told to go on. A library
+// pilot's own loop, still flying when its run closed (abandoned after a stop), was told to go on. A library
 // job in flight is interrupted by the binding's runtime being disposed, and never ends `done`.
 test('a loop still flying when its run is unbound reads stopped(), and a job in flight ends',async()=>{
   bind({account:{state:{}} as unknown as Account,emit:()=>{},pilot:()=>({}) as Pilot,command:async()=>({})});

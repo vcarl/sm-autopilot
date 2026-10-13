@@ -119,7 +119,7 @@ declare const Run_base: Context.ServiceClass<Run, "Run", {
     readonly binding: Binding;
     /** Set by `stop()`; every library function checks it between commands. */
     stopFlag: boolean;
-    /** Why the stop came when it was not the pilot's: the flight's cap of about 25 minutes (run.ts). */
+    /** Why the stop came when it was not the pilot's: a death (bridge.ts). */
     stopWhy?: string;
     readonly started: number;
     /** How many jobs deep the program is: 1 is a call `main()` made itself. */
@@ -205,16 +205,15 @@ export declare class Stopped extends TravelBlocked {
     readonly _tag = "Stopped";
     constructor();
 }
-/** The stop's own words when it was not the pilot's (a death, the cap), for the report. */
+/** The stop's own words when it was not the pilot's (a death), for the report. */
 export declare const stopWhy: () => string | undefined;
-/** The stop's own words: the pilot's, or the cap's. Live 2026-10-04 (kvothe 22:02Z): a run ended by
- * the 24-minute cap read "tradeRun stopped by the pilot", and the pilot never stopped it. */
+/** The stop's own words: the pilot's, or a death's. Live 2026-10-04 (kvothe 22:02Z): a run ended by
+ * the then 24-minute cap read "tradeRun stopped by the pilot", and the pilot never stopped it. */
 export declare const stopReason: () => string;
 export declare const checkStop: () => void;
 /** Pause the program and put a question to the model that is running it; resolves to its
  * answer, which is always one of `choices` when they are given. It waits until the answer
- * comes, or rejects with `Stopped` when the flight is stopped — by a person, or by the flight computer's
- * cap of about 25 minutes (run.ts).
+ * comes, or rejects with `Stopped` when the flight is stopped — by a person, or by the ship's loss.
  * A model call takes minutes, so ask at a strategic fork, never once per tick. */
 export declare function ask(asked: {
     question: string;

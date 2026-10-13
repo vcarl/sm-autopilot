@@ -49,9 +49,9 @@ of a deploy. If a step below would need any of those, stop and ask.
    - `ended: true` (or no file): go on.
    - `ended: false` with a `question`: the run is paused on `ask()` and waits for a juncture, not
      for time. Stop and tell the user, who decides whether to interrupt it.
-   - `ended: false` otherwise: wait for it with Monitor (an until-loop on `"ended":true`). Runs
-     are capped at 26 minutes from `started`; if it is still open 30 minutes after `started`,
-     stop and report rather than restart under it.
+   - `ended: false` otherwise: wait for it with Monitor (an until-loop on `"ended":true`). A run
+     has no time limit; if it is still open after 30 minutes, stop and report rather than restart
+     under it.
    Re-read `run.json` immediately before step 4: a juncture may have started a new run.
 4. **Install.** `hermes --profile $P plugins install $SRC --ref <sha> --enable --force`. A
    `file://` source prints an insecure-scheme warning; that is expected for a candidate.

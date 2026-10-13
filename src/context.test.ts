@@ -364,12 +364,19 @@ test('a failed game read still renders the record and the journal', () => {
 test('a failed game read during a run says the run is in flight', () => {
   // Without the game, run.json still says whether a run is flying: the context must not say
   // "Run in flight: no" over one that is.
-  const dir=runtime(),started=new Date(Date.now()-3*60_000);
-  runJson(dir,{script:'index.ts',started:started.toISOString().replace(/\.\d+Z$/,'Z'),ended:false,last_job:'tradeRun'});
+  // 40 minutes in: a flight has no time limit, and its bridge (this process) is alive.
+  const dir=runtime(),started=new Date(Date.now()-40*60_000);
+  runJson(dir,{script:'index.ts',started:started.toISOString().replace(/\.\d+Z$/,'Z'),ended:false,last_job:'tradeRun',pid:process.pid});
   const menu=recordMenu({},dir);
   assert.equal(menu.busy,true);
   const at=started.toISOString();
   assert.equal(renderContext(menu,dir),`A flight is under way — started ${at.slice(5,10)} ${at.slice(11,16)}Z, in tradeRun.`);
+});
+
+test('an un-ended run whose bridge is gone is no flight', () => {
+  const dir=runtime();
+  runJson(dir,{script:'index.ts',started:new Date().toISOString(),ended:false,pid:2**31-2});
+  assert.notEqual(recordMenu({},dir).busy,true);
 });
 
 test('the context request answers the text, the moves and the read that failed', async () => {

@@ -7,7 +7,7 @@ agent and lets it play unattended, for weeks, with no human in the loop.
 The pilot does not play by calling a tool per action. It plays by **writing a program**. Each
 time it wakes it writes the whole of `pilot/index.ts` — a module that imports a small library of
 game verbs and returns what happened — and runs it. The program flies for minutes of real time
-(at most 24, capped by the bridge) and its report comes back into the same turn. A few minutes
+(until it returns or is stopped; there is no time limit) and its report comes back into the same turn. A few minutes
 after that turn ends the pilot is woken again, with a fresh conversation and the facts of where the
 ship stands. That wake-up is called a **juncture**, and it is one Hermes cron job.
 
@@ -101,11 +101,11 @@ Add this to the profile's `config.yaml` (`~/.hermes/profiles/spacemolt/config.ya
 ```yaml
 timeouts:
   tools:
-    sequential_call: 1860
+    sequential_call: 0
 ```
 
-**Do not skip this.** One `spacemolt_run` blocks for as long as the program flies, bounded by
-the bridge's own 1800-second limit. Hermes' default cuts every tool call off at 420 seconds, so
+**Do not skip this.** One `spacemolt_run` blocks for as long as the program flies, and a flight
+has no time limit; `0` disables the bound. Hermes' default cuts every tool call off at 420 seconds, so
 without this setting a long run is killed mid-flight, the agent is told nothing useful, and the
 pilot's next program can overwrite one that is still running. It applies to every tool this
 profile runs — which is why SpaceMolt gets its own profile.
@@ -204,8 +204,8 @@ and `pilot` lines for every write to the record. Every program checked is kept a
 | Symptom | Cause |
 |---|---|
 | `hermes cron list` shows no SpaceMolt job | The plugin did not load. `hermes plugins list`; check the gateway log for a registration error. |
-| The job fires and ends with no model turn, repeatedly | The gate reads `runtime/run.json` as in flight (`ended: false`). A live bridge ends every run within 26 minutes; a dead one's record is closed `interrupted` the next time a bridge starts, which any tool call or juncture does. |
-| A fire runs, writes a program, and the tool dies after ~7 minutes | `timeouts.tools.sequential_call` is not set. See step 5. |
+| The job fires and ends with no model turn, repeatedly | The gate reads `runtime/run.json` as in flight (`ended: false` and its bridge `pid` alive). That is a flight still flying, which has no time limit: `spacemolt_stop` ends it. A dead bridge's record is not in flight, and is closed `interrupted` the next time a bridge starts. |
+| A fire runs, writes a program, and the tool dies after ~7 minutes (or any fixed time) | `timeouts.tools.sequential_call` is not `0`. See step 5. |
 | Fires succeed but the pilot plays badly and never seems to know its career | A skill did not resolve. Cron **skips** an unresolvable skill with a log warning and fires anyway, so this looks healthy. Check the gateway log for `skill not found, skipping`. |
 | Every tool is missing from the agent | No `SPACEMOLT_CREDENTIALS_FILE` secret in this profile, or `node` is not on the gateway's PATH. |
 

@@ -48,10 +48,10 @@ src/play/freighter/  freighters: each its own account and connection, hosted in 
 concurrently; none is replayed. A `run` request blocks for as long as the program flies — or until
 the program calls `ask()`, when the `run` answers early with the question (also kept in
 `run.json`) and `answer` resumes the program and follows the run the same way. Streamed lines go to
-whichever request is waiting on the run. The bridge caps a run (`RUN_CAP_MS`, then `RUN_GRACE_MS`,
-26 minutes in all; a pending question is withdrawn at the cap) under `REQUEST_TIMEOUT = 1800`,
-which is only a backstop. A script that ignores the stop at the cap is abandoned and the bridge
-exits, so it cannot send another command. There is **no build step**: Node strips the types itself, so keep the
+whichever request is waiting on the run. A flight has no time limit: the requests that follow a
+run (`run`, `answer`, `stop`) wait without a bound, every other one under `REQUEST_TIMEOUT`. A
+script that ignores a stop for `STOP_GRACE_MS` is abandoned and the bridge exits, so it cannot
+send another command. There is **no build step**: Node strips the types itself, so keep the
 TypeScript erasable (no enums, namespaces or parameter properties) and keep `.ts` on relative
 imports.
 
@@ -92,10 +92,10 @@ The **gate** (`install_gate`, `gate_main`) is a shim written into `HERMES_HOME/s
 named on the job as a *relative* path — cron resolves relative scripts there, and the tool layer
 rejects absolute ones. Cron runs it before it builds the prompt, and a fire whose gate prints
 `{"wakeAgent": false}` ends with no model turn. It runs outside the gateway, so it reads
-`runtime/run.json`. It suppresses exactly one thing, a run in flight (not ended, and started
-within `REQUEST_TIMEOUT`) that is not paused on a question; a paused run wakes the fire, and the
+`runtime/run.json`. It suppresses exactly one thing, a run in flight (not ended, and the bridge
+`pid` in `run.json` alive) that is not paused on a question; a paused run wakes the fire, and the
 gate prints the question, which cron puts at the head of the prompt. Every decision is journalled
-with its reason. The age bound matters: a record a dead bridge left un-ended is closed only by the
+with its reason. The liveness check matters: a record a dead bridge left un-ended is closed only by the
 next bridge, and only a fire starts one (10-05: a forced gateway restart under a run, and every
 fire after it was suppressed).
 
@@ -415,7 +415,7 @@ releases and sets versions; an agent never does unless asked for that release. T
 ## Things that have gone wrong, so they are load-bearing now
 
 - **A 420-second tool timeout killed an 11-minute run**, and the pilot's next program overwrote
-  the one still flying. Hence `timeouts.tools.sequential_call: 1860` in the profile, and
+  the one still flying. Hence `timeouts.tools.sequential_call: 0` (no bound) in the profile, and
   `spacemolt_run` refusing to write `pilot/index.ts` while a run is in flight.
 - **A gate that printed nothing suppressed every juncture.** Cron ends a fire whose script
   produced no output, so "wake normally" must be *prose*, never silence.

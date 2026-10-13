@@ -25,8 +25,10 @@ HERE = Path(__file__).resolve().parent
 BRIDGE_COMMAND = ["node", "src/bridge.ts"]  # tests point this at a stub
 BRIDGE_STDERR = "bridge.stderr.log"
 READY_TIMEOUT = 120.0
-#: A backstop only: the bridge caps a run itself (``RUN_CAP_MS`` + grace in run.ts, 26 min).
+#: How long a request waits for its reply. A flight has no time limit, so the requests that follow
+#: one to its end wait without a bound (a dead bridge still ends the wait: ``_read`` posts EOF).
 REQUEST_TIMEOUT = 1800.0
+FOLLOWS_RUN = frozenset({"run", "answer", "stop"})
 CLOSE_TIMEOUT = 5.0  # per stage of the EOF → SIGTERM → SIGKILL escalation
 #: Where the bridge's Node dependencies are installed (tests point this at a scratch dir).
 DEPS_ROOT = HERE
@@ -240,7 +242,7 @@ class Bridge:
             for box in list(self.waiting.values()):
                 box.put(closed)
 
-    def _receive(self, timeout: float, box: queue.Queue | None = None) -> dict[str, Any]:
+    def _receive(self, timeout: float | None, box: queue.Queue | None = None) -> dict[str, Any]:
         try:
             value = (box if box is not None else self.inbox).get(timeout=timeout)
         except queue.Empty as error:
@@ -263,7 +265,7 @@ class Bridge:
             self.process.stdin.flush()  # type: ignore[union-attr]
         try:
             while True:
-                reply = self._receive(REQUEST_TIMEOUT, box)
+                reply = self._receive(None if action in FOLLOWS_RUN else REQUEST_TIMEOUT, box)
                 if reply.get("event") == "line":
                     if on_line is not None:
                         on_line(str(reply.get("text", "")))

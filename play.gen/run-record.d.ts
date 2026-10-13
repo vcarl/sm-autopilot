@@ -21,6 +21,8 @@ export declare const RunRecord: Schema.Struct<{
     readonly juncture_at: Schema.optionalKey<Schema.String>;
     readonly last_job: Schema.mutableKey<Schema.optionalKey<Schema.String>>;
     readonly last_step: Schema.optionalKey<Schema.String>;
+    /** The bridge process that flies the run: alive and un-ended is a flight under way, whatever its age. */
+    readonly pid: Schema.optionalKey<Schema.Number>;
     readonly ended: Schema.mutableKey<Schema.Boolean>;
     /** Present exactly when the run ended: the same shape the juncture reads as `last`. */
     readonly outcome: Schema.mutableKey<Schema.optionalKey<Schema.$Record<Schema.String, Schema.Unknown>>>;

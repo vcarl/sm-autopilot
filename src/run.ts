@@ -5,10 +5,9 @@
  * is bound, `main()` runs, the returned Outcome is rendered to prose and the record is written.
  * The next juncture is cron's interval, not the run's business.
  *
- * A run is capped by the wall clock (`RUN_CAP_MS`): the stop flag is raised at the cap, and a
- * script that ignores it is cut off `RUN_GRACE_MS` later. Both land well inside the transport's
- * own request timeout, so the bridge ends its run itself and the kill in `service.py` is only a
- * backstop.
+ * A run has no time limit: it lasts until `main()` returns or the flight is stopped (`spacemolt_stop`,
+ * a death). A script that ignores a stop is cut off `STOP_GRACE_MS` after it and left behind
+ * (`abandoned`), and the bridge exits so it can send nothing more.
  */
 import {execFile,execFileSync} from 'node:child_process';
 import {createHash,randomUUID} from 'node:crypto';
@@ -41,11 +40,9 @@ const PLAY_TYPES={play:[join(PLUGIN,'play.gen','play','index.d.ts')],'play/*':[j
  * booted it on (`SPACEMOLT_SOURCES`), the code a run's lines were written by. Null outside a checkout. */
 const CODE_SHA=(()=>{try {return execFileSync('git',['rev-parse','HEAD'],{cwd:PLUGIN,encoding:'utf8',stdio:['ignore','pipe','ignore']}).trim();} catch {return null;}})(); // edge: no git or no checkout is the ordinary install, and the stamp is null
 
-/** 24 minutes, then the stop flag; 2 more for the script to honour it. Both inside the 30 of
- * `service.REQUEST_TIMEOUT`, leaving room for the battle check and the record after. */
-export const RUN_CAP_MS=24*60_000,RUN_GRACE_MS=2*60_000;
-/** What breaking off a fight may take past the cap and its grace: 2 of the 4 minutes `REQUEST_TIMEOUT`
- * leaves, the rest for the resupply's stop and the record, so a capped run still answers in time. */
+/** How long a stopped script has to honour the stop before it is left behind. */
+export const STOP_GRACE_MS=2*60_000;
+/** What breaking off a fight at the flight's end may take. */
 export const CLOSE_MS=2*60_000;
 
 /** The pilot's directory, ready to typecheck and run: `pilot/index.ts` (from the example on
@@ -161,10 +158,9 @@ export async function check(runtime:string,{warm=true,name='pilot'}:{warm?:boole
 
 export interface RunDeps extends Omit<Binding,'runtime'> {
   runtime:string;
-  /** The wall-clock cap and the grace after it; tests shorten them. */
-  capMs?:number;
+  /** How long a stopped script has to honour the stop (`STOP_GRACE_MS`); tests shorten it. */
   graceMs?:number;
-  /** The break-off allowance past both (`CLOSE_MS`); tests shorten it. */
+  /** The break-off allowance at the flight's end (`CLOSE_MS`); tests shorten it. */
   closeMs?:number;
   /** The juncture that asked for this run (`runtime/juncture.json` as the Python handler read it). */
   juncture?:{readonly juncture_id?:string|null;readonly at?:string|null};
@@ -186,8 +182,8 @@ export interface RunResult {
   started:string;
   ended_at?:string;
   commands?:number;
-  /** The script ignored the stop at the cap and was left behind; the bridge must exit so it
-   * cannot send another command. */
+  /** The script ignored a stop and was left behind; the bridge must exit so it cannot send
+   * another command. */
   abandoned?:boolean;
 }
 
@@ -219,8 +215,7 @@ export function keepProgram(runtime:string,entry:string,sha:string):void {
  * mid-match. The battle status carries no arena flag; `arena.status.battle_id` ("the arena battle you are fighting
  * in") is the signal. A refused or lost read of it is no arena, and the break-off stands. */
 async function closeBattle(answerBy:number):Promise<{opponent:string;ended:boolean;arena?:string}|null> {
-  // Found in review 2026-10-03: a run cut off at the cap broke off for up to the 5 minute ceiling,
-  // 31 minutes in all, past the request's 30. A bound reached is the battle reported still live.
+  // A bound reached is the battle reported still live.
   const bound=()=>Math.min(FIGHT_CEILING_MS,Math.max(0,answerBy-Date.now()));
   const read=await edge(Effect.gen(function*() {
     const seen=yield* Effect.exit(battleAtCloseEffect());
@@ -297,7 +292,9 @@ export async function runPilot(deps:RunDeps):Promise<RunResult> {
   }
   // RunRecord decodes juncture_at as a string: a null here (juncture.py's `at` is `.get`) would make
   // run.json unreadable, and boot would skip closing this run `interrupted`.
-  const record:RunRecord={script:'index.ts',source:gate.sha,started,ended:false,
+  // `pid` names the bridge that owns the run: the juncture gate reads an un-ended record whose bridge
+  // is gone as no flight, however long a live one has flown (juncture.py `run_in_flight`).
+  const record:RunRecord={script:'index.ts',source:gate.sha,started,ended:false,pid:process.pid,
     ...typeof deps.juncture?.at==='string'?{juncture_at:deps.juncture.at}:{}};
   const save=()=>writeRun(runtime,record);
   save();
@@ -309,20 +306,21 @@ export async function runPilot(deps:RunDeps):Promise<RunResult> {
   journalRun(runtime,{phase:'started',script:'index.ts',sha:gate.sha,started,stance:who.stance??null,mood:who.mood??null,
     ...juncture,code_sha:CODE_SHA,sources:process.env.SPACEMOLT_SOURCES??null,start_state:stateSnapshot()});
   line(`flight launched ${started}  program ${gate.sha}  mood ${who.mood??'-'}  stance ${who.stance??'none'}`);
-  const cap=deps.capMs??RUN_CAP_MS,grace=deps.graceMs??RUN_GRACE_MS;
-  const timers:ReturnType<typeof setTimeout>[]=[];
-  let abandoned=false;
+  const grace=deps.graceMs??STOP_GRACE_MS;
+  let abandoned=false,cut:ReturnType<typeof setTimeout>|undefined;
+  // A stop (the pilot's, a death) is honoured at the program's next library call; one that never
+  // comes is cut off a grace later. Polled: `stop()` is the play library's, and has no listener.
+  // Left ref'd: a program stuck on a promise has nothing else keeping the process up.
+  let watch:ReturnType<typeof setInterval>|undefined;
   const cutOff=new Promise<Outcome<unknown>>(resolveCut=>{
-    timers.push(setTimeout(()=>{
-      line(`the flight reached the flight computer's ${Math.round(cap/60_000)}-minute limit: asking the program to stop`);
-      journalRun(runtime,{job:'index.ts',message:'wall-clock cap: stop requested',cap_ms:cap},'log');
-      stop(`the flight computer's ${Math.round(cap/60_000)}-minute limit`);
-    },cap));
-    timers.push(setTimeout(()=>{
-      abandoned=true;
-      resolveCut(build('the flight computer ended the flight at its ~25-minute limit','partial',{},
-        `the program did not stop within ${Math.round(grace/1000)}s of being asked`));
-    },cap+grace));
+    watch=setInterval(()=>{
+      if(!stopped()||cut)return;
+      cut=setTimeout(()=>{
+        abandoned=true;
+        resolveCut(build('the flight computer ended the stopped flight','partial',{},
+          `the program did not stop within ${Math.round(grace/1000)}s of being asked`));
+      },grace);
+    },Math.min(1000,grace));
   });
   // A promise the program left unawaited, or a throw from one of its callbacks, would otherwise
   // take the whole bridge down and the run's cause with it: it ends this run `failed` instead.
@@ -333,8 +331,6 @@ export async function runPilot(deps:RunDeps):Promise<RunResult> {
   const onException=(error:unknown)=>{stop();crashed(new Error(`uncaught exception: ${message(error)}`));};
   process.on('unhandledRejection',onRejection);
   process.on('uncaughtException',onException);
-  // Left ref'd: a program stuck on a promise has nothing else keeping the process up, and the cap
-  // is what ends that run. They are always cleared in the `finally` below.
   let result:Outcome<unknown>;
   try {
     result=await Promise.race([broke,(async()=>{
@@ -357,13 +353,14 @@ export async function runPilot(deps:RunDeps):Promise<RunResult> {
   } finally {
     // The runtime's own closing commands (resupply, a battle broken off) are not the program's: no pause.
     listen(null);
-    for(const timer of timers)clearTimeout(timer);
+    clearInterval(watch);
+    clearTimeout(cut);
     process.off('unhandledRejection',onRejection);
     process.off('uncaughtException',onException);
   }
   result=ofTheRun(result,runCalls());
   // Before the report is rendered, so the fact is in the report rather than after it.
-  const held=await closeBattle(Date.parse(started)+cap+grace+(deps.closeMs??CLOSE_MS));
+  const held=await closeBattle(Date.now()+(deps.closeMs??CLOSE_MS));
   if(held) {
     const why=held.arena
       ?`the flight ended mid-match in the arena against ${held.opponent}; left to finish rather than fled, because fleeing forfeits it — the ship stays in the battle until it resolves`
@@ -376,10 +373,8 @@ export async function runPilot(deps:RunDeps):Promise<RunResult> {
   // Tired is the guarantee the ship gets resupplied, whatever the script did: one that ended Tired
   // (it broke, forgot, or made no work call the runtime could resupply at) is brought up here,
   // docked or not. Never while an abandoned script may still be sending, nor with a battle live.
-  // A stopped run only services where it stands; otherwise the flight is stopped at the cap plus
-  // its grace, so the run still ends inside the transport's timeout.
+  // A stopped run only services where it stands.
   if(!abandoned&&!(held&&!held.ended)&&deps.pilot().mood==='Tired') {
-    const timer=setTimeout(stop,Math.max(0,Date.parse(started)+cap+grace-Date.now()));
     // A failure is journalled as the bug it always was, and never skips the record.
     await edge(Effect.gen(function*() {
       const exit=yield* Effect.exit(resupplyEffect({travel:!stopped(),trigger:'run_end'}));
@@ -390,7 +385,6 @@ export async function runPilot(deps:RunDeps):Promise<RunResult> {
       }
       return build('resupplied at the flight\'s end','done',{});
     }));
-    clearTimeout(timer);
   }
   // The report is words for the pilot; the end of the run is the record. A report that cannot be
   // rendered says so in the record's reason and the run still ends (live 2026-09-28, L5277).

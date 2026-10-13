@@ -102,7 +102,7 @@ export class Run extends Context.Service<Run,{
   readonly binding:Binding;
   /** Set by `stop()`; every library function checks it between commands. */
   stopFlag:boolean;
-  /** Why the stop came when it was not the pilot's: the flight's cap of about 25 minutes (run.ts). */
+  /** Why the stop came when it was not the pilot's: a death (bridge.ts). */
   stopWhy?:string;
   readonly started:number;
   /** How many jobs deep the program is: 1 is a call `main()` made itself. */
@@ -267,7 +267,7 @@ export function note(text:string):void {line(`✎ ${text}`);}
 
 /** True once the pilot (or the observer) asked the flight to stop. Every library function checks it
  * between commands and returns `partial`; a loop of your own should check it too. */
-// Nothing bound is a run that has closed: a program still flying (abandoned at the cap) must stop.
+// Nothing bound is a run that has closed: a program still flying (abandoned after a stop) must stop.
 export function stopped():boolean {return bound()?.run.stopFlag??true;}
 /** Ask the flight to stop. A program paused on `ask()` is not at a safe point, it is waiting: the
  * ask rejects with `Stopped` there and then, and the question is withdrawn. */
@@ -287,17 +287,16 @@ export function stop(why?:string):void {
 /** Thrown from a travel checkpoint when the pilot asked to stop; the leg in flight finishes. */
 export class Stopped extends TravelBlocked {readonly _tag='Stopped';constructor(){super(stopReason());}}
 const PILOT_STOP='stopped on order';
-/** The stop's own words when it was not the pilot's (a death, the cap), for the report. */
+/** The stop's own words when it was not the pilot's (a death), for the report. */
 export const stopWhy=()=>bound()?.run.stopWhy;
-/** The stop's own words: the pilot's, or the cap's. Live 2026-10-04 (kvothe 22:02Z): a run ended by
- * the 24-minute cap read "tradeRun stopped by the pilot", and the pilot never stopped it. */
+/** The stop's own words: the pilot's, or a death's. Live 2026-10-04 (kvothe 22:02Z): a run ended by
+ * the then 24-minute cap read "tradeRun stopped by the pilot", and the pilot never stopped it. */
 export const stopReason=()=>{const why=bound()?.run.stopWhy;return why?`stopped: ${why}`:PILOT_STOP;};
 export const checkStop=()=>{if(stopped())throw new Stopped();};
 
 /** Pause the program and put a question to the model that is running it; resolves to its
  * answer, which is always one of `choices` when they are given. It waits until the answer
- * comes, or rejects with `Stopped` when the flight is stopped — by a person, or by the flight computer's
- * cap of about 25 minutes (run.ts).
+ * comes, or rejects with `Stopped` when the flight is stopped — by a person, or by the ship's loss.
  * A model call takes minutes, so ask at a strategic fork, never once per tick. */
 export function ask(asked:{question:string;choices?:string[]}):Promise<string> {
   const run=state();

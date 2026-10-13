@@ -12,6 +12,7 @@ const readJournal=readJournalLines;
 const rec=(value:unknown):Record<string,unknown>=>{assert.ok(typeof value==='object'&&value!==null,`not an object: ${JSON.stringify(value)}`);return Object.fromEntries(Object.entries(value));};
 import {bridgeWorld,type WorldOptions} from './test-support/bridge-world.ts';
 import {flying,pushJournal} from './bridge.ts';
+import {stop} from './play/runtime.ts';
 import {pace} from './play/combat/hunting.ts';
 import {battleEnded} from './travel.ts';
 
@@ -257,9 +258,8 @@ test('a run that hands back mid-match in the arena leaves the match to finish, a
   } finally {f.close();pace.tickMs=10_000;battleEnded();}
 });
 
-// A run cut off at the cap (24 + 2 min) then broke off a live fight for up to the fight ceiling (5 min):
-// 31 minutes, past `service.REQUEST_TIMEOUT`'s 30. The break-off now gets only what is left before the answer is due.
-test('a capped run with a battle that will not end still answers by its deadline, saying the battle is live',async()=>{
+// The break-off at a flight's end is bounded by `CLOSE_MS`, not by the fight ceiling.
+test('a stopped run with a battle that will not end still answers by its deadline, saying the battle is live',async()=>{
   pace.tickMs=1;
   const grazer={creature_id:'c1',species:'molt_grazer',name:'Molt Grazer'};
   const f=harness({wildlife:{creatures:[grazer],polls:1e9,damage:0,fleeTicks:1e9}});
@@ -267,8 +267,9 @@ test('a capped run with a battle that will not end still answers by its deadline
     f.write("export default async function main(){ await new Promise(()=>{}); }\n");
     await f.command('spacemolt/hunt',{id:'c1'});
     const since=Date.now();
-    const result=await runPilot({...f.deps,capMs:20,graceMs:20,closeMs:300});
-    assert.ok(Date.now()-since<20+20+300+2000,`answered after ${Date.now()-since} ms`);
+    setTimeout(()=>stop(),50);
+    const result=await runPilot({...f.deps,graceMs:20,closeMs:300});
+    assert.ok(Date.now()-since<20+300+3000,`answered after ${Date.now()-since} ms`);
     assert.equal(result.abandoned,true);
     assert.match(result.why??'',/could not break off; the battle is still live/);
   } finally {f.close();pace.tickMs=10_000;battleEnded();}
@@ -359,14 +360,17 @@ test('a run that ends Tired in space short of any base burns its cells, then rea
   } finally {f.close();}
 });
 
-test('a run past its wall-clock cap is asked to stop, then cut off, and the record is closed',async()=>{
+test('a run has no time limit: one that ignores a stop is cut off a grace later, and the record is closed',async()=>{
   const f=harness();
   try {
     f.write("export default async function main(){ await new Promise(()=>{}); }\n");
-    const result=await runPilot({...f.deps,capMs:20,graceMs:20});
+    const since=Date.now();
+    setTimeout(()=>stop(),1500);
+    const result=await runPilot({...f.deps,graceMs:20});
+    assert.ok(Date.now()-since>=1500,'nothing ended the flight before the stop');
     assert.equal(result.status,'partial');
     assert.equal(result.abandoned,true,'the bridge is told to exit');
-    assert.match(f.lines.join('\n'),/minute limit/);
+    assert.match(result.why??'',/did not stop within/);
     assert.equal(readRun(f.runtime)?.ended,true,'run.json was left open');
     const ended=readJournal(f.runtime).find(entry=>entry.phase==='ended')!;
     assert.equal(ended.abandoned,true);
@@ -407,7 +411,7 @@ test('a promise the program left unawaited ends the run failed with its error, a
   process.removeAllListeners('unhandledRejection');
   try {
     f.write("export default async function main(){ void Promise.reject(new Error('No response to spacemolt/get_active_missions')); await new Promise(()=>{}); }\n");
-    const result=await runPilot({...f.deps,capMs:5000,graceMs:100});
+    const result=await runPilot({...f.deps,graceMs:100});
     assert.equal(process.listenerCount('unhandledRejection'),0,'outside a run the process is left as it was');
     for(const fn of runner)process.on('unhandledRejection',fn);
     assert.equal(result.status,'failed');

@@ -13,6 +13,7 @@ import type {Pilot} from './bridge.ts';
 import {FAILURES,type Failure,readFailures} from './failures.ts';
 import {nameIds} from './play/places.ts';
 import {isRecord,readJournal,readRun} from './run-record.ts';
+import {alive} from './controller-lock.ts';
 
 /** The juncture section's `max_chars`: core skips a section over it whole, not truncated. Python
  * registers the section with the same number (`juncture.SECTION_LIMIT`); keep the two equal. */
@@ -35,8 +36,6 @@ export const CHAT_CHARS=200;
  * `emergency` and 28 customs scans on `system` in a day would flood the context, but a pilot may
  * answer a MAYDAY or be held by customs, so neither is hidden. */
 const CHAT_CAPPED:Record<string,number>={emergency:2,system:2};
-/** `service.REQUEST_TIMEOUT`: no live run outlasts it. */
-const REQUEST_TIMEOUT_S=1800;
 
 type Row=Record<string,unknown>;
 const isRow=(value:unknown):value is Row=>isRecord(value)&&!Array.isArray(value);
@@ -141,13 +140,12 @@ export function pendingInstruction(said:unknown,runtime:string|undefined):Row|nu
   return at&&ran&&ran>=at?null:given;
 }
 
-/** A run is going on: run.json un-ended, and started within `REQUEST_TIMEOUT` (live 2026-10-05: a
- * record a dead bridge left un-ended suppressed every fire after it). */
+/** A run is going on: run.json un-ended, and the bridge that flies it (`pid`) alive, however long it
+ * has flown (live 2026-10-05: a record a dead bridge left un-ended suppressed every fire after it).
+ * A record with no pid predates the field and names no live owner. */
 function runRecordFlying(runtime:string|undefined) {
   const run=runtime?readRun(runtime):null;
-  if(!run||run.ended)return null;
-  const started=when(run.started);
-  return !started||(Date.now()-started.getTime())/1000<REQUEST_TIMEOUT_S?run:null;
+  return run&&!run.ended&&run.pid!==undefined&&alive(run.pid)?run:null;
 }
 
 /** What a menu can say without the game: the pilot record's own fields under the menu's names, and

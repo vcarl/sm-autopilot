@@ -441,7 +441,7 @@ def test_a_source_change_during_a_run_defers_the_reload(reloadable):
     service.call("status")
     live = service._bridge
     runtime = service.runtime_dir()
-    (runtime / "run.json").write_text(json.dumps({"script": "hunt", "started": "t0", "ended": False}))
+    (runtime / "run.json").write_text(json.dumps({"script": "hunt", "started": "t0", "ended": False, "pid": os.getpid()}))
     (runtime / "controller-1.lock").write_text(json.dumps({"pid": os.getpid()}))
     (reloadable / "job.ts").write_text("// added while the run is out at the belt\n")
 

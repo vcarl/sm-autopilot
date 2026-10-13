@@ -1,10 +1,8 @@
 import { type Binding } from './play/runtime.ts';
 import type { Outcome } from './play/types.ts';
-/** 24 minutes, then the stop flag; 2 more for the script to honour it. Both inside the 30 of
- * `service.REQUEST_TIMEOUT`, leaving room for the battle check and the record after. */
-export declare const RUN_CAP_MS: number, RUN_GRACE_MS: number;
-/** What breaking off a fight may take past the cap and its grace: 2 of the 4 minutes `REQUEST_TIMEOUT`
- * leaves, the rest for the resupply's stop and the record, so a capped run still answers in time. */
+/** How long a stopped script has to honour the stop before it is left behind. */
+export declare const STOP_GRACE_MS: number;
+/** What breaking off a fight at the flight's end may take. */
 export declare const CLOSE_MS: number;
 /** The pilot's directory, ready to typecheck and run: `pilot/index.ts` (from the example on
  * first use), `node_modules/play` and `node_modules/@spacemolt` linked so the bare specifiers
@@ -31,10 +29,9 @@ export declare function check(runtime: string, { warm, name }?: {
 }): Promise<Check>;
 export interface RunDeps extends Omit<Binding, 'runtime'> {
     runtime: string;
-    /** The wall-clock cap and the grace after it; tests shorten them. */
-    capMs?: number;
+    /** How long a stopped script has to honour the stop (`STOP_GRACE_MS`); tests shorten it. */
     graceMs?: number;
-    /** The break-off allowance past both (`CLOSE_MS`); tests shorten it. */
+    /** The break-off allowance at the flight's end (`CLOSE_MS`); tests shorten it. */
     closeMs?: number;
     /** The juncture that asked for this run (`runtime/juncture.json` as the Python handler read it). */
     juncture?: {
@@ -59,8 +56,8 @@ export interface RunResult {
     started: string;
     ended_at?: string;
     commands?: number;
-    /** The script ignored the stop at the cap and was left behind; the bridge must exit so it
-     * cannot send another command. */
+    /** The script ignored a stop and was left behind; the bridge must exit so it cannot send
+     * another command. */
     abandoned?: boolean;
 }
 /** The pilot's program as it was checked, kept by sha beside the file it overwrote, so a reader

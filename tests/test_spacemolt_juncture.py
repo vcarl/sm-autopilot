@@ -12,6 +12,7 @@ import copy
 import json
 import os
 import re
+import subprocess
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -87,18 +88,24 @@ def test_the_gate_suppresses_a_fire_only_while_a_run_is_in_flight_and_logs_why(c
     (runtime / "run.json").write_text(json.dumps({"script": "index.ts", "ended": True}))
     assert gate_line() == idle
 
-    (runtime / "run.json").write_text(json.dumps({"script": "index.ts", "ended": False}))
+    (runtime / "run.json").write_text(json.dumps({"script": "index.ts", "ended": False, "pid": os.getpid()}))
     line = gate_line()
     assert line == '{"wakeAgent": false}' and _parse_wake_gate(line) is False
 
-    # Live 2026-10-05 (kvothe 06:36Z): a forced restart killed the bridge under a run, and only a fire
-    # boots the next one to close it. A record older than any live run could be wakes the fire.
+    # A flight has no time limit: one 45 minutes in, its bridge alive, still keeps cron quiet.
     now = datetime.now(timezone.utc)
-    (runtime / "run.json").write_text(json.dumps({"script": "index.ts", "ended": False,
-                                                  "started": (now - timedelta(minutes=5)).isoformat()}))
+    (runtime / "run.json").write_text(json.dumps({"script": "index.ts", "ended": False, "pid": os.getpid(),
+                                                  "started": (now - timedelta(minutes=45)).isoformat()}))
     assert gate_line() == '{"wakeAgent": false}'
-    (runtime / "run.json").write_text(json.dumps({"script": "index.ts", "ended": False,
-                                                  "started": (now - timedelta(minutes=31)).isoformat()}))
+    # Live 2026-10-05 (kvothe 06:36Z): a forced restart killed the bridge under a run, and only a fire
+    # boots the next one to close it. A record whose bridge is gone wakes the fire, however young.
+    gone = subprocess.Popen(["true"])
+    gone.wait()
+    (runtime / "run.json").write_text(json.dumps({"script": "index.ts", "ended": False, "pid": gone.pid,
+                                                  "started": now.isoformat()}))
+    assert gate_line() == idle
+    # A record from before the pid was written names no live bridge.
+    (runtime / "run.json").write_text(json.dumps({"script": "index.ts", "ended": False, "started": now.isoformat()}))
     assert gate_line() == idle
 
     # Runs that did nothing are a fact for the log, never a reason to skip the fire.
@@ -108,7 +115,7 @@ def test_the_gate_suppresses_a_fire_only_while_a_run_is_in_flight_and_logs_why(c
                     {"event": "run", "phase": "ended", "outcome": "refused", "commands": 2}])
     assert gate_line() == idle
     decisions = _journal_rows("gate")
-    assert [row["wake"] for row in decisions] == [True, True, False, False, True, True]
+    assert [row["wake"] for row in decisions] == [True, True, False, False, True, True, True]
     assert decisions[2]["reason"].startswith("a run is in flight")
     # The last run's outcome is a raw fact; no streak or verdict is drawn from it.
     assert decisions[-1]["last_run"] == "refused" and "unproductive_streak" not in decisions[-1]

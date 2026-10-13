@@ -8,6 +8,7 @@ The bridge's half (frames to ``chat.jsonl``, a declared message pausing a run, s
 from __future__ import annotations
 
 import json
+import os
 
 import spacemolt
 from spacemolt import juncture, service
@@ -71,7 +72,7 @@ def test_a_run_paused_on_a_message_wakes_the_fire_with_the_message_and_the_calls
     """An interrupt is a question: the gate prints it as one, quoted, with the reply and the answer named."""
     runtime = service.runtime_dir()
     runtime.mkdir(parents=True, exist_ok=True)
-    (runtime / "run.json").write_text(json.dumps({"script": "index.ts", "started": "t0", "ended": False, "question": {
+    (runtime / "run.json").write_text(json.dumps({"script": "index.ts", "started": "t0", "ended": False, "pid": os.getpid(), "question": {
         "question": "private message from Zed", "asked_at": "2026-10-04T12:05:00Z",
         "chat": {"from": "Zed", "sender_id": "p-zed", "channel": "private", "text": "stop mining\nnow",
                  "at": "2026-10-04T12:04:00Z"}}}))

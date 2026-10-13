@@ -2,7 +2,7 @@
 
 A fire opens a new session carrying the base skill, the stance's career skill when there is a
 stance, and the ``spacemolt_player``, ``todo`` and ``memory`` toolsets. The agent reads the context, runs one script —
-``spacemolt_run`` blocks until the run ends, capped in the bridge — and ends the turn. The next
+``spacemolt_run`` blocks until the run ends, however long that is — and ends the turn. The next
 fire is cron's interval, which cron re-anchors on the fire's completion, so a juncture comes a few
 minutes after the last one ended. The only suppression is a run genuinely in flight (the gate).
 
@@ -15,6 +15,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import os
 import re
 import subprocess
 import time
@@ -26,7 +27,7 @@ from typing import Any
 
 from hermes_constants import get_hermes_home
 
-from .service import REQUEST_TIMEOUT, pilot_path, runtime_dir
+from .service import pilot_path, runtime_dir
 from .skills_register import SHARED_SKILL, qualified, readme_skills
 
 logger = logging.getLogger(__name__)
@@ -52,8 +53,8 @@ JUNCTURE_PROMPT = (
     "What to expect:\n"
     "- The ship's state above was read from the game just now.\n"
     "- Your ship's flight computer flies the program you write (`main()`). A flight lasts until the "
-    "program returns, or until the computer ends it after about 25 minutes. spacemolt_run waits for "
-    "it, so its report comes back to you in this same turn.\n"
+    "program returns or is stopped; it has no time limit. spacemolt_run waits for it, however long, "
+    "so its report comes back to you in this same turn.\n"
     "- A wrong field costs a check (spacemolt_run with `check: true`), a wrong move costs a flight, "
     "and looking costs almost nothing: spacemolt_query answers a short program of reads in seconds, "
     "and when a fact you need is missing, a flight that only looks (orient(), scout(), note() the "
@@ -64,7 +65,7 @@ JUNCTURE_PROMPT = (
     "spacemolt_run comes back early in this same turn with the question and the flight's lines so "
     "far, and your answer sends it on. Use it instead of guessing a rule in advance when the right "
     "call depends on what the flight will see (which hull to buy once prices are read, whether to "
-    "take a fight once the opponent is scanned). The flight waits and its 25-minute clock keeps "
+    "take a fight once the opponent is scanned). The flight waits, and the game's clock keeps "
     "going while you decide, so ask at a fork, not every step.\n"
     "- Keep your plan with todo_list: the list is kept as your steps and shown above each time you "
     "take stock.\n"
@@ -442,22 +443,35 @@ raise SystemExit(gate_main())
 '''
 
 
+def _alive(pid: object) -> bool:
+    """Is process ``pid`` running? A pid probe: ``PermissionError`` is alive, just not ours."""
+    if not isinstance(pid, int) or isinstance(pid, bool) or pid <= 0:
+        return False
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    except OSError:
+        return False
+    return True
+
+
 def run_in_flight() -> bool:
-    """Is a run going on right now? ``run.json`` un-ended, and started within ``REQUEST_TIMEOUT``:
-    no live run outlasts that backstop. A bridge that dies mid-run leaves its record un-ended until
-    the next one boots, and only a fire boots one. Live 2026-10-05 (kvothe 06:36Z): a forced gateway
-    restart killed the bridge under a run, and the gate suppressed every fire after it."""
+    """Is a run going on right now? ``run.json`` un-ended, and the bridge that flies it (its
+    ``pid``) alive. A flight has no time limit, so age says nothing; a bridge that dies mid-run
+    leaves its record un-ended until the next one boots, and only a fire boots one. Live
+    2026-10-05 (kvothe 06:36Z): a forced gateway restart killed the bridge under a run, and the
+    gate suppressed every fire after it. A record with no pid predates the field: no live owner.
+
+    ponytail: liveness is the pid alone, as the controller lock's; a recycled pid reads as flying
+    until the next bridge boots and closes the record."""
     try:
         record = json.loads((runtime_dir() / "run.json").read_text())
     except (OSError, ValueError):
         return False
-    if record.get("ended", True) is not False:
-        return False
-    try:
-        started = datetime.fromisoformat(str(record.get("started")).replace("Z", "+00:00"))
-    except ValueError:
-        return True
-    return (datetime.now(timezone.utc) - started).total_seconds() < REQUEST_TIMEOUT
+    return record.get("ended", True) is False and _alive(record.get("pid"))
 
 
 def pending_question() -> dict[str, Any] | None:

@@ -13,7 +13,7 @@ function holder(path:string):number {
 }
 // ponytail: liveness is the pid alone. Compare started_at against the process start time if
 // pid reuse on a long-lived host ever wedges a bridge behind a recycled pid.
-function alive(pid:number):boolean {
+export function alive(pid:number):boolean {
   if(!Number.isInteger(pid)||pid<=0)return false;
   try {process.kill(pid,0);return true;}
   catch(error){return field(error,'code')!=='ESRCH';} // edge: a pid probe; EPERM means alive, just not ours

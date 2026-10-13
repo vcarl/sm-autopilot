@@ -38,6 +38,8 @@ export const RunRecord=Schema.Struct({
   juncture_at:Schema.optionalKey(Schema.String),
   last_job:Schema.optionalKey(Schema.String).pipe(Schema.mutableKey),
   last_step:Schema.optionalKey(Schema.String),
+  /** The bridge process that flies the run: alive and un-ended is a flight under way, whatever its age. */
+  pid:Schema.optionalKey(Schema.Number),
   ended:Schema.Boolean.pipe(Schema.mutableKey),
   /** Present exactly when the run ended: the same shape the juncture reads as `last`. */
   outcome:Schema.optionalKey(open).pipe(Schema.mutableKey),

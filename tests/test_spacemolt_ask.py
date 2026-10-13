@@ -8,6 +8,7 @@ juncture gate lets the next fire through and leads its prompt with it.
 from __future__ import annotations
 
 import json
+import os
 import sys
 
 import pytest
@@ -142,7 +143,7 @@ def _paused_on(question: dict | None) -> None:
     """run.json as the bridge leaves it mid-run."""
     runtime = service.runtime_dir()
     runtime.mkdir(parents=True, exist_ok=True)
-    record = {"script": "index.ts", "started": "t0", "ended": False}
+    record = {"script": "index.ts", "started": "t0", "ended": False, "pid": os.getpid()}
     (runtime / "run.json").write_text(json.dumps({**record, **({"question": question} if question else {})}))
 
 

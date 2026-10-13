@@ -250,7 +250,7 @@ export interface ServeOptions {
   runtime?:string;
   /** Where a streamed line goes; the request loop routes it to the request that started the run. */
   emit?:(text:string)=>void;
-  /** Told when a run was cut off at the wall-clock cap with its script still running. */
+  /** Told when a stopped run was cut off with its script still running. */
   onAbandoned?:()=>void;
 }
 
@@ -640,11 +640,11 @@ async function main() {
   const emit=(text:string)=>console.log(JSON.stringify({id:streamTo,event:'line',text:nameIds(text,readNames(runtime))}));
   const dispatch=serve(account,command,
     {pilot:()=>readPilot(pilotFile,droppedOnRead),setPilot:next=>writePilot(pilotFile,next),runtime,emit,
-      // A script cut off at the cap may still be running inside this process; ending the process
+      // A script that ignored a stop may still be running inside this process; ending the process
       // is the only way to be sure it sends nothing more. A second's grace lets the report be
       // sent; the next request starts a fresh bridge.
       onAbandoned:()=>{
-        journalRun(runtime,{message:'exiting: a run was abandoned at the wall-clock cap'},'boot');
+        journalRun(runtime,{message:'exiting: a stopped run was abandoned'},'boot');
         setTimeout(triggerShutdown,1000).unref?.();
       }});
   // The freighters fly from this process, each on its own account; the pilot's run is not theirs.

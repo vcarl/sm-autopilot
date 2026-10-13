@@ -44,9 +44,8 @@ _INSTRUCTION_LIMIT = 80
 _FLIGHT_PROMPT = (
     "Your ship's flight computer flies the program you write: pilot/index.ts, launched with "
     "spacemolt_run. It is the one file you write, and the play README (with your stance's README, "
-    "when you have a stance) is the whole reference. A flight lasts until the program returns, or "
-    "until the computer ends it after about 25 minutes, while the game's clock turns; its report is "
-    "what happened. A program can pause at a fork with ask() and put the question to you; you "
+    "when you have a stance) is the whole reference. A flight lasts until the program returns or "
+    "is stopped, with no time limit, while the game's clock turns; its report is what happened. A program can pause at a fork with ask() and put the question to you; you "
     "decide it with what the flight has seen so far, and it flies on. Report only what tool "
     "results say. Your memory holds what you've learned about how the game works: hypotheses and "
     "the observations that bear on them, each a fact with its evidence."
@@ -370,7 +369,7 @@ def _direct(arguments: dict[str, Any] | None = None, **_: Any) -> str:
     intention, and the pilot parses it as outside instruction that outranks the objective until
     its next run starts. A window that paraphrases badly steers the pilot. What bounds it: the 80
     characters cap how much a sentence can ask for; the lint bounds what any script it leads
-    to may reach; the rules check between jobs, the credit reserve and the wall-clock cap
+    to may reach; the rules check between jobs and the credit reserve
     bound what a run can do. Pass the human's words as they were said, shortened by
     dropping words.
     """
@@ -440,8 +439,8 @@ TOOL_DEFINITIONS = (
                        "checks the file first (typecheck, import boundary, game policy); a refusal "
                        "comes back as diagnostics and nothing flies. The flight blocks and streams "
                        "one line per move, then the report of the Outcome main returned. A flight "
-                       "lasts until the program returns, or until the computer ends it after about "
-                       "25 minutes: asked to stop at 24, cut off two minutes later. When the program "
+                       "lasts until the program returns or is stopped (by the user, or the ship's "
+                       "loss); it has no time limit, and this waits for it. When the program "
                        "calls ask(), the flight computer pauses the flight and this returns early "
                        "with its question: answer it with spacemolt_answer. Called with no `source` "
                        "while a question is pending, it launches nothing and hands the question back.",
