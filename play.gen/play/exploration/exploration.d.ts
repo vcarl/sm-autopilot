@@ -1,5 +1,6 @@
+import type { FaintSignature, SurveyedPoi } from '@spacemolt/lib';
 import { Effect, Schema } from 'effect';
-import { Game } from '../game.ts';
+import { Game, type GameError } from '../game.ts';
 import type { Outcome } from '../types.ts';
 /** What this runtime saw standing in a system: its police level and security status (`get_system`
  * answers them only from inside, and `get_map` carries neither), the pirates `get_nearby` counted
@@ -91,4 +92,29 @@ export declare const exploreNearbyEffect: (opts?: {
     survey?: boolean;
     avoid?: string[];
 }) => Effect.Effect<Outcome<Explored>, never, Game | import("../runtime.ts").Run>;
+/** What one `survey_system` read of the system you are in: the hidden POIs it revealed now and those
+ * already revealed to you, the faint signatures it could not resolve, and what your fit brought to it. */
+export interface Surveyed {
+    system_id?: string;
+    /** Revealed by this survey. A wormhole is one of these with a wormhole `type`: `goTo` the POI, and
+     * `get_poi` there names its destination, expiry and a prediction hint. `resources` lists a deposit's ores. */
+    newly_revealed: SurveyedPoi[];
+    /** Hidden POIs this system had already revealed to you: travel to them as to any POI. */
+    already_revealed: SurveyedPoi[];
+    /** Something is there that this survey's power did not resolve: `hint`, `type`, `difficulty`. */
+    faint_signatures: FaintSignature[];
+    /** The direction-hint an anomaly gives, when the survey heard one. */
+    anomaly_hint?: string;
+    /** What your fitted gear brought to the survey; the game publishes no table of it, so this is how you learn it. */
+    survey_power?: number;
+    xp_gained: Record<string, number>;
+    message?: string;
+}
+/** `survey_system` sent once and read leniently. A refusal or a lost reply is the caller's: a survey
+ * is a mutation, so a lost one is not re-sent (live 2026-09-28 12:19Z: "No response to mutation"
+ * after 15 s, the one survey a pilot has sent). */
+export declare const surveySystem: Effect.Effect<Surveyed, GameError, Game>;
+/** `survey` as an Effect, for `edge`; never in a barrel. Every refusal, a lost reply included, is said
+ * with an empty survey in `detail`, so a program reading `detail.newly_revealed` never meets a missing list. */
+export declare const surveyEffect: () => Effect.Effect<Outcome<Surveyed>, never, Game | import("../runtime.ts").Run>;
 export {};

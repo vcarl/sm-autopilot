@@ -21,7 +21,9 @@ is intent, [../AGENTS.md](../AGENTS.md) is how the code works and the principles
 Each throws `unimplemented` today; `account()` reaches the raw command meanwhile.
 
 - [ ] `survey()` reveals hidden deep-core deposits in this system (`survey_system`), and
-  `exploreNearby`'s `survey` option uses it. [mining/README.md](../src/play/mining/README.md)
+  `exploreNearby`'s `survey` option uses it. Built; **fixture**
+  `node --test src/play/exploration/exploration.test.ts`; awaits one live survey.
+  [mining/README.md](../src/play/mining/README.md)
 - [ ] `exploreNearby({systems?, jumps?, survey?})` walks a circuit of nearby systems, scouting each,
   so charting is one call rather than a hand-written `goTo` + `scout` loop.
   [exploration/README.md](../src/play/exploration/README.md)

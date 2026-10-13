@@ -1,5 +1,5 @@
 /** Mining: out to a belt, ice field or gas cloud, fill the hold, come back, stow, service. */
-import type {SurveySystemResponse,SurveyedPoi,V2CargoItem} from '@spacemolt/lib';
+import type {V2CargoItem} from '@spacemolt/lib';
 import {Effect,Option,Result,Schema,Struct} from 'effect';
 import {gatherJobEffect,type GatherStep} from '../../gather-job.ts';
 import type {MineYieldRow} from '../../mine.ts';
@@ -8,6 +8,7 @@ import {Game,field,isGameError,type GameError} from '../game.ts';
 import {sellEffect} from '../market.ts';
 import {Stopped,acct,admit,edge,jobEffect,measured,pilot,reached,step,stopReason,stopped} from '../runtime.ts';
 import {routeEffect} from '../travel.ts';
+import {surveyEffect,type Surveyed} from '../exploration/exploration.ts';
 import type {Outcome,Row} from '../types.ts';
 import {replyBody} from '../../storage.ts';
 
@@ -193,14 +194,15 @@ const gatherUntilEffect=(opts:Parameters<typeof gatherUntil>[0])=>{
       (opts.until?`; store holds ${result.held??'?'} of ${opts.until.quantity} ${opts.until.item}`:'');
     if(result.ended==='tired')return {status:'partial' as const,did,why:'Tired: home and serviced, no new trip',detail:result};
     if(short)return {status:'partial' as const,did,why:depleted?'the site is depleted':`${maxTrips} trips made`,detail:result,
-      // `survey()` is not built yet, so it is not offered: scout() already lists this system's
-      // belts, and naming an unbuilt call here spends the juncture that follows a dry site.
-      next:depleted?["another belt: this site gave nothing; scout() lists them"]:[]};
+      next:depleted?["another belt: this site gave nothing; scout() lists them, survey() reveals hidden deposits"]:[]};
     return {status:'done' as const,did,detail:result,
       next:[...(opts.then==='sell'?[]:sellStowed(result.settled)),
         ...(result.ended==='depleted'?['the site is depleting; scout another belt']:[])]};
   }));
 };
 
-/** Survey the system you are in for hidden deep-core deposits. Not built in slice 1. */
-export function survey():Promise<Outcome<{response:SurveySystemResponse;deposits:SurveyedPoi[]}>> {throw new Error('unimplemented: survey; account().commands.spacemolt.survey_system()');}
+/** Survey the system you are in (`survey_system`): the hidden POIs it reveals (deep-core deposits,
+ * wormholes) with any already revealed to you, the faint signatures it could not resolve, and the
+ * `survey_power` and `anomaly_hint` your fit brought. Nothing new revealed is still `done`. A refusal
+ * is `refused`; a lost reply is `partial`, never re-sent. Either way `detail` holds the (empty) lists. */
+export function survey():Promise<Outcome<Surveyed>> {return edge(surveyEffect());}

@@ -145,10 +145,9 @@ Each of these has cost a flight: the computer checks the real types, so these ar
 | `ask({question, choices?})` | the flight computer pauses the flight to ask you; resolves to your answer (one of `choices`, when given), throws the stop error if the flight is stopped instead. See "Asking yourself a question mid-flight" |
 | `chat(channel, text, to?)` / `messages(opts?)` / `heard()` | send a message (`to` is the player id of a `private` one), read a channel's history, and the messages that paused this flight with your answers. See "Chat" |
 
-You name what you sell; nothing defaults to everything. One career function is not built yet
-and throws `unimplemented`: `survey`. `account()` reaches that command.
+You name what you sell; nothing defaults to everything.
 
-Careers add more: [`mining/`](mining/README.md) (`gatherUntil`),
+Careers add more: [`mining/`](mining/README.md) (`gatherUntil`, `survey`),
 [`hauling/`](hauling/README.md), [`industry/`](industry/README.md) (`catalog`, `trace`, `recipes`, `quote`, `supply`, `craft`, `jobs`, `facilities`, `buildFacility`), [`combat/`](combat/README.md) (`hunt`, `salvage`),
 [`trading/`](trading/README.md) (`buyers`, `spreads`, `routes`, `tradeRun`, `scoutMarkets`), [`exploration/`](exploration/README.md) (`exploreNearby`), [`fleet/`](fleet/README.md) (`assign`, `recall`, `freighters`).
 Every career's functions import from `'play'` whatever your stance. Crafting goes through them,
@@ -280,9 +279,11 @@ minute.
   salvaging); `salvage({tow: id})` tows one (a `basic_tow_rig` halves speed while towing), and a base
   with a `salvage_yard` service buys it: `account().commands.spacemolt_salvage.sell({})`, or `scrap`
   for materials. Missions ask for this ("Sell 3 wrecks at any salvage yard").
-- **Wormholes.** Hidden POIs: `survey_system` with an `anomaly_detector` fitted reveals them and
-  hints their direction; a wormhole's POI shows its destination, expiry and a prediction hint;
-  passing one trains wormhole_navigation.
+- **Wormholes.** Hidden POIs: `survey()` reveals them (an `anomaly_detector` fitted is said
+  to be what finds them, unconfirmed here; the outcome's `survey_power` and `anomaly_hint` say what your
+  fit actually heard). `goTo` the revealed POI; `get_poi` there shows its destination, expiry and a
+  prediction hint; passing one trains wormhole_navigation. `goTo` never routes through a wormhole
+  for you: a route the game plans through one is refused, so the crossing is yours to make.
 - **Skills.** Each trains by its own act (the game's catalog lists each skill's `training_source`;
   nothing here reads it): mining by mining, exploration by a first visit, salvaging by salvage.
 

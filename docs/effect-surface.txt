@@ -177,6 +177,8 @@ Hunted.ended: "asked" | "nothing here" | "nothing found" | "fuel" | "hull" | "ho
 Hunted.fights: Fight[]
 Hunted.looked: Looked[]
 Hunted.poi_id: string
+Insurance.policy?: { policy_id?: string; premium?: number; coverage?: number; expires_at?: string; } | undefined
+Insurance.quote?: { premium?: number; coverage?: number; fitted_value?: number; risk_score?: number; refused?: boolean; expires_in?: string; factors: string[]; } | undefined
 Known.items: Listing[]
 Known.tick: number
 Lap.net: number
@@ -448,6 +450,7 @@ ScriptRun.outcome?: string | undefined
 ScriptRun.reason?: string | undefined
 Serviced.base: GetBaseResponse
 Serviced.cleared_tired: boolean
+Serviced.insurance?: Insurance | undefined
 Serviced.issued: string[]
 Serviced.short: string[]
 Serviced.spent: number
@@ -474,6 +477,16 @@ Supplied.elsewhere: { item_id: string; base_id: string; quantity: number; }[]
 Supplied.short: { item_id: string; have: number; need: number; source: string; }[]
 Supplied.spent: number
 Supplied.stowed: Row[]
+Surveyed.already_revealed: SurveyedPoi[]
+Surveyed.anomaly_hint?: string | undefined
+Surveyed.faint_signatures: FaintSignature[]
+Surveyed.message?: string | undefined
+Surveyed.newly_revealed: SurveyedPoi[]
+Surveyed.survey_power?: number | undefined
+Surveyed.system_id?: string | undefined
+Surveyed.xp_gained: Record<string, number>
+Swap.ship: V2Ship
+Swap.switched: boolean
 SystemSeen.at: string
 SystemSeen.pirates?: number | undefined
 SystemSeen.police?: number | undefined
@@ -549,13 +562,14 @@ src/play/combat/index.ts interface TickView: TickView
 src/play/combat/index.ts type CombatStance: "fire" | "evade" | "brace" | "flee"
 src/play/exploration/index.ts function exploreNearby: (opts?: { systems?: number; jumps?: number; survey?: boolean; avoid?: string[]; }) => Promise<Outcome<Explored>>
 src/play/exploration/index.ts interface Explored: Explored
+src/play/exploration/index.ts interface Surveyed: Surveyed
 src/play/fleet/index.ts const FLOAT_MAX: 30000
 src/play/fleet/index.ts function assign: (name: string, circuit: Circuit, caps: { float: number; }) => Promise<Outcome<{ freighter: FreighterRow | null; }>>
 src/play/fleet/index.ts function freighters: () => Promise<Outcome<{ freighters: FreighterRow[]; }>>
 src/play/fleet/index.ts function reassign: (name: string) => Promise<Outcome<{ freighter: FreighterRow | null; }>>
 src/play/fleet/index.ts function recall: (name: string, opts?: { after?: "lap"; }) => Promise<Outcome<{ freighter: FreighterRow | null; }>>
-src/play/fleet/index.ts function ships: () => Promise<Outcome<ListShipsResponse & { active: V2Ship; parked: (StoredShip & { base_id: string; shipyard: boolean; })[]; }>>
-src/play/fleet/index.ts function switchShip: (shipId: string) => Promise<Outcome<{ switched: SwitchShipResponse; ship: V2Ship; }>>
+src/play/fleet/index.ts function ships: () => Promise<Outcome<{ ships: OwnedShipInfo[]; }>>
+src/play/fleet/index.ts function switchShip: (shipId: string) => Promise<Outcome<Swap>>
 src/play/freighter/index.ts const FREE_HOLD: 0.4
 src/play/freighter/index.ts const IGNORE_TICKS: 1080
 src/play/freighter/index.ts const STALE_TICKS: 180
@@ -628,15 +642,15 @@ src/play/index.ts function scoutMarkets: (opts?: { jumps?: number; max?: number;
 src/play/index.ts function sell: (items: Want[], opts?: { from?: "hold" | "store"; floor?: Record<string, number>; }) => Promise<Outcome<Sold>>
 src/play/index.ts function service: (opts?: { fuel?: number; hull?: number; insure?: boolean; dues?: boolean | "all"; }) => Promise<Outcome<Serviced>>
 src/play/index.ts function shipLog: (limit?: number) => string[]
-src/play/index.ts function ships: () => Promise<Outcome<ListShipsResponse & { active: V2Ship; parked: (StoredShip & { base_id: string; shipyard: boolean; })[]; }>>
+src/play/index.ts function ships: () => Promise<Outcome<{ ships: OwnedShipInfo[]; }>>
 src/play/index.ts function shipsForSale: (opts?: { budget?: number; baseId?: string; classId?: string; }) => Promise<Outcome<{ for_sale: ForSale[]; locked: Locked[]; }>>
 src/play/index.ts function spreads: (items?: string[] | undefined) => Promise<Outcome<{ spreads: Spread[]; sources: string[]; }>>
 src/play/index.ts function stopped: () => boolean
 src/play/index.ts function storage: (baseId?: string | undefined) => Promise<Outcome<ViewStorageResponse>>
 src/play/index.ts function stow: (items: Want[]) => Promise<Outcome<Moved>>
 src/play/index.ts function supply: (recipeId: string, quantity?: number, opts?: { at?: string; maxSpend?: number; maxEach?: number; }) => Promise<Outcome<Supplied>>
-src/play/index.ts function survey: () => Promise<Outcome<{ response: SurveySystemResponse; deposits: SurveyedPoi[]; }>>
-src/play/index.ts function switchShip: (shipId: string) => Promise<Outcome<{ switched: SwitchShipResponse; ship: V2Ship; }>>
+src/play/index.ts function survey: () => Promise<Outcome<Surveyed>>
+src/play/index.ts function switchShip: (shipId: string) => Promise<Outcome<Swap>>
 src/play/index.ts function trace: (itemOrRecipe: string, quantity?: number) => Promise<Outcome<Traced>>
 src/play/index.ts function tradeRun: (opts: { stops: RunStop[]; }) => Promise<Outcome<Traded>>
 src/play/index.ts function withdraw: (items: Want[]) => Promise<Outcome<Moved>>
@@ -676,6 +690,7 @@ src/play/index.ts interface Serviced: Serviced
 src/play/index.ts interface Sold: Sold
 src/play/index.ts interface Spread: Spread
 src/play/index.ts interface Supplied: Supplied
+src/play/index.ts interface Surveyed: Surveyed
 src/play/index.ts interface TickDecision: TickDecision
 src/play/index.ts interface TickView: TickView
 src/play/index.ts interface TraceNode: TraceNode
@@ -730,7 +745,7 @@ src/play/industry/index.ts type Craftable: Recipe & { margin?: number | null; ha
 src/play/industry/index.ts type Owned: OwnedFacilityEntry & { runway_cycles: number; }
 src/play/industry/index.ts type Quoted: CraftQuoteResponse & Venue & { produces_total: ItemQuantity[]; output_value: number | null; margin: number | null; missing: Missing[]; }
 src/play/mining/index.ts function gatherUntil: (opts: { poi: string; base?: string; until?: { item: string; quantity: number; }; maxTrips?: number; then?: "stow" | "sell"; }) => Promise<Outcome<Gathered>>
-src/play/mining/index.ts function survey: () => Promise<Outcome<{ response: SurveySystemResponse; deposits: SurveyedPoi[]; }>>
+src/play/mining/index.ts function survey: () => Promise<Outcome<Surveyed>>
 src/play/mining/index.ts interface Gathered: Gathered
 src/play/trading/index.ts const SCOUT_JUMPS: 4
 src/play/trading/index.ts function buyers: (items: string | readonly string[]) => Promise<Outcome<{ buyers: Buyer[]; }>>

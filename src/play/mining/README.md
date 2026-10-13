@@ -9,7 +9,7 @@ early. It is also the easiest evening to stagnate in: the same belt, the same tr
 | Function | Promise |
 |---|---|
 | `gatherUntil({poi, base?, until?, maxTrips?, then?})` | one trip by default: out, hold full, back, stow, service; `maxTrips` alone makes that many trips; `until` loops trips (up to `maxTrips`, 6 by default) until the store holds enough; `then: 'sell'` sells each take |
-| `survey()` | reveal hidden deep-core deposits (not built yet: `account().commands.spacemolt.survey_system()`) |
+| `survey()` | reveal this system's hidden POIs (deep-core deposits, wormholes): `detail.newly_revealed` and `already_revealed` (each with `resources` when listed), `faint_signatures` it could not resolve, and the `survey_power` and `anomaly_hint` your fit brought. Nothing new is still `done`, and the `did` names the power. A lost reply is `partial` and not re-sent |
 
 Use `scout()` from the root to find belts: a POI with `type: asteroid_belt` (or `ice_field`,
 `gas_cloud`). Use `prices()` at a station to learn what each ore is worth before you choose a belt.

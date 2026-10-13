@@ -20,8 +20,23 @@ pilots are online there. Police, security and pirates are learned on arrival and
 nothing you do not name in `avoid`: read the facts and choose.
 
 `scout(id)` reads one system (`detail.system.id` and `.name` either way; each `detail.connections` row says `visited`, so a loop can skip systems you have been to); `goTo(id)` flies there and docks if it is a base (or a system with
-one base). A circuit of your own is those two in a loop, as below. (`survey()` in mining is not
-built yet; `exploreNearby({survey:true})` is the way to a `survey_system` for now.)
+one base). A circuit of your own is those two in a loop, as below.
+
+`survey()` reads hidden POIs in the system you stand in: what it revealed now, what was already
+revealed to you, faint signatures it could not resolve, and the `survey_power` and `anomaly_hint`
+your fit brought (the game publishes no table of what a module gives; the outcome is how you learn
+it). A revealed POI is a place like any other: `goTo` it. `exploreNearby({survey:true})` surveys
+each system it visits and keeps only the game's message.
+
+```ts
+import {survey, goTo} from 'play';
+
+export default async function main() {
+  const seen = await survey();
+  const hole = seen.detail.newly_revealed.find(poi => poi.type.includes('wormhole'));
+  return hole ? goTo(hole.id) : seen;    // at the mouth, get_poi names where it leads
+}
+```
 
 **This is not `hunt({look})`, and the two are deliberately apart.** `exploreNearby` visits
 **systems** you have never been to and reads each, and trains exploration by the

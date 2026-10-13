@@ -5,6 +5,7 @@
  * The map walk lives here and is shared: `candidates` (trading/scout.ts) walks it for books, the
  * menu for unvisited systems and the neighbours the juncture names, `exploreNearby` to pick its hops. */
 import {readFileSync} from 'node:fs';
+import type {FaintSignature,SurveyedPoi} from '@spacemolt/lib';
 import {join} from 'node:path';
 import {Effect,Option,Result,Schema,Struct} from 'effect';
 import {sightingTicksOld} from '../../sighting-memory.ts';
@@ -108,7 +109,6 @@ export function exploreNearby(opts:{systems?:number;jumps?:number;survey?:boolea
 
 const decodeRoute=Schema.decodeUnknownOption(Wire.FindRouteResponse.mapFields(()=>({
   route:Schema.optionalKey(Schema.NullOr(Schema.Array(Wire.RouteStep.mapFields(Struct.pick(['system_id'])))))})));
-const decodeSurvey=Schema.decodeUnknownOption(Wire.SurveySystemResponse.mapFields(Struct.pick(['message'])));
 /** A refusal or a lost reply as the pilot reads it: the action and the server's code, or that the reply is gone. */
 const told=(error:GameError)=>error._tag==='ReplyLost'?`reply lost on ${error.action}`:`${error.action}: ${error.code} — ${error.message}`;
 
@@ -158,9 +158,8 @@ export const exploreNearbyEffect=(opts:{systems?:number;jumps?:number;survey?:bo
       if(dir)markSeen(dir,next.system_id,row);
       let survey:string|undefined;
       if(opts.survey) {
-        const surveyed=yield* Effect.result(game.command('spacemolt/survey_system',{}).pipe(
-          Effect.map(reply=>{const said=decodeSurvey(replyBody(reply));return Option.isSome(said)?said.value.message:'surveyed';})));
-        survey=Result.isFailure(surveyed)?`survey refused: ${told(surveyed.failure)}`:surveyed.success;
+        const surveyed=yield* Effect.result(surveySystem);
+        survey=Result.isFailure(surveyed)?`survey refused: ${told(surveyed.failure)}`:surveyed.success.message??'surveyed';
       }
       const pois=seen.pois;
       detail.visited.push({system_id:next.system_id,name:sys.name??next.system_id,jumps:next.jumps,
@@ -182,3 +181,72 @@ export const exploreNearbyEffect=(opts:{systems?:number;jumps?:number;survey?:bo
         ...detail.ended==='none'?[`exploreNearby({jumps:${jumps+2}}) to look further out`]:[]]};
   }));
 };
+
+/** What one `survey_system` read of the system you are in: the hidden POIs it revealed now and those
+ * already revealed to you, the faint signatures it could not resolve, and what your fit brought to it. */
+export interface Surveyed {
+  system_id?:string;
+  /** Revealed by this survey. A wormhole is one of these with a wormhole `type`: `goTo` the POI, and
+   * `get_poi` there names its destination, expiry and a prediction hint. `resources` lists a deposit's ores. */
+  newly_revealed:SurveyedPoi[];
+  /** Hidden POIs this system had already revealed to you: travel to them as to any POI. */
+  already_revealed:SurveyedPoi[];
+  /** Something is there that this survey's power did not resolve: `hint`, `type`, `difficulty`. */
+  faint_signatures:FaintSignature[];
+  /** The direction-hint an anomaly gives, when the survey heard one. */
+  anomaly_hint?:string;
+  /** What your fitted gear brought to the survey; the game publishes no table of it, so this is how you learn it. */
+  survey_power?:number;
+  xp_gained:Record<string,number>;
+  message?:string;
+}
+/** A revealed row: the spec's scalars, and its deposits when they read. The live server leaves spec
+ * fields out, so a row is kept on its id, name and type; one without them is no POI to name. */
+const decodePoi=Schema.decodeUnknownOption(Wire.SurveyedPOI.mapFields(Struct.pick(['id','name','type','class','description'])));
+const decodeResource=Schema.decodeUnknownOption(Wire.ResourceInfo_5);
+const decodeSignature=Schema.decodeUnknownOption(Wire.FaintSignature_1);
+const listOf=<T>(raw:unknown,read:(row:unknown)=>T|undefined):T[]=>Array.isArray(raw)?raw.flatMap(row=>{const got=read(row);return got===undefined?[]:[got];}):[];
+const poiOf=(row:unknown):SurveyedPoi|undefined=>{
+  const poi=decodePoi(row);
+  if(Option.isNone(poi))return undefined;
+  const resources=listOf(field(row,'resources'),raw=>Option.getOrUndefined(decodeResource(raw)));
+  return {...poi.value,...resources.length?{resources:resources.map(r=>({...r}))}:{}};
+};
+/** `survey_system` sent once and read leniently. A refusal or a lost reply is the caller's: a survey
+ * is a mutation, so a lost one is not re-sent (live 2026-09-28 12:19Z: "No response to mutation"
+ * after 15 s, the one survey a pilot has sent). */
+export const surveySystem=Effect.gen(function*() {
+  const body=replyBody(yield* (yield* Game).command('spacemolt/survey_system',{}));
+  const text=(key:string)=>{const value=field(body,key);return typeof value==='string'&&value?value:undefined;};
+  const power=field(body,'survey_power'),xp=field(body,'xp_gained'),system=text('system_id'),hint=text('anomaly_hint'),message=text('message');
+  const surveyed:Surveyed={...system?{system_id:system}:{},
+    newly_revealed:listOf(field(body,'newly_revealed'),poiOf),already_revealed:listOf(field(body,'already_revealed'),poiOf),
+    faint_signatures:listOf(field(body,'faint_signatures'),row=>Option.getOrUndefined(decodeSignature(row))).map(row=>({...row})),
+    ...hint?{anomaly_hint:hint}:{},...typeof power==='number'?{survey_power:power}:{},
+    xp_gained:typeof xp==='object'&&xp!==null?Object.fromEntries(Object.entries(xp).filter((pair):pair is [string,number]=>typeof pair[1]==='number')):{},
+    ...message?{message}:{}};
+  return surveyed;
+});
+
+const poiNames=(rows:SurveyedPoi[])=>rows.map(row=>`${row.name} (${row.id}, ${row.type}${row.resources?.length?`: ${row.resources.map(r=>r.resource_id).join(', ')}`:''})`).join(', ');
+/** `survey` as an Effect, for `edge`; never in a barrel. Every refusal, a lost reply included, is said
+ * with an empty survey in `detail`, so a program reading `detail.newly_revealed` never meets a missing list. */
+export const surveyEffect=()=>jobEffect<Surveyed>('survey','',Effect.gen(function*() {
+  const got=yield* Effect.result(surveySystem);
+  if(Result.isFailure(got)) {
+    const lost=got.failure._tag==='ReplyLost';
+    return {status:lost?'partial' as const:'refused' as const,did:lost?'sent a survey whose reply never came: what it revealed is unknown':'surveyed nothing',
+      why:told(got.failure),detail:{newly_revealed:[],already_revealed:[],faint_signatures:[],xp_gained:{}},
+      next:lost?["scout() lists this system's POIs, revealed ones included; survey() again re-reads them"]:[]};
+  }
+  const s=got.success;
+  const where=s.system_id??acct().state.location?.system_id??'this system';
+  const xp=Object.entries(s.xp_gained).map(([skill,n])=>`+${n} ${skill}`).join(', ');
+  const did=`surveyed ${where}: ${s.newly_revealed.length?`revealed ${poiNames(s.newly_revealed)}`:'nothing new revealed'}`
+    +(s.already_revealed.length?`; already revealed: ${poiNames(s.already_revealed)}`:'')
+    +(s.faint_signatures.length?`; ${s.faint_signatures.length} faint signature(s): ${s.faint_signatures.map(f=>`${f.type}${f.difficulty?` (${f.difficulty})`:''} — ${f.hint}`).join('; ')}`:'')
+    +`; survey power ${s.survey_power??'unreported'}, ${s.anomaly_hint?`anomaly hint: ${s.anomaly_hint}`:'no anomaly hint'}${xp?`; ${xp} xp`:''}`;
+  const wormhole=[...s.newly_revealed,...s.already_revealed].find(row=>/wormhole/i.test(row.type));
+  return {status:'done' as const,did,detail:s,
+    next:wormhole?[`goTo('${wormhole.id}') reaches the wormhole; get_poi there names where it leads`]:[]};
+}));

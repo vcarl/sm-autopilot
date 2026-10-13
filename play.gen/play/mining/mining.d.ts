@@ -1,5 +1,6 @@
 /** Mining: out to a belt, ice field or gas cloud, fill the hold, come back, stow, service. */
-import type { SurveySystemResponse, SurveyedPoi, V2CargoItem } from '@spacemolt/lib';
+import type { V2CargoItem } from '@spacemolt/lib';
+import { type Surveyed } from '../exploration/exploration.ts';
 import type { Outcome, Row } from '../types.ts';
 export interface Gathered {
     poi_id: string;
@@ -61,8 +62,8 @@ export declare function gatherUntil(opts: {
     maxTrips?: number;
     then?: 'stow' | 'sell';
 }): Promise<Outcome<Gathered>>;
-/** Survey the system you are in for hidden deep-core deposits. Not built in slice 1. */
-export declare function survey(): Promise<Outcome<{
-    response: SurveySystemResponse;
-    deposits: SurveyedPoi[];
-}>>;
+/** Survey the system you are in (`survey_system`): the hidden POIs it reveals (deep-core deposits,
+ * wormholes) with any already revealed to you, the faint signatures it could not resolve, and the
+ * `survey_power` and `anomaly_hint` your fit brought. Nothing new revealed is still `done`. A refusal
+ * is `refused`; a lost reply is `partial`, never re-sent. Either way `detail` holds the (empty) lists. */
+export declare function survey(): Promise<Outcome<Surveyed>>;

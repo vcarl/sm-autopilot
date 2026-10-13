@@ -9,6 +9,7 @@ import {bridgeWorld,type WorldOptions} from '../../test-support/bridge-world.ts'
 import {menuEffect} from '../menu.ts';
 import {bind,onBinding,unbind,type Pilot} from '../runtime.ts';
 const menu=(runtime?:string)=>onBinding(menuEffect(runtime));
+import {survey} from '../mining/mining.ts';
 import {around,exploreNearby,mapOf,markSeen,nearFacts,readSeen} from './exploration.ts';
 
 const sys=(system_id:string,connections:string[],over:Partial<MapSystemInfo>={}):MapSystemInfo=>
@@ -179,4 +180,40 @@ test('systems.json: a torn file, or a row that is not a look, reads as nothing',
     writeFileSync(join(dir,'systems.json'),'{torn');
     assert.deepEqual(readSeen(dir),{});
   } finally {rmSync(dir,{recursive:true,force:true});}
+});
+
+test('survey: the revealed POIs, the faint signatures and what the fit brought, with the wormhole named as a place to go',async()=>{
+  const f=world({mood:'Focused'},{survey:{system_id:'sol',system_name:'Sol',message:'Survey complete.',survey_power:2,anomaly_hint:'a pull to the galactic north',
+    newly_revealed:[{id:'sol_core',name:'Sol Deep Core',type:'deep_core_deposit',resources:[{resource_id:'ore_void',name:'Void Ore',remaining:900,remaining_display:'900',richness:3}]},
+      {id:'sol_wh',name:'Wormhole',type:'wormhole'},{name:'no id'}],
+    already_revealed:[{id:'sol_old',name:'Old Cache',type:'hidden_cache'}],
+    faint_signatures:[{hint:'a faint echo',type:'anomaly',difficulty:'hard'}],xp_gained:{exploration:12},bloom_intensity:0,bloom_status:'none',wildlife:[]}});
+  try {
+    const out=await survey();
+    assert.equal(out.status,'done',out.why);
+    assert.deepEqual(out.detail.newly_revealed.map(row=>row.id),['sol_core','sol_wh'],'a row with no id is no POI to name');
+    assert.equal(out.detail.newly_revealed[0]?.resources?.[0]?.resource_id,'ore_void');
+    assert.equal(out.did,'surveyed sol: revealed Sol Deep Core (sol_core, deep_core_deposit: ore_void), Wormhole (sol_wh, wormhole); already revealed: Old Cache (sol_old, hidden_cache)'
+      +'; 1 faint signature(s): anomaly (hard) — a faint echo; survey power 2, anomaly hint: a pull to the galactic north; +12 exploration xp');
+    assert.match(out.next[0]??'',/goTo\('sol_wh'\)/);
+  } finally {f.close();}
+  const bare=world({mood:'Focused'},{survey:{message:'Nothing new.',survey_power:1,newly_revealed:[],already_revealed:[],faint_signatures:[]}});
+  try {
+    const out=await survey();
+    assert.equal(out.status,'done');
+    assert.match(out.did,/^surveyed \w+: nothing new revealed; survey power 1, no anomaly hint$/);
+  } finally {bare.close();}
+});
+
+test('survey: a lost reply is partial with empty lists, not a crash, and is not re-sent',async()=>{
+  // Live 2026-09-28 12:19Z: the one survey a pilot sent got "No response to mutation" after 15 s.
+  let sent=0;
+  const f=world({mood:'Focused'},{},undefined,action=>{if(action==='spacemolt/survey_system'){sent++;throw new SpacemoltError('mutation_timeout','No response to mutation within 15000ms');}});
+  try {
+    const out=await survey();
+    assert.equal(out.status,'partial',JSON.stringify(out));
+    assert.equal(out.why,'reply lost on spacemolt/survey_system');
+    assert.deepEqual(out.detail.newly_revealed,[]);
+    assert.equal(sent,1);
+  } finally {f.close();}
 });

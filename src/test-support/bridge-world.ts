@@ -136,6 +136,8 @@ export interface WorldOptions {
    * POIs: on `get_map`, listed by `get_system` there, nameable to `find_route` (routed over the
    * links, a jump each), dockable where a POI carries a `base_id`. */
   systems?:{id:string;connections:string[];pois:{id:string;type?:string;base_id?:string}[]}[];
+  /** What `survey_system` answers, as the spec's `SurveySystemResponse` (any part of it). Absent: a bare message. */
+  survey?:Record<string,unknown>;
 }
 
 /** The freight board and the carrier behind it. A listing's `reserved_exposure` is the
@@ -663,7 +665,7 @@ export function bridgeWorld(options:WorldOptions={}) {
         estimated_fuel:7,fuel_per_jump:7,fuel_available:account.server.ship.fuel,
         cargo_used:account.server.ship.cargo_used,route:route.map((system_id,jumps)=>({system_id,jumps}))};
     },
-    'spacemolt/survey_system':()=>({structuredContent:{message:'Survey complete.'}}),
+    'spacemolt/survey_system':()=>({structuredContent:options.survey??{message:'Survey complete.'}}),
     'spacemolt/jump':params=>{notInBattle();account.server.ship.fuel-=7;account.server.location.system_id=String(params.id);
       account.server.location.poi_id='gate';
       // Arriving is the whole of a `visit_system` objective: the server ticks it over on the
