@@ -6,7 +6,8 @@ import {existsSync,mkdtempSync,readFileSync,writeFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {Result,Schema} from 'effect';
-import {answerLine,createShutdown,forPilot,journalResult,MENU_CHARS,MENU_ROWS,readPilot,Request,serve,writePilot,type Pilot,type ServeOptions} from './bridge.ts';
+import {answerLine,createShutdown,forPilot,journalResult,MENU_CHARS,MENU_ROWS,readPilot,Request,serve,strayRejection,writePilot,type Pilot,type ServeOptions} from './bridge.ts';
+import {readJournal} from './run-record.ts';
 import {controllerLock} from './controller-lock.ts';
 import type {ReadinessAccount} from './readiness.ts';
 import type {RunResult} from './run.ts';
@@ -366,4 +367,29 @@ test('a reply names opaque place ids in its prose for the pilot, and the menu ca
   writeFileSync(join(runtime,'names.json'),JSON.stringify(names));
   const menu=await fixture({pilot:()=>PILOT,runtime}).dispatch('menu') as any;
   assert.deepEqual(menu.names,names);
+});
+
+test('a rejection outside any run is logged and the bridge lives; inside one, the run says it',async()=>{
+  const runtime=mkdtempSync(join(tmpdir(),'spacemolt-bridge-'));
+  const runner=process.listeners('unhandledRejection');
+  process.removeAllListeners('unhandledRejection');
+  const stray=strayRejection(runtime);
+  process.on('unhandledRejection',stray);
+  const errors=console.error;
+  console.error=()=>{};
+  try {
+    void Promise.reject(new Error('a socket closed between junctures'));
+    await new Promise(resolve=>setTimeout(resolve,20));
+    const run=()=>{};
+    process.on('unhandledRejection',run);
+    void Promise.reject(new Error('heard by the run'));
+    await new Promise(resolve=>setTimeout(resolve,20));
+    process.off('unhandledRejection',run);
+  } finally {
+    console.error=errors;
+    process.off('unhandledRejection',stray);
+    for(const fn of runner)process.on('unhandledRejection',fn);
+  }
+  const logged=readJournal(runtime).filter(entry=>entry.event==='log').map(entry=>entry.message);
+  assert.deepEqual(logged,['unhandled rejection outside a run: a socket closed between junctures']);
 });

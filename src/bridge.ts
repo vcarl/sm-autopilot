@@ -555,6 +555,18 @@ export async function answerLine(dispatch:Dispatch,line:string,stream:(id:string
   return response;
 }
 
+/** The bridge's own listener for a rejection nobody awaited: logged, never a crash (Node's default
+ * kills the process, and the run, the lock and the account with it). A run or a query listens for
+ * its own while it flies; this one speaks only when it is the sole listener, so nothing is said twice. */
+export function strayRejection(runtime:string):(error:unknown)=>void {
+  return error=>{
+    if(process.listenerCount('unhandledRejection')>1)return;
+    const said=error instanceof Error?error.stack??error.message:String(error);
+    console.error(`[bridge] unhandled rejection outside a run: ${said}`);
+    journalRun(runtime,{job:'bridge',message:`unhandled rejection outside a run: ${error instanceof Error?error.message:String(error)}`},'log');
+  };
+}
+
 /** Ends the bridge's own process once its owner is gone: SIGTERM, SIGINT, and stdin ending all
  * say the same thing, and more than one may fire, so this is idempotent. */
 export function createShutdown(account:{close:()=>unknown},
@@ -582,6 +594,7 @@ async function main() {
   mkdirSync(runtime,{recursive:true});
   const unlock=controllerLock(`${runtime}/controller-${createHash('sha256').update(username).digest('hex').slice(0,16)}.lock`);
   process.on('exit',unlock);
+  process.on('unhandledRejection',strayRejection(runtime));
   // Rotate the journal before anything else in this process writes it, then open the fresh one
   // with the boot line. A run a dead bridge left un-ended is closed there, never re-run: the next
   // juncture reads it as interrupted and decides for itself. The lock above means no live bridge

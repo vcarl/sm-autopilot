@@ -265,6 +265,16 @@ function settle(returned:unknown):Outcome<unknown> {
   return Array.isArray(next)?{...built,next:next.filter(text=>typeof text==='string').slice(0,3)}:built;
 }
 const message=(error:unknown)=>error instanceof Error?error.message:String(error);
+/** The first frame of the pilot's own file in a thrown error's stack, as `pilot/index.ts:<line>`:
+ * where in the program it broke, which the message alone never says. Empty when no frame is the pilot's. */
+export function pilotFrame(error:unknown):string {
+  // The frames only: the message above them may name the file itself.
+  const frames=(error instanceof Error?error.stack??'':'').split('\n').filter(said=>/^\s+at /.test(said));
+  const hit=frames.map(frame=>/pilot\/index\.ts(?:\?[^:\s)]*)?:(\d+)/.exec(frame)).find(Boolean);
+  return hit?`pilot/index.ts:${hit[1]}`:'';
+}
+/** The error's message, and where in the pilot's file it was thrown when the stack says. */
+const broken=(error:unknown)=>{const at=pilotFrame(error);return at?`${message(error)} (at ${at})`:message(error);};
 const decodeInterrupts=Schema.decodeUnknownResult(InterruptsRead);
 
 /** The module's `interrupts` export, as the run takes it: the declaration, null when there is none,
@@ -322,13 +332,17 @@ export async function runPilot(deps:RunDeps):Promise<RunResult> {
       },grace);
     },Math.min(1000,grace));
   });
-  // A promise the program left unawaited, or a throw from one of its callbacks, would otherwise
-  // take the whole bridge down and the run's cause with it: it ends this run `failed` instead.
-  // Listened only while the program runs, so outside a run the process behaves as it always has.
+  // A throw from one of the program's callbacks would otherwise take the whole bridge down and the
+  // run's cause with it: it ends this run `failed` instead. A promise it left unawaited is only said.
+  // Listened only while the program runs; outside a run the bridge's own listener logs (bridge.ts).
   let crashed=(_error:unknown)=>{};
   const broke=new Promise<never>((_,reject)=>{crashed=reject;});
-  const onRejection=(error:unknown)=>{stop();crashed(new Error(`unhandled rejection: ${message(error)}`));};
-  const onException=(error:unknown)=>{stop();crashed(new Error(`uncaught exception: ${message(error)}`));};
+  // A rejection nobody awaited is a defect the program carries on past: said and journalled, never a stop.
+  const onRejection=(error:unknown)=>{
+    line(`an unhandled rejection, and the flight carries on: ${broken(error)}`);
+    defect('unhandledRejection',Cause.die(error));
+  };
+  const onException=(error:unknown)=>{stop();crashed(new Error(`uncaught exception: ${broken(error)}`));};
   process.on('unhandledRejection',onRejection);
   process.on('uncaughtException',onException);
   let result:Outcome<unknown>;
@@ -349,7 +363,7 @@ export async function runPilot(deps:RunDeps):Promise<RunResult> {
     // A stop that reached the program's own code (a paused `ask()` rejects with it) is a stop,
     // as it is inside any library call: `partial`, not a broken script.
     result=error instanceof Stopped?build('the flight was stopped','partial',{},message(error))
-      :build('the flight broke','failed',{},message(error));
+      :build('the flight broke','failed',{},broken(error));
   } finally {
     // The runtime's own closing commands (resupply, a battle broken off) are not the program's: no pause.
     listen(null);

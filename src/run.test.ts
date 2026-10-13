@@ -404,23 +404,49 @@ test('a death mid-flight stops the run in the loss\'s words, and the report name
   } finally {f.close();}
 });
 
-test('a promise the program left unawaited ends the run failed with its error, and the process lives',async()=>{
+test('a promise the program left unawaited is said and journalled as a defect, and the flight carries on',async()=>{
   const f=harness();
-  // The test runner's own listener would claim the rejection; the bridge has none, so neither may this.
+  // The test runner's own listener would claim the rejection; the run's must be the one that hears it.
   const runner=process.listeners('unhandledRejection');
   process.removeAllListeners('unhandledRejection');
   try {
-    f.write("export default async function main(){ void Promise.reject(new Error('No response to spacemolt/get_active_missions')); await new Promise(()=>{}); }\n");
+    f.write("export default async function main(){\n  void Promise.reject(new Error('No response to spacemolt/get_active_missions'));\n  await new Promise(r=>setTimeout(r,50));\n  return {status:'done',did:'went on'};\n}\n");
     const result=await runPilot({...f.deps,graceMs:100});
     assert.equal(process.listenerCount('unhandledRejection'),0,'outside a run the process is left as it was');
     for(const fn of runner)process.on('unhandledRejection',fn);
-    assert.equal(result.status,'failed');
-    assert.match(result.why!,/unhandled rejection: No response to spacemolt\/get_active_missions/);
-    const ended=readJournal(f.runtime).find(entry=>entry.phase==='ended')!;
-    assert.equal(ended.outcome,'failed');
-    assert.match(String(ended.why),/get_active_missions/);
+    assert.equal(result.status,'done',result.why);
+    assert.equal(result.reason,'went on');
+    assert.match(f.lines.join('\n'),/an unhandled rejection, and the flight carries on: No response to spacemolt\/get_active_missions \(at pilot\/index\.ts:2\)/);
+    const defect=readJournal(f.runtime).find(entry=>entry.event==='defect')!;
+    assert.equal(defect.fn,'unhandledRejection');
+    assert.match(String(defect.why),/get_active_missions/);
   } finally {
     if(!process.listenerCount('unhandledRejection'))for(const fn of runner)process.on('unhandledRejection',fn);
+    f.close();
+  }
+});
+
+test('a throw from main says where in pilot/index.ts it was thrown',async()=>{
+  const f=harness();
+  try {
+    f.write("export default async function main(){\n  const n:number=1;\n  throw new Error(`boom ${n}`);\n}\n");
+    const result=await runPilot(f.deps);
+    assert.equal(result.status,'failed');
+    assert.equal(result.why,'boom 1 (at pilot/index.ts:3)');
+  } finally {f.close();}
+});
+
+test('a throw from a callback of the program ends the run failed, saying where it was thrown',async()=>{
+  const f=harness();
+  const runner=process.listeners('uncaughtException');
+  process.removeAllListeners('uncaughtException');
+  try {
+    f.write("export default async function main(){\n  setTimeout(()=>{\n    throw new Error('lost');\n  },10);\n  await new Promise(()=>{});\n}\n");
+    const result=await runPilot({...f.deps,graceMs:100});
+    assert.equal(result.status,'failed');
+    assert.equal(result.why,'uncaught exception: lost (at pilot/index.ts:3)');
+  } finally {
+    for(const fn of runner)process.on('uncaughtException',fn);
     f.close();
   }
 });

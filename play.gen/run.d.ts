@@ -63,6 +63,9 @@ export interface RunResult {
 /** The pilot's program as it was checked, kept by sha beside the file it overwrote, so a reader
  * of the journal can see exactly what a run or a refusal was about. */
 export declare function keepProgram(runtime: string, entry: string, sha: string): void;
+/** The first frame of the pilot's own file in a thrown error's stack, as `pilot/index.ts:<line>`:
+ * where in the program it broke, which the message alone never says. Empty when no frame is the pilot's. */
+export declare function pilotFrame(error: unknown): string;
 /** Validate, bind, import fresh, run `main()`, report. Every exit path journals the end,
  * writes the record and unbinds the runtime. */
 export declare function runPilot(deps: RunDeps): Promise<RunResult>;
