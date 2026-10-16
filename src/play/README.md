@@ -78,10 +78,9 @@ said no (`in_battle`, `not_docked`). The counter helpers (`prices`, `sell`, `buy
 
 Each of these has cost a flight: the computer checks the real types, so these are not style notes.
 
-- **A variable you reassign across calls is `Outcome<unknown>`.** `let last = await goTo(base);
+- **Use a fresh const for each `Outcome<*>`.** `let last = await goTo(base);
   last = await prices();` is a type error: `last` was inferred `Outcome<Trip>`, and a
-  `prices()` Outcome is not one. Write `let last: Outcome<unknown> = await goTo(base);` (import
-  `Outcome` from `'play'`), or a fresh `const` per call.
+  `prices()` Outcome has a different type. Track outcomes individually.
 - **`account().cargo` may be undefined.** `account().cargo.map(…)` fails the typecheck; write
   `(account().cargo ?? []).map(…)`, or read the hold from an Outcome's `now.cargo`, which is always
   an array.

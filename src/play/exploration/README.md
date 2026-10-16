@@ -38,12 +38,6 @@ export default async function main() {
 }
 ```
 
-**This is not `hunt({look})`, and the two are deliberately apart.** `exploreNearby` visits
-**systems** you have never been to and reads each, and trains exploration by the
-first visit. `hunt({look})` walks **POIs inside the system you are already in** and fights what it
-finds. Reach for `exploreNearby` to learn the neighbourhood; reach for `hunt({look})`
-when you know the neighbourhood and want the prey in it.
-
 ## Worked example
 
 ```ts
