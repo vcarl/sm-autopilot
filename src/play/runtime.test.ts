@@ -848,6 +848,50 @@ test('Tired on arrival at a POI: the runtime flies to a counter and services, on
   } finally {f.close();}
 });
 
+// Live 2026-10-16 (kvothe 01:31Z): Tired at jump 18 of a 29-jump goTo, and the trip flew on to fuel 0
+// at a POI with no counter, because resupply waited for a dock, arrival or call. Tired mid-route is
+// resupplied before the next leg, at a base off or on the route, and the trip goes on to where it was going.
+test('Tired mid-route: the runtime refuels at a base before the next jump, then flies on to the destination',async()=>{
+  const f=world({},['refuel','repair','storage'],{systems:[{id:'a',connections:['sol'],pois:[{id:'a_rock'}]},
+    {id:'b',connections:['a'],pois:[{id:'b_dock',base_id:'b_base'}]},{id:'c',connections:['b'],pois:[{id:'c_belt'}]}]});
+  const runtime=mkdtempSync(join(tmpdir(),'spacemolt-route-'));
+  writeFileSync(join(runtime,'places.json'),JSON.stringify({b_base:'b'}));
+  bind({account:f.account as unknown as Account,command:f.command,runtime,emit:()=>{},
+    pilot:()=>flying({stance:'Prospector',permissions:{credit_reserve:0}},f.account.state as never)});
+  try {
+    f.account.server.location={system_id:'sol',poi_id:'belt',docked_at:null,in_transit:false};
+    f.account.server.ship.fuel=30;
+    await f.account.refresh();
+    const trip=await goTo('c_belt');
+    assert.equal(trip.status,'done',trip.why);
+    assert.equal(f.account.server.location.poi_id,'c_belt');
+    assert.equal(pilot().mood,'Focused');
+    const lines=readJournal(runtime).filter(entry=>entry.event==='resupply');
+    assert.deepEqual(lines.map(line=>[line.trigger,line.base,line.fuel_before,line.cleared]),[['route','b_base',23,true]]);
+    assert.equal(lines[0]!.to,'c');
+  } finally {unbind();rmSync(runtime,{recursive:true,force:true});}
+});
+
+// Never a refusal: with no base to name mid-route the trip flies on as before, the dead end journalled once.
+test('Tired mid-route with no base to name: the trip flies on, journalled once, no retry per jump',async()=>{
+  const f=world({},['refuel','repair','storage'],{systems:[{id:'a',connections:['sol'],pois:[{id:'a_rock'}]},
+    {id:'b',connections:['a'],pois:[{id:'b_rock'}]},{id:'c',connections:['b'],pois:[{id:'c_belt'}]}]});
+  const runtime=mkdtempSync(join(tmpdir(),'spacemolt-route-none-'));
+  bind({account:f.account as unknown as Account,command:f.command,runtime,emit:()=>{},
+    pilot:()=>flying({stance:'Prospector',permissions:{credit_reserve:0}},f.account.state as never)});
+  try {
+    f.account.server.location={system_id:'sol',poi_id:'belt',docked_at:null,in_transit:false};
+    f.account.server.ship.fuel=30;
+    await f.account.refresh();
+    const trip=await goTo('c_belt');
+    assert.equal(trip.status,'done',trip.why);
+    assert.equal(f.account.server.location.poi_id,'c_belt');
+    const journal=readJournal(runtime);
+    // One route attempt; the arrival in another system tries again, as it always has.
+    assert.deepEqual(journal.filter(entry=>entry.event==='resupply').map(line=>[line.trigger,line.cleared]),[['route',false],['arrival',false]]);
+  } finally {unbind();rmSync(runtime,{recursive:true,force:true});}
+});
+
 test('not Tired: a dock and an arrival resupply nothing',async()=>{
   const f=tiredWorld('not-tired');
   try {

@@ -686,7 +686,7 @@ function watchMood(run:RunState):void {
   if(!was||who.mood===was)return;
   if(who.mood==='Tired') {
     if(b.runtime)journalRun(b.runtime,{rule:who.tired_by,mood_before:was},'tired');
-    say(run,`tired: ${who.tired_by}; the flight computer resupplies at the next dock, arrival or call, or the flight's end`);
+    say(run,`tired: ${who.tired_by}; the flight computer resupplies before the next jump, at the next dock, arrival or call, or the flight's end`);
   } else if(was==='Tired') {
     if(b.runtime)journalRun(b.runtime,{mood:who.mood},'tired_cleared');
     say(run,`tired cleared: back inside the ${who.mood} margins`);

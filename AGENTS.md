@@ -230,8 +230,9 @@ the pilot's context. Every line has `at` (UTC ISO, `Z`) and `event`.
   stop's `base_id`, `source`, `age`; null when no book was known), and `cargo_used`/`cargo_capacity`
   after the stop), `mission` (`accepted`/`completed`/`abandoned`; `already_active` for an accept that
   sent nothing; `expired` when a mission seen running is next read expired or past its deadline),
-  `resupply` (one per counter the runtime's Tired resupply tried: `trigger` — `dock`, `arrival`, `call`
-  or `run_end` — `tired_by`, `base`, `status`, `spent`, `issued`, `cleared`, `why`, `fuel_before`/
+  `resupply` (one per counter the runtime's Tired resupply tried: `trigger` — `dock`, `arrival`, `call`,
+  `run_end`, or `route`: Tired between a `goTo`'s jumps, which then flies on, with that leg's `jumps_left`,
+  `need` (its quoted fuel) and `to` (the trip's system) — `tired_by`, `base`, `status`, `spent`, `issued`, `cleared`, `why`, `fuel_before`/
   `hull_before` at the resupply's start, `fuel_after`/`hull_after` and `seconds` at this line),
   `store` (one per change to `world.db`'s stores: `base_id`, `via` — `view`, `deposit`, `withdraw` or
   `buy` — `tick` when the reply had one, and `items`, `{item_id: quantity now}` for each item that

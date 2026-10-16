@@ -76,7 +76,12 @@ export interface TravelOptions {
     maxJumps?: number | null;
     /** A pilot stop is a `TravelBlocked` it fails with; anything it throws is a defect. */
     checkpoint?: (settled?: boolean) => Effect.Effect<void, TravelBlocked | ArrivalUnresolved>;
-    beforeMove?: () => Effect.Effect<void>;
+    /** Before each leg, the ship settled and the quote admitted: `jumps_left` and `need` are that quote's. A
+     * `TravelBlocked` it fails with ends the trip before the move, as a checkpoint's does. */
+    beforeMove?: (leg: {
+        jumps_left: number;
+        need: number;
+    }) => Effect.Effect<void, TravelBlocked>;
     /** Docked and short of the quote: buy at least `minimum` fuel. Its failure is its own to say; the fuel check decides. */
     refuelWith?: (minimum: number) => Effect.Effect<void, never, Game>;
     onJump?: () => void;

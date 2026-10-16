@@ -12,7 +12,7 @@ import {knownBooks} from './market.ts';
 import {activeEffect} from './missions.ts';
 import {readNames} from './places.ts';
 import {tiredCheck} from './service.ts';
-import {Stopped,acct,edge,jobEffect,pilot,runtimeDir,step,stopped} from './runtime.ts';
+import {Run,Stopped,acct,edge,jobEffect,pilot,runtimeDir,step,stopped} from './runtime.ts';
 import type {Outcome} from './types.ts';
 
 /** How far off the direct route one distress call may sit, in jumps. ponytail: tunable. */
@@ -31,6 +31,12 @@ export interface Trip {
   docked:boolean;
   /** The base the ship is docked at when the trip ends, or null: `did` then says why not. */
   docked_at:string|null;
+}
+
+/** Tired between legs: the trip stops before the move, so the runtime can resupply and fly on. Never leaves goTo. */
+class Detour extends TravelBlocked {
+  readonly leg:{jumps_left:number;need:number};
+  constructor(leg:{jumps_left:number;need:number}) {super('Tired mid-route');this.leg=leg;}
 }
 
 /** A place the pilot can name: a system, a POI, or a base docked at one. */
@@ -301,7 +307,7 @@ export function goTo(id:string):Promise<Outcome<Trip>> {return edge(goToEffect(i
  * a leg ends the trip naming the action and the code; a lost reply on a jump, travel or dock is never re-sent, and
  * the ship's place is re-read from the game. */
 export const goToEffect=(id:string)=>jobEffect<Trip>('goTo',id,Effect.gen(function*() {
-  const game=yield* Game;
+  const game=yield* Game,run=yield* Run;
   const who=pilot();
   const target=id;
   const none:Trip={route:asQuote({}),location:asLocation(acct().state.location),jumps:0,docked:false,docked_at:acct().state.location?.docked_at??null};
@@ -363,11 +369,26 @@ export const goToEffect=(id:string)=>jobEffect<Trip>('goTo',id,Effect.gen(functi
       ...runtimeDir()===undefined?{}:{runtime:runtimeDir()}}));
     if(Result.isFailure(served))step(`refuel on the way did not complete (${told(served.failure)}); the fuel check decides`);
   });
-  const fly=(destination:{system_id:string;poi_id?:string})=>travelToEffect(acct(),destination,{
-    maxJumps:null,
-    checkpoint:()=>stopped()?Effect.fail(new Stopped()):Effect.void,
-    onJump:()=>{jumps++;step(`jump ${jumps} of ${planned}, fuel ${acct().state.ship?.fuel}`);},
-    refuelWith:refuel,
+  // Live 2026-10-16 (kvothe 01:31Z): Tired at jump 18 of 29 flew on to fuel 0 at a POI with no counter, as
+  // resupply waited for a dock, arrival or call. Tired between legs is resupplied before the next one and the
+  // trip flies on from wherever that left it; again only after one that cleared, so a dead end is tried once.
+  // A trip begun Tired is the program's own way to a counter, and a last leg inside the destination's system
+  // ends at the arrival check: neither detours.
+  let detour=who.mood!=='Tired';
+  const fly=(destination:{system_id:string;poi_id?:string})=>Effect.gen(function*() {
+    while(true) {
+      const leg=yield* Effect.result(travelToEffect(acct(),destination,{
+        maxJumps:null,
+        checkpoint:()=>stopped()?Effect.fail(new Stopped()):Effect.void,
+        beforeMove:facts=>detour&&facts.jumps_left>0&&!run.resupplying&&pilot().mood==='Tired'&&!acct().state.location?.docked_at?Effect.fail(new Detour(facts)):Effect.void,
+        onJump:()=>{jumps++;step(`jump ${jumps} of ${planned}, fuel ${acct().state.ship?.fuel}`);},
+        refuelWith:refuel,
+      }));
+      if(Result.isSuccess(leg))return leg.success;
+      if(!(leg.failure instanceof Detour))return yield* Effect.fail(leg.failure);
+      yield* tiredCheck('route',{...leg.failure.leg,to:destination.system_id});
+      detour=pilot().mood!=='Tired';
+    }
   });
   const flown=yield* Effect.result(Effect.gen(function*() {
     for(const stop of stops) {

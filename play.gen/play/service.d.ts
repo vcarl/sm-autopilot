@@ -117,13 +117,15 @@ export declare function service(opts?: {
 export declare const resupplyEffect: (opts: {
     travel?: boolean;
     trigger: Trigger;
+    facts?: Record<string, unknown>;
 }) => Effect.Effect<"stranded" | "broke" | "cleared", never, Game | Run>;
-type Trigger = 'dock' | 'arrival' | 'call' | 'run_end';
-/** Tired's guarantee wherever the ship stops: a dock, a goTo's arrival, or a call `main()` made
- * itself (`admit`). Docked, service here. Flying to another counter is only for the program's
- * own call (depth 1): inside a helper it would leave the helper at the wrong counter. Never a
+type Trigger = 'dock' | 'arrival' | 'call' | 'run_end' | 'route';
+/** Tired's guarantee wherever the ship stops: a dock, a goTo's arrival, a call `main()` made
+ * itself (`admit`), or between a goTo's legs (`route`, with the leg's `facts`). Docked, service here. Flying to
+ * another counter is only for the program's own call (depth 1), or mid-route, where the goTo flies on to
+ * its own destination after: inside a helper it would leave the helper at the wrong counter. Never a
  * refusal: the act that docked or arrived reports as it would, and the top-level call's `did` names
  * the resupply. The resupply's own docks and arrivals start none, and a system it flew out of to
  * no counter is not flown out of again this flight (one `stranded` line, not one per call). */
-export declare const tiredCheck: (trigger: "dock" | "arrival" | "call") => Effect.Effect<void, never, Game | Run>;
+export declare const tiredCheck: (trigger: "dock" | "arrival" | "call" | "route", facts?: Record<string, unknown>) => Effect.Effect<void, never, Game | Run>;
 export {};

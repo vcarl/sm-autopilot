@@ -318,7 +318,8 @@ Your mood is your stance's own (Cautious with none) and sets margins: the fuel a
 which you are **Tired**, what one repair may spend, the hull a fight breaks off at. Tired never
 blocks work: at every dock, at a `goTo`'s arrival, at your next work call and at the flight's end the
 flight computer services the ship itself (here if docked; from your own top-level call, else at a base it can
-reach, where it leaves the ship), then the call goes on and its `did` names the resupply. You never need `service()` to be
+reach, where it leaves the ship), then the call goes on. A `goTo` that turns Tired between jumps is
+serviced at a base it can reach, then flies on to where you sent it. Either way the call goes on and its `did` names the resupply. You never need `service()` to be
 safe; call it to be up sooner. Away from a counter, fuel cells aboard burn first.
 `permissions.credit_reserve` bounds every spend; a short wallet buys fuel, then repair, and
 `service()` answers `partial`. Raw `inspect` reaches this system only and throws elsewhere: wrap it

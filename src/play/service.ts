@@ -258,20 +258,20 @@ export function service(opts:{fuel?:number;hull?:number;insure?:boolean;dues?:bo
  *
  * ponytail: the bases are tried in `serviceElsewhere`'s order (this system first), not by route
  * cost, and a wallet refused here is still flown to the next counter. */
-export const resupplyEffect=(opts:{travel?:boolean;trigger:Trigger})=>Effect.gen(function*() {
+export const resupplyEffect=(opts:{travel?:boolean;trigger:Trigger;facts?:Record<string,unknown>})=>Effect.gen(function*() {
   const run=yield* Run;
   run.resupplying=true;
   return yield* resupplying(opts).pipe(Effect.ensuring(Effect.sync(()=>{run.resupplying=false;})));
 });
-type Trigger='dock'|'arrival'|'call'|'run_end';
-const resupplying=({travel,trigger}:{travel?:boolean;trigger:Trigger})=>Effect.gen(function*() {
+type Trigger='dock'|'arrival'|'call'|'run_end'|'route';
+const resupplying=({travel,trigger,facts}:{travel?:boolean;trigger:Trigger;facts?:Record<string,unknown>})=>Effect.gen(function*() {
   const tired=()=>pilot().mood==='Tired';
   const ship=()=>acct().state.ship,started=Date.now(),before={fuel_before:ship()?.fuel??null,hull_before:ship()?.hull??null};
   yield* burnCells;
   if(!tired())return 'cleared' as const;
   let broke=false;
   const runtime=runtimeDir(),tired_by=pilot().tired_by;
-  const log=(entry:Record<string,unknown>)=>{if(runtime)journalRun(runtime,{trigger,tired_by,...before,
+  const log=(entry:Record<string,unknown>)=>{if(runtime)journalRun(runtime,{trigger,tired_by,...facts,...before,
     fuel_after:ship()?.fuel??null,hull_after:ship()?.hull??null,seconds:Math.round((Date.now()-started)/100)/10,...entry},'resupply');};
   line(`tired (${tired_by}): the flight computer is bringing the ship up`);
   const at=(base:string)=>Effect.gen(function*() {
@@ -306,23 +306,24 @@ const resupplying=({travel,trigger}:{travel?:boolean;trigger:Trigger})=>Effect.g
   return failed();
 });
 
-/** Tired's guarantee wherever the ship stops: a dock, a goTo's arrival, or a call `main()` made
- * itself (`admit`). Docked, service here. Flying to another counter is only for the program's
- * own call (depth 1): inside a helper it would leave the helper at the wrong counter. Never a
+/** Tired's guarantee wherever the ship stops: a dock, a goTo's arrival, a call `main()` made
+ * itself (`admit`), or between a goTo's legs (`route`, with the leg's `facts`). Docked, service here. Flying to
+ * another counter is only for the program's own call (depth 1), or mid-route, where the goTo flies on to
+ * its own destination after: inside a helper it would leave the helper at the wrong counter. Never a
  * refusal: the act that docked or arrived reports as it would, and the top-level call's `did` names
  * the resupply. The resupply's own docks and arrivals start none, and a system it flew out of to
  * no counter is not flown out of again this flight (one `stranded` line, not one per call). */
-export const tiredCheck=(trigger:'dock'|'arrival'|'call'):Effect.Effect<void,never,Game|Run>=>Effect.gen(function*() {
+export const tiredCheck=(trigger:'dock'|'arrival'|'call'|'route',facts?:Record<string,unknown>):Effect.Effect<void,never,Game|Run>=>Effect.gen(function*() {
   const run=yield* Run;
   if(run.resupplying||pilot().mood!=='Tired')return;
   const {location,ship}=acct().state,system=location?.system_id;
-  const travel=trigger!=='dock'&&run.depth<=1&&run.strandedIn!==system;
+  const travel=(trigger==='route'||trigger!=='dock'&&run.depth<=1)&&run.strandedIn!==system;
   if(!travel&&!location?.docked_at)return;
   const tired_by=pilot().tired_by,fuel=ship?.fuel,hull=ship?.hull;
-  const out=yield* resupplyEffect({travel,trigger});
+  const out=yield* resupplyEffect({travel,trigger,...facts?{facts}:{}});
   run.short=out==='cleared'?undefined:out;
   if(travel&&out==='stranded')run.strandedIn=system;
   const now=acct().state;
-  run.resupplied.push(`Tired (${tired_by}) ${trigger==='arrival'?'on arrival':`at a ${trigger}`}: ${out==='cleared'?'resupplied':out==='broke'?'resupply unaffordable':'no counter reached'}`
+  run.resupplied.push(`Tired (${tired_by}) ${trigger==='arrival'?'on arrival':trigger==='route'?'mid-route':`at a ${trigger}`}: ${out==='cleared'?'resupplied':out==='broke'?'resupply unaffordable':'no counter reached'}`
     +` at ${now.location?.docked_at??now.location?.poi_id??'?'}, fuel ${fuel} → ${now.ship?.fuel}, hull ${hull} → ${now.ship?.hull}`);
 });

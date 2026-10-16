@@ -126,7 +126,9 @@ export interface TravelOptions {
   maxJumps?:number|null;
   /** A pilot stop is a `TravelBlocked` it fails with; anything it throws is a defect. */
   checkpoint?:(settled?:boolean)=>Effect.Effect<void,TravelBlocked|ArrivalUnresolved>;
-  beforeMove?:()=>Effect.Effect<void>;
+  /** Before each leg, the ship settled and the quote admitted: `jumps_left` and `need` are that quote's. A
+   * `TravelBlocked` it fails with ends the trip before the move, as a checkpoint's does. */
+  beforeMove?:(leg:{jumps_left:number;need:number})=>Effect.Effect<void,TravelBlocked>;
   /** Docked and short of the quote: buy at least `minimum` fuel. Its failure is its own to say; the fuel check decides. */
   refuelWith?:(minimum:number)=>Effect.Effect<void,never,Game>;
   onJump?:()=>void;
@@ -286,7 +288,7 @@ export const travelToEffect=(account:ReadinessAccount,destination:TravelDestinat
     });
     yield* requireFuel();
     yield* hold();
-    yield* options.beforeMove?.()??Effect.void;
+    yield* options.beforeMove?.({jumps_left:plan.steps.length,need:plan.required})??Effect.void;
     // Hooks may await other work while the server changes. Revalidate the quote
     // before undocking as well as before the jump/travel command.
     yield* refresh();
