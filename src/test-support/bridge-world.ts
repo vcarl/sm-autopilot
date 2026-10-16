@@ -454,8 +454,10 @@ export function bridgeWorld(options:WorldOptions={}) {
     if(fauna.incapacitateOn&&battle.ticks>=fauna.incapacitateOn)
       account.server.ship.incapacitated=true;
     // Fleeing is the exit: the damage of this tick lands (flee takes all of it) and then the
-    // ship is out, once it has held the stance long enough to get away.
-    if(battle.stance==='flee'&&battle.fled++>=fauna.fleeTicks){battle=null;return;}
+    // ship is out, once it has held the stance long enough to get away. Any other stance resets
+    // the count, as the live `flee_counter` does ("resets if you stop fleeing").
+    if(battle.stance!=='flee')battle.fled=0;
+    else if(battle.fled++>=fauna.fleeTicks){battle=null;return;}
     if(battle.left>0){battle.left--;return;}
     // The one that ran: the battle ends with the creature still in the habitat and no wreck.
     if(fauna.flees){battle=null;return;}
@@ -651,7 +653,8 @@ export function bridgeWorld(options:WorldOptions={}) {
       const {ship}=account.server;
       // One tick resolves per status read; `tick_duration` is how the caller tells them apart.
       return {structuredContent:{battle_id:'battle-1',is_participant:true,system_id:'sol',tick_duration:ticks,
-        combat_state:{effective_speed:ship.speed,max_weapon_reach:2,incapacitated:ship.incapacitated},
+        combat_state:{effective_speed:ship.speed,max_weapon_reach:2,incapacitated:ship.incapacitated,
+          flee_counter:battle?.fled??0,flee_required:fauna.fleeTicks+1},
         participants:[{player_id:'ship',kind:'player',side_id:2,stance:'fire',
           hull_pct:Math.round(100*ship.hull/ship.max_hull),zone:'inner',zone_distance:2},
         ...fauna.creatures.filter(row=>row.creature_id===target).map(row=>({player_id:row.creature_id,

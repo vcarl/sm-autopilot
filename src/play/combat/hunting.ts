@@ -218,14 +218,13 @@ const namesSpecies=(text:string,species:string)=>text.includes(species.replace(/
  * 2026-09-25 that was one "breaking off" and fourteen "the battle has not ended yet" in ninety
  * seconds, and on 2026-09-24 the same shape lost the ship from hull 61 to 29.
  *
- * The exit is `stance flee`: 0% dealt, 100% taken, and it auto-retreats to escape. Two facts
- * bound it. Flee takes four times `brace`'s damage, and the escape can fail outright — an
- * equal or faster opponent kites the flee movement — so an unbounded flee against a faster
- * enemy is the worst cell in the stance table. And battles end on their own, every observed
- * one at 5–22 ticks. So the flee gets `FLEE_TICKS` ticks to work, and when it has not, the
- * fight is waited out under `brace` (0% dealt, 25% taken, shields regen 2×) instead, which is
- * a quarter of the damage for the same wait. A stance holds until it is changed, so each is
- * sent once rather than re-issued.
+ * The exit is `stance flee`: 0% dealt, 100% taken, and it auto-retreats to the outer ring, then
+ * escapes after `combat_state.flee_required` consecutive flee ticks there (3 at baseline, more
+ * against a faster enemy). The count "resets if you stop fleeing", so the flee is held, never
+ * swapped out. Live 2026-10-15 (kvothe 19:16Z) and 10-16 (03:22Z): three flee ticks from inner
+ * range, then `brace` — which reset the count and, against a creature, never ended the battle:
+ * 26 braced ticks each time, and the first one lost the ship. A stance holds until it is
+ * changed, so the flee is sent once rather than re-issued.
  *
  * The stop flag is deliberately not checked: a pilot asking to stop does not mean abandoning
  * the ship in a fight.
@@ -233,7 +232,6 @@ const namesSpecies=(text:string,species:string)=>text.includes(species.replace(/
  * True when the battle ended. False when the bound ran out with the battle still on, or with its
  * status never read (lost or unreadable replies are not its end), which is the one state a pilot
  * must be told about, because nothing will move the ship until it ends. */
-export const FLEE_TICKS=3;
 
 /** One `battle/status` read. Undefined is the battle's end: the server refusing the read (`no_active_battle`) or a reply
  * with no battle in it IS its end, and that is the evidence. A lost reply or one that does not read is not evidence of
@@ -265,24 +263,24 @@ const battleStatus=()=>Effect.gen(function*() {
 export const disengageEffect=(bound=FIGHT_CEILING_MS)=>Effect.gen(function*() {
   const game=yield* Game;
   const deadline=(yield* Clock.currentTimeMillis)+bound;
-  let held:CombatStance|undefined,ticks=0;
+  let held=false;
   for(;;) {
-    const want:CombatStance=ticks<FLEE_TICKS?'flee':'brace';
-    if(want!==held) {
-      const sent=yield* Effect.result(game.command('spacemolt_battle/stance',{id:want}));
+    if(!held) {
+      const sent=yield* Effect.result(game.command('spacemolt_battle/stance',{id:'flee'}));
       if(Result.isSuccess(sent)||sent.failure._tag==='ReplyLost') {
-        held=want;
-        if(Result.isFailure(sent))step(`stance ${want}: ${told(sent.failure)}; not re-sent, the status read below decides`);
-        else step(want==='flee'
-          ?'breaking off: stance flee, which auto-retreats to escape'
-          :`flee has not got away in ${FLEE_TICKS} ticks: stance brace (25% taken, shields regen 2×) until the battle ends`);
-      } else step(`stance ${want}: ${told(sent.failure)}; the battle may have ended already, the status read below decides`);
+        held=true;
+        step(Result.isFailure(sent)?`stance flee: ${told(sent.failure)}; not re-sent, the status read below decides`
+          :'breaking off: stance flee, which auto-retreats to escape');
+      } else step(`stance flee: ${told(sent.failure)}; the battle may have ended already, the status read below decides`);
     }
     const seen=yield* battleStatus();
     if(!seen){battleEnded();return 'over' as const;}
     if((yield* Clock.currentTimeMillis)>=deadline)return seen==='unknown'?'unknown' as const:'on' as const;
-    ticks++;
-    step(`${held??'breaking off'}: ${seen==='unknown'?"the battle's end has not been read":'the battle has not ended yet'}`);
+    // The escape's own progress, as the server counts it: absent `flee_required` is escape blocked (disrupted, intercepted).
+    const state=seen==='unknown'?undefined:field(seen.raw,'combat_state');
+    const count=field(state,'flee_counter'),need=field(state,'flee_required');
+    step(`${held?'flee':'breaking off'}: ${seen==='unknown'?"the battle's end has not been read"
+      :`the battle has not ended yet${count===undefined?'':` (flee ${String(count)}/${need===undefined?'blocked':String(need)})`}`}`);
     yield* Effect.sleep(pace.tickMs);
   }
 });
@@ -308,9 +306,9 @@ interface LoopOpts {
   onTick?:((view:TickView)=>TickDecision|undefined)|undefined;stats?:CombatStats|undefined;
 }
 /** How the loop ended: `ended` is the battle (or the quarry) gone, `broke off` the floor or Tired, `unresolved` the
- * ceiling or a ship that cannot fly. `stuck` is a break-off whose battle had not ended when the flee bound ran out. */
+ * ceiling or a ship that cannot fly — broken off after, when there is a floor. */
 interface LoopEnd {
-  outcome:'ended'|'broke off'|'unresolved';stuck:boolean;polls:number;
+  outcome:'ended'|'broke off'|'unresolved';polls:number;
   last?:GetBattleStatusResponse;mine?:typeof Participant.Type;
   fled:number;seen?:{hull:number;far:number};first?:{hull:number;far:number};
 }
@@ -325,7 +323,7 @@ const battleLoop=(opts:LoopOpts)=>Effect.gen(function*() {
   const game=yield* Game;
   const {floor,onTick,stats}=opts;
   const deadline=(yield* Clock.currentTimeMillis)+(opts.ceilingMs??FIGHT_CEILING_MS);
-  const end:LoopEnd={outcome:'ended',stuck:false,polls:0,fled:0};
+  const end:LoopEnd={outcome:'ended',polls:0,fled:0};
   let tick=-1;
   // What the open still owes, tracked separately from the decision so a callback taking the
   // tick does not silently cost the fight its stance or its focus.
@@ -394,12 +392,9 @@ const battleLoop=(opts:LoopOpts)=>Effect.gen(function*() {
     }
     return null;
   });
-  const breakOff=()=>Effect.gen(function*() {
-    // Out of the battle is `broke off`; still in one when the bound ran out is unresolved,
-    // and the caller must say so — no move will work until it ends.
-    end.outcome=(yield* disengageEffect())==='over'?'broke off':'unresolved';
-    end.stuck=end.outcome==='unresolved';
-  });
+  // Unbounded: the flee is held until the battle ends or the ship does. Live 2026-10-15 (kvothe 19:20Z): a bounded
+  // break-off ran out with the battle live, the hunt returned, and every move after it was refused in_battle.
+  const breakOff=()=>disengageEffect(Infinity);
   for(;;) {
     // The battle answering `not_in_battle` IS its end; that refusal is the evidence.
     const seenNow=yield* battleStatus();
@@ -474,7 +469,7 @@ const battleLoop=(opts:LoopOpts)=>Effect.gen(function*() {
       if(decision&&!decision.disengage)
         step(`override: onTick asked ${JSON.stringify(decision)}, and the ${pilot().mood??'Cautious'} walk-away line ${Math.floor(floor())} wins`);
       step(`breaking off: hull ${hull} under the line ${Math.floor(floor())}${tired?', and Tired':''}`);
-      yield* breakOff();
+      yield* breakOff();end.outcome='broke off';
       break;
     }
     if((yield* Clock.currentTimeMillis)>=deadline){end.outcome='unresolved';break;}
@@ -492,7 +487,7 @@ const battleLoop=(opts:LoopOpts)=>Effect.gen(function*() {
       ?yield* apply(decision,{...mine?.stance?{stance:mine.stance}:{},...mine?.target_id?{target:mine.target_id}:{}},skipped)
       :null;
     if(decision)step(`onTick asked ${JSON.stringify(decision)}; sent ${sent??'nothing it could act on'}${skipped.length?` (skipped: ${skipped.join('; ')})`:''}`);
-    if(sent==='disengage'){yield* breakOff();break;}
+    if(sent==='disengage'){yield* breakOff();end.outcome='broke off';break;}
     if(sent===null) {
       // An empty magazine deals nothing whatever the stance: reload it from the hold (`battle/reload`, one mutation).
       const modules=acct().state.modules??[],hold=new Set((acct().state.cargo??[]).map(row=>row.item_id));
@@ -529,9 +524,12 @@ const battleLoop=(opts:LoopOpts)=>Effect.gen(function*() {
     }
     yield* Effect.sleep(pace.tickMs);
   }
+  // Out of the loop with the fight unresolved (the ceiling, or a crew that cannot fly) is a battle left live: with a
+  // walk-away line, it is broken off here rather than handed back. Floor 0 (the arena) leaves it to finish.
+  if(end.outcome==='unresolved'&&floor()>0){step('the fight is unresolved: breaking off rather than leaving the battle live');yield* breakOff();}
   yield* refresh;
   return end;
-});
+}).pipe(Effect.tapError(()=>opts.floor()>0?disengageEffect(Infinity):Effect.void)); // a refusal mid-fight leaves it live too
 
 /** One fight, from the first shot to the end of the battle: the attack, then `battleLoop` on the quarry. */
 const engage=(target:Prey,floor:()=>number,
@@ -545,8 +543,8 @@ const engage=(target:Prey,floor:()=>number,
   // ponytail: the chase is `advance`, and the exit is `stance flee` (see `disengage`). `stance
   // board` would cancel a quarry's retreat outright, but it costs marines and suppresses our
   // weapons; take it the day a hunt needs a boarding party.
-  const why=end.stuck
-    ?'broke off at the hull line, but the battle had not ended when the retreat bound ran out: the ship is still in it and cannot travel or jump'
+  const why=outcome==='unresolved'
+    ?`${acct().state.ship?.incapacitated?'the crew could not fly the ship':'no end by the ceiling'}; broken off, flee held until the battle ended`
     :outcome==='escaped'&&end.fled&&end.seen&&end.first
       ?`hull flat at ${end.seen.hull}% for ${end.fled} tick(s) while it opened the range ${end.first.far}→${end.seen.far}`
       :undefined;
@@ -598,7 +596,8 @@ export function fightBattle(opts:{floor?:number;boss?:string;
     return battled.outcome==='ended'?{status:'done' as const,did,detail:battled}
       :{status:'partial' as const,did,detail:battled,why:battled.outcome==='broke off'
         ?`hull under the line ${opts.floor??'the mood draws'}: broke off`
-        :'the battle had not ended at the ceiling (or the ship could not fly): it still holds the ship'};
+        :opts.floor===0?'the battle had not ended at the ceiling (or the ship could not fly): it still holds the ship'
+          :'the battle had not ended at the ceiling (or the ship could not fly): broken off, flee held until it ended'};
   }))));
 }
 

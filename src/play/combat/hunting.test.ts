@@ -110,7 +110,8 @@ test('a pilot stop mid-battle ends the hunt partial with its detail: the fights 
 });
 
 // Time comes from the clock the loop sleeps on: five minutes of ten-second ticks pass in a test that sleeps for none of them.
-test('a fight that never ends is given up on at the ceiling, on the TestClock, and is said unresolved',async()=>{
+// Live 2026-10-15 (kvothe 19:20Z): a hunt handed back a live battle and every move after it was refused in_battle.
+test('a fight that never ends is given up on at the ceiling, on the TestClock, said unresolved, and broken off',async()=>{
   const f=world(()=>undefined,{wildlife:{creatures:[grazer],polls:10_000,damage:0}});
   const was=pace.tickMs;
   pace.tickMs=10_000;
@@ -126,6 +127,8 @@ test('a fight that never ends is given up on at the ceiling, on the TestClock, a
     assert.equal(out.status,'partial',JSON.stringify(out));
     assert.equal(out.detail.fights[0]?.outcome,'unresolved');
     assert.equal(out.detail.ended,'hull');
+    assert.match(out.why??'',/no end by the ceiling; broken off, flee held until the battle ended/);
+    await assert.rejects(f.command('spacemolt_battle/status',{}),/No active battle/,'the hunt does not hand back a live battle');
     assert.deepEqual(f.defects(),[]);
   } finally {pace.tickMs=was;f.close();}
 });
@@ -242,5 +245,32 @@ test('a refused status read (no_active_battle) is the battle\'s end: disengage r
     await f.command('spacemolt/hunt',{id:'c1'});
     assert.equal(await disengage(0),true);
     assert.equal(f.tries('spacemolt_battle/status'),1,'a refusal is an answer, not re-read');
+  } finally {f.close();}
+});
+
+// Live 2026-10-15 (kvothe 19:15–19:21Z): the hull line broke a Crusher-Mantis fight off from inner range; three ticks
+// of flee, then brace, which resets the flee counter and never ends a creature's battle. 26 braced ticks later the
+// bound ran out, hunt returned with the battle live, goTo/service were refused in_battle, and the ship was lost.
+test('a hunt broken off at the hull line holds the flee until the battle ends, however long the escape takes',async()=>{
+  const f=world(()=>undefined,{wildlife:{creatures:[grazer],polls:Number.MAX_SAFE_INTEGER,damage:4,fleeTicks:6}});
+  try {
+    const out=await clocked(f,huntEffect(),400);
+    assert.equal(out.detail.fights[0]?.outcome,'broke off',JSON.stringify(out));
+    assert.deepEqual(f.sent.filter(call=>call.action==='spacemolt_battle/stance').map(call=>call.params?.id),['fire','flee'],
+      'flee set once and held: any other stance resets the escape');
+    await assert.rejects(f.command('spacemolt_battle/status',{}),/No active battle/);
+    assert.match(f.lines.join('\n'),/flee: the battle has not ended yet \(flee 3\/7\)/);
+  } finally {f.close();}
+});
+
+test('a command refused mid-fight ends the hunt in its words, and the battle is broken off, not handed back live',async()=>{
+  let refused=1;
+  const f=world(action=>{if(action==='spacemolt_battle/stance'&&refused-->0)throw new SpacemoltError('rate_limited','one mutation a tick');return undefined;},
+    {wildlife:{creatures:[grazer],polls:Number.MAX_SAFE_INTEGER,damage:0,fleeTicks:2}});
+  try {
+    const out=await clocked(f,huntEffect());
+    assert.equal(out.status,'refused',JSON.stringify(out));
+    assert.match(out.why??'',/rate_limited/);
+    await assert.rejects(f.command('spacemolt_battle/status',{}),/No active battle/);
   } finally {f.close();}
 });

@@ -9,7 +9,7 @@ what to engage is your judgement, and most of the judgement is about what not to
 | Function | Promise |
 |---|---|
 | `hunt({species?, strict?, look?, poi?, fights?, target?, onTick?})` | hunt a prey across a range of places: `look` is POI ids tried in order, and the fight happens where the prey actually is. `poi` is the one-place shorthand; naming neither hunts where you stand. `species` is one id or a list — any of them counts; by default it is a *preference*, and `strict: true` makes it a requirement (**Who is legal**). Up to N fights in total, each wreck looted; finding nothing is `done` with zero fights. `onTick` is your own hand on the stance — see **Fighting with your own hand on the stance** |
-| `disengage()` | break off whatever battle holds the ship (`stance flee`, then `brace` if it cannot get away) and wait until the battle has actually ended; true when it has. The one call to make when a move is refused `in_battle` |
+| `disengage()` | break off whatever battle holds the ship (`stance flee`, held) and wait until the battle has actually ended; true when it has. The one call to make when a move is refused `in_battle` |
 | `fightBattle({floor?, boss?, onTick?})` | fight the battle the ship is **already in** — a pirate's ambush, an arena match — to its end, with no opening attack. `hunt`'s own per-tick loop on whoever the other side fields: focus on `boss` (by name) or the lowest hull, range read from the opponent's row, an empty magazine reloaded, `evade` against an opponent that holds out of reach while hitting you. `floor` is the hull to break off under: your mood's walk-away line by default, `0` to fight to the end |
 | `arena({challenge?})` | fight an NPC arena challenge to its end and score it — see **Arena** |
 | `duel({player, max_side_size?, waitMs?})` | challenge a player in the arena, wait (bounded) for the accept, and fight it the same way |
@@ -370,13 +370,20 @@ line. A ship that escapes at 30% hull keeps everything.
 
 `battle/retreat` is not the way out: it is a range maneuver (`backOff`), and the server takes
 it while the battle carries on for ticks afterwards — during which every `travel`, `jump` and
-`undock` is refused `in_battle`. The exit is `stance flee`, which auto-retreats to escape. It
-takes 100% of the incoming damage and the escape can fail outright, because an equal or faster
-opponent kites the flee movement, so breaking off is bounded: three ticks under `flee`, and if
-that has not got the ship away, the fight is waited out under `brace` (25% taken, shields regen
-2×) until it ends — every battle observed ended on its own inside 22 ticks. `disengage()` is
-that whole sequence, and it is what a pilot calls when a move comes back `in_battle`. A refused
-move is never worth re-issuing until the battle has ended — that loop is how ships are lost.
+`undock` is refused `in_battle`. The exit is `stance flee`, which auto-retreats to the outer
+ring and escapes after `combat_state.flee_required` consecutive flee ticks there (3 at baseline,
+more against a faster ship). It takes 100% of the incoming damage, and the count resets the
+moment the stance changes — so the flee is held until the battle ends. `brace` is no way out: a
+creature's battle does not end on its own, and live a 26-tick brace ended with the ship lost.
+`disengage()` is that sequence, and it is what a pilot calls when a move comes back `in_battle`.
+A refused move is never worth re-issuing until the battle has ended — that loop is how ships are
+lost.
+
+`hunt` (and `fightBattle` with a walk-away line) never hands back a live battle: a break-off
+holds the flee until the battle ends or the ship does, and a fight left unresolved — the
+five-minute ceiling, a crew that cannot fly, a command refused mid-fight — is broken off the
+same way before the call returns. Each flee tick is said with the server's own count,
+`(flee 2/4)`, or `blocked` when the escape is disrupted or intercepted.
 
 The quarry flees too, and that is the other half of the rule. A creature whose hull stops
 falling while its `zone_distance` grows is running, not being missed: `hunt` chases it with

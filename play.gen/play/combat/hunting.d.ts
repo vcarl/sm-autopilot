@@ -114,28 +114,6 @@ export declare const FIGHT_CEILING_MS: number;
  * hold is reloaded rather than refused — that is the whole of "reload when ammo allows". A
  * reload the game refuses, or whose reply is lost, is said and never re-sent: the read after it decides. */
 export declare const loadoutEffect: () => Effect.Effect<string | null, GameError, Game>;
-/** Break off, and see it through. `spacemolt_battle/retreat` is a RANGE maneuver, not an exit:
- * it sits beside `advance` in `BattleResponse.action`, the live server answers "Retreating from
- * the enemy." and the battle carries on. Re-issuing it waits for an end it cannot bring — on
- * 2026-09-25 that was one "breaking off" and fourteen "the battle has not ended yet" in ninety
- * seconds, and on 2026-09-24 the same shape lost the ship from hull 61 to 29.
- *
- * The exit is `stance flee`: 0% dealt, 100% taken, and it auto-retreats to escape. Two facts
- * bound it. Flee takes four times `brace`'s damage, and the escape can fail outright — an
- * equal or faster opponent kites the flee movement — so an unbounded flee against a faster
- * enemy is the worst cell in the stance table. And battles end on their own, every observed
- * one at 5–22 ticks. So the flee gets `FLEE_TICKS` ticks to work, and when it has not, the
- * fight is waited out under `brace` (0% dealt, 25% taken, shields regen 2×) instead, which is
- * a quarter of the damage for the same wait. A stance holds until it is changed, so each is
- * sent once rather than re-issued.
- *
- * The stop flag is deliberately not checked: a pilot asking to stop does not mean abandoning
- * the ship in a fight.
- *
- * True when the battle ended. False when the bound ran out with the battle still on, or with its
- * status never read (lost or unreadable replies are not its end), which is the one state a pilot
- * must be told about, because nothing will move the ship until it ends. */
-export declare const FLEE_TICKS = 3;
 /** `disengage` as an Effect, for `disengage` below and for `engage`; never in a barrel. A stance the game refuses is sent
  * again next tick, since nothing landed; one whose reply is lost is not, since it may have, and the status read decides.
  * `over` is the battle read ended; at the bound, `on` is it read still going and `unknown` is its status never read. */

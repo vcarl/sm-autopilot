@@ -575,17 +575,18 @@ test('no callback fights exactly as it did before, and braces only once the line
 // beside `advance`, and the live server answers "Retreating from the enemy." while the battle
 // carries on. Re-issuing it is what the 2026-09-25 23:39 log did — one "breaking off" and
 // fourteen "the battle has not ended yet" in ninety seconds, waiting for an end no retreat
-// could bring. The exit is `stance flee`, which auto-retreats to escape. Because flee takes
-// 100% of incoming damage and a faster opponent can kite it, a flee that is not escaping falls
-// back to `brace` (0% dealt, 25% taken, shields regen 2×) and waits the battle out there.
-test('breaking off sets the flee stance, and braces when the flee cannot escape',async()=>{
-  const f=world({mood:'Focused'},{wildlife:{creatures:[grazer],polls:8,damage:0,retreatTicks:99,fleeTicks:99}});
+// could bring. The exit is `stance flee`, which auto-retreats to escape, and its count resets
+// the moment the stance changes, so a flee that has not got away yet is held, never swapped for
+// `brace`. Live 2026-10-15 (kvothe 19:16Z): flee, then brace, then 26 ticks of a battle that
+// never ended and a ship lost.
+test('breaking off sets the flee stance and holds it, even when the escape is slow',async()=>{
+  const f=world({mood:'Focused'},{wildlife:{creatures:[grazer],polls:99,damage:0,retreatTicks:99,fleeTicks:8}});
   try {
     await f.command('spacemolt/hunt',{id:'c1'});
-    assert.equal(await disengage(),true,'the battle ended on its own, as every observed one does');
+    assert.equal(await disengage(),true,'the flee got away');
     assert.equal(f.count('spacemolt_battle/retreat'),0,'retreat is a range maneuver, never the exit');
     assert.deepEqual(f.sent.filter(call=>call.action==='spacemolt_battle/stance').map(call=>call.params),
-      [{id:'flee'},{id:'brace'}],'flee first, then brace once it is plainly not getting away');
+      [{id:'flee'}],'one flee, held: any other stance resets the escape');
   } finally {unbind();}
   // The flee that works: one stance, no fallback, and the ship can move again.
   const g=world({mood:'Focused'},{wildlife:{creatures:[grazer],polls:20,damage:0,fleeTicks:1}});

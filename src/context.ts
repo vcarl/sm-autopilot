@@ -239,8 +239,8 @@ function battle(menu:Row):string|null {
     +`(battle tick ${py(or(fight.tick,'?'))}${at}). Nothing moves the ship until it ends: `
     // NOT "fight it with hunt's onTick": `hunt` declines any creature whose `in_combat` is
     // true (hunting.ts:136), which the current opponent is by definition.
-    +'disengage() breaks off; to keep fighting, hold the stance by hand with '
-    +'account().commands.spacemolt_battle.stance({id:\'brace\'}).';
+    // NOT `brace` to keep fighting: it deals 0%, and a creature's battle never ends under it (kvothe 2026-10-15).
+    +'disengage() breaks off; fightBattle() fights it to its end.';
 }
 
 /** One of the pilot's own recent acts, as a fact. A reflection's goal is left off when it is the
