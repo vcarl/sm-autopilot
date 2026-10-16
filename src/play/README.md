@@ -210,6 +210,11 @@ export default async function main() {
   `power_used/power_capacity`. `refit` and `buy` both check before sending; a refusal names
   what to remove.
 - Modules you remove go back into the hold (or this base's store), so a swap costs nothing.
+- `switchShip(ship_id)` flies a hull of yours parked at the base you are docked at (it needs a
+  shipyard); `ships()` lists them. There is no `hangar`/`ship` command to guess.
+- Ammo is an item: a weapon's `ammo_type` (in `account().state.modules`) is the item id, so
+  `buy(ammo_type, qty)` at a market that sells it. `hunt` and `fightBattle` reload an empty
+  magazine from the hold themselves; `hunt` is `refused` with no rounds aboard.
 
 ## Missions
 

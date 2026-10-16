@@ -321,6 +321,7 @@ export default async function main() {
   reserved, free cargo for loot, credits for the repair after. `hunt` checks the weapon itself,
   and reloads an empty magazine from the hold when the rounds are aboard; with no rounds
   anywhere it is `refused` before anything is sent.
+  Stock rounds with `buy(weapon.ammo_type, qty)` at a market, not a raw reload command.
 - You know the kind: `species: 'molt_grazer'` (or `species: ['molt_grazer', 'belt_grazer']`)
   prefers one you have fought before. Without it, or when the named one is not here, `hunt`
   takes the first creature the world does not decline. Only `strict: true` makes a name a
