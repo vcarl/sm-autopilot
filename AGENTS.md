@@ -263,10 +263,14 @@ the pilot's context. Every line has `at` (UTC ISO, `Z`) and `event`.
   (`in` the game's, `out` ours) and `frame` as received or sent, plus `freighter` on a freighter's. No
   `run_id`: join by `at` against the journal's `run` lines. Tapped from the lib's `onReceive`/`onSend` on
   the pilot's and each freighter's `Account` (`frames.ts`); appended off the socket's path in order, a
-  failed append journalled once as `frames_failed` (`error`) and retried on the next. `password`, `token`,
-  `registration_code`, `device_code`, `session_id`, `session_key` and `session_token` in a frame's payload
-  (or its `structuredContent`) read `"[redacted]"`, and so does their echo in a reply's text. Rotated at each boot to
-  `frames.<same stamp>.jsonl`, never deleted. Not read by the pilot or the runtime.
+  append that fails loses its batch and journals `frames_failed` (`error`) once per outage; later batches are
+  tried. Unwritten lines are capped at 32 MB (`FRAMES_QUEUE_BYTES`): past it frames are dropped, and the next
+  append to land journals `frames_dropped` (`count`). `password`, `token`, `registration_code`, `device_code`,
+  `user_code`, `verification_uri_complete`, `session_id`, `session_key` and `session_token` anywhere in a frame
+  read `"[redacted]"`, and so does their echo in any string of it. Rotated at each boot to
+  `frames.<same stamp>.jsonl`, never deleted, never size-rolled. A reader skips an unparsable last line (a crash
+  truncates it). Expected size, an estimate not yet measured: 5-20 MB a pilot-day, more with heavy market reads.
+  Not read by the pilot or the runtime.
 
 Joins: `juncture_id` juncture → run and query; `run_id` run → everything in it; `query_id` likewise; `job_id` + `at` juncture →
 Hermes' `cron/usage_audit.jsonl` (tokens, LLM time, model).

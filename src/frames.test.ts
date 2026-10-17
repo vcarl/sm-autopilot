@@ -84,7 +84,41 @@ test('a failing write is journalled once and never throws into the caller; later
     tap.onSend({tool:'t',action:'b'});
     await flushFrames();
     assert.equal(lines(runtime)[0].frame.action,'b');
+    // A second outage is its own journal line.
+    rmSync(join(runtime,'frames.jsonl'));mkdirSync(join(runtime,'frames.jsonl'));
+    tap.onSend({tool:'t',action:'c'});
+    await flushFrames();
+    assert.equal(lines(runtime,'gameplay.jsonl').filter(l=>l.event==='frames_failed').length,2);
     const circular:any={};circular.self=circular;
     assert.doesNotThrow(()=>tap.onReceive(circular));
   } finally {rmSync(runtime,{recursive:true,force:true});}
+});
+
+test('past the queue cap frames are dropped and counted, and one frames_dropped follows the next append',async()=>{
+  const runtime=temp();
+  try {
+    const tap=frameTap(runtime,undefined,600),big={type:'x',payload:{pad:'y'.repeat(300)}};
+    tap.onReceive(big);tap.onReceive(big);tap.onReceive(big);
+    await flushFrames();
+    assert.equal(lines(runtime).length,1);
+    assert.deepEqual(lines(runtime,'gameplay.jsonl').filter(l=>l.event==='frames_dropped').map(l=>l.count),[2]);
+    tap.onReceive(big); // room again once the batch has landed
+    await flushFrames();
+    assert.equal(lines(runtime).length,2);
+    assert.equal(lines(runtime,'gameplay.jsonl').filter(l=>l.event==='frames_dropped').length,1);
+  } finally {rmSync(runtime,{recursive:true,force:true});}
+});
+
+test('a secret nested anywhere in a frame is redacted, including an error that echoes one, without mutating the frame',()=>{
+  const frame={type:'error',payload:{code:'bad',message:'login failed for code abcd-1234',
+    details:{attempts:[{user_code:'abcd-1234',verification_uri_complete:'https://x/y?c=abcd-1234'}],note:'ok'}}};
+  const out=scrubFrame(frame) as any;
+  assert.equal(out.payload.details.attempts[0].user_code,'[redacted]');
+  assert.equal(out.payload.details.attempts[0].verification_uri_complete,'[redacted]');
+  assert.equal(out.payload.message,'login failed for code [redacted]');
+  assert.equal(out.payload.details.note,'ok');
+  assert.equal(frame.payload.details.attempts[0]!.user_code,'abcd-1234');
+  assert.equal(frame.payload.message,'login failed for code abcd-1234');
+  const deep=scrubFrame({type:'x',payload:{a:[{b:{token:'tok-12345'}}]}}) as any;
+  assert.equal(deep.payload.a[0].b.token,'[redacted]');
 });

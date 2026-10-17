@@ -612,6 +612,8 @@ async function main() {
   const shutdown=createShutdown({close:async()=>{
     stopFreighters();
     await flushJournalDrain().catch(()=>{});
+    // Twice: the bulk is written before the close, so the grace only has to cover the closing frames.
+    await flushFrames();
     await account.close();
     await flushFrames();
   }});
