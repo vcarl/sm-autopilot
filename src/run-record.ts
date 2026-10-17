@@ -136,6 +136,8 @@ export function bootJournal(runtime:string,now=new Date()):RunRecord|null {
   // The chat record rotates with it, the same way and as never deleted: the juncture reads back
   // across boots for the posts since the last juncture (context.ts, and juncture.py's gate).
   rotate(runtime,'chat',now);
+  // The raw frame log (frames.ts) rotates the same way under the same stamp; nothing reads it back here.
+  rotate(runtime,'frames',now);
   const interrupted=closeInterrupted(runtime);
   journalRun(runtime,{pid:process.pid,...interrupted?{interrupted:interrupted.started}:{},...rotated_from?{rotated_from}:{}},'boot');
   return interrupted;
