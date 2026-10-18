@@ -326,6 +326,13 @@ export default async function main() {
 }
 ```
 
+## Hearing pirate radio
+
+Pirate battle chatter carries a few jumps, but only a ship with a `pirate_radio_scanner` in a utility slot hears
+it. Without one you hear nothing, and nothing says so. Craft it at a base with `crafting`: `craft('build_pirate_radio_scanner')`
+(2 `circuit_board` + 3 `copper_wiring`; `recipes('pirate_radio')` prices it), then `refit({install: ['pirate_radio_scanner']})`.
+Once fitted it arrives in chat as channel `pirate_radio`, read with `messages()` like any other.
+
 ## Where the fauna are
 
 - Creatures are only visible from the POI you are standing at: `get_nearby` (and `scout`'s

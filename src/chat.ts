@@ -64,4 +64,7 @@ export function noteUnread(runtime:string,reply:unknown):void {
 export function chatJournal(account:{on:(type:string,handler:(payload:Record<string,unknown>)=>void)=>unknown;player?:{id?:string}|undefined},
   runtime:string):void {
   account.on('chat_message',payload=>hearChat(runtime,payload,account.player?.id));
+  // Pirate radio (heard only with a pirate_radio_scanner fitted) is chat on its own channel.
+  account.on('pirate_radio',p=>hearChat(runtime,{channel:'pirate_radio',content:p.message,sender:p.pirate_name,sender_id:p.speaker_id,
+    system_id:p.source_system,poi_id:p.source_poi},account.player?.id));
 }

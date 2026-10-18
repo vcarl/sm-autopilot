@@ -72,6 +72,20 @@ test('a chat_message frame becomes a post line in chat.jsonl: the raw facts, not
   } finally {f.close();}
 });
 
+test('a pirate_radio push lands in chat.jsonl as a post on its own channel',()=>{
+  const f=harness(LISTENS(''));
+  try {
+    f.game.account.push('pirate_radio',{message:'Kael to all hulls: break left.',pirate_name:'Kael',speaker_id:'pr-1',source_system:'sol',
+      source_poi:'belt',faction_key:'pirate_kael',event_key:'x',editorial_class:'tactical',category:'tactical'});
+    const [post]=f.chatLines();
+    assert.equal(post.event,'post');
+    assert.equal(post.channel,'pirate_radio');
+    assert.equal(post.content,'Kael to all hulls: break left.');
+    assert.equal(post.sender,'Kael');
+    assert.equal(post.system_id,'sol');
+  } finally {f.close();}
+});
+
 test('an undecodable frame is journalled, never a crash and never a defect',()=>{
   const f=harness(LISTENS(''));
   try {
