@@ -1,5 +1,7 @@
 /** Mining: out to a belt, ice field or gas cloud, fill the hold, come back, stow, service. */
 import type { V2CargoItem } from '@spacemolt/lib';
+import { Effect } from 'effect';
+import { Game } from '../game.ts';
 import { type Surveyed } from '../exploration/exploration.ts';
 import type { Outcome, Row } from '../types.ts';
 export interface Gathered {
@@ -62,6 +64,9 @@ export declare function gatherUntil(opts: {
     maxTrips?: number;
     then?: 'stow' | 'sell';
 }): Promise<Outcome<Gathered>>;
+/** `gatherUntil` as an Effect, for `edge` and for an answered block's way (crafting.ts); never in a barrel. A refusal or a lost reply ends the flight, naming the
+ * action and the code, as it did when the Promise twin threw it. */
+export declare const gatherUntilEffect: (opts: Parameters<typeof gatherUntil>[0]) => Effect.Effect<Outcome<Gathered>, never, Game | import("../runtime.ts").Run>;
 /** Survey the system you are in (`survey_system`): the hidden POIs it reveals (deep-core deposits,
  * wormholes) with any already revealed to you, the faint signatures it could not resolve, and the
  * `survey_power` and `anomaly_hint` your fit brought. Nothing new revealed is still `done`. A refusal

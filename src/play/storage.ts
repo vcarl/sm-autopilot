@@ -7,7 +7,7 @@ import {replyBody} from '../storage.ts';
 import * as Wire from '../wire.gen.ts';
 import {counterEffect} from './counter.ts';
 import {Game,field,reread,type GameError} from './game.ts';
-import {acct,checkStop,edge,jobEffect,step,wanted,type Run,type Said} from './runtime.ts';
+import {acct,askOnBlock,chain,checkStop,edge,jobEffect,step,wanted,type Run,type Said} from './runtime.ts';
 import type {ArrivalUnresolved,TravelBlocked} from '../travel.ts';
 import type {Outcome,Row,Want} from './types.ts';
 
@@ -74,10 +74,13 @@ const counter=Effect.gen(function*() {
   return {docked};
 });
 
+/** The biggest hold row not among `keep`: what a block on hold room offers to stow. */
+export const roomFor=(keep:readonly string[])=>Object.entries(disposable(acct().state)).filter(([id,n])=>n>0&&!keep.includes(id)).sort((a,b)=>b[1]-a[1])[0]?.[0];
+
 /** One counter move (deposit or withdraw), row by row; the hold after each send is the
  * evidence, never the reply's claim. A reply that is lost is never re-sent: the hold is re-read
- * and says what landed. */
-const moveEffect=(fn:'stow'|'withdraw',items:Want[])=>{
+ * and says what landed. A withdraw the hold has no room for asks to stow the biggest other row first. */
+const moveEffect:(fn:'stow'|'withdraw',items:Want[],opts?:{ask?:boolean})=>Effect.Effect<Outcome<Moved>,never,Game|Run>=(fn,items,opts={})=>{
   const action=fn==='stow'?'spacemolt_storage/deposit':'spacemolt_storage/withdraw';
   return jobEffect<Moved>(fn,items.map(row=>`${row.quantity??'all'} ${row.item_id}`).join(', '),folded<Moved>(fn,()=>({base_id:'',moved:[],short:[],cargo:acct().state.cargo??[],store:noView()}),Effect.gen(function*() {
     const game=yield* Game;
@@ -153,12 +156,19 @@ const moveEffect=(fn:'stow'|'withdraw',items:Want[])=>{
       ?`${verb} ${moved.map(row=>`${row.quantity} ${row.item_id}`).join(', ')} at ${at.docked}${already.length?`; ${nothing}`:''}`
       :blocked.length?`${verb} nothing at ${at.docked}`:`${nothing} at ${at.docked}`;
     const why=[...blocked.map(row=>`${row.item_id}: ${row.why}`),...unread?[unread]:[]].join('; ');
-    return {status:blocked.length?(moved.length?'partial':'refused'):'done',did:summary,...why?{why}:{},detail};
+    const today:Said<Moved>={status:blocked.length?(moved.length?'partial':'refused'):'done',did:summary,...why?{why}:{},detail};
+    const full=blocked.filter(row=>row.why==='no room'),room=fn==='withdraw'&&full[0]?roomFor(asked.map(row=>row.item_id)):undefined;
+    if(!full[0]||!room)return today;
+    const rest=full.map(row=>Number.isFinite(row.requested-row.moved)?{item_id:row.item_id,quantity:row.requested-row.moved}:{item_id:row.item_id});
+    return yield* askOnBlock(today,{key:`withdraw:${full[0].item_id}:no room`,ask:opts.ask,
+      question:`${full[0].item_id}: the hold has no room for it at ${at.docked}; ${room} is the biggest row aboard`},
+      [{id:'room',choice:`stow ${room} to make room`,take:chain(detail,[moveEffect('stow',[{item_id:room}])],moveEffect('withdraw',rest))
+        .pipe(Effect.map(answer=>moved.length?{...answer,did:`${summary}; ${answer.did}`}:answer))}]);
   })));
 };
 
 export const stowEffect=(items:Want[])=>moveEffect('stow',items);
-export const withdrawEffect=(items:Want[])=>moveEffect('withdraw',items);
+export const withdrawEffect=(items:Want[],opts:{ask?:boolean}={})=>moveEffect('withdraw',items,opts);
 
 /** Deposit the named rows from the hold into the store here. Over `storage/deposit` it
  * adds: the `storage` counter checked first, each row bounded by what the hold shows, and
@@ -170,9 +180,10 @@ export function stow(items:Want[]):Promise<Outcome<Moved>> {return edge(stowEffe
  * counter check, each row bounded by the store's count and the hold's room counted in each
  * item's cargo `size`, and the reason the rest stayed. Rows that together overfill the hold
  * share its room in proportion to their footprint: each moves partly, the rest `short` with
- * `no room`, and the status is `partial`. Omit a row's `quantity` to mean all stored. Refused when not docked; a row
+ * `no room`, and the status is `partial`; the flight then pauses with `ask()` to stow the biggest other row aboard and take
+ * the rest (`skip`, or `ask:false`, leaves it so). Omit a row's `quantity` to mean all stored. Refused when not docked; a row
  * the store does not hold is `short` and `done`. Costs nothing. */
-export function withdraw(items:Want[]):Promise<Outcome<Moved>> {return edge(withdrawEffect(items));}
+export function withdraw(items:Want[],opts:{ask?:boolean}={}):Promise<Outcome<Moved>> {return edge(withdrawEffect(items,opts));}
 
 export const storageEffect=(baseId?:string)=>jobEffect<ViewStorageResponse>('storage',baseId??'',folded<ViewStorageResponse>('storage',noView,Effect.gen(function*() {
   const {total,view:detail}=yield* read(baseId);

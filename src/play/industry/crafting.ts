@@ -19,9 +19,10 @@ import {replyBody} from '../../storage.ts';
 import * as Wire from '../../wire.gen.ts';
 import {Game,field,message,type GameError} from '../game.ts';
 import {bookEffect,buyEffect,knownBooks,overpay,tickNow} from '../market.ts';
-import {oreEach} from './catalog.ts';
+import {oreEach,traceEffect,type TraceNode} from './catalog.ts';
+import {gatherUntilEffect} from '../mining/mining.ts';
 import {kept,offSpec,told} from '../rows.ts';
-import {Stopped,acct,admit,edge,jobEffect,pilot,reached,runtimeDir,step,stopped} from '../runtime.ts';
+import {Stopped,acct,admit,askOnBlock,chain,edge,jobEffect,mayAsk,pilot,reached,runtimeDir,step,stopped,type Run} from '../runtime.ts';
 import {OffSpec,folded,stowEffect} from '../storage.ts';
 import {readStores,rememberNoFacility} from '../world.ts';
 import type {Outcome,Row} from '../types.ts';
@@ -182,6 +183,35 @@ const bench=(fn:string,at?:string)=>Effect.gen(function*() {
     return {refused:`no workshop at ${docked}: its services are ${services.join(', ')||'none'}`};
   return {base:docked};
 });
+
+/** A hand recipe for `item` that this base's workshop runs, and a clause naming what it takes, for a block's question;
+ * undefined when the catalog has none, or there is no workshop here. */
+export const handMade=(item:string)=>Effect.gen(function*() {
+  const graph=yield* graphOf();
+  const recipe=Result.isSuccess(graph)?graph.success.recipesFor(item).find(row=>!row.hidden&&graph.success.isCraftable(row)):undefined;
+  const bay=recipe&&(yield* Effect.result(bench('craft')));
+  return recipe&&bay&&Result.isSuccess(bay)&&!('refused' in bay.success)?{recipe:recipe.id,line:`${recipe.id} makes it from ${list(recipe.inputs??[])}`}:undefined;
+});
+
+/** How an ore enters the economy, as the catalog's `extracted_by` says it: what a belt, field or cloud gives. */
+const MINED=new Set(['mining','ice','gas']);
+/** Which POI is known to give each ore: this system's listing, where it names a POI's resources. */
+const belts=()=>Effect.gen(function*() {
+  const read=yield* Effect.result((yield* Game).command('spacemolt/get_system',{}));
+  const pois=Result.isSuccess(read)?field(field(replyBody(read.success),'system'),'pois'):undefined,known=new Map<string,string>();
+  for(const poi of Array.isArray(pois)?pois:[]) {
+    const id=field(poi,'id'),resources=field(poi,'resources');
+    if(typeof id!=='string'||!Array.isArray(resources))continue;
+    for(const row of resources) {
+      const ore=field(row,'resource_id')??field(row,'item_id');
+      if(typeof ore==='string'&&!known.has(ore))known.set(ore,id);
+    }
+  }
+  return known;
+});
+/** A traced tree's crafts, deepest first: each recipe and the output units it still has to make. */
+const steps=(node:TraceNode):{recipe:string;quantity:number}[]=>
+  [...node.inputs.flatMap(steps),...node.recipe!==undefined&&node.need>node.have?[{recipe:node.recipe,quantity:node.need-node.have}]:[]];
 
 /** This base's store, item rows only. */
 const storeRows=()=>Effect.gen(function*() {
@@ -545,9 +575,12 @@ const noCrafted=():Crafted=>({job:asCommit({}),made:[],venue:'',venue_type:'',la
  * A commit whose reply is lost is never re-sent: the queue and the store are re-read, and a craft
  * that may have landed is `partial`, never claimed `done`.
  *
+ * Inputs short in the store pause the flight with `ask()` on the ways round it: `supply` them here (the bill named), or
+ * mine the ores under them at a belt known to give them and craft the steps up; `skip`, or `ask:false`, is the refusal.
+ *
  * At the workshop it trains crafting, and engineering for components and modules; a facility
  * trains nothing. */
-export const craftEffect=(recipeId:string,quantity=1,opts:{at?:'workshop'|string}={})=>
+export const craftEffect:(recipeId:string,quantity?:number,opts?:{at?:'workshop'|string;ask?:boolean})=>Effect.Effect<Outcome<Crafted>,never,Game|Run>=(recipeId,quantity=1,opts={})=>
   jobEffect<Crafted>('craft',`${quantity} × ${recipeId}${opts.at?` at ${opts.at}`:''}`,folded<Crafted>('craft',noCrafted,Effect.gen(function*() {
     const game=yield* Game;
     const none=noCrafted();
@@ -594,8 +627,33 @@ export const craftEffect=(recipeId:string,quantity=1,opts:{at?:'workshop'|string
       if(quoted.have_inputs===false) {
         const short=(quoted.cost?.inputs??[]).map(inp=>({...inp,have:held(before,inp.item_id)}))
           .filter(inp=>inp.have<inp.quantity);
-        return refuse(`${name} is short at ${at.base}: ${short.map(row=>`${row.item_id} ${row.have} of ${row.quantity}`).join(', ')||'the inputs it escrows'}`,
+        const today=refuse(`${name} is short at ${at.base}: ${short.map(row=>`${row.item_id} ${row.have} of ${row.quantity}`).join(', ')||'the inputs it escrows'}`,
           [`supply('${recipeId}', ${quantity}) buys what this market sells; quote() prices each input`]);
+        if(!short.length||!(yield* mayAsk(opts.ask)))return today;
+        const sourceOf=yield* sources(),oreOf=yield* ores(),belt=yield* belts(),where=opts.at?{at:opts.at}:{};
+        const rows=yield* Effect.forEach(short,row=>Effect.gen(function*() {
+          const est=yield* estimate(row.item_id,row.quantity-row.have),each=est?Math.round((est.total_cost??0)/Math.max(1,row.quantity-row.have-(est.unfilled??0))):null;
+          const ore=oreOf(row.item_id),under=MINED.has(sourceOf(row.item_id))?[row.item_id]:ore?.ores??[];
+          return {...row,each,under,ore_each:ore?.each??null};
+        }));
+        const bill=rows.reduce((sum,row)=>sum+(row.each??0)*(row.quantity-row.have),0);
+        const mineable=rows.every(row=>row.under.length&&row.under.every(ore=>belt.has(ore)));
+        return yield* askOnBlock(today,{key:`craft:${recipeId}:short`,ask:opts.ask,question:`${name} is short at ${at.base}: `+rows.map(row=>
+          `${row.item_id} ${row.have} of ${row.quantity}, ${row.each===null?'not sold here':`${row.each} each here`}`
+            +(row.under.length?`, ${row.ore_each===null?'mined':`made from ${row.under.join(' + ')} ≈ ${row.ore_each} cr mined`}${belt.has(row.under[0]??'')?`, nearest known at ${belt.get(row.under[0]??'')}`:''}`:'')).join('; ')},
+          [rows.some(row=>row.each!==null)?{id:'supply',choice:`supply for ${bill} cr here`,take:chain(none,[supplyEffect(recipeId,quantity,where)],craftEffect(recipeId,quantity,where))}:undefined,
+            mineable?{id:'mine',choice:`mine ${[...new Set(rows.flatMap(row=>row.under))].join(' + ')} and craft`,take:Effect.gen(function*() {
+              // The ores first, then each step up the tree deepest first, then this craft: `trace`'s plan, run.
+              const store=yield* storeRows(),calls:Effect.Effect<Outcome<unknown>,never,Game|Run>[]=[];
+              for(const row of rows) {
+                const traced=yield* traceEffect(row.item_id,row.quantity-row.have),plan=reached(traced);
+                if(traced.status!=='done'||!plan?.tree)return {...today,did:traced.did,...traced.why===undefined?{}:{why:traced.why}};
+                for(const leaf of plan.leaves)if(leaf.have<leaf.need)calls.push(gatherUntilEffect({poi:belt.get(leaf.item_id)??'',base:at.base,
+                  until:{item:leaf.item_id,quantity:held(store,leaf.item_id)+leaf.need-leaf.have}}));
+                for(const step of steps(plan.tree))calls.push(craftEffect(step.recipe,step.quantity,where));
+              }
+              return yield* chain(none,calls,craftEffect(recipeId,quantity,where));
+            })}:undefined]);
       }
       const cost=quoted.credits_total??0;
       const credits=acct().state.player?.credits??0;
@@ -689,7 +747,7 @@ export const craftEffect=(recipeId:string,quantity=1,opts:{at?:'workshop'|string
       detail:{...venue,job:job.raw,made},
       next:[sellNext(made)]};
   })));
-export function craft(recipeId:string,quantity=1,opts:{at?:'workshop'|string}={}):Promise<Outcome<Crafted>> {return edge(craftEffect(recipeId,quantity,opts));}
+export function craft(recipeId:string,quantity=1,opts:{at?:'workshop'|string;ask?:boolean}={}):Promise<Outcome<Crafted>> {return edge(craftEffect(recipeId,quantity,opts));}
 
 /** A queued job as `jobs()` reports it. */
 export interface Queued {

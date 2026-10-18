@@ -86,7 +86,9 @@ export interface WorldOptions {
     /** What that base's counter posts, as `inspect({id:<base_id>})` answers for it — the one
      * read that quotes a station the ship is not standing at. Absent means it posts nothing
      * readable from here, which is what a live station usually does. */
-    fuel_price?:number;repair_price?:number}[];
+    fuel_price?:number;repair_price?:number;
+    /** What `get_system` lists the POI as giving, as a belt's row does. */
+    resources?:{resource_id:string}[]}[];
   /** The hold at the start. 12 of 12 is a full hold: a gather job mines nothing and still
    * has to come home, settle and service before it may call itself done. */
   cargoUsed?:number;

@@ -2,6 +2,7 @@
 import type { CommissionQuoteResponse, InsurancePolicy, OwnedShipInfo, ShipClass, ShipListing, V2Module, V2Ship } from '@spacemolt/lib';
 import { Effect, Schema } from 'effect';
 import { Game, type GameError } from './game.ts';
+import { type Run } from './runtime.ts';
 import type { Outcome } from './types.ts';
 export interface Fit {
     installed: string[];
@@ -70,13 +71,15 @@ export declare function room(ship: V2Ship | undefined): string;
 export declare function refit(change: {
     install?: string[];
     remove?: string[];
+    ask?: boolean;
 }): Promise<Outcome<Fit>>;
 /** `refit` as an Effect, for `edge` and for converted callers; never in a barrel. A mutation the
  * game refuses or loses ends the flight, naming the action and the code; none is ever re-sent. */
 export declare const refitEffect: (change: {
     install?: string[];
     remove?: string[];
-}) => Effect.Effect<Outcome<Fit>, never, Game | import("./runtime.ts").Run>;
+    ask?: boolean;
+}) => Effect.Effect<Outcome<Fit>, never, Game | Run>;
 /** A player listing or a yard commission, each beside the class it is and one line on how
  * it compares with the hull you fly ("cargo +110, speed -1, minimum_crew 1"). */
 export type ForSale = {
@@ -119,17 +122,17 @@ export declare const shipsForSaleEffect: (opts?: {
 }) => Effect.Effect<Outcome<{
     for_sale: ForSale[];
     locked: Locked[];
-}>, never, Game | import("./runtime.ts").Run>;
+}>, never, Game | Run>;
 export interface Swap {
     switched: boolean;
     ship: V2Ship;
 }
 /** `switchShip` as an Effect, for `edge`; never in a barrel. */
-export declare const switchShipEffect: (shipId: string) => Effect.Effect<Outcome<Swap>, never, Game | import("./runtime.ts").Run>;
+export declare const switchShipEffect: (shipId: string) => Effect.Effect<Outcome<Swap>, never, Game | Run>;
 /** `ships` as an Effect, for `edge`; never in a barrel. */
 export declare const shipsEffect: () => Effect.Effect<Outcome<{
     ships: OwnedShipInfo[];
-}>, never, Game | import("./runtime.ts").Run>;
+}>, never, Game | Run>;
 export interface Purchase {
     /** The hull you now fly, when the switch happened; otherwise the one you still fly. */
     ship: V2Ship;
@@ -164,5 +167,5 @@ export declare const buyShipEffect: (id: string, opts?: {
         ship_id: string;
         base_id: string;
     };
-}>, never, Game | import("./runtime.ts").Run>;
+}>, never, Game | Run>;
 export {};

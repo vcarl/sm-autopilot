@@ -3,6 +3,7 @@
 import type { BuyResponse, EstimatePurchaseResponse, MarketListingItem, SellResponse } from '@spacemolt/lib';
 import { Effect } from 'effect';
 import { Game } from './game.ts';
+import { type Run } from './runtime.ts';
 import type { Outcome, Want } from './types.ts';
 /** The lib's per-item book (`best_buy`, `best_buy_qty`, `best_sell`, `best_sell_qty`,
  * `spread`) plus your own position, which the market does not know. */
@@ -96,7 +97,7 @@ export declare const bookEffect: () => Effect.Effect<Map<string, MarketListingIt
  * names the best thing to sell here by `best_buy × min(best_buy_qty, held)`. */
 export declare const pricesEffect: (items?: string[]) => Effect.Effect<Outcome<{
     quotes: Quote[];
-}>, never, Game | import("./runtime.ts").Run>;
+}>, never, Game | Run>;
 export declare function prices(items?: string[]): Promise<Outcome<{
     quotes: Quote[];
 }>>;
@@ -125,15 +126,17 @@ export interface Sold {
  *   store, unwithdrawn, and `did` says so. Default `'hold'`.
  * - `floor`: per-item minimum `best_buy`; below it the row is skipped, not dumped.
  *
+ * A row with no buyer here but a remembered bid elsewhere, or under its `floor`, pauses the flight with `ask()`:
+ * carry it there, or sell it now; `keep` is the Outcome as it stands. `ask:false` keeps it without asking.
+ *
  * Trains trading (xp scales with credit volume). Not docked or no market here: `refused`. */
-export declare const sellEffect: (items: Want[], opts?: {
-    from?: "hold" | "store";
-    floor?: Record<string, number>;
-}) => Effect.Effect<Outcome<Sold>, never, Game | import("./runtime.ts").Run>;
-export declare function sell(items: Want[], opts?: {
+export interface SellOpts {
     from?: 'hold' | 'store';
     floor?: Record<string, number>;
-}): Promise<Outcome<Sold>>;
+    ask?: boolean;
+}
+export declare const sellEffect: (items: Want[], opts?: SellOpts) => Effect.Effect<Outcome<Sold>, never, Game | Run>;
+export declare function sell(items: Want[], opts?: SellOpts): Promise<Outcome<Sold>>;
 export interface Bought {
     /** The preview the spend was checked against (`total_cost`, `sales_tax`, `unfilled`). */
     estimate: EstimatePurchaseResponse;
@@ -146,14 +149,14 @@ export interface Bought {
  * cheapest ask remembered at another base, named with its age; the refusal names the numbers. A **module** is checked against the ship's grid first —
  * free slot of its kind, CPU and power — and refused when it could not be fitted, with
  * `next` saying what to remove; `{force:true}` skips that check for a pilot buying a spare.
+ * Not on this market, over `maxEach`, or over `OVERPAY`: the flight pauses with `ask()` on the ways round it — a known
+ * seller, a hand recipe at this workshop, paying the price here — and `skip` is the refusal. `ask:false` refuses.
  * Trains trading. Tired or Relaxed: refused. */
-export declare const buyEffect: (itemId: string, quantity: number, opts?: {
-    deliverTo?: "cargo" | "storage";
-    maxEach?: number;
-    force?: boolean;
-}) => Effect.Effect<Outcome<Bought>, never, Game | import("./runtime.ts").Run>;
-export declare function buy(itemId: string, quantity: number, opts?: {
+export interface BuyOpts {
     deliverTo?: 'cargo' | 'storage';
     maxEach?: number;
     force?: boolean;
-}): Promise<Outcome<Bought>>;
+    ask?: boolean;
+}
+export declare const buyEffect: (itemId: string, quantity: number, opts?: BuyOpts) => Effect.Effect<Outcome<Bought>, never, Game | Run>;
+export declare function buy(itemId: string, quantity: number, opts?: BuyOpts): Promise<Outcome<Bought>>;

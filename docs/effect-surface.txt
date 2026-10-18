@@ -52,6 +52,10 @@ Built.rent_per_cycle: number
 Buy.cost: number
 Buy.item_id: string
 Buy.quantity: number
+BuyOpts.ask?: boolean | undefined
+BuyOpts.deliverTo?: "cargo" | "storage" | undefined
+BuyOpts.force?: boolean | undefined
+BuyOpts.maxEach?: number | undefined
 Buyer.age: number
 Buyer.base_id: string
 Buyer.best_buy: number
@@ -138,6 +142,7 @@ Fight.hull_before: number
 Fight.last_status?: GetBattleStatusResponse | undefined
 Fight.loot: Row[]
 Fight.outcome: "broke off" | "unresolved" | "down" | "escaped"
+Fight.record?: RecentRecord | undefined
 Fight.target: CreatureInfo | PirateInfo
 Fight.why?: string | undefined
 Fight.wreck?: EnrichedWreck | undefined
@@ -191,6 +196,7 @@ Hunted.ended: "asked" | "nothing here" | "nothing found" | "fuel" | "hull" | "ho
 Hunted.fights: Fight[]
 Hunted.looked: Looked[]
 Hunted.poi_id: string
+Hunted.skipped: { name: string; why: string; }[]
 Insurance.held?: { policy_id: string; coverage?: number; expires_at?: string; ship_class?: string; } | undefined
 Insurance.policy?: { policy_id?: string; premium?: number; coverage?: number; expires_at?: string; } | undefined
 Insurance.quote?: { premium?: number; coverage?: number; fitted_value?: number; risk_score?: number; refused?: boolean; expires_in?: string; factors: string[]; } | undefined
@@ -229,6 +235,7 @@ Missing.buy_each: number | null
 Missing.have: number
 Missing.item_id: string
 Missing.need: number
+Missing.ore_each: number | null
 Missing.sell_each: number | null
 Missing.source: string
 Mood = "Cautious" | "Focused" | "Opportunistic" | "Aggressive" | "Relaxed" | "Tired"
@@ -386,6 +393,14 @@ Quoted.venue_type: string
 ReadinessAccount.refresh: () => Promise<unknown>
 ReadinessAccount.state: GameState
 ReadinessCommand = (action: string, params: Record<string, unknown>) => Promise<unknown>
+RecentRecord.avg_hull_lost?: number | undefined
+RecentRecord.fights: number
+RecentRecord.lost: number
+RecentRecord.opponent: string
+RecentRecord.stalemate: number
+RecentRecord.thin: boolean
+RecentRecord.won: number
+RecentRecord.worst_hull_lost?: number | undefined
 ReflectReport.holdings: { credits: number; storage: { base_id: string; items: number; ships: number; }[]; here?: { item_id: string; quantity: number; }[]; }
 ReflectReport.missing: string[]
 ReflectReport.objective?: string | undefined
@@ -463,6 +478,9 @@ ScriptReview.runs: number
 ScriptReview.saved?: true | undefined
 ScriptRun.outcome?: string | undefined
 ScriptRun.reason?: string | undefined
+SellOpts.ask?: boolean | undefined
+SellOpts.floor?: Record<string, number> | undefined
+SellOpts.from?: "hold" | "store" | undefined
 Serviced.base: GetBaseResponse
 Serviced.cleared_tired: boolean
 Serviced.insurance?: Insurance | undefined
@@ -514,6 +532,7 @@ TickView.damage_taken: number
 TickView.distance: number
 TickView.floor: number
 TickView.hull: number
+TickView.loss_fatal: boolean
 TickView.max_hull: number
 TickView.opponent: string
 TickView.opponent_hull: number
@@ -568,8 +587,8 @@ Want.quantity?: number | undefined
 src/play/combat/index.ts function arena: (opts?: { challenge?: string; }) => Promise<Outcome<ArenaMatch>>
 src/play/combat/index.ts function disengage: (bound?: number) => Promise<boolean>
 src/play/combat/index.ts function duel: (opts: { player: string; max_side_size?: number; waitMs?: number; }) => Promise<Outcome<ArenaMatch>>
-src/play/combat/index.ts function fightBattle: (opts?: { floor?: number; boss?: string; onTick?: (view: TickView) => TickDecision | undefined; }) => Promise<Outcome<Battled>>
-src/play/combat/index.ts function hunt: (opts?: { poi?: string; look?: string[]; fights?: number; species?: string | string[]; strict?: boolean; target?: "creature" | "pirate"; onTick?: (view: TickView) => TickDecision | undefined; }) => Promise<Outcome<Hunted>>
+src/play/combat/index.ts function fightBattle: (opts?: { lossFatal?: boolean; boss?: string; pursue?: boolean; onTick?: (view: TickView) => TickDecision | undefined; }) => Promise<Outcome<Battled>>
+src/play/combat/index.ts function hunt: (opts?: { poi?: string; look?: string[]; fights?: number; species?: string | string[]; strict?: boolean; target?: "creature" | "pirate"; pursue?: boolean; risk?: "covered" | "known"; onTick?: (view: TickView) => TickDecision | undefined; }) => Promise<Outcome<Hunted>>
 src/play/combat/index.ts function salvage: (opts?: { tow?: string; }) => Promise<Outcome<Salvaged>>
 src/play/combat/index.ts interface ArenaMatch: ArenaMatch
 src/play/combat/index.ts interface Battled: Battled
@@ -622,27 +641,27 @@ src/play/index.ts function arena: (opts?: { challenge?: string; }) => Promise<Ou
 src/play/index.ts function ask: (asked: { question: string; choices?: string[]; }) => Promise<string>
 src/play/index.ts function assign: (name: string, circuit: Circuit, caps: { float: number; }) => Promise<Outcome<{ freighter: FreighterRow | null; }>>
 src/play/index.ts function buildFacility: (type: string) => Promise<Outcome<Built>>
-src/play/index.ts function buy: (itemId: string, quantity: number, opts?: { deliverTo?: "cargo" | "storage"; maxEach?: number; force?: boolean; }) => Promise<Outcome<Bought>>
+src/play/index.ts function buy: (itemId: string, quantity: number, opts?: BuyOpts) => Promise<Outcome<Bought>>
 src/play/index.ts function buyShip: (id: string, opts?: { commission?: boolean; switchTo?: boolean; }) => Promise<Outcome<Purchase>>
 src/play/index.ts function buyers: (items: string | readonly string[]) => Promise<Outcome<{ buyers: Buyer[]; }>>
 src/play/index.ts function carryPassengers: (destination?: string | undefined) => Promise<Outcome<Carried>>
 src/play/index.ts function catalog: (filter?: CatalogFilter) => Promise<Outcome<Browsed>>
 src/play/index.ts function chat: (channel: Channel, text: string, to?: string | undefined) => Promise<Outcome<{ readonly channel: string; readonly message: string; readonly sent_at: number; }>>
 src/play/index.ts function completeMissions: () => Promise<Outcome<{ completed: CompleteMissionResponse[]; remaining: Active[]; }>>
-src/play/index.ts function craft: (recipeId: string, quantity?: number, opts?: { at?: string; }) => Promise<Outcome<Crafted>>
+src/play/index.ts function craft: (recipeId: string, quantity?: number, opts?: { at?: string; ask?: boolean; }) => Promise<Outcome<Crafted>>
 src/play/index.ts function disengage: (bound?: number) => Promise<boolean>
 src/play/index.ts function duel: (opts: { player: string; max_side_size?: number; waitMs?: number; }) => Promise<Outcome<ArenaMatch>>
 src/play/index.ts function exploreNearby: (opts?: { systems?: number; jumps?: number; survey?: boolean; avoid?: string[]; }) => Promise<Outcome<Explored>>
 src/play/index.ts function facilities: () => Promise<Outcome<Facilities>>
-src/play/index.ts function fightBattle: (opts?: { floor?: number; boss?: string; onTick?: (view: TickView) => TickDecision | undefined; }) => Promise<Outcome<Battled>>
+src/play/index.ts function fightBattle: (opts?: { lossFatal?: boolean; boss?: string; pursue?: boolean; onTick?: (view: TickView) => TickDecision | undefined; }) => Promise<Outcome<Battled>>
 src/play/index.ts function flight: () => { readonly source?: string; readonly params?: { readonly [x: string]: unknown; }; readonly juncture_at?: string; readonly last_step?: string; readonly pid?: number; readonly script: string; readonly started: string; ended: boolean; last_job?: string; outcome?: { readonly [x: string]: unknown; }; question?: { readonly question: string; readonly asked_at: string; readonly choices?: string[]; readonly chat?: { readonly at: string; readonly from: string; readonly channel: string; readonly text: string; readonly sender_id?: string; }; }; } | null
 src/play/index.ts function freightBoard: (opts?: { destination?: string; limit?: number; }) => Promise<Outcome<Board>>
 src/play/index.ts function freighters: () => Promise<Outcome<{ freighters: FreighterRow[]; }>>
 src/play/index.ts function gatherUntil: (opts: { poi: string; base?: string; until?: { item: string; quantity: number; }; maxTrips?: number; then?: "stow" | "sell"; }) => Promise<Outcome<Gathered>>
-src/play/index.ts function goTo: (id: string) => Promise<Outcome<Trip>>
+src/play/index.ts function goTo: (id: string, opts?: { ask?: boolean; }) => Promise<Outcome<Trip>>
 src/play/index.ts function haul: (shipmentId: string) => Promise<Outcome<Hauled>>
 src/play/index.ts function heard: () => Heard[]
-src/play/index.ts function hunt: (opts?: { poi?: string; look?: string[]; fights?: number; species?: string | string[]; strict?: boolean; target?: "creature" | "pirate"; onTick?: (view: TickView) => TickDecision | undefined; }) => Promise<Outcome<Hunted>>
+src/play/index.ts function hunt: (opts?: { poi?: string; look?: string[]; fights?: number; species?: string | string[]; strict?: boolean; target?: "creature" | "pirate"; pursue?: boolean; risk?: "covered" | "known"; onTick?: (view: TickView) => TickDecision | undefined; }) => Promise<Outcome<Hunted>>
 src/play/index.ts function jobs: () => Promise<Outcome<{ jobs: Queued[]; }>>
 src/play/index.ts function messages: (opts?: { channel?: Channel | "emergency"; with?: string; after?: string; limit?: number; }) => Promise<Outcome<{ messages: { readonly sender_id: string; readonly channel: string; readonly content: string; readonly id: string; readonly sender: string; readonly timestamp_utc: string; readonly poi_id?: string; readonly system_id?: string; readonly target_id?: string; readonly target_name?: string; }[]; has_more: boolean; }>>
 src/play/index.ts function missions: () => Promise<Outcome<{ board: Offer[]; active: Active[]; max: number; slots_free: number; }>>
@@ -655,14 +674,14 @@ src/play/index.ts function quote: (recipeId: string, quantity?: number, opts?: {
 src/play/index.ts function reassign: (name: string) => Promise<Outcome<{ freighter: FreighterRow | null; }>>
 src/play/index.ts function recall: (name: string, opts?: { after?: "lap"; }) => Promise<Outcome<{ freighter: FreighterRow | null; }>>
 src/play/index.ts function recipes: (search?: string | undefined) => Promise<Outcome<{ recipes: Craftable[]; }>>
-src/play/index.ts function refit: (change: { install?: string[]; remove?: string[]; }) => Promise<Outcome<Fit>>
+src/play/index.ts function refit: (change: { install?: string[]; remove?: string[]; ask?: boolean; }) => Promise<Outcome<Fit>>
 src/play/index.ts function reflection: () => Promise<Outcome<ReflectReport>>
 src/play/index.ts function rest: (base?: string | undefined) => Promise<Outcome<Serviced>>
 src/play/index.ts function routes: (opts?: RouteOpts) => Promise<Outcome<{ routes: Route[]; sources: string[]; }>>
 src/play/index.ts function salvage: (opts?: { tow?: string; }) => Promise<Outcome<Salvaged>>
 src/play/index.ts function scout: (target?: string | undefined) => Promise<Outcome<ScoutReport>>
 src/play/index.ts function scoutMarkets: (opts?: { jumps?: number; max?: number; }) => Promise<Outcome<Scouted>>
-src/play/index.ts function sell: (items: Want[], opts?: { from?: "hold" | "store"; floor?: Record<string, number>; }) => Promise<Outcome<Sold>>
+src/play/index.ts function sell: (items: Want[], opts?: SellOpts) => Promise<Outcome<Sold>>
 src/play/index.ts function service: (opts?: { fuel?: number; hull?: number; insure?: boolean; dues?: boolean | "all"; }) => Promise<Outcome<Serviced>>
 src/play/index.ts function shipLog: (limit?: number) => string[]
 src/play/index.ts function ships: () => Promise<Outcome<{ ships: OwnedShipInfo[]; }>>
@@ -676,7 +695,7 @@ src/play/index.ts function survey: () => Promise<Outcome<Surveyed>>
 src/play/index.ts function switchShip: (shipId: string) => Promise<Outcome<Swap>>
 src/play/index.ts function trace: (itemOrRecipe: string, quantity?: number) => Promise<Outcome<Traced>>
 src/play/index.ts function tradeRun: (opts: { stops: RunStop[]; }) => Promise<Outcome<Traded>>
-src/play/index.ts function withdraw: (items: Want[]) => Promise<Outcome<Moved>>
+src/play/index.ts function withdraw: (items: Want[], opts?: { ask?: boolean; }) => Promise<Outcome<Moved>>
 src/play/index.ts interface ArenaMatch: ArenaMatch
 src/play/index.ts interface Battled: Battled
 src/play/index.ts interface Board: Board
@@ -748,7 +767,7 @@ src/play/industry/facilities/index.ts interface Rentable: Rentable
 src/play/industry/facilities/index.ts type Owned: OwnedFacilityEntry & { runway_cycles: number; }
 src/play/industry/index.ts function buildFacility: (type: string) => Promise<Outcome<Built>>
 src/play/industry/index.ts function catalog: (filter?: CatalogFilter) => Promise<Outcome<Browsed>>
-src/play/industry/index.ts function craft: (recipeId: string, quantity?: number, opts?: { at?: string; }) => Promise<Outcome<Crafted>>
+src/play/industry/index.ts function craft: (recipeId: string, quantity?: number, opts?: { at?: string; ask?: boolean; }) => Promise<Outcome<Crafted>>
 src/play/industry/index.ts function facilities: () => Promise<Outcome<Facilities>>
 src/play/industry/index.ts function jobs: () => Promise<Outcome<{ jobs: Queued[]; }>>
 src/play/industry/index.ts function quote: (recipeId: string, quantity?: number, opts?: { at?: string; }) => Promise<Outcome<Quoted>>

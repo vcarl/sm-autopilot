@@ -3,7 +3,11 @@ import type {CommissionQuoteResponse,InsurancePolicy,OwnedShipInfo,ShipClass,Shi
 import {Effect,Option,Result,Schema,Struct} from 'effect';
 import * as Wire from '../wire.gen.ts';
 import {Game,field,reread,type GameError} from './game.ts';
-import {acct,admit,edge,jobEffect,pilot,step} from './runtime.ts';
+import {acct,admit,askOnBlock,chain,edge,jobEffect,mayAsk,pilot,step,type Run} from './runtime.ts';
+import {buyEffect,cheapestAsk,knownBooks,tickNow} from './market.ts';
+import {goToEffect} from './travel.ts';
+import {craftEffect,handMade,supplyEffect} from './industry/crafting.ts';
+import {num} from './rows.ts';
 import {withdrawEffect} from './storage.ts';
 import type {Outcome} from './types.ts';
 import {replyBody} from '../storage.ts';
@@ -100,13 +104,13 @@ const told=(error:GameError)=>error._tag==='ReplyLost'?`reply lost on ${error.ac
  * the hold, or the store when the hold is full. Costs nothing. Fitting to 90%+
  * `power_used/power_capacity` trains engineering passively; `next` says how far under the
  * grid you are. */
-export function refit(change:{install?:string[];remove?:string[]}):Promise<Outcome<Fit>> {
+export function refit(change:{install?:string[];remove?:string[];ask?:boolean}):Promise<Outcome<Fit>> {
   return edge(refitEffect(change));
 }
 
 /** `refit` as an Effect, for `edge` and for converted callers; never in a barrel. A mutation the
  * game refuses or loses ends the flight, naming the action and the code; none is ever re-sent. */
-export const refitEffect=(change:{install?:string[];remove?:string[]})=>{
+export const refitEffect:(change:{install?:string[];remove?:string[];ask?:boolean})=>Effect.Effect<Outcome<Fit>,never,Game|Run>=change=>{
   const install=change.install??[],remove=change.remove??[];
   return jobEffect('refit',[...remove.map(id=>`-${id}`),...install.map(id=>`+${id}`)].join(' '),Effect.gen(function*() {
     const game=yield* Game;
@@ -152,7 +156,20 @@ export const refitEffect=(change:{install?:string[];remove?:string[]})=>{
       yield* withdrawEffect([{item_id:row.id,quantity:1}]);
       if(!held(row.id))short.push({id:row.id,why:'not in the hold or this base\'s store; buy one first'});
     }
-    if(short.length)return no(short.map(row=>`${row.id}: ${row.why}`).join('; '),short);
+    const [lacking]=short;
+    if(lacking) {
+      // A module nowhere aboard is asked about: bought here or at a known seller, or crafted here, then the refit again.
+      const today=no(short.map(row=>`${row.id}: ${row.why}`).join('; '),short),id=lacking.id,docked=acct().state.location?.docked_at??'';
+      if(!(yield* mayAsk(change.ask)))return today;
+      const est=yield* Effect.result(game.command('spacemolt_market/estimate_purchase',{item_id:id,quantity:1}));
+      const quoted=Result.isSuccess(est)?replyBody(est.success):undefined,cost=(num(quoted,'available')??0)>0?num(quoted,'total_cost'):undefined;
+      const seller=cheapestAsk(knownBooks(),id,1,docked,tickNow()),made=yield* handMade(id),again=refitEffect(change);
+      return yield* askOnBlock(today,{key:`refit:${id}:not held`,ask:change.ask,question:`${id}: not in the hold or ${docked}'s store`
+        +(cost===undefined?'':`; ${cost} cr here`)+(seller?`; ${seller.base_id} asks ${seller.price}${seller.age===null?'':`, ${seller.age} ticks ago`}`:'')+(made?`; ${made.line}`:'')},
+        [cost===undefined?undefined:{id:'here',choice:`buy ${id} here`,take:chain(nothing(short),[buyEffect(id,1,{force:true})],again)},
+          seller&&{id:'seller',choice:`buy ${id} at ${seller.base_id}`,take:chain(nothing(short),[goToEffect(seller.base_id),buyEffect(id,1,{force:true})],again)},
+          made&&{id:'craft',choice:`craft ${id}`,take:chain(nothing(short),[supplyEffect(made.recipe,1),craftEffect(made.recipe,1)],again)}]);
+    }
 
     for(const row of off) {
       yield* game.command('spacemolt/uninstall_mod',{id:row.module_id});

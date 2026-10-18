@@ -161,6 +161,8 @@ declare const Run_base: Context.ServiceClass<Run, "Run", {
     readonly heard: Heard[];
     /** A stop withdrew a chat pause: the pilot call it paused inside throws `Stopped`, as a paused `ask()` does. */
     pauseStopped: boolean;
+    /** Each block `askOnBlock` asked about this flight, by its key, and the way the answer took. */
+    readonly answered: Map<string, string>;
 }>;
 /** One run: everything `bind()` starts afresh, provided beside the binding's `Game`. */
 export declare class Run extends Run_base {
@@ -219,6 +221,35 @@ export declare function ask(asked: {
     question: string;
     choices?: string[];
 }): Promise<string>;
+/** One way round a block: `id` is what a repeat in this flight is matched on, `choice` what the pilot reads and answers. */
+export interface Way<D, E = never, R = never> {
+    id: string;
+    choice: string;
+    take: Effect.Effect<Said<D>, E, R>;
+}
+/** A base behavior blocked by a resource or by outdated data puts the ways round it to the pilot with `ask()`, where
+ * it would have refused: `blocked` is today's Said, and `skip` (or `keep`) hands it back unchanged. Asks only at the
+ * pilot's own call (depth 1), so the library's inner calls and every way taken on an answer refuse as they did; never
+ * in a query, never with nobody to answer, never with `ask:false` or no way open. One ask per `key` a flight: a
+ * repeat takes the way answered before. A stop while paused fails with `Stopped`. */
+export declare const askOnBlock: <D, E = never, R = never>(blocked: Said<D>, on: {
+    key: string;
+    question: string;
+    ask?: boolean | undefined;
+    skip?: "skip" | "keep";
+}, ways: readonly (Way<D, E, R> | undefined)[]) => Effect.Effect<Said<D>, E | Stopped, R | Run>;
+/** Whether a block may be asked about here (`askOnBlock`): the pilot's own call, in a flight someone answers, not
+ * opted out. A site whose ways cost a read asks this first. */
+export declare const mayAsk: (ask?: boolean) => Effect.Effect<boolean, never, Run>;
+/** The calls an answer runs, as one Said: each only after the one before was `done`; the dids joined, the detail the
+ * last one's (`fallback` when it built none, or a step before it was not done). */
+export declare const chain: <D>(fallback: D, first: readonly Effect.Effect<Outcome<unknown>, never, Game | Run>[], last: Effect.Effect<Outcome<D>, never, Game | Run>) => Effect.Effect<{
+    detail: D;
+    next: string[];
+    why?: string;
+    status: Status;
+    did: string;
+}, never, Game | Run>;
 /** The chat posts that paused this flight, each with the answer you gave, oldest first. Each is
  * handed over once: a second call returns only what paused the flight since the first. */
 export declare function heard(): Heard[];

@@ -36,8 +36,12 @@ export declare const folded: <D, R extends Game | Run = Game | Run>(fn: string, 
 /** Units of each row that fit `room` cargo: every want when they all fit, else each row's
  * share of the room in proportion to its footprint, floored, the leftover handed out in order. */
 export declare function share(room: number, wants: number[], sizes: number[]): number[];
+/** The biggest hold row not among `keep`: what a block on hold room offers to stow. */
+export declare const roomFor: (keep: readonly string[]) => string | undefined;
 export declare const stowEffect: (items: Want[]) => Effect.Effect<Outcome<Moved>, never, Game | Run>;
-export declare const withdrawEffect: (items: Want[]) => Effect.Effect<Outcome<Moved>, never, Game | Run>;
+export declare const withdrawEffect: (items: Want[], opts?: {
+    ask?: boolean;
+}) => Effect.Effect<Outcome<Moved>, never, Game | Run>;
 /** Deposit the named rows from the hold into the store here. Over `storage/deposit` it
  * adds: the `storage` counter checked first, each row bounded by what the hold shows, and
  * the store re-read after. Omit a row's `quantity` to mean all held. Refused when not docked
@@ -47,9 +51,12 @@ export declare function stow(items: Want[]): Promise<Outcome<Moved>>;
  * counter check, each row bounded by the store's count and the hold's room counted in each
  * item's cargo `size`, and the reason the rest stayed. Rows that together overfill the hold
  * share its room in proportion to their footprint: each moves partly, the rest `short` with
- * `no room`, and the status is `partial`. Omit a row's `quantity` to mean all stored. Refused when not docked; a row
+ * `no room`, and the status is `partial`; the flight then pauses with `ask()` to stow the biggest other row aboard and take
+ * the rest (`skip`, or `ask:false`, leaves it so). Omit a row's `quantity` to mean all stored. Refused when not docked; a row
  * the store does not hold is `short` and `done`. Costs nothing. */
-export declare function withdraw(items: Want[]): Promise<Outcome<Moved>>;
+export declare function withdraw(items: Want[], opts?: {
+    ask?: boolean;
+}): Promise<Outcome<Moved>>;
 export declare const storageEffect: (baseId?: string) => Effect.Effect<Outcome<ViewStorageResponse>, never, Game | Run>;
 /** Read the store at this base, or at a named base or station POI without going there. Works
  * undocked and in another system. `locations` is the whole account's map of holdings. Over

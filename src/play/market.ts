@@ -11,8 +11,10 @@ import {replyBody,rows} from '../storage.ts';
 import {counterEffect} from './counter.ts';
 import {Game,field,message} from './game.ts';
 import {bench,moduleSpecEffect,room,whyNotFit} from './hangar.ts';
-import {Stopped,acct,admit,edge,jobEffect,pilot,reached,runtimeDir,step,stopped,wanted} from './runtime.ts';
-import {withdrawEffect} from './storage.ts';
+import {Stopped,acct,admit,askOnBlock,chain,edge,jobEffect,mayAsk,pilot,reached,runtimeDir,step,stopped,wanted,type Run,type Said} from './runtime.ts';
+import {roomFor,stowEffect,withdrawEffect} from './storage.ts';
+import {goToEffect} from './travel.ts';
+import {craftEffect,handMade,supplyEffect} from './industry/crafting.ts';
 import {literal,num} from './rows.ts';
 import {keepBook,keepRow,readBooks,rememberFacilities} from './world.ts';
 import {walkBook} from '../order-book.ts';
@@ -252,8 +254,12 @@ export interface Sold {
  *   store, unwithdrawn, and `did` says so. Default `'hold'`.
  * - `floor`: per-item minimum `best_buy`; below it the row is skipped, not dumped.
  *
+ * A row with no buyer here but a remembered bid elsewhere, or under its `floor`, pauses the flight with `ask()`:
+ * carry it there, or sell it now; `keep` is the Outcome as it stands. `ask:false` keeps it without asking.
+ *
  * Trains trading (xp scales with credit volume). Not docked or no market here: `refused`. */
-export const sellEffect=(items:Want[],opts:{from?:'hold'|'store';floor?:Record<string,number>}={})=>
+export interface SellOpts {from?:'hold'|'store';floor?:Record<string,number>;ask?:boolean}
+export const sellEffect:(items:Want[],opts?:SellOpts)=>Effect.Effect<Outcome<Sold>,never,Game|Run>=(items,opts={})=>
   jobEffect<Sold>('sell',items.map(row=>`${row.quantity??'all'} ${row.item_id}`).join(', ')+(opts.from==='store'?' from store':''),Effect.gen(function*() {
     const game=yield* Game;
     let docked=acct().state.location?.docked_at??'';
@@ -343,8 +349,13 @@ export const sellEffect=(items:Want[],opts:{from?:'hold'|'store';floor?:Record<s
         const took=yield* withdrawEffect(wanted);
         // A withdraw that broke or was stopped built no detail (`{}`): what it said is the sell's why.
         const out=reached(took);
-        if(!loads&&(!out||took.status==='refused'&&!out.moved.length))
-          return {status:out?'refused':took.status,did:'sold nothing',why:`withdraw first: ${took.why}`,detail:empty()};
+        if(!loads&&(!out||took.status==='refused'&&!out.moved.length)) {
+          const first:Said<Sold>={status:out?'refused':took.status,did:'sold nothing',why:`withdraw first: ${took.why}`,detail:empty()};
+          const full=out?.short.find(row=>row.why==='no room'),room=full&&roomFor(asked.map(row=>row.item_id));
+          return full&&room?yield* askOnBlock(first,{key:`sell:${full.item_id}:no room`,ask:opts.ask,
+            question:`${full.item_id}: the hold has no room to take it out of the store at ${docked}`},
+            [{id:'room',choice:`stow ${room} to make room`,take:chain(empty(),[stowEffect([{item_id:room}])],sellEffect(items,opts))}]):first;
+        }
         if(!out) {
           step(`withdraw ${took.status}: ${took.why??took.did}`);
           for(const [item_id,quantity] of left)short.push({item_id,requested:quantity,sold:0,why:`withdraw ${took.status}: ${took.why??took.did}`});
@@ -394,10 +405,26 @@ export const sellEffect=(items:Want[],opts:{from?:'hold'|'store';floor?:Record<s
         ?` at ${unit} (${better.base_id} bid ${better.best_buy}, ${better.age} ticks ago)`:slipped(listed.get(item_id),quantity,earned));
     }).join(', ')} at ${docked} for ${[...byItem.values()].some(row=>row.unknown)?'at least ':''}${total} cr`
       :blocked.length?`sold nothing at ${docked}`:`nothing to sell at ${docked}`;
-    return {status:blocked.length?(landed.length?'partial':'refused'):'done',
+    const today:Said<Sold>={status:blocked.length?(landed.length?'partial':'refused'):'done',
       did:said?`${sold}; ${said}`:sold,...why?{why}:{},detail};
+    // The first row there is a way round, asked about: carried to a remembered bid, or sold under its floor.
+    const rest=(rows:Sold['short'])=>rows.map(row=>Number.isFinite(row.requested-row.sold)?{item_id:row.item_id,quantity:row.requested-row.sold}:{item_id:row.item_id});
+    const after=(answer:Said<Sold>)=>landed.length?{...answer,did:`${today.did}; ${answer.did}`}:answer;
+    const unsold=blocked.filter(row=>row.why==='no buyer'),carry=opts.from==='store'?undefined:unsold.find(row=>farBid(row.item_id));
+    const low=blocked.find(row=>row.why.startsWith('under floor')),far=carry&&farBid(carry.item_id);
+    if(low&&blocked.indexOf(low)<(carry?blocked.indexOf(carry):Infinity)) {
+      const floor=Object.fromEntries(Object.entries(opts.floor??{}).filter(([id])=>id!==low.item_id)),bid=listed.get(low.item_id)?.best_buy;
+      return yield* askOnBlock(today,{key:`sell:${low.item_id}:under floor`,skip:'keep',ask:opts.ask,
+        question:`${low.item_id}: best bid at ${docked} is ${bid}, under your floor ${opts.floor?.[low.item_id]}`},
+        [{id:'now',choice:`sell at ${bid} now`,take:sellEffect(rest([low]),{...opts,floor}).pipe(Effect.map(out=>after({...out,detail:reached(out)??detail})))}]);
+    }
+    if(carry&&far)return yield* askOnBlock(today,{key:`sell:${carry.item_id}:no buyer`,skip:'keep',ask:opts.ask,
+      question:`${carry.item_id}: no buyer at ${docked}; ${far.base_id} bid ${far.best_buy} for ${far.best_buy_qty}, ${far.age} ticks ago`},
+      [{id:'carry',choice:`carry to ${far.base_id}`,
+        take:chain(detail,[goToEffect(far.base_id)],sellEffect(rest(unsold),opts.floor?{floor:opts.floor}:{})).pipe(Effect.map(after))}]);
+    return today;
   }),`sell(${literal(items)}${opts.from||opts.floor?`, ${literal(opts)}`:''})`);
-export function sell(items:Want[],opts:{from?:'hold'|'store';floor?:Record<string,number>}={}):Promise<Outcome<Sold>> {return edge(sellEffect(items,opts));}
+export function sell(items:Want[],opts:SellOpts={}):Promise<Outcome<Sold>> {return edge(sellEffect(items,opts));}
 
 export interface Bought {
   /** The preview the spend was checked against (`total_cost`, `sales_tax`, `unfilled`). */
@@ -412,8 +439,11 @@ export interface Bought {
  * cheapest ask remembered at another base, named with its age; the refusal names the numbers. A **module** is checked against the ship's grid first —
  * free slot of its kind, CPU and power — and refused when it could not be fitted, with
  * `next` saying what to remove; `{force:true}` skips that check for a pilot buying a spare.
+ * Not on this market, over `maxEach`, or over `OVERPAY`: the flight pauses with `ask()` on the ways round it — a known
+ * seller, a hand recipe at this workshop, paying the price here — and `skip` is the refusal. `ask:false` refuses.
  * Trains trading. Tired or Relaxed: refused. */
-export const buyEffect=(itemId:string,quantity:number,opts:{deliverTo?:'cargo'|'storage';maxEach?:number;force?:boolean}={})=>
+export interface BuyOpts {deliverTo?:'cargo'|'storage';maxEach?:number;force?:boolean;ask?:boolean}
+export const buyEffect:(itemId:string,quantity:number,opts?:BuyOpts)=>Effect.Effect<Outcome<Bought>,never,Game|Run>=(itemId,quantity,opts={})=>
   jobEffect<Bought>('buy',`${quantity} ${itemId}`,Effect.gen(function*() {
     const game=yield* Game;
     const none={estimate:asEstimate({})};
@@ -441,11 +471,27 @@ export const buyEffect=(itemId:string,quantity:number,opts:{deliverTo?:'cargo'|'
     const who=pilot(),credits=acct().state.player?.credits??0;
     const reserve=who.permissions?.credit_reserve??0;
     const cost=num(quote,'total_cost')??0;
-    if(!(available>0))return {status:'refused',did:`did not buy ${itemId}`,why:`not on this market: ${typeof message==='string'?message:'0 available'}`,detail:{estimate}};
+    if(!(available>0)) {
+      const seller=cheapestAsk(knownBooks(),itemId,quantity,at.docked,tickNow()),made=(yield* mayAsk(opts.ask))?yield* handMade(itemId):undefined;
+      return yield* askOnBlock({status:'refused',did:`did not buy ${itemId}`,why:`not on this market: ${typeof message==='string'?message:'0 available'}`,detail:{estimate}},
+        {key:`buy:${itemId}:not here`,ask:opts.ask,question:`${itemId}: not on sale at ${at.docked}`
+          +(seller?`; ${seller.base_id} asks ${seller.price} each, ${seller.depth} deep${seller.age===null?'':`, ${seller.age} ticks ago`}`:'')+(made?`; ${made.line}`:'')},
+        [seller&&{id:'seller',choice:`buy at ${seller.base_id}`,take:chain({estimate},[goToEffect(seller.base_id)],buyEffect(itemId,quantity,opts))},
+          made&&{id:'craft',choice:`craft ${itemId}`,take:chain({estimate},[supplyEffect(made.recipe,quantity)],craftEffect(made.recipe,quantity).pipe(Effect.map(out=>({...out,detail:{estimate}}))))}]);
+    }
     if(credits-cost<reserve)return {status:'refused',did:`did not buy ${itemId}`,why:`costs ${cost}; credits ${credits} less reserve ${reserve} leaves ${credits-reserve}`,detail:{estimate}};
     const dear=overpay(itemId,Math.min(quantity,available),cost,opts.maxEach,at.docked);
-    if(dear.why)return {status:'refused',did:`did not buy ${itemId}`,why:dear.why,detail:{estimate},
-      ...dear.ref?{next:[`goTo('${dear.ref.base_id}') and buy there`,`buy('${itemId}', ${quantity}, {maxEach:${Math.ceil(cost/Math.min(quantity,available))}})`]}:{}};
+    if(dear.why) {
+      const units=Math.min(quantity,available),each=Math.ceil(cost/units),ref=dear.ref;
+      const today:Said<Bought>={status:'refused',did:`did not buy ${itemId}`,why:dear.why,detail:{estimate},
+        ...ref?{next:[`goTo('${ref.base_id}') and buy there`,`buy('${itemId}', ${quantity}, {maxEach:${each}})`]}:{}};
+      const pay={id:'pay',choice:`pay ${cost} here`,take:buyEffect(itemId,quantity,{...opts,maxEach:each}).pipe(Effect.map(out=>({...out,detail:reached(out)??{estimate}})))};
+      const here=`${itemId}: ${Math.round(cost/units)} each at ${at.docked} (${cost} for ${units})`;
+      if(opts.maxEach!==undefined)return yield* askOnBlock(today,{key:`buy:${itemId}:maxEach`,ask:opts.ask,question:`${here}, over your maxEach ${opts.maxEach}`},[pay]);
+      return yield* askOnBlock(today,{key:`buy:${itemId}:overpay`,ask:opts.ask,
+        question:`${here}; ${ref?`${ref.base_id} asks ${ref.price} each, ${ref.depth} deep${ref.age===null?'':`, ${ref.age} ticks ago`}`:'cheaper elsewhere'}`},
+        [pay,ref&&{id:'cheaper',choice:`buy at ${ref.base_id}`,take:chain({estimate},[goToEffect(ref.base_id)],buyEffect(itemId,quantity,opts))}]);
+    }
     // The book this buy was sent against, as a sell quotes its own: the last read at this counter.
     // Live 2026-10-01 (kvothe): all 37 tradeRun buys journalled a quote with no ask, bid or book tick.
     const seen=lastRead?.base===at.docked?lastRead:undefined,row=seen?.listed.get(itemId);
@@ -465,4 +511,4 @@ export const buyEffect=(itemId:string,quantity:number,opts:{deliverTo?:'cargo'|'
       did:`bought ${num(filled,'quantity')??quantity} ${itemId} for ${subtotal+tax} cr${tax?` (${tax} of it tax)`:''}`,
       ...unfilled>0?{why:`${unfilled} unfilled`}:{},detail:{estimate,bought:asBuy(filled)}};
   }));
-export function buy(itemId:string,quantity:number,opts:{deliverTo?:'cargo'|'storage';maxEach?:number;force?:boolean}={}):Promise<Outcome<Bought>> {return edge(buyEffect(itemId,quantity,opts));}
+export function buy(itemId:string,quantity:number,opts:BuyOpts={}):Promise<Outcome<Bought>> {return edge(buyEffect(itemId,quantity,opts));}

@@ -11,8 +11,8 @@ import {Game,isGameError,type GameError} from './game.ts';
 import {knownBooks} from './market.ts';
 import {activeEffect} from './missions.ts';
 import {readNames} from './places.ts';
-import {tiredCheck} from './service.ts';
-import {Run,Stopped,acct,edge,jobEffect,pilot,runtimeDir,step,stopped} from './runtime.ts';
+import {serviceEffect,tiredCheck} from './service.ts';
+import {Run,Stopped,acct,askOnBlock,chain,edge,jobEffect,mayAsk,pilot,runtimeDir,step,stopped} from './runtime.ts';
 import type {Outcome} from './types.ts';
 
 /** How far off the direct route one distress call may sit, in jumps. ponytail: tunable. */
@@ -300,13 +300,16 @@ const undocked=()=>Effect.gen(function*() {
  * route and the whole trip still ends above the mood's reserve, is flown through and claimed
  * with `complete_mission`. It never accepts a mission, and never detours under Tired.
  *
+ * Short of fuel undocked at a base's POI, the flight pauses with `ask()`: refuel there and go, or `skip` (the refusal;
+ * `ask:false` refuses without asking).
+ *
  * Idempotent: already there (and docked, if a base) sends nothing and is `done`. */
-export function goTo(id:string):Promise<Outcome<Trip>> {return edge(goToEffect(id));}
+export function goTo(id:string,opts:{ask?:boolean}={}):Promise<Outcome<Trip>> {return edge(goToEffect(id,opts));}
 
 /** `goTo` as an Effect, for `edge` and for converted callers; never in a barrel. A refusal or a lost reply on
  * a leg ends the trip naming the action and the code; a lost reply on a jump, travel or dock is never re-sent, and
  * the ship's place is re-read from the game. */
-export const goToEffect=(id:string)=>jobEffect<Trip>('goTo',id,Effect.gen(function*() {
+export const goToEffect:(id:string,opts?:{ask?:boolean})=>Effect.Effect<Outcome<Trip>,never,Game|Run>=(id,opts={})=>jobEffect<Trip>('goTo',id,Effect.gen(function*() {
   const game=yield* Game,run=yield* Run;
   const who=pilot();
   const target=id;
@@ -422,10 +425,15 @@ export const goToEffect=(id:string)=>jobEffect<Trip>('goTo',id,Effect.gen(functi
       const {actualFuel,requiredFuel,shortfall}=error.evidence;
       // A detour already flown is work behind the refusal, so the trip is partial and the
       // `did` says where the ship actually is rather than claiming it never left.
-      return {status:jumps?'partial' as const:'refused' as const,
+      const today={status:jumps?'partial' as const:'refused' as const,
         did:jumps?`stopped at ${acct().state.location?.system_id} short of ${target} after ${jumps} jump(s)${answered.length?`; ${answered.join('; ')}`:''}`:`did not fly to ${target}`,
         why:`fuel ${actualFuel}, the route needs ${requiredFuel}; short ${shortfall}`,
         detail:{...detail(),jumps},next:['service() where you are docked, or a nearer destination']};
+      // Docked, the trip has already refuelled before it flew: a counter at the POI it stands at is the way round.
+      if(error.evidence.kind!=='available_fuel'||acct().state.location?.docked_at||!(yield* mayAsk(opts.ask)))return today;
+      const here=yield* Effect.result(hereEffect()),base=Result.isSuccess(here)?here.success.row?.base_id:undefined;
+      return yield* askOnBlock(today,{key:`goTo:${target}:fuel`,ask:opts.ask,question:`fuel ${actualFuel}, the route to ${target} needs ${requiredFuel}; ${base} is here`},
+        [base?{id:'refuel',choice:`refuel at ${base} then go`,take:chain(today.detail,[serviceEffect()],goToEffect(id))}:undefined]);
     }
     return yield* Effect.fail(error);
   }

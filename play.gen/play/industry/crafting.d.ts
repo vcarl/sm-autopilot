@@ -10,6 +10,7 @@ import { fetchCatalogConditional, type Catalog, type CraftJobResponse, type Craf
 import { Effect, Result } from 'effect';
 import { RecipeGraph, type SourcedItem } from '../../recipe-graph.ts';
 import { Game } from '../game.ts';
+import { type Run } from '../runtime.ts';
 import type { Outcome, Row } from '../types.ts';
 /** The catalog recipe beside what it is worth here and what you already hold. */
 export type Craftable = Recipe & {
@@ -48,6 +49,12 @@ export declare function baseValues(dir: string | undefined): Map<string, number>
  * the multi-MB body when nothing changed, and a failed fetch falls back to the copy on disk.
  * One `fetch` line each time: status, ms, bytes stored, whether the disk copy answered. */
 export declare function revalidated(dir: string | undefined, load?: typeof fetchCatalogConditional): Promise<Recipes>;
+/** A hand recipe for `item` that this base's workshop runs, and a clause naming what it takes, for a block's question;
+ * undefined when the catalog has none, or there is no workshop here. */
+export declare const handMade: (item: string) => Effect.Effect<{
+    recipe: string;
+    line: string;
+} | undefined, never, Game>;
 /** Where the quote says it runs and what it charges beyond the inputs. No fee at your own
  * facility and nothing at all at the workshop, so absent reads as 0. */
 export interface Venue {
@@ -67,7 +74,7 @@ export interface Venue {
  * itself the answer: the ore is in the wrong place. */
 export declare const recipesEffect: (search?: string) => Effect.Effect<Outcome<{
     recipes: Craftable[];
-}>, never, Game | import("../runtime.ts").Run>;
+}>, never, Game | Run>;
 export declare function recipes(search?: string): Promise<Outcome<{
     recipes: Craftable[];
 }>>;
@@ -108,7 +115,7 @@ export type Quoted = CraftQuoteResponse & Venue & {
  * `next` names the buy or the mining that would close the gap. */
 export declare const quoteEffect: (recipeId: string, quantity?: number, opts?: {
     at?: "workshop" | string;
-}) => Effect.Effect<Outcome<Quoted>, never, Game | import("../runtime.ts").Run>;
+}) => Effect.Effect<Outcome<Quoted>, never, Game | Run>;
 export declare function quote(recipeId: string, quantity?: number, opts?: {
     at?: 'workshop' | string;
 }): Promise<Outcome<Quoted>>;
@@ -150,7 +157,7 @@ export declare const supplyEffect: (recipeId: string, quantity?: number, opts?: 
     at?: "workshop" | string;
     maxSpend?: number;
     maxEach?: number;
-}) => Effect.Effect<Outcome<Supplied>, never, Game | import("../runtime.ts").Run>;
+}) => Effect.Effect<Outcome<Supplied>, never, Game | Run>;
 export declare function supply(recipeId: string, quantity?: number, opts?: {
     at?: 'workshop' | string;
     maxSpend?: number;
@@ -179,13 +186,18 @@ export interface Crafted extends Venue {
  * A commit whose reply is lost is never re-sent: the queue and the store are re-read, and a craft
  * that may have landed is `partial`, never claimed `done`.
  *
+ * Inputs short in the store pause the flight with `ask()` on the ways round it: `supply` them here (the bill named), or
+ * mine the ores under them at a belt known to give them and craft the steps up; `skip`, or `ask:false`, is the refusal.
+ *
  * At the workshop it trains crafting, and engineering for components and modules; a facility
  * trains nothing. */
 export declare const craftEffect: (recipeId: string, quantity?: number, opts?: {
-    at?: "workshop" | string;
-}) => Effect.Effect<Outcome<Crafted>, never, Game | import("../runtime.ts").Run>;
+    at?: 'workshop' | string;
+    ask?: boolean;
+}) => Effect.Effect<Outcome<Crafted>, never, Game | Run>;
 export declare function craft(recipeId: string, quantity?: number, opts?: {
     at?: 'workshop' | string;
+    ask?: boolean;
 }): Promise<Outcome<Crafted>>;
 /** A queued job as `jobs()` reports it. */
 export interface Queued {
@@ -206,7 +218,7 @@ export interface Queued {
  * ship is not docked there. Works undocked. Reads only. */
 export declare const jobsEffect: () => Effect.Effect<Outcome<{
     jobs: Queued[];
-}>, never, Game | import("../runtime.ts").Run>;
+}>, never, Game | Run>;
 export declare function jobs(): Promise<Outcome<{
     jobs: Queued[];
 }>>;

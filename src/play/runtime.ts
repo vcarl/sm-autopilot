@@ -136,6 +136,8 @@ export class Run extends Context.Service<Run,{
   readonly heard:Heard[];
   /** A stop withdrew a chat pause: the pilot call it paused inside throws `Stopped`, as a paused `ask()` does. */
   pauseStopped:boolean;
+  /** Each block `askOnBlock` asked about this flight, by its key, and the way the answer took. */
+  readonly answered:Map<string,string>;
 }>()('Run') {}
 type RunState=Context.Service.Shape<typeof Run>;
 type GameShape=Context.Service.Shape<typeof Game>;
@@ -176,7 +178,7 @@ function make(binding:Binding):Bound {
   const {account:live}=binding,once=binding.query?undefined:live.reconnectOnce?.bind(live);
   const run:RunState={binding,stopFlag:false,started:Date.now(),depth:0,wire:freshLedger(),last:{fn:'pilot'},
     mark:null,jobMark:null,calls:[],asking:null,lastMood:undefined,short:undefined,resupplying:false,strandedIn:undefined,resupplied:[],burning:false,burnFailed:false,unwatch:undefined,
-    interrupts:null,chats:[],heard:[],pauseStopped:false};
+    interrupts:null,chats:[],heard:[],pauseStopped:false,answered:new Map()};
   // Every landed reply that says what the stores hold is kept (world.ts): the one writer of the `stores` table.
   const send:ReadinessCommand=async(action,params)=>{
     const reply=await binding.command(action,params);
@@ -319,6 +321,44 @@ export function ask(asked:{question:string;choices?:string[]}):Promise<string> {
     run.binding.onAsk?.(question);
   });
 }
+
+/** One way round a block: `id` is what a repeat in this flight is matched on, `choice` what the pilot reads and answers. */
+export interface Way<D,E=never,R=never> {id:string;choice:string;take:Effect.Effect<Said<D>,E,R>}
+/** A base behavior blocked by a resource or by outdated data puts the ways round it to the pilot with `ask()`, where
+ * it would have refused: `blocked` is today's Said, and `skip` (or `keep`) hands it back unchanged. Asks only at the
+ * pilot's own call (depth 1), so the library's inner calls and every way taken on an answer refuse as they did; never
+ * in a query, never with nobody to answer, never with `ask:false` or no way open. One ask per `key` a flight: a
+ * repeat takes the way answered before. A stop while paused fails with `Stopped`. */
+export const askOnBlock=<D,E=never,R=never>(blocked:Said<D>,on:{key:string;question:string;ask?:boolean|undefined;skip?:'skip'|'keep'},
+  ways:readonly (Way<D,E,R>|undefined)[]):Effect.Effect<Said<D>,E|Stopped,R|Run>=>Effect.gen(function*() {
+  const run=yield* Run,open=ways.filter(way=>way!==undefined),skip=on.skip??'skip';
+  if(!open.length||!(yield* mayAsk(on.ask)))return blocked;
+  let id=run.answered.get(on.key);
+  if(id===undefined) {
+    const said=yield* Effect.promise(()=>ask({question:on.question,choices:[...open.map(way=>way.choice),skip]}).then(answer=>answer,(error:unknown)=>error));
+    if(said instanceof Stopped)return yield* Effect.fail(said);
+    if(typeof said!=='string')return blocked;
+    id=open.find(way=>way.choice===said)?.id??skip;
+    run.answered.set(on.key,id);
+  }
+  const way=open.find(row=>row.id===id);
+  return way?yield* way.take:blocked;
+});
+/** Whether a block may be asked about here (`askOnBlock`): the pilot's own call, in a flight someone answers, not
+ * opted out. A site whose ways cost a read asks this first. */
+export const mayAsk=(ask?:boolean)=>Effect.gen(function*() {const run=yield* Run;return ask!==false&&!run.binding.query&&!!run.binding.onAsk&&run.depth===1;});
+/** The calls an answer runs, as one Said: each only after the one before was `done`; the dids joined, the detail the
+ * last one's (`fallback` when it built none, or a step before it was not done). */
+export const chain=<D>(fallback:D,first:readonly Effect.Effect<Outcome<unknown>,never,Game|Run>[],last:Effect.Effect<Outcome<D>,never,Game|Run>)=>Effect.gen(function*() {
+  const did:string[]=[];
+  for(const call of first) {
+    const out=yield* call;
+    did.push(out.did);
+    if(out.status!=='done')return {status:out.status,did:did.join('; '),...out.why===undefined?{}:{why:out.why},detail:fallback,next:out.next};
+  }
+  const out=yield* last;
+  return {status:out.status,did:[...did,out.did].join('; '),...out.why===undefined?{}:{why:out.why},detail:reached(out)??fallback,next:out.next};
+});
 
 /** The chat posts that paused this flight, each with the answer you gave, oldest first. Each is
  * handed over once: a second call returns only what paused the flight since the first. */
