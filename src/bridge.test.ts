@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import {ConnectionClosedError,type Account} from '@spacemolt/lib';
+import {ConnectionClosedError,SpacemoltError,type Account} from '@spacemolt/lib';
 import test from 'node:test';
 import {spawnSync} from 'node:child_process';
 import {existsSync,mkdtempSync,readFileSync,writeFileSync} from 'node:fs';
@@ -49,7 +49,7 @@ test('menu answers with moves from the present, each a paste-able call, and the 
   assert.ok(Date.parse(menu.now),menu.now);
   const armed=bridgeWorld({wildlife:{creatures:[]}});
   const fitted=await serve(armed.account as unknown as Account,armed.command,{pilot:()=>PILOT})('menu') as any;
-  assert.deepEqual(fitted.present.weapons,[{id:'autocannon_i',loaded:500}]);
+  assert.deepEqual(fitted.present.weapons,[{id:'autocannon_i',loaded:500,hold:0}]);
   // A pilot with no stance gets the same menu: nothing about a missing stance is a state to leave.
   const blank=await fixture().dispatch('menu') as any;
   assert.equal(blank.stance,undefined);
@@ -57,7 +57,7 @@ test('menu answers with moves from the present, each a paste-able call, and the 
   assert.ok(blank.moves.some((move:any)=>move.call.startsWith('tradeRun(')),blank.text);
 });
 
-test('the menu derives the mood from the ship after its reads, writes nothing, and names the walk-away line', async () => {
+test('the menu derives the mood from the ship after its reads and writes nothing', async () => {
   const world=bridgeWorld();
   const writes:Pilot[]=[];
   // A record an older runner wrote, mood and all: the stored mood is ignored.
@@ -65,13 +65,49 @@ test('the menu derives the mood from the ship after its reads, writes nothing, a
     {pilot:()=>({...PILOT,mood:'Aggressive'} as Pilot),setPilot:next=>{writes.push(next);}});
   const menu=await serveIt()('menu') as any;
   assert.equal(menu.mood,'Focused','a Prospector flies Focused');
-  assert.equal(menu.present.walk_away,90,'0.90 of a 100 hull is the Focused line');
   world.account.server.ship.fuel=3;
   const tired=await serveIt()('menu') as any;
   assert.equal(tired.mood,'Tired');
   assert.match(tired.tired_by,/fuel 3 under the Focused reserve 24/);
-  assert.equal(tired.present.walk_away,90,'Tired does not move the line: it is the working mood\'s');
   assert.equal(writes.length,0,'building the menu wrote the record');
+});
+
+test('the menu names the danger line, the prey here with its record, and a low hold', async () => {
+  const veil=(id:string)=>({creature_id:id,species:'veil_ray',name:'Veil-Ray'});
+  const world=bridgeWorld({wildlife:{creatures:[veil('c1'),veil('c2')]}});
+  world.account.server.location.docked_at=null;
+  const menu=await serve(world.account as unknown as Account,world.command,{pilot:()=>PILOT})('menu') as any;
+  assert.equal(menu.present.danger_line,30,'0.30 of a 100 hull, whatever the mood');
+  assert.equal(menu.present.walk_away,undefined);
+  assert.deepEqual(menu.prey,[{name:'Veil-Ray',kind:'creature',count:2,record:'unknown: never fought'}]);
+  assert.ok(menu.present.weapons.every((w:any)=>typeof w.hold==='number'),JSON.stringify(menu.present.weapons));
+  // Review Focus 5: a refused get_nearby leaves prey out and the menu still answers.
+  const refuse=(name:string,params:Record<string,unknown>)=>{
+    if(name==='spacemolt/get_nearby')throw new Error('get_nearby refused');
+    return world.command(name,params);
+  };
+  const dir=mkdtempSync(join(tmpdir(),'spacemolt-bridge-'));
+  const blind=await serve(world.account as unknown as Account,refuse as typeof world.command,{pilot:()=>PILOT,runtime:dir})('menu') as any;
+  assert.equal(blind.prey,undefined);
+  const defects=readJournal(dir).filter(entry=>entry.event==='defect');
+  assert.equal(defects.length,1,'a bug in the prey read is journalled');
+  assert.equal(defects[0]?.fn,'preyHere');
+  assert.match(String(defects[0]?.why),/get_nearby refused/);
+  // A typed refusal is the game's answer: silent.
+  const said=mkdtempSync(join(tmpdir(),'spacemolt-bridge-'));
+  const typed=(name:string,params:Record<string,unknown>)=>{
+    if(name==='spacemolt/get_nearby')throw new SpacemoltError('not_here','refused');
+    return world.command(name,params);
+  };
+  const quiet=await serve(world.account as unknown as Account,typed as typeof world.command,{pilot:()=>PILOT,runtime:said})('menu') as any;
+  assert.equal(quiet.prey,undefined);
+  assert.equal(readJournal(said).filter(entry=>entry.event==='defect').length,0);
+  assert.equal(blind.present.danger_line,30);
+  assert.deepEqual(blind.present.weapons,menu.present.weapons,'no other block is lost');
+  // Docked: no look is taken at all.
+  world.account.server.location.docked_at='sol_base';
+  const docked=await serve(world.account as unknown as Account,world.command,{pilot:()=>PILOT})('menu') as any;
+  assert.equal(docked.prey,undefined);
 });
 
 test('the pilot request is the one writer of the record, and a null removes a field', async () => {

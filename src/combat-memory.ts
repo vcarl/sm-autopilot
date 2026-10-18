@@ -15,11 +15,15 @@
 import {mkdirSync,readFileSync,renameSync,writeFileSync} from 'node:fs';
 import {join} from 'node:path';
 import {Option,Schema} from 'effect';
+import {DANGER_LINE} from './mood-policy.ts';
 
 const MEMORY='combat.json';
-/** ponytail: the last 60 fights, whole. A night's hunting is twenty; sixty is three nights and
- * about 25 KB. Age out by tick instead the day a pilot fights more than that in a session. */
-export const CAP=60;
+/** ponytail: the last ten fights per opponent class, so a rare quarry is not pushed out by common
+ * ones. A record of ten is thin enough to stay recent and thick enough to show a worst case. */
+export const PER_CLASS=10;
+/** ponytail: an overall ceiling of 120 fights. Pirate names can be per-individual, so retention by class
+ * alone is unbounded; ~50 KB at this size. Age out by tick instead if a pilot outgrows it. */
+export const CAP=120;
 /** Fights below which every number here is an anecdote and the shape says so. */
 export const THIN=3;
 /** A battle tick is ten seconds of real time (`play/combat/hunting.ts`'s `pace`).
@@ -124,13 +128,15 @@ export function readCombat(dir:string|undefined):FightRecord[] {
 }
 
 /** Temp file then rename, as `remember()` and `writeAlerts` do: a torn write would price the
- * next fight on a lie. Newest first, oldest evicted past `CAP`. */
+ * next fight on a lie. Newest first, at most `PER_CLASS` per opponent, oldest evicted past `CAP`. */
 export function writeFight(dir:string,fight:FightRecord,replace=false):void {
   if(!dir||!fight.opponent)return;
   try {
     mkdirSync(dir,{recursive:true});
     // `replace`: a later write for the same battle (an arena match closed after its push) takes its record's place.
-    const kept=[fight,...readCombat(dir).filter(row=>!replace||row.battle_id!==fight.battle_id)].slice(0,CAP);
+    const seen=new Map<string,number>();
+    const kept=[fight,...readCombat(dir).filter(row=>!replace||row.battle_id!==fight.battle_id)]
+      .filter(row=>{const n=(seen.get(row.opponent)??0)+1;seen.set(row.opponent,n);return n<=PER_CLASS;}).slice(0,CAP);
     const path=join(dir,MEMORY),temp=`${path}.${process.pid}.tmp`;
     writeFileSync(temp,`${JSON.stringify({fights:kept})}\n`,{mode:0o600});
     renameSync(temp,path);
@@ -149,10 +155,10 @@ export interface CombatStats {
   /** Average damage per battle tick, ours out and theirs in. **Shield and hull together** —
    * `battle_damage` publishes `shield_hit` and `hull_hit` and this is their sum, which on the live
    * server is overwhelmingly shield. Read as hull it is wildly alarming: a 25-tick fight taking 39
-   * damage moved the hull 2 percentage points. Never compare it against the walk-away line. */
+   * damage moved the hull 2 percentage points. Never compare it against the danger line. */
   dealt_per_tick:number;taken_per_tick:number;
   /** Hull percentage points lost in an average fight with this opponent — the number the
-   * walk-away decision actually turns on, since the mood's line is a fraction of max hull.
+   * danger line decision turns on, since the line is a fraction of max hull.
    * `undefined` when no fight recorded a hull reading at both ends. */
   hull_pct_lost?:number;
   /** Measured accuracy by range band, 0..1, each with the shots it rests on. A band with no
@@ -199,7 +205,7 @@ export function statsFor(fights:FightRecord[],opponent:string,now=Date.now()):Co
   const won=mine.filter(row=>row.ending==='victory').length;
   // Hull cost per fight, from the fights that read the hull at both ends. Kept apart from the
   // damage totals because it is a different quantity in a different unit, and it is the one the
-  // pilot's walk-away line is expressed in.
+  // pilot's danger line is expressed in.
   const hulls=mine.flatMap(row=>row.hull_pct_from!==undefined&&row.hull_pct_to!==undefined?[Math.max(0,row.hull_pct_from-row.hull_pct_to)]:[]);
   return {opponent,fights:mine.length,won,
     ...hulls.length?{hull_pct_lost:Math.round(10*hulls.reduce((sum,one)=>sum+one,0)/hulls.length)/10}:{},
@@ -210,13 +216,42 @@ export function statsFor(fights:FightRecord[],opponent:string,now=Date.now()):Co
     accuracy,...mine.length>=THIN?{win_chance:won/mine.length}:{},thin:mine.length<THIN};
 }
 
+export interface RecentRecord {opponent:string;fights:number;won:number;stalemate:number;lost:number;avg_hull_lost?:number|undefined;worst_hull_lost?:number|undefined;thin:boolean}
+
+/** The last `PER_CLASS` fights against `opponent` (`fights` is newest first, as `readCombat` returns it), or
+ * undefined when never met. Arena fights count like any other: a duel costs the same hull. `lost` is defeat
+ * or mutual destruction, `won` a victory, anything else a stalemate. */
+export function recentRecord(fights:FightRecord[],opponent:string):RecentRecord|undefined {
+  const mine=fights.filter(row=>row.opponent===opponent).slice(0,PER_CLASS);
+  if(!mine.length)return undefined;
+  const count=(pick:(ending:string)=>boolean)=>mine.filter(row=>pick(row.ending)).length;
+  const won=count(e=>e==='victory'),lost=count(e=>e==='defeat'||e==='mutual_destruction');
+  const hulls=mine.flatMap(row=>row.hull_pct_from!==undefined&&row.hull_pct_to!==undefined?[Math.max(0,row.hull_pct_from-row.hull_pct_to)]:[]);
+  return {opponent,fights:mine.length,won,stalemate:mine.length-won-lost,lost,
+    ...hulls.length?{avg_hull_lost:Math.round(10*hulls.reduce((sum,one)=>sum+one,0)/hulls.length)/10,worst_hull_lost:Math.max(...hulls)}:{},
+    thin:mine.length<THIN};
+}
+
+/** Whether our hull, less the worst loss on record, stays above the danger line; undefined when no loss was read. */
+export const covers=(rec:RecentRecord|undefined,ship:{hull:number;max_hull:number}):boolean|undefined=>
+  rec?.worst_hull_lost===undefined?undefined:100*ship.hull/ship.max_hull-rec.worst_hull_lost>100*DANGER_LINE;
+
+/** The recent record as one juncture clause. */
+export function recordLine(rec:RecentRecord|undefined,covered:boolean|undefined):string {
+  if(!rec)return 'unknown: never fought';
+  return [`${rec.won} won, ${rec.stalemate} stalemate, ${rec.lost} lost (last ${rec.fights})`,
+    rec.worst_hull_lost===undefined?'hull loss unread':`hull lost avg ${rec.avg_hull_lost}, worst ${rec.worst_hull_lost} pts`,
+    ...covered===undefined?[]:[covered?'covers':'does NOT cover: the worst would take the hull under the danger line'],
+    ...rec.thin?['thin sample']:[]].join('; ');
+}
+
 /** One terse line for a juncture, where the choice to engage is actually made. It is prompt
  * budget, so: the record, what a fight costs the hull, the damage race, their accuracy by band,
  * and the age. A thin sample says "1 fight" rather than "0%", because that is what it is.
  *
  * Every number here names its unit. The damage figures say `shield+hull` because that is what
  * they sum, and the hull figure is given separately in percentage points — a pilot that read the
- * damage total as hull would break off many times too early, and the walk-away line it is
+ * damage total as hull would break off many times too early, and the danger line it is
  * deciding against is measured in hull. */
 export function combatLine(stats:CombatStats):string {
   const bands=Object.entries(stats.accuracy)

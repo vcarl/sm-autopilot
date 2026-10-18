@@ -7,7 +7,7 @@ import {join} from 'node:path';
 import test from 'node:test';
 import {pendingAlerts} from './alerts.ts';
 import {pushJournal} from './bridge.ts';
-import {CAP,ROW_CAP,THIN,TICK_MS,combatLine,foldArenaEnded,foldBattleDamage,foldBattleEnded,foldBattleUpdate,readCombat,resetCombatFold,statsFor,writeFight,
+import {CAP,PER_CLASS,ROW_CAP,THIN,TICK_MS,combatLine,foldArenaEnded,foldBattleDamage,foldBattleEnded,foldBattleUpdate,covers,readCombat,recentRecord,recordLine,resetCombatFold,statsFor,writeFight,
   type FightRecord} from './combat-memory.ts';
 import {readJournal} from './run-record.ts';
 
@@ -332,4 +332,41 @@ test('an arena match closes its open fold into combat.json, marked with the chal
     assert.equal(readCombat(dir).filter(row=>row.battle_id==='arena-1').length,1);
     assert.equal(readCombat(dir)[0]!.rows?.length,2,'the per-tick rows survive the re-mark');
   } finally {resetCombatFold();rmSync(dir,{recursive:true,force:true});}
+});
+
+test('the combat store keeps the last ten fights per opponent, so a rare one is not pushed out by common quarry',()=>{
+  const runtime=temp(),now=Date.parse('2026-10-17T12:00:00.000Z');
+  const rec=(opponent:string,n:number):FightRecord=>({opponent,ticks:1,by_range:{},dealt:1,taken:1,stances:['fire'],flee_ticks:0,ending:'victory',at:new Date(now+n).toISOString()});
+  writeFight(runtime,rec('Slag-Tortoise',0));
+  for(let n=1;n<=70;n++)writeFight(runtime,rec('Veil-Ray',n));
+  const kept=readCombat(runtime);
+  assert.equal(kept.filter(row=>row.opponent==='Veil-Ray').length,PER_CLASS);
+  assert.equal(kept.filter(row=>row.opponent==='Slag-Tortoise').length,1,'the rare class keeps its record');
+});
+
+test('a recent record counts endings, averages and worst hull lost, and says whether the worst is covered',()=>{
+  const at='2026-10-17T12:00:00.000Z';
+  const f=(ending:string,from?:number,to?:number):FightRecord=>({opponent:'Veil-Ray',ticks:5,by_range:{},dealt:1,taken:1,stances:[],flee_ticks:0,ending,at,
+    ...from===undefined?{}:{hull_pct_from:from},...to===undefined?{}:{hull_pct_to:to}});
+  const fights=[f('victory',100,96),f('stalemate',100,100),f('defeat',90,20),f('mutual_destruction',50,0),f('victory')];
+  const rec=recentRecord(fights,'Veil-Ray')!;
+  assert.deepEqual([rec.fights,rec.won,rec.stalemate,rec.lost],[5,2,1,2]);
+  assert.equal(rec.worst_hull_lost,70);
+  assert.equal(rec.avg_hull_lost,31,'(4+0+70+50)/4: the four fights that read the hull at both ends');
+  assert.equal(rec.thin,false);
+  assert.equal(covers(rec,{hull:80,max_hull:80}),false,'100% less 70 is 30, not above the line');
+  assert.equal(covers(rec,{hull:81,max_hull:80}),true);
+  assert.equal(recentRecord(fights,'Quantum-Moth'),undefined);
+  assert.equal(covers(undefined,{hull:80,max_hull:80}),undefined);
+  assert.equal(recentRecord(fights.slice(0,2),'Veil-Ray')!.thin,true,'under THIN fights');
+  // The window is the last PER_CLASS fights, newest first, as readCombat returns them.
+  assert.equal(recentRecord([...Array(12)].map(()=>f('victory',100,99)),'Veil-Ray')!.fights,PER_CLASS);
+});
+
+test('the record line says unknown for a class never fought, and names an unread hull loss',()=>{
+  assert.equal(recordLine(undefined,undefined),'unknown: never fought');
+  const rec={opponent:'Veil-Ray',fights:10,won:8,stalemate:2,lost:0,avg_hull_lost:1.2,worst_hull_lost:11,thin:false};
+  assert.equal(recordLine(rec,true),'8 won, 2 stalemate, 0 lost (last 10); hull lost avg 1.2, worst 11 pts; covers');
+  assert.equal(recordLine({...rec,worst_hull_lost:undefined,avg_hull_lost:undefined},undefined),'8 won, 2 stalemate, 0 lost (last 10); hull loss unread');
+  assert.match(recordLine({...rec,fights:2,won:2,stalemate:0,thin:true},false),/\(last 2\).*; does NOT cover: the worst would take the hull under the danger line; thin sample$/);
 });

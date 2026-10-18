@@ -1,7 +1,10 @@
 import { Schema } from 'effect';
-/** ponytail: the last 60 fights, whole. A night's hunting is twenty; sixty is three nights and
- * about 25 KB. Age out by tick instead the day a pilot fights more than that in a session. */
-export declare const CAP = 60;
+/** ponytail: the last ten fights per opponent class, so a rare quarry is not pushed out by common
+ * ones. A record of ten is thin enough to stay recent and thick enough to show a worst case. */
+export declare const PER_CLASS = 10;
+/** ponytail: an overall ceiling of 120 fights. Pirate names can be per-individual, so retention by class
+ * alone is unbounded; ~50 KB at this size. Age out by tick instead if a pilot outgrows it. */
+export declare const CAP = 120;
 /** Fights below which every number here is an anecdote and the shape says so. */
 export declare const THIN = 3;
 /** A battle tick is ten seconds of real time (`play/combat/hunting.ts`'s `pace`).
@@ -102,7 +105,7 @@ export type FightRecord = typeof FightRecord.Type;
 /** Whatever is on disk, newest fight first, or nothing: a torn or absent file is no memory. */
 export declare function readCombat(dir: string | undefined): FightRecord[];
 /** Temp file then rename, as `remember()` and `writeAlerts` do: a torn write would price the
- * next fight on a lie. Newest first, oldest evicted past `CAP`. */
+ * next fight on a lie. Newest first, at most `PER_CLASS` per opponent, oldest evicted past `CAP`. */
 export declare function writeFight(dir: string, fight: FightRecord, replace?: boolean): void;
 /** The three metrics the record exists to answer, for one opponent. Every number carries the
  * sample it rests on, because an estimate from one fight is an anecdote and must read as one. */
@@ -118,11 +121,11 @@ export interface CombatStats {
     /** Average damage per battle tick, ours out and theirs in. **Shield and hull together** —
      * `battle_damage` publishes `shield_hit` and `hull_hit` and this is their sum, which on the live
      * server is overwhelmingly shield. Read as hull it is wildly alarming: a 25-tick fight taking 39
-     * damage moved the hull 2 percentage points. Never compare it against the walk-away line. */
+     * damage moved the hull 2 percentage points. Never compare it against the danger line. */
     dealt_per_tick: number;
     taken_per_tick: number;
     /** Hull percentage points lost in an average fight with this opponent — the number the
-     * walk-away decision actually turns on, since the mood's line is a fraction of max hull.
+     * danger line decision turns on, since the line is a fraction of max hull.
      * `undefined` when no fight recorded a hull reading at both ends. */
     hull_pct_lost?: number;
     /** Measured accuracy by range band, 0..1, each with the shots it rests on. A band with no
@@ -145,13 +148,34 @@ export interface CombatStats {
 export declare const fightTicksOld: (at: string, now: number) => number;
 /** What memory knows about fighting this opponent, or undefined when it has never met one. */
 export declare function statsFor(fights: FightRecord[], opponent: string, now?: number): CombatStats | undefined;
+export interface RecentRecord {
+    opponent: string;
+    fights: number;
+    won: number;
+    stalemate: number;
+    lost: number;
+    avg_hull_lost?: number | undefined;
+    worst_hull_lost?: number | undefined;
+    thin: boolean;
+}
+/** The last `PER_CLASS` fights against `opponent` (`fights` is newest first, as `readCombat` returns it), or
+ * undefined when never met. Arena fights count like any other: a duel costs the same hull. `lost` is defeat
+ * or mutual destruction, `won` a victory, anything else a stalemate. */
+export declare function recentRecord(fights: FightRecord[], opponent: string): RecentRecord | undefined;
+/** Whether our hull, less the worst loss on record, stays above the danger line; undefined when no loss was read. */
+export declare const covers: (rec: RecentRecord | undefined, ship: {
+    hull: number;
+    max_hull: number;
+}) => boolean | undefined;
+/** The recent record as one juncture clause. */
+export declare function recordLine(rec: RecentRecord | undefined, covered: boolean | undefined): string;
 /** One terse line for a juncture, where the choice to engage is actually made. It is prompt
  * budget, so: the record, what a fight costs the hull, the damage race, their accuracy by band,
  * and the age. A thin sample says "1 fight" rather than "0%", because that is what it is.
  *
  * Every number here names its unit. The damage figures say `shield+hull` because that is what
  * they sum, and the hull figure is given separately in percentage points — a pilot that read the
- * damage total as hull would break off many times too early, and the walk-away line it is
+ * damage total as hull would break off many times too early, and the danger line it is
  * deciding against is measured in hull. */
 export declare function combatLine(stats: CombatStats): string;
 /** `battle_update`: the tick, the band, the stance in force, and who is on the other side. `me` is

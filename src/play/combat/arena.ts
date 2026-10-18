@@ -36,11 +36,11 @@ const statusEffect=()=>Effect.gen(function*() {
 });
 const scoreOf=(status:unknown)=>({wins:num(field(status,'arena_wins')),losses:num(field(status,'arena_losses'))});
 
-/** The loop at floor 0 (fleeing forfeits, and the match costs nothing to lose), then the score. The record is read
+/** The loop with loss not fatal (fleeing forfeits, and the match costs nothing to lose), then the score. The record is read
  * again one tick later when it has not moved, in case the server books the result a tick behind the battle's end. */
 const fightTo=(head:{challenge_id:string;name:string;objective?:ArenaObjective;boss?:string},before:{wins:number;losses:number})=>Effect.gen(function*() {
   const deadline=num(head.objective?.survive_ticks)||num(head.objective?.time_limit_ticks);
-  const battle=yield* battleEffect({floor:0,...head.boss?{boss:head.boss}:{},
+  const battle=yield* battleEffect({lossFatal:false,...head.boss?{boss:head.boss}:{},
     ceilingMs:Math.max(FIGHT_CEILING_MS,2*deadline*pace.tickMs)});
   let after=scoreOf(yield* statusEffect());
   if(after.wins===before.wins&&after.losses===before.losses&&battle.outcome==='ended') {
@@ -63,8 +63,8 @@ const fightTo=(head:{challenge_id:string;name:string;objective?:ArenaObjective;b
  * unlocked one held here that is not yet won, else the first unlocked one here. A match already holding the ship is
  * fought as it stands. The rules it can check before spending the call are checked — ship tier against
  * `max_ship_tier`/`min_ship_tier` — and a ship that breaks one is `refused` naming the rule, as the server would; an
- * empty magazine is reloaded from the hold first. Then `fight`, and `fightBattle`'s loop at floor 0: no walk-away line,
- * no flee, because fleeing forfeits and nothing is lost by losing. The result is the `arena.status` record before
+ * empty magazine is reloaded from the hold first. Then `fight`, and `fightBattle`'s loop with loss not fatal: no danger
+ * line, no flee, because fleeing forfeits and nothing is lost by losing. The result is the `arena.status` record before
  * against after. */
 export function arena(opts:{challenge?:string}={}):Promise<Outcome<ArenaMatch>> {return edge(arenaEffect(opts));}
 
@@ -124,7 +124,7 @@ export const arenaEffect=(opts:{challenge?:string}={})=>jobEffect<ArenaMatch>('a
 /** Challenge a player to a duel and fight it if they accept. `challenge` then `arena.status` once a tick for up to
  * `waitMs` (default two minutes): a `battle_id` there is the accept; the outgoing challenge gone without one is a
  * decline or a lapse. Not accepted in time, the challenge is withdrawn (`cancel`) and the outcome is `partial`. Then the
- * same loop as `arena()`: floor 0, no flee. */
+ * same loop as `arena()`: loss not fatal, no flee. */
 export function duel(opts:{player:string;max_side_size?:number;waitMs?:number}):Promise<Outcome<ArenaMatch>> {
   return edge(jobEffect<ArenaMatch>('duel',opts.player,Effect.gen(function*() {
     const game=yield* Game;

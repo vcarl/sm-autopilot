@@ -24,13 +24,14 @@ const stances=(f:ReturnType<typeof world>)=>f.sent.filter(call=>call.action==='s
 
 // Live (kvothe, programs/17cc87c935f3.ts): the pilot's loop advanced on OUR row's zone_distance, stopped at 2 while the
 // Ring Levy held 3 against a reach of 2, and dealt nothing — enemy shield 14→100, its hull 98%.
-test('fightBattle measures range from the opponent\'s row, not ours, and stops advancing once in reach',async()=>{
-  const f=world({arena:{challenges:[{challenge_id:'first_blood'}],enemies:[{id:'npc-1',name:'Ring Levy',distance:3}],ourDistance:2,polls:8}});
+// The fake reports every distance up to 2 as mid, so with nothing measured the close aims at inner and runs to `holds`.
+test('fightBattle measures range from the opponent\'s row, not ours, and stops advancing once the range stops closing',async()=>{
+  const f=world({arena:{challenges:[{challenge_id:'first_blood'}],enemies:[{id:'npc-1',name:'Ring Levy',distance:3,holds:1}],ourDistance:2,polls:8}});
   try {
     await f.command('spacemolt_arena/fight',{id:'first_blood'});
-    const out=await fightBattle({floor:0});
+    const out=await fightBattle({lossFatal:false});
     assert.equal(out.status,'done',out.why);
-    assert.equal(f.count('spacemolt_battle/advance'),1,'one advance closes 3 to 2, and none after');
+    assert.equal(f.count('spacemolt_battle/advance'),3,'3→2 and 2→1 close; the third reads 1 again, and none after');
     assert.equal(f.count('spacemolt/attack'),0,'a battle already under way is not opened with an attack');
     assert.match(f.lines.join('\n'),/vs Ring Levy: .* 3\/2 — OUT OF REACH/);
     assert.equal(out.detail.dealt! > 0,true,'in reach, it dealt damage');
@@ -43,10 +44,27 @@ test('fightBattle reloads an empty weapon from the hold, once',async()=>{
     wildlife:{weapon:{ammo_type:'autocannon',current_ammo:0}},arena:{challenges:[{challenge_id:'first_blood'}],polls:6}});
   try {
     await f.command('spacemolt_arena/fight',{id:'first_blood'});
-    await fightBattle({floor:0});
+    await fightBattle({lossFatal:false});
     assert.equal(f.count('spacemolt_battle/reload'),1);
     assert.deepEqual(f.sent.find(call=>call.action==='spacemolt_battle/reload')?.params,{id:'w1'});
     assert.equal(f.account.server.modules[0]!.current_ammo,50);
+  } finally {unbind();}
+});
+
+test('fightBattle tops up a magazine under a quarter in a lull, and leaves one with no magazine_size alone',async()=>{
+  const f=world({cargo:[{item_id:'autocannon',quantity:3}],cargoUsed:3,
+    wildlife:{weapon:{ammo_type:'autocannon',current_ammo:10,magazine_size:50}},arena:{challenges:[{challenge_id:'first_blood'}],enemies:[{id:'npc-1',name:'Ring Levy',distance:2,hull:300}],polls:14}});
+  try {
+    await f.command('spacemolt_arena/fight',{id:'first_blood'});
+    await fightBattle({lossFatal:false});
+    assert.equal(f.count('spacemolt_battle/reload'),1);
+  } finally {unbind();}
+  const bare=world({cargo:[{item_id:'autocannon',quantity:3}],cargoUsed:3,
+    wildlife:{weapon:{ammo_type:'autocannon',current_ammo:10}},arena:{challenges:[{challenge_id:'first_blood'}],enemies:[{id:'npc-1',name:'Ring Levy',distance:2,hull:300}],polls:14}});
+  try {
+    await bare.command('spacemolt_arena/fight',{id:'first_blood'});
+    await fightBattle({lossFatal:false});
+    assert.equal(bare.count('spacemolt_battle/reload'),0);
   } finally {unbind();}
 });
 
@@ -55,7 +73,7 @@ test('fightBattle sends at most one command between status reads, and none spams
   const f=world({arena:{challenges:[{challenge_id:'first_blood'}],enemies:[{id:'npc-1',name:'Ring Levy',distance:4}],polls:10}});
   try {
     await f.command('spacemolt_arena/fight',{id:'first_blood'});
-    await fightBattle({floor:0});
+    await fightBattle({lossFatal:false});
     let since=0;
     for(const call of f.sent.slice(1)) {
       if(call.action==='spacemolt_battle/status')since=0;
@@ -68,16 +86,17 @@ test('an opponent holding out of reach while it hits us is met with evade, and f
   const f=world({arena:{challenges:[{challenge_id:'first_blood'}],enemies:[{id:'npc-1',name:'Ring Levy',distance:3,holds:3}],damage:1,polls:8}});
   try {
     await f.command('spacemolt_arena/fight',{id:'first_blood'});
-    await fightBattle({floor:0});
-    assert.deepEqual(stances(f),['fire','evade'],'it stays evading while the range stands still');
+    await fightBattle({lossFatal:false});
+    // A match opens under `fire` on our row, so it is not re-sent.
+    assert.deepEqual(stances(f),['evade'],'it stays evading while the range stands still');
     assert.match(f.lines.join('\n'),/stance evade: Ring Levy has held 3 against our reach 2/);
   } finally {unbind();}
   const g=world({arena:{challenges:[{challenge_id:'first_blood'}],enemies:[{id:'npc-1',name:'Ring Levy',distance:4,holds:2}],damage:1,polls:10}});
   try {
     await g.command('spacemolt_arena/fight',{id:'first_blood'});
-    await fightBattle({floor:0});
-    // 4 out of reach while hit: fire, focus, evade at 4, then the advance moves it to 3 and fire returns.
-    assert.deepEqual(stances(g).slice(0,3),['fire','evade','fire']);
+    await fightBattle({lossFatal:false});
+    // 4 out of reach while hit: focus, evade at 4, then the advance moves it to 3 and fire returns.
+    assert.deepEqual(stances(g).slice(0,2),['evade','fire']);
   } finally {unbind();}
 });
 
@@ -102,10 +121,10 @@ test('arena() refuses a hull above the challenge\'s tier rule, naming it, and ne
   } finally {unbind();}
 });
 
-// 11 of 13 live matches were forfeited by a flee. A Focused walk-away line (90 of 100) is crossed here on the first
-// round; the arena fights through it, because losing costs nothing and fleeing forfeits.
-test('arena() fights to the end through the walk-away line, never flees, and scores the match from the record',async()=>{
-  const f=world({arena:{challenges:[{challenge_id:'first_blood'}],damage:10,polls:8,record:{wins:2,losses:5}}});
+// 11 of 13 live matches were forfeited by a flee. The danger line (30 of 100) is crossed here on the fourth round,
+// 96 less 20 a round; the arena fights through it, because losing costs nothing and fleeing forfeits.
+test('arena() fights to the end through the danger line, never flees, and scores the match from the record',async()=>{
+  const f=world({arena:{challenges:[{challenge_id:'first_blood'}],damage:20,polls:8,record:{wins:2,losses:5}}});
   try {
     const out=await arena();
     assert.equal(out.status,'done',out.why);
@@ -113,7 +132,7 @@ test('arena() fights to the end through the walk-away line, never flees, and sco
     assert.equal(out.detail.result,'win');
     assert.deepEqual(out.detail.record,{before:{wins:2,losses:5},after:{wins:3,losses:5}});
     assert.ok(out.detail.battle.dealt!>0&&out.detail.battle.taken!>0,JSON.stringify(out.detail.battle));
-    assert.ok(f.account.server.ship.hull<90,'it fought under the line');
+    assert.ok(f.account.server.ship.hull<30,'it fought under the danger line');
   } finally {unbind();}
   const g=world({arena:{challenges:[{challenge_id:'first_blood'}],enemies:[{id:'npc-1',name:'Ring Levy',distance:3,holds:3}],polls:4}});
   try {

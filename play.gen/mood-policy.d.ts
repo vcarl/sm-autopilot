@@ -37,4 +37,9 @@ export declare function moodNow(working: Mood, ship: {
     mood: Mood;
     tired_by?: string;
 };
+/** The hull fraction below which a fight is no longer worth finishing.
+ * ponytail: one global fraction; per-hull or per-opponent lines when a class proves it needs its own. */
+export declare const DANGER_LINE = 0.3;
+/** The danger line in hull points for a ship of `max_hull`: 80 → 24, 100 → 30. */
+export declare const dangerLine: (max_hull: number) => number;
 export {};

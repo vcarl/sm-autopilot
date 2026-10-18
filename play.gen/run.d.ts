@@ -2,7 +2,7 @@ import { type Binding } from './play/runtime.ts';
 import type { Outcome } from './play/types.ts';
 /** How long a stopped script has to honour the stop before it is left behind. */
 export declare const STOP_GRACE_MS: number;
-/** What breaking off a fight at the flight's end may take. */
+/** What fighting a battle still live at the flight's end may take. */
 export declare const CLOSE_MS: number;
 /** The pilot's directory, ready to typecheck and run: `pilot/index.ts` (from the example on
  * first use), `node_modules/play` and `node_modules/@spacemolt` linked so the bare specifiers
@@ -31,7 +31,7 @@ export interface RunDeps extends Omit<Binding, 'runtime'> {
     runtime: string;
     /** How long a stopped script has to honour the stop (`STOP_GRACE_MS`); tests shorten it. */
     graceMs?: number;
-    /** The break-off allowance at the flight's end (`CLOSE_MS`); tests shorten it. */
+    /** The allowance for a battle still live at the flight's end (`CLOSE_MS`); tests shorten it. */
     closeMs?: number;
     /** The juncture that asked for this run (`runtime/juncture.json` as the Python handler read it). */
     juncture?: {

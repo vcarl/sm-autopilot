@@ -20,7 +20,7 @@ import {checkTree,specifiers} from './play/boundary.ts';
 import {checkPolicy} from './play/policy.ts';
 import {ofTheRun,prose} from './play/prose.ts';
 import {runSummary} from './play/menu.ts';
-import {disengage,FIGHT_CEILING_MS} from './play/combat/hunting.ts';
+import {battleEffect,FIGHT_CEILING_MS,type Battled} from './play/combat/hunting.ts';
 import {battleAtCloseEffect} from './travel.ts';
 import {bind,defect,edge,InterruptsRead,line,listen,outcome as build,progress,reached,runCalls,stateSnapshot,stop,stopped,Stopped,stopWhy,unbind,type Binding,type Interrupts} from './play/runtime.ts';
 import {Game,field,rawError} from './play/game.ts';
@@ -42,7 +42,7 @@ const CODE_SHA=(()=>{try {return execFileSync('git',['rev-parse','HEAD'],{cwd:PL
 
 /** How long a stopped script has to honour the stop before it is left behind. */
 export const STOP_GRACE_MS=2*60_000;
-/** What breaking off a fight at the flight's end may take. */
+/** What fighting a battle still live at the flight's end may take. */
 export const CLOSE_MS=2*60_000;
 
 /** The pilot's directory, ready to typecheck and run: `pilot/index.ts` (from the example on
@@ -160,7 +160,7 @@ export interface RunDeps extends Omit<Binding,'runtime'> {
   runtime:string;
   /** How long a stopped script has to honour the stop (`STOP_GRACE_MS`); tests shorten it. */
   graceMs?:number;
-  /** The break-off allowance at the flight's end (`CLOSE_MS`); tests shorten it. */
+  /** The allowance for a battle still live at the flight's end (`CLOSE_MS`); tests shorten it. */
   closeMs?:number;
   /** The juncture that asked for this run (`runtime/juncture.json` as the Python handler read it). */
   juncture?:{readonly juncture_id?:string|null;readonly at?:string|null};
@@ -200,21 +200,20 @@ export function keepProgram(runtime:string,entry:string,sha:string):void {
 
 /** A battle still running when the script returns is unattended combat. The pilot is blind
  * between runs — the 2026-09-25 22:20 death happened in four minutes of dead air *after* the
- * script came back — so a run may not hand control over with a fight on. It breaks the fight
- * off while it still has the runtime bound, and when even that cannot end it, the run says so
+ * script came back — so a run may not hand control over with a fight on. It fights the battle
+ * out while it still has the runtime bound, and when even that cannot end it, the run says so
  * where nothing reading its report can miss it: the ship will not travel, jump or undock until
  * the battle ends, whatever the next juncture decides to do.
  *
  * Null when no battle held the ship, which is the ordinary case and costs one read. A refused read is
  * "no battle"; a lost one is re-read and, still lost, is not taken as "no battle" (U21's rule,
- * `battleAtCloseEffect`): the run breaks off anyway, and `disengage`'s own reads decide. A defect in the
+ * `battleAtCloseEffect`): the loop runs anyway, and its own reads decide. A defect in the
  * read is a bug, journalled as one, and is still not allowed to skip the report or Tired's resupply.
  *
- * **An arena match is left to finish.** Fleeing forfeits it, and it costs nothing to lose (ship and crew restored):
- * live 2026-10-09..13 (kvothe), 11 of 13 arena matches were lost to this very break-off, on programs that had returned
- * mid-match. The battle status carries no arena flag; `arena.status.battle_id` ("the arena battle you are fighting
- * in") is the signal. A refused or lost read of it is no arena, and the break-off stands. */
-async function closeBattle(answerBy:number):Promise<{opponent:string;ended:boolean;arena?:string}|null> {
+ * **The battle is fought, not fled** (the battle loop, under the danger line). Live 2026-10-09..13 (kvothe), 11 of 13
+ * arena matches were forfeited by the old break-off here. The arena carve-out is now just "loss not fatal": the battle
+ * status carries no arena flag; `arena.status.battle_id` is the signal, and a refused or lost read of it is no arena. */
+async function closeBattle(answerBy:number):Promise<{opponent:string;ended:boolean;arena?:string;brokeOff?:boolean}|null> {
   // A bound reached is the battle reported still live.
   const bound=()=>Math.min(FIGHT_CEILING_MS,Math.max(0,answerBy-Date.now()));
   const read=await edge(Effect.gen(function*() {
@@ -231,18 +230,22 @@ async function closeBattle(answerBy:number):Promise<{opponent:string;ended:boole
     const id=Result.isSuccess(sent)?field(replyBody(sent.success),'battle_id'):undefined;
     return build('read the arena','done',{battle_id:typeof id==='string'?id:''});
   })))?.battle_id;
-  if(arena) {
-    const opponent=fight==='unknown'?'an arena opponent':fight.opponent;
-    line(`the flight returned mid-match in the arena (${arena}) against ${opponent}: left to finish, because fleeing forfeits an arena match`);
-    return {opponent,ended:false,arena};
-  }
-  if(fight==='unknown') {
-    line("the battle's status was lost three times at the flight's end: breaking off in case a fight is live");
-    // `disengage` is an edge: a bug in it is a `defect` line and `false`, never a throw.
-    return await disengage(bound())?null:{opponent:'an opponent the lost status never named',ended:false};
-  }
-  line(`the flight returned with a battle still live against ${fight.opponent}: breaking off before handing back`);
-  return {opponent:fight.opponent,ended:await disengage(bound())};
+  const opponent=fight==='unknown'?(arena?'an arena opponent':'an opponent the lost status never named'):fight.opponent;
+  const lossFatal=!arena;
+  line(`the flight returned with a battle still live against ${opponent}: fighting it under the danger line${arena?' (an arena match: losing is not fatal)':''}`);
+  // ponytail: half the close's bound fights, the rest flees for a fatal one; a longer fight needs its own bound. An arena
+  // match never flees, so it fights the whole bound.
+  const battled=reached(await edge(Effect.gen(function*() {
+    const done=yield* Effect.exit(battleEffect({lossFatal,ceilingMs:arena?bound():Math.floor(bound()/2),boundMs:bound()}));
+    if(Exit.isSuccess(done))return build<{battled?:Battled}>('fight the battle','done',{battled:done.value});
+    // A refusal is the game's answer, not a bug; only a die cause is a defect.
+    if(Cause.hasDies(done.cause))defect('closeBattle',done.cause);
+    line(`fighting the battle ${Cause.hasDies(done.cause)?'threw':'was refused'}: ${Cause.pretty(done.cause)}`);
+    return build<{battled?:Battled}>('fight the battle','failed',{});
+  })))?.battled;
+  // The loop's own read found no battle (a lost status that hid none): nothing was held.
+  if(fight==='unknown'&&battled?.outcome==='ended'&&battled.polls===0)return null;
+  return {opponent,ended:battled?.outcome!==undefined&&battled.outcome!=='unresolved',...arena?{arena}:{},...battled?.outcome==='broke off'?{brokeOff:true}:{}};
 }
 
 const STATUSES=['done','partial','refused','failed'] as const;
@@ -377,10 +380,14 @@ export async function runPilot(deps:RunDeps):Promise<RunResult> {
   const held=await closeBattle(Date.now()+(deps.closeMs??CLOSE_MS));
   if(held) {
     const why=held.arena
-      ?`the flight ended mid-match in the arena against ${held.opponent}; left to finish rather than fled, because fleeing forfeits it — the ship stays in the battle until it resolves`
+      ?held.ended
+        ?`the flight ended mid-match in the arena against ${held.opponent}; the runtime fought it to its end before the flight closed`
+        :`the flight ended mid-match in the arena against ${held.opponent}; fought to the close's bound and left to finish, because fleeing forfeits it — the ship stays in the battle until it resolves`
+      :held.brokeOff
+        ?`the flight ended mid-battle against ${held.opponent}; the runtime broke it off under the danger line before the flight closed`
       :held.ended
-      ?`the flight ended mid-battle against ${held.opponent}; it was broken off before the flight closed`
-      :`the flight ended mid-fight against ${held.opponent} and could not break off; the battle is still live`;
+        ?`the flight ended mid-battle against ${held.opponent}; the runtime fought it to its end before the flight closed`
+        :`the flight ended mid-fight against ${held.opponent} and the battle is still live at the close's bound`;
     line(why);
     result={...result,...held.ended?{}:{status:'partial'},why:result.why?`${why}; ${result.why}`:why};
   }

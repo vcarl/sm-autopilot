@@ -10,13 +10,13 @@ import {createInterface} from 'node:readline';
 import {fileURLToPath} from 'node:url';
 import {markAlertsDelivered,pendingAlerts,recordAlert} from './alerts.ts';
 import {chatJournal,noteUnread} from './chat.ts';
-import {foldBattleDamage,foldBattleEnded,foldBattleUpdate} from './combat-memory.ts';
+import {covers,foldBattleDamage,foldBattleEnded,foldBattleUpdate,readCombat,recentRecord,recordLine} from './combat-memory.ts';
 import {battleEnded,battleNowEffect,battleStirred} from './travel.ts';
 import {flushFrames,frameTap} from './frames.ts';
 import {controllerLock} from './controller-lock.ts';
 import {GAME_WS_URL,readCredentials} from './credentials.ts';
 import type {ReadinessAccount,ReadinessCommand} from './readiness.ts';
-import {moodNow,resolveWalkAway} from './mood-policy.ts';
+import {dangerLine,moodNow} from './mood-policy.ts';
 import {STANCES,stanceMood} from './rules-table.ts';
 import {bootJournal,journalCommand,journalConnection,journalRun,readRun} from './run-record.ts';
 import {startHeartbeat} from './heartbeat.ts';
@@ -26,6 +26,7 @@ import {check as checkPilot,runPilot as defaultRunPilot,type RunResult} from './
 import {runQuery} from './query.ts';
 import {recordMenu,renderContext} from './context.ts';
 import {menuEffect,renderMenu,threatsHere} from './play/menu.ts';
+import {ammoReport,preyHereEffect} from './play/combat/hunting.ts';
 import {fleetBrief,resumeFreighters,stopFreighters} from './play/freighter/host.ts';
 import {attempt,isGameError,message} from './play/game.ts';
 import {learnNames,nameIds,readNames} from './play/places.ts';
@@ -395,10 +396,24 @@ export function serve(account:Account,command:ReadinessCommand,options:ServeOpti
     bind({account,command,pilot,...runtime?{runtime}:{},emit:()=>{}});
     try {
       // The menu's reads and the battle read, through the binding's runtime like a run's.
-      const {built,fight}=await onBinding(Effect.gen(function*() {
-        return {built:yield* menuEffect(runtime),fight:yield* battleNowEffect()};
+      const {built,fight,nearby}=await onBinding(Effect.gen(function*() {
+        const built=yield* menuEffect(runtime),fight=yield* battleNowEffect();
+        // The prey here, undocked only. A failed read leaves `prey` out and loses nothing else.
+        const here=account.state.location;
+        const nearby=here?.docked_at||here?.in_transit?undefined:yield* preyHereEffect().pipe(Effect.catchCause(cause=>{
+          // A refusal is the game's answer and stays silent; a die is a bug, journalled and still no reason to lose the menu.
+          if(runtime&&Cause.hasDies(cause))journalRun(runtime,{fn:'preyHere',why:message(Cause.squash(cause)),stack:Cause.pretty(cause)},'defect');
+          return Effect.succeed(undefined);
+        }));
+        return {built,fight,nearby};
       }));
       const {location,ship,player,modules}=account.state;
+      const fights=readCombat(runtime);
+      const ammo=ammoReport((modules??[]).filter(row=>row.slot==='weapon').map(row=>({...row,type:'weapon'})),account.state.cargo??[]);
+      const prey=(nearby??[]).slice(0,5).map(({name,kind,count})=>{
+        const rec=recentRecord(fights,name);
+        return {name,kind,count,record:recordLine(rec,ship?.max_hull?covers(rec,{hull:ship.hull,max_hull:ship.max_hull}):undefined)};
+      });
       // Read after the reads, never before: they refreshed the ship the mood is derived from.
       const who=pilot();
       // Handed over and stamped delivered in the same breath: this handler is the single
@@ -418,16 +433,17 @@ export function serve(account:Account,command:ReadinessCommand,options:ServeOpti
         ...who.objective?{objective:who.objective}:{},
         ...who.instruction?{instruction:who.instruction}:{},
         ...threats.length?{threats}:{},
+        ...prey.length?{prey}:{},
         present:{system:location?.system_id,poi:location?.poi_id,docked_at:location?.docked_at??null,
           in_transit:Boolean(location?.in_transit),ship_class:ship?.class_id,fuel:ship?.fuel,max_fuel:ship?.max_fuel,
           hull:ship?.hull,max_hull:ship?.max_hull,
           cargo_free:(ship?.cargo_capacity??0)-(ship?.cargo_used??0),credits:player?.credits,
           hold:(account.state.cargo??[]).map(row=>({item_id:String(row.item_id),quantity:row.quantity})),
-          weapons:(modules??[]).filter(row=>row.slot==='weapon')
-            .map(row=>({id:row.type_id,...row.current_ammo!==undefined?{loaded:row.current_ammo}:{}})),
-          // The hull this mood breaks off a fight at, as `moodNow` computes it: the juncture
-          // cannot reach the D2 table (the stance's working mood, so Tired does not move it), and a pilot left to guess the line guesses it low.
-          ...ship?.max_hull===undefined?{}:{walk_away:Math.floor(resolveWalkAway(stanceMood(who.stance))*ship.max_hull)}},
+          weapons:(modules??[]).filter(row=>row.slot==='weapon').map((row,i)=>({id:row.type_id,
+            ...row.current_ammo!==undefined?{loaded:row.current_ammo}:{},
+            ...ammo.weapons[i]?.magazine!==undefined?{magazine:ammo.weapons[i].magazine}:{},hold:ammo.weapons[i]?.hold??0})),
+          ...ammo.low?{ammo_low:ammo.low}:{},
+          ...ship?.max_hull===undefined?{}:{danger_line:dangerLine(ship.max_hull)}},
         ...built,text:renderMenu(built),...runtime?{names:readNames(runtime)}:{},...runtime?fleetBrief(runtime):{},last:lastOutcome(),
         ...waiting.length?{alerts:waiting.map(({type,key,at,first_at,n,body})=>({type,key,at,first_at,n,body}))}:{},
       };

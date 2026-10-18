@@ -163,14 +163,19 @@ test('opaque place ids are named from the menu', () => {
   assert.ok(render(menu).includes(`Present: docked at ${base} (dheneb).`));
 });
 
-test('the walk-away line reads as what it is', () => {
-  assert.ok(!render(menuOf(12)).includes('Walk-away'));
+test('the danger line and the prey read as facts under the ship', () => {
   const menu=menuOf(12);
-  menu.present.walk_away=94;
-  assert.ok(render(menu).includes('  Walk-away: break off a fight below hull 94.'));
-  // Audit 10-04: with no weapon fitted the line is only room the moves needed.
+  menu.present.danger_line=24;
+  menu.prey=[{name:'Veil-Ray',kind:'creature',count:3,record:'8 won, 2 stalemate, 0 lost (last 10); hull lost avg 1.2, worst 11 pts; covers'}];
+  menu.present.ammo_low='low ammo: 1 standard_rounds_box in the hold for Autocannon II';
+  menu.present.weapons=[{id:'autocannon_i',loaded:3,magazine:10,hold:1}];
+  const text=render(menu);
+  assert.ok(text.includes('  Danger line: a fight is fled only below hull 24, and not while the enemy is closer to dead.'));
+  assert.ok(text.includes('  Prey here: Veil-Ray ×3 (creature): 8 won, 2 stalemate, 0 lost (last 10); hull lost avg 1.2, worst 11 pts; covers.'));
+  assert.ok(text.includes('  Ammo: low ammo: 1 standard_rounds_box in the hold for Autocannon II.'));
+  assert.ok(text.includes('autocannon_i (3/10 loaded, 1 in the hold)'),text);
   menu.present.weapons=[];
-  assert.ok(!render(menu).includes('Walk-away'));
+  assert.ok(!render(menu).includes('Danger line'),'unarmed, there is no fight of its own to flee');
 });
 
 test('an instruction stands until a run starts after it', () => {
@@ -307,7 +312,7 @@ test('a kvothe-sized context keeps its suggested moves', () => {
   const menu={now:'2026-10-04T17:27:00.000Z',stance:'Prospector',mood:'Focused',goal:KVOTHE_GOAL,
     steps:['recipes() at frontier_station; note inputs and xp','craft the best refining recipe from stored ore','check refining level; objective_done at 8'],
     permissions:{credit_reserve:50000},
-    present:{system:'distant_light',docked_at:'frontier_station',fuel:140,max_fuel:140,hull:75,max_hull:75,credits:361649,cargo_free:172,walk_away:67,
+    present:{system:'distant_light',docked_at:'frontier_station',fuel:140,max_fuel:140,hull:75,max_hull:75,credits:361649,cargo_free:172,danger_line:23,
       hold:[{item_id:'fuel_cell',quantity:8}],weapons:[]},
     held:{max:5,missions:[0,1,2,3,4].map(n=>({title:`Contract ${n}`,next:`Deliver 20 ore (0/20) → base_${n}, ${n} jumps [1 of 2]`,expires_at:'2026-10-05T03:00:00Z'}))},
     moves:[],text:KVOTHE_MOVES,last:null};

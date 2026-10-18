@@ -34,8 +34,8 @@ export interface ArenaMatch {
  * unlocked one held here that is not yet won, else the first unlocked one here. A match already holding the ship is
  * fought as it stands. The rules it can check before spending the call are checked — ship tier against
  * `max_ship_tier`/`min_ship_tier` — and a ship that breaks one is `refused` naming the rule, as the server would; an
- * empty magazine is reloaded from the hold first. Then `fight`, and `fightBattle`'s loop at floor 0: no walk-away line,
- * no flee, because fleeing forfeits and nothing is lost by losing. The result is the `arena.status` record before
+ * empty magazine is reloaded from the hold first. Then `fight`, and `fightBattle`'s loop with loss not fatal: no danger
+ * line, no flee, because fleeing forfeits and nothing is lost by losing. The result is the `arena.status` record before
  * against after. */
 export declare function arena(opts?: {
     challenge?: string;
@@ -46,7 +46,7 @@ export declare const arenaEffect: (opts?: {
 /** Challenge a player to a duel and fight it if they accept. `challenge` then `arena.status` once a tick for up to
  * `waitMs` (default two minutes): a `battle_id` there is the accept; the outgoing challenge gone without one is a
  * decline or a lapse. Not accepted in time, the challenge is withdrawn (`cancel`) and the outcome is `partial`. Then the
- * same loop as `arena()`: floor 0, no flee. */
+ * same loop as `arena()`: loss not fatal, no flee. */
 export declare function duel(opts: {
     player: string;
     max_side_size?: number;

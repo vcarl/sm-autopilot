@@ -224,10 +224,10 @@ test('a run streams a line per move (journalled first), ends with the prose and 
 // Live 2026-09-25: the 22:20 death happened in four minutes of dead air *after* the script
 // returned. The pilot is blind between runs, so a fight left running when a run ends is
 // unattended combat, and a silent return is the bug.
-test('a run that would hand back with a battle live breaks it off and says so',async()=>{
+test('a run that hands back with a battle live fights it to its end, and says so',async()=>{
   pace.tickMs=1;
   const grazer={creature_id:'c1',species:'molt_grazer',name:'Molt Grazer'};
-  const f=harness({wildlife:{creatures:[grazer],polls:30,damage:0,fleeTicks:1}});
+  const f=harness({wildlife:{creatures:[grazer],polls:3,damage:0}});
   try {
     f.write("import {orient} from 'play';\nexport default async function main(){ return orient(); }\n");
     // The battle the previous shift left running, which the script itself never touches.
@@ -235,16 +235,17 @@ test('a run that would hand back with a battle live breaks it off and says so',a
     const out=await runPilot(f.deps);
     assert.equal(out.accepted,true,out.errors?.join('\n'));
     assert.match(f.lines.join('\n'),/the flight returned with a battle still live against Molt Grazer/);
-    assert.match(out.why!,/broken off before the flight closed/);
+    assert.equal(f.sent.some(call=>call.action==='spacemolt_battle/stance'&&call.params?.stance==='flee'),false,'it fought, it did not flee');
+    assert.match(out.why!,/the runtime fought it to its end before the flight closed/);
     // And the proof: the ship moves again, which a live battle refuses `in_battle`.
     await f.command('spacemolt/travel',{id:'belt'});
     assert.equal(f.account.server.location.poi_id,'belt');
   } finally {f.close();pace.tickMs=10_000;}
 });
 
-// Live 2026-10-09..13 (kvothe): 11 of 13 arena matches were forfeited by this close's break-off, on programs that
+// Live 2026-10-09..13 (kvothe): 11 of 13 arena matches were forfeited by the close's old break-off, on programs that
 // returned mid-match. Fleeing forfeits an arena match and losing one costs nothing, so it is left to finish.
-test('a run that hands back mid-match in the arena leaves the match to finish, and says why',async()=>{
+test('a run that hands back mid-match in the arena fights it to its end, and never flees',async()=>{
   pace.tickMs=1;
   const f=harness({arena:{challenges:[{challenge_id:'first_blood'}],polls:30}});
   try {
@@ -252,13 +253,25 @@ test('a run that hands back mid-match in the arena leaves the match to finish, a
     await f.command('spacemolt_arena/fight',{id:'first_blood'});
     const out=await runPilot(f.deps);
     assert.equal(out.accepted,true,out.errors?.join('\n'));
-    assert.equal(f.sent.some(call=>call.action==='spacemolt_battle/stance'),false,'no flee, no brace');
-    assert.match(f.lines.join('\n'),/mid-match in the arena \(arena-1\) against Ring Levy: left to finish, because fleeing forfeits/);
-    assert.match(out.why!,/left to finish rather than fled/);
+    assert.equal(f.sent.some(call=>call.action==='spacemolt_battle/stance'&&call.params?.stance==='flee'),false,'no flee');
+    assert.match(out.why!,/mid-match in the arena against Ring Levy; the runtime fought it to its end/);
   } finally {f.close();pace.tickMs=10_000;battleEnded();}
 });
 
-// The break-off at a flight's end is bounded by `CLOSE_MS`, not by the fight ceiling.
+// An arena match never flees, so no half of the close's bound is kept back for a flee: the match has all of it.
+test('an arena match at the close is fought for the whole of the close\'s bound, not half of it',async()=>{
+  pace.tickMs=20;
+  // Held out of reach, the match runs its 20 polls of 20 ms, ~400 ms: past half a 700 ms bound, inside the whole of it.
+  const f=harness({arena:{challenges:[{challenge_id:'first_blood'}],polls:20,enemies:[{id:'e1',name:'Ring Levy',distance:5,holds:5}]}});
+  try {
+    f.write("import {orient} from 'play';\nexport default async function main(){ return orient(); }\n");
+    await f.command('spacemolt_arena/fight',{id:'first_blood'});
+    const out=await runPilot({...f.deps,closeMs:700});
+    assert.match(out.why!,/the runtime fought it to its end/,out.why);
+  } finally {f.close();pace.tickMs=10_000;battleEnded();}
+});
+
+// The fight at a flight's end is bounded by `CLOSE_MS`, not by the fight ceiling.
 test('a stopped run with a battle that will not end still answers by its deadline, saying the battle is live',async()=>{
   pace.tickMs=1;
   const grazer={creature_id:'c1',species:'molt_grazer',name:'Molt Grazer'};
@@ -271,7 +284,41 @@ test('a stopped run with a battle that will not end still answers by its deadlin
     const result=await runPilot({...f.deps,graceMs:20,closeMs:300});
     assert.ok(Date.now()-since<20+300+3000,`answered after ${Date.now()-since} ms`);
     assert.equal(result.abandoned,true);
-    assert.match(result.why??'',/could not break off; the battle is still live/);
+    assert.match(result.why??'',/the battle is still live at the close's bound/);
+  } finally {f.close();pace.tickMs=10_000;battleEnded();}
+});
+
+test('a fatal close whose battle mutations are all refused answers by the close deadline, not the fight ceiling',async()=>{
+  pace.tickMs=1;
+  const grazer={creature_id:'c1',species:'molt_grazer',name:'Molt Grazer'};
+  const f=harness({wildlife:{creatures:[grazer],polls:1e9,damage:30,fleeTicks:1e9}});
+  try {
+    f.write("export default async function main(){}\n");
+    await f.command('spacemolt/hunt',{id:'c1'});
+    const refused:string[]=[];
+    const command:typeof f.command=async(action,params)=>{
+      if(action.startsWith('spacemolt_battle/')&&action!=='spacemolt_battle/status'){refused.push(action);throw new SpacemoltError('refused','not now');}
+      return f.command(action,params);
+    };
+    const since=Date.now();
+    const result=await runPilot({...f.deps,command,closeMs:400});
+    assert.ok(refused.length>0,'a mutation was attempted and refused');
+    assert.ok(Date.now()-since<400+3000,`answered after ${Date.now()-since} ms`);
+    assert.deepEqual(defects(f.runtime),[],'a refusal is not a bug');
+    assert.match(result.why??'',/still live/);
+  } finally {f.close();pace.tickMs=10_000;battleEnded();}
+});
+
+test('a fatal close that fled under the danger line says it broke the battle off, not that it fought it out',async()=>{
+  pace.tickMs=1;
+  const grazer={creature_id:'c1',species:'molt_grazer',name:'Molt Grazer'};
+  const f=harness({wildlife:{creatures:[grazer],polls:1e9,damage:2,fleeTicks:6}});
+  try {
+    f.write("export default async function main(){}\n");
+    await f.command('spacemolt/hunt',{id:'c1'});
+    const result=await runPilot(f.deps);
+    assert.match(result.why??'',/the runtime broke it off under the danger line before the flight closed/);
+    assert.doesNotMatch(result.why??'',/fought it to its end/);
   } finally {f.close();pace.tickMs=10_000;battleEnded();}
 });
 
@@ -545,39 +592,38 @@ test('a lost closing read of the battle is read again, and the live battle behin
     const result=await runPilot({...f.deps,command:failing(f,lost(),1)});
     assert.equal(result.accepted,true,result.errors?.join('\n'));
     assert.match(f.lines.join('\n'),/the flight returned with a battle still live against Molt Grazer/);
-    assert.match(result.why!,/broken off before the flight closed/);
+    assert.match(result.why!,/fought it to its end before the flight closed/);
     assert.deepEqual(defects(f.runtime),[]);
   } finally {f.close();pace.tickMs=10_000;}
 });
 
-test('a closing read of the battle lost three times is not "no battle": the run breaks off and its reads decide',async()=>{
+test('a closing read of the battle lost three times is not "no battle": the run fights on and its reads decide',async()=>{
   pace.tickMs=1;
   const f=harness();
   try {
     f.write("export default async function main(){}\n");
-    const sent:string[]=[];
-    const command=failing(f,lost(),3);
-    const result=await runPilot({...f.deps,command:async(action,params)=>{sent.push(action);return command(action,params);}});
+    const result=await runPilot({...f.deps,command:failing(f,lost(),3)});
     assert.equal(result.accepted,true,result.errors?.join('\n'));
-    assert.match(f.lines.join('\n'),/status was lost three times/);
-    assert.ok(sent.includes('spacemolt_battle/stance'),'it broke off rather than taking the lost reads as no battle');
-    // The world has no battle: disengage's own read finds that, so nothing is reported as held.
+    assert.match(f.lines.join('\n'),/a battle still live against an opponent the lost status never named/);
+    // The world has no battle: the loop's own read finds that, so nothing is reported as held.
     assert.doesNotMatch(result.why??'',/mid-fight|mid-battle/);
     assert.deepEqual(defects(f.runtime),[]);
   } finally {f.close();pace.tickMs=10_000;}
 });
 
-test('a bug in breaking off at the close is a defect line, and the run still ends saying the battle is live',async()=>{
+test('a bug in fighting the battle at the close is a defect line, and the run still ends saying the battle is live',async()=>{
   pace.tickMs=1;
   const grazer={creature_id:'c1',species:'molt_grazer',name:'Molt Grazer'};
   const f=harness({wildlife:{creatures:[grazer],polls:30,damage:0,fleeTicks:1}});
   try {
     f.write("export default async function main(){}\n");
     await f.command('spacemolt/hunt',{id:'c1'});
-    const result=await runPilot({...f.deps,command:failing(f,new TypeError('a bug'),Infinity,'spacemolt_battle/stance')});
+    // Our row already holds `fire`, so the fight's first mutation is the focus: the bug hits it, then the ceiling's flee.
+    const result=await runPilot({...f.deps,command:failing({...f,command:failing(f,new TypeError('a bug'),Infinity,'spacemolt_battle/target')},
+      new TypeError('a bug'),Infinity,'spacemolt_battle/stance')});
     assert.equal(result.accepted,true,result.errors?.join('\n'));
-    assert.ok(defects(f.runtime).some(entry=>entry.fn==='disengage'),JSON.stringify(defects(f.runtime)));
-    assert.match(result.why!,/could not break off; the battle is still live/);
+    assert.ok(defects(f.runtime).length>0,JSON.stringify(defects(f.runtime)));
+    assert.match(result.why!,/the battle is still live at the close's bound/);
     const ended=readJournal(f.runtime).find(entry=>entry.phase==='ended');
     assert.equal(ended?.outcome,'partial');
   // The battle is left held in travel's memory, as it should be; the next test's world has none.

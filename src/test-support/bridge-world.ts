@@ -245,7 +245,7 @@ export interface WildlifeOptions {
   /** What the kill leaves behind, looted a row at a time. */
   drops?:{item_id:string;quantity:number}[];
   /** The fitted weapon, or null for a ship that has none. */
-  weapon?:{name?:string;type_id?:string;ammo_type?:string;current_ammo?:number}|null;
+  weapon?:{name?:string;type_id?:string;ammo_type?:string;current_ammo?:number;magazine_size?:number}|null;
   /** The poll the ship's crew stops being able to fly it on: the world moving the pilot. */
   incapacitateOn?:number;
   /** The quarry that runs: its hull stays flat, the range opens a ring a tick, and when the

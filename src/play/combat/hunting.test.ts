@@ -8,13 +8,32 @@ import {Effect,Fiber,Layer} from 'effect';
 import {TestClock} from 'effect/testing';
 import type {ReadinessCommand} from '../../readiness.ts';
 import {readJournal} from '../../run-record.ts';
+import {scriptedBattle,type ScriptedPoll} from '../../test-support/battle-script.ts';
 import {bridgeWorld,type WorldOptions} from '../../test-support/bridge-world.ts';
 import {GameLive,type Game} from '../game.ts';
 import {boundRun,bind,stop,unbind,type Pilot,type Run} from '../runtime.ts';
-import {disengage,disengageEffect,hunt,huntEffect,pace} from './hunting.ts';
+import {FLEE_STALL,disengage,disengageEffect,escapeCost,hunt,huntEffect,pace,shouldRun,type StayRead} from './hunting.ts';
 
 pace.tickMs=1;
 const grazer={creature_id:'c1',species:'molt_grazer',name:'Molt Grazer'};
+
+test('the in-fight rule: stay above the line, stay below it while the enemy is closer to dead, run otherwise',()=>{
+  const at=(o:Partial<StayRead>):StayRead=>({hull_pct:20,hull:16,line:24,opponent_hull_pct:55,loss_fatal:true,escape_cost:4,...o});
+  assert.equal(shouldRun(at({hull_pct:88,hull:70})).run,false,'70/80 is above 24');
+  assert.equal(shouldRun(at({opponent_hull_pct:15})).run,false);
+  assert.match(shouldRun(at({opponent_hull_pct:15})).why,/closer to dead \(15% against our 20%\)/);
+  assert.equal(shouldRun(at({})).run,true);
+  assert.equal(shouldRun(at({escape_cost:16})).run,false,'an escape costing all the hull left is not survivable');
+  assert.equal(shouldRun(at({escape_cost:Infinity})).why,'the escape is blocked, 16 hull left','not ~Infinity hull');
+  assert.equal(shouldRun(at({loss_fatal:false,hull:1,hull_pct:1})).run,false,'the arena never flees');
+});
+test('the escape is priced from our recent hull loss, the way out, and flee_required; blocked is unpriceable',()=>{
+  assert.equal(escapeCost([2,4,6],'inner',3),30,'the worst poll, 6, × (2 to outer + 3)');
+  assert.equal(escapeCost([],'mid',3),0);
+  assert.equal(escapeCost([4],'engaged',3),20,'engaged is inner');
+  assert.equal(escapeCost([9,0,0,0],'outer',3),0,'only the last three polls');
+  assert.equal(escapeCost([0],'outer',undefined),Infinity);
+});
 
 /** A bridge world bound to a temporary runtime (so its journal can be read for defects), whose command seam may
  * intercept: a refusal or a lost reply on one action. Every send is counted before the interception. */
@@ -175,7 +194,7 @@ test('a nearby creature row without a name is dropped and said, and the rest are
 });
 
 /** Run one Effect against the world on the TestClock, moving it a second at a time: the status re-read backs off on it. */
-const clocked=<A,E>(f:ReturnType<typeof world>,effect:Effect.Effect<A,E,Game|Run>,seconds=60)=>Effect.runPromise(Effect.gen(function*() {
+const clocked=<A,E>(f:Pick<ReturnType<typeof world>,'command'|'account'>,effect:Effect.Effect<A,E,Game|Run>,seconds=60)=>Effect.runPromise(Effect.gen(function*() {
   const fiber=yield* Effect.forkChild(effect);
   for(let second=0;second<seconds;second++) {
     yield* TestClock.adjust('1 second');
@@ -251,12 +270,15 @@ test('a refused status read (no_active_battle) is the battle\'s end: disengage r
 // Live 2026-10-15 (kvothe 19:15–19:21Z): the hull line broke a Crusher-Mantis fight off from inner range; three ticks
 // of flee, then brace, which resets the flee counter and never ends a creature's battle. 26 braced ticks later the
 // bound ran out, hunt returned with the battle live, goTo/service were refused in_battle, and the ship was lost.
+// Two hull a poll keeps the escape (2 × (2 to outer + 7)) under the 28 left at the danger line, so the rule runs.
 test('a hunt broken off at the hull line holds the flee until the battle ends, however long the escape takes',async()=>{
-  const f=world(()=>undefined,{wildlife:{creatures:[grazer],polls:Number.MAX_SAFE_INTEGER,damage:4,fleeTicks:6}});
+  const f=world(()=>undefined,{wildlife:{creatures:[grazer],polls:Number.MAX_SAFE_INTEGER,damage:2,fleeTicks:6}});
   try {
     const out=await clocked(f,huntEffect(),400);
     assert.equal(out.detail.fights[0]?.outcome,'broke off',JSON.stringify(out));
-    assert.deepEqual(f.sent.filter(call=>call.action==='spacemolt_battle/stance').map(call=>call.params?.id),['fire','flee'],
+    // The one brace comes on the line's approach (hull 34, within 5 of 30), never after the flee.
+    // Our row already holds `fire`, so the open sends no stance.
+    assert.deepEqual(f.sent.filter(call=>call.action==='spacemolt_battle/stance').map(call=>call.params?.id),['brace','fire','flee'],
       'flee set once and held: any other stance resets the escape');
     await assert.rejects(f.command('spacemolt_battle/status',{}),/No active battle/);
     assert.match(f.lines.join('\n'),/flee: the battle has not ended yet \(flee 3\/7\)/);
@@ -265,7 +287,8 @@ test('a hunt broken off at the hull line holds the flee until the battle ends, h
 
 test('a command refused mid-fight ends the hunt in its words, and the battle is broken off, not handed back live',async()=>{
   let refused=1;
-  const f=world(action=>{if(action==='spacemolt_battle/stance'&&refused-->0)throw new SpacemoltError('rate_limited','one mutation a tick');return undefined;},
+  // The focus is the open's first mutation (our row already holds `fire`).
+  const f=world(action=>{if(action==='spacemolt_battle/target'&&refused-->0)throw new SpacemoltError('rate_limited','one mutation a tick');return undefined;},
     {wildlife:{creatures:[grazer],polls:Number.MAX_SAFE_INTEGER,damage:0,fleeTicks:2}});
   try {
     const out=await clocked(f,huntEffect());
@@ -273,4 +296,161 @@ test('a command refused mid-fight ends the hunt in its words, and the battle is 
     assert.match(out.why??'',/rate_limited/);
     await assert.rejects(f.command('spacemolt_battle/status',{}),/No active battle/);
   } finally {f.close();}
+});
+
+/** A Veil-Ray fight answered from `polls`, then from `onFlee` once a flee is sent (`scriptedBattle`), on an 80-hull ship
+ * launching at 25: above the danger line 24, so the hunt starts. */
+function scripted(polls:ScriptedPoll[],onFlee:ScriptedPoll[]) {
+  const game=bridgeWorld({services:['refuel','repair','storage'],cargoUsed:0,
+    wildlife:{creatures:[{creature_id:'c1',species:'veil_ray',name:'Veil-Ray'}]}});
+  Object.assign(game.account.server.ship,{max_hull:80,hull:25});
+  const script=scriptedBattle(game,polls,{onFlee});
+  const lines:string[]=[];
+  bind({account:game.account as unknown as Account,command:script.command,pilot:():Pilot=>({mood:'Focused'}),emit:text=>lines.push(text)});
+  return {...game,...script,lines:()=>lines.join('\n'),
+    stances:()=>script.sent.filter(call=>call.action==='spacemolt_battle/stance').map(call=>call.params?.id)};
+}
+// Hull 22 of 80 is under the line 24, theirs 90% is not closer to dead than our 28%, and 3 lost × (2 to outer + 3) = 15
+// is survivable: the rule runs on the first poll.
+const under:ScriptedPoll={hull:22,theirs:90,zone:'inner',distance:2,stance:'fire'};
+const blocked:ScriptedPoll={...under,stance:'flee',flee_required:null};
+
+// Spec D2 hazard 1: breakOff was disengageEffect(Infinity) — a blocked flee held forever at 0% dealt, 100% taken.
+test('a flee whose flee_required goes missing returns to fire and fights on to the end',async()=>{
+  const f=scripted([under],[blocked,blocked,{...under,theirs:0}]);
+  try {
+    const out=await clocked(f,huntEffect());
+    assert.deepEqual(f.stances(),['flee','fire'],'back to fire once, and not fled again while blocked');
+    assert.match(f.lines(),/flee blocked \(flee_required absent\): back to fire, the rule re-applied/);
+    assert.match(f.lines(),/fighting on — the escape is blocked, 22 hull left/);
+    assert.equal(out.detail.fights[0]!.outcome,'escaped'); // the world lists no wreck; the point is the loop ran to the end
+  } finally {unbind();}
+});
+test('a flee whose counter has not risen for four polls is abandoned, and the escape is not tried again that fight',async()=>{
+  const f=scripted([under],Array.from({length:6},()=>({...under,stance:'flee',flee_counter:0})));
+  try {
+    const out=await clocked(f,huntEffect());
+    assert.equal(f.stances().filter(id=>id==='flee').length,1);
+    assert.deepEqual(f.stances(),['flee','fire']);
+    assert.match(f.lines(),/flee stalled at 0\/3 for 4 polls: back to fire/);
+    assert.equal(out.detail.fights[0]!.outcome,'escaped');
+  } finally {unbind();}
+});
+test('brace never follows flee',async()=>{
+  // After the abandoned flee: shield 0, theirs 90% against our 28%, hull 22 within 5 of the line — the brace rung's
+  // conditions, which held no brace before the flee because the flee came first.
+  const f=scripted([under],Array.from({length:8},()=>({...under,stance:'flee',flee_counter:0,shield:0})));
+  try {
+    await clocked(f,huntEffect());
+    assert.ok(!f.stances().includes('brace'),JSON.stringify(f.stances()));
+  } finally {unbind();}
+});
+// Brace takes 25% of the damage, evade 50%: a loss under either is priced at full damage, since the flee holds neither.
+// Live 2026-10-15 (kvothe 19:21Z): braced polls ran ~4 hull against ~16 at full; priced braced, 4×5=20 < 72 fled
+// and died, at full 16×5=80 ≥ 72 keeps firing.
+test('a loss under brace or evade prices the escape at full damage',async()=>{
+  // 25→23 braced is 8 a poll at full, × (2 + 3) = 40 ≥ 23; 23→20 under evade is 6, × 5 = 30 ≥ 20. Neither flees.
+  const f=scripted([{...under,hull:23,stance:'brace'},{...under,hull:20,stance:'evade'},{...under,hull:20,theirs:0}],[]);
+  try {
+    await clocked(f,huntEffect());
+    assert.ok(!f.stances().includes('flee'),JSON.stringify(f.stances()));
+    assert.match(f.lines(),/fighting on — the escape would cost ~40 hull of the 23 left/);
+  } finally {unbind();}
+});
+test('a status with no combat_state is not a blocked escape: the line still flees',async()=>{
+  const bare:ScriptedPoll={...under,combat_state:false};
+  const f=scripted([bare],[bare,bare,bare]);
+  try {
+    const out=await clocked(f,huntEffect());
+    assert.deepEqual(f.stances(),['flee'],'sent once and held');
+    assert.doesNotMatch(f.lines(),/flee blocked/);
+    assert.equal(out.detail.fights[0]!.outcome,'broke off');
+    assert.match(out.detail.fights[0]!.why??'',/hull 22 under the danger line 24/);
+  } finally {unbind();}
+});
+test('an agent disengage that cannot get away is bounded the same way',async()=>{
+  const above:ScriptedPoll={...under,hull:25};
+  const f=scripted([above,above],[{...blocked,hull:25},{...blocked,hull:25},{...above,theirs:0}]);
+  let asked=0;
+  try {
+    const out=await clocked(f,huntEffect({onTick:()=>asked++===0?{disengage:true}:undefined}));
+    assert.deepEqual(f.stances(),['flee','fire']);
+    assert.match(f.lines(),/flee blocked/);
+    assert.equal(out.detail.fights[0]!.outcome,'escaped');
+  } finally {unbind();}
+});
+
+test('a stateless disengage against a blocked escape flees at most once, and says it fights on once',async()=>{
+  const pinned:ScriptedPoll={...under,hull:25,can_escape:false},polls=[pinned,pinned,pinned,pinned,{...pinned,theirs:0}];
+  const f=scripted(polls,polls);
+  try {
+    await clocked(f,huntEffect({onTick:()=>({disengage:true})}));
+    assert.ok(f.stances().filter(id=>id==='flee').length<=1,JSON.stringify(f.stances()));
+    assert.ok(f.stances().filter(id=>id==='fire').length<=1,JSON.stringify(f.stances()));
+    assert.equal(f.lines().match(/onTick asked to disengage; the escape is blocked this fight: fighting on/g)?.length,1,f.lines());
+  } finally {unbind();}
+});
+test('an agent stance flee is the flee state: neither brace nor the close follows it',async()=>{
+  // Above the line at 25, out of reach 3/2, shields flat and theirs 90% against our 31%: brace and close conditions both.
+  const out:ScriptedPoll={...under,hull:25,distance:3,reach:2,shield:0};
+  const f=scripted([out,out],[1,2,2,2].map(flee_counter=>({...out,stance:'flee',flee_counter})));
+  let asked=0;
+  try {
+    await clocked(f,huntEffect({onTick:()=>asked++===0?{stance:'flee'}:undefined}));
+    assert.ok(!f.stances().includes('brace'),JSON.stringify(f.stances()));
+    assert.ok(!f.sent.some(call=>call.action==='spacemolt_battle/advance'),'no advance after the flee');
+  } finally {unbind();}
+});
+
+test('fighting on under the line is said once per reason, however its numbers move',async()=>{
+  const f=scripted([20,15,10,0].map(theirs=>({...under,theirs})),[]);
+  try {
+    await clocked(f,huntEffect());
+    assert.equal(f.lines().match(/fighting on — the enemy is closer to dead/g)?.length,1,f.lines());
+  } finally {unbind();}
+});
+test('a hunt an agent disengage broke off above the line says the disengage, not the hull line',async()=>{
+  const above:ScriptedPoll={...under,hull:25};
+  const f=scripted([above],[1,2].map(flee_counter=>({...above,stance:'flee',flee_counter})));
+  let asked=0;
+  try {
+    const out=await clocked(f,huntEffect({onTick:()=>asked++===0?{disengage:true}:undefined}));
+    assert.equal(out.detail.fights[0]!.outcome,'broke off');
+    assert.equal(out.why,'onTick asked to disengage');
+  } finally {unbind();}
+});
+
+// The lib: an incapacitated crew reads can_escape false and the ship cannot fire or move. The ceiling's flee is sent, and
+// the poll that sent it sends nothing more: one mutation a poll.
+test('an incapacitated ship starts the flee and sends exactly one stance that poll',async()=>{
+  const pinned:ScriptedPoll={...under,hull:25,can_escape:false};
+  const f=scripted([pinned,pinned],[pinned,pinned]);
+  f.account.server.ship.incapacitated=true;
+  try {
+    await clocked(f,huntEffect());
+    let stances=0;
+    for(const call of f.sent) {
+      if(call.action==='spacemolt_battle/status')stances=0;
+      else if(call.action==='spacemolt_battle/stance')assert.ok(++stances<=1,`two stances in one poll: ${JSON.stringify(f.stances())}`);
+    }
+    assert.deepEqual(f.stances(),['flee','fire'],'the flee once, then back to fire on the next poll');
+    assert.match(f.lines(),/flee blocked \(can_escape false\)/);
+  } finally {unbind();}
+});
+
+// Live 2026-10-15 (kvothe 19:15Z): broke off from Crusher-Mantis at 99%, inner 2/2; 3 flee polls, then 27 braced polls
+// that never ended the battle (hull 184→72 of 259), and the second flee at 72 died 27s later. The counter was not logged.
+test('replay 2026-10-15: a flee from Crusher-Mantis that never got away no longer stalls',async()=>{
+  const at:ScriptedPoll={hull:72,theirs:99,zone:'inner',distance:2,reach:2,stance:'fire'};
+  const f=scripted([at],Array.from({length:8},(_,i)=>({...at,hull:68-4*i,stance:'flee',flee_counter:0})));
+  Object.assign(f.account.server.ship,{max_hull:259,hull:80});
+  try {
+    await clocked(f,huntEffect());
+    const calls=f.sent.filter(call=>call.action==='spacemolt_battle/status'||call.action==='spacemolt_battle/stance');
+    const fled=calls.findIndex(call=>call.params?.id==='flee'),fire=calls.findIndex(call=>call.params?.id==='fire');
+    assert.ok(fled>=0&&fire>fled,JSON.stringify(f.stances()));
+    assert.ok(calls.slice(fled,fire).filter(call=>call.action==='spacemolt_battle/status').length<=FLEE_STALL,'back to fire within FLEE_STALL polls');
+    assert.ok(!f.stances().includes('brace'));
+    assert.match(f.lines(),/breaking off: hull 72 under the danger line 78/);
+  } finally {unbind();}
 });

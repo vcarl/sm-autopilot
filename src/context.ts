@@ -361,12 +361,14 @@ function situation(menu:Row,said:Row|null,chat:{lines:string[];notes:string[]},r
     +`credits ${isNumber(credits)?thousands(credits):py(credits)}.`;
   const hold=list(or(p.hold,[])).map(row=>`${py(rec(row).item_id)} ${py(rec(row).quantity)}`);
   const free=p.cargo_free;
-  const weapons=list(or(p.weapons,[])).map(raw=>{const w=rec(raw);return py(w.id)+('loaded' in w?` (${py(w.loaded)} loaded)`:'');}).join(', ')||'none';
+  const weapons=list(or(p.weapons,[])).map(raw=>{const w=rec(raw);return py(w.id)+('loaded' in w?('magazine' in w?` (${py(w.loaded)}/${py(w.magazine)} loaded, ${py(w.hold)} in the hold)`:` (${py(w.loaded)} loaded)`):'');}).join(', ')||'none';
   const factsAfter:string[]=[];
   if(on(menu.threats))factsAfter.push(`  Fighting here: ${list(menu.threats).map(py).join(', ')}.`);
   factsAfter.push(`  Fitted weapons: ${weapons}.`);
-  // Unarmed, there is no fight of its own to break off.
-  if(p.walk_away!==undefined&&p.walk_away!==null&&on(p.weapons))factsAfter.push(`  Walk-away: break off a fight below hull ${py(p.walk_away)}.`);
+  // Unarmed, there is no fight of its own to flee.
+  if(on(p.danger_line)&&on(p.weapons))factsAfter.push(`  Danger line: a fight is fled only below hull ${py(p.danger_line)}, and not while the enemy is closer to dead.`);
+  if(on(menu.prey))factsAfter.push(`  Prey here: ${list(menu.prey).map(raw=>{const r=rec(raw);return `${py(r.name)} ×${py(r.count)} (${py(r.kind)}): ${py(r.record)}`;}).join('; ')}.`);
+  if(on(p.ammo_low))factsAfter.push(`  Ammo: ${py(p.ammo_low)}.`);
   const heldLines=[held(menu)].filter((line):line is string=>Boolean(line));
   const recent=rows.filter(row=>row.event==='reflection'||row.phase==='ended'||row.phase==='refused').slice(-RECENT)
     .map(row=>recentLine(row,menu.goal)).filter((line):line is string=>Boolean(line));

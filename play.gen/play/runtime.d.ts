@@ -36,7 +36,7 @@ export interface Pilot {
     /** Present only while the mood is Tired: the margin that made it so. */
     tired_by?: string;
     /** Standing bounds the human sets. Who to fight is not among them: combat targeting is
-     * the pilot's judgement, kept honest by the hull floors and the walk-away fraction. */
+     * the pilot's judgement, kept honest by the hull floors, the danger line and hunt's `risk` limit. */
     permissions?: {
         credit_reserve?: number;
         max_liability?: number;

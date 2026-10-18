@@ -8,9 +8,10 @@ import {writeFight} from '../../combat-memory.ts';
 import {readJournal} from '../../run-record.ts';
 import {readSightings,recall} from '../../sighting-memory.ts';
 import type {ReadinessAccount,ReadinessCommand} from '../../readiness.ts';
+import {scriptedBattle,type ScriptedPoll} from '../../test-support/battle-script.ts';
 import {bridgeWorld,derived,type WorldOptions} from '../../test-support/bridge-world.ts';
 import {bind,unbind,type Pilot} from '../runtime.ts';
-import {disengage,hunt,pace,type TickDecision,type TickView} from './hunting.ts';
+import {ammoReport,bestBand,disengage,hunt,pace,type CombatStats,type TickDecision,type TickView} from './hunting.ts';
 import {salvage} from './salvage.ts';
 
 // A tick is ten seconds of real time; the tests take the same loop at a millisecond.
@@ -58,6 +59,19 @@ function worldWithMoodMoved(record:Pilot,on:string,to:Pilot['mood'],options:Worl
   return {...game,command,record:()=>who};
 }
 const grazer={creature_id:'c1',species:'molt_grazer',name:'Molt Grazer'};
+/** `world`, with the battle answered from `polls` (`scriptedBattle`) against a Veil-Ray standing here, on a ship of
+ * `ship.max_hull` launching at `ship.hull`. `derive: false` keeps the record's mood as written, so a ship launching
+ * under the walk-away line is not Tired and resupplied before the fight. */
+function scripted(record:Pilot,polls:ScriptedPoll[],ship:{max_hull:number;hull:number},derive=true,runtime?:string) {
+  const game=bridgeWorld({services:['refuel','repair','storage'],cargoUsed:0,
+    wildlife:{creatures:[{creature_id:'c1',species:'veil_ray',name:'Veil-Ray'}]}});
+  Object.assign(game.account.server.ship,ship);
+  const script=scriptedBattle(game,polls);
+  const lines:string[]=[];
+  const who=derive?derived(()=>record,game.account):()=>record;
+  bind({account:game.account as unknown as Account,command:script.command,...runtime?{runtime}:{},pilot:who,emit:text=>lines.push(text)});
+  return {...game,...script,lines,record:who};
+}
 
 test('hunt fights a creature through to the wreck and loots it',async()=>{
   const f=world({mood:'Focused'},{wildlife:{creatures:[grazer],polls:2,damage:1,
@@ -79,9 +93,8 @@ test('hunt fights a creature through to the wreck and loots it',async()=>{
     assert.equal(ticks.length,2);
     assert.match(ticks[0]!,/tick 1 vs Molt Grazer: hull 95\/100, shield 0%, theirs 100% at inner 2\/2/);
     assert.match(ticks[1]!,/tick 2 vs Molt Grazer/);
-    // The stance and the focus are sent at the open, one a tick, and nothing is fired by hand.
-    assert.equal(f.count('spacemolt_battle/stance'),1);
-    assert.deepEqual(f.sent.find(call=>call.action==='spacemolt_battle/stance')?.params,{id:'fire'});
+    // Our row already holds `fire`, so only the focus is sent at the open, and nothing is fired by hand.
+    assert.equal(f.count('spacemolt_battle/stance'),0);
     assert.deepEqual(f.sent.find(call=>call.action==='spacemolt_battle/target')?.params,{id:'c1'});
     // In reach at distance 2 against a reach of 2: nothing to close.
     assert.equal(f.count('spacemolt_battle/advance'),0);
@@ -91,7 +104,8 @@ test('hunt fights a creature through to the wreck and loots it',async()=>{
   } finally {unbind();}
 });
 
-test('a quarry that runs is chased, and an escape says what was seen',async()=>{
+// The fake's quarry opens the range every poll (outer, 2+tick) with its hull flat; our row already holds `fire`.
+test('a quarry that runs is let go without pursue, and an escape says what was seen',async()=>{
   const f=world({mood:'Focused'},{wildlife:{creatures:[grazer],polls:5,damage:0,flees:true}});
   try {
     const out=await hunt();
@@ -99,32 +113,163 @@ test('a quarry that runs is chased, and an escape says what was seen',async()=>{
     assert.equal(fight.outcome,'escaped');
     assert.equal(fight.wreck,undefined,'no wreck: nothing died');
     assert.match(fight.why!,/hull flat at 100% for \d+ tick\(s\) while it opened the range 3→8/);
-    const reads=f.count('spacemolt_battle/status');
-    // Two ticks open the fight, every later tick closes the range it keeps opening.
-    assert.equal(f.count('spacemolt_battle/advance'),4);
-    assert.equal(f.count('spacemolt_battle/stance'),1);
+    assert.equal(f.count('spacemolt_battle/advance'),0,'the range opens from the second poll, and nothing chases it');
     assert.equal(f.count('spacemolt_battle/target'),1);
+    const reads=f.count('spacemolt_battle/status');
     const mutations=f.sent.filter(call=>/battle\/(stance|target|advance|retreat)/.test(call.action)).length;
     assert.ok(mutations<=reads,`${mutations} mutations over ${reads} reads`);
     assert.match(f.lines.join('\n'),/fight 1: Molt Grazer escaped \(hull flat at 100%/);
   } finally {unbind();}
 });
 
-test('hunt breaks off at the walk-away line, which is also what imposes Tired',async()=>{
-  const f=world({mood:'Focused'},{wildlife:{creatures:[grazer],polls:20,damage:4}});
+test('with pursue, a quarry that runs is chased on every poll the range opens',async()=>{
+  const f=world({mood:'Focused'},{wildlife:{creatures:[grazer],polls:5,damage:0,flees:true}});
   try {
-    // Focused walks away at 0.90 of 100 max hull; 96 less three ticks of 4 is 84.
+    const out=await hunt({pursue:true});
+    assert.equal(out.detail.fights[0]!.outcome,'escaped');
+    const chased=f.lines.filter(line=>/pursue: Molt Grazer opened the range/.test(line));
+    // Poll 1 is the focus (the fire stance is in force), and every later poll opened the range by one.
+    assert.equal(f.count('spacemolt_battle/advance'),chased.length);
+    assert.equal(chased.length,f.count('spacemolt_battle/status')-2,'every poll after the focus, but the end read');
+    assert.match(chased[0]!,/opened the range 3→4/);
+  } finally {unbind();}
+});
+
+test('bestBand picks the measured band we hit best, and inner with nothing measured',()=>{
+  const stats:CombatStats={opponent:'Veil-Ray',fights:3,won:1,newest_ticks_old:0,oldest_ticks_old:0,ship_classes:['shuttle'],
+    dealt_per_tick:0,taken_per_tick:0,accuracy:{},thin:false};
+  assert.equal(bestBand(undefined),'inner');
+  assert.equal(bestBand(stats),'inner');
+  assert.equal(bestBand({...stats,accuracy:{inner:{at_them:0.4,at_them_shots:20,at_us_shots:0},mid:{at_them:0.7,at_them_shots:12,at_us_shots:0},outer:{at_them:0.9,at_them_shots:2,at_us_shots:0}}}),'mid','outer is under MIN_SHOTS');
+  assert.equal(bestBand({...stats,accuracy:{inner:{at_them:0.5,at_them_shots:5,at_us_shots:0},mid:{at_them:0.5,at_them_shots:9,at_us_shots:0}}}),'inner','a tie goes to the nearer band');
+});
+
+// Spec evidence: the first two ticks of every recent fight sat at outer, out of reach.
+test('the loop advances on the first poll when the stance and focus are already in force',async()=>{
+  const polls:ScriptedPoll[]=[{hull:80,theirs:100,zone:'outer',distance:6,reach:3,stance:'fire',target:'c1'},
+    {hull:80,theirs:100,zone:'mid',distance:4,reach:3,stance:'fire',target:'c1'}];
+  const f=scripted({mood:'Focused'},polls,{max_hull:80,hull:80});
+  try {
+    await hunt();
+    const mutations=f.sent.filter(call=>/battle\/(stance|target|advance|retreat|reload)/.test(call.action));
+    assert.equal(mutations[0]?.action,'spacemolt_battle/advance');
+    assert.equal(f.sent.some(call=>call.action==='spacemolt_battle/stance'||call.action==='spacemolt_battle/target'),false);
+  } finally {unbind();}
+});
+
+// Live 2026-10-16 (kvothe 19:31Z): a Veil-Ray at 10% stepped inner 2 → mid 3 on the last row and escaped.
+test('replay 10-16 19:31Z: an escape is a clean stalemate without pursue, and chased on the tick the range opens with it',async()=>{
+  const rows:[number,string,number][]=[[100,'outer',6],[100,'mid',4],[100,'inner',2],[86,'inner',2],[73,'inner',2],[60,'inner',2],
+    [36,'inner',2],[23,'inner',2],[23,'inner',2],[10,'inner',2],[10,'mid',3]];
+  const polls=rows.map(([theirs,zone,distance])=>({hull:80,theirs,zone,distance,reach:3}) as ScriptedPoll);
+  const advances=(f:ReturnType<typeof scripted>)=>{
+    const out:number[]=[];let read=0;
+    for(const call of f.sent){if(call.action==='spacemolt_battle/status')read++;else if(call.action==='spacemolt_battle/advance')out.push(read);}
+    return out;
+  };
+  const off=scripted({mood:'Focused'},polls,{max_hull:80,hull:80});
+  try {
+    const out=await hunt();
+    assert.equal(out.detail.fights[0]!.outcome,'escaped');
+    assert.equal(advances(off).filter(read=>read>=rows.length).length,0,'no advance on or after the mid-3 poll');
+  } finally {unbind();}
+  const on=scripted({mood:'Focused'},polls,{max_hull:80,hull:80});
+  try {
+    await hunt({pursue:true});
+    assert.deepEqual(advances(on).filter(read=>read>=rows.length),[rows.length],'exactly one advance, on the mid-3 poll');
+  } finally {unbind();}
+});
+
+test('closing stops at the best band, and when an advance no longer shortens the range',async()=>{
+  const runtime=mkdtempSync(join(tmpdir(),'spacemolt-close-'));
+  // Memory says we hit a Veil-Ray best at mid.
+  writeFight(runtime,{opponent:'Veil-Ray',ship_class:'shuttle',ticks:4,dealt:20,taken:40,
+    by_range:{inner:{at_us:{shots:0,hits:0},at_them:{shots:10,hits:3}},mid:{at_us:{shots:0,hits:0},at_them:{shots:10,hits:7}}},
+    stances:['fire'],flee_ticks:0,ending:'stalemate',at:new Date().toISOString()});
+  const inForce={hull:80,theirs:100,reach:3,stance:'fire',target:'c1'};
+  const best=scripted({mood:'Focused'},[{...inForce,zone:'outer',distance:6},{...inForce,zone:'mid',distance:4},
+    {...inForce,zone:'mid',distance:3},{...inForce,zone:'mid',distance:3}],{max_hull:80,hull:80},true,runtime);
+  try {
+    await hunt();
+    assert.equal(best.count('spacemolt_battle/advance'),2,'outer 6 and mid 4 close; mid 3 is the best band, in reach');
+  } finally {unbind();rmSync(runtime,{recursive:true,force:true});}
+  // Nothing measured: inner is the aim, and mid 3 does not give way.
+  const stuck=scripted({mood:'Focused'},[{...inForce,zone:'mid',distance:3},{...inForce,zone:'mid',distance:3},
+    {...inForce,zone:'mid',distance:3},{...inForce,zone:'mid',distance:2},{...inForce,zone:'mid',distance:2}],{max_hull:80,hull:80});
+  try {
+    await hunt();
+    // Poll 1 advances; poll 2 reads 3 again, so the close stops; poll 4 reads 2, the range moved, and it tries once more.
+    assert.equal(stuck.count('spacemolt_battle/advance'),2);
+  } finally {unbind();}
+});
+
+test('Tired mid-fight finishes the fight and stops the next one',async()=>{
+  const f=world({mood:'Focused'},{wildlife:{creatures:[grazer],polls:5,damage:4}});
+  try {
+    // Focused's walk-away line (90 of 100) imposes Tired on the second poll; the kill lands on the sixth, at hull 72.
     const out=await hunt({fights:2});
     assert.equal(out.status,'partial');
     assert.equal(out.detail.ended,'tired');
-    assert.equal(out.detail.fights[0]!.outcome,'broke off');
+    assert.equal(out.detail.fights[0]!.outcome,'down','the fight in progress was finished');
     assert.equal(out.detail.fights.length,1,'the second fight never starts');
-    assert.ok(out.now.ship.hull<90,`hull ${out.now.ship.hull} is under the line`);
+    assert.equal(out.now.ship.hull,72);
     assert.equal(f.record().mood,'Tired');
-    // The exit is the flee stance, never a retreat: `retreat` only opens the range.
-    assert.deepEqual(f.sent.filter(call=>call.action==='spacemolt_battle/stance').map(call=>call.params).at(-1),{id:'flee'});
+    assert.equal(f.sent.some(call=>call.action==='spacemolt_battle/stance'&&call.params?.id==='flee'),false,'Tired is no reason to run');
     assert.equal(f.count('spacemolt_battle/retreat'),0);
     assert.match(out.why!,/Tired/);
+  } finally {unbind();}
+});
+
+// Live 2026-10-18 (kvothe 02:26Z): "hull 70/80 under the Focused walk-away line 72" made the pilot Tired, then
+// "breaking off: hull 70 under the line 76, and Tired" fled a Veil-Ray at 55%: a 7-point scratch ended a won fight.
+test('replay 10-18 02:26Z: Tired mid-fight does not break off a winning fight',async()=>{
+  // The logged polls (reach 3), then three invented ones to the kill.
+  const polls:ScriptedPoll[]=[[77,100,'outer',6],[77,100,'outer',6],[77,100,'outer',6],[77,100,'mid',4],[76,85,'inner',2],
+    [75,70,'inner',2],[74,70,'inner',2],[70,55,'inner',2],[69,40,'inner',2],[68,25,'inner',2],[67,10,'inner',2]]
+    .map(([hull,theirs,zone,distance])=>({hull,theirs,zone,distance,reach:3,stance:'fire'}) as ScriptedPoll);
+  const f=scripted({mood:'Focused'},polls,{max_hull:80,hull:77});
+  try {
+    const out=await hunt();
+    assert.equal(f.sent.some(call=>call.action==='spacemolt_battle/stance'&&call.params?.id==='flee'),false);
+    assert.notEqual(out.detail.fights[0]!.outcome,'broke off');
+    assert.equal(f.record().mood,'Tired','Tired still lands; it no longer ends the fight');
+  } finally {unbind();}
+});
+
+test('two enemies standing: the healthiest one decides whether the enemy is closer to dead',async()=>{
+  // Launching at 25 of 80 (above the line 24, so the fight starts), the first poll is hull 22: under it, and the
+  // escape priced at 3 a poll × (2 to outer + 3) = 15 is survivable.
+  const poll={hull:22,theirs:10,zone:'inner',distance:2,stance:'fire'};
+  // Alone, the quarry at 10% is closer to dead than our 28%, so it is fought on.
+  const alone=scripted({mood:'Focused'},[poll,poll],{max_hull:80,hull:25},false);
+  try {
+    const out=await hunt();
+    assert.equal(out.detail.fights.length,1);
+    assert.equal(alone.sent.some(call=>call.action==='spacemolt_battle/stance'&&call.params?.id==='flee'),false);
+    assert.match(alone.lines.join('\n'),/under the danger line 24 at hull 22: fighting on — the enemy is closer to dead \(10% against our 28%\)/);
+  } finally {unbind();}
+  // Its partner at 90% is not: the pair is no closer to dead because the one in focus is.
+  const pair=scripted({mood:'Focused'},[{...poll,others:[['c2',90]]}],{max_hull:80,hull:25},false);
+  try {
+    const out=await hunt();
+    assert.equal(pair.sent.some(call=>call.action==='spacemolt_battle/stance'&&call.params?.id==='flee'),true);
+    assert.equal(out.detail.fights[0]!.outcome,'broke off');
+    assert.match(pair.lines.join('\n'),/breaking off: hull 22 under the danger line 24, the enemy at 90%, the escape ~15 hull/);
+  } finally {unbind();}
+});
+
+test('our max_hull unread: the rule reads our own row\'s hull_pct',async()=>{
+  const at=(hull_pct:number):ScriptedPoll=>({hull:12,hull_pct,theirs:80,zone:'inner',distance:2,stance:'fire'});
+  const low=scripted({mood:'Focused'},[at(15),at(15)],{max_hull:0,hull:12},false);
+  try {
+    await hunt();
+    assert.equal(low.sent.some(call=>call.action==='spacemolt_battle/stance'&&call.params?.id==='flee'),true,'15% is under 30%');
+  } finally {unbind();}
+  const high=scripted({mood:'Focused'},[at(60),at(60)],{max_hull:0,hull:12},false);
+  try {
+    const out=await hunt();
+    assert.equal(out.detail.fights.length,1);
+    assert.equal(high.sent.some(call=>call.action==='spacemolt_battle/stance'&&call.params?.id==='flee'),false,'60% is above it');
   } finally {unbind();}
 });
 
@@ -143,6 +288,7 @@ test('breaking off at the hull line waits for the battle to actually end, not fo
     assert.deepEqual(f.sent.filter(call=>call.action==='spacemolt_battle/stance').map(call=>call.params).filter(p=>p.id==='flee'),
       [{id:'flee'}],'the flee stance is set once and held until the battle ends');
     assert.equal(f.count('spacemolt_battle/retreat'),0,'a retreat would have opened the range and left the ship in it');
+    assert.match(f.lines.join('\n'),/breaking off: hull 28 under the danger line 30, the enemy at 100%, the escape ~24 hull/);
     // The whole point: the ship can move again. A live battle refuses travel with `in_battle`.
     await f.command('spacemolt/travel',{id:'belt'});
     assert.equal(f.account.server.location.poi_id,'belt');
@@ -166,26 +312,22 @@ test('disengage reports whether the battle ended, and says so when the bound ran
   } finally {unbind();}
 });
 
-// S4: the walk-away line is the mood's, and the loop read it once at the top — one number for
-// the whole hunt and for every fight inside it. The mood moves under a running loop, so the
-// line has to be read where it is checked: a hunt that opened under Cautious (0.95) and was
-// loosened to Aggressive (0.80) before a shot was fired broke off against a line the pilot had
-// already left, and stopped after one fight of the two it was asked for.
-test('the walk-away line follows the mood the pilot is in now, not the one the hunt opened under',async()=>{
+// S4: the walk-away line was the mood's, and the mood moves under a running loop (a hunt that opened under Cautious
+// and was loosened to Aggressive broke off against a line the pilot had already left). The danger line is a fixed share
+// of max hull, so a mood moved mid-hunt moves nothing.
+test('a mood change mid-hunt does not move the line',async()=>{
   const second={creature_id:'c2',species:'molt_grazer',name:'Molt Grazer'};
-  const f=worldWithMoodMoved({mood:'Cautious'},'spacemolt/hunt','Aggressive',
-    {wildlife:{creatures:[grazer,second],polls:1,damage:2}});
+  const f=worldWithMoodMoved({mood:'Aggressive'},'spacemolt/hunt','Cautious',
+    {wildlife:{creatures:[grazer,second],polls:2,damage:2}});
   try {
-    // Two fights of two ticks at 2 hull a tick: 96 down to 88, under Cautious's 95 from the
-    // first tick and never near Aggressive's 80.
+    // Two fights of three ticks at 2 hull a tick: 96 down to 84, far under Cautious's old 95 and far above 30.
     const out=await hunt({fights:2});
-    assert.equal(f.record().mood,'Aggressive','no crossing: 88 hull is well inside the Aggressive line');
+    assert.equal(f.record().mood,'Cautious');
     assert.equal(out.status,'done',out.why);
     assert.equal(out.detail.ended,'asked');
-    assert.equal(out.detail.fights.length,2,'both fights were taken against the line in force');
     assert.deepEqual(out.detail.fights.map(fight=>fight.outcome),['down','down']);
-    assert.equal(f.count('spacemolt_battle/retreat'),0,'nothing broke off; the line was never crossed');
-    assert.equal(out.now.ship.hull,88);
+    assert.equal(f.sent.some(call=>call.action==='spacemolt_battle/stance'&&call.params?.id==='flee'),false,'nothing broke off at 84');
+    assert.equal(out.now.ship.hull,84);
   } finally {unbind();}
 });
 
@@ -194,7 +336,7 @@ test('nothing to hunt at a POI is done, not blocked',async()=>{
   try {
     const out=await hunt({poi:'belt'});
     assert.equal(out.status,'done',out.why);
-    assert.equal(out.did,'nothing to hunt at belt');
+    assert.match(out.did,/^nothing to hunt at belt/);
     assert.deepEqual(out.detail.fights,[]);
     assert.equal(out.detail.ended,'nothing here');
     assert.equal(f.count('spacemolt/hunt'),0,'nothing was engaged');
@@ -249,18 +391,18 @@ test('hunt is refused without a loaded weapon',async()=>{
   } finally {unbind();}
 });
 
-test('a hull crossing the walk-away line is caught even while tick_duration is stuck',async()=>{
-  // Aggressive walks away at 0.80 of 100 max hull: 96 less 5 a poll crosses 80 on the fourth.
-  const f=worldWithStuckTick({mood:'Aggressive'},{wildlife:{creatures:[grazer],polls:8,damage:5}});
+test('a hull crossing the danger line is caught even while tick_duration is stuck',async()=>{
+  // The danger line is 30 of 100 max hull: 96 less 5 a poll crosses it on the fourteenth, at 26.
+  const f=worldWithStuckTick({mood:'Aggressive'},{wildlife:{creatures:[grazer],polls:20,damage:5}});
   try {
     const out=await hunt();
     const fight=out.detail.fights[0]!;
     assert.equal(fight.outcome,'broke off','the line was crossed; the fight was not won');
     assert.deepEqual(f.sent.filter(call=>call.action==='spacemolt_battle/stance').map(call=>call.params).at(-1),{id:'flee'},
       'the tick sat still, but the hull was still read every poll');
-    // One poll past the line (80), plus the tick the escape itself took: `flee` takes 100% of
+    // One poll past the line (30), plus the tick the escape itself took: `flee` takes 100% of
     // the incoming damage, which is the price of the only exit the game has.
-    assert.equal(fight.hull_after,71,'stopped one poll past the line, not run down while blind to it');
+    assert.equal(fight.hull_after,21,'stopped one poll past the line, not run down while blind to it');
   } finally {unbind();}
 });
 
@@ -491,7 +633,8 @@ test('a per-tick callback decides the stance, the range and the exit, and hunt s
     assert.deepEqual([seen[0]!.distance,seen[0]!.reach],[2,2]);
     assert.equal(seen[0]!.damage_taken,1,'the first tick measures against the hull the fight opened on');
     assert.equal(seen[1]!.damage_taken,1,'one hull a tick, measured against the tick before');
-    assert.equal(seen[0]!.floor,80,'Aggressive walks away at 0.80 of 100');
+    assert.equal(seen[0]!.floor,30,'the danger line: 30% of 100, whatever the mood');
+    assert.equal(seen[0]!.loss_fatal,true);
     assert.equal(seen[0]!.stance,undefined,'no stance in force until one is set');
     assert.equal(seen[1]!.stance,'brace','the stance the callback set is the stance it is told about');
     // The remembered record rides along, and says out loud that one fight is not a rate.
@@ -525,49 +668,49 @@ test('a callback that throws is logged and the fight carries on under the defaul
     assert.equal(out.detail.fights[0]!.outcome,'down','the fight was still won');
     assert.match(f.lines.join('\n'),/onTick threw \(the pilot wrote a bug\); the default loop continues/);
     // The default ladder ran exactly as it does with no callback at all.
-    assert.deepEqual(f.sent.filter(call=>call.action==='spacemolt_battle/stance').map(call=>call.params),[{id:'fire'}]);
+    assert.deepEqual(f.sent.filter(call=>call.action==='spacemolt_battle/stance').map(call=>call.params),[],'fire is in force on our row');
     assert.deepEqual(f.sent.find(call=>call.action==='spacemolt_battle/target')?.params,{id:'c1'});
   } finally {unbind();}
 });
 
-test('the walk-away floor overrides a reckless callback and names what it refused',async()=>{
+test('the danger line overrides a reckless callback and names what it refused',async()=>{
   // RED before this commit: no callback could ask to keep firing, so there was no override to
   // log — and the operator's bound had never been tested against a decision that fights it.
-  // Cautious walks away at 0.95 of 100: 96 less one a poll sits on 95, then crosses it.
-  const f=worldWithMemory({mood:'Cautious'},{wildlife:{creatures:[grazer],polls:8,damage:1,retreatTicks:0}});
+  // The danger line is 30 of 100: 96 less 6 a poll sits on 30, then crosses it at 24.
+  const f=worldWithMemory({mood:'Cautious'},{wildlife:{creatures:[grazer],polls:20,damage:6,retreatTicks:0}});
   try {
     const out=await hunt({onTick:()=>({stance:'fire'})});
     const fight=out.detail.fights[0]!;
-    assert.equal(fight.outcome,'broke off','the floor won');
-    assert.equal(fight.hull_after,93,'one poll past the line plus the tick the flee took, not run down by the callback');
+    assert.equal(fight.outcome,'broke off','the danger line won');
+    assert.equal(fight.hull_after,18,'one poll past the line plus the tick the flee took, not run down by the callback');
     assert.match(f.lines.join('\n'),
-      /override: onTick asked \{"stance":"fire"\}, and the Cautious walk-away line 95 wins/);
-    assert.match(f.lines.join('\n'),/breaking off: hull 94 under the line 95/);
+      /override: onTick asked \{"stance":"fire"\}, and the danger line 30 wins: hull 24 under the danger line 30/);
+    assert.match(f.lines.join('\n'),/breaking off: hull 24 under the danger line 30, the enemy at 100%, the escape ~18 hull/);
     assert.match(f.lines.join('\n'),/breaking off: stance flee, which auto-retreats to escape/);
   } finally {unbind();}
 });
 
 test('no callback fights exactly as it did before, and braces only once the line is in sight',async()=>{
-  // The default must not regress: one `stance fire`, one focus, no chase in reach — and the
-  // brace is reachable only when shields are flat, their hull is above ours and the walk-away
+  // The default must not regress: no stance re-sent over the `fire` our row holds, one focus, no chase in reach — and the
+  // brace is reachable only when shields are flat, their hull is above ours and the danger
   // line is within 5% of max, which a healthy fight never is.
   const healthy=worldWithMemory({mood:'Aggressive'},{wildlife:{creatures:[grazer],polls:3,damage:1}});
   try {
     const out=await hunt();
     assert.equal(out.detail.fights[0]!.outcome,'down',out.why);
     assert.deepEqual(healthy.sent.filter(call=>call.action==='spacemolt_battle/stance').map(call=>call.params),
-      [{id:'fire'}],'one stance, as before');
+      [],'fire is in force on our row, so no stance is spent');
     assert.equal(healthy.count('spacemolt_battle/advance'),0,'in reach, nothing to close');
     assert.equal(healthy.lines.join('\n').includes('stance brace'),false);
   } finally {unbind();}
-  // Aggressive walks away at 80 of 100, so the brace window is hull 80..85: three hull a poll
-  // reaches 85 on the fifth, with the grazer still at 100% against our 85%.
-  const losing=worldWithMemory({mood:'Aggressive'},{wildlife:{creatures:[grazer],polls:9,damage:3,flees:true}});
+  // The danger line is 30 of 100, so the brace window is hull 30..35: three hull a poll reaches
+  // 33 on the twenty-first, with the grazer still at 100% against our 33%.
+  const losing=worldWithMemory({mood:'Aggressive'},{wildlife:{creatures:[grazer],polls:30,damage:3,flees:true}});
   try {
     await hunt();
-    assert.match(losing.lines.join('\n'),/stance brace: shields flat, theirs 100% against ours, and the line 80 is close/);
+    assert.match(losing.lines.join('\n'),/stance brace: shields flat, theirs 100% against ours, and the danger line 30 is close/);
     assert.deepEqual(losing.sent.filter(call=>call.action==='spacemolt_battle/stance').map(call=>call.params),
-      [{id:'fire'},{id:'brace'},{id:'fire'},{id:'flee'}],'one brace a fight, back to firing, and the flee it broke off on');
+      [{id:'brace'},{id:'fire'},{id:'flee'}],'one brace a fight, back to firing, and the flee it broke off on');
   } finally {unbind();}
 });
 
@@ -832,4 +975,106 @@ test('the callback sees every round, even while the battle tick number stands st
     assert.ok(seen.length>=4,
       `the callback saw ${seen.length} of about 5 rounds; a stalled counter still silences it`);
   } finally {unbind();}
+});
+
+// Review Focus 4. Live, a reload into a full magazine is refused `magazine_full`; the wildlife rows carry no `magazine_size`.
+test('before the first shot a part-full magazine is topped up from the hold; one with no magazine_size is left alone',async()=>{
+  const cargo=[{item_id:'autocannon',quantity:3}];
+  const sized=world({mood:'Focused'},{cargo,cargoUsed:3,wildlife:{creatures:[grazer],weapon:{ammo_type:'autocannon',current_ammo:20,magazine_size:50}}});
+  try {
+    await hunt();
+    const order=sized.sent.map(call=>call.action);
+    assert.equal(sized.count('spacemolt_battle/reload'),1);
+    assert.ok(order.indexOf('spacemolt_battle/reload')<order.indexOf('spacemolt/hunt'),'reloaded before the first shot');
+  } finally {unbind();}
+  const bare=world({mood:'Focused'},{cargo,cargoUsed:3,wildlife:{creatures:[grazer],weapon:{ammo_type:'autocannon',current_ammo:20}}});
+  try {
+    await hunt();
+    assert.equal(bare.count('spacemolt_battle/reload'),0,'no magazine_size: nothing to top up');
+  } finally {unbind();}
+});
+
+test('in a lull a magazine under a quarter is topped up, once, and never ahead of a rung that is owed',async()=>{
+  const game=bridgeWorld({services:['refuel','repair','storage'],cargo:[{item_id:'autocannon',quantity:3}],cargoUsed:3,
+    wildlife:{creatures:[grazer],polls:6,weapon:{ammo_type:'autocannon',current_ammo:50,magazine_size:50}}});
+  const lines:string[]=[];
+  // The hunt opens with a full magazine; the first shots spend it down to 10.
+  const command:typeof game.command=async(action,params)=>{
+    const res=await game.command(action,params);
+    if(action==='spacemolt/hunt')game.account.server.modules.find((row:Record<string,any>)=>row.type==='weapon')!.current_ammo=10;
+    return res;
+  };
+  bind({account:game.account as unknown as Account,command,pilot:derived(()=>({mood:'Focused'}),game.account),emit:text=>lines.push(text)});
+  try {
+    await hunt();
+    const mutations=game.sent.filter(call=>/battle\/(stance|target|advance|retreat|reload)/.test(call.action)).map(call=>call.action);
+    assert.equal(mutations.filter(a=>a==='spacemolt_battle/reload').length,1,'once');
+    assert.ok(mutations.indexOf('spacemolt_battle/target')<mutations.indexOf('spacemolt_battle/reload'),'the focus owed comes first');
+    assert.match(lines.join('\n'),/reload Autocannon I: 10\/50 rounds, topping up in a lull \(discards 10\)/);
+  } finally {unbind();}
+});
+
+test('ammoReport names a hold running low, and hunt says it in did without refusing',async()=>{
+  assert.equal(ammoReport([{type:'weapon',name:'Autocannon I',ammo_type:'autocannon',current_ammo:500}],[{item_id:'autocannon',quantity:1}]).low,
+    'low ammo: 1 autocannon in the hold for Autocannon I');
+  assert.equal(ammoReport([{type:'weapon',name:'Autocannon I',ammo_type:'autocannon',current_ammo:5}],[]).low,'no autocannon in the hold for Autocannon I');
+  assert.equal(ammoReport([{type:'weapon',name:'Autocannon I',ammo_type:'autocannon'}],[{item_id:'autocannon',quantity:2}]).low,null);
+  const f=world({mood:'Focused'},{cargo:[{item_id:'autocannon',quantity:1}],cargoUsed:1,wildlife:{creatures:[grazer]}});
+  try {
+    const out=await hunt();
+    assert.equal(out.status,'done');
+    assert.match(out.did,/low ammo: 1 autocannon in the hold/);
+    assert.equal(f.count('spacemolt/hunt'),1);
+  } finally {unbind();}
+});
+
+// Spec D3: the agent chooses the risk; the hunt says what it left alone, never silently.
+const moth={creature_id:'c2',species:'quantum_moth',name:'Quantum-Moth'};
+/** `worldWithMemory` against a Veil-Ray (c1) and a Quantum-Moth (c2), ship hull 80/100, with `fights` Veil-Ray
+ * victories in combat.json, each costing hull 100→`to` (unread when `to` is undefined). */
+function riskWorld(fights:number,to:number|undefined) {
+  const f=worldWithMemory({mood:'Focused'},{wildlife:{creatures:[{creature_id:'c1',species:'veil_ray',name:'Veil-Ray'},moth],polls:1,damage:1}});
+  Object.assign(f.account.server.ship,{hull:80,max_hull:100});
+  for(let i=0;i<fights;i++)writeFight(f.runtime,{opponent:'Veil-Ray',ship_class:'shuttle',ticks:4,dealt:20,taken:40,by_range:{},
+    stances:['fire'],flee_ticks:0,ending:'victory',...to===undefined?{}:{hull_pct_from:100,hull_pct_to:to},at:new Date().toISOString()});
+  return f;
+}
+test('a hunt with a risk limit skips a class whose worst fight it cannot cover, names it, and fights the rest',async()=>{
+  // Three Veil-Ray victories at hull 100→40 (worst 60). Ship hull 80/100: 80−60=20 is not above 30, so it is skipped.
+  const f=riskWorld(3,40);
+  try {
+    const out=await hunt({risk:'covered'});
+    assert.deepEqual(out.detail.skipped.map(row=>row.name),['Veil-Ray']);
+    assert.match(out.detail.skipped[0]!.why,/worst of its last 3 fights cost 60 pts of hull, and we have 50 above the danger line/);
+    assert.equal(out.detail.fights[0]!.target.name,'Quantum-Moth');
+    assert.equal(out.detail.fights[0]!.record,undefined,'never fought');
+    assert.match(out.did,/skipped Veil-Ray/);
+    assert.ok(f.lines.some(line=>/skipped: Veil-Ray: the worst/.test(line)),'the skip is a step line');
+  } finally {unbind();rmSync(f.runtime,{recursive:true,force:true});}
+  const g=riskWorld(3,40);
+  try {
+    const strict=await hunt({risk:'known'});
+    assert.equal(strict.status,'done');
+    assert.match(strict.did,/nothing to hunt at .* \(skipped: Veil-Ray: .*; Quantum-Moth: never fought/);
+    assert.equal(g.count('spacemolt/hunt'),0,'nothing was engaged');
+  } finally {unbind();rmSync(g.runtime,{recursive:true,force:true});}
+});
+test('without a risk limit nothing is skipped, and each fight carries the record it was chosen against',async()=>{
+  const f=riskWorld(3,40);
+  try {
+    const out=await hunt();
+    assert.deepEqual(out.detail.skipped,[]);
+    assert.equal(out.detail.fights[0]!.target.name,'Veil-Ray');
+    assert.equal(out.detail.fights[0]!.record?.fights,3);
+    assert.equal(out.detail.fights[0]!.record?.worst_hull_lost,60);
+    assert.doesNotMatch(out.did,/skipped/);
+  } finally {unbind();rmSync(f.runtime,{recursive:true,force:true});}
+});
+test('a record with no hull readings is not skipped under covered',async()=>{
+  const f=riskWorld(3,undefined);
+  try {
+    const out=await hunt({risk:'covered'});
+    assert.deepEqual(out.detail.skipped,[]);
+    assert.equal(out.detail.fights[0]!.target.name,'Veil-Ray','covers unread is not a skip');
+  } finally {unbind();rmSync(f.runtime,{recursive:true,force:true});}
 });

@@ -4,7 +4,7 @@ import type { CreatureInfo, EnrichedWreck, GetBattleStatusResponse, PirateInfo }
 import { Effect } from 'effect';
 import { Game, type GameError } from '../game.ts';
 import type { Outcome, Row } from '../types.ts';
-import { type CombatStats } from '../../combat-memory.ts';
+import { type CombatStats, type RecentRecord } from '../../combat-memory.ts';
 /** Re-exported so a pilot naming the type in its own helper can reach it through `play`. */
 export type { CombatStats } from '../../combat-memory.ts';
 export interface Fight {
@@ -19,6 +19,8 @@ export interface Fight {
     /** The wreck it left and what was looted from it. */
     wreck?: EnrichedWreck;
     loot: Row[];
+    /** The recent record this target was chosen against; absent for a class never fought. */
+    record?: RecentRecord;
 }
 /** One place the search looked at, in the order it was tried. `saw` counts the prey asked for
  * (every creature, when no species was named, or when `strict` is false — a named species is a
@@ -39,8 +41,14 @@ export interface Hunted {
     /** Every place looked at, in order. One entry for a hunt that stood still. */
     looked: Looked[];
     /** Why the loop ended: `asked` fights done, nothing at the one place looked, nothing at any
-     * of several, a tank that cannot cover the next hop, hull line, hold full, tired. */
+     * of several, a tank that cannot cover the next hop, hull line (or a fight broken off: its `why` says which), hold
+     * full, tired. */
     ended: 'asked' | 'nothing here' | 'nothing found' | 'fuel' | 'hull' | 'hold full' | 'stopped' | 'tired';
+    /** What the `risk` limit left alone, once per name, and why. Empty without a limit. */
+    skipped: {
+        name: string;
+        why: string;
+    }[];
 }
 /** The stances a decision may ask for. `board` is deliberately absent: it needs marines and
  * suppresses our own weapons, so it is a boarding party's call, not a tactical one, and a
@@ -77,8 +85,12 @@ export interface TickView {
     damage_taken: number;
     /** The stance the loop last set, or undefined before it has set one. */
     stance?: CombatStance;
-    /** The mood's walk-away hull. No decision can cross it: see `README.md`. */
+    /** The danger line in hull points (30% of `max_hull`), or 0 where losing is not fatal (the arena). Under it the
+     * loop flees unless the enemy is closer to dead or the escape would cost the hull left, and no decision overrides
+     * that flee: see `README.md`. The name is kept from the old walk-away floor because pilot programs read it. */
     floor: number;
+    /** Whether losing this fight loses the ship. False in the arena, where the danger line does not apply. */
+    loss_fatal: boolean;
     /** What memory knows about fighting this opponent, or undefined the first time it is met.
      * `thin` is true while the sample is under three fights, and then every number is an
      * anecdote rather than a measurement. */
@@ -109,11 +121,71 @@ export declare const pace: {
     tickMs: number;
 };
 export declare const FIGHT_CEILING_MS: number;
+/** ponytail: a flee whose `flee_counter` has not risen for this many polls is abandoned, back to fire. Live: 138 of 146
+ * flees ended within 3 polls, the longest took 4, and a flee from inner sits at 0/3 for 2 polls while it retreats. */
+export declare const FLEE_STALL = 4;
+/** What the in-fight rule reads on one poll. Percentages are 0..100; `opponent_hull_pct` is the healthiest enemy
+ * standing. `line` is the danger line in hull points, compared with `hull`; 0 (our `max_hull` unread) compares
+ * `hull_pct` with the line in percent instead. */
+export interface StayRead {
+    hull_pct: number;
+    opponent_hull_pct: number;
+    loss_fatal: boolean;
+    escape_cost: number;
+    hull: number;
+    line: number;
+}
+/** Run only to save the ship: under the danger line, unless the enemy is closer to dead than we are or the escape
+ * itself would cost the hull left. Where losing is not fatal, never. */
+export declare function shouldRun(read: StayRead): {
+    run: boolean;
+    why: string;
+};
+/** Hull the escape would cost: the worst of the last three polls' loss (each at full damage), times the polls to reach
+ * the outer ring and `fleeRequired` there. Undefined `fleeRequired` is the escape blocked, which no hull pays for.
+ * ponytail: the max, so a shield-absorbed or braced poll never underprices it; weight it by the enemy's measured
+ * accuracy at each band if escapes misprice. */
+export declare function escapeCost(recentLoss: number[], ourZone: string | undefined, fleeRequired: number | undefined): number;
+/** ponytail: five shots in a band make it measured; under that one lucky hit decides the range. Raise it if the close
+ * chases noise. */
+export declare const MIN_SHOTS = 5;
+/** The band memory says we hit this opponent best: the highest `at_them` among the bands with `MIN_SHOTS` behind them,
+ * a tie to the nearer one. Nothing measured is `inner`, as close as the zones allow. */
+export declare function bestBand(stats: CombatStats | undefined): 'inner' | 'mid' | 'outer';
 /** The loadout floor, in the one form the state can answer: a fitted module whose `type` is
  * `weapon`, holding rounds for its `ammo_type`. An empty magazine with its ammunition in the
  * hold is reloaded rather than refused — that is the whole of "reload when ammo allows". A
  * reload the game refuses, or whose reply is lost, is said and never re-sent: the read after it decides. */
 export declare const loadoutEffect: () => Effect.Effect<string | null, GameError, Game>;
+export declare const RELOAD_AT = 0.25;
+export declare const LOW_AMMO = 2;
+/** Each weapon's magazine and the rounds for it in the hold, and `low`: the clause for any weapon whose hold is under `LOW_AMMO`. */
+export declare function ammoReport(modules: readonly {
+    type?: string;
+    name?: string;
+    ammo_type?: string;
+    current_ammo?: number;
+    magazine_size?: number;
+}[], cargo: readonly {
+    item_id: string;
+    quantity: number;
+}[]): {
+    weapons: {
+        name: string;
+        ammo_type?: string;
+        loaded: number;
+        magazine?: number;
+        hold: number;
+    }[];
+    low: string | null;
+};
+/** What a look from here holds that the hunt would take: one `get_nearby` read, creatures and pirates, each legal by
+ * `decline`, grouped by name. For the juncture, which shows it with the record against each. */
+export declare const preyHereEffect: () => Effect.Effect<{
+    name: string;
+    kind: "creature" | "pirate";
+    count: number;
+}[], GameError, Game>;
 /** `disengage` as an Effect, for `disengage` below and for `engage`; never in a barrel. A stance the game refuses is sent
  * again next tick, since nothing landed; one whose reply is lost is not, since it may have, and the status read decides.
  * `over` is the battle read ended; at the bound, `on` is it read still going and `unknown` is its status never read. */
@@ -122,7 +194,7 @@ export declare function disengage(bound?: number): Promise<boolean>;
 /** A battle fought to its end by `fightBattle` or `arena`: what the loop saw, never a verdict on it. */
 export interface Battled {
     battle_id?: string;
-    /** `ended`: the battle read over. `broke off`: our hull crossed `floor` and the ship fled. `unresolved`: the
+    /** `ended`: the battle read over. `broke off`: the danger line (or the callback) broke it off and the ship fled. `unresolved`: the
      * ceiling ran out with it on, or the ship could not fly. */
     outcome: 'ended' | 'broke off' | 'unresolved';
     /** Status reads that found someone to fight: the loop's rounds. */
@@ -135,22 +207,28 @@ export interface Battled {
     taken?: number;
     last_status?: GetBattleStatusResponse;
 }
-/** `battleLoop` measured: the hull either side of it and our row's damage totals at the last read. */
+/** `battleLoop` measured: the hull either side of it and our row's damage totals at the last read. The range is closed
+ * from the first tick; `pursue` chases an opening range above the danger line. */
 export declare const battleEffect: (opts: {
-    floor?: number;
+    lossFatal?: boolean;
     boss?: string;
     ceilingMs?: number;
+    boundMs?: number;
+    pursue?: boolean;
     onTick?: (view: TickView) => TickDecision | undefined;
 }) => Effect.Effect<Battled, GameError, Game>;
 /** Fight the battle the ship is already in — one someone else started (a pirate's ambush, an arena match) — to its
  * end, without opening an attack: `hunt`'s per-tick loop on whoever the other side fields. Focus goes to `boss` by
  * name while it stands, else the enemy with the lowest hull; range is read from the opponent's row against our reach;
  * an empty magazine with rounds in the hold is reloaded; two ticks hit while the opponent holds out of reach switches
- * to `evade` until the range moves. `floor` is the hull to break off under — the mood's walk-away line by default, and
- * `0` fights to the end. No battle holding the ship is `done` with `polls: 0`. */
+ * to `evade` until the range moves. The range is closed from the first tick (out of reach, or outside the band memory
+ * says we hit best); an opponent opening it is chased only under `pursue: true`, above the danger line. Under the
+ * danger line (30% of max hull) it flees unless the enemy is closer to dead or the escape would cost the hull left; `lossFatal: false` (losing costs nothing, as in the arena) fights to the end.
+ * No battle holding the ship is `done` with `polls: 0`. */
 export declare function fightBattle(opts?: {
-    floor?: number;
+    lossFatal?: boolean;
     boss?: string;
+    pursue?: boolean;
     onTick?: (view: TickView) => TickDecision | undefined;
 }): Promise<Outcome<Battled>>;
 /** Hunt a prey across a range of places to look. `look` is POI ids in the order to try them: at
@@ -188,20 +266,27 @@ export declare function fightBattle(opts?: {
  * species an active mission's own words name is preferred over the first legal one. Which
  * species was actually fought is on `fight.target.species`, so a fallback fight is never hidden.
  *
+ * `risk` is your limit on what to take on, read from combat memory each look. `'covered'` skips a class whose worst
+ * recent fight would take our hull under the danger line; `'known'` also skips a class never fought; unset skips
+ * nothing. Every skip is named in `detail.skipped` and the `did`, and each fight carries the `record` it was chosen against.
+ *
  * Refused before firing without a fitted weapon (`V2Module.type === 'weapon'`) holding
  * ammunition; an empty magazine whose rounds are in the hold is reloaded instead. Costs
  * ammunition and hull. Trains weapons, gunnery, tactics, and — by being hit — shields and
- * armor, plus xenobiology (creatures) or bounty_hunting (pirates). The mood's walk-away
- * fraction (Cautious 0.95 … Aggressive 0.80) breaks the fight off; a Tired imposed mid-fight
- * finishes the round, retreats, and returns `partial`.
+ * armor, plus xenobiology (creatures) or bounty_hunting (pirates). It runs only to save the ship:
+ * under the danger line (30% of max hull) it flees unless the enemy is closer to dead or the
+ * escape itself would cost the hull left. A Tired imposed mid-fight never ends that fight; it
+ * stops the next one, and the hunt returns `partial` with `ended: 'tired'`. From the first tick it closes the range
+ * while out of reach or outside the band memory says we hit best; a quarry opening the range is let go unless
+ * `pursue: true`, which chases it on the tick it opens, above the danger line.
  *
  * `onTick` is the pilot's own hand on the stance. It is called once a battle tick with a
  * `TickView` and returns a `TickDecision` or `undefined` for "no change" — synchronously,
  * because a tick is ten seconds and one model call is minutes, so the tactics have to be
  * authored in advance and carried out inside the fight. It issues no commands itself: `hunt` applies
  * one field a tick, validates it, and journals what was asked against what was sent. A callback
- * that throws is logged and the default loop carries on. The mood's walk-away line outranks it
- * always — a decision that would keep fighting under the line is refused and said so. */
+ * that throws is logged and the default loop carries on. The danger line outranks it always —
+ * a decision that would keep fighting when the rule says run is refused and said so. */
 export declare function hunt(opts?: {
     poi?: string;
     look?: string[];
@@ -209,6 +294,8 @@ export declare function hunt(opts?: {
     species?: string | string[];
     strict?: boolean;
     target?: 'creature' | 'pirate';
+    pursue?: boolean;
+    risk?: 'covered' | 'known';
     onTick?: (view: TickView) => TickDecision | undefined;
 }): Promise<Outcome<Hunted>>;
 /** `hunt` as an Effect, for `edge` and for converted callers; never in a barrel. A refusal or a lost reply on a
@@ -221,5 +308,7 @@ export declare const huntEffect: (opts?: {
     species?: string | string[];
     strict?: boolean;
     target?: "creature" | "pirate";
+    pursue?: boolean;
+    risk?: "covered" | "known";
     onTick?: (view: TickView) => TickDecision | undefined;
 }) => Effect.Effect<Outcome<Hunted>, never, Game | import("../runtime.ts").Run>;
