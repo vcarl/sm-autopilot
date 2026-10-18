@@ -180,9 +180,44 @@ test('quote prices each missing input to buy and to sell, and names its source',
     const out=await quote('refine_steel',2);
     assert.equal(out.status,'done',out.why);
     // The fake market charges 12 each, fee included; the book here bids 3 for ore.
-    assert.deepEqual(out.detail.missing,[{item_id:'iron_ore',need:5,have:0,buy_each:12,sell_each:3,source:'mining'}]);
+    assert.deepEqual(out.detail.missing,[{item_id:'iron_ore',need:5,have:0,buy_each:12,sell_each:3,source:'mining',ore_each:null}]);
     assert.match(out.next.join('\n'),/iron_ore: store has 0 of 5; buys at 12 cr each, sells at 3/);
     assert.equal(mutations(f),0,'a quote moves nothing');
+  } finally {unbind();}
+});
+
+/** A hull bench over the catalog's steel: its plate is crafted from iron ore (5 ore → 2 plate). */
+const HULL={recipe_id:'forge_hull',recipe:'Forge Hull',inputs:[{item_id:'steel_plate',quantity:2}],produces:[{item_id:'hull',quantity:1}]};
+/** Another base remembers iron ore asking 8 a unit; with this book's 4, the median is 6. */
+const remembered=()=>{const dir=mkdtempSync(join(tmpdir(),'spacemolt-ore-'));
+  writeFileSync(join(dir,'markets.json'),JSON.stringify([{base_id:'far_depot',at:'',
+    items:[{item_id:'iron_ore',best_buy:0,best_buy_qty:0,best_sell:8,best_sell_qty:999,buy_orders:[],sell_orders:[]}]}]));
+  return dir;};
+const HULLS={...CATALOG,recipes:[...CATALOG.recipes,{id:'forge_hull',name:'Forge Hull',category:'Components',description:'',crafting_time:1,
+  inputs:[{item_id:'steel_plate',quantity:2}],outputs:[{item_id:'hull',quantity:1}]}],
+items:[...CATALOG.items,{id:'hull',name:'Hull',base_value:300}]} as unknown as Catalog;
+
+test('quote gives a crafted input its ore_each: the mined leaves under one, at the remembered ask',async()=>{
+  const f=world({mood:'Focused'},{store:[],craft:HULL},remembered());
+  useCatalog(async()=>HULLS);
+  try {
+    const out=await quote('forge_hull',1);
+    assert.equal(out.status,'done',out.why);
+    // One plate is 2.5 ore at the median ask of 6, so 15.
+    assert.equal(out.detail.missing[0]!.ore_each,15);
+    assert.equal(f.count('spacemolt/buy'),0);
+  } finally {unbind();}
+});
+
+test('supply names what the ore under the crafted goods it bought comes to',async()=>{
+  const f=world({mood:'Focused'},{store:[],craft:HULL},remembered());
+  useCatalog(async()=>HULLS);
+  try {
+    const out=await supply('forge_hull',1);
+    assert.equal(out.status,'done',out.why);
+    // 2 plate at 20 ore-cr each: 2.5 ore at the one remembered ask, 8 (supply reads no local book).
+    assert.match(out.did,/bought 2 steel_plate for \d+ cr \(≈ 40 cr as mined iron_ore\)/);
+    assert.ok(f.count('spacemolt/buy')>0);
   } finally {unbind();}
 });
 

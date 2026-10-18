@@ -18,7 +18,8 @@ import {words} from '../../servicing.ts';
 import {replyBody} from '../../storage.ts';
 import * as Wire from '../../wire.gen.ts';
 import {Game,field,message,type GameError} from '../game.ts';
-import {bookEffect,buyEffect,overpay,tickNow} from '../market.ts';
+import {bookEffect,buyEffect,knownBooks,overpay,tickNow} from '../market.ts';
+import {oreEach} from './catalog.ts';
 import {kept,offSpec,told} from '../rows.ts';
 import {Stopped,acct,admit,edge,jobEffect,pilot,reached,runtimeDir,step,stopped} from '../runtime.ts';
 import {OffSpec,folded,stowEffect} from '../storage.ts';
@@ -242,6 +243,13 @@ const sources=()=>Effect.gen(function*() {
   const graph=yield* graphOf();
   return Result.isSuccess(graph)?(item:string)=>graph.success.source(item):()=>'unknown';
 });
+/** What the mined or harvested leaves under one of an item cost at market, and which ores they are (`oreEach`); `null` when it is not made from them. */
+const ores=()=>Effect.gen(function*() {
+  const graph=yield* graphOf(),dir=runtimeDir();
+  if(!Result.isSuccess(graph))return ()=>null;
+  const books=knownBooks(dir),now=tickNow(dir),values=baseValues(dir);
+  return (item:string)=>oreEach(graph.success,books,now,values,item);
+});
 
 /** What the outputs fetch at this base's top buy level, or `null` when one of them has no
  * buyer here at all. A missing buyer is not a price of zero: read as zero it says "crafting
@@ -333,6 +341,9 @@ export interface Missing {
   sell_each:number|null;
   /** How it enters the economy: `mining`, `gas`, …, `crafted`, or `unknown`. */
   source:string;
+  /** What the mined or harvested ore under ONE of it is worth at market (median remembered ask, else base value);
+   * `null` when it is not made from such ore, or is raw ore itself. */
+  ore_each:number|null;
 }
 
 /** One recipe's full cost against what it is worth here. */
@@ -370,14 +381,14 @@ export const quoteEffect=(recipeId:string,quantity=1,opts:{at?:'workshop'|string
     const listed=yield* bookEffect();
     const short=(quoted.cost?.inputs??[]).map(inp=>({item_id:inp.item_id,need:inp.quantity,have:held(store,inp.item_id)}))
       .filter(row=>row.have<row.need);
-    const sourceOf=short.length?yield* sources():()=>'unknown';
+    const sourceOf=short.length?yield* sources():()=>'unknown',oreOf=short.length?yield* ores():()=>null;
     const missing:Missing[]=[];
     for(const row of short) {
       const est=yield* estimate(row.item_id,row.need-row.have);
       const filled=est?Math.max(1,row.need-row.have-(est.unfilled??0)):1;
       const bid=listed.get(row.item_id)?.best_buy;
       missing.push({...row,buy_each:est?Math.round((est.total_cost??0)/filled*100)/100:null,
-        sell_each:bid&&bid>0?bid:null,source:sourceOf(row.item_id)});
+        sell_each:bid&&bid>0?bid:null,source:sourceOf(row.item_id),ore_each:oreOf(row.item_id)?.each??null});
     }
     const produces_total=allRuns(quoted);
     const valued=worth(produces_total,listed);
@@ -479,6 +490,7 @@ export const supplyEffect=(recipeId:string,quantity=1,opts:{at?:'workshop'|strin
       step(`stowing what the hold carries: ${list(bring)}`);
       stowed=reached(yield* stowEffect(bring))?.moved??[];
     }
+    const oreOf=yield* ores();
     const bought:Row[]=[],whys:string[]=[];
     let spent=0;
     for(const row of offers) {
@@ -495,7 +507,10 @@ export const supplyEffect=(recipeId:string,quantity=1,opts:{at?:'workshop'|strin
     const sourceOf=yield* sources();
     const short=gap(yield* storeRows()).map(row=>({...row,source:sourceOf(row.item_id)}));
     const detail={stowed,bought,short,spent,elsewhere};
-    const did=`${name}: `+[stowed.length?`stowed ${list(stowed)}`:'',bought.length?`bought ${list(bought)} for ${spent} cr`:'']
+    // What the ore under the crafted goods bought comes to, so the price reads against the mining road.
+    const asOre=bought.flatMap(row=>{const o=oreOf(row.item_id);return o?[{...o,each:o.each*row.quantity}]:[];});
+    const worthOre=asOre.length?` (≈ ${asOre.reduce((sum,o)=>sum+o.each,0)} cr as mined ${[...new Set(asOre.flatMap(o=>o.ores))].join(' + ')})`:'';
+    const did=`${name}: `+[stowed.length?`stowed ${list(stowed)}`:'',bought.length?`bought ${list(bought)} for ${spent} cr${worthOre}`:'']
       .filter(Boolean).join(', ')+(short.length?'':`; ${bay.base}'s store holds every input`)+away;
     if(!short.length)return {status:'done',did,detail,next:[`craft('${recipeId}', ${quantity}${opts.at?`, {at:'${opts.at}'}`:''})`]};
     return {status:'partial',did:did.replace(/: (;|$)/,': nothing moved$1'),

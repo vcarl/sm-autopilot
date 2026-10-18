@@ -84,6 +84,9 @@ export interface Missing {
     sell_each: number | null;
     /** How it enters the economy: `mining`, `gas`, …, `crafted`, or `unknown`. */
     source: string;
+    /** What the mined or harvested ore under ONE of it is worth at market (median remembered ask, else base value);
+     * `null` when it is not made from such ore, or is raw ore itself. */
+    ore_each: number | null;
 }
 /** One recipe's full cost against what it is worth here. */
 export type Quoted = CraftQuoteResponse & Venue & {

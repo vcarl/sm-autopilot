@@ -7,6 +7,7 @@
  * gathered at random and then checked what it could make. */
 import type { Recipe } from '@spacemolt/lib';
 import { Effect } from 'effect';
+import type { RecipeGraph } from '../../recipe-graph.ts';
 import { type CheapAsk, type RememberedBook } from '../market.ts';
 import { type FacilitySeen } from '../world.ts';
 import type { Outcome } from '../types.ts';
@@ -130,6 +131,12 @@ export interface Traced {
     /** The root recipe's inputs and outputs at market value, for the whole order; null when the root is not crafted. */
     value: TraceValue | null;
 }
+/** What the mined or harvested leaves under ONE `item` are worth, valued as `unitValue` does (median remembered ask, else base value),
+ * and which ores they are; `null` when it is itself raw, or a leaf is bought-only, cyclic or unvalued. Walks `trace`'s picked route. */
+export declare function oreEach(graph: RecipeGraph, books: readonly RememberedBook[], now: number, values: ReadonlyMap<string, number>, item: string): {
+    each: number;
+    ores: string[];
+} | null;
 /** The tree `quantity` of an item takes — named by item id, recipe id, or a unique part of either — down to what is
  * mined, harvested or bought, net of what the hold and every store already hold of each intermediate. Each item's
  * route prefers recipes whose leaves are gathered over bought over only crafted, hand-craftable over facility-only,

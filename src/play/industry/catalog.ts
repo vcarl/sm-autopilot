@@ -176,6 +176,53 @@ function resolve(graph:RecipeGraph,arg:string):{item:string;recipe?:Recipe}|{can
   return {candidates:[...hits,...named.map(recipe=>recipe.id)].slice(0,10)};
 }
 
+/** The routes `trace` walks: an item's usable recipes, what a recipe makes of it, and the one it picks (see `traceEffect`). */
+function router(graph:RecipeGraph,books:readonly RememberedBook[],now:number) {
+  const options=(item:string)=>graph.recipesFor(item).filter(usable);
+  const makes=(recipe:Recipe,item:string)=>recipe.outputs?.find(out=>out.item_id===item)?.quantity||1;
+
+  // ponytail: memoised per item whatever path first reached it, so a cycle cut deep in one branch can price or rank
+  // the item a shade worse elsewhere. Exact would key the memo by path; nothing live has needed it.
+  const ranks=new Map<string,number>(),costs=new Map<string,number|undefined>();
+  const rankOf=(item:string,path:ReadonlySet<string>):number=>{
+    const source=graph.source(item);
+    if(source!=='crafted')return RANK(source);
+    if(path.has(item))return 2;
+    if(!ranks.has(item)){const deeper=new Set([...path,item]);ranks.set(item,Math.min(2,...options(item).map(recipe=>routeRank(recipe,deeper))));}
+    return ranks.get(item)??2;
+  };
+  const routeRank=(recipe:Recipe,path:ReadonlySet<string>)=>Math.max(0,...(recipe.inputs??[]).map(inp=>rankOf(inp.item_id,path)));
+  const unitCost=(item:string,path:ReadonlySet<string>):number|undefined=>{
+    if(graph.source(item)!=='crafted')return cheapestAsk(books,item,1,undefined,now)?.price;
+    if(path.has(item))return undefined;
+    if(!costs.has(item)) {
+      const deeper=new Set([...path,item]);
+      const each=options(item).map(recipe=>routeCost(recipe,deeper)/makes(recipe,item)).filter(Number.isFinite);
+      costs.set(item,each.length?Math.min(...each):undefined);
+    }
+    return costs.get(item);
+  };
+  const routeCost=(recipe:Recipe,path:ReadonlySet<string>)=>(recipe.inputs??[]).reduce((sum,inp)=>sum+(unitCost(inp.item_id,path)??NaN)*inp.quantity,0);
+  const pick=(item:string,path:ReadonlySet<string>)=>options(item).map(recipe=>({recipe,rank:routeRank(recipe,path),hand:graph.isCraftable(recipe),cost:routeCost(recipe,path)/makes(recipe,item)}))
+    .sort((a,b)=>a.rank-b.rank||Number(b.hand)-Number(a.hand)||(Number.isFinite(a.cost)&&Number.isFinite(b.cost)?a.cost-b.cost:0))[0]?.recipe;
+  return {options,makes,pick};
+}
+
+/** What the mined or harvested leaves under ONE `item` are worth, valued as `unitValue` does (median remembered ask, else base value),
+ * and which ores they are; `null` when it is itself raw, or a leaf is bought-only, cyclic or unvalued. Walks `trace`'s picked route. */
+export function oreEach(graph:RecipeGraph,books:readonly RememberedBook[],now:number,values:ReadonlyMap<string,number>,item:string):{each:number;ores:string[]}|null {
+  const {makes,pick}=router(graph,books,now),ores=new Map<string,number>();
+  const walk=(id:string,qty:number,path:ReadonlySet<string>):boolean=>{
+    const source=graph.source(id);
+    if(source!=='crafted'){const unit=HOW[source]&&source!=='unknown'?unitValue(books,id,values.get(id))?.unit:undefined;
+      if(unit===undefined)return false;ores.set(id,(ores.get(id)??0)+unit*qty);return true;}
+    const recipe=path.has(id)?undefined:pick(id,path),deeper=new Set([...path,id]);
+    return !!recipe&&(recipe.inputs??[]).every(inp=>walk(inp.item_id,qty*inp.quantity/makes(recipe,id),deeper));
+  };
+  const recipe=graph.source(item)==='crafted'?pick(item,new Set()):undefined;
+  return recipe&&walk(item,1,new Set())?{each:Math.round([...ores.values()].reduce((a,b)=>a+b,0)),ores:[...ores.keys()]}:null;
+}
+
 /** The tree `quantity` of an item takes — named by item id, recipe id, or a unique part of either — down to what is
  * mined, harvested or bought, net of what the hold and every store already hold of each intermediate. Each item's
  * route prefers recipes whose leaves are gathered over bought over only crafted, hand-craftable over facility-only,
@@ -195,33 +242,7 @@ export const traceEffect=(itemOrRecipe:string,quantity=1)=>
     const aboard=miningInventory(acct().state),named=(base:string)=>names[base]??base;
     const storedOf=(item:string)=>stores.filter(row=>row.item_id===item).map(({base_id,quantity:n})=>({base_id,quantity:n}));
     const haveOf=(item:string)=>(aboard[item]??0)+storedOf(item).reduce((sum,row)=>sum+row.quantity,0);
-    const options=(item:string)=>graph.recipesFor(item).filter(usable);
-    const makes=(recipe:Recipe,item:string)=>recipe.outputs?.find(out=>out.item_id===item)?.quantity||1;
-
-    // ponytail: memoised per item whatever path first reached it, so a cycle cut deep in one branch can price or rank
-    // the item a shade worse elsewhere. Exact would key the memo by path; nothing live has needed it.
-    const ranks=new Map<string,number>(),costs=new Map<string,number|undefined>();
-    const rankOf=(item:string,path:ReadonlySet<string>):number=>{
-      const source=graph.source(item);
-      if(source!=='crafted')return RANK(source);
-      if(path.has(item))return 2;
-      if(!ranks.has(item)){const deeper=new Set([...path,item]);ranks.set(item,Math.min(2,...options(item).map(recipe=>routeRank(recipe,deeper))));}
-      return ranks.get(item)??2;
-    };
-    const routeRank=(recipe:Recipe,path:ReadonlySet<string>)=>Math.max(0,...(recipe.inputs??[]).map(inp=>rankOf(inp.item_id,path)));
-    const unitCost=(item:string,path:ReadonlySet<string>):number|undefined=>{
-      if(graph.source(item)!=='crafted')return cheapestAsk(books,item,1,undefined,now)?.price;
-      if(path.has(item))return undefined;
-      if(!costs.has(item)) {
-        const deeper=new Set([...path,item]);
-        const each=options(item).map(recipe=>routeCost(recipe,deeper)/makes(recipe,item)).filter(Number.isFinite);
-        costs.set(item,each.length?Math.min(...each):undefined);
-      }
-      return costs.get(item);
-    };
-    const routeCost=(recipe:Recipe,path:ReadonlySet<string>)=>(recipe.inputs??[]).reduce((sum,inp)=>sum+(unitCost(inp.item_id,path)??NaN)*inp.quantity,0);
-    const pick=(item:string,path:ReadonlySet<string>)=>options(item).map(recipe=>({recipe,rank:routeRank(recipe,path),hand:graph.isCraftable(recipe),cost:routeCost(recipe,path)/makes(recipe,item)}))
-      .sort((a,b)=>a.rank-b.rank||Number(b.hand)-Number(a.hand)||(Number.isFinite(a.cost)&&Number.isFinite(b.cost)?a.cost-b.cost:0))[0]?.recipe;
+    const {options,makes,pick}=router(graph,books,now);
 
     const pool:Record<string,number>={};
     const steps=new Map<string,Traced['steps'][number]>(),depth=new Map<string,number>(),leaves=new Map<string,Traced['leaves'][number]>(),chosen=new Map<string,string>();

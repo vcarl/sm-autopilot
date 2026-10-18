@@ -61,10 +61,15 @@ the wrong base.
 
 ## Mine or buy
 
-Every row of `quote(...).detail.missing` carries both prices: `buy_each` is what one costs on
-this market with the buy fee already in it; `sell_each` is what one of your own fetches here
-instead. When `buy_each` is `null` this market does not sell it: mine it — `trace(item, n)`
-names the raw leaves under it, how each is got, and where it was last seen for sale.
+Common ore is the cheap road to crafted goods. Every row of `quote(...).detail.missing` carries
+the prices: `buy_each` is what one costs on this market with the buy fee already in it;
+`sell_each` is what one of your own fetches here instead; `ore_each` is what the mined or
+harvested ore under one of them is worth at market (median remembered ask, else base value),
+`null` for ore itself and for anything not made from ore. When `buy_each` is several times
+`ore_each`, mine the ore and craft it: `trace(item, n)` names the leaves and where each was
+last seen for sale, `gatherUntil` fills the hold, and `supply` stows it. Buy when the price is
+near `ore_each` or the ore is rare. When `buy_each` is `null` this market does not sell it:
+mine it the same way.
 
 ## Worked example
 
@@ -79,7 +84,7 @@ export default async function main() {
   if ((q.detail.margin ?? 0) <= 0) { note(q.did); return q; }
 
   for (const row of q.detail.missing) {
-    if (row.buy_each === null) return trace(row.item_id, row.need - row.have); // mine it
+    if (row.buy_each === null || row.buy_each > 3 * (row.ore_each ?? Infinity)) return trace(row.item_id, row.need - row.have); // mine it
     note(`${row.item_id}: buy ${row.buy_each} vs sell ${row.sell_each ?? 'no bid'}`);
   }
 
@@ -96,12 +101,14 @@ export default async function main() {
   inputs are **fully** covered, dry-runs each one for its real labour and fee, and prices the
   output against one read of this base's book. Twenty rows at most; `did` says how many were cut.
 - `quote(recipe, qty)` is the server's own dry run, whole, plus `produces_total` (what the whole
-  order makes), `output_value`, `margin` (output value less `credits_total`), and `missing`.
+  order makes), `output_value`, `margin` (output value less `credits_total`), and `missing`,
+  each row with `buy_each`, `sell_each` and `ore_each` side by side.
 - `supply(recipe, qty)` estimates the whole bill before it moves anything; over `maxSpend` it is
   refused with nothing bought. So is an input over 1.05 × the cheapest ask remembered at another
   base (`why` names it and its age): buy it there, or pass `maxEach` (per unit) to pay this one. What this market does not sell comes back in `short` with its
   `source`, and the status is `partial`. What your stores at other bases hold of an input it had to
   buy is named in `did` and `elsewhere`; nothing is fetched from them. A stocked store is `done` with nothing sent.
+  What it bought is priced against the ore under it: `bought 4 steel_plate for 7839 cr (≈ 160 cr as mined iron_ore)`.
 - `craft(recipe, qty)` commits, waits and measures. A job already queued here for the same
   recipe and the same number of runs **is** this job: a re-run re-enters the wait.
 - `jobs()` marks a workshop job `paused` when the ship is not docked at its base.
@@ -113,6 +120,8 @@ export default async function main() {
 - Facilities give no XP. Train crafting at the workshop.
 - Buying costs about 2.5% over the book's price; `buy_each` already includes it.
 - Silicon and iron are often not sold at all. Read `missing` and `trace` before committing.
+- Price a whole tree from where you sit: `trace()` carries the cheapest remembered ask for every
+  leaf, so one call replaces a tour of stations.
 - `margin` values the output at the **top** buy level only; a big order fetches less.
 - Outputs go to the store at this base: `sell(rows, {from:'store'})` here, or `withdraw`
   before flying.
