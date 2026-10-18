@@ -1,7 +1,7 @@
 /** The SpaceMolt bridge: one JSON request per stdin line, one JSON reply per line, and
  * `{"id","event":"line","text"}` lines streamed while a `run` proceeds. Requests are
  * handled concurrently, so `stop` and `status` answer while a run is in flight. */
-import {Account} from '@spacemolt/lib';
+import {Account,type TypedNotificationType} from '@spacemolt/lib';
 import {Cause,Effect,Exit,Result,Schema} from 'effect';
 import {createHash} from 'node:crypto';
 import {existsSync,mkdirSync,readFileSync,renameSync,writeFileSync} from 'node:fs';
@@ -9,7 +9,7 @@ import {resolve} from 'node:path';
 import {createInterface} from 'node:readline';
 import {fileURLToPath} from 'node:url';
 import {markAlertsDelivered,pendingAlerts,recordAlert} from './alerts.ts';
-import {chatJournal,noteUnread} from './chat.ts';
+import {chatJournal,noteUnread,type PushPayload,type Pushes} from './chat.ts';
 import {covers,foldBattleDamage,foldBattleEnded,foldBattleUpdate,readCombat,recentRecord,recordLine} from './combat-memory.ts';
 import {battleEnded,battleNowEffect,battleStirred} from './travel.ts';
 import {flushFrames,frameTap} from './frames.ts';
@@ -103,7 +103,8 @@ export function journalResult(action:string,result:unknown):unknown {
 export const PUSH_TYPES=['battle_alert','battle_ended','battle_update','battle_damage',
   'player_died','facility_rent_warning',
   'facility_reclaimed','base_destroyed','base_raid_update','mining_yield','crafting_update',
-  'skill_level_up','ok','fleet'] as const;
+  'skill_level_up','ok','fleet'] as const satisfies readonly TypedNotificationType[];
+type PushType=(typeof PUSH_TYPES)[number];
 
 /** The two combat frames that are folded into `combat.json` and never journalled: a battle
  * pushes one `battle_update` a tick and a `battle_damage` per shot, and `gameplay.jsonl` is
@@ -119,7 +120,7 @@ const FOLD_ONLY=new Set(['battle_update','battle_damage']);
  * while it sleeps. The facility frames collapse on the base; a death collapses on the wreck it
  * left, so three ships lost in a shift are three items rather than one. `player_died` carries
  * no `base_id` at all, which is why this is a key per type rather than one field. */
-const ALERT_KEY:Record<string,(body:Record<string,unknown>)=>string|undefined>={
+const ALERT_KEY:{readonly [K in PushType]?:(body:Partial<PushPayload<K>>)=>string|undefined}={
   facility_rent_warning:body=>typeof body.base_id==='string'?`base:${body.base_id}`:undefined,
   facility_reclaimed:body=>typeof body.base_id==='string'?`base:${body.base_id}`:undefined,
   base_destroyed:body=>typeof body.base_id==='string'?`base:${body.base_id}`:undefined,
@@ -158,8 +159,7 @@ export function pushScalars(payload:unknown):Record<string,unknown> {
 /** Register the allowlist on an account that outlives every run. Called once from `main()`,
  * never from `bind()`: a handler bound to a run is deaf between junctures, which is the
  * whole reason these frames were being lost. */
-export function pushJournal(account:{on:(type:string,handler:(payload:Record<string,unknown>)=>void)=>unknown;
-  player?:{id?:string}|undefined;currentTick?:number},
+export function pushJournal(account:Pushes&{player?:{id?:string}|undefined;currentTick?:number},
   runtime:string,now:()=>number=Date.now):void {
   const seen=new Map<string,{minute:number;n:number}>();
   const spare=(channel:string):boolean=>{
@@ -169,30 +169,37 @@ export function pushJournal(account:{on:(type:string,handler:(payload:Record<str
     return kept.n<=PUSH_PER_MINUTE;
   };
   // A frame of the ship's own battle: a status read may no longer answer "no battle" from memory.
-  for(const type of ['battle_started','battle_joined'])account.on(type,battleStirred);
-  for(const type of PUSH_TYPES)account.on(type,(payload:Record<string,unknown>)=>{
+  for(const type of ['battle_started','battle_joined'] as const)account.on(type,battleStirred);
+  const me=()=>account.player?.id;
+  // What one type does before the journal: a death ends the flight; the combat fold runs before the rate cap and
+  // before the journal, because losing shots to a 20-a-minute ceiling would bias measured accuracy silently.
+  const FIRST:{readonly [K in PushType]?:(body:Partial<PushPayload<K>>)=>void}={
+    // Its own event, ahead of the rate cap: a death is the one push an analysis cannot lose.
+    // The ship the program was flying is gone, so the flight ends at its next safe point, as any stop
+    // does; no run bound, nothing to stop. Live 2026-10-09 (kvothe 05:28Z): a death mid-hunt() read as
+    // the battle ending, and the search flew the respawned 80-hull Cobble 10 jumps to its next death.
+    player_died:body=>{
+      journalRun(runtime,pushScalars(body),'death');
+      stopRun(`ship lost: ${String(body.ship_lost??'the ship')}, respawned at ${String(body.respawn_base??'an unnamed base')}`);
+    },
+    battle_update:body=>foldBattleUpdate(body,me()),
+    battle_damage:body=>foldBattleDamage(body,me()),
+    battle_ended:body=>foldBattleEnded(runtime,body,me(),account.currentTick),
+  };
+  // Most `ok` variants key on `action`, seven on `type`; a variant with neither is the
+  // wildlife kill notice, which the pilot's own hunt step already reports.
+  const causeOf=(body:Partial<PushPayload<'ok'>>)=>String(('action' in body?body.action:undefined)??('type' in body?body.type:undefined)??'');
+  const heard=<K extends PushType>(type:K,payload:PushPayload<K>|null|undefined)=>{
     // An alert is a fight that may be starting here: the remembered "no battle" goes with it.
     if(type==='battle_update'||type==='battle_damage'||type==='battle_alert')battleStirred();
-    const body:Record<string,unknown>=payload??{};
-    // Most `ok` variants key on `action`, seven on `type`; a variant with neither is the
-    // wildlife kill notice, which the pilot's own hunt step already reports.
+    const body:Partial<PushPayload<K>>=payload??{};
     // The two frames that end a battle, wherever the run has got to: the mover's `in_battle`
     // refusal stands until one of them arrives (or a confirmed `disengage` clears it), so a
     // battle that ends between junctures does not leave the ship refusing to move.
     if(type==='battle_ended'||type==='player_died')battleEnded();
-    // Its own event, ahead of the rate cap: a death is the one push an analysis cannot lose.
-    if(type==='player_died')journalRun(runtime,pushScalars(body),'death');
-    // The ship the program was flying is gone, so the flight ends at its next safe point, as any stop
-    // does; no run bound, nothing to stop. Live 2026-10-09 (kvothe 05:28Z): a death mid-hunt() read as
-    // the battle ending, and the search flew the respawned 80-hull Cobble 10 jumps to its next death.
-    if(type==='player_died')stopRun(`ship lost: ${String(body.ship_lost??'the ship')}, respawned at ${String(body.respawn_base??'an unnamed base')}`);
-    // The combat fold, before the rate cap and before the journal: losing shots to a 20-a-minute
-    // ceiling would bias measured accuracy silently, which is worse than not measuring it.
-    if(type==='battle_update')foldBattleUpdate(body,account.player?.id);
-    if(type==='battle_damage')foldBattleDamage(body,account.player?.id);
-    if(type==='battle_ended')foldBattleEnded(runtime,body,account.player?.id,account.currentTick);
+    FIRST[type]?.(body);
     if(FOLD_ONLY.has(type))return;
-    const cause=type==='ok'?String(body.action??body.type??''):'';
+    const cause=type==='ok'?causeOf(body):'';
     if(type==='ok'&&(!cause||OWN_PUSH.has(cause)||PUSH_NOISE.has(cause)))return;
     const scalars=pushScalars(body);
     // Buffered before the rate cap, never after: the cap protects the journal and the Discord
@@ -205,7 +212,9 @@ export function pushJournal(account:{on:(type:string,handler:(payload:Record<str
       journalRun(runtime,{cause,
         evidence:Object.entries(scalars).map(([key,value])=>`${key}=${value}`).join(' ')},'unsolicited_move');
     else journalRun(runtime,{push:type,...scalars},'push');
-  });
+  };
+  const listen=<K extends PushType>(type:K)=>{account.on(type,payload=>heard(type,payload));};
+  PUSH_TYPES.forEach(listen);
 }
 
 /** Facts at the moment an objective was set: the wallet, each skill's level, the hull and the
@@ -586,7 +595,7 @@ export function strayRejection(runtime:string):(error:unknown)=>void {
 
 /** Ends the bridge's own process once its owner is gone: SIGTERM, SIGINT, and stdin ending all
  * say the same thing, and more than one may fire, so this is idempotent. */
-export function createShutdown(account:{close:()=>unknown},
+export function createShutdown(account:Pick<Account,'close'>,
   deps:{exit?:(code:number)=>void;schedule?:typeof setTimeout;graceMs?:number}={}) {
   const exit=deps.exit??((code:number)=>process.exit(code));
   const schedule=deps.schedule??setTimeout;
@@ -644,7 +653,7 @@ async function main() {
   const command:ReadinessCommand=async(action,params)=>{
     const [tool='',name='']=action.split('/');
     const since=Date.now();
-    let reply:unknown;
+    let reply:Awaited<ReturnType<Account['send']>>;
     try {reply=await account.send(tool,name,params);}
     catch(error) { // edge: journalled and rethrown unchanged; `GameLive` classifies it
       journalCommand(runtime,action,params,false,error,{ms:Date.now()-since});

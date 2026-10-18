@@ -1,5 +1,7 @@
 /** The combat memory: the battle frames the runner used to drop, folded into the numbers that
  * decide whether to take the next fight — and `player_died` reaching the buffer the pilot reads. */
+import type {TypedNotificationType} from '@spacemolt/lib';
+import type {PushPayload} from './chat.ts';
 import assert from 'node:assert/strict';
 import {existsSync,mkdtempSync,readFileSync,rmSync,writeFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
@@ -19,7 +21,8 @@ const temp=()=>mkdtempSync(join(tmpdir(),'spacemolt-combat-'));
 function stub(id='me',currentTick=41_208) {
   const handlers=new Map<string,(payload:Record<string,unknown>)=>void>();
   return {player:{id},currentTick,
-    on(type:string,handler:(payload:Record<string,unknown>)=>void) {handlers.set(type,handler);return ()=>{};},
+    // The test fires partial frames by hand, so the typed handler is called untyped.
+    on<K extends TypedNotificationType>(type:K,handler:(payload:PushPayload<K>)=>void) {handlers.set(type,payload=>Reflect.apply(handler,undefined,[payload]));return ()=>{};},
     fire(type:string,payload:Record<string,unknown>) {
       const handler=handlers.get(type);
       assert.ok(handler,`nothing is registered for ${type}`);
@@ -215,10 +218,10 @@ test('shots are attributed to the zone in force when they arrived, not to a tick
     // between them, and a shot landed at each.
     foldBattleUpdate({battle_id:'b1',tick:1,your_side_id:2,your_zone:'outer',
       participants:[{side_id:2,player_id:'me'},{side_id:1,username:'Quantum-Moth'}]});
-    foldBattleDamage({battle_id:'b1',tick:1,target_id:'me',hit_success:true,total_damage:2},'me');
+    foldBattleDamage({tick:1,target_id:'me',hit_success:true,total_damage:2},'me');
     foldBattleUpdate({battle_id:'b1',tick:1,your_side_id:2,your_zone:'inner',
       participants:[{side_id:2,player_id:'me'},{side_id:1,username:'Quantum-Moth'}]});
-    foldBattleDamage({battle_id:'b1',tick:1,target_id:'me',hit_success:true,total_damage:2},'me');
+    foldBattleDamage({tick:1,target_id:'me',hit_success:true,total_damage:2},'me');
     const fight=foldBattleEnded(dir,{battle_id:'b1',duration:2,winning_side:2,
       participants:[{player_id:'me',side_id:2,survived:true,damage_dealt:0,damage_taken:4}]},'me');
     assert.ok(fight,'the fold produced no fight');

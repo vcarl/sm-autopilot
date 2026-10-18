@@ -1,6 +1,7 @@
 /** The pushes the game sends without being asked: which reach the journal, which are
  * buffered for the next wake, and what the human reads. */
-import {SpacemoltError,type Account} from '@spacemolt/lib';
+import {SpacemoltError,type Account,type TypedNotificationType} from '@spacemolt/lib';
+import type {PushPayload} from './chat.ts';
 import {Effect} from 'effect';
 import {GameLive} from './play/game.ts';
 import {battleEnded,battleNowEffect} from './travel.ts';
@@ -22,7 +23,8 @@ const temp=()=>mkdtempSync(join(tmpdir(),'spacemolt-push-'));
 function stub() {
   const handlers=new Map<string,(payload:Record<string,unknown>)=>void>();
   return {
-    on(type:string,handler:(payload:Record<string,unknown>)=>void) {handlers.set(type,handler);return ()=>{};},
+    // The test fires partial frames by hand, so the typed handler is called untyped.
+    on<K extends TypedNotificationType>(type:K,handler:(payload:PushPayload<K>)=>void) {handlers.set(type,payload=>Reflect.apply(handler,undefined,[payload]));return ()=>{};},
     registered:()=>[...handlers.keys()],
     fire(type:string,payload:Record<string,unknown>) {
       const handler=handlers.get(type);

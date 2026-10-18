@@ -430,7 +430,8 @@ test('a death mid-flight stops the run in the loss\'s words, and the report name
   const f=harness();
   try {
     const handlers=new Map<string,(payload:Record<string,unknown>)=>void>();
-    pushJournal({on:(type,handler)=>handlers.set(type,handler)},f.runtime);
+    // The test fires a partial frame by hand, so the typed handler is called untyped.
+    pushJournal({on:(type,handler)=>handlers.set(type,payload=>Reflect.apply(handler,undefined,[payload]))},f.runtime);
     let died=false;
     const command:typeof f.deps.command=async(action,params)=>{
       const reply=await f.deps.command(action,params);

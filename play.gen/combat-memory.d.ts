@@ -1,3 +1,18 @@
+/** What a fight cost and what it bought, folded from the battle pushes as they arrive.
+ *
+ * The lib pushes `battle_update` every tick and `battle_damage` per shot; the runner listed
+ * neither, so combat was played blind — three ships were lost on 2026-09-24 and nothing
+ * recorded would have let anyone choose better. These frames are NOT journalled: a battle
+ * pushes several a tick and `gameplay.jsonl` is already 36 MB, so they are folded here on
+ * arrival into roughly a dozen numbers per fight, plus one short row per `battle_update`
+ * (`FightRecord.rows`), and dropped.
+ *
+ * Like `markets.json`, this is memory the game does not publish: the server has no "how did I
+ * do against this species last time" endpoint, so the only way to have the number is to have
+ * kept it. Same discipline as `remember()` in `play/market.ts` — temp file then rename,
+ * bounded by count, every entry tagged with its age.
+ */
+import type { BattleEndedParticipantInfo, BattleParticipantInfo, NotificationBattleDamage, NotificationBattleEnded, NotificationBattleUpdate } from '@spacemolt/lib';
 import { Schema } from 'effect';
 /** ponytail: the last ten fights per opponent class, so a rare quarry is not pushed out by common
  * ones. A record of ten is thin enough to stay recent and thick enough to show a worst case. */
@@ -178,17 +193,24 @@ export declare function recordLine(rec: RecentRecord | undefined, covered: boole
  * damage total as hull would break off many times too early, and the danger line it is
  * deciding against is measured in hull. */
 export declare function combatLine(stats: CombatStats): string;
+/** A battle push as the fold takes it: the lib's fields, any of them absent, as a live frame or a test's may leave them. */
+type Pushed<T, Row> = Partial<Omit<T, 'participants'>> & {
+    participants?: readonly Partial<Row>[];
+};
+export type BattleUpdatePush = Pushed<NotificationBattleUpdate, BattleParticipantInfo>;
+export type BattleEndedPush = Pushed<NotificationBattleEnded, BattleEndedParticipantInfo>;
+export type BattleDamagePush = Partial<NotificationBattleDamage>;
 /** `battle_update`: the tick, the band, the stance in force, and who is on the other side. `me` is
  * our `player_id`: in a fleet battle the first row on our side may be an ally's, so ours is found by
  * id, and only the other side's rows are kept per tick (an ally fleeing is not the quarry leaving). */
-export declare function foldBattleUpdate(payload: Record<string, unknown>, me?: string): void;
+export declare function foldBattleUpdate(payload: BattleUpdatePush, me?: string): void;
 /** `battle_damage`: one shot. `hit_success` is the accuracy measurement, and the shot is credited to
  * the band in force when this frame arrived — the frame carries no band of its own and the tick
  * number cannot stand in for one (see `Live.by_range`). */
-export declare function foldBattleDamage(payload: Record<string, unknown>, me: string | undefined): void;
+export declare function foldBattleDamage(payload: BattleDamagePush, me: string | undefined): void;
 /** `battle_ended`: close the fold and write it. The server's own participant totals win over
  * the summed shot frames — a dropped frame would understate them, and these cannot be. */
-export declare function foldBattleEnded(dir: string, payload: Record<string, unknown>, me: string | undefined, tick?: number, now?: () => Date): FightRecord | undefined;
+export declare function foldBattleEnded(dir: string, payload: BattleEndedPush, me: string | undefined, tick?: number, now?: () => Date): FightRecord | undefined;
 /** An arena match, closed by the play side. No `battle_ended` push has been logged for an arena battle (kvothe,
  * 2026-10-09..13: 13 matches, none in `combat.json`), so the fold `battle_update` opened is closed here with what the
  * match's own reads gave: our row's damage totals, the polls, and `arena.status`'s win/loss delta. A record a push did

@@ -6,6 +6,7 @@
  *
  * A post the running program declared (`interrupts`) is also handed to the run, which pauses at its
  * next safe point (`hear` in play/runtime.ts). */
+import type {Account,FleetPush,NotificationPayloads,OkPush,TypedNotificationType} from '@spacemolt/lib';
 import {appendFileSync,mkdirSync} from 'node:fs';
 import {join} from 'node:path';
 import {Result,Schema,Struct} from 'effect';
@@ -33,7 +34,7 @@ function append(runtime:string,entry:Record<string,unknown>):void {
 /** One `chat_message` frame: kept as a `post` line, offered to the run, or journalled as undecodable.
  * Never throws: it runs on the socket's push. `self` is this pilot's player id: its own echo never
  * pauses its own run. */
-export function hearChat(runtime:string,payload:unknown,self?:string):void {
+export function hearChat(runtime:string,payload:NotificationPayloads['chat_message'],self?:string):void {
   const read=decodeFrame(payload);
   if(Result.isFailure(read)) {journalRun(runtime,{why:read.failure.message},'chat_undecodable');return;}
   const {channel,content,timestamp,...where}=read.success;
@@ -55,13 +56,19 @@ export function recordSent(runtime:string,sent:{channel:string;to?:string|undefi
 }
 
 /** The unread counts a reply carried (`dock` does), when it carried them. */
-export function noteUnread(runtime:string,reply:unknown):void {
+export function noteUnread(runtime:string,reply:Awaited<ReturnType<Account['send']>>):void {
   const read=decodeUnread(replyBody(reply));
   if(Result.isSuccess(read)&&read.success.unread_chat)append(runtime,{event:'unread',counts:read.success.unread_chat});
 }
 
+/** A lib Account's `on`, as a push listener takes it: the payload the lib types for each typed `msg_type`.
+ * Its own unsubscribe is not kept, so its return is not read. */
+export interface Pushes {on<K extends TypedNotificationType>(type:K,handler:(payload:PushPayload<K>)=>void):unknown}
+/** The payload the lib types for a push: `ok` and `fleet` as its own unions of their variants (`OkPush`, `FleetPush`). */
+export type PushPayload<K extends TypedNotificationType>=K extends 'ok'?OkPush:K extends 'fleet'?FleetPush:NotificationPayloads[K];
+
 /** Listen on the account that outlives every run. Called once from `main()`; a freighter's account never is. */
-export function chatJournal(account:{on:(type:string,handler:(payload:Record<string,unknown>)=>void)=>unknown;player?:{id?:string}|undefined},
+export function chatJournal(account:Pushes&{player?:{id?:string}|undefined},
   runtime:string):void {
   account.on('chat_message',payload=>hearChat(runtime,payload,account.player?.id));
   // Pirate radio (heard only with a pirate_radio_scanner fitted) is chat on its own channel.

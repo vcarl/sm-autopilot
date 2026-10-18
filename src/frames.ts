@@ -4,6 +4,7 @@
  *
  * ponytail: rotation only at boot, no size roll, so a bridge that stays up for days grows one file.
  * Add a size check in `enqueue` (rotate when the file passes a few hundred MB) if that happens. */
+import type {AccountOptions,InboundFrame,RawFrame} from '@spacemolt/lib';
 import {appendFile} from 'node:fs/promises';
 import {join} from 'node:path';
 import {isRecord,journalRun} from './run-record.ts';
@@ -92,8 +93,8 @@ export async function flushFrames():Promise<void> {
 }
 
 /** The `onSend`/`onReceive` options of an `Account`; `freighter` tags a freighter's frames. `cap` is for tests. */
-export function frameTap(runtime:string,freighter?:string,cap=FRAMES_QUEUE_BYTES):{onSend:(frame:unknown)=>void;onReceive:(frame:unknown)=>void} {
-  const tap=(dir:'in'|'out')=>(frame:unknown)=>{
+export function frameTap(runtime:string,freighter?:string,cap=FRAMES_QUEUE_BYTES):Required<Pick<AccountOptions,'onSend'|'onReceive'>> {
+  const tap=(dir:'in'|'out')=>(frame:InboundFrame|RawFrame)=>{
     try {enqueue(runtime,`${JSON.stringify({at:new Date().toISOString(),dir,frame:scrubFrame(frame),...freighter===undefined?{}:{freighter}})}\n`,cap);}
     catch {/* an unserialisable frame is not worth the socket */} // edge: logging must never reach the socket
   };

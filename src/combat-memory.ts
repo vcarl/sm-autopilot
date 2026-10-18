@@ -12,6 +12,7 @@
  * kept it. Same discipline as `remember()` in `play/market.ts` — temp file then rename,
  * bounded by count, every entry tagged with its age.
  */
+import type {BattleEndedParticipantInfo,BattleParticipantInfo,NotificationBattleDamage,NotificationBattleEnded,NotificationBattleUpdate} from '@spacemolt/lib';
 import {mkdirSync,readFileSync,renameSync,writeFileSync} from 'node:fs';
 import {join} from 'node:path';
 import {Option,Schema} from 'effect';
@@ -298,13 +299,18 @@ let live:Live|null=null;
 /** The tally for the band in force, made on first use. */
 const bucket=(fold:Live)=>fold.by_range[fold.zone]??=({at_us:{shots:0,hits:0},at_them:{shots:0,hits:0}});
 
-const isRow=(v:unknown):v is Record<string,unknown>=>typeof v==='object'&&v!==null;
-const participantsOf=(payload:Record<string,unknown>)=>Array.isArray(payload.participants)?payload.participants.filter(isRow):[];
+/** A battle push as the fold takes it: the lib's fields, any of them absent, as a live frame or a test's may leave them. */
+type Pushed<T,Row>=Partial<Omit<T,'participants'>>&{participants?:readonly Partial<Row>[]};
+export type BattleUpdatePush=Pushed<NotificationBattleUpdate,BattleParticipantInfo>;
+export type BattleEndedPush=Pushed<NotificationBattleEnded,BattleEndedParticipantInfo>;
+export type BattleDamagePush=Partial<NotificationBattleDamage>;
+const isRow=<Row>(v:Row|null|undefined):v is Row=>typeof v==='object'&&v!==null;
+const participantsOf=<Row>(payload:{participants?:readonly (Row|null|undefined)[]}):Row[]=>Array.isArray(payload.participants)?payload.participants.filter(isRow):[];
 
 /** `battle_update`: the tick, the band, the stance in force, and who is on the other side. `me` is
  * our `player_id`: in a fleet battle the first row on our side may be an ally's, so ours is found by
  * id, and only the other side's rows are kept per tick (an ally fleeing is not the quarry leaving). */
-export function foldBattleUpdate(payload:Record<string,unknown>,me?:string):void {
+export function foldBattleUpdate(payload:BattleUpdatePush,me?:string):void {
   const battle_id=String(payload.battle_id??'');
   if(!battle_id)return;
   if(live?.battle_id!==battle_id)
@@ -344,7 +350,7 @@ export function foldBattleUpdate(payload:Record<string,unknown>,me?:string):void
 /** `battle_damage`: one shot. `hit_success` is the accuracy measurement, and the shot is credited to
  * the band in force when this frame arrived — the frame carries no band of its own and the tick
  * number cannot stand in for one (see `Live.by_range`). */
-export function foldBattleDamage(payload:Record<string,unknown>,me:string|undefined):void {
+export function foldBattleDamage(payload:BattleDamagePush,me:string|undefined):void {
   if(!live)return;
   const hit=payload.hit_success===true;
   const damage=Number(payload.total_damage??0)||Number(payload.hull_hit??0)+Number(payload.shield_hit??0);
@@ -357,7 +363,7 @@ export function foldBattleDamage(payload:Record<string,unknown>,me:string|undefi
 
 /** `battle_ended`: close the fold and write it. The server's own participant totals win over
  * the summed shot frames — a dropped frame would understate them, and these cannot be. */
-export function foldBattleEnded(dir:string,payload:Record<string,unknown>,me:string|undefined,
+export function foldBattleEnded(dir:string,payload:BattleEndedPush,me:string|undefined,
   tick?:number,now=()=>new Date()):FightRecord|undefined {
   const fold=live;
   live=null;
