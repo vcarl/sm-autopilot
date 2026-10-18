@@ -87,10 +87,11 @@ Each of these has cost a flight: the computer checks the real types, so these ar
 - **Everything is `await`ed.** Every library function returns a `Promise<Outcome>`.
   `const s = sell(rows)` then `s.status` is `Property 'status' does not exist on type
   'Promise<Outcome<Sold>>'` — the missing `await` is the entire error.
-- **`sell` takes two options and neither names a market.** `sell(rows, {from?, floor?})`:
-  `from: 'hold' | 'store'` and `floor: {[item_id]: number}`, nothing else. `buy(item_id, quantity,
-  {deliverTo?, maxEach?, force?})` names no market either; with no `maxEach` it is refused over
-  1.05 × the cheapest ask remembered at another base, and `why` names that base. `{market: 'local'}` does not exist; both
+- **`sell`'s options name no market.** `sell(rows, {from?, floor?, ask?})`:
+  `from: 'hold' | 'store'`, `floor: {[item_id]: number}` and `ask: false`, nothing else. `buy(item_id, quantity,
+  {deliverTo?, maxEach?, force?, ask?})` names no market either; with no `maxEach`, a price over
+  1.05 × the cheapest ask remembered at another base pauses the flight to ask you (see "Asking yourself a question
+  mid-flight"). `{market: 'local'}` does not exist; both
   are always the counter you are docked at. To sell somewhere else, `goTo` it first, or
   `tradeRun({stops: [{at}]})`, which flies there and sells what is aboard. `tradeRun` takes only
   `{stops}`: `{item, sellAt}` and `{buyAt}` do not exist, and a route is one call with no
@@ -128,12 +129,12 @@ Each of these has cost a flight: the computer checks the real types, so these ar
 |---|---|
 | `orient()` | the whole world model in one read: present, skills, storage everywhere, ships, missions, debts |
 | `scout(target?)` | POIs of a system (this one by default) with types, stations, resources here, creatures here |
-| `goTo(id)` | fly to a POI, base or system (id or display name), jumping as needed; dock if a base. A system with one base docks there. Ending undocked is said in `did`, and `detail.docked_at` is null. A refused dock is `partial` with the game's words. A name matching nothing is `refused` with the nearest ids, not flown. It completes active distress missions on or near the route |
+| `goTo(id, {ask?}?)` | fly to a POI, base or system (id or display name), jumping as needed; dock if a base. A system with one base docks there. Ending undocked is said in `did`, and `detail.docked_at` is null. A refused dock is `partial` with the game's words. A name matching nothing is `refused` with the nearest ids, not flown. It completes active distress missions on or near the route |
 | `service()` | full tank and hull at the counter you are docked at (no posted price needed), within `permissions.credit_reserve` and the mood's repair margin; tops up fuel cells to ~5% of the hold unless they are overpriced (`did` says why); `service({insure: true})` also buys cover for the hull, within the reserve, unless a policy already held covers it (`did` says until when) |
-| `stow(rows)` / `withdraw(rows)` / `storage(base?)` | station storage; rows you name (omit a row's `quantity` for all of it); readable from anywhere. A `withdraw` counts each item's cargo size (osmium takes 2 a unit), and rows that overfill the hold share its room in proportion: each moves partly, the rest `short` with `no room`, status `partial` |
-| `prices(items?)` / `sell(rows, opts?)` / `buy(item, qty)` | the market here, live at the moment of the act, and remembered for `spreads()`. `sell`'s options are exactly two: `{from: 'hold' \| 'store'}` (default `'hold'`; `'store'` empties the store a hold-load at a time) and `{floor: {[item_id]: number}}` (skip a row whose `best_buy` is under it). There is no option naming a market — `sell` is always the counter you are docked at. A sale walks the bids down the book: when it averages more than 3% under the top bid, `did` names the fill and the top bid's depth |
+| `stow(rows)` / `withdraw(rows, {ask?}?)` / `storage(base?)` | station storage; rows you name (omit a row's `quantity` for all of it); readable from anywhere. A `withdraw` counts each item's cargo size (osmium takes 2 a unit), and rows that overfill the hold share its room in proportion: each moves partly, the rest `short` with `no room`, status `partial` |
+| `prices(items?)` / `sell(rows, opts?)` / `buy(item, qty, opts?)` | the market here, live at the moment of the act, and remembered for `spreads()`. `sell`'s options: `{from: 'hold' \| 'store'}` (default `'hold'`; `'store'` empties the store a hold-load at a time), `{floor: {[item_id]: number}}` (keep a row whose `best_buy` is under it) and `{ask: false}`. There is no option naming a market — `sell` is always the counter you are docked at. A sale walks the bids down the book: when it averages more than 3% under the top bid, `did` names the fill and the top bid's depth |
 | `buyers(items)` | who buys it: the highest bids known for an item (or a list) anywhere — the live book here when docked, your faction's ledger, every book you have read — up to 3 an item, each with its base, price, depth, the book's age in ticks and the jumps there. Held or not, docked or not; reads only. Ask it before flying to look for a buyer |
-| `refit({install,remove})` / `shipsForSale(opts?)` / `buyShip(id, opts?)` | the hangar: modules on and off within the grid, the hulls for sale here, the next one |
+| `refit({install,remove,ask?})` / `shipsForSale(opts?)` / `buyShip(id, opts?)` | the hangar: modules on and off within the grid, the hulls for sale here, the next one |
 | `missions()` / `acceptMission(id)` / `completeMissions()` / `abandonMission(id, opts?)` | the board here, and each mission you hold by its `next` objective; the cheapest credits and xp early |
 | `rest(base?)` | put in and bring the ship up: `goTo(base)` when you name one, then `service()` at the counter. It changes nothing else |
 | `reflection()` | stagnation signals, the skills that would move, holdings, what is owed, how your past flights went |
@@ -343,6 +344,28 @@ from that line, with your answer (exactly one of `choices`, when given) as the v
 ask(...)`, and waits on the flight again; `spacemolt_answer({stop: true})` ends it instead. A question
 still open when your turn ends is the first thing you see on the next one. What it costs: the
 game's clock runs while it waits, one question at a time, never in a `spacemolt_query`.
+
+The library asks too. When one of your calls cannot do what you asked for want of a resource, or because
+what it remembers is stale, it pauses the flight with the ways round it that it can carry out itself:
+
+| Call | Block | Choices |
+|---|---|---|
+| `sell` | no buyer here | `carry to <base>` (the best remembered bid, its age) · `keep` |
+| `sell` | under your `floor` | `sell at <bid> now` · `keep` |
+| `buy` | not on this market | `buy at <base>` · `craft <item>` · `skip` |
+| `buy` | over 1.05 × a cheaper remembered ask | `pay <cost> here` · `buy at <base>` · `skip` |
+| `buy` | over your `maxEach` | `pay <cost> here` · `skip` |
+| `craft` | inputs short in the store | `supply for <bill> cr here` · `mine <ore> and craft` · `skip` |
+| `refit` | module not in the hold or store | `buy <module> here` · `buy <module> at <base>` · `craft <module>` · `skip` |
+| `withdraw`, `sell({from:'store'})` | no room in the hold | `stow <item> to make room` · `skip` |
+| `goTo` | short of fuel at a base's POI | `refuel at <base> then go` · `skip` |
+
+Answer with one choice, exactly as written, and the call goes on with it and returns that Outcome. `skip` (or
+`keep`) returns the refusal the call would have made. Only the choices the library can carry out from here are
+offered; with none, the call refuses as it did, with no pause. Each block is asked once a flight: the same call on
+the same item for the same reason takes your first answer again. Calls the library makes on your answer, and inside
+its own functions (`tradeRun`, `supply`), refuse as they did. To decide in the program instead, pass `{ask: false}`
+(on `refit`, inside its change) and read the refusal's `why`.
 
 ```ts
 import {shipsForSale, buyShip, ask} from 'play';

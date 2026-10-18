@@ -16,7 +16,8 @@ assembled from everything this pilot is allowed to know.
 | `scoutMarkets({jumps?, max?})` | fly to the nearest books nobody has read lately, up to `max` (3) hops within `jumps` (`SCOUT_JUMPS`, 4), and read, remember and file each one; the ground `routes()` plans over. Never buys or sells |
 
 Root functions do the rest: `prices()` for the counter you are standing at, `sell()`/`buy()`
-for one side only.
+for one side only. Called from your program, a `sell()` with no buyer here or a `buy()` over a cheaper remembered ask
+pauses the flight to offer the far base (with its age); `tradeRun` plans its own stops and refuses as it did.
 
 ## Where a far price comes from
 

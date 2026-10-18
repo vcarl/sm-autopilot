@@ -15,7 +15,7 @@ after is the only evidence the output arrived.
 | `recipes(search?)` | what can be made here from hold + store, each one dry-run and priced, sorted by `margin` |
 | `quote(recipe, qty?, {at?})` | the venue, escrow, labour, fee, ETA and margin; each short input priced to buy and to sell; commits nothing |
 | `supply(recipe, qty?, {at?, maxSpend?, maxEach?})` | this base's store holds every input: stowed from the hold, the rest bought here |
-| `craft(recipe, qty?, {at?})` | stow, quote, escrow, wait out the queue, confirm the outputs in the store |
+| `craft(recipe, qty?, {at?, ask?})` | stow, quote, escrow, wait out the queue, confirm the outputs in the store; inputs short in the store pause the flight to ask: supply them here, or mine the ore at a belt known to give it |
 | `jobs()` | every job you have queued, anywhere, and which are paused; works undocked |
 | `catalog({search?, category?, makes?, uses?})` | the catalog's recipes, printed as text: what makes an item, what an item goes into; twenty at a time |
 | `trace(itemOrRecipe, qty?)` | the whole tree `qty` takes, down to what is mined or bought, net of the hold and every store; each leaf's cheapest remembered ask; each facility-only step's stations known to rent one; the other recipes one level deep |
