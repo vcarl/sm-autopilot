@@ -12,6 +12,7 @@ import {markAlertsDelivered,pendingAlerts,recordAlert} from './alerts.ts';
 import {chatJournal,noteUnread} from './chat.ts';
 import {foldBattleDamage,foldBattleEnded,foldBattleUpdate} from './combat-memory.ts';
 import {battleEnded,battleNowEffect,battleStirred} from './travel.ts';
+import {flushFrames,frameTap} from './frames.ts';
 import {controllerLock} from './controller-lock.ts';
 import {GAME_WS_URL,readCredentials} from './credentials.ts';
 import type {ReadinessAccount,ReadinessCommand} from './readiness.ts';
@@ -606,12 +607,15 @@ async function main() {
   // is in "everything else" and settles on the tick it was queued on, so the lib's 180s default
   // is 18 ticks of silence before a dead socket shows. 60s is 6 ticks: slack enough for a slow
   // tick or a rate-limited resend, and inside the minute a waiting pilot can still use.
-  const account=new Account({url:GAME_WS_URL,reconnect:true,credentials,fastMutationTimeoutMs:60_000});
+  const account=new Account({url:GAME_WS_URL,reconnect:true,credentials,fastMutationTimeoutMs:60_000,...frameTap(runtime)});
   let stopped=false;
   const shutdown=createShutdown({close:async()=>{
     stopFreighters();
     await flushJournalDrain().catch(()=>{});
-    return account.close();
+    // Twice: the bulk is written before the close, so the grace only has to cover the closing frames.
+    await flushFrames();
+    await account.close();
+    await flushFrames();
   }});
   const triggerShutdown=()=>{stopped=true;shutdown();};
   process.on('SIGTERM',triggerShutdown);

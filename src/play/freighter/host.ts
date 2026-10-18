@@ -15,6 +15,7 @@ import {dirname,join} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {controllerLock} from '../../controller-lock.ts';
 import {GAME_WS_URL,readCredentials} from '../../credentials.ts';
+import {frameTap} from '../../frames.ts';
 import {miningInventory} from '../../mining-inventory.ts';
 import type {ReadinessAccount,ReadinessCommand} from '../../readiness.ts';
 import {journalCommand,journalConnection,journalRun} from '../../run-record.ts';
@@ -284,7 +285,7 @@ export function start(runtime:string,name:string):string|null {
   if(Result.isFailure(locked))return refused(`${who.username} is held by another live controller (${locked.failure})`);
   const unlock=locked.success;
   const credentials=()=>({kind:'login' as const,...who});
-  const account=new Account({url:GAME_WS_URL,reconnect:true,credentials,fastMutationTimeoutMs:60_000});
+  const account=new Account({url:GAME_WS_URL,reconnect:true,credentials,fastMutationTimeoutMs:60_000,...frameTap(runtime,name)});
   const {reconnect,gone}=mender(account);
   journalConnection(runtime,account,name);
   const live:ReadinessAccount={get state(){return account.state;},
