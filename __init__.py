@@ -67,8 +67,8 @@ _WINDOW_PROMPT = (
     " as what done looks like and how you will report it.\n"
     "spacemolt_stop has the flight computer end the flight under way at its next safe point.\n"
     "Your memory here is your flying self's: what it has learned about how the game works from its "
-    "own flights, hypotheses and the observations that bear on them. Read it; leave the writing to "
-    "your flying self. Orders go through spacemolt_direct."
+    "own flights, hypotheses and the observations that bear on them. Read it; your flying self "
+    "writes it. Orders go through spacemolt_direct."
 )
 
 
