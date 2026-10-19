@@ -7,6 +7,76 @@ All notable changes to this plugin are recorded here. The format follows
 
 ## [Unreleased]
 
+## [2026.10.3] - 2026-10-19
+
+### Action required
+
+- In your Hermes profile's `config.yaml`, under `platform_toolsets`, replace `spacemolt_observe`
+  with `spacemolt_observer` for each platform (cli, discord, ...). The cron job rewrites itself
+  when the gateway restarts; nothing else to do.
+
+### Added
+
+- Two toolsets. `spacemolt_player` (the cron fire, with Hermes' `todo`) holds `spacemolt_run`
+  (`check: true` only checks the program), `spacemolt_answer` (`stop: true` stops a paused
+  flight), `spacemolt_query` and `spacemolt_reflect`; `spacemolt_observer` (the chat window) holds
+  `spacemolt_look`, `spacemolt_stop` and `spacemolt_direct`. `spacemolt_check`, `spacemolt_chat`
+  and `spacemolt_status` are gone: the pilot replies from a query or a flight, and the window
+  asks `look` what the pilot is doing, through the new `flight()` and `shipLog(n)`. The pilot's
+  `todo` list is kept as its steps.
+- The pilot keeps hypotheses in Hermes memory, each with the observations that support it, and
+  tests one against a contradicting flight before dropping it (the README recommends
+  `memory.user_profile_enabled: false`). The chat window reads that memory; the pilot writes it.
+- `ask()` on a block: `sell`, `buy`, `craft`, `refit`, `withdraw` and `goTo` pause the flight and
+  offer the ways round a missing resource or a stale price (carry to a remembered bid, buy at a
+  known seller, supply or mine and craft, stow to make room, refuel and go) instead of refusing.
+  Skip or keep returns today's outcome; `{ask:false}` opts out. The prompts now offer `ask()` at
+  a fork.
+- `arena()` and `duel()` fight a match to its end, and `fightBattle()` drives a battle already
+  under way. `service({insure:true})` quotes the hull and buys cover within the reserve.
+  `survey()` reads the system's hidden POIs. `ships()` and `switchShip(id)` are built.
+- `catalog()` and `trace()` show what a pilot can craft, the root recipe's components and output
+  at market, and where to rent a facility; `quote` and `supply` show `ore_each` beside `buy_each`
+  so mining reads as the cheap road.
+- Pirate radio is heard as chat on its own channel; the combat skill says how to fit a
+  `pirate_radio_scanner`.
+- The juncture context lists the pilot's last five distinct failures, with count and age, and
+  shows the goal with the time it was set. The closing lines say why the flight flew.
+- Every websocket frame is logged to `runtime/frames.jsonl`, credentials scrubbed, bounded at
+  32 MB queued, rotated at boot.
+- Skill docs: ask() as an ordinary tool, factions and owning things, what each empire is good at,
+  standing orders in trading, `switchShip` and buying ammo named in every stance.
+
+### Changed
+
+- Fights are fought to win and fled to live: the pilot flees only under a 30% danger line, stays
+  when the enemy is nearer death, closes range from the first tick, tops up magazines, and
+  Tired no longer ends a fight. `hunt` takes a risk limit and reports its skips; the context
+  shows the prey here with its record. A break-off holds the flee until the battle ends, and a
+  hunt never hands back a live battle.
+- Flights have no time limit. A run counts as in flight while its bridge lives, so a long flight
+  keeps cron quiet and a dead bridge's record wakes the next fire.
+- Deaths and errors are reported plainly: a `player_died` ends the
+  flight and the report names the loss; an unawaited rejection is a defect the flight carries
+  on past; a throw names its line in `pilot/index.ts`.
+- The goal steers the next move, and the instruction and objective win over a stale goal.
+- A flight's combat record keeps each tick's zones and stances for every combatant.
+
+### Fixed
+
+- A `goTo` that turns Tired between jumps resupplies before the next one, instead of flying on to
+  empty fuel.
+- A hunt broken off mid-battle keeps its detail and fights.
+- `switch_ship` sends the key the server reads, so a switch now takes effect.
+- Failed calls are counted by what they did, not by their particulars, so 150 refusals of one
+  kind no longer push the rest out.
+- A battle status read answered "not in a battle" is not repeated until a battle frame says
+  otherwise.
+- A refused `completeMissions` names how to drop what it holds.
+- A query may send a craft's dry run, and a returned string shows as text.
+- The warm typecheck keeps four language services, not one per tsconfig, so a long process stays
+  within its heap.
+
 ## [2026.10.2] - 2026-10-05
 
 ### Action required
