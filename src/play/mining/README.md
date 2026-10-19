@@ -70,8 +70,9 @@ correct only if a utility slot is free (see "Getting a better ship").
 - A site with several ores picks one each cycle, weighted by `richness` and, as Mining rises, toward
   rarer ores, so a mixed site returns a mix (a fitted extraction filter re-targets the cycle).
 - The mining skill has passed 5 and the credits per hour are flat: the ceiling is the hull's
-  cargo, not your skill. An Archimedes (T1 miner, 185 cargo, ~2,200 cr) or an Excavation
-  (T2, 250 cargo, ~8,000 cr) via `shipsForSale()`.
+  cargo, not your skill. An Archimedes (T1 miner, 80 cargo, ~2,500 cr) is barely more than a
+  starter's ~70; an Excavation (T2, 200 cargo, ~8,000 cr) is the real step. Find both with
+  `shipsForSale()`.
 
 ## Pitfalls
 

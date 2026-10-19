@@ -59,6 +59,21 @@ the wrong base.
 
 `quote` says which bench it priced (`venue`, `venue_type`, `labor`, `fee`) before you commit.
 
+## Renting a facility
+
+A facility-only recipe (`[facility: …]` in `trace`, `facility only` in `catalog`) is made by renting
+someone's public facility. `craft` already rents: docked at a station that has one, pass its id from
+`facilities().detail.here` as `at` (left out, the server picks, and only where the station also has a
+workshop). `quote` with the same `at` first: its `venue` names the facility, and `fee` is the
+rental fee per run × runs, with `labor` on top. The inputs come
+out of **that station's store** and the output lands in it, so stock the store there, not the hold.
+
+Where to go: `trace` and `catalog` name each facility-only recipe's facility and the stations known
+to rent one, cheapest first: `Alloy Foundry: Krynn Citadel (krynn) 40 cr/run, 12t old`. A station
+gets into that book when you dock and read its market or `facilities()`, and when a `craft` or `quote`
+refused with `no_facility` named the nearest one (`fee unknown` until you dock there). The age is
+ticks since it was seen; the fee may have moved since.
+
 ## Mine or buy
 
 Common ore is the cheap road to crafted goods. Every row of `quote(...).detail.missing` carries

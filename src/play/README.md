@@ -109,7 +109,8 @@ Each of these has cost a flight: the computer checks the real types, so these ar
 - **A raw command is not an Outcome.** `account().commands.<tool>.<action>()` answers
   `QueryResult<T>` (read `.structuredContent`) or `MutationResult<T>` (read `.delta.details`) —
   never `status`, `did`, `why`, `detail`. A refusal *throws* rather than returning `refused`, so an
-  unguarded raw command ends the flight: wrap it in `try`/`catch`.
+  unguarded raw command ends the flight: wrap it in `try`/`catch`. Raw `inspect` reaches this
+  system only and throws elsewhere.
 - **A docked refuel fills the tank.** Raw `spacemolt.refuel({quantity: 40})` at a station ignores
   `quantity` (it counts fuel cells burned in space, or units transferred to another ship) and
   bills for a full tank. There is no partial refuel at a counter; `service()` is the same fill.
@@ -145,41 +146,13 @@ Each of these has cost a flight: the computer checks the real types, so these ar
 | `ask({question, choices?})` | the flight computer pauses the flight to ask you; resolves to your answer (one of `choices`, when given), throws the stop error if the flight is stopped instead. See "Asking yourself a question mid-flight" |
 | `chat(channel, text, to?)` / `messages(opts?)` / `heard()` | send a message (`to` is the player id of a `private` one), read a channel's history, and the messages that paused this flight with your answers. See "Chat" |
 
-You name what you sell; nothing defaults to everything.
-
 Careers add more: [`mining/`](mining/README.md) (`gatherUntil`, `survey`),
 [`hauling/`](hauling/README.md), [`industry/`](industry/README.md) (`catalog`, `trace`, `recipes`, `quote`, `supply`, `craft`, `jobs`, `facilities`, `buildFacility`), [`combat/`](combat/README.md) (`hunt`, `fightBattle`, `arena`, `duel`, `salvage`),
 [`trading/`](trading/README.md) (`buyers`, `spreads`, `routes`, `tradeRun`, `scoutMarkets`), [`exploration/`](exploration/README.md) (`exploreNearby`), [`fleet/`](fleet/README.md) (`assign`, `recall`, `freighters`).
 Every career's functions import from `'play'` whatever your stance. Crafting goes through them,
 never a raw `craft` command: `recipes(search?)` lists what this base can make from hold + store,
 priced; `craft(recipe_id, qty?)` stows, quotes, escrows, waits out the queue and reports the
-output in this base's store — no polling of your own. Both want a base with `crafting`. To find
-what to make, `catalog({uses: item})` / `catalog({makes: item})` and `trace(item, qty)` read the
-catalog from anywhere, a query included.
-
-## Renting a facility
-
-A facility-only recipe (`[facility: …]` in `trace`, `facility only` in `catalog`) is made by renting
-someone's public facility. `craft` already rents: docked at a station that has one, pass its id from
-`facilities().detail.here` as `at` (left out, the server picks, and only where the station also has a
-workshop). `quote` with the same `at` first: its `venue` names the facility, and `fee` is the
-rental fee per run × runs, with `labor` on top. The inputs come
-out of **that station's store** and the output lands in it, so stock the store there, not the hold.
-
-Where to go: `trace` and `catalog` name each facility-only recipe's facility and the stations known
-to rent one, cheapest first: `Alloy Foundry: Krynn Citadel (krynn) 40 cr/run, 12t old`. A station
-gets into that book when you dock and read its market or `facilities()`, and when a `craft` or `quote`
-refused with `no_facility` named the nearest one (`fee unknown` until you dock there). The age is
-ticks since it was seen; the fee may have moved since.
-
-## Reading a counter before you spend at it
-
-A read spends nothing. `storage()` says what is in the store here (the hold is only what you
-carry; pass a base id for another), and `shipsForSale()` what hulls this yard has. Each is refused
-where the base has no such counter, so a read is never a wasted flight.
-
-`for_sale` is a union: a player `listing` you can buy now (`hull.listing.price`), or a commission
-this yard would build (`hull.quote.credits_only_total`); both carry `class` and a `versus` line.
+output in this base's store. Both want a base with `crafting`.
 
 ## Looking before you act: `spacemolt_query`
 
@@ -203,7 +176,9 @@ export default async function main() {
 - `shipsForSale()` lists the hulls at or under credits minus your `credit_reserve`, biggest
   hold first, each with one line of difference against what you fly. A class the yard will not
   quote you is in `detail.locked` with the game's reason (a Piloting level, a faction).
-  Undocked, name the base: `shipsForSale({baseId})`.
+  Undocked, name the base: `shipsForSale({baseId})`. `for_sale` is a union: a player `listing`
+  you can buy now (`hull.listing.price`), or a commission this yard would build
+  (`hull.quote.credits_only_total`); both carry `class` and a `versus` line.
 - `buyShip(listingId, {switchTo:true})` buys it and, at a shipyard, flies it; over the
   reserve it is `refused` with the numbers and nothing is sent.
 - `refit({remove, install})` moves modules across. Check first: a module needs a free slot of
@@ -233,6 +208,28 @@ line repeats them ("Requires a basic tow rig module (not currently equipped)"). 
 sends you to may read depleted: that is not permanent, a finite one regenerates at least 1 unit a
 minute.
 
+## Death, cover, fuel and time
+
+- **Death.** You wake at your home base, else your empire's capital, in a starter hull. Set the
+  home base docked there: `account().commands.spacemolt_salvage.set_home({id: base_id})`. There is
+  no clone fee. Lost: the hull, 50–80% of each cargo row (into the wreck, the rest gone), and each
+  fitted module (30% chance it lands in the wreck). Kept: credits (topped up to 100), skills,
+  station storage and your other hulls. Value in storage survives; value in the hold does not.
+- **Insurance.** `service({insure: true})` buys a policy on the hull you fly. A loss pays its fitted
+  value (hull and modules) in credits at respawn, never the cargo. The claim spends the policy, so
+  insure again after a loss. A policy lasts 7 days. A starter hull cannot be insured, and a
+  self-destruct voids the policy.
+- **Fuel.** A station prices fuel by its own reserve, not your tank: 2 cr a unit at 90% full or
+  more, one more for each 10% lower, 20 under 10%. An empire may add `fuel_tax_per_unit` (on
+  `get_poi`). A station with an empty reserve sells none (`station_fuel_empty`), and your fuel
+  cells are then the way on. Fill before a long leg out at a station with a full reserve.
+- **Time.** The game moves in 10-second ticks; each action takes at least one, a jump several.
+  The game allows a session 30 actions and 300 reads a minute. A route of many jumps is minutes
+  of real time, so plan a flight as a trip, not one move.
+- **Skills.** Death never takes them. Each trains by its own act (the game's catalog lists each
+  skill's `training_source`; nothing here reads it): mining by mining, exploration by a first
+  visit, salvaging by salvage.
+
 ## The world: empires, law, wrecks
 
 - **Empires.** Five (`solarian`, `voidborn`, `crimson`, `nebula`, `outerrim`) claim systems; a
@@ -250,12 +247,10 @@ minute.
   | `voidborn` | cloaked and scan-resistant, light holds | `voidborn_mastery`: +1% cloak, energy-weapon damage | `exotic_matter`, `null_matter`, `void_essence` |
   | `outerrim` | fuel-efficient industrial | `outer_rim_survival`: +1% salvage yield, field repair | `dark_matter_residue`, `phase_crystal`, `quantum_fragments` |
 
-  Reported by an outside guide, not verified: Solarian suits miners and traders, Outer Rim crafters;
-  common ores differ by empire too (silicon in Voidborn and Nebula space, not Solarian). Capitals are
-  policed and the frontier is not (Police, below).
+  Capitals are policed and the frontier is not (Police, below).
 - **Customs.** Entering an empire's space, its customs may post on the `system` channel ordering you
   to hold position while it scans your cargo, then post you clear. Leaving first is "noted and
-  logged" ("declined to remain for inspection", "ran"); what that costs the game has not said. The
+  logged" ("declined to remain for inspection", "ran"). The
   smuggling, stealth and piracy skills each add 1% evasion of customs scans per level.
 - **Reputation.** −100 to +100 with each empire and with each of nine pirate crews (`pirate_voss` …,
   each keeping its own books), drifting toward a baseline. A pirate stronghold docks you only at
@@ -289,8 +284,6 @@ minute.
   fit actually heard). `goTo` the revealed POI; `get_poi` there shows its destination, expiry and a
   prediction hint; passing one trains wormhole_navigation. `goTo` never routes through a wormhole
   for you: a route the game plans through one is refused, so the crossing is yours to make.
-- **Skills.** Each trains by its own act (the game's catalog lists each skill's `training_source`;
-  nothing here reads it): mining by mining, exploration by a first visit, salvaging by salvage.
 
 ## Factions and owning things
 
@@ -305,13 +298,11 @@ POI says what founding one takes there, `found_station({name})` founds it).
 All raw, `account().commands.spacemolt_faction.<action>()`: `list({limit?})` the factions,
 `info({id})` one (members, `leader_username`, facilities, `owned_bases`); joining needs an invite,
 so ask a leader in chat, then `get_invites()` and `accept_invite({id})` with the faction's id.
-`create({id, text})` founds one: `id` a 2–4 character tag, `text` a unique name; what it costs is
-unverified. `account().player?.faction_id` says whether you are in one.
+`create({id, text})` founds one: `id` a tag of exactly 4 characters, `text` a unique name of
+3–32. `account().player?.faction_id` says whether you are in one.
 
 `get_guide({id: 'base-builder'})` is the game's own guide to building; `get_guide({})` lists every
-guide. A rare ore can be worth more as an input than at a counter: `catalog({uses: 'trade_crystal'})`
-leads to `trade_cipher`, a build material of the faction `trade_ledger`, and to `sensor_array`, a
-material of 500-odd production facilities.
+guide.
 
 ## Mood and Tired
 
@@ -323,8 +314,7 @@ reach, where it leaves the ship), then the call goes on. A `goTo` that turns Tir
 serviced at a base it can reach, then flies on to where you sent it. Either way the call goes on and its `did` names the resupply. You never need `service()` to be
 safe; call it to be up sooner. Away from a counter, fuel cells aboard burn first.
 `permissions.credit_reserve` bounds every spend; a short wallet buys fuel, then repair, and
-`service()` answers `partial`. Raw `inspect` reaches this system only and throws elsewhere: wrap it
-in `try`.
+`service()` answers `partial`.
 
 ## Rules that will refuse you
 
