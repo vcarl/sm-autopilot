@@ -19,7 +19,7 @@ import {isRecord} from '../run-record.ts';
 import {WRECK_SALVAGE,type Category} from './catalogue.ts';
 import {KINDS,LUMINOSITY,NO_CLASS,PREFIXES,SPECTRAL} from './stars.ts';
 import {seedOf} from './imager.ts';
-import {depicted,type Scored} from './moments.ts';
+import {INVOLVEMENT,depicted,type Scored} from './moments.ts';
 import type {Scene} from './oracle.ts';
 import type {SubjectKind} from './refs.ts';
 import {creatureClause} from './species.ts';
@@ -143,6 +143,8 @@ export const PLACES:Record<string,string>={sun:NO_CLASS,planet:'a looming planet
 /** The canopy cracked when the lead is a fight or a hazard, or the hull is low. */
 // Live 2026-10-19 (recipe5, cd295081): "a big rounded cracked canopy" drew no cracks; the glass's own clause brought them back.
 export const CANOPY={cracked:'a canopy, its glass cracked and webbed,',whole:'the canopy'};
+/** Below this share of its max hull the ship is drawn damaged (`cracked`). */
+export const CRACKED_HULL=0.75;
 export const SLOT_SOURCES:Record<string,string>={
   gunner:'the moment\'s best `battle_damage` on the pilot whose `attacker_id` is no participant of its battle: "the station" when its `attacker_name` names one',
   weapon:'that shot\'s last `weapons_fired`, its last two words, lower-cased and pluralised ("Scrap Flak Battery": "flak batteries")',
@@ -168,7 +170,7 @@ export const SOURCES:Record<string,string>={
   'picture.own':'`status.ship_role` as a vessel, with "a" ("Freighter": "a freighter", "Miner": "a miner ship"); else "the pilot\'s ship"',
   'status.ship_name':'catalog.json `ships[].name` for the ship class',
   'status.ship_class':'the depicted lead\'s ship as the frames give it (its battle row, a death\'s `ship_lost`, the last reply\'s `ship.class_id`), else `run` ended `end_state.ship_class`, else the last ship the frames named in the scope, else the newest journal line with `ship_class`, else combat.json\'s newest fight at or before the end',
-  'picture.canopy':`"${CANOPY.cracked}" when the lead event is combat or hazard or \`flags.hull_low\`, else "${CANOPY.whole}"`,
+  'picture.canopy':`"${CANOPY.cracked}" when the lead event is the pilot's own fight or death, or the end hull is below ${CRACKED_HULL*100}% of its max or \`flags.hull_low\`, else "${CANOPY.whole}"`,
   'subject.kind':'refs.ts `subjectOf`: the moment\'s best-scoring event with a subject, and in it a ship fought (a `ship_class` identity of a combat or hazard event), else a creature (`species`), else an item (`item`)',
   'subject.name':'an item\'s catalog.json `name`, lower-cased, a trailing mark number cut; a creature\'s as the game named it in the moment (species.ts `speciesName`), for its name\'s clause',
   'subject.faction':'catalog.json `ships[].faction`: "pirate" when it is, else nothing','subject.role':'catalog.json `ships[].class` as a vessel ("Cruiser": "cruiser", "Assault": "assault ship")',
@@ -264,7 +266,15 @@ function slotsOf(e:Scored,scope:readonly Scored[]):Ctx {
   return {gunner:gunner&&/\bstation\b/i.test(gunner)?'the station':null,weapon:last?plural(last.split(/\s+/).slice(-2).join(' ').toLowerCase()):null,
     scanners:scanners>1?`${NUMBERS[scanners]??scanners} ships`:scanners?'a ship':null,venue:ostr(f('venue')),found:id('species')?'creature':'signal',wreck_foe:ostr(f('wreck_foe'))};
 }
-const FOUGHT=new Set(['combat','hazard']);
+/** The canopy is cracked only by the pilot's own fight or death, or a hull below `CRACKED_HULL` of its max (or the mood's walk-away
+ * line, `flags.hull_low`) at the run's end, the one hull the Scene keeps. Live 2026-10-20 (kvothe ee6a2789, 06:17Z): moment 2 was a
+ * battle_alert, the Dialectic trading fire with a creature at Propus, not the pilot's fight, and it was drawn through cracked glass
+ * with the hull at 110/110. */
+function cracked(s:Scene,lead:Scored|undefined):boolean {
+  const own=!!lead&&lead.involvement===INVOLVEMENT.self&&(lead.category==='combat'||lead.type==='player_died');
+  const {hull,max_hull}=s.status;
+  return own||!!s.flags.hull_low||hull!==null&&max_hull!==null&&max_hull>0&&hull<CRACKED_HULL*max_hull;
+}
 /** Settings that are a station's: the pilot is docked at their moment whatever the place says; and those that are docked when
  * the place says so. A fight, a jump or a find is in space. */
 const STATION=new Set<string>(['economy','holdings','crafting']),BERTHED=new Set<string>(['rest','missions','progression','social']);
@@ -288,7 +298,7 @@ export function picture(s:Scene,seed=seedOf(s.run_id)):{own:string;canopy:string
   const dock_action=sentence((at==='rest'?undefined:DOCK_ACTIONS[at])??[],ctx);
   const canopy_subject=sentence(docked?CANOPY_SUBJECTS.docked:at==='extraction'?CANOPY_SUBJECTS.extraction:CANOPY_SUBJECTS.space,{...ctx,dock_action});
   const named=!!s.subject&&s.subject.kind!=='item',onPlace=!named&&!docked&&at!=='extraction';
-  const base={own:s.status.ship_role?a(vessel(s.status.ship_role)):"the pilot's ship",canopy:(lead&&FOUGHT.has(lead.category))||s.flags.hull_low?CANOPY.cracked:CANOPY.whole,
+  const base={own:s.status.ship_role?a(vessel(s.status.ship_role)):"the pilot's ship",canopy:cracked(s,lead)?CANOPY.cracked:CANOPY.whole,
     pose:s.subject&&s.subject.kind!=='item'?sentence(POSES[s.subject.kind],{...s.subject}):null,
     setting:sentence(SETTINGS[at],ctx),view:sentence(STATION.has(at)?SETTINGS[at]:DOCK_VIEW,ctx),docked,sun,
     cockpit:COCKPIT,their,gaze:`${their} ${s.eyes??'eyes'}`,canopy_subject,

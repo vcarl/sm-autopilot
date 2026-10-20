@@ -106,6 +106,23 @@ test('a ship in a battle the pilot did not fight is far off, broadside, trading 
   assert.equal(picture(subject(s,{kind:'ship',id:'dialectic',fought:false})).pose,'trading fire in the distance, broadside to us');
 });
 
+// Live 2026-10-20 (kvothe ee6a2789, 06:17Z): moment 2, the Dialectic trading fire with a creature at Propus, not the pilot's fight,
+// was drawn through cracked glass with the hull at 110/110.
+test('the canopy is cracked only by the pilot\'s own fight or death, or a hull below three quarters of its max',()=>{
+  const k=kvotheScene(),space={...k,where:{...k.where,docked_at:null},status:{...k.status,hull:110,max_hull:110}};
+  const alert=ev('battle_alert',{identities:[{kind:'ship_class',id:'dialectic'}],facts:{other_side:'Patina-Grazer'},involvement:0.5,score:2});
+  const seen=subject(withMoment(space,alert),{kind:'ship',id:'dialectic',name:'Dialectic',role:'Assault',weapon_slots:5,fought:false,other_side:'creature'});
+  assert.equal(picture(seen).canopy,'the canopy');
+  assert.match(prompt('selfie',seen,'S',0),/through the canopy onto/);
+  const fought=subject(withMoment(space,ev('battle_ended',{score:2})),{kind:'ship',id:'x',role:'Cruiser'});
+  assert.equal(picture(fought).canopy,'a canopy, its glass cracked and webbed,');
+  assert.equal(picture(withMoment(space,ev('player_died',{score:6}))).canopy,'a canopy, its glass cracked and webbed,');
+  assert.equal(picture(withMoment(space,ev('stranded',{category:'hazard'}))).canopy,'the canopy'); // a hazard that is no fight
+  const hull=(h:number)=>picture(withMoment({...space,status:{...space.status,hull:h}},alert)).canopy;
+  assert.deepEqual([hull(110),hull(83),hull(82)],['the canopy','the canopy','a canopy, its glass cracked and webbed,']); // 75% of 110 is 82.5
+  assert.equal(picture({...seen,flags:{...seen.flags,hull_low:true}}).canopy,'a canopy, its glass cracked and webbed,');
+});
+
 test('the pilot\'s look is the pilot the selfie shows; a scene has no pilot',()=>{
   const look='a small, lean man with hair the colour of wet ash',s={...kvotheScene(),look};
   assert.equal(prompt('selfie',s,'S',0),`${CAM('a miner ship',{look,docked:true})}the docking ring close outside, filling the canopy, the station hanging in black space among the stars.`);
