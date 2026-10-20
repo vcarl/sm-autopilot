@@ -59,7 +59,7 @@ export function runSummary(status:Status):RunSummary|null {
   const keepWork=explainedByLater&&STATUS_RANK[status]>STATUS_RANK[work.status];
   const {location}=acct().state;
   return {fn:work.fn,arg:work.arg,...work.call?{call:work.call}:{},status:keepWork?work.status:status,
-    credits:calls.reduce((n,c)=>n+c.credits,0),
+    credits:calls.reduce((n,c)=>n+c.credits-c.cost.credits,0),
     items:calls.reduce((n,c)=>n+c.items,0),xp:calls.reduce((n,c)=>n+c.xp,0),at:location?.docked_at??location?.poi_id??'?'};
 }
 
@@ -90,6 +90,7 @@ const Offered=Wire.MissionInfo.mapFields(fields=>({mission_id:fields.mission_id,
 const decodeOffered=Schema.decodeUnknownOption(Offered);
 /** A top-level call as `run ended` journals it: what the again-move reads. */
 const Called=Schema.Struct({fn:Schema.String,call:Schema.optionalKey(Schema.String),credits:Schema.Number,
+  cost:Schema.optionalKey(Schema.Struct({credits:Schema.Number})),
   seconds:Schema.optionalKey(Schema.Number),stops:Schema.optionalKey(Schema.Array(Schema.String))});
 const decodeCalled=Schema.decodeUnknownOption(Called);
 
@@ -177,7 +178,9 @@ export const menuEffect=(runtime?:string)=>Effect.gen(function*() {
     .flatMap(l=>rows(field(l,'calls')).flatMap(row=>Option.toArray(decodeCalled(row))))
     // A loop is a call that takes goods on: one that only sold has nothing left to sell (kvothe 10-05 01:47Z, a sell-only
     // route repeated on an empty hold). Live: what tradeRun's own `next` offers again.
-    .filter(c=>c.call&&!MISSION_FNS.has(c.fn)&&/buy:/.test(c.call)&&!c.call.includes("from:'store'"));
+    .filter(c=>c.call&&!MISSION_FNS.has(c.fn)&&/buy:/.test(c.call)&&!c.call.includes("from:'store'"))
+    // Net of the call's own spend: a lap that lost money reads as the loss, not as nothing.
+    .map(c=>({...c,credits:c.credits-(c.cost?.credits??0)}));
   const last=paid.filter(c=>c.credits>0).at(-1);
   if(last?.call) {
     const runs=paid.filter(c=>c.call===last.call).slice(-3);

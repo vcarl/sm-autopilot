@@ -78,10 +78,10 @@ test('the run reads from its work, not its last call',()=>{
   const last={...base,fn:'tradeRun',status:'partial' as const,did:cut.did,why:'ntc: stopped by pilot',gained:cut.gained!};
   const run=ofTheRun(last,[lap(5071,1),lap(2452,1),cut]);
   assert.equal(run.status,'done');
-  assert.equal(run.did,'2 calls gained +7,523 cr, +2 items: lap +5071; last call tradeRun partial: ccc: nothing; did not reach ntc: ntc: stopped by pilot');
+  assert.equal(run.did,'2 calls gained +7,523 cr net, +2 items: lap +5071; last call tradeRun partial: ccc: nothing; did not reach ntc: ntc: stopped by pilot');
   assert.equal(run.why,undefined);
   assert.deepEqual(run.gained,{credits:7523,items:[{item_id:'circuit_board',quantity:2}],xp:{trading:20,navigation:13}});
-  assert.match(prose(run),/^Done: 2 calls gained \+7,523 cr/);
+  assert.match(prose(run),/^Done: 2 calls gained \+7,523 cr net/);
   // 09-30 run 8e0abef8: 27 items mined, then service() refused off a station; the run read `refused`.
   const trip:Call={fn:'gatherUntil',arg:'belt',status:'partial',did:'mined 27 units',why:'mine blocked: stopped by pilot',
     credits:0,items:27,xp:68,cost:zero};
@@ -94,4 +94,13 @@ test('the run reads from its work, not its last call',()=>{
   assert.equal(ofTheRun(own,[trip,refused]),own);
   assert.equal(ofTheRun(base,[refused]),base);
   assert.equal(ofTheRun(base,[refused,trip]),base);
+});
+
+test('the flight\'s credits are net of what its calls spent',()=>{
+  // Live overnight 10-19: a flight bought for 7,524 and sold for 2,231, and read "+2,231 cr".
+  const zero={credits:0,fuel:0,hull:0,minutes:0};
+  const buy:Call={fn:'buy',arg:'steel_plate',status:'done',did:'bought',credits:0,items:40,xp:0,cost:{...zero,credits:7524}};
+  const sell:Call={fn:'sell',arg:'steel_plate',status:'done',did:'sold',credits:2231,items:0,xp:0,cost:zero};
+  assert.match(prose(base,[buy,sell]),/\nThis flight: 2 calls, gained -5,293 cr net, \+40 items\.\n/);
+  assert.match(ofTheRun({...base,fn:'sell'},[buy,sell,{...sell,did:'sold again',credits:0}]).did,/^2 calls gained -5,293 cr net, \+40 items/);
 });

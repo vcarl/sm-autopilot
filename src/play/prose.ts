@@ -6,6 +6,10 @@ import {cellReserve} from '../mining-inventory.ts';
 import {field} from './game.ts';
 
 const n=(value:number)=>Number.isInteger(value)?value.toLocaleString('en-US'):value.toFixed(1);
+/** Credits net of what the calls spent: a flight that bought for 7,524 and sold for 2,231 lost 5,293, and
+ * summing only the gains read "+2,231 cr" (live overnight 10-19). */
+const net=(calls:Call[])=>calls.reduce((sum,c)=>sum+c.credits-c.cost.credits,0);
+const signed=(value:number)=>`${value<0?'-':'+'}${n(Math.abs(value))}`;
 const rows=(items:{item_id:string;quantity:number}[])=>items.map(row=>`${n(row.quantity)} ${row.item_id}`).join(', ');
 
 const MAX_LINES=8;
@@ -22,8 +26,8 @@ function runCost(calls:Call[],fallback:Outcome<unknown>['cost']):Outcome<unknown
  * The cost is said once, above; two totals from two marks is how the report contradicted itself. */
 function thisRun(calls:Call[]):string {
   const total=(pick:(call:Call)=>number)=>calls.reduce((sum,call)=>sum+pick(call),0);
-  const gains:[number,string][]=[[total(c=>c.credits),'cr'],[total(c=>c.items),'items'],[total(c=>c.xp),'xp']];
-  const got=gains.filter(([value])=>value).map(([value,unit])=>`+${n(value)} ${unit}`);
+  const gains:[number,string][]=[[net(calls),'cr net'],[total(c=>c.items),'items'],[total(c=>c.xp),'xp']];
+  const got=gains.filter(([value])=>value).map(([value,unit])=>`${signed(value)} ${unit}`);
   const shown=calls.length>MAX_LINES?calls.slice(1-MAX_LINES):calls;
   // A call that did not end `done` carries its `why`: the reason is what the next script has
   // to correct itself from (the real ids behind a refused destination), and a `did` alone
@@ -49,8 +53,8 @@ export function ofTheRun(result:Outcome<unknown>,calls:Call[]):Outcome<unknown> 
   if(result.fn==='pilot'||!earned.length||!last||(earned.length===1&&earned[0]===last))return result;
   const best=earned.reduce((a,c)=>c.credits>a.credits||(c.credits===a.credits&&c.items>a.items)?c:a);
   const total=(pick:(call:Call)=>number)=>calls.reduce((sum,call)=>sum+pick(call),0);
-  const credits=total(c=>c.credits),count=total(c=>c.items);
-  const got=[credits?`+${n(credits)} cr`:'',count?`+${n(count)} items`:''].filter(Boolean).join(', ');
+  const credits=total(c=>c.credits),count=total(c=>c.items),netCredits=net(calls);
+  const got=[netCredits?`${signed(netCredits)} cr net`:'',count?`+${n(count)} items`:''].filter(Boolean).join(', ');
   const tail=best===last?'':`; last call ${last.fn} ${last.status}`
     +(last.status==='done'?'':`: ${last.did}${last.why?`: ${last.why}`:''}`);
   const items=new Map<string,number>(),xp:Record<string,number>={};

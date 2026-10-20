@@ -40,8 +40,8 @@ const RANGE=[{item_id:'gem',best_buy:110,best_buy_qty:50,best_sell:0,best_sell_q
 const TRADE:WorldOptions={cargo:[{item_id:'gem',quantity:5}],cargoUsed:5,cargoCapacity:20,markets:{sol_base:HERE,range_base:RANGE}};
 const RANGE_BOOK={base_id:'range_base',age:0,system_id:'deep_range',items:RANGE};
 /** A `run ended` line with one top-level call, `minutes` long, `ago` ms before now. */
-const paid=(runtime:string,call:string,credits:number,minutes:number,ago=0,stops?:string[])=>journalRun(runtime,{phase:'ended',script:'index.ts',outcome:'done',
-  at:new Date(Date.now()-ago).toISOString(),calls:[{fn:call.split('(')[0],call,credits,seconds:minutes*60,...stops?{stops}:{}}]});
+const paid=(runtime:string,call:string,credits:number,minutes:number,ago=0,stops?:string[],spent=0)=>journalRun(runtime,{phase:'ended',script:'index.ts',outcome:'done',
+  at:new Date(Date.now()-ago).toISOString(),calls:[{fn:call.split('(')[0],call,credits,cost:{credits:spent},seconds:minutes*60,...stops?{stops}:{}}]});
 
 test('best route: routes()\'s top row as the call, with its net, jumps and the age of each book',async()=>{
   const f=world({mood:'Focused',stance:'Trader'},TRADE,[RANGE_BOOK]);
@@ -70,6 +70,18 @@ test('again: the last paying loop as written, with each of its last runs\' credi
     assert.equal(again?.call,loop);
     assert.deepEqual([again!.facts.credits,again!.facts.minutes,again!.facts.runs],[1_500,15,[{credits:1_200,minutes:10},{credits:1_800,minutes:20}]]);
     assert.match(again!.said,/^again: last 2: \+1,200 cr in 10 min, \+1,800 cr in 20 min; books now sol_base \S+, range_base \S+$/);
+  } finally {f.close();}
+});
+
+test('again: a lap that lost money reads as its loss, net of what it spent',async()=>{
+  const f=world({mood:'Focused',stance:'Trader'},{...TRADE,markets:{sol_base:[]}},[RANGE_BOOK]);
+  const loop="tradeRun({stops:[{at:'sol_base',buy:'ore'},{at:'range_base'}]})";
+  try {
+    paid(f.runtime,loop,1_200,10,3600_000);
+    paid(f.runtime,loop,0,10,1800_000,undefined,5_293);
+    const again=(await menu(f.runtime)).moves.find(m=>m.gen==='again');
+    assert.deepEqual(again!.facts.runs,[{credits:1_200,minutes:10},{credits:-5_293,minutes:10}]);
+    assert.match(again!.said,/^again: last 2: \+1,200 cr in 10 min, -5,293 cr in 10 min/);
   } finally {f.close();}
 });
 
