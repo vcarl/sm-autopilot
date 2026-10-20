@@ -1,5 +1,6 @@
 {
   "dependencies": {
+    "@resvg/resvg-wasm": "2.6.2",
     "@spacemolt/lib": "15.2.0",
     "effect": "4.0.0"
   },
@@ -14,6 +15,7 @@
     "typecheck": "tsc --noEmit",
     "gen:wire": "node scripts/gen-wire.ts",
     "gen:play": "node scripts/gen-play-types.ts",
+    "render:map": "node scripts/render-map.ts",
     "lint": "oxlint --deny-warnings src",
     "test": "node --test src/*.test.ts src/play/*.test.ts src/play/*/*.test.ts src/play/*/*/*.test.ts src/picture/*.test.ts"
   },
