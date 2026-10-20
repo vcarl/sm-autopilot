@@ -1,5 +1,6 @@
 {
   "dependencies": {
+    "@jsquash/webp": "1.5.0",
     "@resvg/resvg-wasm": "2.6.2",
     "@spacemolt/lib": "15.2.0",
     "effect": "4.0.0"
@@ -17,7 +18,8 @@
     "gen:play": "node scripts/gen-play-types.ts",
     "render:map": "node scripts/render-map.ts",
     "lint": "oxlint --deny-warnings src",
-    "test": "node --test src/*.test.ts src/play/*.test.ts src/play/*/*.test.ts src/play/*/*/*.test.ts src/picture/*.test.ts"
+    "test": "node --test src/*.test.ts src/play/*.test.ts src/play/*/*.test.ts src/play/*/*/*.test.ts src/picture/*.test.ts",
+    "moments": "node scripts/moments.ts"
   },
   "private": true,
   "name": "sm-autopilot",
