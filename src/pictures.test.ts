@@ -46,7 +46,14 @@ test('a flight posts one message: the map first, then a selfie of each moment, e
   assert.deepEqual(oracles.map(o=>[o.run_id,o.scene.moment?.lead.type]),[[FLIGHT_RUN,'spacemolt/mine'],[FLIGHT_RUN,'spacemolt/jump']]);
 });
 
-test('the real map: the juncture is the focus, drawn as a PNG beside the selfies',async()=>{
+test('the map is the flight: its run in focus, never the juncture whole',async()=>{
+  // Live 2026-10-20 (kvothe 58746f94): one juncture flew 40 runs over 9.5 h, and every post coloured all of them; the flight is the run.
+  const dir=flightRuntime(),s=stub(),asked:string[]=[];
+  await flight(dir,FLIGHT_RUN,{env:ENV,fetch:s.fetch,now:NOW,map:async(_,id)=>{asked.push(id);return MAP;}});
+  assert.deepEqual(asked,[FLIGHT_RUN]);
+});
+
+test('the real map: the flight is the focus, drawn as a PNG beside the selfies',async()=>{
   const dir=flightRuntime(),s=stub();
   const {picture}=await flight(dir,FLIGHT_RUN,{env:ENV,fetch:s.fetch,now:NOW});
   const [map]=picture.images;

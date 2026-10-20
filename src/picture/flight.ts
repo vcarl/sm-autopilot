@@ -1,5 +1,5 @@
 /** The end-of-flight post (spec "Plugin side"; Carl's merge bar, 2026-10-19: "the recent locations/actions map and 2 moments from a
- * flight"): the juncture's activity map (raster.ts, drawn as it is, no restyle) and a seat selfie of each of the flight's two moments
+ * flight"): this flight's activity map (its run in colour, the runs before it muted) (raster.ts, drawn as it is, no restyle) and a seat selfie of each of the flight's two moments
  * (oracle.ts `flightScenes`), at `<runtime>/images/{map,selfie}-<utc stamp>[-n].png`, and when SPACEMOLT_JOURNAL_WEBHOOK is set,
  * one Discord message with the map first, then the selfies, and the caption. A flight with no own act (no moment 1) draws nothing.
  * `flight` never throws: each image that fails is `ok: false` with its error, and the rest still post.
@@ -25,7 +25,7 @@ export interface Post {ok:boolean;skipped?:'idle';error?:string;images:Image[];c
 export interface Flight {picture:Post;oracles:ReturnType<typeof oracleLine>[]}
 export interface FlightDeps {env?:Record<string,string|undefined>;fetch?:typeof fetch;now?:()=>Date;
   /** For the tests: the scenes and the map, which otherwise come from the runtime dir. */
-  scenes?:(runtime:string,run_id:string)=>Promise<Scene[]>;map?:(runtime:string,juncture:string,pilot:string)=>Promise<Uint8Array>}
+  scenes?:(runtime:string,run_id:string)=>Promise<Scene[]>;map?:(runtime:string,run_id:string,pilot:string)=>Promise<Uint8Array>}
 const message=(e:unknown)=>e instanceof Error?e.message:String(e);
 
 /** Discord takes files as multipart: the message as `payload_json`, the files as `files[0]`, `files[1]`, … (ten at most). */
@@ -77,11 +77,12 @@ export async function flight(runtime:string,run_id:string,o:FlightDeps={}):Promi
   if(!first.moment)return {picture:{...post,skipped:'idle'},oracles};
   post.caption=flightCaption(scenes);
   const stamp=(o.now?.()??new Date()).toISOString().replace(/\.\d+Z$/,'Z').replaceAll(':','-'),dir=join(runtime,'images');
-  const juncture=first.juncture_id??run_id,base=seedOf(run_id);
+  // Live 2026-10-20 (kvothe 58746f94): one juncture flew 40 runs over 9.5 h, and every post coloured all of them; the flight is the run.
+  const base=seedOf(run_id);
   const mapped=(async():Promise<{image:Image;png:Uint8Array|null}>=>{
     const t0=Date.now(),image:Image={kind:'map',ok:false,path:null,error:null,ms:0};
     try {
-      const png=o.map?await o.map(runtime,juncture,pilotName(runtime)):(await renderMap(runtime,{juncture,pilot:pilotName(runtime),galaxy:await loadGalaxy(runtime,{maxAgeMs:Infinity})})).png;
+      const png=o.map?await o.map(runtime,run_id,pilotName(runtime)):(await renderMap(runtime,{juncture:run_id,pilot:pilotName(runtime),galaxy:await loadGalaxy(runtime,{maxAgeMs:Infinity})})).png;
       return {image:{...image,ok:true,ms:Date.now()-t0},png};
     } catch(e) {return {image:{...image,error:message(e),ms:Date.now()-t0},png:null};}
   })();

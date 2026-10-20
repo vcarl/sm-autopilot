@@ -41,7 +41,7 @@ src/play/world.ts    world.db: every base's book and the pilot's stores, the one
 play.gen/            the play barrels' declarations, which the pilot's check reads (`npm run gen:play`)
 src/play/freighter/  freighters: each its own account and connection, hosted in the bridge process
 src/pictures.ts      the end-of-flight post: off unless SPACEMOLT_IMAGER_URL; on `run` `ended`, one child at a time, never waited on
-src/picture/         the post's child (flight.ts): the juncture's activity map, two moments' selfies from the journal oracle, the webhook
+src/picture/         the post's child (flight.ts): the flight's activity map (its run in focus), two moments' selfies from the journal oracle, the webhook
 ```
 
 ### The seam

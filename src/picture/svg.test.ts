@@ -249,7 +249,7 @@ test('a single epoch of no length draws without NaN',async()=>{
 // Spec "Per-juncture selection" (built 2026-10-19). Coordinator's rulings: the context is on; badges count the focus's first visits only.
 test('a juncture\'s map: the focus in colour and numbered, the context underneath muted, counts the focus\'s own',async()=>{
   const dir=flightRuntime(),m=await buildModel(dir,{juncture:FLIGHT_JUNCTURE,pilot:'Kvothe'});
-  assert.equal(m.title,'Kvothe · juncture 08:45Z · 19 Oct 08:45–10:10Z');
+  assert.equal(m.title,'Kvothe · flight 08:45Z · 19 Oct 08:45–10:10Z');
   assert.deepEqual(m.activity.visits.map(v=>[v.system,v.focus,v.order,v.counts.docked]),[['sol',true,1,0],['rigel',false,0,0],['vega',true,2,0]]); // the context's dock is not counted
   assert.deepEqual(m.activity.legs.map(l=>[l.a,l.b,l.focus,l.trips]),[['rigel','sol',false,0],['sol','vega',true,1]]);
   assert.deepEqual(m.epochs.map(e=>[e.focus,e.hue===MUTED_HUE]),[[false,true],[true,false]]);

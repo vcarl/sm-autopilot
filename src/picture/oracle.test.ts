@@ -83,9 +83,11 @@ test('a juncture\'s scene is its last ended run, as of that run\'s end',async()=
     assert.deepEqual(s.lately.wallet,{start:301660,end:316653,change:14993});
     assert.deepEqual(s.lately.span,{start:'2026-10-17T01:52:10.579Z',end:'2026-10-17T02:52:34.911Z',hours:1.01});
     assert.deepEqual(s.flags,{in_battle:false,hull_low:false,fuel_low:false,fresh_from:'hunt'}); // r2's `hunt` call is done, though it found nothing
-    assert.deepEqual(s.scope,{start:'2026-10-17T01:52:14.936Z',end:s.ended}); // from the end of 50e5bfb7's last run, the previous picture
-    assert.ok(s.moment&&s.moment.start>=s.scope.start&&s.moment.end<=s.ended,'the moment lies inside the scope'); // moments.ts: the fights and the jump of r1
-    assert.ok(s.moment.events.every(e=>e.approximate)); // no frames.jsonl: the journal
+    assert.deepEqual(s.scope,{start:'2026-10-17T02:45:00.000Z',end:s.ended}); // the flight: from r1's end, the previous picture, though r1 is this juncture's too
+    assert.equal(s.moment,null); // r2 only serviced: the fights and the jump are r1's flight, not this one's
+    const [r1]=await scenes(dir,'r1');
+    assert.ok(r1?.moment&&r1.moment.start>=r1.scope.start&&r1.moment.end<=r1.ended,'the moment lies inside the scope'); // moments.ts: the fights and the jump of r1
+    assert.ok(r1.moment.events.every(e=>e.approximate)); // no frames.jsonl: the journal
     assert.deepEqual(oracleLine(s),{event:'oracle',run_id:'r2',juncture_id:J,scene:s});
   } finally {rmSync(dir,{recursive:true,force:true});}
 });
@@ -115,12 +117,12 @@ test('a ship class known only after the end stands in, flagged as a lookahead',a
   } finally {rmSync(dir,{recursive:true,force:true});}
 });
 
-test('--last N gives that many junctures ending at the selected one, each its last ended run',async()=>{
+test('--last N gives that many runs ending at the selected one',async()=>{
   const dir=runtime();
   try {
     kvothe(dir);
-    assert.deepEqual((await scenes(dir,'c5f4c0ff',2)).map(s=>[s.juncture_id?.slice(0,8),s.run_id]),[['50e5bfb7','r0'],['c5f4c0ff','r2']]);
-    assert.deepEqual((await scenes(dir,'latest',9)).map(s=>s.run_id),['r0','r2','r3']);
+    assert.deepEqual((await scenes(dir,'c5f4c0ff',2)).map(s=>[s.juncture_id?.slice(0,8),s.run_id]),[['c5f4c0ff','r1'],['c5f4c0ff','r2']]);
+    assert.deepEqual((await scenes(dir,'latest',9)).map(s=>s.run_id),['r0','r1','r2','r3']);
     assert.deepEqual(await scenes(dir,'nosuchid'),[]);
   } finally {rmSync(dir,{recursive:true,force:true});}
 });
@@ -154,9 +156,8 @@ test('the lately window holds at most ten runs and six hours',async()=>{
   } finally {rmSync(dir,{recursive:true,force:true});}
 });
 
-// Live 2026-10-19 (kvothe 3db6ff6c): a juncture of 30 runs, read from its middle, took a run whose start line was cut off for the
-// previous juncture's, and the moment's scope lost its first 3.5 hours.
-test('a long juncture\'s scope starts at the previous juncture\'s end, however far back its start lines are',async()=>{
+// Live 2026-10-20 (kvothe 58746f94): a juncture of 40 runs over 9.5 h looked for each post's moments in all of it.
+test('a long juncture\'s scope is the flight: from the previous run\'s end, though it is the same juncture\'s',async()=>{
   const dir=runtime();
   try {
     start(dir,'prev','2026-10-17T00:00:00.000Z',EARLIER);end(dir,'prev','2026-10-17T00:05:00.000Z','sell',[]);
@@ -169,7 +170,7 @@ test('a long juncture\'s scope starts at the previous juncture\'s end, however f
     }
     appendFileSync(join(dir,'gameplay.jsonl'),`${lines.join('\n')}\n`);
     const [s]=await scenes(dir,'latest');
-    assert.equal(s?.scope.start,'2026-10-17T00:05:00.000Z');
+    assert.equal(s?.scope.start,'2026-10-17T03:05:00.000Z'); // j12's end
   } finally {rmSync(dir,{recursive:true,force:true});}
 });
 

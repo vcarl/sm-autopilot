@@ -48,8 +48,9 @@ export interface Scene {
   flags:{in_battle:boolean;hull_low:boolean|null;fuel_low:boolean|null;fresh_from:Fresh|null};
   /** The best moment of `scope` (moments.ts), null when it holds no scoring event. */
   moment:Moment|null;
-  /** Where the moment is looked for: the previous juncture's last ended run's end (the previous picture) to this run's end;
-   * the `lately` window's start when the journal read holds no earlier juncture. */
+  /** Where the moment is looked for: the flight, from the previous ended run's end (the previous picture) to this run's end;
+   * the `lately` window's start when the journal read holds no earlier run. Live 2026-10-20 (kvothe 58746f94): a juncture of 40
+   * runs over 9.5 h looked for each post's moments in all of it, so one flight could post another's. */
   scope:{start:string;end:string};
   /** Display names for the ids the moment names (its events' identities and id-like facts): names.json, galaxy.json, else the journal's own words up to the end, as `where` is named. An id with no known name is left out. */
   names:Record<string,string>;
@@ -78,25 +79,24 @@ const list=(v:unknown):unknown[]=>Array.isArray(v)?v:[];
 const ms=(v:unknown)=>{const t=typeof v==='string'?Date.parse(v):NaN;return Number.isNaN(t)?undefined:t;};
 const isRun=(line:JournalLine,phase:string)=>line.event==='run'&&line.phase===phase&&typeof line.run_id==='string';
 
-interface Ended {line:JournalLine;index:number;run_id:string;started:JournalLine|undefined;key:string}
+interface Ended {line:JournalLine;index:number;run_id:string;started:JournalLine|undefined}
 
 function endedRuns(lines:readonly JournalLine[]):Ended[] {
   const started=new Map(lines.filter(l=>isRun(l,'started')).map(l=>[String(l.run_id),l]));
   return lines.flatMap((line,index)=>{
     if(!isRun(line,'ended'))return [];
     const run_id=String(line.run_id),start=started.get(run_id);
-    return [{line,index,run_id,started:start,key:str(start?.juncture_id)??run_id}];
+    return [{line,index,run_id,started:start}];
   });
 }
 
 /** The runs `select` names: `latest`, a run id or a juncture id (a prefix of either), the
- * juncture's last ended run; with `last` > 1, that many junctures ending at it, oldest first. */
+ * juncture's last ended run; with `last` > 1, that many runs ending at it, oldest first. */
 function pick(runs:Ended[],select:string,last:number):Ended[] {
   const target=select==='latest'?runs.at(-1)
     :runs.findLast(r=>r.run_id.startsWith(select))??runs.findLast(r=>str(r.started?.juncture_id)?.startsWith(select));
   if(!target)return [];
-  const keys=[...new Set(runs.filter(r=>r.index<=target.index).map(r=>r.key))].slice(-last);
-  return keys.map(key=>runs.findLast(r=>r.key===key&&r.index<=target.index)).filter(r=>r!==undefined);
+  return runs.filter(r=>r.index<=target.index).slice(-last);
 }
 
 /** Enough journal for `picked`: the oldest has ten ended runs before it, or six hours of lines. */
@@ -106,7 +106,7 @@ function enough(lines:readonly JournalLine[],select:string,last:number):boolean 
   const before=runs.filter(r=>r.index<first.index).length,oldest=ms(lines[0]?.at),end=ms(first.line.at);
   // Live 2026-10-19 (kvothe 3db6ff6c): a juncture of 30 runs read from its middle took a run whose start was cut off for the
   // previous juncture's, and the moment was looked for in its last 1.7 hours of 5.2. The scope's start needs a run read whole.
-  return (before>=LATELY_RUNS||(oldest!==undefined&&end!==undefined&&end-oldest>=LATELY_MS))&&runs.some(r=>r.index<first.index&&r.started&&r.key!==first.key);
+  return (before>=LATELY_RUNS||(oldest!==undefined&&end!==undefined&&end-oldest>=LATELY_MS))&&runs.some(r=>r.index<first.index&&r.started);
 }
 
 /** The text the journal holds that names things: line texts, summaries, reasons and each call's `did`. */
@@ -216,7 +216,7 @@ function spansOf(runs:Ended[],target:Ended) {
   const ended=String(target.line.at),endMs=ms(ended)??0;
   const window=runs.filter(r=>r.index<=target.index).slice(-LATELY_RUNS).filter(r=>endMs-(ms(r.line.at)??0)<=LATELY_MS);
   const first=window[0]??target,start=str(first.started?.started)??str(first.started?.at)??ended;
-  return {window,first,lately:{start,end:ended},scope:{start:str(runs.filter(r=>r.index<target.index&&r.started&&r.key!==target.key).at(-1)?.line.at)??start,end:ended}};
+  return {window,first,lately:{start,end:ended},scope:{start:str(runs.filter(r=>r.index<target.index&&r.started).at(-1)?.line.at)??start,end:ended}};
 }
 /** What moments.ts adds to a scene: the moment (frames or journal), and from the frames only, the pilot at its depicted lead, the ship last named by the end, and the window's fights. */
 interface FromFrames {moment:Moment|null;lead:{at:string;pilot:Pilot}|null;endShip:{cls:string;at:string}|null;fights:Fight[]|null;pois:ReadonlyMap<string,PoiFact>}

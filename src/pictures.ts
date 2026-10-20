@@ -1,4 +1,4 @@
-/** The end-of-flight post: on each pilot `run` `ended`, the juncture's activity map and a selfie of each of the flight's two moments,
+/** The end-of-flight post: on each pilot `run` `ended`, the flight's activity map and a selfie of each of the flight's two moments,
  * drawn and posted by a child process (src/picture/flight.ts), journalled as one `picture` line, and the Scenes they were drawn from
  * as `oracle` lines in `oracle.jsonl` (a scene with its moment is tens of kilobytes; the journal's tail stays small, as
  * `books.jsonl` keeps it). Off unless SPACEMOLT_IMAGER_URL is set.

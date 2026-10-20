@@ -32,7 +32,7 @@ export async function buildModel(runtime:string,opts:{runs?:number;juncture?:str
     for(const i of e.intervals)time.set(i.system,(time.get(i.system)??0)+(+i.end-+i.start));
     for(const [s,t] of time)if(t>(presence.get(s)?.[0]??-1))presence.set(s,[t,e.hue]);
   }
-  const title=opts.juncture?`${opts.pilot??'Pilot'} · juncture ${hm(window.focusStart)}Z · ${span(window.focusStart,window.focusEnd)}`
+  const title=opts.juncture?`${opts.pilot??'Pilot'} · ${window.runs.filter(r=>r.focus).length===1?'flight':'juncture'} ${hm(window.focusStart)}Z · ${span(window.focusStart,window.focusEnd)}`
     :`${opts.pilot??'Pilot'} · last ${window.runs.length} runs · ${span(window.start,window.end)}`;
   return {title,window,activity,epochs,galaxy,placed,neighbours:near,
     unknownSystems:full.unknown,axis:timeAxis(epochs,lane.x,lane.w),labels:epochs.map(e=>fitLabels(e,lane.y,lane.y+lane.h)),
