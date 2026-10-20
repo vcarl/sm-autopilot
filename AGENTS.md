@@ -40,6 +40,8 @@ src/play/README.md   the base skill — what the pilot reads to know how to play
 src/play/world.ts    world.db: every base's book and the pilot's stores, the one schema and its statements
 play.gen/            the play barrels' declarations, which the pilot's check reads (`npm run gen:play`)
 src/play/freighter/  freighters: each its own account and connection, hosted in the bridge process
+src/pictures.ts      the end-of-flight post: off unless SPACEMOLT_IMAGER_URL; on `run` `ended`, one child at a time, never waited on
+src/picture/         the post's child (flight.ts): the juncture's activity map, two moments' selfies from the journal oracle, the webhook
 ```
 
 ### The seam
@@ -250,6 +252,14 @@ the pilot's context. Every line has `at` (UTC ISO, `Z`) and `event`.
   lib's `ACTIONS`, or is login/logout/register), `capped` and `error`; a refused check has `errors`
   instead. Every line written inside the query (its `check`, `command`, `line`) carries its `query_id`,
   never a `run_id`. No `run.json`, no `run` lines.
+- `picture`: one per pilot `run` `ended` while `SPACEMOLT_IMAGER_URL` is set (`src/pictures.ts`, drawn and posted by a child
+  running `src/picture/flight.ts`): `run_id`, `ok` (an image was made), `ms` (wall, the child's), `caption`, `model`, `posted` (null
+  with no webhook or no image), `post_error`, `error` (no scene could be read), and `images`, in post order: the `map` and a
+  `selfie` per moment, each `kind`, `ok`, `path` (`images/{map,selfie}-<stamp>[-n].png`), `error`, `ms`, and a selfie's `moment`
+  (the depicted lead's `category` and `type`), `seed` (the run's, plus the moment's index), `camera`, `prompt` and `subject_ref` (the
+  art sent, or null). `skipped: 'idle'` when the flight has no own act (no moment), `skipped: 'busy'` alone when the last one still
+  rendered. Its Scenes go to `oracle.jsonl` beside the journal, never rotated, as `oracle` (`run_id`, `juncture_id`, `scene`), one per
+  moment: tens of kilobytes with a moment, so the journal's tail stays small.
 - `deps_installed` (`lock_sha256`, `seconds`) when a bridge start ran `npm ci`; `deps_failed`
   (`lock_sha256`, `error`, and `seconds`/`output` when npm ran). Nothing when the stamp matched.
 - `chat_interrupt` (`channel`, `sender`, `sender_id`) when a post matched the run's `interrupts` and

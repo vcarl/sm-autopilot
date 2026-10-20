@@ -66,13 +66,24 @@ def credentials_file() -> Path | None:
     return path if path and path.is_file() else None
 
 
-def journal_webhook() -> str:
-    """Where the rendered journal is posted, if the human set one. This profile's secret,
-    never another's; absent, the bridge starts no drain and posts nothing."""
-    try:
-        return get_secret("SPACEMOLT_JOURNAL_WEBHOOK", "") or ""
-    except UnscopedSecretError:
-        return ""
+#: The optional settings handed to the bridge when the human set them: where the rendered journal
+#: is posted, and the picture server (src/pictures.ts; no SPACEMOLT_IMAGER_URL, no pictures).
+OPTIONAL_SECRETS = ("SPACEMOLT_JOURNAL_WEBHOOK", "SPACEMOLT_IMAGER_URL", "SPACEMOLT_IMAGER_KEY",
+                    "SPACEMOLT_IMAGE_MODEL", "SPACEMOLT_IMAGE_STYLE")
+
+
+def optional_secrets() -> dict[str, str]:
+    """This profile's optional settings, never another's; one that is unset is left out, so the
+    bridge is never handed a name pointing at nothing."""
+    found = {}
+    for name in OPTIONAL_SECRETS:
+        try:
+            value = get_secret(name, "") or ""
+        except UnscopedSecretError:
+            value = ""
+        if value:
+            found[name] = value
+    return found
 
 
 def runtime_dir() -> Path:
@@ -176,9 +187,8 @@ class Bridge:
             ensure_node_deps(DEPS_ROOT)  # before Popen, so READY_TIMEOUT never times an install
         except RuntimeError as error:
             raise RuntimeError(f"SpaceMolt bridge failed to start: {error}") from error
-        webhook = journal_webhook()
         env = {**os.environ, "SPACEMOLT_CREDENTIALS_FILE": str(credentials), "SPACEMOLT_RUNTIME_DIR": str(runtime),
-               **({"SPACEMOLT_JOURNAL_WEBHOOK": webhook} if webhook else {})}
+               **optional_secrets()}
         self.runtime = runtime
         #: The sources this process booted on, so "is the bridge running the latest code?" is
         #: answered by reading rather than by dating a pid against a reflog.

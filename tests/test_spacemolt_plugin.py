@@ -352,16 +352,19 @@ print(json.dumps({"event": "ready"}), flush=True)
 for line in sys.stdin:
     request = json.loads(line)
     print(json.dumps({"id": request["id"], "ok": True,
-                      "result": {"webhook": os.environ.get("SPACEMOLT_JOURNAL_WEBHOOK", "")}}),
+                      "result": {name: os.environ.get(name) for name in (
+                          "SPACEMOLT_JOURNAL_WEBHOOK", "SPACEMOLT_IMAGER_URL", "SPACEMOLT_IMAGER_KEY",
+                          "SPACEMOLT_IMAGE_MODEL", "SPACEMOLT_IMAGE_STYLE")}}),
           flush=True)
 '''
 
 
-def test_the_journal_webhook_reaches_the_bridge_the_way_the_credentials_path_does(tmp_path, monkeypatch):
-    """The drain's destination is a secret of this profile, handed to the child and nowhere else.
+def test_the_optional_settings_reach_the_bridge_the_way_the_credentials_path_does(tmp_path, monkeypatch):
+    """The drain's destination and the picture server are secrets of this profile, handed to the
+    child and nowhere else.
 
     Absent, the child is never handed the name at all, so a bridge with no webhook configured
-    starts no drain rather than starting one pointed at nothing.
+    starts no drain, and one with no imager draws no pictures, rather than either pointed at nothing.
     """
     stub = tmp_path / "env_bridge.py"
     stub.write_text(ENV_BRIDGE)
@@ -369,12 +372,16 @@ def test_the_journal_webhook_reaches_the_bridge_the_way_the_credentials_path_doe
     credentials.write_text("Username: pilot\nPassword: secret\n")
     monkeypatch.setenv("SPACEMOLT_CREDENTIALS_FILE", str(credentials))
     monkeypatch.setattr(service, "BRIDGE_COMMAND", [sys.executable, str(stub)])
+    settings = {"SPACEMOLT_JOURNAL_WEBHOOK": "https://example.invalid/hook", "SPACEMOLT_IMAGER_URL": "http://127.0.0.1:11234",
+                "SPACEMOLT_IMAGER_KEY": "k", "SPACEMOLT_IMAGE_MODEL": "m", "SPACEMOLT_IMAGE_STYLE": "ink"}
     try:
-        monkeypatch.setenv("SPACEMOLT_JOURNAL_WEBHOOK", "https://example.invalid/hook")
-        assert service.call("status") == {"webhook": "https://example.invalid/hook"}
+        for name, value in settings.items():
+            monkeypatch.setenv(name, value)
+        assert service.call("status") == settings
         service.close_bridge()
-        monkeypatch.delenv("SPACEMOLT_JOURNAL_WEBHOOK")
-        assert service.call("status") == {"webhook": ""}
+        for name in settings:
+            monkeypatch.delenv(name)
+        assert service.call("status") == dict.fromkeys(settings)
     finally:
         service.close_bridge()
 

@@ -94,6 +94,15 @@ Optionally, in the same file, to have the pilot's journal posted to Discord as i
 SPACEMOLT_JOURNAL_WEBHOOK=https://discord.com/api/webhooks/...
 ```
 
+And to have a picture drawn at the end of every flight, an image server speaking mlx-serve's
+`/v1/images/generations` (pictures land in `spacemolt/runtime/images/`, and with the webhook above,
+in Discord too; `SPACEMOLT_IMAGER_KEY`, `SPACEMOLT_IMAGE_MODEL` and `SPACEMOLT_IMAGE_STYLE` are
+optional):
+
+```
+SPACEMOLT_IMAGER_URL=http://127.0.0.1:11234
+```
+
 ### 5. The one setting you cannot guess
 
 Add this to the profile's `config.yaml` (`~/.hermes/profiles/spacemolt/config.yaml`):

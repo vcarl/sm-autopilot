@@ -30,6 +30,23 @@ config_schema:
     description: >-
       Optional Discord webhook the rendered journal is posted to, as the profile secret
       SPACEMOLT_JOURNAL_WEBHOOK. Absent, the bridge posts nothing.
+  imager_url:
+    type: string
+    description: >-
+      Optional image server (mlx-serve's /v1/images/generations) that draws a picture at the end of
+      every flight, as the profile secret SPACEMOLT_IMAGER_URL. Pictures go to
+      spacemolt/runtime/images/ and, with a journal webhook, to Discord. Absent, no pictures.
+  imager_key:
+    type: string
+    description: Optional bearer token for the image server, as the profile secret SPACEMOLT_IMAGER_KEY.
+  image_model:
+    type: string
+    description: >-
+      Optional model name the image server is asked for, as the profile secret
+      SPACEMOLT_IMAGE_MODEL. Default ddalcu/Qwen-Image-2.1-Turbo-MLX-Serve-8bit.
+  image_style:
+    type: string
+    description: Optional style line every picture prompt leads with, as the profile secret SPACEMOLT_IMAGE_STYLE.
   sequential_call_timeout:
     type: integer
     default: 0
