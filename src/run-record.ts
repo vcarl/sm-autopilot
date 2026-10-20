@@ -54,7 +54,7 @@ export const JournalLine=Schema.StructWithRest(
   Schema.Struct({at:Schema.optionalKey(Schema.String),event:Schema.optionalKey(Schema.String)}),[open]);
 export type JournalLine=typeof JournalLine.Type;
 const decodeRun=Schema.decodeUnknownOption(Schema.fromJsonString(RunRecord));
-const decodeLine=Schema.decodeUnknownOption(Schema.fromJsonString(JournalLine));
+export const decodeLine=Schema.decodeUnknownOption(Schema.fromJsonString(JournalLine));
 
 /** Temp file then rename: a torn write would tell a restarting bridge a lie about the pilot. */
 export function writeRun(runtime:string,record:RunRecord):void {
@@ -101,7 +101,7 @@ export function closeInterrupted(runtime:string):RunRecord|null {
 
 /** The journal files newest first: `gameplay.jsonl`, then each `gameplay.<UTC stamp>.jsonl` a
  * boot rotated away. The stamps sort as time. `name` is another record rotated the same way (`chat`). */
-function journalFiles(runtime:string,name='gameplay'):string[] {
+export function journalFiles(runtime:string,name='gameplay'):string[] {
   const rotated=existsSync(runtime)?readdirSync(runtime).filter(file=>file.startsWith(`${name}.`)&&file.endsWith('.jsonl')&&file!==`${name}.jsonl`).sort().reverse():[];
   return [`${name}.jsonl`,...rotated].map(file=>join(runtime,file));
 }

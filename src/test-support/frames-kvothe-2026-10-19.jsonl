@@ -1,0 +1,204 @@
+{"at":"2026-10-19T05:03:22.284Z","dir":"in","frame":{"type":"logged_in","payload":{"player":{"id":"177686d5f9eed52e8cabf6f907c03c61","username":"kvothe","credits":563781,"docked_at":null,"current_system":"first_step","current_poi":"mobile_capital"},"ship":{"class_id":"dust_devil","hull":130,"max_hull":130,"fuel":700,"max_fuel":700,"cargo_used":115,"cargo_capacity":115},"system":{"id":"first_step","name":"First Step"},"poi":{"id":"mobile_capital","name":"Mobile Capital"}}}}
+{"at":"2026-10-19T06:00:03.860Z","dir":"in","frame":{"type":"action_result","payload":{"command":"jump","tick":2177082,"result":{"ship":{"class_id":"dust_devil","hull":130,"max_hull":130,"fuel":468,"max_fuel":700,"cargo_used":5,"cargo_capacity":115},"location":{"system_id":"gsc_0026","system_name":"GSC-0026","poi_id":"gsc_0026_ice_belt","poi_name":"GSC-0026 Ice Belt","docked_at":null},"missions":{"active":[]},"details":{"action":"jumped","system":"GSC-0026","system_id":"gsc_0026","from_system":"Libertas","navigation_xp":3,"exploration_xp":5,"piloting_xp":6,"poi":"gsc_0026_ice_belt"}}},"request_id":"r1076"}}
+{"at":"2026-10-19T06:00:03.862Z","dir":"out","frame":{"tool":"spacemolt","action":"get_status","request_id":"r1077"}}
+{"at":"2026-10-19T06:00:03.881Z","dir":"in","frame":{"type":"result","payload":{"result":"kvothe [outerrim] | 562,347cr | GSC-0026\nShip: Dust Devil (d"},"request_id":"r1077"}}
+{"at":"2026-10-19T06:00:03.882Z","dir":"out","frame":{"tool":"spacemolt","action":"find_route","payload":{"id":"xamidimura"},"request_id":"r1078"}}
+{"at":"2026-10-19T06:00:03.916Z","dir":"in","frame":{"type":"result","payload":{"result":"Route to xamidimura (6 jumps):\n  1. GSC-0026 (gsc_0026)\n  2."},"request_id":"r1078"}}
+{"at":"2026-10-19T06:00:03.917Z","dir":"out","frame":{"tool":"spacemolt","action":"get_status","request_id":"r1079"}}
+{"at":"2026-10-19T06:00:03.970Z","dir":"in","frame":{"type":"result","payload":{"result":"kvothe [outerrim] | 562,347cr | GSC-0026\nShip: Dust Devil (d"},"request_id":"r1079"}}
+{"at":"2026-10-19T06:00:03.971Z","dir":"out","frame":{"tool":"spacemolt","action":"get_status","request_id":"r1080"}}
+{"at":"2026-10-19T06:00:03.989Z","dir":"in","frame":{"type":"result","payload":{"result":"kvothe [outerrim] | 562,347cr | GSC-0026\nShip: Dust Devil (d"},"request_id":"r1080"}}
+{"at":"2026-10-19T06:00:03.989Z","dir":"out","frame":{"tool":"spacemolt","action":"get_system","payload":{},"request_id":"r1081"}}
+{"at":"2026-10-19T06:00:04.004Z","dir":"in","frame":{"type":"result","payload":{"result":"System: GSC-0026 (gsc_0026) | Empire:  | Security: Lawless ("},"request_id":"r1081"}}
+{"at":"2026-10-19T06:00:04.006Z","dir":"out","frame":{"tool":"spacemolt","action":"get_status","request_id":"r1082"}}
+{"at":"2026-10-19T06:00:04.027Z","dir":"in","frame":{"type":"result","payload":{"result":"kvothe [outerrim] | 562,347cr | GSC-0026\nShip: Dust Devil (d"},"request_id":"r1082"}}
+{"at":"2026-10-19T06:00:04.028Z","dir":"out","frame":{"tool":"spacemolt","action":"jump","payload":{"id":"sarin"},"request_id":"r1083"}}
+{"at":"2026-10-19T06:00:04.081Z","dir":"in","frame":{"type":"result","payload":{"result":"Jump action pending. Will execute on next tick."},"request_id":"r1083"}}
+{"at":"2026-10-19T06:00:16.425Z","dir":"in","frame":{"type":"ok","payload":{"action":"jump","arrival_tick":2177084,"destination":"sarin","is_wormhole":false}}}
+{"at":"2026-10-19T06:00:23.796Z","dir":"in","frame":{"type":"action_result","payload":{"command":"jump","tick":2177084,"result":{"ship":{"class_id":"dust_devil","hull":130,"max_hull":130,"fuel":439,"max_fuel":700,"cargo_used":5,"cargo_capacity":115},"location":{"system_id":"sarin","system_name":"Sarin","poi_id":"sarin_star","poi_name":"Sarin Star","docked_at":null},"missions":{"active":[]},"details":{"action":"jumped","system":"Sarin","system_id":"sarin","from_system":"GSC-0026","navigation_xp":3,"exploration_xp":5,"piloting_xp":6,"poi":"sarin_star"}}},"request_id":"r1083"}}
+{"at":"2026-10-19T06:00:23.798Z","dir":"out","frame":{"tool":"spacemolt","action":"get_status","request_id":"r1084"}}
+{"at":"2026-10-19T06:00:23.835Z","dir":"in","frame":{"type":"result","payload":{"result":"kvothe [outerrim] | 562,347cr | Sarin\nShip: Dust Devil (dust"},"request_id":"r1084"}}
+{"at":"2026-10-19T06:00:23.836Z","dir":"out","frame":{"tool":"spacemolt","action":"find_route","payload":{"id":"xamidimura"},"request_id":"r1085"}}
+{"at":"2026-10-19T06:00:23.869Z","dir":"in","frame":{"type":"result","payload":{"result":"Route to xamidimura (5 jumps):\n  1. Sarin (sarin)\n  2. Silve"},"request_id":"r1085"}}
+{"at":"2026-10-19T06:00:23.870Z","dir":"out","frame":{"tool":"spacemolt","action":"get_status","request_id":"r1086"}}
+{"at":"2026-10-19T06:00:23.891Z","dir":"in","frame":{"type":"result","payload":{"result":"kvothe [outerrim] | 562,347cr | Sarin\nShip: Dust Devil (dust"},"request_id":"r1086"}}
+{"at":"2026-10-19T06:00:23.892Z","dir":"out","frame":{"tool":"spacemolt","action":"get_status","request_id":"r1087"}}
+{"at":"2026-10-19T06:00:23.918Z","dir":"in","frame":{"type":"result","payload":{"result":"kvothe [outerrim] | 562,347cr | Sarin\nShip: Dust Devil (dust"},"request_id":"r1087"}}
+{"at":"2026-10-19T06:00:23.918Z","dir":"out","frame":{"tool":"spacemolt","action":"get_system","payload":{},"request_id":"r1088"}}
+{"at":"2026-10-19T06:00:23.936Z","dir":"in","frame":{"type":"result","payload":{"result":"System: Sarin (sarin) | Empire:  | Security: Lawless (no pol"},"request_id":"r1088"}}
+{"at":"2026-10-19T06:00:23.937Z","dir":"out","frame":{"tool":"spacemolt","action":"get_status","request_id":"r1089"}}
+{"at":"2026-10-19T06:00:23.956Z","dir":"in","frame":{"type":"result","payload":{"result":"kvothe [outerrim] | 562,347cr | Sarin\nShip: Dust Devil (dust"},"request_id":"r1089"}}
+{"at":"2026-10-19T06:00:23.957Z","dir":"out","frame":{"tool":"spacemolt","action":"jump","payload":{"id":"silverpine"},"request_id":"r1090"}}
+{"at":"2026-10-19T06:00:23.989Z","dir":"in","frame":{"type":"result","payload":{"result":"Jump action pending. Will execute on next tick."},"request_id":"r1090"}}
+{"at":"2026-10-19T06:00:36.465Z","dir":"in","frame":{"type":"ok","payload":{"action":"jump","arrival_tick":2177086,"destination":"silverpine","is_wormhole":false}}}
+{"at":"2026-10-19T06:00:43.987Z","dir":"in","frame":{"type":"action_result","payload":{"command":"jump","tick":2177086,"result":{"ship":{"class_id":"dust_devil","hull":130,"max_hull":130,"fuel":410,"max_fuel":700,"cargo_used":5,"cargo_capacity":115},"location":{"system_id":"silverpine","system_name":"Silverpine","poi_id":"silverpine_star","poi_name":"Silverpine Star","docked_at":null},"missions":{"active":[]},"details":{"action":"jumped","system":"Silverpine","system_id":"silverpine","from_system":"Sarin","navigation_xp":3,"exploration_xp":5,"piloting_xp":6,"poi":"silverpine_star"}}},"request_id":"r1090"}}
+{"at":"2026-10-19T06:00:43.990Z","dir":"out","frame":{"tool":"spacemolt","action":"get_status","request_id":"r1091"}}
+{"at":"2026-10-19T06:00:44.195Z","dir":"in","frame":{"type":"result","payload":{"result":"kvothe [outerrim] | 562,347cr | Silverpine\nShip: Dust Devil "},"request_id":"r1091"}}
+{"at":"2026-10-19T06:00:44.197Z","dir":"out","frame":{"tool":"spacemolt","action":"find_route","payload":{"id":"xamidimura"},"request_id":"r1092"}}
+{"at":"2026-10-19T06:00:44.218Z","dir":"in","frame":{"type":"result","payload":{"result":"Route to xamidimura (4 jumps):\n  1. Silverpine (silverpine)\n"},"request_id":"r1092"}}
+{"at":"2026-10-19T06:00:44.220Z","dir":"out","frame":{"tool":"spacemolt","action":"get_status","request_id":"r1093"}}
+{"at":"2026-10-19T06:00:44.241Z","dir":"in","frame":{"type":"result","payload":{"result":"kvothe [outerrim] | 562,347cr | Silverpine\nShip: Dust Devil "},"request_id":"r1093"}}
+{"at":"2026-10-19T06:00:44.241Z","dir":"out","frame":{"tool":"spacemolt","action":"get_status","request_id":"r1094"}}
+{"at":"2026-10-19T06:00:44.259Z","dir":"in","frame":{"type":"result","payload":{"result":"kvothe [outerrim] | 562,347cr | Silverpine\nShip: Dust Devil "},"request_id":"r1094"}}
+{"at":"2026-10-19T06:00:44.260Z","dir":"out","frame":{"tool":"spacemolt","action":"get_system","payload":{},"request_id":"r1095"}}
+{"at":"2026-10-19T06:00:44.278Z","dir":"in","frame":{"type":"result","payload":{"result":"System: Silverpine (silverpine) | Empire:  | Security: Lawle"},"request_id":"r1095"}}
+{"at":"2026-10-19T06:00:44.279Z","dir":"out","frame":{"tool":"spacemolt","action":"get_status","request_id":"r1096"}}
+{"at":"2026-10-19T06:00:44.307Z","dir":"in","frame":{"type":"result","payload":{"result":"kvothe [outerrim] | 562,347cr | Silverpine\nShip: Dust Devil "},"request_id":"r1096"}}
+{"at":"2026-10-19T06:00:44.308Z","dir":"out","frame":{"tool":"spacemolt","action":"jump","payload":{"id":"ran"},"request_id":"r1097"}}
+{"at":"2026-10-19T06:00:44.339Z","dir":"in","frame":{"type":"result","payload":{"result":"Jump action pending. Will execute on next tick."},"request_id":"r1097"}}
+{"at":"2026-10-19T06:00:55.225Z","dir":"in","frame":{"type":"ok","payload":{"action":"jump","arrival_tick":2177088,"destination":"ran","is_wormhole":false}}}
+{"at":"2026-10-19T06:01:04.179Z","dir":"in","frame":{"type":"action_result","payload":{"command":"jump","tick":2177088,"result":{"ship":{"class_id":"dust_devil","hull":130,"max_hull":130,"fuel":381,"max_fuel":700,"cargo_used":5,"cargo_capacity":115},"location":{"system_id":"ran","system_name":"Ran","poi_id":"ran_star","poi_name":"Ran Star","docked_at":null},"missions":{"active":[]},"details":{"action":"jumped","system":"Ran","system_id":"ran","from_system":"Silverpine","navigation_xp":3,"exploration_xp":5,"piloting_xp":6,"poi":"ran_star"}}},"request_id":"r1097"}}
+{"at":"2026-10-19T06:01:04.181Z","dir":"out","frame":{"tool":"spacemolt","action":"get_status","request_id":"r1098"}}
+{"at":"2026-10-19T06:01:04.204Z","dir":"in","frame":{"type":"result","payload":{"result":"kvothe [outerrim] | 562,347cr | Ran\nShip: Dust Devil (dust_d"},"request_id":"r1098"}}
+{"at":"2026-10-19T06:01:04.204Z","dir":"out","frame":{"tool":"spacemolt","action":"find_route","payload":{"id":"xamidimura"},"request_id":"r1099"}}
+{"at":"2026-10-19T06:01:04.226Z","dir":"in","frame":{"type":"result","payload":{"result":"Route to xamidimura (3 jumps):\n  1. Ran (ran)\n  2. TOI-2257 "},"request_id":"r1099"}}
+{"at":"2026-10-19T06:01:04.227Z","dir":"out","frame":{"tool":"spacemolt","action":"get_status","request_id":"r1100"}}
+{"at":"2026-10-19T06:01:04.245Z","dir":"in","frame":{"type":"result","payload":{"result":"kvothe [outerrim] | 562,347cr | Ran\nShip: Dust Devil (dust_d"},"request_id":"r1100"}}
+{"at":"2026-10-19T06:01:04.246Z","dir":"out","frame":{"tool":"spacemolt","action":"get_status","request_id":"r1101"}}
+{"at":"2026-10-19T06:01:04.264Z","dir":"in","frame":{"type":"result","payload":{"result":"kvothe [outerrim] | 562,347cr | Ran\nShip: Dust Devil (dust_d"},"request_id":"r1101"}}
+{"at":"2026-10-19T06:01:04.265Z","dir":"out","frame":{"tool":"spacemolt","action":"get_system","payload":{},"request_id":"r1102"}}
+{"at":"2026-10-19T06:01:04.294Z","dir":"in","frame":{"type":"result","payload":{"result":"System: Ran (ran) | Empire:  | Security: Lawless (no police "},"request_id":"r1102"}}
+{"at":"2026-10-19T06:01:04.295Z","dir":"out","frame":{"tool":"spacemolt","action":"get_status","request_id":"r1103"}}
+{"at":"2026-10-19T06:01:04.317Z","dir":"in","frame":{"type":"result","payload":{"result":"kvothe [outerrim] | 562,347cr | Ran\nShip: Dust Devil (dust_d"},"request_id":"r1103"}}
+{"at":"2026-10-19T06:01:04.318Z","dir":"out","frame":{"tool":"spacemolt","action":"jump","payload":{"id":"toi_2257"},"request_id":"r1104"}}
+{"at":"2026-10-19T06:01:04.356Z","dir":"in","frame":{"type":"result","payload":{"result":"Jump action pending. Will execute on next tick."},"request_id":"r1104"}}
+{"at":"2026-10-19T06:01:15.133Z","dir":"in","frame":{"type":"scan_detected","payload":{"scanner_id":"ec9941a07d3b3de9d60ac232cdd5ffd1","scanner_username":"Skimmer","scanner_ship_class":"lemming","revealed_info":null,"message":"You were scanned by Skimmer (lemming). No information revealed"}}}
+{"at":"2026-10-19T06:01:15.133Z","dir":"in","frame":{"type":"scan_detected","payload":{"scanner_id":"debd132170e55c5838eac5407cfe2190","scanner_username":"Shadowline","scanner_ship_class":"lemming","revealed_info":null,"message":"You were scanned by Shadowline (lemming). No information revealed"}}}
+{"at":"2026-10-19T06:01:15.133Z","dir":"in","frame":{"type":"scan_detected","payload":{"scanner_id":"7ad787a6b62544a8d70429bfc7063ee5","scanner_username":"Reef Runner","scanner_ship_class":"lawn_dart","revealed_info":null,"message":"You were scanned by Reef Runner (lawn_dart). No information revealed"}}}
+{"at":"2026-10-19T06:01:16.920Z","dir":"in","frame":{"type":"ok","payload":{"action":"jump","arrival_tick":2177090,"destination":"toi_2257","is_wormhole":false}}}
+{"at":"2026-10-19T06:01:24.489Z","dir":"in","frame":{"type":"action_result","payload":{"command":"jump","tick":2177090,"result":{"ship":{"class_id":"dust_devil","hull":130,"max_hull":130,"fuel":352,"max_fuel":700,"cargo_used":5,"cargo_capacity":115},"location":{"system_id":"toi_2257","system_name":"TOI-2257","poi_id":"toi_2257_star","poi_name":"TOI-2257 Star","docked_at":null},"missions":{"active":[]},"details":{"action":"jumped","system":"TOI-2257","system_id":"toi_2257","from_system":"Ran","navigation_xp":3,"exploration_xp":5,"piloting_xp":6,"poi":"toi_2257_star"}}},"request_id":"r1104"}}
+{"at":"2026-10-19T06:01:24.492Z","dir":"out","frame":{"tool":"spacemolt","action":"get_status","request_id":"r1105"}}
+{"at":"2026-10-19T06:01:24.509Z","dir":"in","frame":{"type":"result","payload":{"result":"kvothe [outerrim] | 562,347cr | TOI-2257\nShip: Dust Devil (d"},"request_id":"r1105"}}
+{"at":"2026-10-19T06:01:24.510Z","dir":"out","frame":{"tool":"spacemolt","action":"find_route","payload":{"id":"xamidimura"},"request_id":"r1106"}}
+{"at":"2026-10-19T06:01:24.529Z","dir":"in","frame":{"type":"result","payload":{"result":"Route to xamidimura (2 jumps):\n  1. TOI-2257 (toi_2257)\n  2."},"request_id":"r1106"}}
+{"at":"2026-10-19T06:01:24.530Z","dir":"out","frame":{"tool":"spacemolt","action":"get_status","request_id":"r1107"}}
+{"at":"2026-10-19T06:01:24.561Z","dir":"in","frame":{"type":"result","payload":{"result":"kvothe [outerrim] | 562,347cr | TOI-2257\nShip: Dust Devil (d"},"request_id":"r1107"}}
+{"at":"2026-10-19T06:01:24.562Z","dir":"out","frame":{"tool":"spacemolt","action":"get_status","request_id":"r1108"}}
+{"at":"2026-10-19T06:01:24.588Z","dir":"in","frame":{"type":"result","payload":{"result":"kvothe [outerrim] | 562,347cr | TOI-2257\nShip: Dust Devil (d"},"request_id":"r1108"}}
+{"at":"2026-10-19T06:01:24.588Z","dir":"out","frame":{"tool":"spacemolt","action":"get_system","payload":{},"request_id":"r1109"}}
+{"at":"2026-10-19T06:01:24.609Z","dir":"in","frame":{"type":"result","payload":{"result":"System: TOI-2257 (toi_2257) | Empire:  | Security: Lawless ("},"request_id":"r1109"}}
+{"at":"2026-10-19T06:01:24.610Z","dir":"out","frame":{"tool":"spacemolt","action":"get_status","request_id":"r1110"}}
+{"at":"2026-10-19T06:01:24.624Z","dir":"in","frame":{"type":"result","payload":{"result":"kvothe [outerrim] | 562,347cr | TOI-2257\nShip: Dust Devil (d"},"request_id":"r1110"}}
+{"at":"2026-10-19T06:01:24.625Z","dir":"out","frame":{"tool":"spacemolt","action":"jump","payload":{"id":"dustfall"},"request_id":"r1111"}}
+{"at":"2026-10-19T06:01:24.640Z","dir":"in","frame":{"type":"result","payload":{"result":"Jump action pending. Will execute on next tick."},"request_id":"r1111"}}
+{"at":"2026-10-19T06:01:35.999Z","dir":"in","frame":{"type":"ok","payload":{"action":"jump","arrival_tick":2177092,"destination":"dustfall","is_wormhole":false}}}
+{"at":"2026-10-19T06:01:43.991Z","dir":"in","frame":{"type":"action_result","payload":{"command":"jump","tick":2177092,"result":{"ship":{"class_id":"dust_devil","hull":130,"max_hull":130,"fuel":323,"max_fuel":700,"cargo_used":5,"cargo_capacity":115},"location":{"system_id":"dustfall","system_name":"Dustfall","poi_id":"dustfall_star","poi_name":"Dustfall Star","docked_at":null},"missions":{"active":[]},"details":{"action":"jumped","system":"Dustfall","system_id":"dustfall","from_system":"TOI-2257","navigation_xp":3,"exploration_xp":5,"piloting_xp":6,"poi":"dustfall_star"}}},"request_id":"r1111"}}
+{"at":"2026-10-19T06:01:43.993Z","dir":"out","frame":{"tool":"spacemolt","action":"get_status","request_id":"r1112"}}
+{"at":"2026-10-19T06:01:44.012Z","dir":"in","frame":{"type":"result","payload":{"result":"kvothe [outerrim] | 562,347cr | Dustfall\nShip: Dust Devil (d"},"request_id":"r1112"}}
+{"at":"2026-10-19T06:01:44.012Z","dir":"out","frame":{"tool":"spacemolt","action":"find_route","payload":{"id":"xamidimura"},"request_id":"r1113"}}
+{"at":"2026-10-19T06:01:44.046Z","dir":"in","frame":{"type":"result","payload":{"result":"Route to xamidimura (1 jumps):\n  1. Dustfall (dustfall)\n  2."},"request_id":"r1113"}}
+{"at":"2026-10-19T06:01:44.047Z","dir":"out","frame":{"tool":"spacemolt","action":"get_status","request_id":"r1114"}}
+{"at":"2026-10-19T06:01:44.162Z","dir":"in","frame":{"type":"result","payload":{"result":"kvothe [outerrim] | 562,347cr | Dustfall\nShip: Dust Devil (d"},"request_id":"r1114"}}
+{"at":"2026-10-19T06:01:44.163Z","dir":"out","frame":{"tool":"spacemolt","action":"get_status","request_id":"r1115"}}
+{"at":"2026-10-19T06:01:44.183Z","dir":"in","frame":{"type":"result","payload":{"result":"kvothe [outerrim] | 562,347cr | Dustfall\nShip: Dust Devil (d"},"request_id":"r1115"}}
+{"at":"2026-10-19T06:01:44.184Z","dir":"out","frame":{"tool":"spacemolt","action":"get_system","payload":{},"request_id":"r1116"}}
+{"at":"2026-10-19T06:01:44.206Z","dir":"in","frame":{"type":"result","payload":{"result":"System: Dustfall (dustfall) | Empire:  | Security: Lawless ("},"request_id":"r1116"}}
+{"at":"2026-10-19T06:01:44.207Z","dir":"out","frame":{"tool":"spacemolt","action":"get_status","request_id":"r1117"}}
+{"at":"2026-10-19T06:01:44.227Z","dir":"in","frame":{"type":"result","payload":{"result":"kvothe [outerrim] | 562,347cr | Dustfall\nShip: Dust Devil (d"},"request_id":"r1117"}}
+{"at":"2026-10-19T06:01:44.228Z","dir":"out","frame":{"tool":"spacemolt","action":"jump","payload":{"id":"xamidimura"},"request_id":"r1118"}}
+{"at":"2026-10-19T06:01:44.249Z","dir":"in","frame":{"type":"result","payload":{"result":"Jump action pending. Will execute on next tick."},"request_id":"r1118"}}
+{"at":"2026-10-19T06:01:57.241Z","dir":"in","frame":{"type":"ok","payload":{"action":"jump","arrival_tick":2177094,"destination":"xamidimura","is_wormhole":false}}}
+{"at":"2026-10-19T06:02:03.968Z","dir":"in","frame":{"type":"action_result","payload":{"command":"jump","tick":2177094,"result":{"ship":{"class_id":"dust_devil","hull":130,"max_hull":130,"fuel":294,"max_fuel":700,"cargo_used":5,"cargo_capacity":115},"location":{"system_id":"xamidimura","system_name":"Xamidimura","poi_id":"xamidimura_cryobelt","poi_name":"Xamidimura Cryobelt","docked_at":null},"missions":{"active":[]},"details":{"action":"jumped","system":"Xamidimura","system_id":"xamidimura","from_system":"Dustfall","navigation_xp":3,"exploration_xp":5,"piloting_xp":6,"poi":"xamidimura_cryobelt"}}},"request_id":"r1118"}}
+{"at":"2026-10-19T06:02:03.971Z","dir":"out","frame":{"tool":"spacemolt","action":"get_status","request_id":"r1119"}}
+{"at":"2026-10-19T06:02:03.996Z","dir":"in","frame":{"type":"result","payload":{"result":"kvothe [outerrim] | 562,347cr | Xamidimura\nShip: Dust Devil "},"request_id":"r1119"}}
+{"at":"2026-10-19T06:02:03.997Z","dir":"out","frame":{"tool":"spacemolt","action":"find_route","payload":{"id":"xamidimura"},"request_id":"r1120"}}
+{"at":"2026-10-19T06:02:04.016Z","dir":"in","frame":{"type":"result","payload":{"result":"Route to xamidimura (0 jumps):\n  1. Xamidimura (xamidimura)\n"},"request_id":"r1120"}}
+{"at":"2026-10-19T06:02:04.017Z","dir":"out","frame":{"tool":"spacemolt","action":"get_status","request_id":"r1121"}}
+{"at":"2026-10-19T06:02:04.039Z","dir":"in","frame":{"type":"result","payload":{"result":"kvothe [outerrim] | 562,347cr | Xamidimura\nShip: Dust Devil "},"request_id":"r1121"}}
+{"at":"2026-10-19T06:02:04.039Z","dir":"out","frame":{"tool":"spacemolt","action":"get_status","request_id":"r1122"}}
+{"at":"2026-10-19T06:02:04.072Z","dir":"in","frame":{"type":"result","payload":{"result":"kvothe [outerrim] | 562,347cr | Xamidimura\nShip: Dust Devil "},"request_id":"r1122"}}
+{"at":"2026-10-19T06:02:04.072Z","dir":"out","frame":{"tool":"spacemolt","action":"get_status","request_id":"r1123"}}
+{"at":"2026-10-19T06:02:04.093Z","dir":"in","frame":{"type":"result","payload":{"result":"kvothe [outerrim] | 562,347cr | Xamidimura\nShip: Dust Devil "},"request_id":"r1123"}}
+{"at":"2026-10-19T06:02:04.094Z","dir":"out","frame":{"tool":"spacemolt","action":"travel","payload":{"id":"kael_arsenal"},"request_id":"r1124"}}
+{"at":"2026-10-19T06:02:04.115Z","dir":"in","frame":{"type":"result","payload":{"result":"Travel action pending. Will execute on next tick."},"request_id":"r1124"}}
+{"at":"2026-10-19T06:02:15.726Z","dir":"in","frame":{"type":"ok","payload":{"action":"travel","arrival_tick":2177096,"destination":"kael_arsenal"}}}
+{"at":"2026-10-19T06:02:23.747Z","dir":"in","frame":{"type":"action_result","payload":{"command":"travel","tick":2177096,"result":{"ship":{"class_id":"dust_devil","hull":130,"max_hull":130,"fuel":283,"max_fuel":700,"cargo_used":5,"cargo_capacity":115},"location":{"system_id":"xamidimura","system_name":"Xamidimura","poi_id":"kael_arsenal","poi_name":"Kael Arsenal","docked_at":null},"details":{"action":"arrived","poi":"Kael Arsenal","poi_id":"kael_arsenal","online_players_count":4,"online_players_truncated":false,"online_players":[{"player_id":"d859bd80cfa3179f18ccbd61522a6da8","username":"Voldemort","primary_color":"#FFFFFF","secondary_color":"#000000","ship_class":"prospect","ship_name":"Prospect","faction_id":"33fe532232902e4607acf8da7ef474d3","faction_tag":"ENDL","in_combat":false,"docked":true},{"player_id":"6849e456438f19b93ba100e02e6a5ab0","username":"Walter Bullionaut","primary_color":"#cad175","secondary_color":"#010B13","ship_class":"futures","ship_name":"Futures","in_combat":false,"docked":true},{"player_id":"9c7867621ae41e2031d353c5d8276ed1","username":"Xamidimura","primary_color":"#FFFFFF","secondary_color":"#000000","ship_class":"shard","ship_name":"Shard","in_combat":false,"docked":true},{"player_id":"95e93c87af00a4e018a1d082e0e4a35a","username":"marketbot_xamidimura","primary_color":"#FFFFFF","secondary_color":"#000000","ship_class":"cobble","ship_name":"Cobble","faction_id":"5b565d6303a0bea2eaf559129c1686f5","faction_tag":" DB ","in_combat":false,"docked":true}],"offline_collapsed":0,"xp_gained":{"navigation":1,"piloting":2}}}},"request_id":"r1124"}}
+{"at":"2026-10-19T06:02:23.749Z","dir":"out","frame":{"tool":"spacemolt","action":"get_status","request_id":"r1125"}}
+{"at":"2026-10-19T06:02:23.777Z","dir":"in","frame":{"type":"result","payload":{"result":"kvothe [outerrim] | 562,347cr | Xamidimura\nShip: Dust Devil "},"request_id":"r1125"}}
+{"at":"2026-10-19T06:02:23.778Z","dir":"out","frame":{"tool":"spacemolt","action":"get_system","payload":{},"request_id":"r1126"}}
+{"at":"2026-10-19T06:02:23.801Z","dir":"in","frame":{"type":"result","payload":{"result":"System: Xamidimura [stronghold] (xamidimura) | Empire:  | Se"},"request_id":"r1126"}}
+{"at":"2026-10-19T06:02:23.803Z","dir":"out","frame":{"tool":"spacemolt","action":"get_status","request_id":"r1127"}}
+{"at":"2026-10-19T06:02:23.823Z","dir":"in","frame":{"type":"result","payload":{"result":"kvothe [outerrim] | 562,347cr | Xamidimura\nShip: Dust Devil "},"request_id":"r1127"}}
+{"at":"2026-10-19T06:02:23.825Z","dir":"out","frame":{"tool":"spacemolt","action":"dock","payload":{},"request_id":"r1128"}}
+{"at":"2026-10-19T06:02:23.845Z","dir":"in","frame":{"type":"result","payload":{"result":"Dock action pending. Will execute on next tick."},"request_id":"r1128"}}
+{"at":"2026-10-19T06:02:35.263Z","dir":"in","frame":{"type":"error","payload":{"code":"insufficient_reputation","message":"Access denied. Your reputation with this faction is too low (current: -30)."},"request_id":"r1128"}}
+{"at":"2026-10-19T06:02:35.267Z","dir":"out","frame":{"tool":"spacemolt","action":"get_status","request_id":"r1129"}}
+{"at":"2026-10-19T06:02:35.292Z","dir":"in","frame":{"type":"result","payload":{"result":"kvothe [outerrim] | 562,347cr | Xamidimura\nShip: Dust Devil "},"request_id":"r1129"}}
+{"at":"2026-10-19T06:02:35.296Z","dir":"out","frame":{"tool":"spacemolt","action":"get_status","request_id":"r1130"}}
+{"at":"2026-10-19T06:02:35.317Z","dir":"in","frame":{"type":"result","payload":{"result":"kvothe [outerrim] | 562,347cr | Xamidimura\nShip: Dust Devil "},"request_id":"r1130"}}
+{"at":"2026-10-19T06:02:35.318Z","dir":"out","frame":{"tool":"spacemolt","action":"get_system","payload":{},"request_id":"r1131"}}
+{"at":"2026-10-19T06:02:35.338Z","dir":"in","frame":{"type":"result","payload":{"result":"System: Xamidimura [stronghold] (xamidimura) | Empire:  | Se"},"request_id":"r1131"}}
+{"at":"2026-10-19T06:02:35.339Z","dir":"out","frame":{"tool":"spacemolt","action":"get_status","request_id":"r1132"}}
+{"at":"2026-10-19T06:02:35.357Z","dir":"in","frame":{"type":"result","payload":{"result":"kvothe [outerrim] | 562,347cr | Xamidimura\nShip: Dust Devil "},"request_id":"r1132"}}
+{"at":"2026-10-19T06:02:35.358Z","dir":"out","frame":{"tool":"spacemolt","action":"dock","payload":{},"request_id":"r1133"}}
+{"at":"2026-10-19T06:02:35.373Z","dir":"in","frame":{"type":"result","payload":{"result":"Dock action pending. Will execute on next tick."},"request_id":"r1133"}}
+{"at":"2026-10-19T06:02:48.225Z","dir":"in","frame":{"type":"error","payload":{"code":"insufficient_reputation","message":"Access denied. Your reputation with this faction is too low (current: -30)."},"request_id":"r1133"}}
+{"at":"2026-10-19T06:02:48.228Z","dir":"out","frame":{"tool":"spacemolt","action":"get_status","request_id":"r1134"}}
+{"at":"2026-10-19T06:02:48.250Z","dir":"in","frame":{"type":"result","payload":{"result":"kvothe [outerrim] | 562,347cr | Xamidimura\nShip: Dust Devil "},"request_id":"r1134"}}
+{"at":"2026-10-19T06:02:48.254Z","dir":"out","frame":{"tool":"spacemolt_battle","action":"status","payload":{},"request_id":"r1135"}}
+{"at":"2026-10-19T06:02:48.266Z","dir":"in","frame":{"type":"error","payload":{"code":"not_in_battle","message":"No active battle. Use attack to engage a target."},"request_id":"r1135"}}
+{"at":"2026-10-19T06:02:55.004Z","dir":"in","frame":{"type":"scan_detected","payload":{"scanner_id":"7ad787a6b62544a8d70429bfc7063ee5","scanner_username":"Reef Runner","scanner_ship_class":"lawn_dart","revealed_info":null,"message":"You were scanned by Reef Runner (lawn_dart). No information revealed"}}}
+{"at":"2026-10-19T06:02:55.005Z","dir":"in","frame":{"type":"battle_started","payload":{"battle_id":"8c72b3c372fbf0a0414c983c75c565c4","system_id":"xamidimura","sides":[{"side_id":1,"player_count":1},{"side_id":2,"faction_id":"674a959d9709ec26d08eba2083543480","player_count":1}],"participants":[{"player_id":"177686d5f9eed52e8cabf6f907c03c61","username":"kvothe","side_id":2,"zone":"outer","ship_class":"dust_devil","ship_name":"Dust Devil","kind":"player"},{"player_id":"e505e6ed397cbc56a7d098249792f59d","username":"Commodore","side_id":1,"zone":"outer","ship_class":"eviction_notice","ship_name":"Eviction Notice","kind":"pirate","is_npc":true}]}}}
+{"at":"2026-10-19T06:02:55.005Z","dir":"in","frame":{"type":"battle_alert","payload":{"battle_id":"8c72b3c372fbf0a0414c983c75c565c4","system_id":"xamidimura","sides":[{"side_id":1,"player_count":1},{"side_id":2,"faction_id":"674a959d9709ec26d08eba2083543480","player_count":1}],"participants":[{"player_id":"e505e6ed397cbc56a7d098249792f59d","username":"Commodore","side_id":1,"zone":"outer","ship_class":"eviction_notice","ship_name":"Eviction Notice","kind":"pirate","is_npc":true},{"player_id":"177686d5f9eed52e8cabf6f907c03c61","username":"kvothe","side_id":2,"zone":"outer","ship_class":"dust_devil","ship_name":"Dust Devil","kind":"player"}],"message":"WARNING: Commodore (raider_elite) is attacking you in Xamidimura! Battle ID: 8c72b3c372fbf0a0414c983c75c565c4"}}}
+{"at":"2026-10-19T06:03:04.843Z","dir":"in","frame":{"type":"battle_damage","payload":{"tick":2177100,"attacker_id":"kael_arsenal_station","attacker_name":"Kael Arsenal Station","target_id":"177686d5f9eed52e8cabf6f907c03c61","target_name":"kvothe","weapons_fired":["Harpoon Emplacement","Scrap Flak Battery","Scrap Flak Battery","Scrap Flak Battery","Harpoon Emplacement","Scrap Flak Battery"],"total_damage":190,"damage_type":"kinetic","hit_success":true,"shield_hit":60,"hull_hit":130,"xp_gained":{"177686d5f9eed52e8cabf6f907c03c61":{"armor":14,"piloting":2,"shields":7,"tactics":3}}}}}
+{"at":"2026-10-19T06:03:04.853Z","dir":"in","frame":{"type":"battle_left","payload":{"player_id":"177686d5f9eed52e8cabf6f907c03c61","username":"kvothe","reason":"destroyed"}}}
+{"at":"2026-10-19T06:03:04.877Z","dir":"in","frame":{"type":"player_died","payload":{"respawn_base":"frontier_station","clone_cost":0,"insurance_payout":0,"ship_lost":"dust_devil","wreck_id":"3a0999667c5c6caca097341b845409ec","wreck_poi_id":"kael_arsenal","wreck_poi_name":"Kael Arsenal","wreck_system_id":"xamidimura","wreck_system_name":"Xamidimura","cause":"combat"}}}
+{"at":"2026-10-19T06:03:04.882Z","dir":"in","frame":{"type":"action_result","payload":{"command":"player_died","tick":2177100,"result":{"player":{"id":"177686d5f9eed52e8cabf6f907c03c61","username":"kvothe","credits":562347},"ship":{"class_id":"cobble","hull":80,"max_hull":80,"fuel":120,"max_fuel":120,"cargo_used":0,"cargo_capacity":75},"location":{"system_id":"first_step","system_name":"First Step","poi_id":"mobile_capital","poi_name":"Mobile Capital","docked_at":"frontier_station"},"skills":{"armor":{"level":5},"bounty_hunting":{"level":0},"crafting":{"level":9},"deep_core_mining":{"level":10},"engineering":{"level":5},"exploration":{"level":6},"gunnery":{"level":13},"leadership":{"level":3},"mining":{"level":11},"navigation":{"level":12},"outer_rim_survival":{"level":2},"piloting":{"level":17},"refining":{"level":8},"salvaging":{"level":12},"scanning":{"level":3},"shields":{"level":6},"tactics":{"level":13},"trading":{"level":14},"weapons":{"level":8},"wormhole_navigation":{"level":1},"xenobiology":{"level":13}},"missions":{"active":[]}}}}}
+{"at":"2026-10-19T06:03:16.530Z","dir":"out","frame":{"tool":"spacemolt","action":"get_status","request_id":"r1136"}}
+{"at":"2026-10-19T06:03:16.555Z","dir":"in","frame":{"type":"result","payload":{"result":"kvothe [outerrim] | 562,347cr | First Step\nShip: Cobble (cob"},"request_id":"r1136"}}
+{"at":"2026-10-19T06:03:16.555Z","dir":"out","frame":{"tool":"spacemolt_battle","action":"status","payload":{},"request_id":"r1137"}}
+{"at":"2026-10-19T06:03:16.567Z","dir":"in","frame":{"type":"error","payload":{"code":"not_in_battle","message":"No active battle. Use attack to engage a target."},"request_id":"r1137"}}
+{"at":"2026-10-19T06:03:16.568Z","dir":"out","frame":{"tool":"spacemolt","action":"get_skills","payload":{},"request_id":"r1138"}}
+{"at":"2026-10-19T06:03:16.585Z","dir":"in","frame":{"type":"result","payload":{"result":"Skills (21 trained, 0-100 scale):\nskill\tname\tcategory\tlevel\t"},"request_id":"r1138"}}
+{"at":"2026-10-19T06:03:16.585Z","dir":"out","frame":{"tool":"spacemolt_storage","action":"view","payload":{},"request_id":"r1139"}}
+{"at":"2026-10-19T06:03:16.603Z","dir":"in","frame":{"type":"result","payload":{"result":"Storage at frontier_station\nItems (12):\nitem\tqty\tsize\nCarbon"},"request_id":"r1139"}}
+{"at":"2026-10-19T06:03:16.605Z","dir":"out","frame":{"tool":"spacemolt_ship","action":"list_ships","payload":{},"request_id":"r1140"}}
+{"at":"2026-10-19T06:03:16.624Z","dir":"in","frame":{"type":"result","payload":{"result":"Your ships (16):\nid\tclass\tlocation\tactive\tlisting\tmodule_typ"},"request_id":"r1140"}}
+{"at":"2026-10-19T06:03:16.625Z","dir":"out","frame":{"tool":"spacemolt","action":"get_active_missions","payload":{},"request_id":"r1141"}}
+{"at":"2026-10-19T06:03:16.669Z","dir":"in","frame":{"type":"result","payload":{"result":"Fixer network: debt 0cr; allowance 2,500cr; exposure 0cr; av"},"request_id":"r1141"}}
+{"at":"2026-10-19T06:03:16.670Z","dir":"out","frame":{"tool":"spacemolt","action":"get_tax_estimate","payload":{},"request_id":"r1142"}}
+{"at":"2026-10-19T06:03:16.686Z","dir":"in","frame":{"type":"result","payload":{"result":"=== TAX RETURN — Pending Assessment ===\nPay missed taxes wit"},"request_id":"r1142"}}
+{"at":"2026-10-19T06:03:16.687Z","dir":"out","frame":{"tool":"spacemolt_shipping","action":"profile","payload":{},"request_id":"r1143"}}
+{"at":"2026-10-19T06:03:16.711Z","dir":"in","frame":{"type":"result","payload":{"result":"player:177686d5f9eed52e8cabf6f907c03c61 is licensed: 9 succe"},"request_id":"r1143"}}
+{"at":"2026-10-19T06:03:16.712Z","dir":"out","frame":{"tool":"spacemolt","action":"get_status","request_id":"r1144"}}
+{"at":"2026-10-19T06:03:16.742Z","dir":"in","frame":{"type":"result","payload":{"result":"kvothe [outerrim] | 562,347cr | First Step\nShip: Cobble (cob"},"request_id":"r1144"}}
+{"at":"2026-10-19T06:03:16.745Z","dir":"out","frame":{"tool":"spacemolt","action":"get_status","request_id":"r1145"}}
+{"at":"2026-10-19T06:03:16.765Z","dir":"in","frame":{"type":"result","payload":{"result":"kvothe [outerrim] | 562,347cr | First Step\nShip: Cobble (cob"},"request_id":"r1145"}}
+{"at":"2026-10-19T06:03:16.766Z","dir":"out","frame":{"tool":"spacemolt","action":"find_route","payload":{"id":"ramens_rest"},"request_id":"r1146"}}
+{"at":"2026-10-19T06:03:16.784Z","dir":"in","frame":{"type":"result","payload":{"result":"Route to last_light (3 jumps):\n  1. First Step (first_step)\n"},"request_id":"r1146"}}
+{"at":"2026-10-19T06:03:16.785Z","dir":"out","frame":{"tool":"spacemolt","action":"get_active_missions","payload":{},"request_id":"r1147"}}
+{"at":"2026-10-19T06:03:16.800Z","dir":"in","frame":{"type":"result","payload":{"result":"Fixer network: debt 0cr; allowance 2,500cr; exposure 0cr; av"},"request_id":"r1147"}}
+{"at":"2026-10-19T06:03:16.801Z","dir":"out","frame":{"tool":"spacemolt","action":"get_status","request_id":"r1148"}}
+{"at":"2026-10-19T06:03:16.829Z","dir":"in","frame":{"type":"result","payload":{"result":"kvothe [outerrim] | 562,347cr | First Step\nShip: Cobble (cob"},"request_id":"r1148"}}
+{"at":"2026-10-19T06:03:16.829Z","dir":"out","frame":{"tool":"spacemolt","action":"find_route","payload":{"id":"last_light"},"request_id":"r1149"}}
+{"at":"2026-10-19T06:03:16.858Z","dir":"in","frame":{"type":"result","payload":{"result":"Route to last_light (3 jumps):\n  1. First Step (first_step)\n"},"request_id":"r1149"}}
+{"at":"2026-10-19T06:03:16.859Z","dir":"out","frame":{"tool":"spacemolt","action":"get_status","request_id":"r1150"}}
+{"at":"2026-10-19T06:03:16.913Z","dir":"in","frame":{"type":"result","payload":{"result":"kvothe [outerrim] | 562,347cr | First Step\nShip: Cobble (cob"},"request_id":"r1150"}}
+{"at":"2026-10-19T06:03:16.914Z","dir":"out","frame":{"tool":"spacemolt","action":"get_status","request_id":"r1151"}}
+{"at":"2026-10-19T06:03:16.948Z","dir":"in","frame":{"type":"result","payload":{"result":"kvothe [outerrim] | 562,347cr | First Step\nShip: Cobble (cob"},"request_id":"r1151"}}
+{"at":"2026-10-19T06:03:16.949Z","dir":"out","frame":{"tool":"spacemolt","action":"undock","payload":{},"request_id":"r1152"}}
+{"at":"2026-10-19T06:03:16.967Z","dir":"in","frame":{"type":"result","payload":{"result":"Action 'undock' pending. Will execute on next tick."},"request_id":"r1152"}}
+{"at":"2026-10-19T06:03:27.200Z","dir":"in","frame":{"type":"action_result","payload":{"command":"undock","tick":2177102,"result":{"location":{"system_id":"first_step","system_name":"First Step","poi_id":"mobile_capital","poi_name":"Mobile Capital","docked_at":null},"details":{"action":"undock"}}},"request_id":"r1152"}}
+{"at":"2026-10-19T06:03:27.202Z","dir":"out","frame":{"tool":"spacemolt","action":"get_system","payload":{},"request_id":"r1153"}}
+{"at":"2026-10-19T06:03:27.216Z","dir":"in","frame":{"type":"result","payload":{"result":"System: First Step (first_step) | Empire: outerrim | Securit"},"request_id":"r1153"}}
+{"at":"2026-10-19T06:03:27.217Z","dir":"out","frame":{"tool":"spacemolt","action":"get_status","request_id":"r1154"}}
+{"at":"2026-10-19T06:03:27.244Z","dir":"in","frame":{"type":"result","payload":{"result":"kvothe [outerrim] | 562,347cr | First Step\nShip: Cobble (cob"},"request_id":"r1154"}}
+{"at":"2026-10-19T06:03:27.245Z","dir":"out","frame":{"tool":"spacemolt","action":"jump","payload":{"id":"the_telescope"},"request_id":"r1155"}}
+{"at":"2026-10-19T06:03:27.264Z","dir":"in","frame":{"type":"result","payload":{"result":"Jump action pending. Will execute on next tick."},"request_id":"r1155"}}
+{"at":"2026-10-19T06:03:37.093Z","dir":"in","frame":{"type":"ok","payload":{"action":"jump","arrival_tick":2177108,"destination":"the_telescope","is_wormhole":false}}}
+{"at":"2026-10-19T06:04:24.611Z","dir":"in","frame":{"type":"action_result","payload":{"command":"jump","tick":2177108,"result":{"ship":{"class_id":"cobble","hull":80,"max_hull":80,"fuel":118,"max_fuel":120,"cargo_used":0,"cargo_capacity":75},"location":{"system_id":"the_telescope","system_name":"The Telescope","poi_id":"zeta_minor_i","poi_name":"Zeta Minor I","docked_at":null},"missions":{"active":[]},"details":{"action":"jumped","system":"The Telescope","system_id":"the_telescope","from_system":"First Step","navigation_xp":3,"piloting_xp":3,"poi":"zeta_minor_i"}}},"request_id":"r1155"}}
+{"at":"2026-10-19T06:04:24.613Z","dir":"out","frame":{"tool":"spacemolt","action":"get_status","request_id":"r1156"}}
+{"at":"2026-10-19T06:04:24.687Z","dir":"in","frame":{"type":"result","payload":{"result":"kvothe [outerrim] | 562,347cr | The Telescope\nShip: Cobble ("},"request_id":"r1156"}}
+{"at":"2026-10-19T06:04:24.688Z","dir":"out","frame":{"tool":"spacemolt","action":"find_route","payload":{"id":"last_light"},"request_id":"r1157"}}
+{"at":"2026-10-19T06:04:24.713Z","dir":"in","frame":{"type":"result","payload":{"result":"Route to last_light (2 jumps):\n  1. The Telescope (the_teles"},"request_id":"r1157"}}
+{"at":"2026-10-19T06:04:24.714Z","dir":"out","frame":{"tool":"spacemolt","action":"get_status","request_id":"r1158"}}
+{"at":"2026-10-19T06:04:24.737Z","dir":"in","frame":{"type":"result","payload":{"result":"kvothe [outerrim] | 562,347cr | The Telescope\nShip: Cobble ("},"request_id":"r1158"}}
+{"at":"2026-10-19T06:04:24.737Z","dir":"out","frame":{"tool":"spacemolt","action":"get_status","request_id":"r1159"}}
+{"at":"2026-10-19T06:04:24.753Z","dir":"in","frame":{"type":"result","payload":{"result":"kvothe [outerrim] | 562,347cr | The Telescope\nShip: Cobble ("},"request_id":"r1159"}}
+{"at":"2026-10-19T06:04:24.753Z","dir":"out","frame":{"tool":"spacemolt","action":"get_system","payload":{},"request_id":"r1160"}}
+{"at":"2026-10-19T06:04:24.782Z","dir":"in","frame":{"type":"result","payload":{"result":"System: The Telescope (the_telescope) | Empire: outerrim | S"},"request_id":"r1160"}}
+{"at":"2026-10-19T06:04:24.784Z","dir":"out","frame":{"tool":"spacemolt","action":"get_status","request_id":"r1161"}}
+{"at":"2026-10-19T06:04:24.801Z","dir":"in","frame":{"type":"result","payload":{"result":"kvothe [outerrim] | 562,347cr | The Telescope\nShip: Cobble ("},"request_id":"r1161"}}
+{"at":"2026-10-19T06:04:24.802Z","dir":"out","frame":{"tool":"spacemolt","action":"jump","payload":{"id":"unknown_edge"},"request_id":"r1162"}}
+{"at":"2026-10-19T06:04:24.852Z","dir":"in","frame":{"type":"result","payload":{"result":"Jump action pending. Will execute on next tick."},"request_id":"r1162"}}
+{"at":"2026-10-19T06:04:35.763Z","dir":"in","frame":{"type":"ok","payload":{"action":"jump","arrival_tick":2177114,"destination":"unknown_edge","is_wormhole":false}}}
