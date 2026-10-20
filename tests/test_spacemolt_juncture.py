@@ -415,6 +415,35 @@ def test_a_busy_rerender_does_not_advance_the_render_time(monkeypatch):
     assert juncture.rendered_objective() == (True, "fill the hold")
 
 
+def test_a_juncture_flies_at_most_ninety_minutes_counted_from_its_first_render(monkeypatch):
+    """Live 2026-10-20 (kvothe 58746f94): one fire flew 40 runs over 9.5 h on a context rendered at
+    its start. Past JUNCTURE_MAX_S from the first render, a rerender included, the fire's new flights
+    and reads are blocked with a close; its answers to the flight's questions, reflect, other tools
+    and other sessions are not."""
+    _seed({"name": "kvothe", "stance": "Trader"})
+    juncture.gate_main()
+    _answering(monkeypatch, CONTEXT)
+    fire = {"platform": "cron", "session_id": "cron_abc123_20260927_101500"}
+    juncture.juncture_context(fire)
+    sid = fire["session_id"]
+    assert juncture.juncture_cap(tool_name="spacemolt_run", session_id=sid) is None
+    record = juncture._read_juncture()
+    began = datetime.now(timezone.utc) - timedelta(seconds=juncture.JUNCTURE_MAX_S + 5)
+    juncture._write_juncture({**record, "started": began.isoformat().replace("+00:00", "Z")})
+    juncture.juncture_context(fire)  # a rerender keeps the first render's start
+    assert juncture._read_juncture()["started"] == began.isoformat().replace("+00:00", "Z")
+    for tool in ("spacemolt_run", "spacemolt_query"):
+        blocked = juncture.juncture_cap(tool_name=tool, session_id=sid)
+        assert blocked["action"] == "block" and "final reply" in blocked["message"]
+    assert juncture.juncture_cap(tool_name="spacemolt_answer", session_id=sid) is None
+    assert juncture.juncture_cap(tool_name="spacemolt_reflect", session_id=sid) is None
+    assert juncture.juncture_cap(tool_name="memory", session_id=sid) is None
+    assert juncture.juncture_cap(tool_name="spacemolt_run", session_id="cron_abc123_20260927_111500") is None
+    capped = _journal_rows("juncture_capped")
+    assert [row["tool"] for row in capped] == ["spacemolt_run", "spacemolt_query"]
+    assert capped[0]["juncture_id"] == record["juncture_id"] and capped[0]["age_s"] >= juncture.JUNCTURE_MAX_S
+
+
 def test_a_failed_game_read_is_journalled_with_the_context_the_bridge_rendered_without_it(monkeypatch):
     """Live 2026-10-02 (kvothe): 20 fires lost the whole juncture section to a failed menu read,
     and wrote no juncture, so their runs carried the previous juncture's id (09-30 16:32Z). The

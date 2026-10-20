@@ -269,7 +269,7 @@ def _journal_render(context: str, record: dict[str, Any], menu: dict[str, Any], 
         # The objective follows the same rule: a busy render names none.
         objective = record.get("objective") if not menu.get("busy") else prior.get("objective")
         _write_juncture({"juncture_id": prior["juncture_id"], "at": new_at, "session_id": session_id or None,
-                         "objective": objective})
+                         "objective": objective, "started": prior.get("started")})
         journal_event("juncture_rerender", at=at, juncture_id=prior["juncture_id"],
                       reason="the session's system prompt was rebuilt mid-fire", **facts)
         return
@@ -277,7 +277,7 @@ def _journal_render(context: str, record: dict[str, Any], menu: dict[str, Any], 
     juncture_id = uuid.uuid4().hex
     at = _now_iso()
     _write_juncture({"juncture_id": juncture_id, "at": at, "session_id": session_id or None,
-                     "objective": record.get("objective")})
+                     "objective": record.get("objective"), "started": at})
     journal_event("juncture", at=at, juncture_id=juncture_id, gate_id=gate.get("gate_id"), gate_at=gate.get("at"),
                   job_id=job.group(1) if job else None, model=info.get("model") or None,
                   provider=info.get("provider") or None,
@@ -302,6 +302,35 @@ def _read_juncture() -> dict[str, Any] | None:
     except (OSError, ValueError):
         return None
     return record if isinstance(record, dict) and record.get("juncture_id") else None
+
+
+#: The longest one juncture flies. Live 2026-10-20 (kvothe 58746f94): one fire flew 40 runs over
+#: 9.5 h on a context rendered at its start, and Hermes caps a fire's idleness, never its length.
+JUNCTURE_MAX_S = 90 * 60
+#: What a juncture past its length may no longer call. An answer is the program's own question, so the
+#: flight it pauses finishes; reflect, todo and memory stay open for the close.
+CAPPED_TOOLS = frozenset({"spacemolt_run", "spacemolt_query"})
+
+
+def juncture_cap(tool_name: str = "", session_id: str = "", **_: Any) -> dict[str, str] | None:
+    """A ``pre_tool_call`` hook: in the session the latest juncture rendered into, once it is
+    ``JUNCTURE_MAX_S`` old, a flight or a read is blocked and the pilot is told to close, so the
+    next juncture reads the game afresh. A flight already under way is never cut: its call is
+    already running, and its questions are answered."""
+    if tool_name not in CAPPED_TOOLS or not session_id:
+        return None
+    rendered = _read_juncture() or {}
+    started = _when(rendered.get("started"))
+    if rendered.get("session_id") != session_id or started is None:
+        return None
+    age = (datetime.now(timezone.utc) - started).total_seconds()
+    if age < JUNCTURE_MAX_S:
+        return None
+    journal_event("juncture_capped", juncture_id=rendered.get("juncture_id"), session_id=session_id,
+                  tool=tool_name, age_s=round(age))
+    return {"action": "block",
+            "message": f"This juncture has flown its {JUNCTURE_MAX_S // 60} minutes. Give your final reply now; "
+                       "the next juncture opens a few minutes after it, with the game read afresh."}
 
 
 def last_juncture() -> dict[str, Any] | None:

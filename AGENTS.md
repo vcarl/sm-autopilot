@@ -90,6 +90,12 @@ learns about the game), and the gate script. The interval is `IDLE_SCHEDULE = "5
 and cron re-anchors it on a fire's completion, so it is the pause between junctures. There is no
 other wake: nothing marks the job due (see the last section for why).
 
+The **cap** (`juncture_cap`, a `pre_tool_call` hook): Hermes bounds a fire's idleness, never its length, so one
+juncture flies at most `JUNCTURE_MAX_S` (90 minutes) from its first render (`juncture.json`'s `started`, kept
+across rerenders). Past it, in that session, `spacemolt_run` and `spacemolt_query` are blocked with a close and the
+pilot gives its final reply; `spacemolt_answer`, reflect, `todo` and `memory` stay open. A flight under way is
+never cut, and its questions are answered.
+
 The **gate** (`install_gate`, `gate_main`) is a shim written into `HERMES_HOME/scripts/` and
 named on the job as a *relative* path — cron resolves relative scripts there, and the tool layer
 rejects absolute ones. Cron runs it before it builds the prompt, and a fire whose gate prints
@@ -245,6 +251,7 @@ the pilot's context. Every line has `at` (UTC ISO, `Z`) and `event`.
 - `check`: one per pilot-gate typecheck. `sha` (the checked `pilot/index.ts`, as on the run line), `warm`
   (the bridge's language service answered; false is the `tsc` child), `check_ms`, `errors` (line count),
   and `warm_error` when the service threw and the child answered instead.
+- `juncture_capped`: one per call `juncture_cap` blocked: `juncture_id`, `session_id`, `tool`, `age_s` (from the first render).
 - `todo`: one per `todo_list` write kept as the steps: `juncture_id`, `session_id`, `revision`, and
   `todos` (the list as Hermes returned it, uncut; the steps keep 20 items of 160 characters).
 - `query`: one per `spacemolt_query` or `spacemolt_look` (`src/query.ts`): `query_id`, `juncture_id`, `sha` (the checked

@@ -25,6 +25,7 @@ from .juncture import (
     _read_juncture,
     ensure_juncture_job,
     journal_event,
+    juncture_cap,
     juncture_context,
     last_juncture,
     question_text,
@@ -618,4 +619,5 @@ def register(ctx) -> None:
     register_skills(ctx, Path(__file__).resolve().parent)
     ctx.register_hook("transform_tool_result", _check_after_edit)
     ctx.register_hook("transform_tool_result", _keep_todos)
+    ctx.register_hook("pre_tool_call", juncture_cap)
     ctx.on_unload(close_bridge)
