@@ -185,7 +185,7 @@ export function journalRun(runtime:string,entry:Record<string,unknown>,event='ru
   for(const fn of listeners)try {fn(line);} catch {/* the journal is written; the reader is not the record */} // edge: a listener is another reader's code
 }
 
-const SUMMARY_CHARS=120;
+const SUMMARY_CHARS=400;
 const text=(value:unknown)=>value===undefined||value===null?'':String(value);
 
 /** What one game command was, in the space a line can afford: the tool and action, the ids

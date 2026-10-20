@@ -3,7 +3,7 @@ import test from 'node:test';
 import {mkdtempSync,readdirSync,readFileSync,rmSync,writeFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
-import {bootJournal,closeInterrupted,readJournal,readRun,writeRun} from './run-record.ts';
+import {bootJournal,closeInterrupted,journalCommand,readJournal,readRun,writeRun} from './run-record.ts';
 import {renderLine} from './journal-lines.ts';
 
 const temp=()=>mkdtempSync(join(tmpdir(),'spacemolt-rotate-'));
@@ -82,5 +82,15 @@ test('a journal read skips a garbage line and still renders one with no event',(
     assert.equal(read.length,2);
     assert.equal(read[0]?.event,'rest');
     assert.match(renderLine(read[1])??'',/! dock: no/);
+  } finally {rmSync(runtime,{recursive:true,force:true});}
+});
+
+test('a refused command keeps the game\'s error whole, up to a few hundred characters',()=>{
+  // Live overnight 10-19: the pilot read `facility_type='trade_` where the game named `trade_ledger`.
+  const runtime=temp();
+  try {
+    const error="Your faction does not have a trade intelligence facility. Use facility action 'faction_build' with facility_type='trade_ledger' to build one.";
+    journalCommand(runtime,'spacemolt_intel/submit_trade_intel',{},false,new Error(error));
+    assert.equal(readJournal(runtime).at(-1)?.summary,error);
   } finally {rmSync(runtime,{recursive:true,force:true});}
 });
