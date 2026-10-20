@@ -61,7 +61,8 @@ from `facilities().detail.here`. `quote(recipe, qty, {at})` prices the `margin`;
 - The belt is one hop or less from a station with `market` and `storage`. Fuel is the cost.
 - The ore has a buyer. `iridium_ore` (base value 90) beats `aluminum_ore` (6) for the same hold.
 - Your laser's power matches the deposit's `supported_power`. Deep-core deposits sit at hidden POIs
-  (`survey()` reveals them) and need a `deep_core_extractor_*`; they never go too sparse. deep_core_mining
+  (`survey()` reveals them) and need a deep-core extractor (`deep_core_extractor_mk_i`, `deep_core_extractor_ii` or
+  `deep_core_extractor_iii`); they never go too sparse. `deep_core_mining`
   (+5% deep-core yield a level) trains by mining at power 3+ or by deep surveys.
 - The hold is empty when you leave, but for `service()`'s fuel cells. `gatherUntil` refuses a full hold.
 
@@ -72,7 +73,8 @@ from `facilities().detail.here`. `quote(recipe, qty, {at})` prices the `margin`;
   its lock (`deposit_too_sparse`; `lock_minimum_stock` says how much it needs). Work another meanwhile.
 - A site with several ores draws one each cycle, weight `richness × (1 + 0.1 × mining level × rank)`,
   rank 0 common to 4 legendary. Rare deposits are thin (richness ~9–17 against ~42), so skill trades
-  tonnage for rarity. A fitted `filter_*` module drops its ore from the draw.
+  tonnage for rarity. A fitted ore filter (such as `magnetic_ore_separator`,
+  `special` `filter_iron_ore`) drops its ore from the draw.
 - Mining past 5 and flat credits per hour: the ceiling is cargo. An Archimedes (T1, 80, ~2,500 cr)
   barely beats a starter's ~70; an Excavation (T2, 200, ~8,000 cr) is the step. See `shipsForSale()`.
 

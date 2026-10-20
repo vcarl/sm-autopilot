@@ -103,13 +103,19 @@ Each of these has cost a flight: the computer checks the real types, so these ar
   `detail.quotes`, and each quote is the book plus your position: `item_id`, `best_buy`,
   `best_buy_qty`, `best_sell`, `best_sell_qty`, `spread`, `held`, `stored`. There is no
   `detail.sellable`; a quote with `best_buy > 0` is one that sells here.
+- **`prices()` with no ids quotes only what you hold and what this base's store holds.** Name the
+  ids for anything else: `prices(['steel_plate'])`. A buy walks the asks upward: each fill takes the
+  cheapest ask left, so after you buy, the best ask you see is higher. That is your own buying, not
+  the market moving.
 - **`Want` to ask with, `Row` to receive.** `{item_id: 'carbon_ore'}` is a `Want`. `Row` requires
   `quantity`, so annotating a list you build `Row[]` is what rejects it.
 - **A raw command is not an Outcome.** `account().commands.<tool>.<action>()` answers
   `QueryResult<T>` (read `.structuredContent`) or `MutationResult<T>` (read `.delta.details`) —
   never `status`, `did`, `why`, `detail`. A refusal *throws* rather than returning `refused`, so an
   unguarded raw command ends the flight: wrap it in `try`/`catch`. Raw `inspect` reaches this
-  system only and throws elsewhere.
+  system only and throws elsewhere. Raw `spacemolt.find_route({id})` takes a system id or name, a
+  POI id you have charted, or a base id. Your station storage is `storage(base?)`, readable from
+  anywhere, not a raw command.
 - **A docked refuel fills the tank.** Raw `spacemolt.refuel({quantity: 40})` at a station ignores
   `quantity` (it counts fuel cells burned in space, or units transferred to another ship) and
   bills for a full tank. There is no partial refuel at a counter; `service()` is the same fill.
@@ -131,7 +137,7 @@ Each of these has cost a flight: the computer checks the real types, so these ar
 | `scout(target?)` | POIs of a system (this one by default) with types, stations, resources here, creatures here |
 | `goTo(id, {ask?}?)` | fly to a POI, base or system (id or display name), jumping as needed; dock if a base. A system with one base docks there. Ending undocked is said in `did`, and `detail.docked_at` is null. A refused dock is `partial` with the game's words. A name matching nothing is `refused` with the nearest ids, not flown. It completes active distress missions on or near the route |
 | `service()` | full tank and hull at the counter you are docked at (no posted price needed), within `permissions.credit_reserve` and the mood's repair margin; tops up fuel cells to ~5% of the hold unless they are overpriced (`did` says why); `service({insure: true})` also buys cover for the hull, within the reserve, unless a policy already held covers it (`did` says until when) |
-| `stow(rows)` / `withdraw(rows, {ask?}?)` / `storage(base?)` | station storage; rows you name (omit a row's `quantity` for all of it); readable from anywhere. A `withdraw` counts each item's cargo size (osmium takes 2 a unit), and rows that overfill the hold share its room in proportion: each moves partly, the rest `short` with `no room`, status `partial` |
+| `stow(rows)` / `withdraw(rows, {ask?}?)` / `storage(base?)` | station storage; rows you name (omit a row's `quantity` for all of it); readable from anywhere. A `withdraw` counts each item's cargo size (`osmium_ore` takes 2 a unit), and rows that overfill the hold share its room in proportion: each moves partly, the rest `short` with `no room`, status `partial` |
 | `prices(items?)` / `sell(rows, opts?)` / `buy(item, qty, opts?)` | the market here, live at the moment of the act, and remembered for `spreads()`. `sell`'s options: `{from: 'hold' \| 'store'}` (default `'hold'`; `'store'` empties the store a hold-load at a time), `{floor: {[item_id]: number}}` (keep a row whose `best_buy` is under it) and `{ask: false}`. A sale walks the bids down the book: when it averages more than 3% under the top bid, `did` names the fill and the top bid's depth |
 | `buyers(items)` | who buys it: the highest bids known for an item (or a list) anywhere — the live book here when docked, your faction's ledger, every book you have read — up to 3 an item, each with its base, price, depth, the book's age in ticks and the jumps there. Held or not, docked or not; reads only. Ask it before flying to look for a buyer |
 | `refit({install,remove,ask?})` / `shipsForSale(opts?)` / `buyShip(id, opts?)` | the hangar: modules on and off within the grid, the hulls for sale here, the next one |
@@ -223,15 +229,19 @@ several, and read the board at every stop for work that points where you already
 
 ## Death, cover, fuel and time
 
-- **Death.** You wake at your home base, else your empire's capital, in a starter hull. Set the
-  home base docked there: `account().commands.spacemolt_salvage.set_home({id: base_id})`. There is
-  no clone fee. Lost: the hull, 50–80% of each cargo row (into the wreck, the rest gone), and each
-  fitted module (30% chance it lands in the wreck). Kept: credits (topped up to 100), skills,
-  station storage and your other hulls. Value in storage survives; value in the hold does not.
-- **Insurance.** `service({insure: true})` buys a policy on the hull you fly. A loss pays its fitted
-  value (hull and modules) in credits at respawn, never the cargo. The claim spends the policy, so
-  insure again after a loss. A policy lasts 7 days. A starter hull cannot be insured, and a
-  self-destruct voids the policy.
+| State | Call that moves you on | What keeps you here or sends you back |
+|---|---|---|
+| No home base | docked there, `account().commands.spacemolt_salvage.set_home({id: base_id})` | none set: you respawn at your empire's capital |
+| Uninsured | `service({insure: true})` | `not_insurable` (a starter hull), `already_insured`, `insufficient_credits` |
+| Insured | — | a policy lasts 7 days; a self-destruct voids it |
+| Dead | none: you respawn at once at your home base, else the capital, in a starter hull | — |
+| Wreck at the POI you died at | `goTo` it, `salvage()` | none: a ship's wreck never expires, only looting, towing or scrapping it ends it |
+| Flying again | insure the new hull: the claim spent the policy | — |
+
+- **Death.** There is no clone fee. Lost: the hull, 50–80% of each cargo row (into the wreck, the
+  rest gone), and each fitted module (30% chance it lands in the wreck). Kept: credits (topped up to
+  100), skills, station storage and your other hulls. Value in storage survives; value in the hold
+  does not. Insurance pays the fitted value (hull and modules) in credits at respawn, never the cargo.
 - **Fuel.** A station prices fuel by its own reserve, not your tank: 2 cr a unit at 90% full or
   more, one more for each 10% lower, 20 under 10%. An empire may add `fuel_tax_per_unit` (on
   `get_poi`). A station with an empty reserve sells none (`station_fuel_empty`), and your fuel
@@ -268,7 +278,11 @@ several, and read the board at every stop for work that points where you already
   each keeping its own books), drifting toward a baseline. A pirate stronghold docks you only at
   non-negative standing with its crew ("Access denied. Your reputation with this faction is too low
   (current: -30)"); a ship's `required_reputation` with its empire gates buying it (`shipsForSale()`
-  lists it in `detail.locked`); missions pay `rewards.reputation` and `pirate_rep`. Your standings are
+  lists it in `detail.locked`); missions pay `rewards.reputation` and `pirate_rep`. A sale to a
+  station's own buyers (its NPC and station-manager bids, not a player's order) gains standing with
+  that station's empire, or with the crew at a pirate stronghold: per fill, the fill's credits ÷
+  `rep_trade_fill_divisor`, rounded down, at most `rep_trade_fill_cap` (200 and 2 by default;
+  `get_empire_info({id})` has each empire's). Your standings are
   `account().commands.spacemolt.get_player()`'s `standings`.
 - **Docking.** A base with `public_access: false` is private, and a player station sets each
   service public, allies or faction; a refused dock (`access_denied`) ends `goTo` `partial` with the
@@ -313,13 +327,14 @@ or detained: `id` is the empire (omit it when you owe one), and it takes the ful
 
 ## Factions and owning things
 
-A faction is ordinary play, not an endgame. "You must be in a faction" (live: every trade-intel
+A faction is ordinary play, not an endgame. "You must be in a faction" (live: every trade-ledger
 and intel-map call) is fixed by joining or founding one. `account().player?.faction_id` says
 whether you are in one.
 
 All raw, under `account().commands`: `spacemolt_faction.list({limit?})` the factions, `info({id})`
 one (members, roles and their permissions, `leader_username`, facilities, `owned_bases`, wars);
-joining needs an invite, so ask a leader in chat, then `get_invites()` and `accept_invite({id})`.
+joining needs an invite, so ask a leader in chat, then `get_invites()` and `accept_invite({id})`. A
+member with the `invite` permission invites with `invite({id})`, `id` the player's name or id.
 `create({id, text})` founds one, free: `id` a tag of exactly 4 characters, `text` a unique name of
 3–32. You lead it.
 
@@ -327,13 +342,28 @@ joining needs an invite, so ask a leader in chat, then `get_invites()` and `acce
   `manage_roles` and `manage_diplomacy`; a `member` or `recruit` has none.
   `spacemolt_faction_admin.promote({player_id, role_id})` sets a role.
 - **Treasury and storage.** The treasury is one balance of credits; items sit per station, only
-  where the faction has storage. Anyone deposits (`spacemolt_storage.deposit({target: 'faction',
-  item_id, quantity})`, `item_id: 'credits'` for the treasury); a withdrawal needs `manage_treasury`.
-- **Facilities.** Docked, `spacemolt_facility.faction_build({facility_type})` (`types()` lists them).
-  A `faction_lockbox` (200k cr) comes first at each station; then a `faction_desk` (100k) edits the
-  faction, a `notice_board` posts missions, the intel and trade-intel ones feed `spreads()` and
-  `routes()`. At a station you do not own, each pays rent from the treasury every cycle; rent unpaid
-  past the grace repossesses it.
+  where the faction has storage. A deposit (`spacemolt_storage.deposit({target: 'faction', item_id,
+  quantity})`, `item_id: 'credits'` for the treasury) works only docked at a station where the
+  faction has storage; elsewhere, credits too, it is refused `no_faction_storage`. A withdrawal
+  needs `manage_treasury`.
+- **Facilities.** `buildFactionFacility(type)`, docked, builds one at that station (the table
+  below). `spacemolt_facility.types({facility_type})` shows a type's full cost, materials and
+  prerequisite. A `faction_desk` edits the faction; a `notice_board` posts
+  missions. A `trade_ledger` keeps the faction's trade ledger, which `spreads()`, `routes()` and
+  `buyers()` read and every `book()` files to; its upgrade, `commerce_terminal`, also fills it from
+  the markets members see when they dock. An `intel_terminal` keeps the faction's intel map
+  (`spacemolt_intel.query_intel`), which members fill by hand (`submit_intel`) and `scoutMarkets()`
+  reads for bases; its upgrade, `intel_center`, fills it from what members' ships read. At a station
+  you do not own, each pays rent from the treasury every cycle; rent unpaid past the grace
+  repossesses it.
+
+| State at this station | Call that moves you on | Refusal (`why` starts with) |
+|---|---|---|
+| Not in a faction | `spacemolt_faction.accept_invite({id})` or `create({id, text})` | `faction` |
+| No `faction_lockbox` | `buildFactionFacility('faction_lockbox')`: your wallet, your store here, your hold | `docked`, `permission`, `credits`, `materials` |
+| Lockbox building | wait | `faction storage` |
+| Lockbox done | `buildFactionFacility(type)`: treasury then wallet, the faction's store here then your hold | `prerequisite`, `upgrade`, `skill`, `credits`, `materials` |
+
 - **Missions.** `spacemolt_faction_admin.post_mission(...)` (a mission board here and
   `manage_treasury`) escrows the reward; `triggers: ['open_to_all']` lets outsiders take it.
 - **Diplomacy** (`manage_diplomacy`; `id` is the other faction's id or tag): `propose_ally` /

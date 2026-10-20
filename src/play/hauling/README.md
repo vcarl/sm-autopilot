@@ -92,7 +92,8 @@ The fare is `(200 + 150 × hops) × class × remoteness × surge`, plus a speed 
   `refit({install: [...]})`. A fast hull keeps more of the bonus.
 - **Comfort and service.** Comfort (liners, and modules like `onboard_galley`) stretches the
   guarantee 1% a point, at most +200%, fixed at boarding. Underway, every 30 ticks, dining points
-  serve each passenger a `dish` or `drink` from your hold and leisure points an `alcohol` or `drink`,
+  serve each passenger an item whose `food_type` is `dish` or `drink` from your hold, and leisure
+  points one whose `food_type` is `alcohol` or `drink` (food types, not item ids),
   and each serving pays you. Docked, or with a dry hold, they earn nothing: stock before you undock.
 - **Standing.** A first-class delivery pays +1 with the passenger's empire, at most +3 per empire a
   dock. A stranded passenger costs −1, at most −5 per empire a dock.

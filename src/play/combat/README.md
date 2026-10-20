@@ -50,9 +50,9 @@ export default async function main() {
   if (!habitats.length) { note('no POIs in this system at all'); return here; }
 
   // One call looks at each in turn and fights at the first that holds the prey. `species` is a
-  // preference here (the default): a Molt Grazer is fought if one turns up, and the first legal
+  // preference here (the default): a Belt-Grazer is fought if one turns up, and the first legal
   // creature of any kind otherwise — a habitat with something else in it still earns two fights.
-  const out = await hunt({species: 'molt_grazer', look: habitats, fights: 2});
+  const out = await hunt({species: 'belt_grazer', look: habitats, fights: 2});
 
   // What it looked at and what was in each, whether or not it fought.
   for (const stop of out.detail.looked)
@@ -377,7 +377,7 @@ Contracts pay on top. A board row that asks for pirate kills has `fits: 'hunt'`;
   settled (a reload discards the rounds left). Without a `magazine_size` only an empty one is reloaded.
   When the hold runs low on a weapon's rounds (under 2) the hunt's `did` says so, e.g. `low ammo: 1
   autocannon in the hold for Autocannon I`; it refuses nothing.
-- You know the kind: `species: 'molt_grazer'` (or `species: ['molt_grazer', 'belt_grazer']`)
+- You know the kind: `species: 'belt_grazer'` (or `species: ['belt_grazer', 'patina_grazer']`)
   prefers one you have fought before. Without it, or when the named one is not here, `hunt`
   takes the first creature the world does not decline. Only `strict: true` makes a name a
   requirement rather than a preference — reach for it when a second species would not do, e.g.
@@ -473,7 +473,7 @@ A hunt that goes Tired mid-fight finishes that fight, starts no new one, and the
 2. `salvage/loot` empties it: modules first (each is a slot and most of the value), then cargo,
    row by row, checking the hold's room before each send and the hold's contents after it.
 3. What does not fit stays in the wreck and is reported in `detail.left` (`salvage`) — it is
-   still there for a second trip until the wreck expires.
+   still there for a second trip; a ship's wreck stays until someone salvages it.
 4. `salvage` never sells or scraps, and only tows the wreck you name. To sell one: `salvage({tow})`,
    go to a base with a salvage yard, then `account().commands.spacemolt_salvage.sell({})` (no params;
    it sells the wreck in tow).

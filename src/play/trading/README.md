@@ -33,7 +33,7 @@ every buyer in them, not only the highest `best_buy`:
 | `faction ledger` | `spacemolt_intel/query_trade_intel` — other pilots' filed observations | `seen` is the age in ticks of `submitted_at_tick` |
 | `remembered` | a book **this pilot** read at that base on an earlier visit | `seen` is the age in ticks of the book |
 
-The ledger needs a faction with a trade-intel facility; with no faction it is not asked, without the facility the command throws, and
+The ledger needs a faction with a `trade_ledger` (or its upgrade, `commerce_terminal`); with no faction it is not asked, without the facility the command throws, and
 `spreads()` carries on with the other two, saying so in `did` and in `detail.sources`. The
 ledger is read whole, by station, 20 stations a page and at most 4 pages a read; it is never
 asked by item, because live an `item_id` filter answers nothing even for a filed item. A ledger
@@ -50,7 +50,8 @@ Filing to the ledger is automatic too: every `book()` read, and every freighter 
 base's priced book (`submit_trade_intel`) once per tick, so you never call it. A book over about
 50 KB drops the connection, and a second filing for a base replaces the first, so a big book is
 cut to its most tradeable rows (a bid and an ask first, then by value). A failed filing costs that
-base that tick only; without a faction ledger nothing files.
+base that tick only; without a faction nothing files, and after one `no_trade_ledger` refusal (no
+trade ledger yet) nothing files until the library restarts.
 
 A remembered or filed price is a memory. The book may have moved. `tradeRun` re-reads the book
 at every stop and `sell` re-reads at the sell, so nothing is sent against a stale number.

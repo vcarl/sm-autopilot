@@ -50,7 +50,7 @@ export default async function main() {
     await acceptMission(m.mission_id);                    // "visit N stations" pays for the trip
 
   // Three first visits, skipping a system you already know you do not want to fly through.
-  const trip = await exploreNearby({systems: 3, avoid: ['the_badlands']});
+  const trip = await exploreNearby({systems: 3, avoid: ['some_system_id']});   // a placeholder: a real system id
   for (const row of trip.detail.visited)
     note(`${row.name}: ${row.stations.length} station(s), police ${row.police ?? '?'}, ${row.pirates ?? 0} pirates`);
   if (trip.detail.ended === 'tired') return trip;         // the circuit turned back; service next

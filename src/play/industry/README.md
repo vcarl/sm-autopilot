@@ -141,6 +141,8 @@ export default async function main() {
 ## When to reconsider
 
 - Every craft needs an input you buy at market: that is trading with extra steps.
+- A market sells an input for less than it costs you to make: buy it. Craft an input only when
+  making it is cheaper, or when no market sells it.
 - `margin > 0` only here: check `spreads()` for the output before crafting a lot of it.
 - Crafting is at 5+ and you own no facility: see Owning a facility, below.
 
@@ -173,7 +175,7 @@ export default async function main() {
   counters (repair, market) carry no fee and are not public, so they never appear. `id` is what
   `craft`'s `at` option and the owner verbs below take.
 - `buildFacility(type)` ends with the facility owned here, or refuses naming why: not docked,
-  no such type, a build material short in this station's **store** (not the hold), or a price
+  no such type, a build material short in this station's **store** and your hold together, or a price
   that would breach `credit_reserve`. Already owned here is `done` with nothing sent.
 
 ### The owner verbs
@@ -208,8 +210,8 @@ never a rented one. Use it on surplus no market buys, when a third of the inputs
 
 ### Owner pitfalls
 
-- Build materials come out of **this station's storage**, never the hold — `buy(...,
-  {deliverTo:'storage'})` or `stow(...)` them there first.
+- Build materials come out of packages, then **this station's storage**, then the hold. A faction
+  build takes the faction's store there, then the hold.
 - A new facility is **private** by default. `set_access` it public before expecting any
   rental income at all.
 - `list_for_sale`'s listing fee is charged whether or not the facility sells. Price it once
