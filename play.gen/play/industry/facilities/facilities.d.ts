@@ -51,7 +51,8 @@ export interface Built {
 }
 /** Build a facility of `type` at this station: quarters first if the game asks for them, then
  * a workshop of your own. Owned already here → `done`, nothing sent. Refused, naming the
- * shortfall, when this station's store is short a build material or the price would breach
+ * shortfall, when this station's store and the hold together are short a build material (the game
+ * takes packages, then the store, then the hold) or the price would breach
  * `credit_reserve`. Costs the build price at commit; construction pauses rent until it
  * completes; the build grants corporation_management xp once. */
 export declare function buildFacility(type: string): Promise<Outcome<Built>>;
@@ -59,6 +60,17 @@ export declare function buildFacility(type: string): Promise<Outcome<Built>>;
  * build command's own refusal or lost reply is a `failed` Outcome naming it; the reads before and
  * after it end the flight as they always have. A build reply without its id is found in owned() by type. */
 export declare const buildFacilityEffect: (type: string) => Effect.Effect<Outcome<{
+    facility_id: string;
+    rent_per_cycle: number;
+}>, never, Game | import("../../runtime.ts").Run>;
+/** Build faction facility `type` at the station you are docked at, in one call. The game checks
+ * each step in order — a faction, docked, ManageFacilities, a finished `faction_lockbox` here, the
+ * facility it requires, the skill, the credits (treasury, then your wallet; a lockbox is your wallet
+ * alone), the materials (the faction's store here, then your hold; a lockbox, your own store) — and
+ * a refusal comes back `refused` with the missing step in `why` and the call that supplies it in
+ * `next`. A lost reply is `failed`. */
+export declare function buildFactionFacility(type: string): Promise<Outcome<Built>>;
+export declare const buildFactionFacilityEffect: (type: string) => Effect.Effect<Outcome<{
     facility_id: string;
     rent_per_cycle: number;
 }>, never, Game | import("../../runtime.ts").Run>;

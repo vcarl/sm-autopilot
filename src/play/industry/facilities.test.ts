@@ -7,15 +7,15 @@ import {ConnectionClosedError,SpacemoltError,type GameState,type Account} from '
 import type {ReadinessAccount,ReadinessCommand} from '../../readiness.ts';
 import {FakeLibGoalAccount,type FakeCommandHandlers} from '../../test-support/fake-lib-account.ts';
 import {bind,unbind,type Pilot} from '../runtime.ts';
-import {buildFacility,facilities} from './facilities/facilities.ts';
+import {buildFacility,buildFactionFacility,facilities} from './facilities/facilities.ts';
 
 /** A pilot docked at `sol_base` with nothing owned and no facility commands registered beyond
  * what a test hands in — `Unregistered command` is the loud failure a missing handler gets. */
-function world(handlers:FakeCommandHandlers,pilot:Pilot={mood:'Focused'},credits=1_000,runtime?:string) {
+function world(handlers:FakeCommandHandlers,pilot:Pilot={mood:'Focused'},credits=1_000,runtime?:string,cargo:GameState['cargo']=[]) {
   const game=new FakeLibGoalAccount<GameState>({
     location:{system_id:'sol',poi_id:'station',docked_at:'sol_base',in_transit:false} as NonNullable<GameState['location']>,
     player:{credits} as NonNullable<GameState['player']>,
-    ship:{} as NonNullable<GameState['ship']>,cargo:[],modules:[],skills:{},
+    ship:{} as NonNullable<GameState['ship']>,cargo,modules:[],skills:{},
   },handlers);
   const command:ReadinessCommand=(action,params)=>{
     const [tool,name]=action.split('/');
@@ -75,16 +75,18 @@ test('buildFacility is idempotent: already owned here sends no build command',as
   } finally {unbind();}
 });
 
-test('buildFacility refuses when a material is in the hold, not this station\'s storage',async()=>{
+test('buildFacility counts the store and the hold together, and refuses what both are short',async()=>{
   const typed=()=>({structuredContent:{action:'types',kind:'detail',type_id:'smelter',name:'Smelter',
     category:'production',level:1,description:'',buildable:true,build_cost:1_000,build_time:100,
     labor_cost:0,rent_per_cycle:50,build_materials:[{item_id:'steel_plate',quantity:10}]}});
-  const storage=()=>({structuredContent:{items:[]}}); // the plate is aboard, not in the store
-  const {game}=world({spacemolt_facility:{owned:OWNED([]),types:typed},spacemolt_storage:{view:storage}});
+  // The game takes packages, then the store, then the hold (gameserver station_economy.go BuildPlayerFacility).
+  const storage=()=>({structuredContent:{items:[{item_id:'steel_plate',quantity:4}]}});
+  const {game}=world({spacemolt_facility:{owned:OWNED([]),types:typed},spacemolt_storage:{view:storage}},undefined,undefined,undefined,
+    [{item_id:'steel_plate',quantity:3}] as GameState['cargo']);
   try {
     const out=await buildFacility('smelter');
     assert.equal(out.status,'refused');
-    assert.match(out.why!,/steel_plate 0 of 10/);
+    assert.match(out.why!,/steel_plate 7 of 10/);
     assert.equal(game.calls.some(call=>call.action==='build'),false,'nothing was committed');
   } finally {unbind();}
 });
@@ -198,5 +200,49 @@ test('buildFacility: a build reply with no facility_id is still found in owned()
     const out=await buildFacility('smelter');
     assert.equal(out.status,'done',out.why);
     assert.equal(out.detail.facility_id,'f9');
+  } finally {unbind();}
+});
+
+// The game's own refusals, verbatim from gameserver origin/main (handlers/facility.go, game/station_economy.go).
+test('buildFactionFacility: each refusal names the missing step and the call that supplies it',async()=>{
+  for(const [code,message,step] of [
+    ['no_faction','You must be in a faction to build faction facilities.','faction'],
+    ['not_docked','You must be docked at a station to perform this action.','docked'],
+    ['no_permission','You need the ManageFacilities permission to build faction facilities.','permission'],
+    ['build_failed','your faction must build a Faction Storage facility at this station first (use faction_build with facility_type=faction_lockbox)','faction storage'],
+    ['build_failed','your faction storage facility is still under construction (40 ticks remaining)','faction storage'],
+    ['build_failed','your faction\'s faction_market facility is still under construction (12 ticks remaining)','prerequisite'],
+    ['build_failed','this is an upgrade — use \'upgrade\' action instead','upgrade'],
+    ['build_failed','building level 2 facilities requires Corporation Management skill level 2 (you have level 1)','skill'],
+    ['build_failed','need 200000 credits total (faction treasury + your credits), short by 5000','credits'],
+    ['build_failed','need 200 x steel_plate, have 0 in packages + 150 in faction storage + 20 in cargo','materials'],
+  ] as const) {
+    world({spacemolt_facility:{faction_build:()=>{throw new SpacemoltError(code,message);}}});
+    try {
+      const out=await buildFactionFacility('trade_ledger');
+      assert.equal(out.status,'refused',message);
+      assert.ok(out.why!.startsWith(`${step}:`),`${message} → ${out.why}`);
+      assert.equal(out.next.length,1,message);
+    } finally {unbind();}
+  }
+});
+
+test('buildFactionFacility: a refusal it cannot place is said as the game said it; a lost reply is failed',async()=>{
+  world({spacemolt_facility:{faction_build:()=>{throw new SpacemoltError('build_failed','no station account can receive the construction fee');}}});
+  try {
+    const out=await buildFactionFacility('trade_ledger');
+    assert.deepEqual([out.status,out.why,out.next],['refused','spacemolt_facility/faction_build: build_failed — no station account can receive the construction fee',[]]);
+  } finally {unbind();}
+  world({spacemolt_facility:{faction_build:()=>{throw new ConnectionClosedError();}}});
+  try {assert.equal((await buildFactionFacility('trade_ledger')).status,'failed');} finally {unbind();}
+});
+
+test('buildFactionFacility: an accepted build is done with its id and rent',async()=>{
+  world({spacemolt_facility:{faction_build:()=>({structuredContent:{action:'faction_build',facility_id:'f1',facility_type:'trade_ledger',
+    base_id:'sol_base',rent_per_cycle:30}})}});
+  try {
+    const out=await buildFactionFacility('trade_ledger');
+    assert.equal(out.status,'done');
+    assert.deepEqual(out.detail,{facility_id:'f1',rent_per_cycle:30});
   } finally {unbind();}
 });

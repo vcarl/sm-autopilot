@@ -13,6 +13,7 @@ import {acct,admit,edge,jobEffect,pilot,runtimeDir} from '../../runtime.ts';
 import {rememberFacilities} from '../../world.ts';
 import type {Outcome} from '../../types.ts';
 import {replyBody} from '../../../storage.ts';
+import {miningInventory} from '../../../mining-inventory.ts';
 
 /** A refusal or a lost reply as the pilot reads it: the action and the server's code, or that the reply is gone. */
 const told=(error:GameError|Schema.SchemaError)=>error._tag==='SchemaError'?error.message
@@ -49,8 +50,7 @@ const decodeTyped=Schema.decodeUnknownEffect(Wire.FacilityTypeDetailResponse.map
 // Both build replies carry the id the same way, so one pick reads either.
 const decodeBuilt=Schema.decodeUnknownOption(Wire.FacilityBuildResponse.mapFields(Struct.pick(['facility_id'])));
 
-/** This base's store, item rows only — `buildFacility` escrows materials out of here, never
- * the hold. */
+/** This base's store, item rows only — `buildFacility` takes materials from here, then the hold. */
 const storeRows=Effect.gen(function*() {
   const reply=yield* (yield* Game).command('spacemolt_storage/view',{});
   const {items}=yield* decodeStore(replyBody(reply)).pipe(Effect.orDie);
@@ -131,7 +131,8 @@ export interface Built {facility_id:string;rent_per_cycle:number;ready_tick?:num
 
 /** Build a facility of `type` at this station: quarters first if the game asks for them, then
  * a workshop of your own. Owned already here → `done`, nothing sent. Refused, naming the
- * shortfall, when this station's store is short a build material or the price would breach
+ * shortfall, when this station's store and the hold together are short a build material (the game
+ * takes packages, then the store, then the hold) or the price would breach
  * `credit_reserve`. Costs the build price at commit; construction pauses rent until it
  * completes; the build grants corporation_management xp once. */
 export function buildFacility(type:string):Promise<Outcome<Built>> {return edge(buildFacilityEffect(type));}
@@ -159,12 +160,12 @@ export const buildFacilityEffect=(type:string)=>jobEffect('buildFacility',type,E
   if(field(replyBody(typedReply),'kind')!=='detail')return refuse(`no facility type '${type}'`);
   const typed=yield* decodeTyped(replyBody(typedReply)).pipe(Effect.orDie);
 
-  const store=yield* storeRows;
-  const held=(item:string)=>store.find(row=>row.item_id===item)?.quantity??0;
+  const store=yield* storeRows,aboard=miningInventory(acct().state);
+  const held=(item:string)=>(store.find(row=>row.item_id===item)?.quantity??0)+(aboard[item]??0);
   const short=(typed.build_materials??[]).map(row=>({...row,have:held(row.item_id)}))
     .filter(row=>row.have<row.quantity);
   if(short.length)
-    return refuse(`${type} needs ${short.map(row=>`${row.item_id} ${row.have} of ${row.quantity}`).join(', ')} in ${docked}'s store`,
+    return refuse(`${type} needs ${short.map(row=>`${row.item_id} ${row.have} of ${row.quantity}`).join(', ')} in ${docked}'s store and your hold`,
       short.map(row=>`buy('${row.item_id}', ${row.quantity-row.have}, {deliverTo:'storage'}) or stow it there`));
 
   const credits=acct().state.player?.credits??0;
@@ -185,4 +186,41 @@ export const buildFacilityEffect=(type:string)=>jobEffect('buildFacility',type,E
     return {status:'failed' as const,did:`did not build ${type}`,why:`${type} was committed at ${docked} but does not show in owned() yet`,detail:none};
   return {status:'done' as const,did:`${type} built at ${docked} as ${landed.facility_id}, ${landed.rent_per_cycle} cr/cycle rent`,
     detail:{facility_id:landed.facility_id,rent_per_cycle:landed.rent_per_cycle}};
+}));
+
+/** The faction-build workflow's steps, in order, as the game words each refusal (gameserver
+ * handlers/facility.go handleBuildFactionFacility; game/station_economy.go BuildFactionFacility,
+ * which answers `build_failed` with prose). The first that matches names the step that is missing. */
+const FACTION_STEPS:[RegExp,string,string][]=[
+  [/^no_faction\b/,'faction: join or found one','spacemolt_faction.get_invites() then accept_invite({id}), or create({id, text})'],
+  [/^not_docked\b/,'docked: dock at the station to build at','goTo(base)'],
+  [/^no_permission\b/,'permission: ManageFacilities','a leader promotes you to a role that has it'],
+  [/Faction Storage facility|faction storage facility/,'faction storage: a finished faction_lockbox here first',"buildFactionFacility('faction_lockbox'), or wait out its construction"],
+  [/must build a \w+ facility at this station first|facility is still under construction/,'prerequisite: the facility this one requires, finished here','spacemolt_facility.types({facility_type}) names it'],
+  [/this is an upgrade/,'upgrade: build the facility it upgrades, then upgrade it','spacemolt_facility.faction_upgrade({facility_id, facility_type})'],
+  [/Corporation Management skill level/,'skill: corporation_management at the facility level','train corporation_management'],
+  [/^build_failed: need \d+ credits/,'credits: treasury and wallet together short','deposit credits to the treasury, or earn them'],
+  [/^build_failed: need \d+ x /,'materials: the store here and the hold together short','stow or carry the materials here'],
+];
+
+/** Build faction facility `type` at the station you are docked at, in one call. The game checks
+ * each step in order — a faction, docked, ManageFacilities, a finished `faction_lockbox` here, the
+ * facility it requires, the skill, the credits (treasury, then your wallet; a lockbox is your wallet
+ * alone), the materials (the faction's store here, then your hold; a lockbox, your own store) — and
+ * a refusal comes back `refused` with the missing step in `why` and the call that supplies it in
+ * `next`. A lost reply is `failed`. */
+export function buildFactionFacility(type:string):Promise<Outcome<Built>> {return edge(buildFactionFacilityEffect(type));}
+
+export const buildFactionFacilityEffect=(type:string)=>jobEffect('buildFactionFacility',type,Effect.gen(function*() {
+  const none={facility_id:'',rent_per_cycle:0},did=`did not build ${type}`;
+  const sent=yield* Effect.result((yield* Game).command('spacemolt_facility/faction_build',{facility_type:type}));
+  if(Result.isFailure(sent)) {
+    const error=sent.failure;
+    if(error._tag==='ReplyLost')return {status:'failed' as const,did,why:told(error),detail:none};
+    const said=`${error.code}: ${error.message}`,step=FACTION_STEPS.find(([match])=>match.test(said));
+    return {status:'refused' as const,did,why:step?`${step[1]} (${error.message})`:told(error),detail:none,next:step?[step[2]]:[]};
+  }
+  const body=replyBody(sent.success),facility_id=String(field(body,'facility_id')??''),rent=Number(field(body,'rent_per_cycle')??0);
+  return {status:'done' as const,did:`${type} building at ${String(field(body,'base_id')??'?')} as ${facility_id}`,
+    detail:{facility_id,rent_per_cycle:rent}};
 }));
