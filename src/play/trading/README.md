@@ -40,33 +40,25 @@ asked by item, because live an `item_id` filter answers nothing even for a filed
 entry carries no system (`system_id` comes back empty), so the memory's system for that base
 stands in. A base both remembered and on the ledger is read from the **fresher** copy only (a tie
 goes to the memory), whichever copy pays more: `spreads()`, `routes()`, `tradeRun` and `assign`
-all see that one book. The
-memory is free and always there: every `book()` read — by `prices()`, `sell()`, `recipes()`,
-`quote()` — remembers that base's book, every base, however old (its age is
-always said).
+all see that one book. The memory is free and always there: every `book()` read — by `prices()`,
+`sell()`, `recipes()`, `quote()` — remembers that base's book, however old (its age is always said).
 Your own fills come off it as they land: what `sell()` sold leaves that base's remembered bids, what
-`buy()` bought leaves its asks, so the next plan does not count on a bid you already filled.
-So the second visit knows what the first one saw, across flights. It follows
-that the way to *learn* a price is to go and stand in front of it: `goTo(base)` then
-`prices()`, once, and that base is in the memory for good.
+`buy()` bought leaves its asks. So the way to *learn* a price is to go and stand in front of it:
+`goTo(base)` then `prices()`, once, and that base is in the memory for good.
 
 Filing to the ledger is automatic too: every `book()` read, and every freighter stop, submits that
 base's priced book (`submit_trade_intel`) once per tick, so you never call it. A book over about
 50 KB drops the connection, and a second filing for a base replaces the first, so a big book is
 cut to its most tradeable rows (a bid and an ask first, then by value). A failed filing costs that
-base that tick only; without a faction ledger nothing files. What you and your faction filed comes back in `spreads()`
-rows as `source: 'faction ledger'` with `seen` the age of its `submitted_at_tick`, and in `routes()`
-legs as `source`/`age` the same way; a base read both ways ranks on the fresher of the two.
+base that tick only; without a faction ledger nothing files.
 
 A remembered or filed price is a memory. The book may have moved. `tradeRun` re-reads the book
 at every stop and `sell` re-reads at the sell, so nothing is sent against a stale number.
 
 `seen` is an **age in ticks**, measured against the `current_tick` on the live `view_market`
 reply this same call read — so `0 ticks old` means read this tick, `40 ticks old` means the
-bid is forty ticks of other pilots' trading away. Nothing refuses a price for being old: how
-stale is too stale is your call, and the worst a bad call costs is a wasted trip. An entry
-written before books carried a tick reads as **20 ticks old** — an assumption, not a
-measurement, so treat a flat 20 as "unknown, probably stale".
+bid is forty ticks of other pilots' trading away. Nothing refuses a price for being old. An entry
+written before books carried a tick reads as **20 ticks old**: treat a flat 20 as "unknown, probably stale".
 
 ## What a row says
 
@@ -283,8 +275,7 @@ own (`source: 'station'`), and the gaps are wide: across the last book read at e
 item with both sides had a top ask a median **190×** its top bid (a quarter of them under 23×; 57
 of 1,424 under 1.5×). Many bids are 1–2 cr floors. A real one: `power_distribution_grid` at
 `central_nexus` (2026-10-05), bid 1,595 (7 deep) against ask 5,688 (13 deep). An ask at 3,500
-undercuts every seller there and earns twice the bid, if a buyer comes. How often one comes has
-not been measured: no pilot here has placed one yet.
+undercuts every seller there and earns twice the bid, if a buyer comes.
 
 So take the book when you need the credits or the room now, or the bid is near the ask. Place an
 order when the gap is wide, the goods can wait in the station, and you will be back; place a bid
@@ -296,15 +287,14 @@ All raw, `account().commands.spacemolt_market.<action>()`, at the station the or
 | Call | What it does |
 |---|---|
 | `create_sell_order({item_id, quantity, price_each})` | lists goods, taken out of your hold and this station's store (`from_cargo`, `from_storage`) and held by the order |
-| `create_buy_order({item_id, quantity, price_each, deliver_to?})` | escrows `quantity × price_each` from your wallet now (`total_escrowed`). Pass `deliver_to: 'storage'`: the lib's default is `'cargo'`, the game's own hint says a fill lands in station storage, and which wins when you are away is unverified |
+| `create_buy_order({item_id, quantity, price_each, deliver_to?})` | escrows `quantity × price_each` from your wallet now (`total_escrowed`). An instant fill lands in the hold, or in station storage with `deliver_to: 'storage'` |
 | `view_orders({station_id?, item_id?, order_type?})` | your own orders at a station: `price_each`, `quantity`, `filled_quantity`, `remaining` |
 | `modify_order({order_id, price_each})` | moves the price; the reply may carry a new `listing_fee` |
 | `cancel_order({order_id})` | ends it and returns what is still held (`returned_credits`, `returned_items`); `order_id: 'all'` ends every order of yours at this station |
 
 Each takes `orders: [...]` instead for up to 50 at once, so every reply is a union: narrow
 `.delta.details` on `kind === 'single'` before reading a field. The create reply says what
-crossed the book at once (`fills`, `quantity_filled`; an ask at or under the best bid should sell
-there and then, unverified) and what stands (`quantity_listed`, `order_id`). Every listing pays `listing_fee`: the empire's `listing_fee_bps` (`get_empire_info`), or a player station's own
+crossed the book at once (`fills`, `quantity_filled`) and what stands (`quantity_listed`, `order_id`). Every listing pays `listing_fee`: the empire's `listing_fee_bps` (`get_empire_info`), or a player station's own
 `market_fee_bps`. Nothing pushes a fill to you (no order event is in the lib's notifications): read
 `view_orders` and your wallet or `storage()` to learn one. `permissions.credit_reserve` does not
 guard a raw order; mind the escrow yourself.
@@ -329,27 +319,37 @@ export default async function main() {
 }
 ```
 
+## Risk: what one loss costs
+
+`routes()` ranks credits per jump and weighs no danger, and the fattest spreads cross unpoliced space.
+
+- **Police.** No trading function reads `police_level`; you learn it on arrival (the base README's
+  Police). A leg through a 0 or 30 system is a leg nobody defends.
+- **Insure before the leg out.** `service({insure: true})` at the last counter before low-police
+  space. The policy pays the hull and modules, never the cargo.
+- **Never fly your net worth in one hold.** A loss drops 50–80% of each cargo row into a wreck anyone
+  can loot. Keep the surplus in storage (`stow`), and on a dangerous route cap a stop's `quantity`.
+- **Contraband.** Customs seizes any item of category contraband, and anything on that empire's
+  `contraband_items` (`get_empire_info({id})`), sealed packages included. The fine is the goods'
+  base value × `customs_fine_multiplier_bps`. `spreads()`, `routes()` and `tradeRun` never check
+  it: read the list before you carry anything exotic into empire space.
+- **Fuel at the far end.** `Route.fuel` is priced at the base you call from. A far station may
+  charge 20 cr a unit or sell none (`station_fuel_empty`); fill the tank before a long leg out.
+
 ## Pitfalls
 
-- A snapshot goes stale before arrival; we have watched a public market's supply vanish. The
-  `source` and `seen` fields are there so you can weigh that before committing fuel — a
-  hundred-tick-old bid four jumps out is a guess, not a price.
 - The memory drops a book **8640 ticks (a day)** after it was read, and holds at most 40 bases.
-  Inside that window nothing is dropped for being stale; `seen` is how you see that.
 - Sales tax is charged at buy time and netted from `gained.credits`.
 - `spreads()`' `net` prices the top buy level only. A load big enough to eat past it fetches
   less. `routes()` walks the levels.
-- Contraband: `get_empire_info` lists each empire's contraband; a customs scan seizes and
-  fines. Neither function checks it yet — read the list before hauling something exotic.
 
 ## When to reconsider
 
 - A route whose realised `net` (from `tradeRun`) comes in under the `net` `routes()` predicted,
   twice: someone else is working it. Both nets count tax and fuel the same way, so the gap is the
   books moving. It is contested; drop it and take the next row.
-- Two `tradeRun`s that reach the far stop and still leave goods `unsold`: the far book is being
-  drained by someone else.
-  Change the pair.
+- Two `tradeRun`s that reach the far stop and still leave goods `unsold`: someone else drains the
+  far book. Change the pair.
 - Every route is thin but the books gape: a standing order earns the gap without flying (see
   "Standing orders").
 - Capital is growing faster than cargo: the hull is the limit. `shipsForSale()`.

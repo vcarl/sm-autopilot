@@ -63,19 +63,43 @@ seen at 25,000 / 50,000. Self-shipping earns no tier progress.
 
 ## Passengers
 
-`carryPassengers(destination)` boards everyone waiting here for that base, flies, and puts off
-**only** the passengers whose destination is this stop. With no argument it takes the
-destination with the highest total estimated fare on the board.
+`carryPassengers(destination)` boards everyone waiting here for that base and flies there. With no
+argument it takes the destination with the highest total estimated fare on the board. Docking at a
+passenger's stop delivers them and pays the fare; anyone bound elsewhere stays aboard, and the
+Outcome is `partial`, with `next` naming their destination and the ticks left on their guarantee.
 
-- Berths are a hull decision: a liner's built-in berths or a passenger cabin module in a utility
-  slot. No berths is `refused`, not a script problem — `shipsForSale()` or `refit`.
-- `load_passenger` boards by *destination*, not by name, so the class ordering inside one call
-  is the server's — the guide says its loader seats the pickiest traveller first. `loaded`
-  reports the `berth_class` it assigned, first class first.
-- First-class deliveries pay +1 standing with the passenger's empire, which is why each
-  passenger is unloaded by their own id rather than in bulk.
-- Somebody still aboard bound elsewhere makes the Outcome `partial`, with `next` naming their
-  destination and the ticks left on their guarantee.
+The fare is `(200 + 150 × hops) × class × remoteness × surge`, plus a speed bonus:
+
+| Factor | Value |
+|---|---|
+| class | economy 1, business 2.5, first 6 |
+| remoteness | ships active or parked at the destination: 0–1 → 1.5, 2–5 → 1.25, 6–15 → 1, 16+ → 0.85 |
+| surge | the origin's `fare_surge`, 0.6–2.0 |
+| speed bonus | up to +50%, falling in a straight line as the guarantee runs down |
+
+- **The guarantee** is `540 + 180 × hops` ticks (90 minutes plus 30 a jump). Past it a passenger
+  pays nothing, costs −1 standing with their empire, and is put off at your next dock.
+- **Surge.** Every 100 ticks a station moves `fare_surge` by 0.1: up while five or more wait or the
+  oldest has waited 300 ticks, down when everyone is picked up within 100. A neglected station pays
+  more; a well-served one pays less but spawns more trips. A station whose citizen pool is under
+  50,000 cr spawns none, and `skipped_unfunded` on a load counts fares it could not escrow.
+- **Berths.** Hull and cabin berths add up. A berth seats its own class or lower (first seats
+  anyone, economy only economy), and a better berth does not raise the fare. `loaded` reports the
+  `berth_class` each passenger got.
+- **The hull.** No berths is `refused`. A liner has berths built in (`shipsForSale()`). Any hull with
+  a free utility slot takes `economy_passenger_cabin` (12 berths, 6,000 cr),
+  `business_passenger_cabin` (6, 22,000 cr) or `first_class_passenger_suite` (3, 75,000 cr) by
+  `refit({install: [...]})`. A fast hull keeps more of the bonus.
+- **Comfort and service.** Comfort (liners, and modules like `onboard_galley`) stretches the
+  guarantee 1% a point, at most +200%, fixed at boarding. Underway, every 30 ticks, dining points
+  serve each passenger a `dish` or `drink` from your hold and leisure points an `alcohol` or `drink`,
+  and each serving pays you. Docked, or with a dry hold, they earn nothing: stock before you undock.
+- **Standing.** A first-class delivery pays +1 with the passenger's empire, at most +3 per empire a
+  dock. A stranded passenger costs −1, at most −5 per empire a dock.
+- **Handoffs.** `account().commands.spacemolt.unload_passenger({id, target})` with `target: 'lounge'`
+  checks one passenger into your faction's Transit Lounge here; a ship id hands them to a docked
+  ship of yours or a faction mate's. Fare and deadline carry on. Without `target`, putting a
+  passenger off short of their stop strands them. The policy refuses `id: 'all'`.
 
 ## Pitfalls
 
@@ -84,9 +108,6 @@ destination with the highest total estimated fare on the board.
 - An accepted package lands in your **personal storage at the origin**, not in the hold. Check
   the origin has a storage counter before accepting; a mission board alone does not guarantee
   one. `haul` withdraws `package:<id>` and confirms it is aboard before leaving.
-- `unload_passenger` with `all` at an intermediate stop strands everyone at −1 standing each.
-  `carryPassengers` only ever lands a passenger at their own stop; the flight computer refuses the
-  literal on `account()`.
 - A stale board: the listing can be gone when you accept. `haul` re-reads the contract first.
 
 ## When to reconsider
