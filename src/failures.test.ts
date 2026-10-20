@@ -43,6 +43,8 @@ test('connection noise, the runtime\'s own sends and freighters are not the pilo
   for(const line of [command('spacemolt_battle','status','No active battle. Use attack to engage a target.'),
     command('spacemolt_battle','stance','You are not in a battle. Use attack to engage a target.'),
     command('spacemolt_intel','submit_trade_intel','nope'),
+    command('spacemolt_intel','query_trade_intel','no_trade_ledger'),
+    command('spacemolt_intel','query_intel','no_intel_facility'),
     command('spacemolt','mine','WebSocket connection closed',{code:1006}),
     command('spacemolt','travel','account is reconnecting',{lost:true}),
     command('spacemolt','find_route','No response',{code:'connect_timeout'}),

@@ -83,3 +83,17 @@ test('a defect is not swallowed: the caller gets the thrown error',async()=>{
   const command=async()=>{throw bug;};
   await assert.rejects(fileIntel({...guild},command,'a_base',[row('ore',10,12)],1),error=>error===bug);
 });
+
+// Live overnight 10-19: 161 filings refused `no_trade_ledger`, one per book. The first refusal ends filing.
+test('a faction with no trade ledger is filed to once, then never again',async()=>{
+  const sent:string[]=[],said:string[]=[];
+  const command=async(_action:string,params:Record<string,unknown>)=>{
+    sent.push((params.stations as {base_id:string}[])[0]!.base_id);
+    throw new SpacemoltError('no_trade_ledger','Your faction does not have a trade intelligence facility.');
+  };
+  const account={...guild};
+  for(const [base,tick] of [['a_base',1],['b_base',1],['a_base',2]] as const)
+    await fileIntel(account,command,base,[row('ore',10,12)],tick,text=>said.push(text));
+  assert.deepEqual(sent,['a_base']);
+  assert.equal(said.length,1);
+});

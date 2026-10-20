@@ -10,6 +10,10 @@ const filed=new WeakMap<object,Map<string,number>>();
 /** Accounts already told once why a filing failed. */
 const told=new WeakSet<object>();
 let saidNoFaction=false;
+/** Accounts whose faction has no trade ledger: the game refused one filing `no_trade_ledger`, so the
+ * rest of the process files none (live overnight 10-19: 161 such refusals, one per book).
+ * ponytail: a ledger built mid-process is filed to only after the bridge restarts. */
+const noLedger=new WeakSet<object>();
 
 /** Whether the account's player is in a faction, read off the state the account already holds.
  * Every faction intel call — filing a book, reading the trade ledger, reading the intel map — is
@@ -46,7 +50,7 @@ export function fileRows(items:readonly MarketListingItem[]) {
  * per process why one failed. A defect (a bug) is not caught: it goes up. */
 export const fileIntelEffect=(account:object,base_id:string,items:readonly MarketListingItem[],
   tick:number,say:(text:string)=>void=()=>{})=>Effect.gen(function*() {
-  if(!base_id||!inFaction(account,say))return;
+  if(!base_id||noLedger.has(account)||!inFaction(account,say))return;
   const seen=filed.get(account)??new Map<string,number>();
   filed.set(account,seen);
   if(seen.get(base_id)===tick)return;
@@ -54,9 +58,11 @@ export const fileIntelEffect=(account:object,base_id:string,items:readonly Marke
   const rows=fileRows(items);
   if(!rows.length)return;
   const sent=yield* Effect.result((yield* Game).command('spacemolt_intel/submit_trade_intel',{stations:[{base_id,items:rows}]}));
-  if(!Result.isFailure(sent)||told.has(account))return;
-  told.add(account);
+  if(!Result.isFailure(sent))return;
   const error=sent.failure;
+  if(error._tag!=='ReplyLost'&&error.code==='no_trade_ledger')noLedger.add(account);
+  if(told.has(account))return;
+  told.add(account);
   say(error._tag==='ReplyLost'?`trade intel not filed at ${base_id}: reply lost on ${error.action}`
     :`trade intel not filed at ${base_id}: ${error.action}: ${error.code} — ${error.message}`);
 });
