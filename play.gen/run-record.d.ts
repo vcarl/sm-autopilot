@@ -1,4 +1,4 @@
-import { Schema } from 'effect';
+import { Option, Schema } from 'effect';
 export declare const isRecord: (value: unknown) => value is Record<string, unknown>;
 /** A chat post that paused the run (the program declared `interrupts`): who, where, what, when. */
 export declare const ChatPause: Schema.Struct<{
@@ -49,6 +49,11 @@ export declare const JournalLine: Schema.StructWithRest<Schema.Struct<{
     readonly event: Schema.optionalKey<Schema.String>;
 }>, readonly [Schema.$Record<Schema.String, Schema.Unknown>]>;
 export type JournalLine = typeof JournalLine.Type;
+export declare const decodeLine: (input: unknown, options?: import("effect/SchemaAST").ParseOptions) => Option.Option<{
+    readonly [x: string]: unknown;
+    readonly at?: string;
+    readonly event?: string;
+}>;
 /** Temp file then rename: a torn write would tell a restarting bridge a lie about the pilot. */
 export declare function writeRun(runtime: string, record: RunRecord): void;
 /** No record, or one too broken to name a script, is the same answer: nothing to resume. */
@@ -64,6 +69,9 @@ export declare function lastBridgeError(runtime: string): string | undefined;
  * bridge's last error as `why` when its log has one; null when there was none. Called at boot,
  * after the controller lock is held, so no live bridge owns the run. */
 export declare function closeInterrupted(runtime: string): RunRecord | null;
+/** The journal files newest first: `gameplay.jsonl`, then each `gameplay.<UTC stamp>.jsonl` a
+ * boot rotated away. The stamps sort as time. `name` is another record rotated the same way (`chat`). */
+export declare function journalFiles(runtime: string, name?: string): string[];
 /** The tail of the journal as data: what the pilot has actually done, for the readers that need
  * history rather than the present (reflection, the menu, the rendered window). Walks from the
  * current file back through the rotated ones until it has `limit` entries, so a fresh boot's

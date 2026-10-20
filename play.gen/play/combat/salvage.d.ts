@@ -1,5 +1,5 @@
 /** Wrecks at the POI you are at: loot them into the hold. Also the recovery job after your
- * own death: ~70% of your modules and half your cargo sit in a wreck where you died. */
+ * own death: each fitted module (30% chance) and 50–80% of each cargo row sit in a wreck where you died. */
 import type { EnrichedWreck, LootedItem, LootedModule, ShipCargoItem } from '@spacemolt/lib';
 import { Effect } from 'effect';
 import { Game, type GameError } from '../game.ts';
