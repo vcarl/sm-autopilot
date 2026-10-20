@@ -14,18 +14,16 @@ the evening to have when the same belt is all you know.
 (`ended:'refused'`), and a hop that leaves you Tired ends it there (`ended:'tired'`). `ended:'none'`
 is nothing unvisited within `jumps` — widen it.
 
-**Danger is your call.** The map publishes no police level for a system you have never stood in;
-what it does name is the empire that claims it (or none), whether it is a stronghold, and how many
-pilots are online there. Police, security and pirates are learned on arrival and remembered. `exploreNearby` skips
-nothing you do not name in `avoid`: read the facts and choose.
+**Danger is your call.** For a system you have never stood in, the map names the empire that
+claims it (or none), whether it is a stronghold, and how many pilots are online there; police are
+learned on arrival. `exploreNearby` skips nothing you do not name in `avoid`.
 
 `scout(id)` reads one system (`detail.system.id` and `.name` either way; each `detail.connections` row says `visited`, so a loop can skip systems you have been to); `goTo(id)` flies there and docks if it is a base (or a system with
 one base). A circuit of your own is those two in a loop, as below.
 
 `survey()` reads hidden POIs in the system you stand in: what it revealed now, what was already
 revealed to you, faint signatures it could not resolve, and the `survey_power` and `anomaly_hint`
-your fit brought (the game publishes no table of what a module gives; the outcome is how you learn
-it). A revealed POI is a place like any other: `goTo` it. `exploreNearby({survey:true})` surveys
+your fit brought (**Ships and modules** below). A revealed POI is a place like any other: `goTo` it. `exploreNearby({survey:true})` surveys
 each system it visits and keeps only the game's message.
 
 ```ts
@@ -62,6 +60,36 @@ export default async function main() {
 }
 ```
 
+## Ships and modules
+
+A jump takes 7 − speed ticks (at least 1). Survey power is the fitted survey scanners plus the
+hull's built-in survey, +1% per `scanning` level. Flying a T2 hull needs `piloting` 10, a T3 needs 20.
+Each empire builds its own; `shipsForSale()` lists what a yard sells.
+
+| Hull | Empire | Tier | cr | Speed | Fuel | Cargo | Utility | For a scout |
+|---|---|---|---|---|---|---|---|---|
+| `lemma` | solarian | 1 | 2,400 | 5 | 170 | 25 | 3 | survey 15 built in, `ship_scanner_i` fitted, unarmed |
+| `warranty_void` | outerrim | 1 | 2,000 | 5 | 220 | 40 | 2 | survey 8 built in, 25% less fuel, `afterburner_i` fitted |
+| `qualia` | voidborn | 1 | 3,000 | 3 | 130 | 30 | 3 | survey 15 built in, `cloaking_device_i` fitted |
+| `venture` | nebula | 1 | 2,800 | 3 | 180 | 80 | 2 | survey 10 built in |
+| `prospectus` | nebula | 2 | 7,500 | 5 | 450 | 80 | 3 | `survey_scanner_i` fitted |
+| `solarian_foundation` | solarian | 2 | 6,800 | 3 | 260 | 90 | 3 | 25% less fuel, `survey_scanner_i` fitted |
+| `hypothesis` | solarian | 2 | 10,000 | 3 | 360 | 135 | 4 | `survey_scanner_i` fitted |
+| `confluence` | voidborn | 2 | 11,000 | 3 | 360 | 120 | 4 | `survey_scanner_i` fitted |
+| `perigee` | solarian | 3 | 42,000 | 2 | 620 | 270 | 6 | survey 30 built in, `anomaly_detector` fitted |
+
+A starter hull has speed 1–2 and fuel 90–130. Every empire has a T3 explorer at 38,000–42,000 cr
+with an `anomaly_detector` fitted.
+
+| Module | cr | What it does |
+|---|---|---|
+| `survey_scanner_i` | 4,400 | survey 30. With no survey power and no anomaly detector, `survey()` is refused |
+| `survey_scanner_ii` | 14,000 | survey 60, and rare ores |
+| `anomaly_detector` | 20,000 | each `survey()` reveals this system's wormholes, and `anomaly_hint` points to one within 5 jumps. No ore on its own. CPU 15, power 25 |
+| `afterburner_i` / `_ii` | 1,100 / 2,300 | +1 / +2 speed, at 25% / 60% more fuel a move |
+| `fuel_optimizer` | 800 | 15% less fuel a move |
+| `expanded_fuel_tank` | 950 | +100 fuel, −20 hull |
+
 ## What a safe circuit looks like
 
 - Three unvisited systems on a loop that ends where it started, the whole loop above the mood's fuel reserve (under it is Tired, and the circuit ends).
@@ -77,7 +105,5 @@ export default async function main() {
 
 - A jump that reports failure has often succeeded. `goTo` reads before it trusts; do not
   re-send jumps by hand.
-- Fuel out in a system with no station means a distress signal and an hour's wait. `goTo` refuses a
-  hop the tank will not cover, and a hop that lands you under the mood's fuel reserve makes you
-  Tired. Check every `hop.status` and `pilot().mood`, and stop on the first hop that is not `done`
-  or leaves you Tired: that is the circuit turning back, and ignoring it is how a ship strands.
+- In a circuit of your own, stop on the first `goTo` that is not `done` or leaves `pilot().mood`
+  Tired: that is the circuit turning back, and ignoring it is how a ship strands.

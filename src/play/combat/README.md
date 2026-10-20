@@ -20,7 +20,9 @@ what to engage is your judgement, and most of the judgement is about what not to
 This is the fact the whole shape of `hunt` follows from. A POI row carries `id, name, type,
 class, position, has_base, online, fuel_reserve` — **no fauna field**. `get_nearby` tells you what
 is here, and only here; there is no per-species query and no way to enumerate another system's
-POIs. So nothing you can read before you fly tells you which POI holds your quarry.
+POIs. So nothing you can read before you fly tells you which POI holds your quarry. The nearest is
+raw `account().commands.spacemolt.survey_system()` with survey power fitted: its `wildlife` is a
+census of the system you stand in (species, estimate), never the POI.
 
 **And do not filter by POI type.** Habitat *suggests* a species — grazers at belts, cloud fauna in
 gas clouds, exotics in nebulae — but it does not tell you where the animals are today. Live
@@ -328,22 +330,40 @@ export default async function main() {
 
 ## Hearing pirate radio
 
-Pirate battle chatter carries a few jumps, but only a ship with a `pirate_radio_scanner` in a utility slot hears
-it. Without one you hear nothing, and nothing says so. Craft it at a base with `crafting`: `craft('build_pirate_radio_scanner')`
+Only a ship with a `pirate_radio_scanner` in a utility slot hears pirate radio. Without one you hear
+nothing, and nothing says so. Craft it at a base with `crafting`: `craft('build_pirate_radio_scanner')`
 (2 `circuit_board` + 3 `copper_wiring`; `recipes('pirate_radio')` prices it), then `refit({install: ['pirate_radio_scanner']})`.
-Once fitted it arrives in chat as channel `pirate_radio`, read with `messages()` like any other.
+It arrives in chat as channel `pirate_radio`, read with `messages()` like any other.
 
-## Where the fauna are
+- Ordinary pirate chatter carries **3 jumps**. Raid traffic carries **at least 7**: a stronghold
+  raids stations up to 6 jumps out, and its radio reaches one jump past that.
+- A raid warns in three stages over about an hour: a rumour, then the target station named
+  (about 30 minutes in), then imminent with the fleet size (about 48 minutes in). Then it launches.
+- The fleet is 4–12 warships, 2 salvagers and 2 haulers. It sits about 4 minutes in each system on
+  the way: that is where you meet it.
+- **Shoot the haulers.** They carry the fleet's ammunition; a fleet out of ammunition gives up and goes
+  home. A raider killed while you defend an empire's station also raises your standing with that empire.
 
-- Creatures are only visible from the POI you are standing at: `get_nearby` (and `scout`'s
-  `detail.here.nearby`) counts what is here, and nothing reads a POI you have not flown to.
-- Habitat decides the species (`docs/wildlife`): ore-eating grazers at **asteroid belts**, cloud
-  fauna and pilot-whale pods in **gas clouds**, cold-adapted species in **ice fields**, exotics
-  in **nebulae**. Busy, heavily-mined hubs are largely barren; quiet resource-rich systems carry
-  the healthiest herds.
-- A belt with nothing on it is a `done` hunt with zero fights, not a broken game — and it may have
-  been full this morning. Hand `hunt` a `look` list of the whole system rather than concluding
-  anything from one POI.
+## Bounties and contracts
+
+A pirate pays its bounty to whoever lands the killing blow, at once: `scout`, `salvager` and `tanker`
+50–150 cr, `hauler` 100–250, `raider` 200–500, `raid_fleet` 400–900, `raider_elite` 500–1,500
+(more with bounty_hunting). The kill also drops your standing with that pirate's crew, and its
+stronghold docks you only at a non-negative standing.
+
+Contracts pay on top. A board row that asks for pirate kills has `fits: 'hunt'`; fly it with
+`hunt({target: 'pirate', look})` in low-police space, then `completeMissions()` at the giver.
+
+| Contract | Where | Kills | Pays |
+|---|---|---|---|
+| Pirate Bounty / Pirate Sweep / Raider Bounty | any station, at weapons 1 / 2 / 3 | 1 any / 3 any / 2 `raider` | 2,000 / 5,000 / 6,000 |
+| A capital's security chain | each empire capital | 1 `scout`, then 3 any, then 2 `raider` | 2,000, 4,000, 6,000 |
+| Trade Convoy Protection, Starfall Prospector Defense | `cargo_lanes_freight_depot`, `starfall_salvage_station` | 5 `scout` | 5,000 |
+| Rampart Border Patrol | `the_rampart_checkpoint` | 3 `raider` | 8,000 |
+
+- Each in the table pays **once** per pilot; none repeats. Each has a 48–120 hour limit.
+- A tier is strict: a `raider` contract does not count scouts.
+- "Convoy" and "escort" contracts are kill counts. There is no convoy to escort.
 
 ## What a good fight looks like
 
@@ -365,12 +385,8 @@ Once fitted it arrives in chat as channel `pirate_radio`, read with `messages()`
   a species that was never present and a `hunt` that refused everything else standing there —
   that is the failure `strict`'s default of `false` exists to stop.
 - The system's `police_level` is above 20 unless you mean to meet pirates.
-- Cover before the fight: `service({insure: true})`, docked, quotes the hull you fly (priced on
-  its fitted value and risk factors, in `detail.insurance.quote`) and buys the policy when the
-  premium leaves your `credit_reserve` standing; `did` names premium, cover and expiry. Not bought
-  (refused quote, short wallet) is `partial` with the reason. A destroyed hull pays its
-  `insurance_payout` at respawn (the death report names it; a self-destruct is excluded); without
-  a policy it pays 0. Cover is priced on the fitted hull; nothing says it pays for the cargo.
+- Cover before the fight: `service({insure: true})`, docked. The quote is in
+  `detail.insurance.quote`; not bought (refused quote, short wallet) is `partial` with the reason.
 
 ## What trains what
 
@@ -475,6 +491,5 @@ A hunt that goes Tired mid-fight finishes that fight, starts no new one, and the
 
 - A tow costs the speed the way home needs, so `salvage({tow})` is its own trip, not a
   postscript to a hunt.
-- Death loses the hull and what is on it, nothing else. Keep value in storage.
-- Your own wreck holds ~70% of your modules and half your cargo: `goTo` where you died and
-  `salvage()` — it loots your own wreck first.
+- Your own wreck holds what survived your death: `goTo` where you died and `salvage()` — it loots
+  your own wreck first.
