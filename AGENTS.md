@@ -129,7 +129,8 @@ or the tool registry when there is no plugin context. `check_cronjob_requirement
 The play READMEs *are* the skills. `ctx.register_skill("mining", …)` makes the career README
 resolvable as `spacemolt:mining`, and a cron job names it that way. A fire carries the base
 README plus the stance's career README; the stance exists so a smaller model is not handed every
-career at once. Nothing is copied or linked
+career at once. A fire with no stance (a new objective clears it) carries `NO_STANCE_PROMPT`, which asks
+the pilot to choose one through `spacemolt_reflect`. Nothing is copied or linked
 into the profile's skills directory.
 
 The failure mode to design against: cron **skips** a skill it cannot resolve, logs a warning, and

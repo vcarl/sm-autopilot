@@ -168,6 +168,22 @@ def test_direction_marks_nothing_due_the_interval_brings_the_juncture(bridged):
     assert "within 5m" in answer, answer
 
 
+def test_a_new_objective_asks_the_next_fire_for_a_stance_and_the_stance_brings_its_readme(bridged):
+    """A new objective clears the stance; the pilot then flew 10 hours on the base README alone,
+    never setting one. The next fire's prompt asks for a stance, and once set the job carries it."""
+    from cron import jobs as cron_jobs
+    _seed(dict(PILOT))
+    spacemolt._direct({"objective": "trade copper"})
+    [job] = cron_jobs.load_jobs()
+    assert "stance" not in juncture.read_pilot()
+    assert job["skills"] == [juncture.qualified("play")]
+    assert juncture.NO_STANCE_PROMPT in job["prompt"] and "Trader (trading)" in job["prompt"]
+    spacemolt._reflect({"stance": "Trader"})
+    [job] = cron_jobs.load_jobs()
+    assert job["skills"] == [juncture.qualified("play"), juncture.qualified("trading")]
+    assert juncture.NO_STANCE_PROMPT not in job["prompt"]
+
+
 def test_a_new_objective_stops_the_run_in_flight_and_the_same_one_does_not(bridged):
     _seed({**PILOT, "goal": "mine the belt"})
     (bridged / "run.running").touch()

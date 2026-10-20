@@ -100,6 +100,14 @@ JUNCTURE_PROMPT = (
 #: Which career folder's README is the stance's skill (``play/<folder>/README.md``).
 STANCE_FOLDER = {"Prospector": "mining", "Industrialist": "industry", "Trader": "trading",
                  "Carrier": "hauling", "Hunter": "combat", "Scout": "exploration"}
+#: Added to the prompt of a fire with no stance (a new objective clears it): the pilot picks one.
+NO_STANCE_PROMPT = (
+    "\nYou have no stance, so you carry no career README. Before you write the flight, choose the "
+    "stance that suits the objective and set it: spacemolt_reflect with `stance` (e.g. "
+    "`{\"stance\": \"Trader\"}`). The stances: "
+    + ", ".join(f"{stance} ({folder})" for stance, folder in STANCE_FOLDER.items())
+    + ". From your next turn you carry its README."
+)
 
 #: The juncture section's ``max_chars``: core skips a section over it whole, not truncated. The
 #: bridge budgets the context to the same number (``SECTION_LIMIT`` in src/context.ts).
@@ -589,12 +597,12 @@ def job_fields(pilot: dict[str, Any], *, gate: bool = True) -> dict[str, Any]:
     """What a fire carries: the juncture prompt, the skills, the tools, the gate.
 
     The skills are the base README and the stance's career README when there is a stance: the
-    stance is how the career text a fire carries is chosen. No ``workdir``, which is what makes
+    stance is how the career text a fire carries is chosen. With none, the prompt asks for one. No ``workdir``, which is what makes
     cron open the conversation with ``skip_context_files=True``.
     """
     folder = STANCE_FOLDER.get(str(pilot.get("stance") or "").strip())
     return {
-        "prompt": JUNCTURE_PROMPT,
+        "prompt": JUNCTURE_PROMPT + ("" if folder else NO_STANCE_PROMPT),
         # Namespaced plugin skills: registered by the plugin, resolved by cron through the
         # plugin registry, never copied into the profile's skills directory.
         "skills": [qualified(SHARED_SKILL)] + ([qualified(folder)] if folder else []),
