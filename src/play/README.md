@@ -31,8 +31,7 @@ export default async function main() {
 }
 ```
 
-The computer checks the program before it flies; a program it rejects comes back as diagnostics,
-and `spacemolt_run` with `check: true` checks without flying. A flight reports each move as it goes and ends with a
+A program the computer rejects comes back as diagnostics. A flight reports each move as it goes and ends with a
 report of the returned Outcome. A stop (yours, or the ship's loss) ends the program at its next
 safe point (`partial`); a loop of your own checks `stopped()` to stop there too.
 
@@ -133,10 +132,10 @@ Each of these has cost a flight: the computer checks the real types, so these ar
 | `goTo(id, {ask?}?)` | fly to a POI, base or system (id or display name), jumping as needed; dock if a base. A system with one base docks there. Ending undocked is said in `did`, and `detail.docked_at` is null. A refused dock is `partial` with the game's words. A name matching nothing is `refused` with the nearest ids, not flown. It completes active distress missions on or near the route |
 | `service()` | full tank and hull at the counter you are docked at (no posted price needed), within `permissions.credit_reserve` and the mood's repair margin; tops up fuel cells to ~5% of the hold unless they are overpriced (`did` says why); `service({insure: true})` also buys cover for the hull, within the reserve, unless a policy already held covers it (`did` says until when) |
 | `stow(rows)` / `withdraw(rows, {ask?}?)` / `storage(base?)` | station storage; rows you name (omit a row's `quantity` for all of it); readable from anywhere. A `withdraw` counts each item's cargo size (osmium takes 2 a unit), and rows that overfill the hold share its room in proportion: each moves partly, the rest `short` with `no room`, status `partial` |
-| `prices(items?)` / `sell(rows, opts?)` / `buy(item, qty, opts?)` | the market here, live at the moment of the act, and remembered for `spreads()`. `sell`'s options: `{from: 'hold' \| 'store'}` (default `'hold'`; `'store'` empties the store a hold-load at a time), `{floor: {[item_id]: number}}` (keep a row whose `best_buy` is under it) and `{ask: false}`. There is no option naming a market — `sell` is always the counter you are docked at. A sale walks the bids down the book: when it averages more than 3% under the top bid, `did` names the fill and the top bid's depth |
+| `prices(items?)` / `sell(rows, opts?)` / `buy(item, qty, opts?)` | the market here, live at the moment of the act, and remembered for `spreads()`. `sell`'s options: `{from: 'hold' \| 'store'}` (default `'hold'`; `'store'` empties the store a hold-load at a time), `{floor: {[item_id]: number}}` (keep a row whose `best_buy` is under it) and `{ask: false}`. A sale walks the bids down the book: when it averages more than 3% under the top bid, `did` names the fill and the top bid's depth |
 | `buyers(items)` | who buys it: the highest bids known for an item (or a list) anywhere — the live book here when docked, your faction's ledger, every book you have read — up to 3 an item, each with its base, price, depth, the book's age in ticks and the jumps there. Held or not, docked or not; reads only. Ask it before flying to look for a buyer |
 | `refit({install,remove,ask?})` / `shipsForSale(opts?)` / `buyShip(id, opts?)` | the hangar: modules on and off within the grid, the hulls for sale here, the next one |
-| `missions()` / `acceptMission(id)` / `completeMissions()` / `abandonMission(id, opts?)` | the board here, and each mission you hold by its `next` objective; the cheapest credits and xp early |
+| `missions()` / `acceptMission(id)` / `completeMissions()` / `abandonMission(id, opts?)` | the board here, and each mission you hold by its `next` objective; credits, xp and reputation, several at once along one route (see Missions) |
 | `rest(base?)` | put in and bring the ship up: `goTo(base)` when you name one, then `service()` at the counter. It changes nothing else |
 | `reflection()` | stagnation signals, the skills that would move, holdings, what is owed, how your past flights went |
 | `note(text)` | write a line into your log and the flight's report, marked `✎` as your own words, not the library's |
@@ -149,7 +148,7 @@ Each of these has cost a flight: the computer checks the real types, so these ar
 Careers add more: [`mining/`](mining/README.md) (`gatherUntil`, `survey`),
 [`hauling/`](hauling/README.md), [`industry/`](industry/README.md) (`catalog`, `trace`, `recipes`, `quote`, `supply`, `craft`, `jobs`, `facilities`, `buildFacility`), [`combat/`](combat/README.md) (`hunt`, `fightBattle`, `arena`, `duel`, `salvage`),
 [`trading/`](trading/README.md) (`buyers`, `spreads`, `routes`, `tradeRun`, `scoutMarkets`), [`exploration/`](exploration/README.md) (`exploreNearby`), [`fleet/`](fleet/README.md) (`assign`, `recall`, `freighters`).
-Every career's functions import from `'play'` whatever your stance. Crafting goes through them,
+Crafting goes through these functions,
 never a raw `craft` command: `recipes(search?)` lists what this base can make from hold + store,
 priced; `craft(recipe_id, qty?)` stows, quotes, escrows, waits out the queue and reports the
 output in this base's store. Both want a base with `crafting`.
@@ -194,7 +193,7 @@ export default async function main() {
 
 ## Missions
 
-`missions()` reads the board here and what you hold. Slots are capped (`detail.max`,
+`missions()` reads the board here and what you hold. You hold at most 5 (`detail.max`,
 `slots_free`); an expired or stuck mission keeps its slot until `abandonMission(id)` (refused for
 one you could turn in here, unless `{force:true}`). Each held row leads with `next`, its first
 objective not yet met ("Visit X → base, 3 jumps [2 of 5]"): the game lists objectives in order, so
@@ -207,6 +206,20 @@ of 5,000 cr). A board row's `warnings` and `required_modules` are the game's own
 line repeats them ("Requires a basic tow rig module (not currently equipped)"). A deposit a mission
 sends you to may read depleted: that is not permanent, a finite one regenerates at least 1 unit a
 minute.
+
+Missions pay best stacked: fill the slots with contracts that share a route, so one trip turns in
+several, and read the board at every stop for work that points where you already go.
+
+- **Circuits.** Inspection audits and multi-capital tours are "dock at each of N stations"
+  objectives; carry deliveries along the same legs.
+- **Story chains.** A capital's storyline missions do not repeat; finishing one unlocks the next
+  (`chain_next`).
+- **Faction contracts.** A faction's postings show on the station board, the reward held in escrow;
+  some take non-members.
+- **Distress.** A `distress_signal` reaches every pilot within 5 jumps with one rescue mission and its
+  `mission_id`; the first to accept it holds it. Accept it in space with raw
+  `account().commands.spacemolt.accept_mission({id})` (`acceptMission` wants a counter); `goTo`
+  completes it on or near its route.
 
 ## Death, cover, fuel and time
 
@@ -226,9 +239,8 @@ minute.
 - **Time.** The game moves in 10-second ticks; each action takes at least one, a jump several.
   The game allows a session 30 actions and 300 reads a minute. A route of many jumps is minutes
   of real time, so plan a flight as a trip, not one move.
-- **Skills.** Death never takes them. Each trains by its own act (the game's catalog lists each
-  skill's `training_source`; nothing here reads it): mining by mining, exploration by a first
-  visit, salvaging by salvage.
+- **Skills.** Death never takes them. Each trains by its own act: mining by mining, exploration by
+  a first visit, salvaging by salvage.
 
 ## The world: empires, law, wrecks
 
@@ -264,45 +276,84 @@ minute.
 - **Police.** Each system's `police_level` (0–100) and `security_status`, read on arrival
   (`scout()`), not from the map: seen are 0 "Lawless (no police protection)", 30 Frontier, 55 Low
   Security (slow police response), 80 High Security (active patrols), 100 an empire capital.
-- **Tax.** Weekly, by each empire you are a citizen of: income tax on taxable income (market
-  purchases are deducted from market sales, so trading is taxed on its margin) and property tax on
-  your hull and fitted modules; purchases carry a separate sales tax per empire. `orient()` names tax
-  due; `prepay_tax({quantity})` pays ahead. A missed tax becomes a bounty with that empire.
 - **Citizenship.** Your origin empire is fixed; citizenships are `player.citizenships`, managed with
   `account().commands.spacemolt_citizenship` (`list`, `apply({target})`, `renounce`, `withdraw`) on
   each empire's terms (fee, minimum balance and reputation). It decides who taxes you and your
   reputation baseline.
-- **Jail and bounties.** Crimes and missed taxes leave a bounty with an empire (your standing's
-  `outstanding_bounty`; `orient()` reads `bounty`); an empire can detain you (`jailed_until`).
-  `pay_bounty({source: 'self'})` pays from anywhere and says whether it released you.
 - **Wrecks.** A destroyed ship leaves a wreck at its POI. `salvage()` loots the wrecks here (trains
   salvaging); `salvage({tow: id})` tows one (a `basic_tow_rig` halves speed while towing), and a base
   with a `salvage_yard` service buys it: `account().commands.spacemolt_salvage.sell({})`, or `scrap`
   for materials. Missions ask for this ("Sell 3 wrecks at any salvage yard").
-- **Wormholes.** Hidden POIs: `survey()` reveals them (an `anomaly_detector` fitted is said
-  to be what finds them, unconfirmed here; the outcome's `survey_power` and `anomaly_hint` say what your
-  fit actually heard). `goTo` the revealed POI; `get_poi` there shows its destination, expiry and a
+- **Wormholes.** Hidden POIs: `survey()` reveals them (the outcome's `survey_power` and
+  `anomaly_hint` say what your fit heard). `goTo` the revealed POI; `get_poi` there shows its destination, expiry and a
   prediction hint; passing one trains wormhole_navigation. `goTo` never routes through a wormhole
   for you: a route the game plans through one is refused, so the crossing is yours to make.
+
+## Tax and bounties
+
+Each empire you are a citizen of taxes you weekly; `get_empire_info({id})` has its rates.
+
+- **Income tax** on mission rewards (distress included), salvage, ship and facility sales, rescue
+  payouts, and market sales less market purchases. Purchases offset market sales only, so trading
+  is taxed on its margin; purchases over sales carry forward as a loss to offset later sales.
+  Gifts, refunds and insurance payouts are not income.
+- **Property tax** on the hull and fitted modules of every ship you own, parked ones included;
+  not on cargo or stored items. Purchases carry a separate sales tax.
+
+`account().commands.spacemolt.get_tax_estimate()` previews the bill and what you owe; `orient()`
+names tax due (`detail.owes.tax`). `prepay_tax({quantity})` sets credits aside for the next bill and
+refunds the surplus; it pays no old debt. Tax the wallet cannot cover becomes a bounty with that
+empire.
+
+A bounty (crimes and missed tax; your standing's `outstanding_bounty`, `orient()`'s `bounty`) is
+collected when you dock at that empire's station; short of it, you are detained for the empire's
+jail term (`jailed_until`) and the bounty stays. `pay_bounty({id})` pays it from anywhere, in space
+or detained: `id` is the empire (omit it when you owe one), and it takes the full amount or nothing.
+`source: 'faction'` pays from the treasury. It says whether it released you.
 
 ## Factions and owning things
 
 A faction is ordinary play, not an endgame. "You must be in a faction" (live: every trade-intel
-and intel-map call) is fixed by joining or founding one. Membership gives the shared trade
-ledger and intel map (`spreads()` and `routes()` read the ledger; it needs the faction's
-trade-intel facility), a treasury and faction storage (`spacemolt_storage` with `target:
-'faction'`), faction facilities at stations (a `faction_desk` is 100k cr and materials; the
-catalog lists the rest), and stations of your own (`spacemolt_facility.base_cost()` at a lawless
-POI says what founding one takes there, `found_station({name})` founds it).
+and intel-map call) is fixed by joining or founding one. `account().player?.faction_id` says
+whether you are in one.
 
-All raw, `account().commands.spacemolt_faction.<action>()`: `list({limit?})` the factions,
-`info({id})` one (members, `leader_username`, facilities, `owned_bases`); joining needs an invite,
-so ask a leader in chat, then `get_invites()` and `accept_invite({id})` with the faction's id.
-`create({id, text})` founds one: `id` a tag of exactly 4 characters, `text` a unique name of
-3–32. `account().player?.faction_id` says whether you are in one.
+All raw, under `account().commands`: `spacemolt_faction.list({limit?})` the factions, `info({id})`
+one (members, roles and their permissions, `leader_username`, facilities, `owned_bases`, wars);
+joining needs an invite, so ask a leader in chat, then `get_invites()` and `accept_invite({id})`.
+`create({id, text})` founds one, free: `id` a tag of exactly 4 characters, `text` a unique name of
+3–32. You lead it.
 
-`get_guide({id: 'base-builder'})` is the game's own guide to building; `get_guide({})` lists every
-guide.
+- **Roles.** A role's permissions gate the commands. An `officer` has all but `promote`,
+  `manage_roles` and `manage_diplomacy`; a `member` or `recruit` has none.
+  `spacemolt_faction_admin.promote({player_id, role_id})` sets a role.
+- **Treasury and storage.** The treasury is one balance of credits; items sit per station, only
+  where the faction has storage. Anyone deposits (`spacemolt_storage.deposit({target: 'faction',
+  item_id, quantity})`, `item_id: 'credits'` for the treasury); a withdrawal needs `manage_treasury`.
+- **Facilities.** Docked, `spacemolt_facility.faction_build({facility_type})` (`types()` lists them).
+  A `faction_lockbox` (200k cr) comes first at each station; then a `faction_desk` (100k) edits the
+  faction, a `notice_board` posts missions, the intel and trade-intel ones feed `spreads()` and
+  `routes()`. At a station you do not own, each pays rent from the treasury every cycle; rent unpaid
+  past the grace repossesses it.
+- **Missions.** `spacemolt_faction_admin.post_mission(...)` (a mission board here and
+  `manage_treasury`) escrows the reward; `triggers: ['open_to_all']` lets outsiders take it.
+- **Diplomacy** (`manage_diplomacy`; `id` is the other faction's id or tag): `propose_ally` /
+  `accept_ally` (allies join each other's battles), `set_enemy` (a mark, not a war),
+  `declare_war({id, text?})` (50,000 cr from the declarer's own wallet), `propose_peace` /
+  `accept_peace`. At war, an attack between the two is no crime, even in high security.
+- **Corporate tax.** The faction pays weekly on its profit from the treasury
+  (`spacemolt_faction.tax_estimate()`, `prepay_tax({amount})`). An unpaid bill stays the faction's
+  debt, never your bounty.
+- **Stations.** Only in lawless space (no empire, police 0): one a system, five a faction, not at a
+  star or wormhole. `spacemolt_facility.base_cost()` at the POI says what it takes and whether the
+  spot qualifies. `found_station({name})`, undocked, with `manage_bases`, spends a `station_core` from
+  the hold and 5,000,000 cr (treasury first, then your wallet). `deploy_outpost({name})` spends an
+  `outpost_kit` and 100,000 cr for storage and a fuel bunker, never services. A station starts bare:
+  storage, then power and life support, then services. Each service draws maintenance from the
+  station's faction storage and labor from the treasury every cycle; a short input takes it offline.
+  Armed, maintained guns join any battle in its system a member fights, and nobody docks while it
+  fights (`station_under_attack`).
+
+`get_guide({id: 'base-builder'})` is the game's guide to building, tiers included; `get_guide({})` lists all.
 
 ## Mood and Tired
 
