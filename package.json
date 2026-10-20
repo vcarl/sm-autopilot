@@ -19,6 +19,7 @@
     "render:map": "node scripts/render-map.ts",
     "lint": "oxlint --deny-warnings src",
     "test": "node --test src/*.test.ts src/play/*.test.ts src/play/*/*.test.ts src/play/*/*/*.test.ts src/picture/*.test.ts",
+    "flight:prompt": "node scripts/flight-prompt.ts",
     "moments": "node scripts/moments.ts"
   },
   "private": true,
