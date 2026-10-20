@@ -1,8 +1,8 @@
 # industry — the Industrialist's evening
 
-"I'll turn what I have into something worth more." Refined goods sell for 2–40× the ore
-(ore base value 4–1,200; refined 8–27,000). Crafting at the workshop trains crafting;
-components and modules train engineering too.
+"I'll turn what I have into something worth more." Not every recipe does: `basic_iron_smelting`
+turns 50 cr of `iron_ore` into an 18 cr `steel_plate`, so read `margin` first. Crafting at the
+workshop trains crafting; components and modules train engineering too.
 
 A bench escrows its inputs out of **this base's store** and delivers the output back into it.
 So the store, not the hold, is what has to be stocked, and the store's own delta before and
@@ -94,7 +94,7 @@ import {orient, quote, supply, craft, trace, note} from 'play';
 export default async function main() {
   await orient();
 
-  const q = await quote('refine_steel', 10, {at: 'workshop'});   // reads only
+  const q = await quote('refine_steel', 10);                     // reads only; names the facility it rents
   if (q.status !== 'done') return q;
   if ((q.detail.margin ?? 0) <= 0) { note(q.did); return q; }
 
@@ -103,10 +103,10 @@ export default async function main() {
     note(`${row.item_id}: buy ${row.buy_each} vs sell ${row.sell_each ?? 'no bid'}`);
   }
 
-  const stocked = await supply('refine_steel', 10, {at: 'workshop', maxSpend: 500});
+  const stocked = await supply('refine_steel', 10, {maxSpend: 500});
   if (stocked.status !== 'done') return stocked;
 
-  return craft('refine_steel', 10, {at: 'workshop'});            // stay docked while it runs
+  return craft('refine_steel', 10);                              // facility-only: it keeps running if you fly
 }
 ```
 
@@ -131,12 +131,7 @@ export default async function main() {
 ## Pitfalls
 
 - `qty` counts output items and rounds up to whole runs; `quote` says how many runs.
-- Stay docked for a workshop job, or craft at a facility and fly.
-- Facilities give no XP. Train crafting at the workshop.
 - Buying costs about 2.5% over the book's price; `buy_each` already includes it.
-- Silicon and iron are often not sold at all. Read `missing` and `trace` before committing.
-- Price a whole tree from where you sit: `trace()` carries the cheapest remembered ask for every
-  leaf, so one call replaces a tour of stations.
 - `margin` values the output at the **top** buy level only; a big order fetches less.
 - Outputs go to the store at this base: `sell(rows, {from:'store'})` here, or `withdraw`
   before flying.
@@ -183,7 +178,7 @@ export default async function main() {
 
 ### The owner verbs
 
-Not wrapped yet; reach them as raw commands, proven against the live game:
+Not wrapped; reach them as raw commands:
 
 | Verb | What it does |
 |---|---|
@@ -194,9 +189,22 @@ Not wrapped yet; reach them as raw commands, proven against the live game:
 | `account().commands.spacemolt_facility.job_cancel({job_id})` | drop a queued job |
 | `account().commands.spacemolt_facility.list_for_sale({facility_id, price})` | sell the facility itself; charges a **non-refundable** 1% listing fee up front |
 | `account().commands.spacemolt_facility.cancel_listing({facility_id})` | pull it back off the market |
+| `account().commands.spacemolt_facility.upgrade({facility_id, facility_type})` | raise it one tier; `facility_type` is the next tier's type (`upgrades()` lists what you can upgrade here) |
+| `account().commands.spacemolt.recycle({id, quantity})` | at a recycler you can use: `quantity` of recipe `id`'s output back into a share of its inputs |
 
 As owner you pay only labour on your own jobs; a renter pays labour plus the fee, and the fee
 is yours, not a split.
+
+### Tiers and recycling
+
+A facility's tier sets its speed: ×1, ×3, ×9, ×27 for tiers 1–4, at any skill. An upgrade charges
+the next tier's build cost (about 3× the last: `laser_gun_production_line` 190,000 cr,
+`energy_weapon_forge` 574,000) and stays one facility. Rent follows footprint, and power grows
+slower than speed (that chain draws 1, 2, 4, 6), so upgrade in place before you build a second.
+
+`recycle` feeds a recipe's outputs back and returns 30–40% of its inputs: always a net loss. It
+runs at your own, your faction's or an ally-granted recycler (`recycling_processor_mk_i`, 85,000 cr),
+never a rented one. Use it on surplus no market buys, when a third of the inputs outsells the output.
 
 ### Owner pitfalls
 
@@ -209,4 +217,4 @@ is yours, not a split.
 - `job_list` only answers for a facility whose station you are docked at right now; asking it
   from elsewhere fails, which is why `facilities()` never calls it.
 - Facility runs give **0 xp**, owned or rented: train crafting at the workshop. Building one
-  grants corporation_management xp once; no passive accrual has been seen.
+  grants corporation_management xp once.

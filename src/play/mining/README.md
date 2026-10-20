@@ -1,8 +1,8 @@
 # mining — the Prospector's evening
 
 The evening you are having is "I'll fill the hold and bring it back." It trains mining, piloting
-and navigation at once, needs nothing but a laser and a belt, and is the safest way to earn
-early. It is also the easiest evening to stagnate in: the same belt, the same trip, forever.
+and navigation at once, and is the safest way to earn early. It is also the easiest evening to
+stagnate in: the same belt, the same trip, forever.
 
 ## Functions
 
@@ -11,16 +11,16 @@ early. It is also the easiest evening to stagnate in: the same belt, the same tr
 | `gatherUntil({poi, base?, until?, maxTrips?, then?})` | one trip by default: out, hold full, back, stow, service; `maxTrips` alone makes that many trips; `until` loops trips (up to `maxTrips`, 6 by default) until the store holds enough; `then: 'sell'` sells each take |
 | `survey()` | reveal this system's hidden POIs (deep-core deposits, wormholes): `detail.newly_revealed` and `already_revealed` (each with `resources` when listed), `faint_signatures` it could not resolve, and the `survey_power` and `anomaly_hint` your fit brought. Nothing new is still `done`, and the `did` names the power. A lost reply is `partial` and not re-sent |
 
-Use `scout()` from the root to find belts: a POI with `type: asteroid_belt` (or `ice_field`,
-`gas_cloud`). Use `prices()` at a station to learn what each ore is worth before you choose a belt.
+`scout()` finds belts: a POI with `type: asteroid_belt` (or `ice_field`, `gas_cloud`). `prices()`
+at a station says what each ore is worth before you choose one.
 
 ## Worked example
 
 ```ts
-import {orient, scout, gatherUntil, prices, sell, note} from 'play';
+import {orient, scout, gatherUntil, sell, note} from 'play';
 
 export default async function main() {
-  const look = await orient();
+  await orient();
   const here = await scout();
   const belts = here.detail.pois.filter(p => p.type === 'asteroid_belt');
   if (!belts.length) { note('no belt in this system; scout a neighbour next'); return here; }
@@ -29,59 +29,59 @@ export default async function main() {
   const run = await gatherUntil({poi: belts[0].id, until: {item: 'aluminum_ore', quantity: 200}, maxTrips: 3});
   if (run.status === 'refused') return run;          // the reason says what would admit it
 
-  // The trip stows at the base, so `run.now.cargo` is empty: the take is `run.gained.items`
-  // (measured aboard) and `run.detail.settled` (what reached the store, ready to sell).
+  // The trip stows, so `run.now.cargo` is empty: the take is `run.gained.items` (aboard) and `run.detail.settled` (in the store).
   note(`took ${run.gained.items.map(r => `${r.quantity} ${r.item_id}`).join(', ')}`);
 
-  const worth = await prices();                       // what the take is worth here
   const cheap = run.detail.settled.filter(r => r.item_id !== 'aluminum_ore');
   return sell(cheap, {from: 'store'});                // the rest of the take, by name
 }
 ```
 
-## Playing the intro stage
+## Early income
 
 The way out: 2,500–10,000 credits, skills 1–3 in mining, trading and navigation, one T1 hull.
 
-`missions()` at every dock: a difficulty-1 "deliver 20 ore" or "visit X" pays for a trip you were
-making anyway.
+Read `missions()` at every dock. Iron Supply Run (mine 30 `iron_ore`, 1,500 cr) and Copper Requisition
+(25 `copper_ore`, 1,800 cr) pay ten times the ore's worth, once each. At mining 5, Deep Core Prospecting
+(20 `platinum_ore`, 5,000 cr, 10 `exotic_matter`) opens a chain paying 8,000, then 10,000 cr. The
+wallet cap can cut any turn-in (`credits_shortfall`, see Missions).
 
-First purchase at ~2,000 cr: a cargo expander (`buy`, then `refit({install:['cargo_expander_ii']})`),
-correct only if a utility slot is free (see "Getting a better ship").
+First purchase at ~2,000 cr: `cargo_expander_ii`, if a utility slot is free (`buy`, then `refit`).
+
+## Refining
+
+The starter recipes need no skill: `basic_iron_smelting` (10 `iron_ore` → 1 `steel_plate`) and
+`basic_copper_processing` (8 `copper_ore` → 1 `copper_wiring`). At base value both lose (50 cr of
+iron makes an 18 cr plate): they train crafting, not profit. The facility recipes yield 4× as
+much: `refine_steel` (5 → 2) and `process_copper_wiring` (4 → 2). Rent one: `at` is a facility id
+from `facilities().detail.here`. `quote(recipe, qty, {at})` prices the `margin`; if it is negative, sell the ore.
 
 ## What a good trip looks like
 
 - The belt is one hop or less from a station with `market` and `storage`. Fuel is the cost.
-- The ore has a buyer. Iridium at 53 cr beats aluminum at 6 cr for the same hold.
+- The ore has a buyer. `iridium_ore` (base value 90) beats `aluminum_ore` (6) for the same hold.
 - Your laser's power matches the deposit's `supported_power`. Deep-core deposits sit at hidden POIs
-  (`survey_system` reveals them) and need a `deep_core_extractor_*` module fitted; deep_core_mining
+  (`survey()` reveals them) and need a `deep_core_extractor_*`; they never go too sparse. deep_core_mining
   (+5% deep-core yield a level) trains by mining at power 3+ or by deep surveys.
-- The hold is empty when you leave, but for the fuel cells `service()` keeps aboard (about 5% of it;
-  no sell or stow takes them). `gatherUntil` refuses a full hold; `sell(rows)` or `stow(rows)` first.
+- The hold is empty when you leave, but for `service()`'s fuel cells. `gatherUntil` refuses a full hold.
 
 ## When to reconsider
 
-- A trip yields the same ore your store already has 400 of. Sell it, refine it (`recipes()`, then `craft()`), or
-  change belts.
-- Yield per trip drops: the site is depleting (`ended: 'depleted'`). A deposit's `remaining` is its
-  stock: -1 never depletes, 0 is empty for now; a finite one regenerates at least 1 unit a minute
-  toward `max_remaining`. Below a quarter of that, a strong array can lose its lock
-  (`deposit_too_sparse`; `lock_minimum_stock` says how much it needs). Work another deposit meanwhile.
-- A site with several ores picks one each cycle, weighted by `richness` and, as Mining rises, toward
-  rarer ores, so a mixed site returns a mix (a fitted extraction filter re-targets the cycle).
-- The mining skill has passed 5 and the credits per hour are flat: the ceiling is the hull's
-  cargo, not your skill. An Archimedes (T1 miner, 80 cargo, ~2,500 cr) is barely more than a
-  starter's ~70; an Excavation (T2, 200 cargo, ~8,000 cr) is the real step. Find both with
-  `shipsForSale()`.
+- A trip yields the same ore your store already has 400 of. Sell it, refine it, or change belts.
+- Yield per trip drops (`ended: 'depleted'`). Below a quarter of `max_remaining` a strong array loses
+  its lock (`deposit_too_sparse`; `lock_minimum_stock` says how much it needs). Work another meanwhile.
+- A site with several ores draws one each cycle, weight `richness × (1 + 0.1 × mining level × rank)`,
+  rank 0 common to 4 legendary. Rare deposits are thin (richness ~9–17 against ~42), so skill trades
+  tonnage for rarity. A fitted `filter_*` module drops its ore from the draw.
+- Mining past 5 and flat credits per hour: the ceiling is cargo. An Archimedes (T1, 80, ~2,500 cr)
+  barely beats a starter's ~70; an Excavation (T2, 200, ~8,000 cr) is the step. See `shipsForSale()`.
 
 ## Pitfalls
 
 - A gather that comes back with `yield: []` is not evidence of a take; read `detail.ended`.
-- Mining while docked is refused by the game. `gatherUntil` flies first; a station POI or a
-  base id as `poi` is a refusal, not a trip.
+- A station POI or a base id as `poi` is a refusal, not a trip: the game refuses mining docked.
 - Belts in police-0 systems have pirates. `scout` reports `police_level`.
-- Tired mid-dig ends the mining leg, flies the return leg, stows and services, then stops with
+- Tired mid-dig ends the mining leg, flies back, stows and services, then stops with
   `ended: 'tired'`. Resupplying clears it; the next `gatherUntil` continues.
-- A trip cut off out at the belt leaves its ore aboard. Re-run `gatherUntil` with the same
-  arguments: it re-enters at the leg the live world implies, and the stow at the base moves
-  every hold row the belt's own resources name — the earlier trip's ore included.
+- A trip cut off at the belt leaves its ore aboard. Re-run `gatherUntil` with the same arguments:
+  it re-enters at the leg the live world implies, and the stow moves the earlier ore too.
