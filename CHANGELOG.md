@@ -7,6 +7,22 @@ All notable changes to this plugin are recorded here. The format follows
 
 ## [Unreleased]
 
+## [2026.10.4] - 2026-10-20
+
+### Added
+
+- End-of-flight pictures, off unless `SPACEMOLT_IMAGER_URL` names an image server speaking
+  mlx-serve's `/v1/images/generations` (made with Qwen-Image-2.1-Turbo on mlx-serve). After each
+  flight in which the pilot acted, one message goes to the journal webhook: a map of the
+  juncture's systems, route and actions (earlier runs muted behind it) and two pictures of the
+  flight's moments seen from the cockpit, with a caption. The pilot's look is read from its
+  `SOUL.md` (build, hair, clothes). Optional: `SPACEMOLT_IMAGER_KEY`, `SPACEMOLT_IMAGE_MODEL`,
+  `SPACEMOLT_IMAGE_STYLE`.
+- Pictures never cost the pilot anything: they are drawn in a separate process after the run has
+  answered, a failure is journalled (`picture`), and a flight that ends while one is still drawing
+  is skipped. Each post takes about 35 to 50 seconds of the image server and about 4 MB in
+  `spacemolt/runtime/images/`, which is never rotated.
+
 ## [2026.10.3] - 2026-10-19
 
 ### Action required
