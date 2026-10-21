@@ -55,6 +55,8 @@ export declare const handMade: (item: string) => Effect.Effect<{
     recipe: string;
     line: string;
 } | undefined, never, Game>;
+/** Up to eight recipe ids `text` most likely meant, matched on each id and its outputs' item ids (`nearest`). */
+export declare const nearRecipes: (text: string) => Effect.Effect<string[], never, never>;
 /** Where the quote says it runs and what it charges beyond the inputs. No fee at your own
  * facility and nothing at all at the workshop, so absent reads as 0. */
 export interface Venue {

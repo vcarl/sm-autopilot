@@ -440,7 +440,8 @@ its own functions (`tradeRun`, `supply`), refuse as they did. To decide in the p
 
 A refusal from the game asks the same way when the library knows the fix. This applies to a call of yours and to a
 raw `account().commands.<tool>.<action>()` send. The fixes are `goTo('<base>')` to dock, then send it again
-(`not_docked`, `not_docked_at_base`); one choice for each recipe the game lists (`invalid_recipe`); and a
+(`not_docked`, `not_docked_at_base`); one choice for each recipe the game lists (`invalid_recipe`); for an id the
+game does not know, one choice for each catalog id nearest it (a recipe, a `facility_type`, an `item_id`); and a
 `faction_lockbox` built here, with its cost in the choice (`no_faction_storage`). A fix taken sends the call
 again and returns its result. If nobody can answer (a `spacemolt_query`, or `{ask: false}`), the flight does not
 pause. Then the fixes are pasteable calls first in the Outcome's `next`; a raw send throws the game's error with a

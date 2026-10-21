@@ -21,7 +21,7 @@ import {Game,field,message,type GameError} from '../game.ts';
 import {bookEffect,buyEffect,knownBooks,overpay,tickNow} from '../market.ts';
 import {oreEach,traceEffect,type TraceNode} from './catalog.ts';
 import {gatherUntilEffect} from '../mining/mining.ts';
-import {kept,offSpec,told} from '../rows.ts';
+import {kept,nearest,offSpec,told} from '../rows.ts';
 import {Stopped,acct,admit,askOnBlock,chain,edge,jobEffect,mayAsk,pilot,reached,runtimeDir,step,stopped,type Run} from '../runtime.ts';
 import {OffSpec,folded,stowEffect} from '../storage.ts';
 import {readStores,rememberNoFacility} from '../world.ts';
@@ -225,17 +225,17 @@ const call=(recipeId:string,quantity:number,at?:string)=>
   ({id:recipeId,quantity,source:'storage',deliver_to:'storage',
     ...at===undefined?{}:at==='workshop'?{preset:'workshop'}:{facility_id:at}});
 
+/** Up to eight recipe ids `text` most likely meant, matched on each id and its outputs' item ids (`nearest`). */
+export const nearRecipes=(text:string)=>Effect.map(graphOf(),loaded=>{
+  if(Result.isFailure(loaded))return [];
+  const recipes=loaded.success.recipes.filter(recipe=>!recipe.hidden),outputs=new Map(recipes.map(recipe=>
+    [recipe.id,[recipe.id,...(recipe.outputs??[]).map(out=>out.item_id)].join(' ')]));
+  return nearest(text,outputs.keys(),id=>outputs.get(id)??id);
+});
+
 /** The server's own dry run: consumes nothing, queues nothing. A bench that cannot run the
  * recipe answers with an error whose text already names the facility it wants — that text IS
  * the answer, so it comes back as a refusal, with the server's code. A lost reply is the caller's: a read, but not reissued. */
-/** Up to eight recipe ids whose id, or an output's item id, contains a word of `text`: the ones it most likely meant. */
-const nearRecipes=(text:string)=>Effect.map(graphOf(),loaded=>{
-  if(Result.isFailure(loaded))return [];
-  const asked=text.toLowerCase().split(/[^a-z_]+/).filter(word=>word.length>2);
-  return loaded.success.recipes.filter(recipe=>!recipe.hidden&&asked.some(word=>recipe.id.includes(word)||(recipe.outputs??[]).some(out=>out.item_id.includes(word))))
-    .slice(0,8).map(recipe=>recipe.id);
-});
-
 const dryRun=(recipeId:string,quantity:number,at?:string)=>Effect.gen(function*() {
   const sent=yield* Effect.result((yield* Game).command('spacemolt/craft',{...call(recipeId,quantity,at),dry_run:true}));
   if(Result.isFailure(sent)) {

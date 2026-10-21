@@ -7,6 +7,7 @@ import {Effect} from 'effect';
 import type {ReadinessCommand} from '../readiness.ts';
 import {bridgeWorld} from '../test-support/bridge-world.ts';
 import {fixesFor} from './fixes.ts';
+import {useCatalog} from './industry/crafting.ts';
 import {buildFactionFacility} from './industry/facilities/facilities.ts';
 import {Game} from './game.ts';
 import {account,answer,bind,edge,jobEffect,onBinding,unbind,type Question} from './runtime.ts';
@@ -98,8 +99,15 @@ test('each code in the table builds its own ways',async()=>{
     assert.deepEqual(await fixes('invalid_recipe',"Multiple recipes produce 'steel_plate'. Specify a recipe_id: [refine_steel basic_iron_smelting]",{id:'steel_plate',quantity:1}),[
       {id:'refine_steel',choice:'send it again with id refine_steel',call:"account().commands.spacemolt.craft({id:'refine_steel',quantity:1})",params:{id:'refine_steel',quantity:1}},
       {id:'basic_iron_smelting',choice:'send it again with id basic_iron_smelting',call:"account().commands.spacemolt.craft({id:'basic_iron_smelting',quantity:1})",params:{id:'basic_iron_smelting',quantity:1}}]);
-    assert.deepEqual(await fixes('invalid_recipe',"Recipe 'maul' not found. Use 'catalog' with type=recipes to see all available recipes and their IDs.",{id:'maul'}),[],
-      'no list, no guess');
+    // Verbatim from crafting.go:504; live 10-21 the pilot typed forge_vanadian_steel.
+    const notFound=(id:string)=>`Recipe '${id}' not found. Use 'catalog' with type=recipes to see all available recipes and their IDs.`;
+    const recipe=(id:string,out:string)=>({id,name:id,category:'Refining',description:'',crafting_time:1,inputs:[],outputs:[{item_id:out,quantity:1}]});
+    useCatalog(async()=>({version:'test',items:[],recipes:[recipe('refine_steel','steel_plate'),recipe('forge_nickel_steel','nickel_steel'),
+      recipe('forge_vanadium_steel','vanadium_steel')]}) as never);
+    assert.deepEqual((await fixes('invalid_recipe',notFound('forge_vanadian_steel'),{id:'forge_vanadian_steel',quantity:25})).map(row=>row.call),[
+      "account().commands.spacemolt.craft({id:'forge_vanadium_steel',quantity:25})","account().commands.spacemolt.craft({id:'forge_nickel_steel',quantity:25})",
+      "account().commands.spacemolt.craft({id:'refine_steel',quantity:25})"],'the nearest first');
+    assert.deepEqual(await fixes('invalid_recipe',notFound('maul'),{id:'maul'}),[],'no word of it in any recipe, no guess');
     assert.deepEqual(await fixes('no_faction_storage'),[{id:'faction_lockbox',choice:"buildFactionFacility('faction_lockbox') here for 5000 cr, then send it again",
       call:"buildFactionFacility('faction_lockbox')"}],'a way that spends says what');
     assert.deepEqual(await fixes('skill_required'),[]);

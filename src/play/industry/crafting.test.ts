@@ -11,7 +11,7 @@ import {readJournal} from '../../run-record.ts';
 import {bridgeWorld,type WorldOptions} from '../../test-support/bridge-world.ts';
 import {GameLive,type Game} from '../game.ts';
 import {boundRun,bind,stop,unbind,type Pilot,type Run} from '../runtime.ts';
-import {craft,craftEffect,jobs,quote,recipes,revalidated,supply,useCatalog} from './crafting.ts';
+import {craft,craftEffect,jobs,nearRecipes,quote,recipes,revalidated,supply,useCatalog} from './crafting.ts';
 import {worldDb} from '../world.ts';
 
 /** The catalog behind the fake bench's one recipe: 5 iron ore into 2 steel plate. */
@@ -621,4 +621,11 @@ test('a queue row that does not read is left out and said, not a failed jobs rea
     assert.deepEqual(out.detail.jobs.map(row=>row.job_id),['j1']);
     assert.deepEqual(f.defects(),[]);
   } finally {f.close();}
+});
+
+// Live 2026-10-21 (kvothe 10:34Z): forge_vanadian_steel named no recipe near it, as the underscored id was one word.
+test('a typo\'d recipe id finds the recipe it meant first',async()=>{
+  const recipe=(id:string)=>({...CATALOG.recipes[0]!,id,outputs:[]});
+  useCatalog(async()=>({...CATALOG,recipes:[...CATALOG.recipes,recipe('forge_durasteel'),recipe('forge_vanadium_steel')]}));
+  assert.deepEqual(await Effect.runPromise(nearRecipes('forge_vanadian_steel')),['forge_vanadium_steel','forge_durasteel','refine_steel']);
 });
