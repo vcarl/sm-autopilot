@@ -1,9 +1,11 @@
 /** `cause` is the error the lib threw, kept for the Promise seams (a pilot's own
- * `account().commands` rethrows it, so `instanceof SpacemoltError` and `.code` still work). */
+ * `account().commands` rethrows it, so `instanceof SpacemoltError` and `.code` still work). `details` is the
+ * server's structured data beside the message, when it sent any. */
 type Refusal = {
     readonly action: string;
     readonly code: string;
     readonly message: string;
+    readonly details?: Record<string, unknown>;
     readonly cause?: unknown;
 };
 declare const Rejected_base: new <A extends Record<string, any> = {}>(args: import("effect/Types").VoidIfEmpty<{ readonly [P in keyof A as P extends "_tag" ? never : P]: A[P]; }>) => import("effect/Cause").YieldableError & {

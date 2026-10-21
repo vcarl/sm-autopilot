@@ -266,6 +266,6 @@ function summarise(ok:boolean,reply:unknown):string {
   if(!isRecord(body))return text(body).slice(0,SUMMARY_CHARS);
   const bits=[text(body.command??body.action??body.kind),
     body.tick===undefined?'':`tick ${text(body.tick)}`,
-    text(body.error??body.message)];
+    text(body.error??body.message),text(body.hint)];
   return bits.filter(Boolean).join(' ').slice(0,SUMMARY_CHARS);
 }

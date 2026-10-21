@@ -561,6 +561,8 @@ function presentOf(run:RunState):Present {
 /** What a helper hands back; the wrapper measures the rest. */
 export interface Said<Detail> {status:Status;did:string;why?:string;detail:Detail;next?:string[]}
 
+/** The game's own `hint` on a reply a function hands back as its detail: the server's next step, said first in `next`. */
+const hintOf=(detail:unknown)=>{const hint=field(detail,'hint');return typeof hint==='string'&&hint?[hint]:[];};
 function finish<Detail>(run:RunState,fn:string,before:Snapshot,part:Said<Detail>):Outcome<Detail> {
   const after=snapshot(run);
   const items:Row[]=[];
@@ -576,7 +578,7 @@ function finish<Detail>(run:RunState,fn:string,before:Snapshot,part:Said<Detail>
       hull:before.ship===after.ship?Math.max(0,before.hull-after.hull):0,
       minutes:Math.round((after.at-before.at)/6000)/10},
     gained:{credits:Math.max(0,credits),items,xp},
-    now:presentOf(run),next:(part.next??[]).slice(0,3),detail:part.detail};
+    now:presentOf(run),next:[...hintOf(part.detail),...part.next??[]].slice(0,3),detail:part.detail};
 }
 
 const seconds=(ms:number)=>`${(ms/1000).toFixed(ms<10_000?1:0)}s`;

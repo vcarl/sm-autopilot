@@ -51,6 +51,8 @@ test('job measures cost and gains from state reads, and streams its entry and ex
     assert.equal(out.next.length,3,'next is capped at three');
     assert.equal(out.now.ship.fuel,93);
     assert.deepEqual(f.lines.map(line=>line.split('  ')[0]),['▶ probe x','✓ probe']);
+    const hinted=await job('probe','',async()=>({status:'done' as const,did:'built',detail:{hint:'Deposit to fill it.'},next:['a','b','c']}));
+    assert.deepEqual(hinted.next,['Deposit to fill it.','a','b'],'a reply handed back as the detail says its hint first');
     // A throw is a failed Outcome, never an exception out of the library.
     const broke=await job('probe','',async()=>{throw new Error('boom');});
     assert.deepEqual([broke.status,broke.why],['failed','boom']);

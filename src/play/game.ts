@@ -39,7 +39,7 @@ export const rawError=(cause:Cause.Cause<unknown>):unknown=>{
 export const classify=(action:string)=>(cause:unknown):GameError=>{
   if(replyLost(cause))return new ReplyLost({action,cause});
   if(notSent(cause))return refusal({action,code:'not_sent',message:message(cause),cause});
-  if(cause instanceof SpacemoltError)return refusal({action,code:cause.code,message:cause.message,cause});
+  if(cause instanceof SpacemoltError)return refusal({action,code:cause.code,message:cause.message,...cause.details?{details:cause.details}:{},cause});
   throw cause;
 };
 

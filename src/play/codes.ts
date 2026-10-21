@@ -7,8 +7,9 @@
 import {Data} from 'effect';
 
 /** `cause` is the error the lib threw, kept for the Promise seams (a pilot's own
- * `account().commands` rethrows it, so `instanceof SpacemoltError` and `.code` still work). */
-type Refusal = {readonly action: string; readonly code: string; readonly message: string; readonly cause?: unknown};
+ * `account().commands` rethrows it, so `instanceof SpacemoltError` and `.code` still work). `details` is the
+ * server's structured data beside the message, when it sent any. */
+type Refusal = {readonly action: string; readonly code: string; readonly message: string; readonly details?: Record<string, unknown>; readonly cause?: unknown};
 
 /** The server refused, definitively; nothing landed. `code` is the server's own. */
 export class Rejected extends Data.TaggedError('Rejected')<Refusal> {}

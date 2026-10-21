@@ -182,3 +182,12 @@ test('the re-read a caller asks for fails with the raw error, to be said and gon
   assert.ok(failed._tag==='SeamFailed');
   assert.equal(failed.cause,error);
 });
+
+test('a refusal keeps the server\'s structured details beside its message',async()=>{
+  const details={missing:[{item_id:'steel_plate',need:200,have:0}]};
+  const error=await failure(new SpacemoltError('missing_faction_materials','short',{details}));
+  assert.equal(error._tag,'Rejected');
+  if(error._tag!=='Rejected')return;
+  assert.deepEqual(error.details,details);
+  assert.equal((await refused('not_docked') as {details?:unknown}).details,undefined,'none sent, none kept');
+});

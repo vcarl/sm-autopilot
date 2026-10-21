@@ -94,3 +94,12 @@ test('a refused command keeps the game\'s error whole, up to a few hundred chara
     assert.equal(readJournal(runtime).at(-1)?.summary,error);
   } finally {rmSync(runtime,{recursive:true,force:true});}
 });
+
+test('a reply\'s hint is kept in its summary',()=>{
+  const runtime=temp();
+  try {
+    journalCommand(runtime,'spacemolt_facility/faction_build',{facility_type:'faction_lockbox'},true,
+      {structuredContent:{action:'faction_build',hint:'Deposit items with target=faction to fill it.'}});
+    assert.equal(readJournal(runtime).at(-1)?.summary,'faction_build Deposit items with target=faction to fill it.');
+  } finally {rmSync(runtime,{recursive:true,force:true});}
+});
