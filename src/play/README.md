@@ -438,6 +438,14 @@ the same item for the same reason takes your first answer again. Calls the libra
 its own functions (`tradeRun`, `supply`), refuse as they did. To decide in the program instead, pass `{ask: false}`
 (on `refit`, inside its change) and read the refusal's `why`.
 
+A refusal from the game asks the same way when the library knows the fix. This applies to a call of yours and to a
+raw `account().commands.<tool>.<action>()` send. The fixes are `goTo('<base>')` to dock, then send it again
+(`not_docked`, `not_docked_at_base`); one choice for each recipe the game lists (`invalid_recipe`); and a
+`faction_lockbox` built here, with its cost in the choice (`no_faction_storage`). A fix taken sends the call
+again and returns its result. If nobody can answer (a `spacemolt_query`, or `{ask: false}`), the flight does not
+pause. Then the fixes are pasteable calls first in the Outcome's `next`; a raw send throws the game's error with a
+`next:` line.
+
 ```ts
 import {shipsForSale, buyShip, ask} from 'play';
 
