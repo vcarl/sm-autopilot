@@ -130,7 +130,7 @@ export function unitValue(books:readonly RememberedBook[],item_id:string,baseVal
   if(bids.length)return {unit:median(bids),source:'median bid',markets:bids.length};
   return baseValue?{unit:baseValue,source:'base value',markets:0}:null;
 }
-/** What the root recipe's direct inputs and its outputs are worth at market, side by side: an estimate, not the cost to
+/** What the root recipe's direct inputs and its outputs are worth at the catalog's base value, side by side: not the cost to
  * produce. A total is over the valued rows only; `valued` of `of` says how many those are. */
 export interface TraceValue {
   components:{total:number;valued:number;of:number};
@@ -144,20 +144,15 @@ export interface Traced {
   /** The recipes to run, in the order to run them (deepest first), each with its runs. */
   steps:{recipe:string;runs:number;facility_only:boolean}[];
   /** The raw items at the bottom, all of each the tree consumes, beside what the hold and every store hold of it
-   * (`aboard`, `stored` by base, as last seen) and, when prices were asked for, the cheapest ask remembered for it. */
+   * (`aboard`, `stored` by base, as last seen) and the cheapest ask remembered for it, when one is. */
   leaves:{item_id:string;need:number;have:number;source:string;aboard:number;stored:{base_id:string;quantity:number}[];ask:CheapAsk|null}[];
   tree:TraceNode|null;
   /** Each other recipe for an item in the tree, one level: what it takes instead. */
   alternates:{item_id:string;recipe:string;facility_only:boolean;inputs:{item_id:string;quantity:number}[];makes:number}[];
   /** Runs × each recipe's `crafting_time`: base ticks, before the workshop's skill factor or a facility's throughput. */
   crafting_ticks:number;
-  /** The root recipe's inputs and outputs at market value, for the whole order; null when the root is not crafted, or
-   * prices were not asked for. */
+  /** The root recipe's inputs and outputs at base value, for the whole order; null when the root is not crafted. */
   value:TraceValue|null;
-}
-export interface TraceOptions {
-  /** Show each leaf's cheapest remembered ask and the root's market value. Off by default. */
-  prices?:boolean;
 }
 const noTraced=():Traced=>({steps:[],leaves:[],tree:null,alternates:[],crafting_ticks:0,value:null});
 
@@ -234,9 +229,9 @@ export function oreEach(graph:RecipeGraph,books:readonly RememberedBook[],now:nu
  * mined, harvested or bought, net of what the hold and every store already hold of each intermediate. Each item's
  * route prefers recipes whose leaves are gathered over bought over only crafted, hand-craftable over facility-only,
  * and, when remembered asks price every leaf of both, the cheaper; the others are listed one level deep. Prints the
- * tree as text, with no price unless `prices` asks for them. Reads only: the catalog, the hold, and `world.db`. */
-export const traceEffect=(itemOrRecipe:string,quantity=1,{prices=false}:TraceOptions={})=>
-  jobEffect<Traced>('trace',`${quantity} ${itemOrRecipe}${prices?' with prices':''}`,Effect.gen(function*() {
+ * tree as text. Reads only: the catalog, the hold, and `world.db`. */
+export const traceEffect=(itemOrRecipe:string,quantity=1)=>
+  jobEffect<Traced>('trace',`${quantity} ${itemOrRecipe}`,Effect.gen(function*() {
     const none=noTraced(),fail=(why:string,next:string[]=[])=>({status:'refused' as const,did:`traced no ${itemOrRecipe}`,why,detail:none,next});
     if(!Number.isInteger(quantity)||quantity<1)return fail('quantity must be a whole number of output units, at least one');
     const loaded=yield* graphOf();
@@ -258,8 +253,8 @@ export const traceEffect=(itemOrRecipe:string,quantity=1,{prices=false}:TraceOpt
       const recipe=forced??(source==='crafted'&&!path.has(item)?pick(item,path):undefined);
       if(!recipe) {
         const leaf=leaves.get(item)??{item_id:item,need:0,have:haveOf(item),source,aboard:aboard[item]??0,stored:storedOf(item),ask:null};
-        leaf.need+=need;leaf.ask=prices?cheapestAsk(books,item,leaf.need,undefined,now)??null:null;leaves.set(item,leaf);
-        const ask=prices?cheapestAsk(books,item,need,undefined,now):undefined;
+        leaf.need+=need;leaf.ask=cheapestAsk(books,item,leaf.need,undefined,now)??null;leaves.set(item,leaf);
+        const ask=cheapestAsk(books,item,need,undefined,now);
         return {item_id:item,need,have:leaf.have,source,...path.has(item)?{cycle:true as const}:{},...ask?{ask}:{},inputs:[]};
       }
       chosen.set(item,recipe.id);
@@ -278,10 +273,12 @@ export const traceEffect=(itemOrRecipe:string,quantity=1,{prices=false}:TraceOpt
     const alternates=[...chosen].flatMap(([item,id])=>options(item).filter(recipe=>recipe.id!==id).map(recipe=>({item_id:item,recipe:recipe.id,
       facility_only:!graph.isCraftable(recipe),inputs:(recipe.inputs??[]).map(({item_id,quantity:n})=>({item_id,quantity:n})),makes:makes(recipe,item)})));
     const root=found.recipe??(tree.recipe===undefined?undefined:graph.recipe(tree.recipe)),values=baseValues(dir);
-    const valued=(rows:Rows,runs:number)=>(rows??[]).map(({item_id,quantity:n})=>{const est=unitValue(books,item_id,values.get(item_id));
-      return {item_id,quantity:n*runs,unit:est?.unit??null,source:est?.source??null,markets:est?.markets??0};});
+    // Live 2026-10-20 (kvothe 19:25Z): median asks over books thousands of ticks old put circuit_board's inputs at ~15k cr
+    // against a 1.2k output, and the pilot wrote crafting off on it. A recipe is shown at the catalog's base value only.
+    const valued=(rows:Rows,runs:number)=>(rows??[]).map(({item_id,quantity:n})=>{const unit=values.get(item_id)??null;
+      return {item_id,quantity:n*runs,unit,source:unit===null?null:'base value' as const,markets:0};});
     const summed=(rows:TraceValue['inputs'])=>({total:Math.round(rows.reduce((sum,row)=>sum+(row.unit??0)*row.quantity,0)),valued:rows.filter(row=>row.unit!==null).length,of:rows.length});
-    const value=prices&&root?(()=>{const runs=Math.ceil(quantity/makes(root,found.item)),inputs=valued(root.inputs,runs),outputs=valued(root.outputs,runs);
+    const value=root?(()=>{const runs=Math.ceil(quantity/makes(root,found.item)),inputs=valued(root.inputs,runs),outputs=valued(root.outputs,runs);
       return {components:summed(inputs),output:summed(outputs),inputs,outputs};})():null;
     const detail:Traced={steps:[...steps.values()].sort((a,b)=>(depth.get(b.recipe)??0)-(depth.get(a.recipe)??0)),leaves:[...leaves.values()],tree,alternates,
       crafting_ticks:Math.round([...steps.values()].reduce((sum,row)=>sum+row.runs*(graph.recipe(row.recipe)?.crafting_time??0),0)*100)/100,value};
@@ -295,12 +292,11 @@ export const traceEffect=(itemOrRecipe:string,quantity=1,{prices=false}:TraceOpt
     };
     const valueLine=value&&`    components ${worth(value.components,value.inputs,'inputs')} · output ${worth(value.output,value.outputs,'outputs')}`;
 
-    const asked=(ask:CheapAsk|null|undefined)=>ask?` · cheapest ask ${ask.price} at ${named(ask.base_id)}${ask.age===null?'':` (${ask.age} ticks old)`}`:'';
     const rent=facilityBook(dir),rentals=detail.steps.flatMap(row=>{const recipe=row.facility_only?graph.recipe(row.recipe):undefined;
       return recipe?[`  ${row.recipe} → ${rent(recipe)}`]:[];});
     const label=(node:TraceNode)=>node.recipe!==undefined
       ?`${node.need}x ${node.item_id}  (${node.recipe})${node.facility_only?' [facility: rent below]':''}${node.have?`  have ${node.have}`:''}`
-      :`${node.need}x ${node.item_id}  [${how(node)}]${node.have?`  have ${node.have}`:''}${asked(node.ask)}`;
+      :`${node.need}x ${node.item_id}  [${how(node)}]${node.have?`  have ${node.have}`:''}`;
     const drawn=[label(tree),...valueLine?[valueLine]:[]];
     const draw=(nodes:TraceNode[],prefix:string)=>nodes.forEach((node,i)=>{const last=i===nodes.length-1;
       drawn.push(`${prefix}${last?'└── ':'├── '}${label(node)}`);draw(node.inputs,prefix+(last?'    ':'│   '));});
@@ -309,7 +305,7 @@ export const traceEffect=(itemOrRecipe:string,quantity=1,{prices=false}:TraceOpt
     const groups=new Map<string,string[]>();
     for(const leaf of detail.leaves) {
       const group=leaf.have>=leaf.need?'Have':(how({source:leaf.source})).replace(/^./,c=>c.toUpperCase());
-      groups.set(group,[...groups.get(group)??[],`${leaf.need}x ${leaf.item_id}${leaf.have?` (have ${leaf.have}: ${where(leaf)})`:''}${asked(leaf.ask)}`]);
+      groups.set(group,[...groups.get(group)??[],`${leaf.need}x ${leaf.item_id}${leaf.have?` (have ${leaf.have}: ${where(leaf)})`:''}`]);
     }
     const raw=[...groups].flatMap(([group,rows])=>rows.map((row,i)=>`  ${i?' '.repeat(group.length+1):`${group}:`}  ${row}`));
     const alt=detail.alternates.slice(0,ALTERNATES).map(row=>`  ${row.item_id}: ${row.recipe}${row.facility_only?' [facility]':''} (${listed(row.inputs)} → ${row.makes})`);
@@ -325,9 +321,8 @@ export const traceEffect=(itemOrRecipe:string,quantity=1,{prices=false}:TraceOpt
         +(detail.steps.length?` (${detail.steps.map(row=>`${row.runs} × ${row.recipe}`).join(', ')})`:'')
         +`, raw ${detail.leaves.map(row=>`${row.item_id} ${row.have}/${row.need}`).join(', ')||'nothing'}`
         +(value?`; components ≈ ${value.components.valued?cr(value.components.total):'?'}${value.components.valued<value.components.of?` (${value.components.valued} of ${value.components.of} valued)`:''}`
-          +`, output ≈ ${value.output.valued?cr(value.output.total):'?'} at market`:''),
+          +`, output ≈ ${value.output.valued?cr(value.output.total):'?'} at base value`:''),
       detail,
-      next:[...lacking.slice(0,3).map(row=>`${row.item_id}: ${row.need-row.have} more to get (${how({source:row.source})}${row.ask?`, or buy at ${named(row.ask.base_id)} for ${row.ask.price}`:''})`),
-        ...prices?[]:[`trace('${itemOrRecipe}', ${quantity}, {prices: true}) — each leaf's cheapest remembered ask, and the inputs and output at market value`]]};
+      next:lacking.slice(0,3).map(row=>`${row.item_id}: ${row.need-row.have} more to get (${how({source:row.source})})`)};
   }));
-export function trace(itemOrRecipe:string,quantity=1,options:TraceOptions={}):Promise<Outcome<Traced>> {return edge(traceEffect(itemOrRecipe,quantity,options));}
+export function trace(itemOrRecipe:string,quantity=1):Promise<Outcome<Traced>> {return edge(traceEffect(itemOrRecipe,quantity));}
