@@ -11,13 +11,14 @@
  * carries no context, so the run's binding is one module slot; only a query's is AsyncLocalStorage. One pilot
  * per bridge process today; a multi-account runtime is a second process per account (DESIGN.md "Fleet").
  */
-import type { Account, SkillProgress } from '@spacemolt/lib';
+import { type Account, type SkillProgress } from '@spacemolt/lib';
 import { Cause, Context, Effect, Layer, Schema } from 'effect';
 import type { ReadinessAccount, ReadinessCommand } from '../readiness.ts';
 import { type RunRecord } from '../run-record.ts';
 import type { DockBlocked } from '../dock.ts';
 import { TravelBlocked, type ArrivalUnresolved } from '../travel.ts';
 import { Game, type GameError, type Ledger } from './game.ts';
+import { type Refused } from './fixes.ts';
 import type { Outcome, Present, Row, Status, Want } from './types.ts';
 export type Mood = 'Cautious' | 'Focused' | 'Opportunistic' | 'Aggressive' | 'Relaxed' | 'Tired';
 export type Stance = 'Prospector' | 'Industrialist' | 'Trader' | 'Carrier' | 'Hunter' | 'Scout';
@@ -163,6 +164,8 @@ declare const Run_base: Context.ServiceClass<Run, "Run", {
     pauseStopped: boolean;
     /** Each block `askOnBlock` asked about this flight, by its key, and the way the answer took. */
     readonly answered: Map<string, string>;
+    /** The last command the game refused since the pilot's own call began: what a refused call offers fixes for. */
+    refused: Refused | undefined;
 }>;
 /** One run: everything `bind()` starts afresh, provided beside the binding's `Game`. */
 export declare class Run extends Run_base {
@@ -238,8 +241,8 @@ export declare const askOnBlock: <D, E = never, R = never>(blocked: Said<D>, on:
     ask?: boolean | undefined;
     skip?: "skip" | "keep";
 }, ways: readonly (Way<D, E, R> | undefined)[]) => Effect.Effect<Said<D>, E | Stopped, R | Run>;
-/** Whether a block may be asked about here (`askOnBlock`): the pilot's own call, in a flight someone answers, not
- * opted out. A site whose ways cost a read asks this first. */
+/** Whether a block may be asked about here (`askOnBlock`): the pilot's own call (a play function at depth 1, a raw
+ * send at 0), in a flight someone answers, not opted out. A site whose ways cost a read asks this first. */
 export declare const mayAsk: (ask?: boolean) => Effect.Effect<boolean, never, Run>;
 /** The calls an answer runs, as one Said: each only after the one before was `done`; the dids joined, the detail the
  * last one's (`fallback` when it built none, or a step before it was not done). */
@@ -335,7 +338,10 @@ export declare const job: <Detail>(fn: string, args: string, body: () => Promise
 /** `job` for an Effect body: the same bookkeeping, every failure folded into the Outcome by
  * `said`. A defect is a `failed` Outcome too, as a throw is in `job`, and its stack goes to a
  * `defect` line. Never exported from a barrel. */
-export declare const jobEffect: <D, R extends Game | Run = Game | Run>(fn: string, args: string, body: Effect.Effect<Said<D>, GameError | TravelBlocked | ArrivalUnresolved | DockBlocked, R>, call?: string) => Effect.Effect<Outcome<D>, never, Game | Run | R>;
+export declare const jobEffect: <D, R extends Game | Run = Game | Run>(fn: string, args: string, body: Effect.Effect<Said<D>, GameError | TravelBlocked | ArrivalUnresolved | DockBlocked, R>, opts?: {
+    call?: string;
+    ask?: boolean | undefined;
+}) => Effect.Effect<Outcome<D>, never, Game | Run | R>;
 /** The Promise a pilot function returns: `effect` run through the binding's runtime. A defect
  * outside any job is a `failed` Outcome and a `defect` line. */
 export declare function edge<D>(effect: Effect.Effect<Outcome<D>, never, Game | Run>): Promise<Outcome<D>>;

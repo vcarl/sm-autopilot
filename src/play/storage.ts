@@ -164,7 +164,7 @@ const moveEffect:(fn:'stow'|'withdraw',items:Want[],opts?:{ask?:boolean})=>Effec
       question:`${full[0].item_id}: the hold has no room for it at ${at.docked}; ${room} is the biggest row aboard`},
       [{id:'room',choice:`stow ${room} to make room`,take:chain(detail,[moveEffect('stow',[{item_id:room}])],moveEffect('withdraw',rest))
         .pipe(Effect.map(answer=>moved.length?{...answer,did:`${summary}; ${answer.did}`}:answer))}]);
-  })));
+  })),{ask:opts.ask});
 };
 
 export const stowEffect=(items:Want[])=>moveEffect('stow',items);

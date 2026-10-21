@@ -11,7 +11,7 @@
  * carries no context, so the run's binding is one module slot; only a query's is AsyncLocalStorage. One pilot
  * per bridge process today; a multi-account runtime is a second process per account (DESIGN.md "Fleet").
  */
-import type {Account,SkillProgress} from '@spacemolt/lib';
+import {SpacemoltError,type Account,type SkillProgress} from '@spacemolt/lib';
 import {Cause,Context,Data,Effect,Exit,Layer,ManagedRuntime,Result,Schema} from 'effect';
 import {AsyncLocalStorage} from 'node:async_hooks';
 import type {ReadinessAccount,ReadinessCommand} from '../readiness.ts';
@@ -21,6 +21,7 @@ import {journalRun,readRun,stampRun,writeRun,type RunRecord} from '../run-record
 import type {DockBlocked} from '../dock.ts';
 import {TravelBlocked,type ArrivalUnresolved} from '../travel.ts';
 import {Depleted,Game,GameLive,HoldFull,InBattle,Rejected,ReplyLost,attempt,freshLedger,field,message,rawError,type GameError,type Ledger} from './game.ts';
+import {fixesFor,type Fix,type Refused} from './fixes.ts';
 import {tiredCheck} from './service.ts';
 import type {Outcome,Present,Row,Status,Want} from './types.ts';
 import {noteStore,readStores,storedTotals} from './world.ts';
@@ -138,6 +139,8 @@ export class Run extends Context.Service<Run,{
   pauseStopped:boolean;
   /** Each block `askOnBlock` asked about this flight, by its key, and the way the answer took. */
   readonly answered:Map<string,string>;
+  /** The last command the game refused since the pilot's own call began: what a refused call offers fixes for. */
+  refused:Refused|undefined;
 }>()('Run') {}
 type RunState=Context.Service.Shape<typeof Run>;
 type GameShape=Context.Service.Shape<typeof Game>;
@@ -178,10 +181,13 @@ function make(binding:Binding):Bound {
   const {account:live}=binding,once=binding.query?undefined:live.reconnectOnce?.bind(live);
   const run:RunState={binding,stopFlag:false,started:Date.now(),depth:0,wire:freshLedger(),last:{fn:'pilot'},
     mark:null,jobMark:null,calls:[],asking:null,lastMood:undefined,short:undefined,resupplying:false,strandedIn:undefined,resupplied:[],burning:false,burnFailed:false,unwatch:undefined,
-    interrupts:null,chats:[],heard:[],pauseStopped:false,answered:new Map()};
+    interrupts:null,chats:[],heard:[],pauseStopped:false,answered:new Map(),refused:undefined};
   // Every landed reply that says what the stores hold is kept (world.ts): the one writer of the `stores` table.
-  const send:ReadinessCommand=async(action,params)=>{
-    const reply=await binding.command(action,params);
+  const send:ReadinessCommand=async(action,params={})=>{
+    const reply=await binding.command(action,params).catch((error:unknown)=>{
+      if(error instanceof SpacemoltError)run.refused={action,params,code:error.code,message:error.message};
+      throw error;
+    });
     await noteStore(binding.runtime,live.state.location?.docked_at??undefined,action,params,reply,station=>binding.command('spacemolt_storage/view',{station_id:station}));
     return reply;
   };
@@ -253,8 +259,29 @@ export function account():Account {
 // The lib binds a no-param action as `(requestId)`, so `commands.spacemolt_salvage.sell({id})`
 // sent the params as the request id and timed out ("No response to mutation [object Object]").
 // Every `commands.<tool>.<action>(params)` is `Game.command` instead: params are the payload.
+// A refusal of the pilot's own raw send (depth 0) offers the fixes for it (`offerFixes`): a way taken sends it again.
 const sendAs=(action:string,params?:unknown)=>onBinding(Effect.gen(function*() {
-  return yield* (yield* Game).command(action,isRecord(params)?params:{});
+  const game=yield* Game,run=yield* Run,payload=isRecord(params)?params:{};
+  const sent=yield* Effect.result(game.command(action,payload));
+  if(Result.isSuccess(sent))return sent.success;
+  const error=sent.failure;
+  if(error._tag==='ReplyLost'||run.depth>0)return yield* Effect.fail(error);
+  const blocked:Said<unknown>={status:'refused',did:`${action} refused`,detail:undefined};
+  // A way taken runs one level down, as the library's own call: nothing it sends is asked about in turn.
+  const out=yield* offerFixes({action,params:payload,code:error.code,message:error.message},blocked,undefined,fix=>Effect.suspend(()=>{
+    run.depth++;
+    return Effect.gen(function*() {
+      if(fix.first) {
+        const first=yield* fix.first;
+        if(first.status!=='done')return {status:first.status,did:first.did,...first.why===undefined?{}:{why:first.why},detail:undefined};
+      }
+      return {status:'done' as const,did:`${action} sent again`,detail:yield* game.command(action,fix.params??payload)};
+    });
+  }).pipe(Effect.ensuring(Effect.sync(()=>{run.depth--;}))));
+  if(out.status==='done')return out.detail;
+  const tried=out.did===blocked.did?'':`\n${out.did}${out.why?`: ${out.why}`:''}`,next=out.next?.length?`\nnext: ${out.next.join(' | ')}`:'';
+  if(!tried&&!next)return yield* Effect.fail(error);
+  return yield* Effect.die(new SpacemoltError(error.code,`${error.message}${tried}${next}`,error.details?{details:error.details}:{}));
 }));
 const commandsProxy=new Proxy({},{get:(_,tool)=>new Proxy({},{get:(__,action)=>
   (params?:unknown)=>sendAs(`${String(tool)}/${String(action)}`,params)})});
@@ -344,9 +371,22 @@ export const askOnBlock=<D,E=never,R=never>(blocked:Said<D>,on:{key:string;quest
   const way=open.find(row=>row.id===id);
   return way?yield* way.take:blocked;
 });
-/** Whether a block may be asked about here (`askOnBlock`): the pilot's own call, in a flight someone answers, not
- * opted out. A site whose ways cost a read asks this first. */
-export const mayAsk=(ask?:boolean)=>Effect.gen(function*() {const run=yield* Run;return ask!==false&&!run.binding.query&&!!run.binding.onAsk&&run.depth===1;});
+/** Whether a block may be asked about here (`askOnBlock`): the pilot's own call (a play function at depth 1, a raw
+ * send at 0), in a flight someone answers, not opted out. A site whose ways cost a read asks this first. */
+export const mayAsk=(ask?:boolean)=>Effect.gen(function*() {const run=yield* Run;return ask!==false&&!run.binding.query&&!!run.binding.onAsk&&run.depth<=1;});
+/** A refused call by the pilot: the fixes `fixesFor` finds are put to it with `askOnBlock`, each a way that `again`
+ * builds (none from `again` leaves that fix out of the ask). Not asked — `ask:false`, a query, nobody to answer,
+ * `skip` — it is `blocked` with each fix as a pasteable call first in `next`. */
+const offerFixes=<D,E,R>(refused:Refused,blocked:Said<D>,ask:boolean|undefined,again:(fix:Fix)=>Effect.Effect<Said<D>,E,R>|undefined)=>Effect.gen(function*() {
+  // A bug finding them is a `defect` line, never a lost refusal.
+  const found=yield* Effect.exit(fixesFor(refused));
+  if(Exit.isFailure(found))defect('fixes',found.cause);
+  const fixes=Exit.isSuccess(found)?found.value:[];
+  if(!fixes.length)return blocked;
+  const ways=fixes.map(fix=>{const take=again(fix);return take&&{id:fix.id,choice:fix.choice,take};});
+  const out=yield* askOnBlock(blocked,{key:`${refused.code}:${refused.action}`,question:`${refused.action} refused: ${refused.code} — ${refused.message}`,ask},ways);
+  return out===blocked?{...blocked,next:[...fixes.map(fix=>fix.call),...blocked.next??[]]}:out;
+});
 /** The calls an answer runs, as one Said: each only after the one before was `done`; the dids joined, the detail the
  * last one's (`fallback` when it built none, or a step before it was not done). */
 export const chain=<D>(fallback:D,first:readonly Effect.Effect<Outcome<unknown>,never,Game|Run>[],last:Effect.Effect<Outcome<D>,never,Game|Run>)=>Effect.gen(function*() {
@@ -589,21 +629,31 @@ const seconds=(ms:number)=>`${(ms/1000).toFixed(ms<10_000?1:0)}s`;
  * as a game step's is (`attempt`): a refusal or lost reply is a tag, any other throw a defect that
  * `said` words from the thrown value and that is not a journalled `defect`, as it never was. */
 export const job=<Detail>(fn:string,args:string,body:()=>Promise<Said<Detail>>):Promise<Outcome<Detail>>=>
-  edge(jobWith(fn,args,attempt(fn,body),false));
+  edge(jobWith(fn,args,attempt(fn,body),false,{}));
 
 /** `job` for an Effect body: the same bookkeeping, every failure folded into the Outcome by
  * `said`. A defect is a `failed` Outcome too, as a throw is in `job`, and its stack goes to a
  * `defect` line. Never exported from a barrel. */
-export const jobEffect=<D,R extends Game|Run=Game|Run>(fn:string,args:string,body:Effect.Effect<Said<D>,GameError|TravelBlocked|ArrivalUnresolved|DockBlocked,R>,call?:string)=>jobWith(fn,args,body,true,call);
+export const jobEffect=<D,R extends Game|Run=Game|Run>(fn:string,args:string,body:Effect.Effect<Said<D>,GameError|TravelBlocked|ArrivalUnresolved|DockBlocked,R>,opts:{call?:string;ask?:boolean|undefined}={})=>jobWith(fn,args,body,true,opts);
 
-const jobWith=<D,R>(fn:string,args:string,body:Effect.Effect<Said<D>,GameError|TravelBlocked|ArrivalUnresolved|DockBlocked,R>,journalDefects:boolean,call?:string):Effect.Effect<Outcome<D>,never,R|Game|Run>=>
+const jobWith=<D,R>(fn:string,args:string,body:Effect.Effect<Said<D>,GameError|TravelBlocked|ArrivalUnresolved|DockBlocked,R>,journalDefects:boolean,
+  {call,ask}:{call?:string;ask?:boolean|undefined}):Effect.Effect<Outcome<D>,never,R|Game|Run>=>
   Effect.gen(function*() {
     const run=yield* Run;
     const open={...yield* opening(run,fn,args),...call?{call}:{}};
+    const settle=(exit:Exit.Exit<Said<D>,unknown>)=>Exit.isSuccess(exit)?exit.value:said<D>(fn,Cause.squash(exit.cause));
     const exit=yield* Effect.exit(body);
-    if(Exit.isSuccess(exit))return yield* closing(run,open,exit.value,false);
-    if(journalDefects)journalDefect(run,fn,exit.cause);
-    return yield* closing(run,open,said<D>(fn,Cause.squash(exit.cause)),true);
+    if(Exit.isFailure(exit)&&journalDefects)journalDefect(run,fn,exit.cause);
+    const part=settle(exit),refused=run.refused;
+    // The pilot's own call refused in the game's words: the fixes for that refusal, each a way that runs the fix and
+    // then this call's body again. A fix that changes the call's params is only ever offered as a `next` line.
+    const fixed=part.status==='refused'&&run.depth===1&&refused&&part.why?.includes(refused.message)
+      ?settle(yield* Effect.exit(offerFixes(refused,part,ask,({first:fix,params})=>params||!fix?undefined:Effect.gen(function*() {
+        const first=yield* fix;
+        if(first.status!=='done')return {...part,did:`${part.did}; ${first.did}`,...first.why===undefined?{}:{why:first.why}};
+        return settle(yield* Effect.exit(body));
+      })))):part;
+    return yield* closing(run,open,fixed,Exit.isFailure(exit)&&fixed.did===part.did);
   });
 
 /** The Promise a pilot function returns: `effect` run through the binding's runtime. A defect
@@ -664,6 +714,7 @@ type Opened={fn:string;args:string;call?:string;before:Snapshot;outer:RunState['
 /** The ▶ line and the opening read. A read that fails is said, and the cached state measures. */
 const opening=(run:RunState,fn:string,args:string)=>Effect.gen(function*() {
   const outer=run.last,outerMark=run.jobMark;
+  if(!run.depth)run.refused=undefined;
   run.last={fn};run.depth++;
   say(run,`▶ ${fn}${args?` ${args}`:''}`);
   const read=yield* Effect.result((yield* Game).refresh);

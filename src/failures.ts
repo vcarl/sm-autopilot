@@ -20,7 +20,7 @@ interface Seen {name:string;command:string;text:string;gist?:string}
 /** The runtime's own sends, not the pilot's acts: travel's battle probe (4,000 "No active battle"
  * lines live), hunting's stance changes (a fight already over), the trade-intel submit, and the trade
  * ledger and intel map reads `spreads()`, `routes()`, scouting and freighters make on their own. */
-const NOT_THE_PILOTS=new Set(['spacemolt_battle/status','spacemolt_battle/stance','spacemolt_intel/submit_trade_intel',
+export const NOT_THE_PILOTS=new Set(['spacemolt_battle/status','spacemolt_battle/stance','spacemolt_intel/submit_trade_intel',
   'spacemolt_intel/query_trade_intel','spacemolt_intel/query_intel']);
 /** A failure of the connection, not of the act: the reply is gone, never sent, or the socket closed. */
 const noise=(e:Row)=>e.lost===true||typeof e.code==='number'||e.code==='connect_timeout'

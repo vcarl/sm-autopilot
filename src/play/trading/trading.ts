@@ -748,7 +748,7 @@ export const tradeRunEffect=(opts:{stops:RunStop[]})=>{
     // route that only sold the hold has nothing left to do, so the next move is a new search.
     const again=end.net>0&&route.some(stop=>items(stop).length&&stop.from!=='store');
     return {status:'done',did,detail:end,next:again?[runCall(route),'routes()']:['routes()']};
-  }),runCall(route));
+  }),{call:runCall(route)});
 };
 
 /** How far `routes()` looks unless told: `STOPS` stops, each leg at most `LEG_JUMPS` jumps, no cap

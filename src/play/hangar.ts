@@ -188,7 +188,7 @@ export const refitEffect:(change:{install?:string[];remove?:string[];ask?:boolea
       detail:{installed:on.map(row=>row.id),removed:off.map(row=>row.type_id),
         modules:acct().state.modules??[],ship:grid(),short:[]},
       next:[room(acct().state.ship)]};
-  }));
+  }),{ask:change.ask});
 };
 
 /** A player listing or a yard commission, each beside the class it is and one line on how

@@ -429,7 +429,7 @@ export const sellEffect:(items:Want[],opts?:SellOpts)=>Effect.Effect<Outcome<Sol
       [{id:'carry',choice:`carry to ${far.base_id}`,
         take:chain(detail,[goToEffect(far.base_id)],sellEffect(rest(unsold),opts.floor?{floor:opts.floor}:{})).pipe(Effect.map(after))}]);
     return today;
-  }),`sell(${literal(items)}${opts.from||opts.floor?`, ${literal(opts)}`:''})`);
+  }),{call:`sell(${literal(items)}${opts.from||opts.floor?`, ${literal(opts)}`:''})`,ask:opts.ask});
 export function sell(items:Want[],opts:SellOpts={}):Promise<Outcome<Sold>> {return edge(sellEffect(items,opts));}
 
 export interface Bought {
@@ -516,5 +516,5 @@ export const buyEffect:(itemId:string,quantity:number,opts?:BuyOpts)=>Effect.Eff
     return {status:unfilled>0?'partial':'done',
       did:`bought ${num(filled,'quantity')??quantity} ${itemId} for ${subtotal+tax} cr${tax?` (${tax} of it tax)`:''}`,
       ...unfilled>0?{why:`${unfilled} unfilled`}:{},detail:{estimate,bought:asBuy(filled)}};
-  }));
+  }),{ask:opts.ask});
 export function buy(itemId:string,quantity:number,opts:BuyOpts={}):Promise<Outcome<Bought>> {return edge(buyEffect(itemId,quantity,opts));}

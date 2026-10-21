@@ -761,7 +761,7 @@ export const craftEffect:(recipeId:string,quantity?:number,opts?:{at?:'workshop'
       did:`${name}: ${list(made)} in ${at.base}'s store, made at ${where(venue)}`,
       detail:{...venue,job:job.raw,made},
       next:[sellNext(made)]};
-  })));
+  })),{ask:opts.ask});
 export function craft(recipeId:string,quantity=1,opts:{at?:'workshop'|string;ask?:boolean}={}):Promise<Outcome<Crafted>> {return edge(craftEffect(recipeId,quantity,opts));}
 
 /** A queued job as `jobs()` reports it. */

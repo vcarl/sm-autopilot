@@ -937,7 +937,7 @@ test('a refusal to the pilot\'s own command surfaces as the lib\'s error with it
   try {
     await assert.rejects(command('spacemolt/sell',{id:'ore',quantity:1}),
       error=>error instanceof SpacemoltError&&error.code==='not_docked');
-    assert.deepEqual(sent,['spacemolt/sell']);
+    assert.deepEqual(sent.filter(action=>action==='spacemolt/sell'),['spacemolt/sell']);
   } finally {unbind();}
 });
 
