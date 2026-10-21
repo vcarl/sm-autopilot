@@ -13,10 +13,8 @@ import {assign,reassign,tiedUp} from '../fleet/fleet.ts';
 import {journalCommand,quoteNext,readJournal} from '../../run-record.ts';
 import {GameLive} from '../game.ts';
 import {knownBooks,rememberBook} from '../market.ts';
-import {menuEffect,renderMenu} from '../menu.ts';
 import {readPlaces} from '../places.ts';
-import {acct,bind,onBinding,unbind} from '../runtime.ts';
-const menu=(runtime?:string)=>onBinding(menuEffect(runtime));
+import {acct,bind,unbind} from '../runtime.ts';
 import {REST_TICKS,routes,type Circuit} from '../trading/trading.ts';
 import {markDrained,ring} from './drained.ts';
 import {BOOK_TTL_MS,gate,launch,market,mender,readFleet,recallLoop,RECONNECT_MS,REPLAN_TICKS,row,script,scriptPath,stopFreighters,writeFleet,type Entry} from './host.ts';
@@ -357,9 +355,6 @@ test('a drained ring rests: routes passes over it and says so, and reassign assi
     const look=await routes({circuit:{hold:10}});
     assert.deepEqual(look.detail.routes.map(row=>row.circuit!.stops.map(stop=>stop.at)),[['sol_base','twin_base']]);
     assert.match(look.did,new RegExp(`skipped 1 ring\\(s\\) a freighter drained within ${REST_TICKS} ticks: range_base sol_base$`));
-
-    const built=await menu(runtime);
-    assert.ok(!built.moves.some(m=>m.call.startsWith('reassign')),'a freighter re-plans itself; the menu offers no reassign');
 
     // Past routes and assign's every check on the circuit: only the operator's login is missing.
     const out=await reassign('a');

@@ -8,8 +8,7 @@ import {mkdirSync,mkdtempSync,writeFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {journalResult,serve,type Pilot} from './bridge.ts';
-import {CHAT_CHARS,CHAT_PER_CHANNEL,FIRST_GOAL,MOVES_HEAD,SECTION_LIMIT,questionText,recordMenu,renderContext} from './context.ts';
-import {renderLine} from './journal-lines.ts';
+import {CHAT_CHARS,CHAT_PER_CHANNEL,FIRST_GOAL,SECTION_LIMIT,questionText,recordMenu,renderContext} from './context.ts';
 import {bridgeWorld} from './test-support/bridge-world.ts';
 
 type Row=Record<string,any>;
@@ -24,26 +23,21 @@ const render=(menu:Row,dir=runtime())=>renderContext(clone(menu),dir);
 const recentOf=(text:string)=>(text.split('Your recent flights (newest last):\n')[1]??'').split('\n');
 
 // What the bridge's `menu` answers, in its own shape: the record's fields, the derived mood, the
-// present and the rendered moves. What these pin is what the context does with it.
+// present. What these pin is what the context does with it.
 function menuOf(cargo_free:number,hold?:Row[]):Row {
   return {now:'2026-09-23T14:05:00.000Z',stance:'Hunter',mood:'Focused',
     objective:'raise gunnery by 2 hunting fauna',goal:'hunt the grazers',
     permissions:{credit_reserve:5000,max_liability:100000},
     present:{system:'first_step',docked_at:'first_step_station',fuel:66,max_fuel:120,hull:105,max_hull:105,
       credits:236373,cargo_free,hold:hold??[{item_id:'ore',quantity:12}],
-      weapons:[{id:'autocannon_i',loaded:500}],skills:{weapons:3,gunnery:1,tactics:2}},
-    moves:[{id:'m1',gen:'missions',call:'completeMissions()',facts:{credits:2000,minutes:0.5,missions:['Cull']},
-      said:'missions: 1 at 100% (Cull), +2,000 cr'}],
-    text:'m1 `completeMissions()` — missions: 1 at 100% (Cull), +2,000 cr',last:null};
+      weapons:[{id:'autocannon_i',loaded:500}],skills:{weapons:3,gunnery:1,tactics:2}},last:null};
 }
-/** Four moves at the bridge's cap, as long as it lets them be. */
-const FULL_MOVES=[1,2,3,4].map(n=>`m${n} \`tradeRun({stops:[{at:'base_${n}'}]})\` — ${'f'.repeat(115)}`).join('\n');
 const FACT_LINES=['Between flights','Objective:','Goal:','Stance:','Permissions:','Present:','  Fuel ','  Fitted weapons:','Your recent flights'];
 const hasLine=(text:string,label:string)=>text.split('\n').some(line=>line.startsWith(label));
 
 test('the situation is labelled lines of live facts', () => {
   const context=render(menuOf(12));
-  for(const label of [...FACT_LINES,'Moves open now'])assert.ok(hasLine(context,label),`${label}\n${context}`);
+  for(const label of FACT_LINES)assert.ok(hasLine(context,label),`${label}\n${context}`);
   assert.ok(context.split('\n')[0]!.includes('No flight under way.'));
   assert.ok(context.includes('Stance: Hunter. Mood: Focused.'));
   assert.ok(context.includes('Your recent flights: none yet.'));
@@ -152,8 +146,7 @@ test('opaque place ids are named from the menu', () => {
   const base='b495c6003fc83e18f6d8cecbe6929133',poi='98eba8b1a7ad0520d6a7c8ea44b2d6aa';
   const menu=menuOf(12);
   Object.assign(menu.present,{system:'dheneb',docked_at:base});
-  menu.held={max:5,missions:[{title:'Courier',next:`Deliver the pouch → ${poi}`}]};
-  menu.text=`Menu:\n  - \`goTo('${base}')\` — sell at ${base}`;
+  menu.held={max:5,missions:[{title:'Courier',next:`Deliver the pouch → ${poi}`},{title:'Sale',next:`\`goTo('${base}')\` — sell at ${base}`}]};
   menu.names={[base]:'Kestrel Yard',[poi]:'Hex Star'};
   const context=render(menu);
   assert.ok(context.includes(`Present: docked at Kestrel Yard (${base}) (dheneb).`),context);
@@ -220,12 +213,11 @@ const bigHold=()=>Array.from({length:400},(_,i)=>({item_id:`salvaged_component_$
 
 test('an oversized situation fits the section with every fact line', () => {
   // Over the limit core drops the section whole, so the hold list and the older recent lines give
-  // way; the moves do not.
+  // way.
   const dir=runtime();
   journal(dir,Array.from({length:5},()=>({event:'run',phase:'ended',outcome:'done',reason:'x'.repeat(400),why:'y'.repeat(400),commands:1})));
-  const context=render({...menuOf(12,bigHold()),text:FULL_MOVES},dir);
+  const context=render(menuOf(12,bigHold()),dir);
   assert.ok(context.length<=SECTION_LIMIT,String(context.length));
-  assert.ok(context.includes('  m4 `tradeRun'),context);
   for(const label of FACT_LINES)assert.ok(hasLine(context,label),label);
 });
 
@@ -260,17 +252,17 @@ test('the reference sections are gone', () => {
 });
 
 test('the missions held never give way', () => {
-  // Over the limit the hold list, the chat and the older recent runs give way; the moves and the
+  // Over the limit the hold list, the chat and the older recent runs give way; the
   // missions held do not. Past that, the cut ends on a line.
   const dir=runtime();
   lines(dir,'gameplay.jsonl',[0,1,2,3,4].map(n=>({at:`2026-10-01T1${n}:00:00Z`,event:'run',phase:'ended',outcome:'done',
     reason:'r'.repeat(150),commands:1,work:{fn:'gatherUntil',credits:100}})));
-  const menu={...menuOf(12,bigHold()),text:FULL_MOVES,steps:Array(3).fill('x'.repeat(400)),held:HELD};
+  const menu={...menuOf(12,bigHold()),steps:Array(3).fill('x'.repeat(400)),held:HELD};
   const context=render(menu,dir);
   assert.ok(context.length<=SECTION_LIMIT,String(context.length));
   assert.ok(context.includes('Missions held (2 of 5):')&&context.includes('Titanium Extraction Contract — next:'),context);
   assert.ok(recentOf(context).length>=3,context);
-  assert.ok(context.includes('  m4 `tradeRun')&&context.includes('+400 more'));
+  assert.ok(context.includes('+400 more'));
   // Fact lines alone over the limit: whole lines are kept, none is cut short.
   const cut=render({...menu,objective:'o'.repeat(2500),steps:['s'.repeat(1500)]},dir).split('\n');
   assert.ok(cut.reduce((sum,line)=>sum+line.length,0)+cut.length-1<=SECTION_LIMIT);
@@ -286,21 +278,11 @@ test('a reflection repeating the goal is not said twice', () => {
     "  09-26 00:00Z reflect: goal 'an older goal'"]);
 });
 
-// Shaped like kvothe's 10-04 17:27Z render, which ran ~3.9k chars without its moves: a Prospector,
+// Shaped like kvothe's 10-04 17:27Z render, ~3.9k chars: a Prospector,
 // unarmed, maydays, five runs; now with the five missions it held.
 const KVOTHE_GOAL='Objective met; resources kept unsold in the frontier_station store. Resume earning credits or take a new objective.';
-const KVOTHE_MOVES=`m1 \`tradeRun({stops:[{at:'frontier_station',buy:'copper_ore'},{at:'nova_terra_central'}]})\` — \
-route: +6,240 cr net, 3 jumps, ~6.1 min; books nova_terra_central 41t
-m2 \`sell([{item_id:'iron_ore',quantity:900}], {from:'store'})\` — settle: 2554 iron_ore (store frontier_station) \
-→ frontier_station bid 7×900, live; 0 jumps, +6,300 cr after fuel
-m3 \`abandonMission('7f1a3732ebe845ade0ac5435249700b5')\` — drop Salvage a wreck (expired); a slot takes \
-Hull Patch Run here, +4,500 cr, from Mira Tal (Dockmaster)
-m4 \`completeMissions()\` — missions: 1 at 100% (Ore Run), +2,000 cr`;
-
-test('a kvothe-sized context keeps its suggested moves', () => {
-  // Audit 10-04 (kvothe): the context ran over SECTION_LIMIT and the moves, first to give way,
-  // were absent from all 106 contexts rendered since 10-03. Now they sit under the ship, whole, and
-  // the maydays are capped beneath them.
+test('a kvothe-sized context keeps its missions held', () => {
+  // Audit 10-04 (kvothe): the context ran over SECTION_LIMIT; the maydays are capped beneath the missions held.
   const dir=runtime();
   lastJuncture(dir,'2026-10-04T17:00:00Z');
   lines(dir,'chat.jsonl',[0,1,2,3].map(n=>({at:`2026-10-04T17:1${n}:00Z`,event:'post',channel:'emergency',sender:`Wexler ${n}`,
@@ -315,13 +297,10 @@ test('a kvothe-sized context keeps its suggested moves', () => {
     present:{system:'distant_light',docked_at:'frontier_station',fuel:140,max_fuel:140,hull:75,max_hull:75,credits:361649,cargo_free:172,danger_line:23,
       hold:[{item_id:'fuel_cell',quantity:8}],weapons:[]},
     held:{max:5,missions:[0,1,2,3,4].map(n=>({title:`Contract ${n}`,next:`Deliver 20 ore (0/20) → base_${n}, ${n} jumps [1 of 2]`,expires_at:'2026-10-05T03:00:00Z'}))},
-    moves:[],text:KVOTHE_MOVES,last:null};
+    last:null};
   const context=render(menu,dir);
   assert.ok(context.length<=SECTION_LIMIT,String(context.length));
-  assert.ok(KVOTHE_MOVES.length<=640,'the bridge caps the block at MOVES_CHARS');
-  assert.ok(context.includes(`${MOVES_HEAD}\n  m1 \`tradeRun(`),context);
-  assert.ok(context.includes(KVOTHE_MOVES.replaceAll('\n','\n  ')),context);
-  assert.ok(context.indexOf('Moves open now')<context.indexOf('Missions held')&&context.indexOf('Missions held')<context.indexOf('Chat since'),context);
+  assert.ok(context.indexOf('Missions held')<context.indexOf('Chat since'),context);
   assert.equal(context.split('\n').filter(line=>line.includes('MAYDAY')).length,2,context);
   for(const label of ['Goal:','Steps:','Stance:','Present:','  Fuel ','  Fitted weapons:','Missions held (5 of 5):','Your recent flights'])
     assert.ok(hasLine(context,label),label);
@@ -384,7 +363,7 @@ test('an un-ended run whose bridge is gone is no flight', () => {
   assert.notEqual(recordMenu({},dir).busy,true);
 });
 
-test('the context request answers the text, the moves and the read that failed', async () => {
+test('the context request answers the text and the read that failed', async () => {
   // The menu's game reads each fail soft (a `section`), so a read that throws stands in here as one
   // throwing pilot read inside the menu: the catch is the bridge's, whatever threw.
   let fail=false;
@@ -395,13 +374,9 @@ test('the context request answers the text, the moves and the read that failed',
   const read=await dispatch('context') as Row;
   assert.ok(read.text.includes('Objective: fill the hold')&&read.text.includes('Present:'),read.text);
   assert.equal(read.busy,false);
-  assert.ok(read.moves.length&&read.moves.every((move:Row)=>move.call),JSON.stringify(read.moves));
   assert.equal(read.menu_error,undefined);
-  // The request line keeps the moves by their call, never the text: the juncture line holds that.
-  const kept=journalResult('context',read) as Row;
-  assert.equal(kept.text,undefined);
-  assert.deepEqual(kept.moves,read.moves.map((move:Row)=>move.call));
-  assert.match(renderLine({event:'request',request:{action:'context'},response:{ok:true,result:kept}})??'',/menu: /);
+  // The request line never keeps the text: the juncture line holds that.
+  assert.equal((journalResult('context',read) as Row).text,undefined);
   fail=true;
   const blind=await dispatch('context') as Row;
   assert.match(blind.menu_error,/Error/);
@@ -415,7 +390,7 @@ const post=(at:string,content:string,{channel='private',sender='Zed'}:{channel?:
   ({at,event:'post',channel,content,sender,sender_id:`p-${sender.toLowerCase()}`});
 const CHAT_MENU={now:'2026-10-04T12:30:00.000Z',stance:'Trader',mood:'Focused',
   present:{system:'sol',docked_at:'sol_base',fuel:90,max_fuel:100,hull:50,max_hull:50,credits:1000,cargo_free:5,hold:[],weapons:[],skills:{}},
-  moves:[],not_now:[],text:'',last:null};
+  last:null};
 const chatContext=(rows:Row[],menu:Row=CHAT_MENU)=>{const dir=runtime();lastJuncture(dir,LAST);lines(dir,'chat.jsonl',rows);return render(menu,dir);};
 
 test('the context quotes chat since the last juncture as data with its sender', () => {
@@ -442,7 +417,7 @@ test('the context quotes chat since the last juncture as data with its sender', 
 
 test('customs scans and maydays are capped, not hidden', () => {
   // Live 2026-10-04 (kvothe): every system post was a customs scan and every emergency one a
-  // MAYDAY, 42 in a day, crowding the players' words and the moves out. The newest two of each are
+  // MAYDAY, 42 in a day, crowding the players' words out. The newest two of each are
   // shown and the rest are a count, so a pilot may still answer a MAYDAY or see customs hold it.
   const context=chatContext([...[0,1,2,3].map(n=>post(`2026-10-04T12:1${n}:00.000Z`,`MAYDAY: Wexler ${n} is stranded with 3/120 fuel!`,
     {channel:'emergency',sender:`Wexler ${n}`})),

@@ -6,7 +6,7 @@ import {existsSync,mkdtempSync,readFileSync,writeFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {Result,Schema} from 'effect';
-import {answerLine,createShutdown,forPilot,journalResult,MENU_CHARS,MENU_ROWS,readPilot,Request,serve,strayRejection,writePilot,type Pilot,type ServeOptions} from './bridge.ts';
+import {answerLine,createShutdown,forPilot,journalResult,readPilot,Request,serve,strayRejection,writePilot,type Pilot,type ServeOptions} from './bridge.ts';
 import {readJournal} from './run-record.ts';
 import {controllerLock} from './controller-lock.ts';
 import type {ReadinessAccount} from './readiness.ts';
@@ -33,17 +33,14 @@ function heldRun() {
 }
 const settle=()=>new Promise(resolve=>setImmediate(resolve));
 
-test('menu answers with moves from the present, each a paste-able call, and the rendered text', async () => {
+test('menu answers with the present', async () => {
   const f=fixture({pilot:()=>PILOT});
   const menu=await f.dispatch('menu') as any;
   assert.equal(f.account.refreshes.length>0,true,'the present must come from an authoritative read');
   assert.equal(menu.stance,'Prospector');
   assert.equal(menu.objective,'fill the hold');
   assert.deepEqual([menu.present.docked_at,menu.present.fuel,menu.present.cargo_free],['sol_base',100,0]);
-  const calls=menu.moves.map((move:any)=>move.call);
-  assert.ok(calls.includes("tradeRun({stops:[{at:'sol_base'}]})"),calls.join(' | '));
-  assert.ok(menu.moves.every((move:any)=>/^m\d$/.test(move.id)&&move.gen&&move.facts),JSON.stringify(menu.moves));
-  assert.match(menu.text,/^m1 `/);
+  assert.equal(menu.moves,undefined,'no moves are offered');
   assert.equal(menu.last,null,'nothing has run yet');
   // The juncture renders the situation from this one reply: the clock, the record, the ship.
   assert.ok(Date.parse(menu.now),menu.now);
@@ -54,7 +51,6 @@ test('menu answers with moves from the present, each a paste-able call, and the 
   const blank=await fixture().dispatch('menu') as any;
   assert.equal(blank.stance,undefined);
   assert.equal(blank.mood,'Cautious','no stance flies the Cautious margins');
-  assert.ok(blank.moves.some((move:any)=>move.call.startsWith('tradeRun(')),blank.text);
 });
 
 test('the menu derives the mood from the ship after its reads and writes nothing', async () => {
@@ -230,25 +226,11 @@ test('the journal keeps the outcome of a request and never the prose or a body',
   assert.deepEqual(status,{running:false,last:{status:'done',did:'serviced'}});
 });
 
-test('the journal keeps a menu move by its call', () => {
+test('the journal keeps a menu\'s outcome, never its world body', () => {
   const menu=journalResult('menu',{stance:'Hunter',mood:'Tired',objective:'cull the fauna',
-    present:{system:'sys_a',hold:[{item_id:'carbon_ore',quantity:61}]},text:'m1 `completeMissions()` — …',
-    moves:[{id:'m1',gen:'missions',call:'completeMissions()',facts:{credits:1,minutes:1},said:'…'},
-      {id:'m2',gen:'explore',call:"goTo('sys_b')",facts:{credits:0,minutes:3},said:'…'}]}) as any;
-  assert.deepEqual(menu.moves,['completeMissions()',"goTo('sys_b')"],'the call is what the journal keeps');
+    present:{system:'sys_a',hold:[{item_id:'carbon_ore',quantity:61}]}}) as any;
   assert.equal(menu.mood,'Tired');
-  assert.equal(menu.present,undefined,'the world body still never reaches the journal');
-  assert.equal(menu.text,undefined,'nor the rendered menu');
-});
-
-test('a long menu is capped both ways and other actions still count their arrays', () => {
-  const menu=journalResult('menu',{moves:Array.from({length:MENU_ROWS+3},()=>({call:`gatherUntil({poi:'${'x'.repeat(200)}'})`}))}) as any;
-  assert.equal(menu.moves[0].length,MENU_CHARS,'a long call is clipped, never wrapped');
-  assert.ok(menu.moves[0].endsWith('…'));
-  assert.equal(menu.moves.length,MENU_ROWS+1);
-  assert.equal(menu.moves.at(-1),'+3 more','the rows past the cap are a count');
-  const run=journalResult('run',{status:'done',moves:[{call:'a()'},{call:'b()'}]}) as any;
-  assert.deepEqual(run,{status:'done',moves:2},'only menu widens; every other action counts');
+  assert.equal(menu.present,undefined,'the world body never reaches the journal');
 });
 
 // Live 2026-09-25: a pilot woke at hull 3/80 in a battle left over from the previous shift and

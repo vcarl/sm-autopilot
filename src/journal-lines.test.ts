@@ -29,9 +29,6 @@ test('every kind of entry renders one short line carrying its numbers', () => {
       /! spacemolt\/mine: cargo hold is full/],
     [{event:'request',request:{action:'travel'},response:{ok:false,error:'no route to belt'}},
       /! travel: no route to belt/],
-    [{event:'request',request:{action:'menu'},response:{ok:true,result:{stance:'Hunter',mood:'Tired',
-      moves:['service()',"goTo('sys_b')"]}}},
-      /menu Hunter\/Tired: service\(\) · goTo\('sys_b'\)$/],
   ];
   for(const [entry,shape] of rendered) {
     const text=line(entry);
@@ -45,10 +42,7 @@ test('every kind of entry renders one short line carrying its numbers', () => {
 test('the noise renders nothing at all', () => {
   assert.equal(line({event:'request',request:{action:'status'},response:{ok:true,result:{running:false}}}),null);
   assert.equal(line({event:'request',request:{action:'where'},response:{ok:true,result:{bytes:4000}}}),null);
-  assert.equal(line({event:'request',request:{action:'menu'},response:{ok:true,result:{moves:1,not_now:0}}}),null,
-    'a menu journalled before the moves were kept has nothing to print');
-  assert.match(line({event:'request',request:{action:'menu'},response:{ok:true,result:{moves:[]}}})!,
-    /menu: \(nothing\)/,'an empty menu is itself the news');
+  assert.equal(line({event:'request',request:{action:'menu'},response:{ok:true,result:{stance:'Hunter'}}}),null);
   assert.equal(line({event:'command',tool:'spacemolt',action:'get_system',ok:true,summary:'normal'}),null,
     'a command that took is already inside the step line above it');
   assert.equal(line({event:'run',phase:'progress',script:'gather'}),null);

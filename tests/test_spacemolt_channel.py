@@ -51,7 +51,7 @@ for line in sys.stdin:
         pilot = json.load(open(pilot_file))
         result = {"text": "Objective: " + str(pilot.get("objective")) + "\\nStance: " + str(pilot.get("stance"))
                           + "\\n  - `gatherUntil('belt')` — belt quoted [credits]",
-                  "busy": False, "moves": [{"call": "gatherUntil('belt')"}]}
+                  "busy": False}
     elif action == "stop":
         running = os.path.exists(os.path.join(runtime, "run.running"))
         result = {"stopping": running} if running else {"stopping": False, "reason": "no flight is under way"}

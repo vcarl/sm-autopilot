@@ -19,16 +19,48 @@ import * as play from './play/index.ts';
 import {checkTree,specifiers} from './play/boundary.ts';
 import {checkPolicy} from './play/policy.ts';
 import {ofTheRun,prose} from './play/prose.ts';
-import {runSummary} from './play/menu.ts';
 import {battleEffect,FIGHT_CEILING_MS,type Battled} from './play/combat/hunting.ts';
 import {battleAtCloseEffect} from './travel.ts';
-import {bind,defect,edge,InterruptsRead,line,listen,outcome as build,progress,reached,runCalls,stateSnapshot,stop,stopped,Stopped,stopWhy,unbind,type Binding,type Interrupts} from './play/runtime.ts';
+import {acct,bind,defect,edge,InterruptsRead,line,listen,outcome as build,progress,reached,runCalls,stateSnapshot,stop,stopped,Stopped,stopWhy,unbind,type Binding,type Interrupts} from './play/runtime.ts';
 import {Game,field,rawError} from './play/game.ts';
 import {replyBody} from './storage.ts';
 import {resupplyEffect} from './play/service.ts';
-import type {Outcome} from './play/types.ts';
+import type {Outcome,Status} from './play/types.ts';
 import {journalRun,writeRun,type RunRecord} from './run-record.ts';
 import {warmCheck} from './check-service.ts';
+
+/** One run as the journal keeps it (`work` on `run` `ended`): the first work call `main()` made, how it ended, what the
+ * whole run gained, where the ship ended up, and the work call as written when its job keeps it. */
+/** The calls that only read: a run is named for the first call that is not one of these (live
+ * 2026-09-28, a buy/craft/sell run was labelled `quote`). */
+const READS=new Set(['orient','scout','missions','prices','storage','shipsForSale','quote','recipes','routes','spreads','buyers',
+  'reflection','freighters','freightBoard','jobs','catalog','trace','facilities']);
+/** Worse is bigger: `done` is fine, `failed` is worst. Ranks the four `Status` values so two
+ * of them can be compared. */
+const STATUS_RANK:Record<Status,number>={done:0,partial:1,refused:2,failed:3};
+
+/** The run that just ended, from the runtime's record of top-level calls. `status` is the run's
+ * own final status — trusted, UNLESS it is only there because some later top-level call read
+ * that way itself, which is a different call's outcome, not this one's, AND that later call's
+ * status is worse than the work call's own. Live: a `gatherUntil` that finished `done` was
+ * reported `refused`, because the program went on to call `completeMissions()`, the server
+ * refused it, and that refusal (worse than `done`) became the run's own status — the work call's
+ * own record (`calls`, kept per top-level call) said `done` all along. The reverse also happens:
+ * a `gatherUntil` that came back `refused` (hold full) followed by a `sell` that finished `done`
+ * — the run's `done` is not worse than the work call's `refused`, so the run's status (the real
+ * outcome) wins and the work call is not stamped with its own stale refusal.
+ * An explicit final `outcome()` the program composes itself is not a later call — nothing pushes
+ * one to `calls` — so its verdict still stands over the first work call's mechanical status. */
+function runSummary(status:Status) {
+  const calls=runCalls(),work=calls.find(c=>!READS.has(c.fn))??calls[0];
+  if(!work)return null;
+  const explainedByLater=calls.slice(calls.indexOf(work)+1).some(c=>c.status===status);
+  const keepWork=explainedByLater&&STATUS_RANK[status]>STATUS_RANK[work.status];
+  const {location}=acct().state;
+  return {fn:work.fn,arg:work.arg,...work.call?{call:work.call}:{},status:keepWork?work.status:status,
+    credits:calls.reduce((n,c)=>n+c.credits-c.cost.credits,0),
+    items:calls.reduce((n,c)=>n+c.items,0),xp:calls.reduce((n,c)=>n+c.xp,0),at:location?.docked_at??location?.poi_id??'?'};
+}
 
 const PLUGIN=fileURLToPath(new URL('..',import.meta.url));
 const PLAY=join(PLUGIN,'src','play');

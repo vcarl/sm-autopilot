@@ -6,9 +6,7 @@ import {join} from 'node:path';
 import {ConnectionClosedError,SpacemoltError,type MapSystemInfo,type Account} from '@spacemolt/lib';
 import type {ReadinessAccount} from '../../readiness.ts';
 import {bridgeWorld,type WorldOptions} from '../../test-support/bridge-world.ts';
-import {menuEffect} from '../menu.ts';
-import {bind,onBinding,unbind,type Pilot} from '../runtime.ts';
-const menu=(runtime?:string)=>onBinding(menuEffect(runtime));
+import {bind,unbind,type Pilot} from '../runtime.ts';
 import {survey} from '../mining/mining.ts';
 import {around,exploreNearby,mapOf,markSeen,nearFacts,readSeen} from './exploration.ts';
 
@@ -40,31 +38,6 @@ function world(record:Pilot,options:WorldOptions,map:(row:Record<string,any>)=>v
   bind({account:game.account as unknown as Account,command,pilot:()=>record,runtime,emit:()=>{}});
   return {...game,runtime,close:()=>{unbind();rmSync(runtime,{recursive:true,force:true});}};
 }
-
-test('told to explore, the menu offers the nearest unvisited system several jumps out, a dangerous one with its facts',async()=>{
-  // Live 2026-09-30 (kvothe): told to explore, 41 jumps between visited systems, because the menu
-  // looked only one jump out.
-  const f=world({mood:'Focused',stance:'Prospector',objective:'explore the unvisited systems'},CHAIN,row=>{
-    if(['sol','deep_range','a'].includes(row.system_id))row.visited=true;
-    if(row.system_id==='b')row.is_stronghold=true;
-    if(row.system_id==='c')row.empire='solarian';
-  });
-  try {
-    const built=await menu(f.runtime);
-    const row=built.moves.find(m=>m.call==="goTo('b')");
-    assert.equal(row?.gen,'explore',JSON.stringify(built.moves));
-    assert.equal(row!.said,'explore: b, 3 jumps, never visited, no empire listed, a stronghold');
-  } finally {f.close();}
-});
-
-test('nothing unvisited within range: no explore move',async()=>{
-  const far:WorldOptions={systems:['s1','s2','s3','s4','s5'].map((id,i,all)=>({id,connections:[i?all[i-1]!:'deep_range'],pois:[{id:`${id}_rock`}]}))};
-  const f=world({mood:'Focused',stance:'Scout'},far,row=>{if(row.system_id!=='s5')row.visited=true;});
-  try {
-    const built=await menu(f.runtime);
-    assert.ok(!built.moves.some(m=>m.gen==='explore'),JSON.stringify(built.moves));
-  } finally {f.close();}
-});
 
 test('exploreNearby visits and scouts the nearest unvisited systems, keeps what it saw, and honours avoid',async()=>{
   const branch:WorldOptions={systems:[...CHAIN.systems!,{id:'side',connections:['sol'],pois:[{id:'side_rock'}]}]};

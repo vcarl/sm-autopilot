@@ -179,14 +179,8 @@ def test_a_rewrite_moves_a_live_job_onto_the_short_interval():
 
 # The context is the bridge's (src/context.ts, pinned in src/context.test.ts). What these pin is what
 # Python does with its `context` reply: the text it hands core, and the juncture line it journals.
-CONTEXT = {"text": "Between flights — 2026-09-23 14:05Z. No flight under way.\nObjective: raise gunnery\n"
-                   "Moves open now (offers worked out from the game, each pasteable into main(), with the facts "
-                   "it rests on):\n  m1 `completeMissions()` — missions: 1 at 100% (Cull), +2,000 cr",
-           "busy": False,
-           "moves": [{"id": "m1", "gen": "missions", "call": "completeMissions()",
-                      "facts": {"credits": 2000, "minutes": 0.5, "missions": ["Cull"]},
-                      "said": "missions: 1 at 100% (Cull), +2,000 cr"}]}
-BUSY = {"text": "A flight is under way — started 09-27 10:20Z, in pilot, 3 commands so far.", "busy": True, "moves": []}
+CONTEXT = {"text": "Between flights — 2026-09-23 14:05Z. No flight under way.\nObjective: raise gunnery", "busy": False}
+BUSY = {"text": "A flight is under way — started 09-27 10:20Z, in pilot, 3 commands so far.", "busy": True}
 
 
 def _answering(monkeypatch, reply: dict) -> list[tuple]:
@@ -209,9 +203,6 @@ def test_each_juncture_journals_the_skills_it_carried_and_the_context_it_rendere
     assert all(skill["bytes"] > 1000 for skill in row["skills"]), row["skills"]
     assert row["context"] == context and row["context_chars"] == len(context)
     assert row["busy"] is False and "menu_error" not in row
-    # The moves rendered, as data: joinable to the next run's calls by `call`; the words stay in the context.
-    assert row["moves"] == [{"id": "m1", "gen": "missions", "call": "completeMissions()",
-                             "facts": {"credits": 2000, "minutes": 0.5, "missions": ["Cull"]}}], row["moves"]
     # A chat window is never handed the context, and journals nothing.
     assert juncture.juncture_context({"platform": "discord"}) == ""
     assert len(_journal_rows("juncture")) == 1 and len(sent) == 1
@@ -449,7 +440,7 @@ def test_a_failed_game_read_is_journalled_with_the_context_the_bridge_rendered_w
     and wrote no juncture, so their runs carried the previous juncture's id (09-30 16:32Z). The
     bridge renders the record and the journal without the game (src/context.test.ts) and names
     the failed read; the juncture is written like any other."""
-    _answering(monkeypatch, {"text": "The game did not answer this time", "busy": False, "moves": [],
+    _answering(monkeypatch, {"text": "The game did not answer this time", "busy": False,
                              "menu_error": "ConnectionClosedError: WebSocket connection closed"})
     context = juncture.juncture_context({"platform": "cron", "session_id": "cron_abc123_20261002_104212"})
     row, = _journal_rows("juncture")

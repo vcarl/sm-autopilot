@@ -26,7 +26,7 @@ import {watchPictures} from './pictures.ts';
 import {check as checkPilot,runPilot as defaultRunPilot,type RunResult} from './run.ts';
 import {runQuery} from './query.ts';
 import {recordMenu,renderContext} from './context.ts';
-import {menuEffect,renderMenu,threatsHere} from './play/menu.ts';
+import {heldEffect,threatsHere} from './play/menu.ts';
 import {ammoReport,preyHereEffect} from './play/combat/hunting.ts';
 import {fleetBrief,resumeFreighters,stopFreighters} from './play/freighter/host.ts';
 import {attempt,isGameError,message} from './play/game.ts';
@@ -53,7 +53,6 @@ const decodeRequest=Schema.decodeUnknownResult(Request);
 const decodeLine=Schema.decodeUnknownResult(Schema.fromJsonString(Schema.Struct({id:Schema.optionalKey(Schema.String),
   action:Schema.String,params:Schema.optionalKey(Schema.Unknown)})));
 const isRecord=(value:unknown):value is Record<string,unknown>=>typeof value==='object'&&value!==null;
-const field=(row:unknown,key:string):unknown=>isRecord(row)?row[key]:undefined;
 
 /** The actions whose answer is an outcome: a journal line keeps its shape, trimmed. */
 const OUTCOME_ACTIONS=new Set(['run','query','answer','status','pilot','menu','context','stop','check']);
@@ -66,30 +65,14 @@ const OUTCOME_KEYS=new Set(['accepted','reason','status','record','running',
   // them in the record every reflection sees only the level it happens to be looking at.
   'skills']);
 
-/** ponytail: at most 5 menu moves reach the request line, 100 characters each, and the rest is a
- * `+N more` marker; the menu offers 4. The `juncture` line keeps each move whole, facts and all. */
-export const MENU_ROWS=5,MENU_CHARS=100;
-/** One menu list as the journal keeps it: the short form of each row, capped both ways. */
-const menuRows=(list:readonly unknown[],short:(row:unknown)=>string):string[]=>{
-  const kept=list.slice(0,MENU_ROWS).map(row=>{const line=short(row);
-    return line.length>MENU_CHARS?`${line.slice(0,MENU_CHARS-1)}…`:line;});
-  return list.length>MENU_ROWS?[...kept,`+${list.length-MENU_ROWS} more`]:kept;
-};
-
 /** One response as the journal keeps it: whether the thing happened, never the prose or the
  * bodies of a read.
- *
- * `menu` and `context` are the actions whose arrays are kept rather than counted: their reply IS
- * the pilot's whole view of the world, and `moves:1` says nothing about which move was offered.
- * Every other action's arrays — storage views, market rows, mission lists — stay counts. The
- * context's text is never kept here: the `juncture` line holds it. */
+ * The context's text is never kept here: the `juncture` line holds it. */
 export function journalResult(action:string,result:unknown):unknown {
   if(!isRecord(result)||!OUTCOME_ACTIONS.has(action))return result;
   const kept:Record<string,unknown>={};
   for(const key of Object.keys(result))if(OUTCOME_KEYS.has(key))kept[key]=result[key];
   if(isRecord(result.last))kept.last={status:result.last.status,did:result.last.did};
-  const {moves}=result;
-  if(Array.isArray(moves))kept.moves=action==='menu'||action==='context'?menuRows(moves,row=>String(field(row,'call')??'')):moves.length;
   return kept;
 }
 
@@ -395,8 +378,7 @@ export function serve(account:Account,command:ReadinessCommand,options:ServeOpti
     return follow();
   };
 
-  /** The menu from where the ship stands (DESIGN §4): the present, the moves with the call
-   * each is taken with, what is not on it and why, and how the last run ended. The play
+  /** The menu from where the ship stands (DESIGN §4): the present, the missions held, and how the last run ended. The play
    * runtime is bound for the reads and released after; a run in flight answers `busy`. */
   const menu=async()=>{
     if(running)return {busy:true,...busy(running)};
@@ -407,7 +389,7 @@ export function serve(account:Account,command:ReadinessCommand,options:ServeOpti
     try {
       // The menu's reads and the battle read, through the binding's runtime like a run's.
       const {built,fight,nearby}=await onBinding(Effect.gen(function*() {
-        const built=yield* menuEffect(runtime),fight=yield* battleNowEffect();
+        const built=yield* heldEffect(runtime),fight=yield* battleNowEffect();
         // The prey here, undocked only. A failed read leaves `prey` out and loses nothing else.
         const here=account.state.location;
         const nearby=here?.docked_at||here?.in_transit?undefined:yield* preyHereEffect().pipe(Effect.catchCause(cause=>{
@@ -454,14 +436,13 @@ export function serve(account:Account,command:ReadinessCommand,options:ServeOpti
             ...ammo.weapons[i]?.magazine!==undefined?{magazine:ammo.weapons[i].magazine}:{},hold:ammo.weapons[i]?.hold??0})),
           ...ammo.low?{ammo_low:ammo.low}:{},
           ...ship?.max_hull===undefined?{}:{danger_line:dangerLine(ship.max_hull)}},
-        ...built,text:renderMenu(built),...runtime?{names:readNames(runtime)}:{},...runtime?fleetBrief(runtime):{},last:lastOutcome(),
+        ...built,...runtime?{names:readNames(runtime)}:{},...runtime?fleetBrief(runtime):{},last:lastOutcome(),
         ...waiting.length?{alerts:waiting.map(({type,key,at,first_at,n,body})=>({type,key,at,first_at,n,body}))}:{},
       };
     } finally {unbind();}
   };
 
-  /** The juncture context (context.ts): the menu rendered, with the moves it offered and whether a
-   * run flies, for Python's `juncture` line. */
+  /** The juncture context (context.ts): the menu rendered, and whether a run flies, for Python's `juncture` line. */
   const context=async()=>{
     let built:Record<string,unknown>,menu_error:string|undefined;
     try {built=await menu();}
@@ -476,8 +457,7 @@ export function serve(account:Account,command:ReadinessCommand,options:ServeOpti
       try {kept=record();} catch {/* an unreadable record is a pilot with none, as a fresh one */}
       built=recordMenu(kept,runtime);
     }
-    return {text:renderContext(built,runtime),busy:Boolean(built.busy),moves:Array.isArray(built.moves)?built.moves:[],
-      ...menu_error?{menu_error}:{}};
+    return {text:renderContext(built,runtime),busy:Boolean(built.busy),...menu_error?{menu_error}:{}};
   };
 
   /** Set fields of `pilot.json`; a null removes one. The only writer of the record: Python's

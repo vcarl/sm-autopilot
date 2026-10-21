@@ -9,7 +9,6 @@ import {readJournal} from '../run-record.ts';
 import {bridgeWorld,derived} from '../test-support/bridge-world.ts';
 import {travelToEffect} from '../travel.ts';
 import {onWorldClock} from '../test-support/travel.ts';
-import {menuEffect} from './menu.ts';
 import {readDockRefusals} from './places.ts';
 import {acct,bind,edge,jobEffect,onBinding,stop,unbind,type Pilot} from './runtime.ts';
 import {destinationEffect,goTo} from './travel.ts';
@@ -145,7 +144,7 @@ test('an arrival the game never confirms fails naming itself, and is not a defec
   } finally {w.close();}
 });
 
-test('a base that denies the dock: goTo is partial in the game\'s words, and the refusal is remembered, journalled and named in the menu',async()=>{
+test('a base that denies the dock: goTo is partial in the game\'s words, and the refusal is remembered and journalled',async()=>{
   // Live 2026-10-02 (kvothe 16:37Z): an `Access denied` dock broke the whole run after the flight
   // had landed, and the same bases were retried hours apart because nothing remembered it.
   const runtime=mkdtempSync(join(tmpdir(),'spacemolt-dock-'));

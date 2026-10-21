@@ -71,11 +71,10 @@ JUNCTURE_PROMPT = (
     "take stock.\n"
     "- Spending, selling and fighting are the moves that stay done; the permissions bound the "
     "money, and who to fight is your judgement.\n"
-    "The moves listed above are offers worked out from the game, each with the facts it rests on: take one, change it, or "
-    "write something else. When the instruction asks for something the library can't do, do the "
+    "When the instruction asks for something the library can't do, do the "
     "nearest thing it can and say so.\n"
     "Your turn:\n"
-    "1. Pick the move that best serves the instruction (if present) or your goal, using what the "
+    "1. Pick what best serves the instruction (if present) or your goal, using what the "
     "ship's state shows. You set the goal in an earlier turn; where it conflicts with the instruction "
     "or the objective, they win, and where the state shows it done or stale, replace it.\n"
     "2. Write the whole of pilot/index.ts and pass it as `source` to spacemolt_run.\n"
@@ -246,9 +245,6 @@ def _journal_render(context: str, record: dict[str, Any], menu: dict[str, Any], 
              "skills_sha": carried.hexdigest()[:12], "build_s": round(time.monotonic() - began, 3),
              "stance": record.get("stance"), "busy": bool(menu.get("busy")), "context_chars": len(context),
              "context_sha": hashlib.sha256(context.encode()).hexdigest()[:12], "context": context,
-             # Each move rendered, joinable to the next run's calls by `call` (the context never drops them).
-             "moves": [{key: move.get(key) for key in ("id", "gen", "call", "facts")}
-                       for move in menu.get("moves") or [] if isinstance(move, dict)],
              **({"menu_error": menu_error} if menu_error else {})}
     # Hermes re-renders this when it rebuilds a session's system prompt (context compression,
     # live 2026-09-28 13:37Z). That is the same fire: same juncture, fresh facts, its own event.

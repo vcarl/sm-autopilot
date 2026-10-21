@@ -108,23 +108,15 @@ next bridge, and only a fire starts one (10-05: a forced gateway restart under a
 fire after it was suppressed).
 
 The **context** is rendered by the bridge (the `context` request, `src/context.ts`) from live facts
-at fire time: its own `menu` (present, derived mood, threats, the moves on offer), the pilot's recent
+at fire time: its own `menu` (present, derived mood, threats, the missions held), the pilot's recent
 runs and reflections from the journal, the chat since the last render (`juncture.json`'s `at`), the pilot's last five distinct failures
 (`failures.json`, each with its count and age, above the recent runs) and the standing instruction. When the game read fails it renders the record and the journal and says the
 game was not read. `juncture_context` in Python asks for it, and when the bridge cannot be reached at
 all hands over the record's objective, instruction and goal instead. Python writes nothing but a
-`juncture` journal line — the skills carried, their sizes, the moves, the context itself and any
+`juncture` journal line — the skills carried, their sizes, the context itself and any
 `menu_error` — so a reviewer can see what the pilot was told. The gate still renders its own
 private-message and question lines in Python (`chat_quote`, `question_text`; `chatQuote` and
 `questionText` are the bridge's copies), because it runs without a bridge.
-
-The **moves** (`menuEffect` in `src/play/menu.ts`) are offers, never refusals: at most four
-pasteable calls, one per generator (`route`: `routes()`'s top row; `again`: the last paying loop
-as written; `settle`: held or stored goods to the best known bid that beats the fuel; `missions`:
-complete, accept with its issuer, or drop a stuck one for what the board offers; `explore`: only
-when the objective leads with `goTo`), each with raw facts. They rank by the credits a minute their
-own facts state; the objective's lead call keeps the last slot. The block sits under the ship, is
-capped at `MOVES_CHARS` by the bridge, and is never what a full context gives up.
 
 Cron is reached through the **`cronjob_manage` tool**, via `ctx.dispatch_tool` (the plugin API)
 or the tool registry when there is no plugin context. `check_cronjob_requirements` gates schema
@@ -196,10 +188,7 @@ the pilot's context. Every line has `at` (UTC ISO, `Z`) and `event`.
 - `gate`: `gate_id` (the gate runs in its own process, before any juncture exists).
 - `juncture`: `juncture_id`, `gate_id`/`gate_at` of the latest gate, `job_id` (parsed from cron's
   `cron_<job_id>_<ts>` session id) and `session_id`, `model`, `provider`, `code_sha` (git HEAD),
-  `sources` (the TypeScript fingerprint), `skills_sha`, `context_sha`, `build_s`, and `moves`
-  (`[{id, gen, call, facts}]`, exactly the moves rendered; `facts` always has `credits` and `minutes`,
-  the rest is the generator's: jumps, fuel, book ages, issuer, …). Join an offer to what followed by
-  `juncture_id` → `run started`, then `call` against `run ended` `calls[].call` (or `fn`). The id is kept in
+  `sources` (the TypeScript fingerprint), `skills_sha`, `context_sha` and `build_s`. The id is kept in
   `runtime/juncture.json`; `spacemolt_run` sends it as the run request's `juncture` param.
   `juncture.json` also keeps the `objective` the context was rendered with; every `spacemolt_run`
   report while it differs from the record's says the objective changed.
@@ -301,7 +290,7 @@ fresh file; `boot` carries `rotated_from`, so the chain walks back. `chat.jsonl`
 way at the same boot. `service.py` rotates
 `bridge.stderr.log` the same way (`rotate_log`) before it opens it. Rotated files are never deleted.
 Python appends to `gameplay.jsonl` by name per line, so it follows the rename. Readers of the recent
-past go through one tail walker per language — `readJournal` (TS: reflection, the menu, the
+past go through one tail walker per language — `readJournal` (TS: reflection, the
 juncture context and its chat, the rendered window, `play/service.ts`) and `journal_tail` (Python: the gate)
 — which read the current file, then rotated ones newest first, until they have enough.
 

@@ -130,13 +130,7 @@ function render(entry:Entry):string|null {
     // the refusals earn one. A read that failed is a thing the pilot could not do.
     case 'request': {
       const response=rec(entry.response),action=text(rec(entry.request).action);
-      if(response.ok===false)return `! ${action}: ${text(response.error)}`;
-      // The one reply worth a line of its own: the menu (and the context rendered from it) is the
-      // pilot's whole view of the world at a juncture, and which moves it was offered is what a diagnosis asks.
-      const result=rec(response.result),moves:unknown[]|null=Array.isArray(result.moves)?result.moves:null;
-      if((action!=='menu'&&action!=='context')||!moves)return null;
-      const who=[result.stance,result.mood].filter(Boolean).join('/');
-      return `menu${who?` ${who}`:''}: ${moves.length?moves.map(text).join(' · '):'(nothing)'}`;
+      return response.ok===false?`! ${action}: ${text(response.error)}`:null;
     }
     default:return null;
   }
