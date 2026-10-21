@@ -221,6 +221,7 @@ export const buildFactionFacilityEffect=(type:string)=>jobEffect('buildFactionFa
     return {status:'refused' as const,did,why:step?`${step[1]} (${error.message})`:told(error),detail:none,next:step?[step[2]]:[]};
   }
   const body=replyBody(sent.success),facility_id=String(field(body,'facility_id')??''),rent=Number(field(body,'rent_per_cycle')??0);
-  return {status:'done' as const,did:`${type} building at ${String(field(body,'base_id')??'?')} as ${facility_id}`,
+  const state=field(body,'under_construction')===true?'under construction':'built and active';
+  return {status:'done' as const,did:`${type} ${state} at ${String(field(body,'base_id')??'?')} as ${facility_id}`,
     detail:{facility_id,rent_per_cycle:rent}};
 }));

@@ -11,13 +11,14 @@
  * carries no context, so the run's binding is one module slot; only a query's is AsyncLocalStorage. One pilot
  * per bridge process today; a multi-account runtime is a second process per account (DESIGN.md "Fleet").
  */
-import {SpacemoltError,type Account,type SkillProgress} from '@spacemolt/lib';
+import {ACTIONS,SpacemoltError,type Account,type SkillProgress} from '@spacemolt/lib';
 import {Cause,Context,Data,Effect,Exit,Layer,ManagedRuntime,Result,Schema} from 'effect';
 import {AsyncLocalStorage} from 'node:async_hooks';
 import type {ReadinessAccount,ReadinessCommand} from '../readiness.ts';
 import {FUEL_CELL} from '../mining-inventory.ts';
 import {journalTail} from '../journal-lines.ts';
 import {journalRun,readRun,stampRun,writeRun,type RunRecord} from '../run-record.ts';
+import {replyBody} from '../storage.ts';
 import type {DockBlocked} from '../dock.ts';
 import {TravelBlocked,type ArrivalUnresolved} from '../travel.ts';
 import {Depleted,Game,GameLive,HoldFull,InBattle,Rejected,ReplyLost,attempt,freshLedger,field,message,rawError,type GameError,type Ledger} from './game.ts';
@@ -140,6 +141,8 @@ export class Run extends Context.Service<Run,{
   readonly answered:Map<string,string>;
   /** The last command the game refused since the pilot's own call began: what a refused call offers fixes for. */
   refused:Refused|undefined;
+  /** The game's hints (`replyHint`) since the pilot's own call began: that call's Outcome says them first in `next`. */
+  readonly hints:string[];
 }>()('Run') {}
 type RunState=Context.Service.Shape<typeof Run>;
 type GameShape=Context.Service.Shape<typeof Game>;
@@ -180,7 +183,7 @@ function make(binding:Binding):Bound {
   const {account:live}=binding,once=binding.query?undefined:live.reconnectOnce?.bind(live);
   const run:RunState={binding,stopFlag:false,started:Date.now(),depth:0,wire:freshLedger(),last:{fn:'pilot'},
     mark:null,jobMark:null,calls:[],asking:null,lastMood:undefined,short:undefined,resupplying:false,strandedIn:undefined,resupplied:[],burning:false,burnFailed:false,unwatch:undefined,
-    interrupts:null,chats:[],heard:[],pauseStopped:false,answered:new Map(),refused:undefined};
+    interrupts:null,chats:[],heard:[],pauseStopped:false,answered:new Map(),refused:undefined,hints:[]};
   // Every landed reply that says what the stores hold is kept (world.ts): the one writer of the `stores` table.
   const send:ReadinessCommand=async(action,params={})=>{
     const reply=await binding.command(action,params).catch((error:unknown)=>{
@@ -188,6 +191,9 @@ function make(binding:Binding):Bound {
       throw error;
     });
     await noteStore(binding.runtime,live.state.location?.docked_at??undefined,action,params,reply,station=>binding.command('spacemolt_storage/view',{station_id:station}));
+    // Live 10-21 (kvothe 12:49Z): a raw faction_build said "under construction" in its hint only, and the pilot logged it online.
+    const hint=replyHint(action,reply);
+    if(hint){run.hints.push(hint);say(run,`  hint ${action}: ${hint}`);}
     return reply;
   };
   const game=GameLive({send,reconnected:()=>reconnected(live),refresh:()=>live.refresh(),say:text=>say(run,text),
@@ -600,8 +606,16 @@ function presentOf(run:RunState):Present {
 /** What a helper hands back; the wrapper measures the rest. */
 export interface Said<Detail> {status:Status;did:string;why?:string;detail:Detail;next?:string[]}
 
-/** The game's own `hint` on a reply a function hands back as its detail: the server's next step, said first in `next`. */
-const hintOf=(detail:unknown)=>{const hint=field(detail,'hint');return typeof hint==='string'&&hint?[hint]:[];};
+/** The game's `hint` on a landed reply, with the build state it names (`under_construction`), when it says something to
+ * act on. None on a read: its reply is in the caller's hand, and its hints say how to browse (`Use action 'list' while
+ * docked…`, a storage summary). None that is the rent line a build repeats every time (`Rent is auto-deducted…`,
+ * handlers/facility.go:398). */
+const replyHint=(action:string,reply:unknown)=>{
+  if(ACTIONS[action]?.kind==='query')return '';
+  const body=replyBody(reply),hint=field(body,'hint');
+  if(typeof hint!=='string'||!hint||hint.startsWith('Rent is '))return '';
+  return field(body,'under_construction')===true?`under_construction; ${hint}`:hint;
+};
 function finish<Detail>(run:RunState,fn:string,before:Snapshot,part:Said<Detail>):Outcome<Detail> {
   const after=snapshot(run);
   const items:Row[]=[];
@@ -617,7 +631,7 @@ function finish<Detail>(run:RunState,fn:string,before:Snapshot,part:Said<Detail>
       hull:before.ship===after.ship?Math.max(0,before.hull-after.hull):0,
       minutes:Math.round((after.at-before.at)/6000)/10},
     gained:{credits:Math.max(0,credits),items,xp},
-    now:presentOf(run),next:[...hintOf(part.detail),...part.next??[]].slice(0,3),detail:part.detail};
+    now:presentOf(run),next:[...run.depth===1?run.hints:[],...part.next??[]].slice(0,3),detail:part.detail};
 }
 
 const seconds=(ms:number)=>`${(ms/1000).toFixed(ms<10_000?1:0)}s`;
@@ -713,7 +727,7 @@ type Opened={fn:string;args:string;call?:string;before:Snapshot;outer:RunState['
 /** The ▶ line and the opening read. A read that fails is said, and the cached state measures. */
 const opening=(run:RunState,fn:string,args:string)=>Effect.gen(function*() {
   const outer=run.last,outerMark=run.jobMark;
-  if(!run.depth)run.refused=undefined;
+  if(!run.depth){run.refused=undefined;run.hints.length=0;}
   run.last={fn};run.depth++;
   say(run,`▶ ${fn}${args?` ${args}`:''}`);
   const read=yield* Effect.result((yield* Game).refresh);

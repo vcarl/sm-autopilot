@@ -113,3 +113,23 @@ test('each code in the table builds its own ways',async()=>{
     assert.deepEqual(await fixes('skill_required'),[]);
   } finally {unbind();}
 });
+
+// Live 2026-10-21 (kvothe 12:49Z): a raw faction_build answered under construction, said only in its hint, and the
+// pilot logged the lockbox online.
+test('a mutation\'s hint reaches the pilot, with its build state: a flight line, and first in a play function\'s next',async()=>{
+  const game=bridgeWorld({services:['refuel','repair','storage']}),said:string[]=[];
+  const hint="Facility is under construction. Use action 'faction_list' to check progress.";
+  const built={action:'faction_build',facility_id:'f1',base_id:'sol_base',rent_per_cycle:208,under_construction:true,hint};
+  bind({account:game.account as unknown as Account,pilot:()=>({mood:'Focused' as const}),emit:text=>{said.push(text);},
+    command:async(action,params)=>action==='spacemolt_facility/faction_build'?built
+      // A read's hint says how to browse: the pilot holds its reply.
+      :action==='spacemolt_facility/types'?{action:'types',hint:'Use filters to browse.'}:game.command(action,params)});
+  try {
+    assert.deepEqual(await raw('spacemolt_facility/faction_build',{facility_type:'faction_lockbox'}),built);
+    await raw('spacemolt_facility/types',{});
+    assert.deepEqual(said.filter(text=>text.startsWith('  hint')),[`  hint spacemolt_facility/faction_build: under_construction; ${hint}`]);
+    const out=await buildFactionFacility('faction_lockbox');
+    assert.equal(out.did,'faction_lockbox under construction at sol_base as f1');
+    assert.deepEqual(out.next,[`under_construction; ${hint}`]);
+  } finally {unbind();}
+});

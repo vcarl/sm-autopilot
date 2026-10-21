@@ -112,7 +112,9 @@ Each of these has cost a flight: the computer checks the real types, so these ar
 - **A raw command is not an Outcome.** `account().commands.<tool>.<action>()` answers
   `QueryResult<T>` (read `.structuredContent`) or `MutationResult<T>` (read `.delta.details`) —
   never `status`, `did`, `why`, `detail`. A refusal *throws* rather than returning `refused`, so an
-  unguarded raw command ends the flight: wrap it in `try`/`catch`. Raw `inspect` reaches this
+  unguarded raw command ends the flight: wrap it in `try`/`catch`. A change the game answers with a
+  `hint` (a facility `under_construction`, say) gets a `hint` line in your flight; a library call puts
+  it first in `next`. Raw `inspect` reaches this
   system only and throws elsewhere. Raw `spacemolt.find_route({id})` takes a system id or name, a
   POI id you have charted, or a base id. Your station storage is `storage(base?)`, readable from
   anywhere, not a raw command.

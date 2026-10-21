@@ -165,6 +165,8 @@ declare const Run_base: Context.ServiceClass<Run, "Run", {
     readonly answered: Map<string, string>;
     /** The last command the game refused since the pilot's own call began: what a refused call offers fixes for. */
     refused: Refused | undefined;
+    /** The game's hints (`replyHint`) since the pilot's own call began: that call's Outcome says them first in `next`. */
+    readonly hints: string[];
 }>;
 /** One run: everything `bind()` starts afresh, provided beside the binding's `Game`. */
 export declare class Run extends Run_base {
