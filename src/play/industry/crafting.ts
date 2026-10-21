@@ -228,12 +228,27 @@ const call=(recipeId:string,quantity:number,at?:string)=>
 /** The server's own dry run: consumes nothing, queues nothing. A bench that cannot run the
  * recipe answers with an error whose text already names the facility it wants — that text IS
  * the answer, so it comes back as a refusal, with the server's code. A lost reply is the caller's: a read, but not reissued. */
+/** Up to eight recipe ids whose id, or an output's item id, contains a word of `text`: the ones it most likely meant. */
+const nearRecipes=(text:string)=>Effect.map(graphOf(),loaded=>{
+  if(Result.isFailure(loaded))return [];
+  const asked=text.toLowerCase().split(/[^a-z_]+/).filter(word=>word.length>2);
+  return loaded.success.recipes.filter(recipe=>!recipe.hidden&&asked.some(word=>recipe.id.includes(word)||(recipe.outputs??[]).some(out=>out.item_id.includes(word))))
+    .slice(0,8).map(recipe=>recipe.id);
+});
+
 const dryRun=(recipeId:string,quantity:number,at?:string)=>Effect.gen(function*() {
   const sent=yield* Effect.result((yield* Game).command('spacemolt/craft',{...call(recipeId,quantity,at),dry_run:true}));
   if(Result.isFailure(sent)) {
     if(sent.failure._tag==='ReplyLost')return yield* sent.failure;
     // The nearest public facility it names goes into the facility book `trace()` and `catalog()` read.
     if(sent.failure.code==='no_facility')rememberNoFacility(runtimeDir(),recipeId,sent.failure.message,tickNow());
+    // Live 2026-10-21 (kvothe 02:25Z): quote('steel_plate 200') was told to use the game's own catalog action, which a
+    // program cannot send; it then tried craft({action:'catalog'}). Name the recipes it likely meant instead.
+    if(sent.failure.code==='invalid_recipe'&&/not found/i.test(sent.failure.message)) {
+      const near=yield* nearRecipes(recipeId);
+      return {refused:`${sent.failure.action}: ${sent.failure.code} — recipe '${recipeId}' not found`
+        +(near.length?`; recipes near it: ${near.join(', ')}`:'')+`; catalog('${recipeId.split(/\s+/)[0]}') lists what matches`};
+    }
     return {refused:told(sent.failure)};
   }
   const body=replyBody(sent.success);

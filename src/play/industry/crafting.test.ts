@@ -456,6 +456,25 @@ test('a dry run the game refuses ends the craft refused in its code, with nothin
   } finally {f.close();}
 });
 
+// Live 2026-10-21 (kvothe 02:25Z): quote('steel_plate 200') was told to use the game's own catalog action, which a
+// program cannot send; it then tried craft({action:'catalog'}).
+test('a recipe the game does not know names the recipes near it and catalog(), not the game\'s own catalog action',async()=>{
+  const notFound:Act=async(action,params,perform)=>{
+    if(isDry(action,params))throw new SpacemoltError('invalid_recipe',`Recipe '${String(params?.id)}' not found. Use 'catalog' with type=recipes to see all available recipes and their IDs.`);
+    return perform();
+  };
+  const f=rig(stocked,notFound);
+  try {
+    for(const out of [await quote('steel_plate 200'),await craft('steel_plate 200')]) {
+      assert.equal(out.status,'refused',JSON.stringify(out));
+      assert.equal(out.why,"spacemolt/craft: invalid_recipe — recipe 'steel_plate 200' not found; recipes near it: refine_steel; catalog('steel_plate') lists what matches");
+    }
+    assert.match((await quote('unobtainium')).why!,/recipe 'unobtainium' not found; catalog\('unobtainium'\) lists what matches$/);
+    assert.equal(f.count(isCommit),0);
+    assert.deepEqual(f.defects(),[]);
+  } finally {f.close();}
+});
+
 test('a commit whose reply is lost is never re-sent: the queue says it landed, and the craft goes on to done',async()=>{
   const f=rig({...stocked,craft:{polls:1}},landed(isCommit));
   try {
