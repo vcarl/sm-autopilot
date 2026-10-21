@@ -75,7 +75,7 @@ test('trace draws the tree, counts the hold and every store, prices leaves from 
       {item_id:'nodule',best_buy:0,best_buy_qty:0,best_sell:7,best_sell_qty:50,buy_quantity:0,sell_quantity:50,buy_orders:[],sell_orders:[{price_each:7,quantity:50}]},
       {item_id:'copper_ore',best_buy:0,best_buy_qty:0,best_sell:2,best_sell_qty:50,buy_quantity:0,sell_quantity:50,buy_orders:[],sell_orders:[{price_each:2,quantity:50}]}].flatMap(listing)});
     writeFileSync(join(runtime,'names.json'),JSON.stringify({'0123456789abcdef0123':'Far Depot'}));
-    const out=await trace('armor_plate');
+    const out=await trace('armor_plate',1,{prices:true});
     assert.equal(out.status,'done',out.why);
     // 1 armor = 2 hull (4 steel + 2 copper) + 1 steel: 5 steel, 1 stored, so 4 runs of iron smelting, 40 ore.
     assert.deepEqual(out.detail.steps,[{recipe:'basic_iron_smelting',runs:4,facility_only:false},
@@ -141,15 +141,32 @@ test('trace prints the root recipe\'s components and output at market value, sid
     writeFileSync(join(runtime,'catalog.json'),JSON.stringify({catalog:{items:[{id:'hull_plate',base_value:100}]}}));
     for(const [base,steel] of [['x',10],['y',12],['z',2000]] as const)keepBook(runtime,{...book(base,row('steel_plate',steel),row('iron_ore',3)),at:new Date().toISOString()});
     keepBook(runtime,{...book('w',row('copper_ore',0,4)),at:new Date().toISOString()});
-    const hull=await trace('press_hull_plate',3);
+    const hull=await trace('press_hull_plate',3,{prices:true});
     // 3 runs: 6 steel at the median ask 12, 3 copper at the one bid 4; 3 plates at base value 100.
     assert.match(f.printed(),/^3x hull_plate {2}\(press_hull_plate\)\n {4}components ≈ 84 cr \(median ask \+ median bid, 1–3 markets\) · output ≈ 300 cr \(base value\)$/m);
     assert.deepEqual(hull.detail.value?.inputs.map(row=>[row.item_id,row.quantity,row.unit,row.source,row.markets]),
       [['steel_plate',6,12,'median ask',3],['copper_ore',3,4,'median bid',1]]);
     assert.match(hull.did,/components ≈ 84 cr, output ≈ 300 cr at market/);
-    const bred=await trace('breed_catalyst');
+    const bred=await trace('breed_catalyst',1,{prices:true});
     assert.match(f.printed(),/components ≈ 3 cr \(median ask, 3 markets\), 1 of 2 inputs valued · output no value known/);
     assert.match(bred.did,/components ≈ 3 cr \(1 of 2 valued\), output ≈ \? at market/);
+  } finally {unbind();rmSync(runtime,{recursive:true,force:true});}
+});
+
+test('trace shows no price unless asked, and says how to ask',async()=>{
+  const runtime=mkdtempSync(join(tmpdir(),'spacemolt-trace-'));
+  const f=world(runtime);
+  try {
+    keepBook(runtime,{...book('x',row('copper_ore',2),row('iron_ore',3)),at:new Date().toISOString()});
+    const out=await trace('press_hull_plate',3);
+    assert.equal(out.status,'done',out.why);
+    assert.doesNotMatch(f.printed(),/cheapest ask|components|output ≈| cr/);
+    assert.doesNotMatch(out.did,/components|cr/);
+    assert.equal(out.detail.value,null);
+    assert.ok(out.detail.leaves.every(leaf=>leaf.ask===null));
+    assert.ok(out.detail.tree?.inputs.every(node=>!node.ask));
+    assert.ok(out.next?.includes("trace('press_hull_plate', 3, {prices: true}) — each leaf's cheapest remembered ask, and the inputs and output at market value"));
+    assert.ok(!(await trace('press_hull_plate',3,{prices:true})).next?.some(step=>step.includes('prices: true')));
   } finally {unbind();rmSync(runtime,{recursive:true,force:true});}
 });
 

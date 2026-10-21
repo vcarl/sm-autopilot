@@ -18,7 +18,7 @@ after is the only evidence the output arrived.
 | `craft(recipe, qty?, {at?, ask?})` | stow, quote, escrow, wait out the queue, confirm the outputs in the store; inputs short in the store pause the flight to ask: supply them here, or mine the ore at a belt known to give it |
 | `jobs()` | every job you have queued, anywhere, and which are paused; works undocked |
 | `catalog({search?, category?, makes?, uses?})` | the catalog's recipes, printed as text: what makes an item, what an item goes into; twenty at a time |
-| `trace(itemOrRecipe, qty?)` | the whole tree `qty` takes, down to what is mined or bought, net of the hold and every store; each leaf's cheapest remembered ask; each facility-only step's stations known to rent one; the other recipes one level deep |
+| `trace(itemOrRecipe, qty?, {prices?})` | the whole tree `qty` takes, down to what is mined or bought, net of the hold and every store; each facility-only step's stations known to rent one; the other recipes one level deep; with `prices: true`, each leaf's cheapest remembered ask and the inputs and output at market value |
 | `facilities()` | what you own everywhere, what is rentable here, what you could build here — reads only |
 | `buildFacility(type)` | a facility of `type` owned at this station; idempotent |
 
@@ -41,7 +41,8 @@ export default async function main() {
 with no bench, and from `spacemolt_query`. So do `recipes`, `quote` and `jobs` (a quote is a dry run).
 `trace` picks one route per item: recipes whose leaves are mined or harvested over bought, hand-craftable
 over facility-only, and the cheaper when remembered asks price both. The others are listed under
-`Alternates`; `trace('<recipe id>')` follows one.
+`Alternates`; `trace('<recipe id>')` follows one. It shows no price unless asked: `trace(item, n, {prices: true})`
+adds each leaf's cheapest remembered ask and the root recipe's inputs and output at market value, from books of any age.
 
 `quote`, `supply` and `craft` want the ship docked at a base whose services include
 `crafting` (or at the named facility's base). That refusal is itself the answer: the ore is at
@@ -81,7 +82,7 @@ the prices: `buy_each` is what one costs on this market with the buy fee already
 `sell_each` is what one of your own fetches here instead; `ore_each` is what the mined or
 harvested ore under one of them is worth at market (median remembered ask, else base value),
 `null` for ore itself and for anything not made from ore. When `buy_each` is several times
-`ore_each`, mine the ore and craft it: `trace(item, n)` names the leaves and where each was
+`ore_each`, mine the ore and craft it: `trace(item, n, {prices: true})` names the leaves and where each was
 last seen for sale, `gatherUntil` fills the hold, and `supply` stows it. Buy when the price is
 near `ore_each` or the ore is rare. When `buy_each` is `null` this market does not sell it:
 mine it the same way.

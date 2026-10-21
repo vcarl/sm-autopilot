@@ -101,7 +101,7 @@ export interface Traced {
         facility_only: boolean;
     }[];
     /** The raw items at the bottom, all of each the tree consumes, beside what the hold and every store hold of it
-     * (`aboard`, `stored` by base, as last seen) and the cheapest ask remembered for it, when one is. */
+     * (`aboard`, `stored` by base, as last seen) and, when prices were asked for, the cheapest ask remembered for it. */
     leaves: {
         item_id: string;
         need: number;
@@ -128,8 +128,13 @@ export interface Traced {
     }[];
     /** Runs × each recipe's `crafting_time`: base ticks, before the workshop's skill factor or a facility's throughput. */
     crafting_ticks: number;
-    /** The root recipe's inputs and outputs at market value, for the whole order; null when the root is not crafted. */
+    /** The root recipe's inputs and outputs at market value, for the whole order; null when the root is not crafted, or
+     * prices were not asked for. */
     value: TraceValue | null;
+}
+export interface TraceOptions {
+    /** Show each leaf's cheapest remembered ask and the root's market value. Off by default. */
+    prices?: boolean;
 }
 /** What the mined or harvested leaves under ONE `item` are worth, valued as `unitValue` does (median remembered ask, else base value),
  * and which ores they are; `null` when it is itself raw, or a leaf is bought-only, cyclic or unvalued. Walks `trace`'s picked route. */
@@ -141,6 +146,6 @@ export declare function oreEach(graph: RecipeGraph, books: readonly RememberedBo
  * mined, harvested or bought, net of what the hold and every store already hold of each intermediate. Each item's
  * route prefers recipes whose leaves are gathered over bought over only crafted, hand-craftable over facility-only,
  * and, when remembered asks price every leaf of both, the cheaper; the others are listed one level deep. Prints the
- * tree as text. Reads only: the catalog, the hold, and `world.db`. */
-export declare const traceEffect: (itemOrRecipe: string, quantity?: number) => Effect.Effect<Outcome<Traced>, never, import("../game.ts").Game | import("../runtime.ts").Run>;
-export declare function trace(itemOrRecipe: string, quantity?: number): Promise<Outcome<Traced>>;
+ * tree as text, with no price unless `prices` asks for them. Reads only: the catalog, the hold, and `world.db`. */
+export declare const traceEffect: (itemOrRecipe: string, quantity?: number, { prices }?: TraceOptions) => Effect.Effect<Outcome<Traced>, never, import("../game.ts").Game | import("../runtime.ts").Run>;
+export declare function trace(itemOrRecipe: string, quantity?: number, options?: TraceOptions): Promise<Outcome<Traced>>;
