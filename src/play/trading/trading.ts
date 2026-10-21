@@ -898,20 +898,9 @@ const SLACK=0.1;
  * where they are kept, and `tradeRun` withdraws them before it buys. */
 export function routes(opts:RouteOpts={}):Promise<Outcome<{routes:Route[];sources:string[]}>> {return edge(routesEffect(opts));}
 /** `routes` as an Effect, for `edge` and for converted callers; never in a barrel. */
-export const routesEffect=(opts:RouteOpts={})=>jobEffect<Found>('routes',(opts.items??[]).join(' '),keptSearch(opts,false));
+export const routesEffect=(opts:RouteOpts={})=>jobEffect<Found>('routes',(opts.items??[]).join(' '),Effect.suspend(()=>searchEffect(pilotSeat(),opts)));
 export type RouteOpts={items?:string[];circuit?:{hold:number}}&Scope;
 type Found={routes:Route[];sources:string[]};
-/** ponytail: the last search, kept for a minute while the base, the last market tick read, the hold and the scope
- * stand. The menu (`reuse`) takes it after a `routes()` or on a juncture rendered twice; the pilot's own `routes()`
- * always searches, since a second one places bases the first could not. Any book read moves the tick. */
-let kept:{key:string;at:number;found:Said<Found>}|undefined;
-export const keptSearch=(opts:RouteOpts={},reuse=true)=>Effect.gen(function*() {
-  const seat=pilotSeat(),key=()=>JSON.stringify([seat.runtime,seat.account.state.location?.docked_at,marketTick(),miningInventory(seat.account.state),cargo(seat.account),opts]);
-  if(reuse&&kept?.key===key()&&Date.now()-kept.at<60_000)return kept.found;
-  const found=yield* searchEffect(seat,opts);
-  kept={key:key(),at:Date.now(),found};
-  return found;
-});
 
 /** `routes()` itself, read through `seat`: the one planner, whether the pilot or a freighter's host asks. Sends through the `Game`
  * it runs under. */

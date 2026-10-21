@@ -50,7 +50,7 @@ test('a class reply that does not read is said, left off the board, and asked ag
   } finally {unbind();}
 });
 
-// Live 2026-09-28: `inspect rubble` on every menu render. A catalogue answer that is another kind of thing is remembered.
+// Live 2026-09-28: `inspect rubble` on every juncture render. A catalogue answer that is another kind of thing is remembered.
 test('a class id the catalogue answers as some other kind of thing is left off the board and not asked again',async()=>{
   const f=world({mood:'Focused'},{hangar:{listings:[{listing_id:'l8',ship_id:'s8',class_id:'pebble',price:50}]}},undefined,
     (action,reply)=>{

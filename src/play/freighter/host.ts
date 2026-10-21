@@ -68,7 +68,7 @@ export interface Entry {
   scouted?:number;
   at:string;
 }
-/** A freighter as `freighters()` and the menu report it. */
+/** A freighter as `freighters()` and the state report it. */
 export interface FreighterRow {name:string;state:Entry['state'];lap:number;stop:string|null;credits:number|null;
   returned:number;last_lap_net:number|null;lap_net:number;holding:Holding;approach?:Approach;why?:string;
   stop_after_lap?:true;reassigned?:Entry['reassigned'];stowed?:string[];scouted?:number}
@@ -138,7 +138,7 @@ export const row=(name:string,entry:Entry):FreighterRow=>({name,state:entry.stat
   ...entry.stop_after_lap?{stop_after_lap:true as const}:{},...entry.reassigned?{reassigned:entry.reassigned}:{},...entry.stowed?.length?{stowed:entry.stowed}:{},...entry.scouted?{scouted:entry.scouted}:{}});
 /** `holding` in words: `40 copper_piping (1148 cr)`. */
 export const held=(holding:Holding)=>Object.entries(holding).map(([item,row])=>`${row.quantity} ${item} (${Math.round(row.cost)} cr)`).join(', ');
-/** The menu's `freighters` rows; nothing when none was ever assigned. */
+/** The state's `freighters` rows; nothing when none was ever assigned. */
 export function fleetBrief(runtime:string):{freighters?:FreighterRow[]} {
   const rows=Object.entries(readFleet(runtime)).map(([name,entry])=>row(name,entry));
   return rows.length?{freighters:rows}:{};

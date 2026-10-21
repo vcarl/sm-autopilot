@@ -42,7 +42,7 @@ test('every kind of entry renders one short line carrying its numbers', () => {
 test('the noise renders nothing at all', () => {
   assert.equal(line({event:'request',request:{action:'status'},response:{ok:true,result:{running:false}}}),null);
   assert.equal(line({event:'request',request:{action:'where'},response:{ok:true,result:{bytes:4000}}}),null);
-  assert.equal(line({event:'request',request:{action:'menu'},response:{ok:true,result:{stance:'Hunter'}}}),null);
+  assert.equal(line({event:'request',request:{action:'state'},response:{ok:true,result:{stance:'Hunter'}}}),null);
   assert.equal(line({event:'command',tool:'spacemolt',action:'get_system',ok:true,summary:'normal'}),null,
     'a command that took is already inside the step line above it');
   assert.equal(line({event:'run',phase:'progress',script:'gather'}),null);

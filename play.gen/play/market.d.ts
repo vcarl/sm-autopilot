@@ -33,7 +33,7 @@ export declare const LEGACY_AGE = 20;
  * which is nonsense to hand a pilot, so it clamps to 0: "as fresh as this call". */
 export declare const ticksOld: (tick: number | undefined, now: number) => number;
 /** The best remembered bid for an item at a base other than `here`, with its age — the query
- * `sell`'s did and the menu's sell rows both ran per item against a fresh `knownBooks()` read
+ * `sell`'s did ran per item against a fresh `knownBooks()` read
  * (an 8 MB parse each). Callers read `knownBooks()` once and pass the result in. */
 export interface FarBid {
     base_id: string;

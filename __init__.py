@@ -611,7 +611,7 @@ def register(ctx) -> None:
     # One section, rendered from the session's own platform: a fire is told how to fly the
     # ship, a chat window how to watch it. Never from the process env — one backend serves both.
     ctx.register_system_prompt_section("spacemolt.flight", _prompt, position="after_memory", max_chars=1600)
-    # The menu is delivered, not fetched (N15): core renders this once for a new session and
+    # The state is delivered, not fetched (N15): core renders this once for a new session and
     # freezes the bytes into its prompt, so a juncture never spends a turn asking what it
     # already needed to know, and nothing changes under the conversation afterwards.
     ctx.register_system_prompt_section("spacemolt.juncture", juncture_context,

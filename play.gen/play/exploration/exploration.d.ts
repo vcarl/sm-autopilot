@@ -72,10 +72,10 @@ export interface Explored {
 /** Visit up to `systems` (default 2) unvisited systems, each the nearest one left within `jumps`
  * (default 3) of where the ship now is, and `scout()` each on arrival: its stations, belts, police
  * level and security status, and the pirates at the arrival point, all in `detail.visited` and kept
- * in `systems.json` for the menu to name later. `survey:true` also sends `survey_system` in each
+ * in `systems.json` for later reads. `survey:true` also sends `survey_system` in each
  * (scanning XP, hidden POIs). `avoid` is a list of system ids you will not go to or through: a
  * target whose route crosses one is skipped. Nothing else is skipped — the danger is yours to judge
- * from the facts, and the menu names them. Flies with `goTo`, so a hop the tank cannot cover is
+ * from the facts. Flies with `goTo`, so a hop the tank cannot cover is
  * refused and ends the circuit, and a hop that leaves you Tired ends it there. Does not come home:
  * `goTo` your base after. Trains exploration (first visits), navigation, piloting. */
 export declare function exploreNearby(opts?: {

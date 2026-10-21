@@ -151,7 +151,7 @@ def test_direction_sets_objective_and_permissions_and_lands_at_the_next_juncture
     # The next juncture is built from the record the observer wrote (T9, N17).
     context = juncture.juncture_context({"platform": "cron"})
     assert "buy a hauler" in context and "gatherUntil('belt')" in context
-    # The window itself is never handed a menu: it is a client, not the pilot (N2, N19).
+    # The window itself is never handed a state: it is a client, not the pilot (N2, N19).
     assert juncture.juncture_context({"platform": "discord"}) == ""
 
 

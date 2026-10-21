@@ -62,7 +62,7 @@ export const battleEnded=()=>{battleHolds=false;battleClear=false;};
  * pushed, no `in_battle` refusal, no dropped socket. A battle pushes `battle_started` and then a
  * `battle_update` every tick, so while this holds a status read can only repeat "no battle" —
  * live (Kvothe, to 2026-10-08) 3.9k of 7.4k status reads did, one each from the run's close,
- * the next menu and the next orient with nothing between them. Off until the first read, and
+ * the next state read and the next orient with nothing between them. Off until the first read, and
  * knocked off by `battleStirred` (bridge.ts wires the pushes and the reconnect to it). */
 let battleClear=false;
 export const battleStirred=()=>{battleClear=false;};

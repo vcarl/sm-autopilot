@@ -36,7 +36,7 @@ const View=Wire.ViewStorageResponse.mapFields(fields=>({...Struct.pick(fields,['
 const decodeView=Schema.decodeUnknownEffect(View);
 const noView=():ViewStorageResponse=>({action:'view_storage',base_id:'',hint:'',items:[],locations:[],ships:[]});
 
-/** The store's reply, items capped: a menu fact, not a transcript. `total` is the uncapped row count. */
+/** The store's reply, items capped: a fact, not a transcript. `total` is the uncapped row count. */
 const read=(stationId?:string)=>Effect.gen(function*() {
   const body=replyBody(yield* (yield* Game).command('spacemolt_storage/view',stationId?{station_id:stationId}:{}));
   yield* decodeView(body).pipe(Effect.mapError(error=>new OffSpec({action:'spacemolt_storage/view',message:error.message})));

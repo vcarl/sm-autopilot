@@ -1,7 +1,7 @@
 /** One read of storage: at the current base, or a named base without travelling there — the
  * game's own doc for `station_id` on `spacemolt_storage.view` says exactly that (it is
  * read-only and does not reach deposit/withdraw, which still require presence). Kept compact:
- * an item list capped, no per-ship detail, no gifts or messages — a menu fact, not a transcript. */
+ * an item list capped, no per-ship detail, no gifts or messages — a fact, not a transcript. */
 import {Effect} from 'effect';
 import {Game,field} from './play/game.ts';
 

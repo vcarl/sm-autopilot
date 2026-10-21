@@ -58,18 +58,17 @@ export interface Binding {
   emit:(text:string)=>void;
   /** Told when the program pauses on `ask()`, so the request waiting on the run can answer. */
   onAsk?:(question:Question)=>void;
-  /** A run's id, stamped on every journal line while it is bound. Absent for the menu's reads. */
+  /** A run's id, stamped on every journal line while it is bound. Absent for the state's reads. */
   run_id?:string;
   /** A query's binding (`querying`): it reads, and the runtime sends nothing of its own. */
   query?:boolean;
 }
 
-/** Every top-level call `main()` made this run, as the menu reads a run: the function, its
+/** Every top-level call `main()` made this run: the function, its
  * first argument, how it ended and what it gained. ponytail: the first whitespace token of
  * the job's label stands in for "first argument"; it is the poi/id for every job that takes one. */
 export interface Call {fn:string;arg:string;
-  /** The call as the program wrote it, literal arguments and all, for the jobs that keep it (tradeRun, sell): what
-   * the menu offers again. */
+  /** The call as the program wrote it, literal arguments and all, for the jobs that keep it (tradeRun, sell). */
   call?:string;status:Status;did:string;
   /** The Outcome's own `why`, so the report of a call that did not end `done` carries the
    * reason (the suggested ids of a refused destination) and not only the `did`. */
@@ -147,7 +146,7 @@ type GameShape=Context.Service.Shape<typeof Game>;
 
 /** The run bound now, with its own runtime: commands through it take this binding's journalled
  * `command` (docs/EFFECT.md "The Promise ↔ Effect edge").
- * ponytail: one slot for the run and the menu, because the sync helpers (`stopped()`, `pilot()`, `note()`,
+ * ponytail: one slot for the run and the state read, because the sync helpers (`stopped()`, `pilot()`, `note()`,
  * `step()`) carry no context to find their run by; those two never overlap, so the bridge takes it in turn
  * (`exclusive`), and `unbind` disposes the runtime, interrupting any job still in it. A query alone is found
  * by its async context (`scoped`); move the run there too if two runs ever share a process. */
@@ -490,7 +489,7 @@ function reconnected(live:Account,ms=60_000):Promise<boolean> {
 }
 
 /** The Promise seam for an Effect that is not a pilot function — the pilot's own
- * `account().commands`, the bridge's menu: run through the binding's runtime, a failure thrown
+ * `account().commands`, the bridge's state read: run through the binding's runtime, a failure thrown
  * as the raw error the lib raised, so `instanceof SpacemoltError` and `.code` still work.
  * Journalled by the bridge's command; counted, and a mood change it caused is said by the
  * layer's `after`. The one `run*` besides `edge`. */

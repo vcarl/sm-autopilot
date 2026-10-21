@@ -33,57 +33,57 @@ function heldRun() {
 }
 const settle=()=>new Promise(resolve=>setImmediate(resolve));
 
-test('menu answers with the present', async () => {
+test('state answers with the present', async () => {
   const f=fixture({pilot:()=>PILOT});
-  const menu=await f.dispatch('menu') as any;
+  const state=await f.dispatch('state') as any;
   assert.equal(f.account.refreshes.length>0,true,'the present must come from an authoritative read');
-  assert.equal(menu.stance,'Prospector');
-  assert.equal(menu.objective,'fill the hold');
-  assert.deepEqual([menu.present.docked_at,menu.present.fuel,menu.present.cargo_free],['sol_base',100,0]);
-  assert.equal(menu.moves,undefined,'no moves are offered');
-  assert.equal(menu.last,null,'nothing has run yet');
+  assert.equal(state.stance,'Prospector');
+  assert.equal(state.objective,'fill the hold');
+  assert.deepEqual([state.present.docked_at,state.present.fuel,state.present.cargo_free],['sol_base',100,0]);
+  assert.equal(state.moves,undefined,'no moves are offered');
+  assert.equal(state.last,null,'nothing has run yet');
   // The juncture renders the situation from this one reply: the clock, the record, the ship.
-  assert.ok(Date.parse(menu.now),menu.now);
+  assert.ok(Date.parse(state.now),state.now);
   const armed=bridgeWorld({wildlife:{creatures:[]}});
-  const fitted=await serve(armed.account as unknown as Account,armed.command,{pilot:()=>PILOT})('menu') as any;
+  const fitted=await serve(armed.account as unknown as Account,armed.command,{pilot:()=>PILOT})('state') as any;
   assert.deepEqual(fitted.present.weapons,[{id:'autocannon_i',loaded:500,hold:0}]);
-  // A pilot with no stance gets the same menu: nothing about a missing stance is a state to leave.
-  const blank=await fixture().dispatch('menu') as any;
+  // A pilot with no stance gets the same state: nothing about a missing stance is a state to leave.
+  const blank=await fixture().dispatch('state') as any;
   assert.equal(blank.stance,undefined);
   assert.equal(blank.mood,'Cautious','no stance flies the Cautious margins');
 });
 
-test('the menu derives the mood from the ship after its reads and writes nothing', async () => {
+test('the state derives the mood from the ship after its reads and writes nothing', async () => {
   const world=bridgeWorld();
   const writes:Pilot[]=[];
   // A record an older runner wrote, mood and all: the stored mood is ignored.
   const serveIt=()=>serve(world.account as unknown as Account,world.command,
     {pilot:()=>({...PILOT,mood:'Aggressive'} as Pilot),setPilot:next=>{writes.push(next);}});
-  const menu=await serveIt()('menu') as any;
-  assert.equal(menu.mood,'Focused','a Prospector flies Focused');
+  const state=await serveIt()('state') as any;
+  assert.equal(state.mood,'Focused','a Prospector flies Focused');
   world.account.server.ship.fuel=3;
-  const tired=await serveIt()('menu') as any;
+  const tired=await serveIt()('state') as any;
   assert.equal(tired.mood,'Tired');
   assert.match(tired.tired_by,/fuel 3 under the Focused reserve 24/);
-  assert.equal(writes.length,0,'building the menu wrote the record');
+  assert.equal(writes.length,0,'building the state wrote the record');
 });
 
-test('the menu names the danger line, the prey here with its record, and a low hold', async () => {
+test('the state names the danger line, the prey here with its record, and a low hold', async () => {
   const veil=(id:string)=>({creature_id:id,species:'veil_ray',name:'Veil-Ray'});
   const world=bridgeWorld({wildlife:{creatures:[veil('c1'),veil('c2')]}});
   world.account.server.location.docked_at=null;
-  const menu=await serve(world.account as unknown as Account,world.command,{pilot:()=>PILOT})('menu') as any;
-  assert.equal(menu.present.danger_line,30,'0.30 of a 100 hull, whatever the mood');
-  assert.equal(menu.present.walk_away,undefined);
-  assert.deepEqual(menu.prey,[{name:'Veil-Ray',kind:'creature',count:2,record:'unknown: never fought'}]);
-  assert.ok(menu.present.weapons.every((w:any)=>typeof w.hold==='number'),JSON.stringify(menu.present.weapons));
-  // Review Focus 5: a refused get_nearby leaves prey out and the menu still answers.
+  const state=await serve(world.account as unknown as Account,world.command,{pilot:()=>PILOT})('state') as any;
+  assert.equal(state.present.danger_line,30,'0.30 of a 100 hull, whatever the mood');
+  assert.equal(state.present.walk_away,undefined);
+  assert.deepEqual(state.prey,[{name:'Veil-Ray',kind:'creature',count:2,record:'unknown: never fought'}]);
+  assert.ok(state.present.weapons.every((w:any)=>typeof w.hold==='number'),JSON.stringify(state.present.weapons));
+  // Review Focus 5: a refused get_nearby leaves prey out and the state still answers.
   const refuse=(name:string,params:Record<string,unknown>)=>{
     if(name==='spacemolt/get_nearby')throw new Error('get_nearby refused');
     return world.command(name,params);
   };
   const dir=mkdtempSync(join(tmpdir(),'spacemolt-bridge-'));
-  const blind=await serve(world.account as unknown as Account,refuse as typeof world.command,{pilot:()=>PILOT,runtime:dir})('menu') as any;
+  const blind=await serve(world.account as unknown as Account,refuse as typeof world.command,{pilot:()=>PILOT,runtime:dir})('state') as any;
   assert.equal(blind.prey,undefined);
   const defects=readJournal(dir).filter(entry=>entry.event==='defect');
   assert.equal(defects.length,1,'a bug in the prey read is journalled');
@@ -95,14 +95,14 @@ test('the menu names the danger line, the prey here with its record, and a low h
     if(name==='spacemolt/get_nearby')throw new SpacemoltError('not_here','refused');
     return world.command(name,params);
   };
-  const quiet=await serve(world.account as unknown as Account,typed as typeof world.command,{pilot:()=>PILOT,runtime:said})('menu') as any;
+  const quiet=await serve(world.account as unknown as Account,typed as typeof world.command,{pilot:()=>PILOT,runtime:said})('state') as any;
   assert.equal(quiet.prey,undefined);
   assert.equal(readJournal(said).filter(entry=>entry.event==='defect').length,0);
   assert.equal(blind.present.danger_line,30);
-  assert.deepEqual(blind.present.weapons,menu.present.weapons,'no other block is lost');
+  assert.deepEqual(blind.present.weapons,state.present.weapons,'no other block is lost');
   // Docked: no look is taken at all.
   world.account.server.location.docked_at='sol_base';
-  const docked=await serve(world.account as unknown as Account,world.command,{pilot:()=>PILOT})('menu') as any;
+  const docked=await serve(world.account as unknown as Account,world.command,{pilot:()=>PILOT})('state') as any;
   assert.equal(docked.prey,undefined);
 });
 
@@ -145,7 +145,7 @@ test('a new objective clears the goal and stance unless the same write sets them
   assert.equal(record.objective_start,undefined,'a retired objective takes its start with it');
 });
 
-test('run blocks until the pilot file ends; status, stop and menu answer meanwhile', async () => {
+test('run blocks until the pilot file ends; status, stop and state answer meanwhile', async () => {
   const held=heldRun();
   const runtime=mkdtempSync(join(tmpdir(),'spacemolt-bridge-'));
   const f=fixture({pilot:()=>PILOT,runPilot:held.runPilot,runtime});
@@ -165,7 +165,7 @@ test('run blocks until the pilot file ends; status, stop and menu answer meanwhi
   const refused=await f.dispatch('run',{}) as any;
   assert.equal(refused.accepted,false);
   assert.equal(held.started.length,1);
-  assert.equal(((await f.dispatch('menu')) as any).busy,true);
+  assert.equal(((await f.dispatch('state')) as any).busy,true);
   assert.equal(((await f.dispatch('stop')) as any).stopping,true);
 
   held.finish({accepted:true,status:'done',reason:'serviced',prose:'Done: serviced.',started:'t0',commands:3});
@@ -226,24 +226,24 @@ test('the journal keeps the outcome of a request and never the prose or a body',
   assert.deepEqual(status,{running:false,last:{status:'done',did:'serviced'}});
 });
 
-test('the journal keeps a menu\'s outcome, never its world body', () => {
-  const menu=journalResult('menu',{stance:'Hunter',mood:'Tired',objective:'cull the fauna',
+test('the journal keeps a state\'s outcome, never its world body', () => {
+  const state=journalResult('state',{stance:'Hunter',mood:'Tired',objective:'cull the fauna',
     present:{system:'sys_a',hold:[{item_id:'carbon_ore',quantity:61}]}}) as any;
-  assert.equal(menu.mood,'Tired');
-  assert.equal(menu.present,undefined,'the world body never reaches the journal');
+  assert.equal(state.mood,'Tired');
+  assert.equal(state.present,undefined,'the world body never reaches the journal');
 });
 
 // Live 2026-09-25: a pilot woke at hull 3/80 in a battle left over from the previous shift and
 // died one second after its first move, because nothing it read said it was in a fight. Whether
-// a battle holds the ship is the first fact the menu carries, so the juncture can lead with it.
-test('the menu says whether a battle holds the ship, before any other fact',async()=>{
+// a battle holds the ship is the first fact the state carries, so the juncture can lead with it.
+test('the state says whether a battle holds the ship, before any other fact',async()=>{
   const grazer={creature_id:'c1',species:'molt_grazer',name:'Molt Grazer'};
   const world=bridgeWorld({services:['refuel','repair'],wildlife:{creatures:[grazer],polls:20,damage:0}});
   const dispatch=serve(world.account as unknown as Account,world.command,{pilot:()=>PILOT});
-  const calm=await dispatch('menu') as any;
+  const calm=await dispatch('state') as any;
   assert.equal(calm.battle,undefined,'no battle, no line');
   await world.command('spacemolt/hunt',{id:'c1'});
-  const fighting=await dispatch('menu') as any;
+  const fighting=await dispatch('state') as any;
   assert.equal(fighting.battle?.opponent,'Molt Grazer');
   assert.ok(Number(fighting.battle?.tick)>=1,JSON.stringify(fighting.battle));
   assert.equal(Object.keys(fighting).indexOf('battle'),0,'first key: the juncture renders it first');
@@ -360,7 +360,7 @@ test('pilot.json reads back field by field: an old mood is dropped, a bad field 
 
 test('every request service.py, __init__.py, juncture.py and play.py send decodes', () => {
   const sent:[string,unknown][]=[
-    ['status',{}],['menu',{}],['context',{}],['check',{}],['stop',{}],['stop',{reason:'objective'}],
+    ['status',{}],['state',{}],['context',{}],['check',{}],['stop',{}],['stop',{reason:'objective'}],
     ['run',{}],['run',{juncture:{juncture_id:'abc',at:'2026-10-03T00:00:00Z'}}],['run',{juncture:{juncture_id:'abc',at:null}}],
     ['answer',{answer:''}],['answer',{answer:'yes'}],
     ['pilot',{set:{goal:'mine',stance:'Prospector'}}],['pilot',{set:{goal:'mine',steps:['price an upgrade','sell']}}],['pilot',{set:{steps:[]}}],
@@ -373,7 +373,7 @@ test('every request service.py, __init__.py, juncture.py and play.py send decode
 
 // Live 2026-10-02 (kvothe): the run reports read "b495c6003fc83e18f6d8cecbe6929133", and so did
 // the pilot's replies. What reaches the pilot names it; the journal keeps the raw id.
-test('a reply names opaque place ids in its prose for the pilot, and the menu carries the names', async () => {
+test('a reply names opaque place ids in its prose for the pilot, and the state carries the names', async () => {
   const base='b495c6003fc83e18f6d8cecbe6929133',names={[base]:'Kestrel Yard'};
   const result={accepted:true,status:'done',did:`sold at ${base}`,why:`${base} bids 40`,
     prose:`Done: tradeRun({stops:[{at:'${base}'}]}) at ${base}.`,commands:3};
@@ -383,8 +383,8 @@ test('a reply names opaque place ids in its prose for the pilot, and the menu ca
   assert.equal((journalResult('run',result) as any).did,`sold at ${base}`,'the journal is handed the raw reply');
   const runtime=mkdtempSync(join(tmpdir(),'spacemolt-bridge-'));
   writeFileSync(join(runtime,'names.json'),JSON.stringify(names));
-  const menu=await fixture({pilot:()=>PILOT,runtime}).dispatch('menu') as any;
-  assert.deepEqual(menu.names,names);
+  const state=await fixture({pilot:()=>PILOT,runtime}).dispatch('state') as any;
+  assert.deepEqual(state.names,names);
 });
 
 test('a rejection outside any run is logged and the bridge lives; inside one, the run says it',async()=>{

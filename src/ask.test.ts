@@ -56,7 +56,7 @@ test('a program that asks pauses: the run answers early with the question, and t
     const status=await f.send('status');
     assert.equal(status.running,true);
     assert.equal(status.question.question,'Which belt?');
-    assert.equal((await f.send('menu')).question.question,'Which belt?');
+    assert.equal((await f.send('state')).question.question,'Which belt?');
 
     const ended=await f.send('answer',{answer:'South'});
     assert.equal(ended.accepted,true);
@@ -163,21 +163,21 @@ test('a stop after an answer resumed the program reaches its own loop: the run e
   } finally {f.close();}
 });
 
-// U31 verify: the menu binds the runtime for its reads and unbinds after. A run that bound while a menu's
-// read was still out had its binding unbound under it by the menu's `finally`: the program lost its run.
-test('a run started while a menu is still reading binds after the menu has unbound, never under it',async()=>{
+// U31 verify: the state read binds the runtime and unbinds after. A run that bound while the state's
+// read was still out had its binding unbound under it by the state's `finally`: the program lost its run.
+test('a run started while the state is still being read binds after the state read has unbound, never under it',async()=>{
   let release=()=>{};
   const held=new Promise<void>(resolve=>{release=resolve;});
   let holding=true;
   const f=harness(ASKS,command=>async(action,params)=>{if(holding)await held;return command(action,params);},
     text=>{if(text.startsWith('flight launched'))release();});
   try {
-    const menu=f.send('menu');
+    const state=f.send('state');
     await new Promise(resolve=>setTimeout(resolve,10));
     const run=f.send('run');
-    // The run binds only once the menu is done; without that, 'run started' is what releases the menu.
+    // The run binds only once the state is done; without that, 'run started' is what releases the state.
     setTimeout(()=>{holding=false;release();},1500);
-    assert.ok((await menu).present,'the menu answered');
+    assert.ok((await state).present,'the state answered');
     const paused=await run;
     assert.equal(paused.paused,true,JSON.stringify(paused));
     const ended=await f.send('answer',{answer:'north'});

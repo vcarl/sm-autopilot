@@ -29,7 +29,7 @@ export const CAP=120;
 export const THIN=3;
 /** A battle tick is ten seconds of real time (`play/combat/hunting.ts`'s `pace`).
  * ponytail: ages are wall-clock elapsed converted at this rate, not a server tick delta —
- * `account.currentTick` is only reachable inside the bridge, and neither the menu nor a
+ * `account.currentTick` is only reachable inside the bridge, and neither the state read nor a
  * running job has it. `FightRecord.tick` stores the real tick for the day one of them does. */
 export const TICK_MS=10_000;
 

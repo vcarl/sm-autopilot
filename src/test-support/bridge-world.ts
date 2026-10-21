@@ -761,7 +761,7 @@ export function bridgeWorld(options:WorldOptions={}) {
     'spacemolt/get_system':()=>({structuredContent:{kind:'normal',
       system:systemAt(account.server.location.system_id)}}),
     // The map entry for a system, as a far one answers: never visited, so a neighbour is
-    // always somewhere the menu can point at.
+    // always somewhere to point at.
     'spacemolt/get_map':params=>{
       // No id asked for is the whole galaxy, which is what a name or a near miss is matched
       // against; one id is the entry for that system.
@@ -1052,7 +1052,7 @@ export function bridgeWorld(options:WorldOptions={}) {
         cargo_space:account.server.ship.cargo_capacity-account.server.ship.cargo_used,
         cargo_total:account.server.ship.cargo_capacity,storage_remaining:row?.quantity??0}}};
     },
-    // Not served: the game refuses what it does not serve, and the menu leaves its skills out (an assertion here would be a defect).
+    // Not served: the game refuses what it does not serve, and the state leaves its skills out (an assertion here would be a defect).
     'spacemolt_social/chat':params=>{
       if(options.chat?.lose)throw new SpacemoltError('mutation_timeout','No action_result for chat');
       if(options.chat?.refuse)throw new SpacemoltError(options.chat.refuse,`chat refused: ${options.chat.refuse}`);

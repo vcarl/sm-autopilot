@@ -108,13 +108,13 @@ next bridge, and only a fire starts one (10-05: a forced gateway restart under a
 fire after it was suppressed).
 
 The **context** is rendered by the bridge (the `context` request, `src/context.ts`) from live facts
-at fire time: its own `menu` (present, derived mood, threats, the missions held), the pilot's recent
+at fire time: its own `state` request (present, derived mood, threats, the missions held), the pilot's recent
 runs and reflections from the journal, the chat since the last render (`juncture.json`'s `at`), the pilot's last five distinct failures
 (`failures.json`, each with its count and age, above the recent runs) and the standing instruction. When the game read fails it renders the record and the journal and says the
 game was not read. `juncture_context` in Python asks for it, and when the bridge cannot be reached at
 all hands over the record's objective, instruction and goal instead. Python writes nothing but a
 `juncture` journal line — the skills carried, their sizes, the context itself and any
-`menu_error` — so a reviewer can see what the pilot was told. The gate still renders its own
+`state_error` — so a reviewer can see what the pilot was told. The gate still renders its own
 private-message and question lines in Python (`chat_quote`, `question_text`; `chatQuote` and
 `questionText` are the bridge's copies), because it runs without a bridge.
 

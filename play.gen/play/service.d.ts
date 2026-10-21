@@ -45,9 +45,8 @@ export interface Insurance {
         expires_at?: string;
     };
 }
-/** One base worth flying to for a service, as a move: the call, and everything known about it.
- * The menu offers these and a refused (or partially filled) `service` names them in `next`, so
- * the advice a pilot is given is the same advice either way. */
+/** One base worth flying to for a service: the call, and everything known about it. A refused (or partially
+ * filled) `service` names them in `next`. */
 export interface Elsewhere {
     call: string;
     why: string;

@@ -73,7 +73,7 @@ export declare function closeInterrupted(runtime: string): RunRecord | null;
  * boot rotated away. The stamps sort as time. `name` is another record rotated the same way (`chat`). */
 export declare function journalFiles(runtime: string, name?: string): string[];
 /** The tail of the journal as data: what the pilot has actually done, for the readers that need
- * history rather than the present (reflection, the menu, the rendered window). Walks from the
+ * history rather than the present (reflection, the rendered window). Walks from the
  * current file back through the rotated ones until it has `limit` entries, so a fresh boot's
  * nearly empty journal does not cost them their past.
  *

@@ -25,8 +25,8 @@ import {flushJournalDrain,startJournalDrain} from './journal-webhook.ts';
 import {watchPictures} from './pictures.ts';
 import {check as checkPilot,runPilot as defaultRunPilot,type RunResult} from './run.ts';
 import {runQuery} from './query.ts';
-import {recordMenu,renderContext} from './context.ts';
-import {heldEffect,threatsHere} from './play/menu.ts';
+import {recordState,renderContext} from './context.ts';
+import {heldEffect,threatsHere} from './play/state.ts';
 import {ammoReport,preyHereEffect} from './play/combat/hunting.ts';
 import {fleetBrief,resumeFreighters,stopFreighters} from './play/freighter/host.ts';
 import {attempt,isGameError,message} from './play/game.ts';
@@ -46,7 +46,7 @@ export const Request=Schema.Union([
   Schema.Struct({action:Schema.Literal('answer'),params:Schema.optionalKey(Schema.Struct({answer:Schema.optionalKey(Schema.String)}))}),
   Schema.Struct({action:Schema.Literal('pilot'),params:Schema.optionalKey(Schema.Struct({set:Schema.optionalKey(Schema.Record(Schema.String,Schema.Unknown))}))}),
   // `stop` carries a `reason`, which only the request's journal line reads.
-  Schema.Struct({action:Schema.Literals(['check','stop','status','menu','context']),params:Schema.optionalKey(Schema.Unknown)}),
+  Schema.Struct({action:Schema.Literals(['check','stop','status','state','context']),params:Schema.optionalKey(Schema.Unknown)}),
 ]);
 const decodeRequest=Schema.decodeUnknownResult(Request);
 /** One stdin line: the id the reply carries, and the request it names. */
@@ -55,11 +55,11 @@ const decodeLine=Schema.decodeUnknownResult(Schema.fromJsonString(Schema.Struct(
 const isRecord=(value:unknown):value is Record<string,unknown>=>typeof value==='object'&&value!==null;
 
 /** The actions whose answer is an outcome: a journal line keeps its shape, trimmed. */
-const OUTCOME_ACTIONS=new Set(['run','query','answer','status','pilot','menu','context','stop','check']);
+const OUTCOME_ACTIONS=new Set(['run','query','answer','status','pilot','state','context','stop','check']);
 const OUTCOME_KEYS=new Set(['accepted','reason','status','record','running',
   'busy','objective','objective_done','stance','mood','errors','stopping',
   'ok','fn','did','sha','step','commands','elapsed_s','started','stagnation','rest',
-  'paused','reattached','question','withdrawn','sent','code','lost','why','query_id','refused','error','menu_error',
+  'paused','reattached','question','withdrawn','sent','code','lost','why','query_id','refused','error','state_error',
   // A reflection's skill rows, which are small and are the one thing a later reflection cannot
   // read any other way: they are what "raise this by two levels" is judged against, and without
   // them in the record every reflection sees only the level it happens to be looking at.
@@ -306,8 +306,8 @@ export function serve(account:Account,command:ReadinessCommand,options:ServeOpti
   let running:{started:string}|null=null,last:Record<string,unknown>|null=null;
   /** The run in flight while a request is following it, and how an `ask()` wakes that request. */
   let flight:Promise<Record<string,unknown>>|null=null,asked:(()=>void)|null=null;
-  /** The play runtime has one binding slot: a menu and a run take it in turn, never under each other.
-   * U31 verify: a run that bound while a menu's read was out was unbound by the menu's `finally`. */
+  /** The play runtime has one binding slot: the state read and a run take it in turn, never under each other.
+   * U31 verify: a run that bound while the state's read was out was unbound by its `finally`. */
   let slot:Promise<unknown>=Promise.resolve();
   const exclusive=<T>(work:()=>Promise<T>):Promise<T>=>{const next=slot.then(work);slot=next.catch(()=>{});return next;};
   const busy=(flight:{started:string})=>{const question=pendingQuestion();
@@ -378,22 +378,22 @@ export function serve(account:Account,command:ReadinessCommand,options:ServeOpti
     return follow();
   };
 
-  /** The menu from where the ship stands (DESIGN §4): the present, the missions held, and how the last run ended. The play
+  /** The state from where the ship stands (DESIGN §4): the present, the missions held, and how the last run ended. The play
    * runtime is bound for the reads and released after; a run in flight answers `busy`. */
-  const menu=async()=>{
+  const state=async()=>{
     if(running)return {busy:true,...busy(running)};
-    return exclusive(menuBound);
+    return exclusive(stateBound);
   };
-  const menuBound=async()=>{
+  const stateBound=async()=>{
     bind({account,command,pilot,...runtime?{runtime}:{},emit:()=>{}});
     try {
-      // The menu's reads and the battle read, through the binding's runtime like a run's.
+      // The state's reads and the battle read, through the binding's runtime like a run's.
       const {built,fight,nearby}=await onBinding(Effect.gen(function*() {
         const built=yield* heldEffect(runtime),fight=yield* battleNowEffect();
         // The prey here, undocked only. A failed read leaves `prey` out and loses nothing else.
         const here=account.state.location;
         const nearby=here?.docked_at||here?.in_transit?undefined:yield* preyHereEffect().pipe(Effect.catchCause(cause=>{
-          // A refusal is the game's answer and stays silent; a die is a bug, journalled and still no reason to lose the menu.
+          // A refusal is the game's answer and stays silent; a die is a bug, journalled and still no reason to lose the state.
           if(runtime&&Cause.hasDies(cause))journalRun(runtime,{fn:'preyHere',why:message(Cause.squash(cause)),stack:Cause.pretty(cause)},'defect');
           return Effect.succeed(undefined);
         }));
@@ -442,22 +442,22 @@ export function serve(account:Account,command:ReadinessCommand,options:ServeOpti
     } finally {unbind();}
   };
 
-  /** The juncture context (context.ts): the menu rendered, and whether a run flies, for Python's `juncture` line. */
+  /** The juncture context (context.ts): the state rendered, and whether a run flies, for Python's `juncture` line. */
   const context=async()=>{
-    let built:Record<string,unknown>,menu_error:string|undefined;
-    try {built=await menu();}
+    let built:Record<string,unknown>,state_error:string|undefined;
+    try {built=await state();}
     catch(error) {
-      // Live 2026-10-02 (kvothe): 20 fires lost the whole section to a failed menu read ("WebSocket
+      // Live 2026-10-02 (kvothe): 20 fires lost the whole section to a failed state read ("WebSocket
       // connection closed", "No response to spacemolt/get_status within 15000ms"). Those fires flew
       // blind of the objective and the instruction, and wrote no juncture, so their runs carried the
       // previous juncture's id (09-30 16:32Z). The record and the journal need no game: render them,
       // and say the game was not read.
-      menu_error=error instanceof Error?`${error.name}: ${error.message}`:String(error);
+      state_error=error instanceof Error?`${error.name}: ${error.message}`:String(error);
       let kept:Pilot={};
       try {kept=record();} catch {/* an unreadable record is a pilot with none, as a fresh one */}
-      built=recordMenu(kept,runtime);
+      built=recordState(kept,runtime);
     }
-    return {text:renderContext(built,runtime),busy:Boolean(built.busy),...menu_error?{menu_error}:{}};
+    return {text:renderContext(built,runtime),busy:Boolean(built.busy),...state_error?{state_error}:{}};
   };
 
   /** Set fields of `pilot.json`; a null removes one. The only writer of the record: Python's
@@ -536,7 +536,7 @@ export function serve(account:Account,command:ReadinessCommand,options:ServeOpti
       case 'stop':return stop(attach);
       case 'status':return running?busy(running):{running:false,last:lastOutcome()};
       case 'pilot':return setRecord(request.params?.set);
-      case 'menu':return menu();
+      case 'state':return state();
       case 'context':return context();
     }
   };

@@ -55,7 +55,7 @@ export const ticksOld=(tick:number|undefined,now:number):number=>
   tick===undefined?LEGACY_AGE:Math.max(0,now-tick);
 
 /** The best remembered bid for an item at a base other than `here`, with its age — the query
- * `sell`'s did and the menu's sell rows both ran per item against a fresh `knownBooks()` read
+ * `sell`'s did ran per item against a fresh `knownBooks()` read
  * (an 8 MB parse each). Callers read `knownBooks()` once and pass the result in. */
 export interface FarBid {base_id:string;best_buy:number;best_buy_qty:number;age:number}
 export function bestFarBid(books:RememberedBook[],item_id:string,here:string|null|undefined,tick:number):FarBid|undefined {

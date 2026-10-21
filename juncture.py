@@ -176,7 +176,7 @@ def _run_endings() -> list[dict[str, Any]]:
 
 
 def juncture_context(session_info: Mapping[str, Any] | None = None) -> str:
-    """The present, the menu, and the pilot's own recent runs — delivered, never fetched (N15).
+    """The ship.s state and the pilot's own recent runs — delivered, never fetched (N15).
 
     Core renders this once per new session and freezes the bytes into that conversation's
     system prompt, and again when it rebuilds that prompt (compression) — the same juncture. The
@@ -196,15 +196,15 @@ def juncture_context(session_info: Mapping[str, Any] | None = None) -> str:
     try:
         reply = call("context")
         context = str(reply.get("text") or "")
-        menu_error = reply.get("menu_error")
+        state_error = reply.get("state_error")
     except Exception as error:  # noqa: BLE001 - any failure here would cost the fire its whole context
         # No bridge at all: the record needs none, so the fire still carries the objective and the
         # instruction. The game and the journal are the bridge's to read.
-        menu_error = f"{type(error).__name__}: {error}"
+        state_error = f"{type(error).__name__}: {error}"
         reply = {}
         context = _unreached(record)
     try:
-        _journal_render(context, record, reply, menu_error, session_info or {}, began)
+        _journal_render(context, record, reply, state_error, session_info or {}, began)
     except Exception:  # the bookkeeping is never worth the fire's context
         logger.exception("spacemolt juncture: the render was not journalled")
     return context
@@ -225,7 +225,7 @@ def _unreached(record: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
-def _journal_render(context: str, record: dict[str, Any], menu: dict[str, Any], menu_error: str | None,
+def _journal_render(context: str, record: dict[str, Any], state: dict[str, Any], state_error: str | None,
                     info: Mapping[str, Any], began: float) -> None:
     """Journal what was rendered, and keep ``juncture.json`` for the runs that follow."""
     from .service import source_fingerprint
@@ -243,9 +243,9 @@ def _journal_render(context: str, record: dict[str, Any], menu: dict[str, Any], 
     job = re.fullmatch(r"cron_(.+)_\d{8}_\d{6}", session_id)
     facts = {"session_id": session_id or None, "code_sha": code_sha(), "sources": source_fingerprint(),
              "skills_sha": carried.hexdigest()[:12], "build_s": round(time.monotonic() - began, 3),
-             "stance": record.get("stance"), "busy": bool(menu.get("busy")), "context_chars": len(context),
+             "stance": record.get("stance"), "busy": bool(state.get("busy")), "context_chars": len(context),
              "context_sha": hashlib.sha256(context.encode()).hexdigest()[:12], "context": context,
-             **({"menu_error": menu_error} if menu_error else {})}
+             **({"state_error": state_error} if state_error else {})}
     # Hermes re-renders this when it rebuilds a session's system prompt (context compression,
     # live 2026-09-28 13:37Z). That is the same fire: same juncture, fresh facts, its own event.
     prior = _read_juncture()
@@ -261,9 +261,9 @@ def _journal_render(context: str, record: dict[str, Any], menu: dict[str, Any], 
         # drop an instruction written before the rerender but never actually shown (live
         # 2026-09-29). `at` only advances when this render could have carried it.
         at = _now_iso()
-        new_at = at if not menu.get("busy") else prior.get("at")
+        new_at = at if not state.get("busy") else prior.get("at")
         # The objective follows the same rule: a busy render names none.
-        objective = record.get("objective") if not menu.get("busy") else prior.get("objective")
+        objective = record.get("objective") if not state.get("busy") else prior.get("objective")
         _write_juncture({"juncture_id": prior["juncture_id"], "at": new_at, "session_id": session_id or None,
                          "objective": objective, "started": prior.get("started")})
         journal_event("juncture_rerender", at=at, juncture_id=prior["juncture_id"],

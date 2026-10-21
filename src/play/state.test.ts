@@ -7,17 +7,17 @@ import {join} from 'node:path';
 import {TICK_MS} from '../sighting-memory.ts';
 import {readJournal} from '../run-record.ts';
 import {bridgeWorld,TICK,type WorldOptions} from '../test-support/bridge-world.ts';
-import {heldEffect,threatsHere} from './menu.ts';
+import {heldEffect,threatsHere} from './state.ts';
 import {sell} from './market.ts';
 import {tradeRun} from './trading/trading.ts';
 import {orient} from './orient.ts';
 import {bind,onBinding,runCalls,unbind,type Pilot} from './runtime.ts';
 
-const menu=(runtime?:string)=>onBinding(heldEffect(runtime));
+const state=(runtime?:string)=>onBinding(heldEffect(runtime));
 
 /** A world docked at sol_base, its runtime holding `books` as remembered (each `age` ticks before now). */
 function world(record:Pilot,options:WorldOptions={},books:{base_id:string;age:number;system_id?:string;items:Record<string,unknown>[]}[]=[]) {
-  const runtime=mkdtempSync(join(tmpdir(),'spacemolt-menu-'));
+  const runtime=mkdtempSync(join(tmpdir(),'spacemolt-state-'));
   writeFileSync(join(runtime,'markets.json'),JSON.stringify(books.map(({base_id,age,system_id,items})=>({base_id,at:'',tick:TICK-age,
     ...system_id?{system_id}:{},items:items.map(row=>({best_buy:0,best_buy_qty:0,best_sell:0,best_sell_qty:0,buy_orders:[],sell_orders:[],...row}))}))));
   const game=bridgeWorld({services:['refuel','repair','storage'],store:[],...options});
@@ -70,14 +70,14 @@ test('orient leads with the battle holding the ship',async()=>{
   } finally {f.close();}
 });
 
-test('the menu carries each held mission by its next step, with the jumps to a base it knows',async()=>{
+test('the state carries each held mission by its next step, with the jumps to a base it knows',async()=>{
   const f=world({mood:'Focused',stance:'Trader'},{cargoUsed:0});
   try {
     writeFileSync(join(f.runtime,'places.json'),JSON.stringify({range_base:'deep_range'}));
     const visit=(base:string,completed:boolean)=>({description:`Visit ${base}`,type:'visit',required:1,current:completed?1:0,completed,target_base:base});
     f.taken.push({mission_id:'c1',title:'Circuit',type:'diplomacy',difficulty:1,percent_complete:50,expires_in_ticks:360,rewards:{credits:1},
       objectives:[visit('sol_base',true),visit('range_base',false)]});
-    const before=Date.now(),built=await menu(f.runtime);
+    const before=Date.now(),built=await state(f.runtime);
     assert.equal(built.held?.max,5);
     assert.equal(built.held?.missions[0]?.next,'Visit range_base → range_base, 1 jump [2 of 2]');
     const due=Date.parse(built.held!.missions[0]!.expires_at!);
@@ -85,7 +85,7 @@ test('the menu carries each held mission by its next step, with the jumps to a b
   } finally {f.close();}
 });
 
-// The menu is read-only: a read refused or lost leaves its section out, and neither is a bug, so neither writes a `defect` line.
+// The state is read-only: a read refused or lost leaves its section out, and neither is a bug, so neither writes a `defect` line.
 const READS=/^(get_|view|find_route|list|browse_|inspect|query_|estimate_)/;
 function faulty(f:Game,record:Pilot,fault:(action:string)=>unknown) {
   const sent:string[]=[];
@@ -100,15 +100,15 @@ function faulty(f:Game,record:Pilot,fault:(action:string)=>unknown) {
 }
 const defects=(runtime:string)=>readJournal(runtime).filter(line=>line.event==='defect');
 
-// The menu is the juncture's context: one that does not build is a pilot flying blind. Every read it makes is a section it can do without.
+// The state is the juncture's context: one that does not build is a pilot flying blind. Every read it makes is a section it can do without.
 for(const [name,fault] of [['refused',()=>new SpacemoltError('rate_limited','slow down')],['lost',()=>new ConnectionClosedError()]] as const)
   for(const action of ['spacemolt/get_map','spacemolt/get_active_missions'])
-    test(`a ${name} ${action} leaves its section out, the menu still builds, nothing it sends is a mutation, and no defect is written`,async()=>{
+    test(`a ${name} ${action} leaves its section out, the state still builds, nothing it sends is a mutation, and no defect is written`,async()=>{
       const record:Pilot={mood:'Focused',stance:'Trader'};
       const f=world(record,TRADE,[RANGE_BOOK]);
       try {
         const sent=faulty(f,record,asked=>asked===action?fault():undefined);
-        const built=await menu(f.runtime);
+        const built=await state(f.runtime);
         assert.ok(sent.includes(action),action);
         assert.ok(action==='spacemolt/get_map'?built.held:!built.held,JSON.stringify(built));
         assert.deepEqual(sent.filter(asked=>!READS.test(asked.split('/')[1]??'')),[]);
@@ -122,25 +122,25 @@ test('a bug in a read leaves only that section out, and journals a defect line n
     const f=world(record,TRADE,[RANGE_BOOK]);
     try {
       faulty(f,record,asked=>asked===action?new TypeError(`bug in ${action}`):undefined);
-      await menu(f.runtime);
+      await state(f.runtime);
       const lines=defects(f.runtime);
       assert.ok(lines.length>=1&&lines.every(line=>typeof line.fn==='string'&&String(line.why).includes(action)),`${action}: ${JSON.stringify(lines)}`);
     } finally {f.close();}
   }
 });
 
-// Every juncture builds a menu, and the menu reads the active missions: an expiry is still one line.
-test('a mission seen running and then expired is journalled expired once, however many menus are built',async()=>{
+// Every juncture reads the state, and that reads the active missions: an expiry is still one line.
+test('a mission seen running and then expired is journalled expired once, however many times the state is read',async()=>{
   const f=world({mood:'Focused',stance:'Prospector'});
-  const row=(expires_in_ticks:number)=>({mission_id:'menu-late',title:'Late run',type:'delivery',description:'',difficulty:1,accepted_at:'',
+  const row=(expires_in_ticks:number)=>({mission_id:'state-late',title:'Late run',type:'delivery',description:'',difficulty:1,accepted_at:'',
     issuing_base:'sol_base',expires_in_ticks,percent_complete:0,rewards:{credits:1_000},objectives:[]});
-  const expired=()=>readJournal(f.runtime).filter(line=>line.event==='mission'&&line.verb==='expired'&&line.mission_id==='menu-late');
+  const expired=()=>readJournal(f.runtime).filter(line=>line.event==='mission'&&line.verb==='expired'&&line.mission_id==='state-late');
   try {
     f.taken.push(row(100));
-    await menu(f.runtime);
+    await state(f.runtime);
     f.taken.splice(0,1,row(0));
-    await menu(f.runtime);
-    await menu(f.runtime);
+    await state(f.runtime);
+    await state(f.runtime);
     assert.equal(expired().length,1,JSON.stringify(expired()));
   } finally {f.close();}
 });

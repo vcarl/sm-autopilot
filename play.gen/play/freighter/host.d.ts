@@ -51,7 +51,7 @@ export interface Entry {
     scouted?: number;
     at: string;
 }
-/** A freighter as `freighters()` and the menu report it. */
+/** A freighter as `freighters()` and the state report it. */
 export interface FreighterRow {
     name: string;
     state: Entry['state'];
@@ -84,7 +84,7 @@ export declare function writeFleet(runtime: string, fleet: Record<string, Entry>
 export declare const row: (name: string, entry: Entry) => FreighterRow;
 /** `holding` in words: `40 copper_piping (1148 cr)`. */
 export declare const held: (holding: Holding) => string;
-/** The menu's `freighters` rows; nothing when none was ever assigned. */
+/** The state's `freighters` rows; nothing when none was ever assigned. */
 export declare function fleetBrief(runtime: string): {
     freighters?: FreighterRow[];
 };

@@ -176,26 +176,26 @@ test('the alert buffer is bounded by count and by age, undelivered included', ()
   assert.deepEqual(readAlerts(join(stale,'nowhere')),[]);
 });
 
-test('a push with no run in flight survives to the next juncture\'s menu call', async () => {
+test('a push with no run in flight survives to the next juncture\'s state call', async () => {
   const runtime=temp(),account=stub();
   pushJournal(account,runtime);
   account.fire('facility_rent_warning',RENT);
   account.fire('base_destroyed',{base_id:'far_reach',base_name:'Far Reach',attacker_id:'a-1',
     attacker_name:'Vex',owner_id:'me',system_id:'sol'});
   assert.equal(existsSync(join(runtime,'alerts.json')),true,'buffered on disk, not in a run');
-  // A fresh bridge, as a restart or the next juncture would have it: one `menu` call is the
+  // A fresh bridge, as a restart or the next juncture would have it: one `state` call is the
   // whole of what the `context` request reads from the game.
   const world=bridgeWorld();
   const dispatch=serve(world.account as unknown as Account,world.command,
     {pilot:()=>({stance:'Prospector' as const,mood:'Focused' as const}),runtime});
   try {
-    const menu=await dispatch('menu') as any;
-    assert.deepEqual(menu.alerts.map((row:any)=>[row.type,row.key,row.body.base_name]),
+    const state=await dispatch('state') as any;
+    assert.deepEqual(state.alerts.map((row:any)=>[row.type,row.key,row.body.base_name]),
       [['facility_rent_warning','base:hera_outpost','Hera Outpost'],
         ['base_destroyed','base:far_reach','Far Reach']]);
-    assert.equal(menu.alerts[0].body.grace_cycles,4,'the deadline travels with it');
+    assert.equal(state.alerts[0].body.grace_cycles,4,'the deadline travels with it');
     // Handed over and stamped in the same breath: the juncture after this one is not told again.
-    const again=await dispatch('menu') as any;
+    const again=await dispatch('state') as any;
     assert.equal('alerts' in again,false,JSON.stringify(again.alerts));
     // The journal still has both, which is how the volume of a group gets measured.
     assert.deepEqual(lines(runtime).filter(entry=>entry.event==='push').map(entry=>entry.push),['facility_rent_warning','base_destroyed']);

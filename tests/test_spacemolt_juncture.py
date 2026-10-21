@@ -202,7 +202,7 @@ def test_each_juncture_journals_the_skills_it_carried_and_the_context_it_rendere
     assert [skill["name"] for skill in row["skills"]] == ["spacemolt:play", "spacemolt:trading"]
     assert all(skill["bytes"] > 1000 for skill in row["skills"]), row["skills"]
     assert row["context"] == context and row["context_chars"] == len(context)
-    assert row["busy"] is False and "menu_error" not in row
+    assert row["busy"] is False and "state_error" not in row
     # A chat window is never handed the context, and journals nothing.
     assert juncture.juncture_context({"platform": "discord"}) == ""
     assert len(_journal_rows("juncture")) == 1 and len(sent) == 1
@@ -436,15 +436,15 @@ def test_a_juncture_flies_at_most_ninety_minutes_counted_from_its_first_render(m
 
 
 def test_a_failed_game_read_is_journalled_with_the_context_the_bridge_rendered_without_it(monkeypatch):
-    """Live 2026-10-02 (kvothe): 20 fires lost the whole juncture section to a failed menu read,
+    """Live 2026-10-02 (kvothe): 20 fires lost the whole juncture section to a failed state read,
     and wrote no juncture, so their runs carried the previous juncture's id (09-30 16:32Z). The
     bridge renders the record and the journal without the game (src/context.test.ts) and names
     the failed read; the juncture is written like any other."""
     _answering(monkeypatch, {"text": "The game did not answer this time", "busy": False,
-                             "menu_error": "ConnectionClosedError: WebSocket connection closed"})
+                             "state_error": "ConnectionClosedError: WebSocket connection closed"})
     context = juncture.juncture_context({"platform": "cron", "session_id": "cron_abc123_20261002_104212"})
     row, = _journal_rows("juncture")
-    assert row["menu_error"] == "ConnectionClosedError: WebSocket connection closed" and row["context"] == context
+    assert row["state_error"] == "ConnectionClosedError: WebSocket connection closed" and row["context"] == context
     assert juncture.last_juncture() == {"juncture_id": row["juncture_id"], "at": row["at"]}
 
 
@@ -464,7 +464,7 @@ def test_a_bridge_that_cannot_be_reached_still_hands_over_the_record(monkeypatch
                  "Goal (set 10-02 15:10Z): work the ore route"):
         assert text in context, (text, context)
     row, = _journal_rows("juncture")
-    assert row["menu_error"] == "RuntimeError: bridge failed to start" and row["context"] == context
+    assert row["state_error"] == "RuntimeError: bridge failed to start" and row["context"] == context
     # The render carried the instruction, so a run from it consumes it, as any other render.
     (service.runtime_dir() / "run.json").write_text(json.dumps(
         {"script": "index.ts", "juncture_at": row["at"], "started": row["at"], "ended": True}))

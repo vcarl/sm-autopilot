@@ -814,7 +814,7 @@ function tiredWorld(name:string) {
     close:()=>{unbind();rmSync(runtime,{recursive:true,force:true});}};
 }
 
-// Tired is checked wherever the ship stops, not only at a juncture's menu: a dock services there,
+// Tired is checked wherever the ship stops, not only at a juncture's state read: a dock services there,
 // and the act that docked reports as it would, naming the resupply.
 test('Tired at a dock: the counter services the ship, and the call that docked names it',async()=>{
   const f=tiredWorld('tired-dock');

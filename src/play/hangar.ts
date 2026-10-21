@@ -46,7 +46,7 @@ const firstEntry=(reply:unknown)=>{const read=decodeInspect(replyBody(reply));re
 const ModuleSpec=Wire.Module.mapFields(Struct.pick(['name','slot','type','cpu_usage','power_usage','size']));
 export type ModuleSpec=typeof ModuleSpec.Type;
 const decodeSpec=Schema.decodeUnknownOption(ModuleSpec);
-/** What is read of a hull class: the fields `versus`, the menu and the board name. The spec's other fields are not required of it:
+/** What is read of a hull class: the fields `versus` and the board name. The spec's other fields are not required of it:
  * the live server leaves some out. The surface still hands the pilot the raw entry. */
 const ClassRead=Wire.ShipClass.schema.mapFields(Struct.pick(['id','name','cargo_capacity','base_speed','base_fuel','utility_slots','weapon_slots',
   'defense_slots','minimum_crew','piloting_required']));
@@ -200,7 +200,7 @@ export type ForSale=
 export interface Locked {class_id:string;why:string}
 
 /** Ship classes are catalogue data, so each is read once per process — a class the catalogue says
- * it has no entry for included (live 2026-09-28: `inspect rubble` on every menu render). Any other
+ * it has no entry for included (live 2026-09-28: `inspect rubble` on every juncture render). Any other
  * failure is not remembered. The game sends no code for it that this repo has seen, so the refusal
  * is read by its message ("Ship class X not found"), as it always was. */
 const classes=new Map<string,ShipClass|undefined>();
