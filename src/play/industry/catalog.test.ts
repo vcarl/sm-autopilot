@@ -48,6 +48,11 @@ test('catalog: makes, uses, category and search combine, print the old tool\'s l
     assert.match(f.printed(),/\(facility_hull_plate\) {2}\[Components\] {2}2 ticks {2}facility only/);
     assert.deepEqual((await catalog({search:'WIRE'})).detail.recipes.map(row=>row.id),['wire_from_iron','wire_from_copper']);
     assert.equal((await catalog({search:'unobtainium'})).detail.total,0,'a hidden recipe is not listed');
+    // Live 2026-10-21 (kvothe 03:12Z): catalog('steel') read String.prototype.search as the filter and died on .trim().
+    const bare=await catalog('wire');
+    assert.equal(bare.status,'done',bare.why);
+    assert.deepEqual(bare.detail.recipes.map(row=>row.id),['wire_from_iron','wire_from_copper']);
+    assert.match(bare.did,/match search "wire"/);
     assert.equal(f.sent.length,0,'the catalog is not a game command');
   } finally {unbind();}
 });

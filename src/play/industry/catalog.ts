@@ -71,9 +71,11 @@ const card=(graph:RecipeGraph,recipe:Recipe,rent:(recipe:Recipe)=>string)=>[
   `    In: ${listed(recipe.inputs)}`,`    Out: ${listed(recipe.outputs)}`].join('\n');
 
 /** The catalog's recipes, filtered: `makes` an item, `uses` an item, in a `category`, or matching `search`; the filters
- * combine. Prints the first 20 as text; `did` says how many matched and how to narrow. Reads only the catalog. */
-export const catalogEffect=(filter:CatalogFilter={})=>
-  jobEffect<Browsed>('catalog',JSON.stringify(filter),Effect.gen(function*() {
+ * combine; a bare string is `search`. Prints the first 20 as text; `did` says how many matched and how to narrow. Reads
+ * only the catalog. */
+// Live 2026-10-21 (kvothe 03:12Z): catalog('steel') read String.prototype.search as the filter and died on .trim().
+export const catalogEffect=(asked:CatalogFilter|string={})=>{const filter=typeof asked==='string'?{search:asked}:asked;
+  return jobEffect<Browsed>('catalog',JSON.stringify(filter),Effect.gen(function*() {
     const loaded=yield* graphOf();
     if(Result.isFailure(loaded))return {status:'failed',did:'read no catalog',why:`catalog unavailable: ${loaded.failure.message}`,detail:{recipes:[],total:0}};
     const graph=loaded.success,low=(text?:string)=>text?.trim().toLowerCase()??'';
@@ -96,8 +98,8 @@ export const catalogEffect=(filter:CatalogFilter={})=>
       detail:{recipes,total:recipes.length},
       next:[...recipes.length>CAP||!recipes.length?[`categories${recipes.length?' among these':''}: ${categories}`]:[],
         ...shown.length&&shown.length<=3?shown.map(recipe=>`trace('${recipe.id}') — the whole tree, what you hold of it, and what is mined or bought`):[]]};
-  }));
-export function catalog(filter:CatalogFilter={}):Promise<Outcome<Browsed>> {return edge(catalogEffect(filter));}
+  }));};
+export function catalog(filter:CatalogFilter|string={}):Promise<Outcome<Browsed>> {return edge(catalogEffect(filter));}
 
 /** One item in a traced tree. */
 export interface TraceNode {

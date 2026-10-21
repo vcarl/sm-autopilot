@@ -17,7 +17,7 @@ after is the only evidence the output arrived.
 | `supply(recipe, qty?, {at?, maxSpend?, maxEach?})` | this base's store holds every input: stowed from the hold, the rest bought here |
 | `craft(recipe, qty?, {at?, ask?})` | stow, quote, escrow, wait out the queue, confirm the outputs in the store; inputs short in the store pause the flight to ask: supply them here, or mine the ore at a belt known to give it |
 | `jobs()` | every job you have queued, anywhere, and which are paused; works undocked |
-| `catalog({search?, category?, makes?, uses?})` | the catalog's recipes, printed as text: what makes an item, what an item goes into; twenty at a time |
+| `catalog({search?, category?, makes?, uses?})` or `catalog(search)` | the catalog's recipes, printed as text: what makes an item, what an item goes into; twenty at a time |
 | `trace(itemOrRecipe, qty?, {prices?})` | the whole tree `qty` takes, down to what is mined or bought, net of the hold and every store; each facility-only step's stations known to rent one; the other recipes one level deep; with `prices: true`, each leaf's cheapest remembered ask and the inputs and output at market value |
 | `facilities()` | what you own everywhere, what is rentable here, what you could build here — reads only |
 | `buildFacility(type)` | a facility of `type` owned at this station; idempotent |

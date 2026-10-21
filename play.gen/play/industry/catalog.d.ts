@@ -33,9 +33,10 @@ export interface Rentals {
     known: FacilitySeen[];
 }
 /** The catalog's recipes, filtered: `makes` an item, `uses` an item, in a `category`, or matching `search`; the filters
- * combine. Prints the first 20 as text; `did` says how many matched and how to narrow. Reads only the catalog. */
-export declare const catalogEffect: (filter?: CatalogFilter) => Effect.Effect<Outcome<Browsed>, never, import("../game.ts").Game | import("../runtime.ts").Run>;
-export declare function catalog(filter?: CatalogFilter): Promise<Outcome<Browsed>>;
+ * combine; a bare string is `search`. Prints the first 20 as text; `did` says how many matched and how to narrow. Reads
+ * only the catalog. */
+export declare const catalogEffect: (asked?: CatalogFilter | string) => Effect.Effect<Outcome<Browsed>, never, import("../game.ts").Game | import("../runtime.ts").Run>;
+export declare function catalog(filter?: CatalogFilter | string): Promise<Outcome<Browsed>>;
 /** One item in a traced tree. */
 export interface TraceNode {
     item_id: string;
