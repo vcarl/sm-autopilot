@@ -309,8 +309,7 @@ juncture context and its chat, the rendered window, `play/service.ts`) and `jour
 
 | | |
 |---|---|
-| `npm run typecheck` | must be clean |
-| `npm test` | the TypeScript: game logic, the bridge, the play library |
+| `npm run check` | what CI runs for the TypeScript: `typecheck` (clean), `test` (game logic, the bridge, the play library), `lint`, and `gen:wire`, `gen:play` and `scripts/surface.ts` leaving their files unchanged. Commit what a generator rewrites |
 | `pytest` | the Python: junctures, the gate, the channel, skills |
 | `uvx ruff@0.16.9 check .` | must be clean; default rules, no config, the version CI pins |
 
@@ -426,8 +425,9 @@ releases and sets versions; an agent never does unless asked for that release. T
    the file.
 3. Set the version in `plugin.yaml`, `package.json` and `package-lock.json`
    (`npm version <v> --no-git-tag-version` does the last two).
-4. Commit `chore(release): <version>`, put `main` on it, tag `v<version>` (annotated), and push
-   `main` then the tag.
+4. Commit `chore(release): <version>` and put `main` on it. Push `main` and wait for its CI to pass
+   (`gh run watch`) before tagging: commits made between releases have never been through CI.
+   Then tag `v<version>` (annotated) on that commit and push the tag.
 5. The tag push runs `.github/workflows/release.yml`: it fails unless the tag, both version fields
    and the CHANGELOG section agree, reruns CI, then publishes the GitHub Release from that section
    with the install command pinned to the tagged commit. Watch it (`gh run watch`); the release
@@ -444,6 +444,10 @@ releases and sets versions; an agent never does unless asked for that release. T
   it.
 
 ## Things that have gone wrong, so they are load-bearing now
+
+- **A release tag failed CI on a file no one had regenerated** (10-21): `docs/effect-surface.txt` was
+  checked only in CI, and a day of commits reached the tag without a push. Hence `npm run check`, which
+  CI runs too, and pushing `main` green before tagging.
 
 - **A 420-second tool timeout killed an 11-minute run**, and the pilot's next program overwrote
   the one still flying. Hence `timeouts.tools.sequential_call: 0` (no bound) in the profile, and
