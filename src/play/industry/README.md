@@ -174,8 +174,7 @@ export default async function main() {
   counters (repair, market) carry no fee and are not public, so they never appear. `id` is what
   `craft`'s `at` option and the owner verbs below take.
 - `buildFacility(type)` ends with the facility owned here, or refuses naming why: not docked,
-  no such type, a build material short in this station's **store** and your hold together, or a price
-  that would breach `credit_reserve`. Already owned here is `done` with nothing sent.
+  no such type, or a build material short in this station's **store** and your hold together. Already owned here is `done` with nothing sent.
 
 ### The owner verbs
 

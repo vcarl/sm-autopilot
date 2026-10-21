@@ -370,9 +370,8 @@ def _direct(arguments: dict[str, Any] | None = None, **_: Any) -> str:
     intention, and the pilot parses it as outside instruction that outranks the objective until
     its next run starts. A window that paraphrases badly steers the pilot. What bounds it: the 80
     characters cap how much a sentence can ask for; the lint bounds what any script it leads
-    to may reach; the rules check between jobs and the credit reserve
-    bound what a run can do. Pass the human's words as they were said, shortened by
-    dropping words.
+    to may reach; the rules check between jobs bounds what a run can do. Pass the human's
+    words as they were said, shortened by dropping words.
     """
     args = arguments or {}
     objective = str(args.get("objective") or "").strip()
@@ -580,8 +579,10 @@ TOOL_DEFINITIONS = (
                                                               "description": "Most the pilot may owe on one "
                                                                              "freight or passenger job."},
                                             "credit_reserve": {"type": "number",
-                                                               "description": "Credits kept back for fuel "
-                                                                              "and repair, never spent."}}}},
+                                                               "description": "Credits the human prefers "
+                                                                              "the pilot keep in hand. The "
+                                                                              "pilot reads it as guidance and "
+                                                                              "decides; nothing refuses on it."}}}},
                        [])},
 )
 

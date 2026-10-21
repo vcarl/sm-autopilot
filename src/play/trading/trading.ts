@@ -578,8 +578,8 @@ function carried(took:readonly {item_id:string;quantity:number}[],later:readonly
 /** Fly `stops` in order, and at each one sell and buy what the plan says, from the hold you have.
  * At each stop the live book is read and the rest of the route re-planned against it — the later
  * stops at their best known books — by the same rule `routes()` ranks with; so a full hold, an
- * empty one or a mixed one needs no other call. Each leg keeps its own rules (`buy` refuses under
- * `credit_reserve`, `goTo` refuses a POI while Tired). Never throws: a flight that does not arrive
+ * empty one or a mixed one needs no other call. Each leg keeps its own rules (`goTo` refuses a POI
+ * while Tired). Never throws: a flight that does not arrive
  * is `partial` with the stops done so far, and `next` is the rest of the route. Re-running the
  * same call starts again at the first stop and re-plans from the hold you have. Trains trading and
  * navigation. */

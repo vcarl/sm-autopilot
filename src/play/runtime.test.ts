@@ -67,7 +67,7 @@ test('Tired follows the ship: said on the command seam when a margin is crossed,
   const lines:string[]=[];
   // What the bridge binds: the record plus the mood derived from the live ship on every read.
   bind({account:f.account as unknown as Account,command:f.command,emit:text=>lines.push(text),
-    pilot:()=>flying({stance:'Prospector',permissions:{credit_reserve:0}},f.account.state as never)});
+    pilot:()=>flying({stance:'Prospector'},f.account.state as never)});
   try {
     assert.equal(pilot().mood,'Focused','a Prospector flies Focused');
     // Focused keeps 24 fuel: a command that leaves the tank under it makes the pilot Tired.
@@ -303,7 +303,7 @@ test('withdraw all of two bulky rows the hold cannot take shares its room by foo
 });
 
 test('a row that is not there is done with nothing to do, and a real precondition is still refused',async()=>{
-  const f=world({mood:'Focused',permissions:{credit_reserve:0}},['refuel','repair','storage']);
+  const f=world({mood:'Focused'},['refuel','repair','storage']);
   try {
     // Nothing of that item is aboard: the end state already holds.
     const again=await stow([{item_id:'aluminum_ore',quantity:41}]);
@@ -324,7 +324,7 @@ test('a row that is not there is done with nothing to do, and a real preconditio
 });
 
 test('sell from the store keeps withdrawing hold-loads until the named rows are gone, and leaves what has no buyer',async()=>{
-  const f=world({mood:'Focused',permissions:{credit_reserve:0}},['refuel','repair','storage'],
+  const f=world({mood:'Focused'},['refuel','repair','storage'],
     {cargoUsed:0,store:[{item_id:'ore',quantity:30},{item_id:'dust',quantity:5}]});
   try {
     // The hold takes 12: 30 ore is three loads, and dust has no book here, so it never moves.
@@ -457,7 +457,7 @@ const cobble=(extra:WorldOptions['hangar']={}):WorldOptions=>
     {module_id:'m2',type_id:'mining_laser_i',slot:'utility',cpu_usage:3,power_usage:4}],...extra}});
 
 test('refit names the full slot and what to remove, and fits once one comes off',async()=>{
-  const f=world({mood:'Focused',permissions:{credit_reserve:0}},['refuel','repair','storage'],cobble());
+  const f=world({mood:'Focused'},['refuel','repair','storage'],cobble());
   try {
     f.account.server.cargo.push({item_id:'cargo_expander_ii',quantity:1});
     f.account.server.ship.cargo_used+=1;
@@ -481,7 +481,7 @@ test('refit names the full slot and what to remove, and fits once one comes off'
 });
 
 test('buying a module that could not be fitted is refused at the counter, forced through only on request',async()=>{
-  const f=world({mood:'Focused',permissions:{credit_reserve:0}},['refuel','repair','storage'],cobble());
+  const f=world({mood:'Focused'},['refuel','repair','storage'],cobble());
   try {
     const refused=await buy('cargo_expander_ii',1);
     assert.equal(refused.status,'refused');
@@ -498,17 +498,14 @@ test('buying a module that could not be fitted is refused at the counter, forced
   } finally {unbind();}
 });
 
-test('buyShip refuses a hull that would take the wallet under the reserve, with the numbers',async()=>{
-  const f=world({mood:'Focused',permissions:{credit_reserve:500}},['refuel','repair','storage'],
+// The operator's stated cash preference is guidance in the pilot's context, never a refusal here:
+// a stored `credit_reserve` of 500 does not stop an 800 hull bought from 1,000.
+test('buyShip buys a hull the wallet covers, whatever reserve the operator stated',async()=>{
+  const stored={mood:'Focused' as const,permissions:{credit_reserve:500,max_liability:100_000}};
+  const f=world(stored,['refuel','repair','storage'],
     {cargoUsed:0,hangar:{listings:[{listing_id:'l1',ship_id:'s2',class_id:'hauler_ii',price:800}]}});
   try {
-    const over=await buyShip('l1');
-    assert.equal(over.status,'refused');
-    assert.match(over.why!,/costs 800; credits 1000 less reserve 500 leaves 500/);
-    assert.equal(f.count('spacemolt_ship/buy_listed_ship'),0,'nothing was sent');
-    // Inside the reserve it goes through, and the fleet list is the evidence, not the reply.
-    f.account.server.player.credits=2_000;
-    await f.account.refresh();
+    // The fleet list is the evidence, not the reply.
     const bought=await buyShip('l1');
     assert.equal(bought.status,'done',bought.why);
     // Live 2026-09-30 (kvothe 13:34Z, 19:08Z): the purchase makes the new hull active.
@@ -527,7 +524,7 @@ test('shipsForSale names a class the yard will not quote you, and undocked says 
   // Piloting level 20 (you have 10)" and the whole listing broke; 13:06Z, undocked, browse_ships
   // answered "Specify a base_id or dock at a station".
   const why='Flying a Tier 3 ship requires Piloting level 20 (you have 10).';
-  const f=world({mood:'Focused',permissions:{credit_reserve:0}},['refuel','repair','storage','shipyard'],
+  const f=world({mood:'Focused'},['refuel','repair','storage','shipyard'],
     {cargoUsed:0,hangar:{locked:{hauler_ii:why},listings:[{listing_id:'l1',ship_id:'s2',class_id:'hauler_ii',price:800},
       {listing_id:'l2',ship_id:'s3',class_id:'cobble',price:300}]}});
   try {
@@ -549,7 +546,7 @@ test('shipsForSale names a class the yard will not quote you, and undocked says 
 test('buyShip with switchTo reports the purchase done when the game already made the hull active',async()=>{
   // Live 2026-09-30 (kvothe 13:34Z, 19:08Z): switch_ship answered `already_active` after the buy, and
   // the call read "buyShip broke, nothing gained" over 21k and 18k spent.
-  const f=world({mood:'Focused',permissions:{credit_reserve:0}},['refuel','repair','storage','shipyard'],
+  const f=world({mood:'Focused'},['refuel','repair','storage','shipyard'],
     {cargoUsed:0,hangar:{listings:[{listing_id:'l1',ship_id:'s2',class_id:'hauler_ii',price:800}]}});
   try {
     const bought=await buyShip('l1',{switchTo:true});
@@ -624,10 +621,10 @@ test('a yard listing whose class the catalogue cannot answer for is skipped, not
 
 // Credits are a spend limit on buys, not a margin: resupply spends credits, so a Tired that only
 // earning could clear, with earning refused under Tired, strands the pilot by construction.
-test('credits under the standing reserve are not Tired, and work is admitted',async()=>{
+test('low credits are not Tired, and work is admitted',async()=>{
   const f=world({});
   bind({account:f.account as unknown as Account,command:f.command,emit:()=>{},
-    pilot:()=>flying({stance:'Prospector',permissions:{credit_reserve:500}},f.account.state as never)});
+    pilot:()=>flying({stance:'Prospector'},f.account.state as never)});
   try {
     f.account.server.player.credits=10;
     await f.account.refresh();
@@ -644,7 +641,7 @@ test('fuel under the reserve in space burns the cells aboard, only as many as cl
   const runtime=mkdtempSync(join(tmpdir(),'spacemolt-cells-'));
   const lines:string[]=[];
   bind({account:f.account as unknown as Account,command:f.command,runtime,emit:text=>lines.push(text),
-    pilot:()=>flying({stance:'Prospector',permissions:{credit_reserve:0}},f.account.state as never)});
+    pilot:()=>flying({stance:'Prospector'},f.account.state as never)});
   try {
     f.account.server.location={system_id:'sol',poi_id:'belt',docked_at:null,in_transit:false};
     // Focused keeps 24: 20 is under it, and one 5-fuel cell clears it.
@@ -675,7 +672,7 @@ for(const [how,refuel,why] of [
     const runtime=mkdtempSync(join(tmpdir(),'spacemolt-cells-'));
     const lines:string[]=[];
     bind({account:f.account as unknown as Account,command:(action,params)=>action==='spacemolt/refuel'?Promise.resolve().then(refuel):f.command(action,params),
-      runtime,emit:text=>lines.push(text),pilot:()=>flying({stance:'Prospector',permissions:{credit_reserve:0}},f.account.state as never)});
+      runtime,emit:text=>lines.push(text),pilot:()=>flying({stance:'Prospector'},f.account.state as never)});
     try {
       f.account.server.location={system_id:'sol',poi_id:'belt',docked_at:null,in_transit:false};
       f.account.server.ship.fuel=20;
@@ -696,7 +693,7 @@ test('Tired and broke at a counter: the work goes on, journalled, and resupply i
   const f=world({});
   const runtime=mkdtempSync(join(tmpdir(),'spacemolt-broke-'));
   bind({account:f.account as unknown as Account,command:f.command,runtime,emit:()=>{},
-    pilot:()=>flying({stance:'Prospector',permissions:{credit_reserve:0}},f.account.state as never)});
+    pilot:()=>flying({stance:'Prospector'},f.account.state as never)});
   try {
     f.account.server.ship.fuel=10;
     f.account.server.player.credits=0;
@@ -721,7 +718,7 @@ test('Tired at a top-level call: a refuel reply lost in the resupply is not re-s
   const sent:string[]=[];
   bind({account:f.account as unknown as Account,runtime,emit:()=>{},
     command:(action,params)=>{sent.push(action);return action==='spacemolt/refuel'?Promise.reject(new SpacemoltError('mutation_timeout','No action_result')):f.command(action,params);},
-    pilot:()=>flying({stance:'Prospector',permissions:{credit_reserve:0}},f.account.state as never)});
+    pilot:()=>flying({stance:'Prospector'},f.account.state as never)});
   try {
     f.account.server.ship.fuel=10;
     await f.account.refresh();
@@ -744,7 +741,7 @@ test('Tired at a top-level call: a bug inside the resupply\'s service is a defec
   bind({account:f.account as unknown as Account,command:f.command,runtime,emit:text=>lines.push(text),
     pilot:()=>{
       if(bug&&lines.at(-1)?.startsWith('▶ service')){bug=false;throw new TypeError('a bug in service');}
-      return flying({stance:'Prospector',permissions:{credit_reserve:0}},f.account.state as never);
+      return flying({stance:'Prospector'},f.account.state as never);
     }});
   try {
     f.account.server.ship.fuel=10;
@@ -766,7 +763,7 @@ test('Tired in a system with no base: resupply flies to a base places.json place
   const runtime=mkdtempSync(join(tmpdir(),'spacemolt-placed-'));
   writeFileSync(join(runtime,'places.json'),JSON.stringify({sol_base:'sol'}));
   bind({account:f.account as unknown as Account,command:f.command,runtime,emit:()=>{},
-    pilot:()=>flying({stance:'Prospector',permissions:{credit_reserve:0}},f.account.state as never)});
+    pilot:()=>flying({stance:'Prospector'},f.account.state as never)});
   try {
     f.account.server.location={system_id:'drift',poi_id:'void',docked_at:null,in_transit:false};
     f.account.server.ship.fuel=20;
@@ -785,7 +782,7 @@ test('Tired with no base resupply can name: the work goes on, journalled strande
   const f=world({},['refuel','repair','storage'],{systems:[{id:'drift',connections:['sol'],pois:[{id:'void'}]}]});
   const runtime=mkdtempSync(join(tmpdir(),'spacemolt-stranded-'));
   bind({account:f.account as unknown as Account,command:f.command,runtime,emit:()=>{},
-    pilot:()=>flying({stance:'Prospector',permissions:{credit_reserve:0}},f.account.state as never)});
+    pilot:()=>flying({stance:'Prospector'},f.account.state as never)});
   try {
     f.account.server.location={system_id:'drift',poi_id:'void',docked_at:null,in_transit:false};
     f.account.server.ship.fuel=20;
@@ -807,7 +804,7 @@ test('Tired with no base resupply can name: the work goes on, journalled strande
 function tiredWorld(name:string) {
   const f=world({}),runtime=mkdtempSync(join(tmpdir(),`spacemolt-${name}-`));
   bind({account:f.account as unknown as Account,command:f.command,runtime,emit:()=>{},
-    pilot:()=>flying({stance:'Prospector',permissions:{credit_reserve:0}},f.account.state as never)});
+    pilot:()=>flying({stance:'Prospector'},f.account.state as never)});
   return {...f,runtime,resupplies:()=>readJournal(runtime).filter(entry=>entry.event==='resupply'),
     close:()=>{unbind();rmSync(runtime,{recursive:true,force:true});}};
 }
@@ -857,7 +854,7 @@ test('Tired mid-route: the runtime refuels at a base before the next jump, then 
   const runtime=mkdtempSync(join(tmpdir(),'spacemolt-route-'));
   writeFileSync(join(runtime,'places.json'),JSON.stringify({b_base:'b'}));
   bind({account:f.account as unknown as Account,command:f.command,runtime,emit:()=>{},
-    pilot:()=>flying({stance:'Prospector',permissions:{credit_reserve:0}},f.account.state as never)});
+    pilot:()=>flying({stance:'Prospector'},f.account.state as never)});
   try {
     f.account.server.location={system_id:'sol',poi_id:'belt',docked_at:null,in_transit:false};
     f.account.server.ship.fuel=30;
@@ -878,7 +875,7 @@ test('Tired mid-route with no base to name: the trip flies on, journalled once, 
     {id:'b',connections:['a'],pois:[{id:'b_rock'}]},{id:'c',connections:['b'],pois:[{id:'c_belt'}]}]});
   const runtime=mkdtempSync(join(tmpdir(),'spacemolt-route-none-'));
   bind({account:f.account as unknown as Account,command:f.command,runtime,emit:()=>{},
-    pilot:()=>flying({stance:'Prospector',permissions:{credit_reserve:0}},f.account.state as never)});
+    pilot:()=>flying({stance:'Prospector'},f.account.state as never)});
   try {
     f.account.server.location={system_id:'sol',poi_id:'belt',docked_at:null,in_transit:false};
     f.account.server.ship.fuel=30;

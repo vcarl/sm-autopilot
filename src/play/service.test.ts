@@ -71,71 +71,51 @@ for(const mood of ['Tired','Cautious'] as const)
     } finally {unbind();}
   });
 
-// The cost of an unpriced service is knowable only from the charge, so the reserve is enforced on
-// it: what was bought stands, nothing further is, and the refusal names the reserve.
-test('an unpriced repair that eats into the standing reserve is refused by name',async()=>{
-  const game=bridgeWorld({services:['refuel'],cargoUsed:0});
-  game.account.server.ship.fuel=game.account.server.ship.max_fuel;
-  game.account.server.ship.hull=52;
-  game.account.server.player.credits=100;
-  let who:Pilot={mood:'Tired',permissions:{credit_reserve:90}};
-  bind({account:game.account as unknown as Account,command:game.command,
-    pilot:()=>who,emit:()=>{}});
-  try {
-    const out=await service();
-    assert.equal(out.status,'refused',out.did);
-    assert.match(out.why!,/spacemolt\/repair charged 48, leaving credits 52 under the reserve 90/);
-  } finally {unbind();}
-});
-
-// Nothing above the reserve and no price to quote against: the call is never sent, and the refusal
+// No credits and no price to quote against: the call is never sent, and the refusal
 // still names somewhere to go — a base places.json placed, when this system lists no other.
-test('an unpriced counter is not tried at all with nothing above the reserve',async()=>{
+test('an unpriced counter is not tried at all with an empty wallet',async()=>{
   const game=bridgeWorld({services:['refuel'],cargoUsed:0});
   game.account.server.ship.fuel=game.account.server.ship.max_fuel;
   game.account.server.ship.hull=52;
-  game.account.server.player.credits=90;
+  game.account.server.player.credits=0;
   const runtime=mkdtempSync(join(tmpdir(),'spacemolt-service-'));
   writeFileSync(join(runtime,'places.json'),JSON.stringify({range_base:'deep_range'}));
-  let who:Pilot={mood:'Tired',permissions:{credit_reserve:90}};
+  const who:Pilot={mood:'Tired'};
   bind({account:game.account as unknown as Account,command:game.command,
     pilot:()=>who,emit:()=>{},runtime});
   try {
     const out=await service();
     assert.equal(out.status,'refused',out.did);
-    assert.match(out.why!,/credits 90 leave nothing above the reserve 90/);
+    assert.match(out.why!,/credits 0 leave nothing to spend/);
     const next=(out.next??[]).join('\n');
     assert.match(next,/goTo\('range_base'\)/,next);
     assert.match(next,/unknown until docked/,next);
     assert.equal(game.account.server.ship.hull,52,'nothing was bought');
-    assert.equal(game.account.server.player.credits,90);
+    assert.equal(game.account.server.player.credits,0);
   } finally {unbind();}
 });
 
-// `credit_reserve` is the one standing money bound, and Tired does not widen it: Tired lifts
-// the mood's own spend margin to unbounded, so the reserve is the only thing left that can
-// refuse a fill — and a refusal a script cannot read is a pilot guessing. It names the reserve.
-test('the standing credit reserve still refuses a Tired fill, by name',async()=>{
+// The operator's stated cash preference is guidance in the pilot's context, not a bound here:
+// a stored `credit_reserve` of 90 does not stop a fill the wallet covers.
+test('a stored credit_reserve does not refuse a fill the wallet covers',async()=>{
   const game=bridgeWorld({services:['refuel','repair'],cargoUsed:0});
   game.account.server.ship.fuel=10;
-  // Only the fuel is due: a 4-point repair would fit the 10 above the reserve and be bought alone.
   game.account.server.ship.hull=100;
-  game.account.server.player.credits=100;
-  let who:Pilot={mood:'Tired',permissions:{credit_reserve:90}};
+  game.account.server.player.credits=200;
+  const stored={mood:'Tired' as const,permissions:{credit_reserve:190,max_liability:100_000}};
   bind({account:game.account as unknown as Account,command:game.command,
-    pilot:()=>who,emit:()=>{}});
+    pilot:()=>stored,emit:()=>{}});
   try {
     const out=await service();
-    assert.equal(out.status,'refused',out.did);
-    assert.match(out.why!,/credits 100 less reserve 90 cannot cover the quoted/);
-    assert.equal(game.account.server.ship.fuel,10,'a service under the reserve spends nothing');
+    assert.equal(out.status,'done',out.why);
+    assert.equal(game.account.server.ship.fuel,game.account.server.ship.max_fuel);
+    assert.ok(game.account.server.player.credits<190,'the fill went under the stated reserve');
   } finally {unbind();}
 });
 
 // Live 2026-09-24: a Cautious pilot's service() refused two refuels quoted over the 500 credit
-// margin, and the tank was filled by a raw refuel. Fuel is resupply: no mood refuses it; the
-// reserve still bounds it.
-test('a Cautious refuel quoted over the 500 credit margin is filled; only the reserve bounds it',async()=>{
+// margin, and the tank was filled by a raw refuel. Fuel is resupply: no mood refuses it.
+test('a Cautious refuel quoted over the 500 credit margin is filled',async()=>{
   const game=bridgeWorld({services:['refuel','repair'],cargoUsed:0});
   const command:typeof game.command=async(action,params)=>{
     const res=await game.command(action,params);
@@ -146,7 +126,7 @@ test('a Cautious refuel quoted over the 500 credit margin is filled; only the re
   // 80 units at 8 is 640: over Cautious's 500, and fuel 40 is above its reserve of 30, so no Tired.
   game.account.server.ship.fuel=40;
   game.account.server.player.credits=1_000;
-  let who:Pilot={mood:'Cautious',permissions:{credit_reserve:200}};
+  const who:Pilot={mood:'Cautious'};
   bind({account:game.account as unknown as Account,command,
     pilot:()=>who,emit:()=>{}});
   try {
@@ -154,11 +134,6 @@ test('a Cautious refuel quoted over the 500 credit margin is filled; only the re
     assert.equal(out.status,'done',out.why);
     assert.equal(who.mood,'Cautious');
     assert.equal(game.account.server.ship.fuel,120);
-    who={...who,permissions:{credit_reserve:900}};
-    game.account.server.ship.fuel=40;
-    const held=await service();
-    assert.equal(held.status,'refused');
-    assert.match(held.why!,/less reserve 900 cannot cover the quoted 640/);
   } finally {unbind();}
 });
 
@@ -236,10 +211,10 @@ test('a bill the wallet cannot cover is ServiceBlocked from serviceShipEffect, w
   const game=bridgeWorld({services:['refuel'],cargoUsed:0});
   game.account.server.ship.fuel=game.account.server.ship.max_fuel;
   game.account.server.ship.hull=52;
-  game.account.server.player.credits=90;
-  const error=await serviceFailure(game.account as unknown as ReadinessAccount,game.command,{mood:'Tired',creditReserve:90});
+  game.account.server.player.credits=0;
+  const error=await serviceFailure(game.account as unknown as ReadinessAccount,game.command,{mood:'Tired'});
   assert.ok(error instanceof ServiceBlocked);
-  assert.match(error.message,/^service_blocked: credits 90 leave nothing above the reserve 90/);
+  assert.match(error.message,/^service_blocked: credits 0 leave nothing to spend/);
   assert.equal(error.blockers.length>0,true);
 });
 
@@ -284,31 +259,20 @@ test('serviceElsewhere with no listing falls back to the placed bases, unquoted 
 
 // Three hulls were lost uninsured to a Slag-Tortoise (travel.ts), and the 2026-10-09 death paid
 // `insurance_payout: 0`: `insure` was accepted and bought nothing.
-test('insure quotes, then buys cover within the credit reserve, and a premium under it buys nothing',async()=>{
-  for(const [reserve,bought] of [[100,true],[900,false]] as const) {
-    const game=bridgeWorld({services:['refuel','repair'],cargoUsed:0,insurance:{premium:150,coverage:2_000}});
-    game.account.server.ship.fuel=game.account.server.ship.max_fuel;
-    const sent:string[]=[];
-    const command:typeof game.command=(action,params)=>{sent.push(action);return game.command(action,params);};
-    bind({account:game.account as unknown as Account,command,pilot:()=>({mood:'Cautious',permissions:{credit_reserve:reserve}}),emit:()=>{}});
-    try {
-      const out=await service({insure:true});
-      assert.ok(sent.includes('spacemolt_salvage/quote'),'the quote is read first');
-      if(bought) {
-        assert.equal(out.status,'done',out.why);
-        assert.ok(sent.indexOf('spacemolt_salvage/quote')<sent.indexOf('spacemolt_salvage/insure'));
-        assert.match(out.did,/insured: 150 cr for 2000 cr of cover until 2026-10-16/);
-        assert.equal(out.detail.insurance?.policy?.policy_id,'pol_1');
-        assert.equal(1_000-game.account.server.player.credits,out.detail.spent,'the premium is in what the call spent');
-      } else {
-        assert.equal(out.status,'partial');
-        assert.ok(!sent.includes('spacemolt_salvage/insure'),'nothing is bought under the reserve');
-        assert.match(out.why??'',/^insure: the 150 cr premium would leave \d+ cr, under the credit_reserve of 900$/);
-        assert.equal(out.detail.insurance?.quote?.premium,150);
-        assert.equal(out.detail.spent,1_000-game.account.server.player.credits,'no premium was billed');
-      }
-    } finally {unbind();}
-  }
+test('insure quotes, then buys cover',async()=>{
+  const game=bridgeWorld({services:['refuel','repair'],cargoUsed:0,insurance:{premium:150,coverage:2_000}});
+  game.account.server.ship.fuel=game.account.server.ship.max_fuel;
+  const sent:string[]=[];
+  const command:typeof game.command=(action,params)=>{sent.push(action);return game.command(action,params);};
+  bind({account:game.account as unknown as Account,command,pilot:()=>({mood:'Cautious'}),emit:()=>{}});
+  try {
+    const out=await service({insure:true});
+    assert.equal(out.status,'done',out.why);
+    assert.ok(sent.indexOf('spacemolt_salvage/quote')<sent.indexOf('spacemolt_salvage/insure'),'the quote is read first');
+    assert.match(out.did,/insured: 150 cr for 2000 cr of cover until 2026-10-16/);
+    assert.equal(out.detail.insurance?.policy?.policy_id,'pol_1');
+    assert.equal(1_000-game.account.server.player.credits,out.detail.spent,'the premium is in what the call spent');
+  } finally {unbind();}
 });
 
 // Review: nothing read the policies held, so every docked service({insure:true}) bought another.

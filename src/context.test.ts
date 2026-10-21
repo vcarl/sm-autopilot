@@ -134,7 +134,8 @@ test('the situation renders only the permissions the code knows', () => {
   const state=stateOf(12);
   state.permissions={credit_reserve:5000,wildlife:false,no_go:['deep_range'],max_spend:1000};
   const context=render(state);
-  assert.ok(context.includes('Permissions: keep 5,000 credits.'));
+  assert.ok(context.includes('The operator prefers you keep about 5,000 credits in hand; you decide.'),context);
+  assert.ok(!context.includes('Permissions:'),'a cash preference is not a permission');
   assert.ok(context.includes('Present: docked at first_step_station (first_step).'));
   for(const gone of ['wildlife','deep_range','no_go','max_spend'])assert.ok(!context.includes(gone),gone);
 });

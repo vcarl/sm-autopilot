@@ -114,18 +114,8 @@ test('refit: a ReplyLost on a remove is failed, says the reply is lost, and noth
 
 const LISTING={listing_id:'l1',ship_id:'s2',class_id:'hauler_ii',price:800};
 
-test('buyShip refuses on the reserve, with the numbers, before the wallet is touched',async()=>{
-  const f=world({mood:'Focused',permissions:{credit_reserve:500}},{hangar:{listings:[LISTING]}});
-  try {
-    const out=await buyShip('l1');
-    assert.equal(out.status,'refused');
-    assert.match(out.why!,/costs 800; credits 1000 less reserve 500 leaves 500/);
-    assert.equal(f.tried('spacemolt_ship/buy_listed_ship'),0);
-  } finally {unbind();}
-});
-
 test('buyShip: a buy_listed_ship the server refuses is a Rejected, naming the code; nothing is bought',async()=>{
-  const f=world({mood:'Focused',permissions:{credit_reserve:0}},{hangar:{listings:[LISTING]}},
+  const f=world({mood:'Focused'},{hangar:{listings:[LISTING]}},
     refuse('spacemolt_ship/buy_listed_ship','listing_gone','that listing was just sold'));
   try {
     const out=await buyShip('l1');
@@ -138,7 +128,7 @@ test('buyShip: a buy_listed_ship the server refuses is a Rejected, naming the co
 });
 
 test('buyShip: a ReplyLost on the purchase is failed and the purchase is not re-sent',async()=>{
-  const f=world({mood:'Focused',permissions:{credit_reserve:0}},{hangar:{listings:[LISTING]}},
+  const f=world({mood:'Focused'},{hangar:{listings:[LISTING]}},
     action=>{if(action==='spacemolt_ship/buy_listed_ship')throw new ConnectionClosedError();});
   try {
     const out=await buyShip('l1');
@@ -151,7 +141,7 @@ test('buyShip: a ReplyLost on the purchase is failed and the purchase is not re-
 
 test('buyShip: a hull the fleet list does not show is failed, and says to re-observe',async()=>{
   const emptied:{fleet?:unknown[]}={};
-  const f=world({mood:'Focused',permissions:{credit_reserve:0}},{hangar:{listings:[LISTING]}},
+  const f=world({mood:'Focused'},{hangar:{listings:[LISTING]}},
     action=>{if(action==='spacemolt_ship/list_ships')emptied.fleet?.splice(0);});
   emptied.fleet=f.fleet;
   try {
@@ -204,7 +194,7 @@ const YARD:WorldOptions['hangar']={commissions:{hauler_ii:{total:700},cobble:{to
 const YARD_SERVICES={services:['refuel','repair','storage','shipyard']};
 
 test('a completed commission whose reply omits credits_paid is done, priced by the quote and shown by the fleet list',async()=>{
-  const f=world({mood:'Focused',permissions:{credit_reserve:0}},{...YARD_SERVICES,hangar:YARD},undefined,
+  const f=world({mood:'Focused'},{...YARD_SERVICES,hangar:YARD},undefined,
     (action,reply)=>action==='spacemolt_ship/commission_ship'?without(reply,['credits_paid']):reply);
   try {
     const out=await buyShip('hauler_ii',{commission:true});
@@ -216,7 +206,7 @@ test('a completed commission whose reply omits credits_paid is done, priced by t
 });
 
 test('a commission whose reply is unreadable is partial, says so, and is not sent again',async()=>{
-  const f=world({mood:'Focused',permissions:{credit_reserve:0}},{...YARD_SERVICES,hangar:YARD},undefined,
+  const f=world({mood:'Focused'},{...YARD_SERVICES,hangar:YARD},undefined,
     (action,reply)=>action==='spacemolt_ship/commission_ship'?without(reply,['status']):reply);
   try {
     const out=await buyShip('hauler_ii',{commission:true});
@@ -228,14 +218,14 @@ test('a commission whose reply is unreadable is partial, says so, and is not sen
 });
 
 test('a commission quote with can_commission false is refused, naming the blockers; and an unreadable quote is said to be',async()=>{
-  const f=world({mood:'Focused',permissions:{credit_reserve:0}},{...YARD_SERVICES,hangar:YARD});
+  const f=world({mood:'Focused'},{...YARD_SERVICES,hangar:YARD});
   try {
     const out=await buyShip('cobble',{commission:true});
     assert.equal(out.status,'refused');
     assert.match(out.why!,/this yard will not build cobble: no free berth at this yard/);
     assert.equal(f.tried('spacemolt_ship/commission_ship'),0);
   } finally {unbind();}
-  const g=world({mood:'Focused',permissions:{credit_reserve:0}},{...YARD_SERVICES,hangar:YARD},undefined,
+  const g=world({mood:'Focused'},{...YARD_SERVICES,hangar:YARD},undefined,
     (action,reply)=>action==='spacemolt_ship/commission_quote'?without(reply,['credits_only_total']):reply);
   try {
     const out=await buyShip('hauler_ii',{commission:true});
@@ -248,14 +238,14 @@ test('a commission quote with can_commission false is refused, naming the blocke
 test('a switch whose reply lacks active_ship_class still reports switched; one that does not read is judged by the account',async()=>{
   // A commission parks the hull; only a hull not yet flown is switched to (a bought listing is flown at once).
   const bought={...YARD_SERVICES,hangar:YARD};
-  const f=world({mood:'Focused',permissions:{credit_reserve:0}},bought,undefined,
+  const f=world({mood:'Focused'},bought,undefined,
     (action,reply)=>action==='spacemolt_ship/switch_ship'?without(reply,['active_ship_class']):reply);
   try {
     const out=await buyShip('hauler_ii',{commission:true,switchTo:true});
     assert.equal(out.status,'done',out.why);
     assert.equal(out.detail.switched,true);
   } finally {unbind();}
-  const g=world({mood:'Focused',permissions:{credit_reserve:0}},bought,undefined,
+  const g=world({mood:'Focused'},bought,undefined,
     (action,reply)=>action==='spacemolt_ship/switch_ship'?without(reply,['active_ship_id']):reply);
   try {
     const out=await buyShip('hauler_ii',{commission:true,switchTo:true});
@@ -307,7 +297,7 @@ test('shipsForSale lists a yard commission beside the listings, its quote copied
 // Live 2026-10-09: the pilot reached switch_ship through `account()` cast to any, passing `ship_id` as
 // well as the lib's typed `id`, because switchShip threw `unimplemented` and `{id}` alone never switched.
 test('switchShip flies a parked hull, named the way the server reads it; ships() lists both',async()=>{
-  const f=world({mood:'Focused',permissions:{credit_reserve:0}},{...YARD_SERVICES,hangar:YARD});
+  const f=world({mood:'Focused'},{...YARD_SERVICES,hangar:YARD});
   try {
     assert.equal((await buyShip('hauler_ii',{commission:true})).detail.switched,false);
     const parked=(await ships()).detail.ships.find(row=>!row.is_active);
@@ -325,7 +315,7 @@ test('switchShip flies a parked hull, named the way the server reads it; ships()
 // Live 2026-09-30 (kvothe 13:34Z, 19:08Z): buy_listed_ship makes the new hull the active one, so
 // switch_ship answered `already_active` and the call read "buyShip broke, nothing gained".
 test('buyShip: a listed hull the game already made active is switched, and no switch is sent',async()=>{
-  const f=world({mood:'Focused',permissions:{credit_reserve:0}},{...YARD_SERVICES,hangar:{listings:[LISTING]}});
+  const f=world({mood:'Focused'},{...YARD_SERVICES,hangar:{listings:[LISTING]}});
   try {
     const out=await buyShip('l1',{switchTo:true});
     assert.equal(out.status,'done',out.why);

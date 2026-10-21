@@ -152,8 +152,7 @@ export interface Supplied {
  * over `maxSpend`, or an input over `maxEach` each (with none, over `OVERPAY` × the cheapest ask
  * remembered at another base, named), it is refused with nothing stowed or bought. An input this market does not
  * sell comes back in `short` with its `source`, and the status is `partial`. What your stores at other bases
- * hold of an input it lacks is named in `did` and `elsewhere`, never fetched. Each buy keeps
- * `credits − permissions.credit_reserve`. A buy or a stow whose reply is lost is never re-sent:
+ * hold of an input it lacks is named in `did` and `elsewhere`, never fetched. A buy or a stow whose reply is lost is never re-sent:
  * the store is re-read, and what it still lacks is `short`. */
 export declare const supplyEffect: (recipeId: string, quantity?: number, opts?: {
     at?: "workshop" | string;
@@ -177,7 +176,7 @@ export interface Crafted extends Venue {
  *
  * Preconditions, all before anything is committed: docked at a base with a workshop (or at
  * the named facility's base); the inputs in this base's store, with anything the hold carries
- * stowed into it by name first; the escrow inside `credits − permissions.credit_reserve`.
+ * stowed into it by name first; the escrow inside your credits.
  * Refused, naming the shortfall, when any of them does not hold.
  *
  * A job already queued here for this recipe and this many runs IS this job: the run re-enters

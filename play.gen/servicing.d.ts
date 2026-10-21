@@ -14,8 +14,6 @@ export interface ServiceFuelQuote {
 }
 export interface ServiceOptions {
     mood: Mood;
-    /** A standing permission (D11), independent of the mood. */
-    creditReserve?: number;
     /** The runtime whose market memory the fuel-cell price is checked against and written to. */
     runtime?: string;
     /** False skips the fuel-cell top-up: a freighter's hold is its circuit's to plan. */
@@ -63,12 +61,12 @@ export declare class ServiceUnsafe extends ServiceUnsafe_base<{
 }
 /** Servicing is script-owned: the mood resolves the spend margin and D3 resolves the
  * targets. The margin meters the repair only: fuel is resupply, and a mood never strands a ship,
- * so a refuel is bounded by the wallet and `creditReserve` alone. A serviced dock restores the full tank and full hull; the mood's retreat
+ * so a refuel is bounded by the wallet alone. A serviced dock restores the full tank and full hull; the mood's retreat
  * fraction is the away-from-dock line, not a service target. The post-state is read
  * authoritatively and decides.
  *
  * Where the bill does not fit whole, it buys what fits: the refuel first (resupply), then the
- * repair if what is left above the reserve still covers it. What was not bought comes back in
+ * repair if what is left in the wallet still covers it. What was not bought comes back in
  * `short`; only a counter where nothing fits fails with `ServiceBlocked`.
  *
  * A docked counter bills on credits and reports the charge afterwards, so a posted price is an
@@ -78,11 +76,6 @@ export declare class ServiceUnsafe extends ServiceUnsafe_base<{
  * repairs to full anyway (proved live 2026-09-24: 59 → 80 hull for 105 credits at
  * sirius_observatory_station, whose `get_base` carries no `repair_price_per_hull`). Requiring
  * that field is what wedged a pilot in Tired for six hours.
- *
- * `creditReserve` is the standing bound and is never widened. It cannot be quoted exactly
- * before an unpriced service, so it is enforced twice: the posted estimate must leave it intact
- * beforehand, and the canonical charge is measured against it after each call — a breach stops
- * anything further being bought and names the reserve.
  *
  * A lost reply on the refuel or the repair is never re-sent: it fails with the tag, and the
  * caller's own re-read says what landed. */

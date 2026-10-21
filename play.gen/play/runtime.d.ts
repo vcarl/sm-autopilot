@@ -39,7 +39,6 @@ export interface Pilot {
     /** Standing bounds the human sets. Who to fight is not among them: combat targeting is
      * the pilot's judgement, kept honest by the hull floors, the danger line and hunt's `risk` limit. */
     permissions?: {
-        credit_reserve?: number;
         max_liability?: number;
     };
     instruction?: {

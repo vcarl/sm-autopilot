@@ -479,8 +479,7 @@ const noSupplied=():Supplied=>({stowed:[],bought:[],short:[],spent:0,elsewhere:[
  * over `maxSpend`, or an input over `maxEach` each (with none, over `OVERPAY` × the cheapest ask
  * remembered at another base, named), it is refused with nothing stowed or bought. An input this market does not
  * sell comes back in `short` with its `source`, and the status is `partial`. What your stores at other bases
- * hold of an input it lacks is named in `did` and `elsewhere`, never fetched. Each buy keeps
- * `credits − permissions.credit_reserve`. A buy or a stow whose reply is lost is never re-sent:
+ * hold of an input it lacks is named in `did` and `elsewhere`, never fetched. A buy or a stow whose reply is lost is never re-sent:
  * the store is re-read, and what it still lacks is `short`. */
 export const supplyEffect=(recipeId:string,quantity=1,opts:{at?:'workshop'|string;maxSpend?:number;maxEach?:number}={})=>
   jobEffect<Supplied>('supply',`${quantity} × ${recipeId}${opts.at?` at ${opts.at}`:''}`,folded<Supplied>('supply',noSupplied,Effect.gen(function*() {
@@ -579,7 +578,7 @@ const noCrafted=():Crafted=>({job:asCommit({}),made:[],venue:'',venue_type:'',la
  *
  * Preconditions, all before anything is committed: docked at a base with a workshop (or at
  * the named facility's base); the inputs in this base's store, with anything the hold carries
- * stowed into it by name first; the escrow inside `credits − permissions.credit_reserve`.
+ * stowed into it by name first; the escrow inside your credits.
  * Refused, naming the shortfall, when any of them does not hold.
  *
  * A job already queued here for this recipe and this many runs IS this job: the run re-enters
@@ -672,9 +671,8 @@ export const craftEffect:(recipeId:string,quantity?:number,opts?:{at?:'workshop'
       }
       const cost=quoted.credits_total??0;
       const credits=acct().state.player?.credits??0;
-      const reserve=pilot().permissions?.credit_reserve??0;
-      if(quoted.have_credits===false||credits-cost<reserve)
-        return refuse(`${name} costs ${cost} cr; ${credits} less the ${reserve} credit reserve cannot cover it`);
+      if(quoted.have_credits===false||credits<cost)
+        return refuse(`${name} costs ${cost} cr; ${credits} credits cannot cover it`);
       if(quoted.have_capacity===false)
         return refuse(`${at.base}'s store has no room for ${name}'s output`);
       step(`quote ${name}: ${quoted.runs} run(s) at ${where(venueOf(quoted))}, ${cost} cr, done by tick ${quoted.est_completion_tick}`);

@@ -320,7 +320,7 @@ Pilot.mood?: Mood | undefined
 Pilot.name?: string | undefined
 Pilot.objective?: string | undefined
 Pilot.objective_done?: boolean | undefined
-Pilot.permissions?: { credit_reserve?: number; max_liability?: number; } | undefined
+Pilot.permissions?: { max_liability?: number; } | undefined
 Pilot.stance?: Stance | undefined
 Pilot.steps?: readonly string[] | undefined
 Pilot.tired_by?: string | undefined

@@ -286,7 +286,7 @@ const QUOTES=5;
 /** Hulls for sale within a budget, here or at a named base: `ship/browse_ships` listings and
  * `ship/commission_quote` for the classes this yard can build (the ones a listing names,
  * plus `classId` when you pass one — the lib has no way to enumerate a yard's catalogue).
- * Budget defaults to credits minus `permissions.credit_reserve`. Sorted by
+ * Budget defaults to credits. Sorted by
  * `cargo_capacity`, then price, because cargo multiplies every loop. Reads only. Flags crew
  * traps: a class whose `minimum_crew` exceeds your crew capacity is listed with a warning in
  * `versus`, not hidden. */
@@ -298,13 +298,13 @@ export function shipsForSale(opts:{budget?:number;baseId?:string;classId?:string
 export const shipsForSaleEffect=(opts:{budget?:number;baseId?:string;classId?:string}={})=>
   jobEffect('shipsForSale',[opts.classId,opts.baseId].filter(Boolean).join(' '),Effect.gen(function*() {
     const game=yield* Game;
-    const ship=acct().state.ship,who=pilot();
-    const credits=acct().state.player?.credits??0,reserve=who.permissions?.credit_reserve??0;
-    const budget=opts.budget??credits-reserve;
+    const ship=acct().state.ship;
+    const credits=acct().state.player?.credits??0;
+    const budget=opts.budget??credits;
     const locked:Locked[]=[];
     const for_sale:ForSale[]=[];
     if(!(budget>0))return {status:'refused' as const,did:'listed no hulls',
-      why:`budget ${budget}: credits ${credits} less reserve ${reserve}`,detail:{for_sale,locked}};
+      why:`budget ${budget}: credits ${credits}`,detail:{for_sale,locked}};
     // Live 2026-09-30 (kvothe 13:06Z): undocked, browse_ships answered "Specify a base_id or dock at a
     // station" and the whole read broke.
     if(!opts.baseId&&!acct().state.location?.docked_at)return {status:'refused' as const,did:'listed no hulls',
@@ -415,8 +415,7 @@ export interface Purchase {
 }
 
 /** Buy a listed hull (`listing_id`) or commission a class (`class_id` with `commission:true`)
- * and, with `switchTo` and a shipyard here, switch to it. Refused before anything is sent
- * when the price takes the wallet under `permissions.credit_reserve`, with the numbers. A commission that stalls in `sourcing` is
+ * and, with `switchTo` and a shipyard here, switch to it. A commission that stalls in `sourcing` is
  * `partial` with `materials_to_source` named. Done when `list_ships` shows the new hull.
  * Costs the price; trains nothing. `next` says what is left to do on the new hull. */
 export function buyShip(id:string,opts:{commission?:boolean;switchTo?:boolean}={}):Promise<Outcome<Purchase>> {
@@ -438,8 +437,6 @@ export const buyShipEffect=(id:string,opts:{commission?:boolean;switchTo?:boolea
     if(blocked)return no(blocked);
     if(!previous.base_id)return no('not docked; a hull changes hands at a station');
 
-    const who=pilot(),credits=acct().state.player?.credits??0;
-    const reserve=who.permissions?.credit_reserve??0;
     let price:number;
     if(opts.commission) {
       const reply=yield* game.command('spacemolt_ship/commission_quote',{id});
@@ -455,8 +452,6 @@ export const buyShipEffect=(id:string,opts:{commission?:boolean;switchTo?:boolea
       if(!listing)return no(`no listing ${id} at ${previous.base_id}; shipsForSale() names what is here`);
       price=listing.price;
     }
-    if(credits-price<reserve)
-      return no(`costs ${price}; credits ${credits} less reserve ${reserve} leaves ${credits-reserve}`);
 
     let bought:string;
     if(opts.commission) {

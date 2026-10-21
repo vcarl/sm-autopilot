@@ -297,8 +297,7 @@ Each takes `orders: [...]` instead for up to 50 at once, so every reply is a uni
 `.delta.details` on `kind === 'single'` before reading a field. The create reply says what
 crossed the book at once (`fills`, `quantity_filled`) and what stands (`quantity_listed`, `order_id`). Every listing pays `listing_fee`: the empire's `listing_fee_bps` (`get_empire_info`), or a player station's own
 `market_fee_bps`. Nothing pushes a fill to you (no order event is in the lib's notifications): read
-`view_orders` and your wallet or `storage()` to learn one. `permissions.credit_reserve` does not
-guard a raw order; mind the escrow yourself.
+`view_orders` and your wallet or `storage()` to learn one. Mind the escrow yourself.
 
 ```ts
 import {prices, account, note, outcome} from 'play';

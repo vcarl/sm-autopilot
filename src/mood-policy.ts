@@ -6,7 +6,7 @@ const fuelReserves=Object.freeze({
 });
 export type Mood=keyof typeof fuelReserves;
 // D2 max spend per job, in credits. Tired's row reads "service only": the resupply
-// leg is bounded by the wallet and the standing reserve, never by a job budget a
+// leg is bounded by the wallet, never by a job budget a
 // Tired pilot is forbidden to earn.
 const serviceSpend=Object.freeze({
   Relaxed:500,Cautious:500,Focused:1000,Opportunistic:1000,Aggressive:2000,Tired:Infinity,
@@ -31,8 +31,7 @@ export function resolveFuelReserve(mood:Mood):number {
 
 /** The margin a mood's ship has crossed, if any: fuel under the reserve, hull under the walk-away
  * line. Credits are not a margin: resupply spends them, so a Tired only earning could clear —
- * with work refused under Tired — would strand the pilot by construction. `credit_reserve` is a
- * spend limit on the buys that enforce it, nothing more.
+ * with work refused under Tired — would strand the pilot by construction.
  *
  * This is the only place the fuel reserve binds. Travel keeps nothing back — a leg is flown when
  * the tank covers its route (operator's decision, 2026-09-26) — so a leg that takes fuel under the

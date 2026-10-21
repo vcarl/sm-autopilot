@@ -44,7 +44,7 @@ export interface Pilot {
   tired_by?:string;
   /** Standing bounds the human sets. Who to fight is not among them: combat targeting is
    * the pilot's judgement, kept honest by the hull floors, the danger line and hunt's `risk` limit. */
-  permissions?:{credit_reserve?:number;max_liability?:number};
+  permissions?:{max_liability?:number};
   instruction?:{text:string;at:string};
 }
 

@@ -87,16 +87,6 @@ test('this base\'s own remembered ask is no reference for its live one, and the 
     {reference:null,reference_asks:0,want:1,ask:12},JSON.stringify(trade));
 });
 
-test('cells are not bought into the credit reserve',async()=>{
-  // The fill costs 24 (20 fuel, 4 hull): 1,000 leaves 976, and 10 cells at 12 would leave 856.
-  const game=world(0);
-  const out=await flown(game,service,{mood:'Tired',permissions:{credit_reserve:900}},elsewhere()) as Awaited<ReturnType<typeof service>>;
-  assert.equal(out.status,'done',out.why);
-  assert.equal(game.count('spacemolt/buy'),0);
-  assert.equal(cellsAboard(game),0);
-  assert.match(out.did,/reserve 900/);
-});
-
 test('settle, sell and stow part with the cells above the reserve and keep the reserve aboard',async()=>{
   const settled=world(14);
   const outcome=await Effect.runPromise(settleCargoEffect(settled.account as unknown as ReadinessAccount).pipe(Effect.provide(GameLive({send:settled.command,refresh:()=>settled.account.refresh()}))));

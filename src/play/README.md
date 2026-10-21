@@ -138,7 +138,7 @@ Each of these has cost a flight: the computer checks the real types, so these ar
 | `orient()` | the whole world model in one read: present, skills, storage everywhere, ships, missions, debts |
 | `scout(target?)` | POIs of a system (this one by default) with types, stations, resources here, creatures here |
 | `goTo(id, {ask?}?)` | fly to a POI, base or system (id or display name), jumping as needed; dock if a base. A system with one base docks there. Ending undocked is said in `did`, and `detail.docked_at` is null. A refused dock is `partial` with the game's words. A name matching nothing is `refused` with the nearest ids, not flown. It completes active distress missions on or near the route |
-| `service()` | full tank and hull at the counter you are docked at (no posted price needed), within `permissions.credit_reserve` and the mood's repair margin; tops up fuel cells to ~5% of the hold unless they are overpriced (`did` says why); `service({insure: true})` also buys cover for the hull, within the reserve, unless a policy already held covers it (`did` says until when) |
+| `service()` | full tank and hull at the counter you are docked at (no posted price needed), within the mood's repair margin; tops up fuel cells to ~5% of the hold unless they are overpriced (`did` says why); `service({insure: true})` also buys cover for the hull, unless a policy already held covers it (`did` says until when) |
 | `stow(rows)` / `withdraw(rows, {ask?}?)` / `storage(base?)` | station storage; rows you name (omit a row's `quantity` for all of it); readable from anywhere. A `withdraw` counts each item's cargo size (`osmium_ore` takes 2 a unit), and rows that overfill the hold share its room in proportion: each moves partly, the rest `short` with `no room`, status `partial` |
 | `prices(items?)` / `sell(rows, opts?)` / `buy(item, qty, opts?)` | the market here, live at the moment of the act, and remembered for `spreads()`. `sell`'s options: `{from: 'hold' \| 'store'}` (default `'hold'`; `'store'` empties the store a hold-load at a time), `{floor: {[item_id]: number}}` (keep a row whose `best_buy` is under it) and `{ask: false}`. A sale walks the bids down the book: when it averages more than 3% under the top bid, `did` names the fill and the top bid's depth |
 | `buyers(items)` | who buys it: the highest bids known for an item (or a list) anywhere — the live book here when docked, your faction's ledger, every book you have read — up to 3 an item, each with its base, price, depth, the book's age in ticks and the jumps there. Held or not, docked or not; reads only. Ask it before flying to look for a buyer |
@@ -180,14 +180,13 @@ export default async function main() {
 
 ## Getting a better ship
 
-- `shipsForSale()` lists the hulls at or under credits minus your `credit_reserve`, biggest
+- `shipsForSale()` lists the hulls at or under your credits, biggest
   hold first, each with one line of difference against what you fly. A class the yard will not
   quote you is in `detail.locked` with the game's reason (a Piloting level, a faction).
   Undocked, name the base: `shipsForSale({baseId})`. `for_sale` is a union: a player `listing`
   you can buy now (`hull.listing.price`), or a commission this yard would build
   (`hull.quote.credits_only_total`); both carry `class` and a `versus` line.
-- `buyShip(listingId, {switchTo:true})` buys it and, at a shipyard, flies it; over the
-  reserve it is `refused` with the numbers and nothing is sent.
+- `buyShip(listingId, {switchTo:true})` buys it and, at a shipyard, flies it.
 - `refit({remove, install})` moves modules across. Check first: a module needs a free slot of
   its own kind (`utility`, `weapon`, `defense`) and room in `cpu_used/cpu_capacity` and
   `power_used/power_capacity`. `refit` and `buy` both check before sending; a refusal names
@@ -396,16 +395,15 @@ flight computer services the ship itself (here if docked; from your own top-leve
 reach, where it leaves the ship), then the call goes on. A `goTo` that turns Tired between jumps is
 serviced at a base it can reach, then flies on to where you sent it. Either way the call goes on and its `did` names the resupply. You never need `service()` to be
 safe; call it to be up sooner. Away from a counter, fuel cells aboard burn first.
-`permissions.credit_reserve` bounds every spend; a short wallet buys fuel, then repair, and
-`service()` answers `partial`.
+A short wallet buys fuel, then repair, and `service()` answers `partial`. If the operator states
+how much cash they prefer you keep, your context says so; it is guidance, and you decide.
 
 ## Rules that will refuse you
 
 - Before a flight: an import outside `play`, `play/<folder>` or `@spacemolt/lib`;
   `process`, `fetch`, `eval`, dynamic `import()`; `while(true)`/`for(;;)` without a
   `stopped()` check; `unload_passenger` with id `all`; a file with no `export default async function main`.
-- In flight, inside the helpers: spending under `permissions.credit_reserve`; a route
-  the tank cannot cover. Tired never stops work: when the computer's resupply cannot clear it
+- In flight, inside the helpers: a route the tank cannot cover. Tired never stops work: when the computer's resupply cannot clear it
   (no base it can name or reach, or credits short), the work goes on and your log says why.
 
 ## Asking yourself a question mid-flight

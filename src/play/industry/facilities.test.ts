@@ -91,21 +91,6 @@ test('buildFacility counts the store and the hold together, and refuses what bot
   } finally {unbind();}
 });
 
-test('buildFacility refuses a build that would breach the credit reserve',async()=>{
-  const typed=()=>({structuredContent:{action:'types',kind:'detail',type_id:'smelter',name:'Smelter',
-    category:'production',level:1,description:'',buildable:true,build_cost:1_000,build_time:100,
-    labor_cost:0,rent_per_cycle:50,build_materials:[]}});
-  const {game}=world({spacemolt_facility:{owned:OWNED([]),types:typed},
-    spacemolt_storage:{view:()=>({structuredContent:{items:[]}})}},
-    {mood:'Focused',permissions:{credit_reserve:500}},1_000);
-  try {
-    const out=await buildFacility('smelter');
-    assert.equal(out.status,'refused');
-    assert.match(out.why!,/costs 1000 cr; 1000 less the 500 credit reserve cannot cover it/);
-    assert.equal(game.calls.some(call=>call.action==='build'),false,'nothing was committed');
-  } finally {unbind();}
-});
-
 const refuse=(code:string,message:string)=>()=>{throw new SpacemoltError(code,message);};
 
 test('facilities(): a refused read is named with its action and code, and the other reads still go',async()=>{

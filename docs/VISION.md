@@ -111,8 +111,8 @@ rest until it has something new.
 
 The human is not in the game. The human talks with the player through its observer, and what
 comes of that conversation is the player's to carry in: an objective, stated as an end and
-never as a route; standing bounds, the credit reserve the pilot keeps and the liability it may
-carry; and, now and then, a sentence of direction, short by design, which the player reads at
+never as a route; a standing bound, the liability it may carry; the cash it would like the pilot
+to keep in hand, which the pilot weighs and may overrule; and, now and then, a sentence of direction, short by design, which the player reads at
 its next juncture as outside instruction that outranks its objective for that turn. There are
 no per-activity permission flags. Whether the pilot hunts or crafts or hauls is what the
 objective and the direction say; whether it can is a fact about the ship the rules read.

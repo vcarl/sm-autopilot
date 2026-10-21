@@ -166,7 +166,7 @@ const HOLD_FULL_DOCKED='hold full: a gather needs free hold. sell(rows) or stow(
   +'(name the rows from the hold above), then gatherUntil';
 const HOLD_FULL_OUT='hold full: a gather needs free hold, and neither sell nor stow works out here — '
   +'goTo a base with a market or storage first, then sell(rows) or stow(rows)';
-const PERMISSION:Record<string,(n:string)=>string>={credit_reserve:n=>`keep ${n} credits`,max_liability:n=>`owe at most ${n} on one job`};
+const PERMISSION:Record<string,(n:string)=>string>={max_liability:n=>`owe at most ${n} on one job`};
 /** What each buffered alert is, in the pilot's words. A type without an entry renders its own
  * name: a frame group newly added to the buffer is still worth a line. */
 const ALERT_LABEL:Record<string,string>={facility_rent_warning:'rent overdue',facility_reclaimed:'facilities repossessed',
@@ -350,6 +350,9 @@ function situation(state:Row,said:Row|null,chat:{lines:string[];notes:string[]},
   const permits=Object.entries(rec(or(state.permissions,{}))).flatMap(([key,value])=>
     PERMISSION[key]&&isNumber(value)?[PERMISSION[key](thousands(value))]:[]);
   if(permits.length)facts.push(`Permissions: ${permits.join('; ')}.`);
+  // The operator's cash preference is guidance, not a bound: no helper refuses on it.
+  const keep=rec(or(state.permissions,{})).credit_reserve;
+  if(isNumber(keep))facts.push(`The operator prefers you keep about ${thousands(keep)} credits in hand; you decide.`);
   const system=py(or(p.system,'unknown system'));
   const where=on(p.docked_at)?`docked at ${py(p.docked_at)} (${system})`:on(p.in_transit)?`in transit (${system})`
     :`at ${py(or(p.poi,'an unknown point'))} (${system})`;

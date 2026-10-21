@@ -144,8 +144,8 @@ export interface Bought {
     bought?: BuyResponse;
 }
 /** Buy at market price, here, after an `estimate_purchase` preview. Over `spacemolt/buy` it
- * adds: the estimate read first and refused when `total_cost` would take the wallet under
- * `permissions.credit_reserve` or over `maxEach × quantity` — with no `maxEach`, over `OVERPAY` × the
+ * adds: the estimate read first and refused when `total_cost` would go
+ * over `maxEach × quantity` — with no `maxEach`, over `OVERPAY` × the
  * cheapest ask remembered at another base, named with its age; the refusal names the numbers. A **module** is checked against the ship's grid first —
  * free slot of its kind, CPU and power — and refused when it could not be fitted, with
  * `next` saying what to remove; `{force:true}` skips that check for a pilot buying a spare.

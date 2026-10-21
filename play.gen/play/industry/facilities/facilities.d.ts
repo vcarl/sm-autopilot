@@ -52,8 +52,7 @@ export interface Built {
 /** Build a facility of `type` at this station: quarters first if the game asks for them, then
  * a workshop of your own. Owned already here → `done`, nothing sent. Refused, naming the
  * shortfall, when this station's store and the hold together are short a build material (the game
- * takes packages, then the store, then the hold) or the price would breach
- * `credit_reserve`. Costs the build price at commit; construction pauses rent until it
+ * takes packages, then the store, then the hold). Costs the build price at commit; construction pauses rent until it
  * completes; the build grants corporation_management xp once. */
 export declare function buildFacility(type: string): Promise<Outcome<Built>>;
 /** `buildFacility` as an Effect, for `edge` and for converted callers; never in a barrel. The

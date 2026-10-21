@@ -28,7 +28,7 @@ function world(options:WorldOptions={},picks:string[]=[],wrap?:(command:Readines
   const game=bridgeWorld({services:['refuel','repair','storage','crafting'],cargoUsed:0,...options});
   const asked:Question[]=[];
   const binding={account:game.account as unknown as Account,command:wrap?wrap(game.command,()=>game.account.server.location.docked_at):game.command,
-    pilot:()=>({mood:'Focused' as const,permissions:{credit_reserve:0}}),runtime,emit:()=>{},
+    pilot:()=>({mood:'Focused' as const}),runtime,emit:()=>{},
     onAsk:(question:Question)=>{
       asked.push(question);
       const want=picks.shift()??'skip',choice=question.choices?.find(c=>c.startsWith(want));

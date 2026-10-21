@@ -440,8 +440,8 @@ export interface Bought {
 }
 
 /** Buy at market price, here, after an `estimate_purchase` preview. Over `spacemolt/buy` it
- * adds: the estimate read first and refused when `total_cost` would take the wallet under
- * `permissions.credit_reserve` or over `maxEach × quantity` — with no `maxEach`, over `OVERPAY` × the
+ * adds: the estimate read first and refused when `total_cost` would go
+ * over `maxEach × quantity` — with no `maxEach`, over `OVERPAY` × the
  * cheapest ask remembered at another base, named with its age; the refusal names the numbers. A **module** is checked against the ship's grid first —
  * free slot of its kind, CPU and power — and refused when it could not be fitted, with
  * `next` saying what to remove; `{force:true}` skips that check for a pilot buying a spare.
@@ -474,8 +474,6 @@ export const buyEffect:(itemId:string,quantity:number,opts?:BuyOpts)=>Effect.Eff
     }
     const quote=replyBody(yield* game.command('spacemolt_market/estimate_purchase',{item_id:itemId,quantity}));
     const estimate=asEstimate(quote),available=num(quote,'available')??0,message=field(quote,'message');
-    const who=pilot(),credits=acct().state.player?.credits??0;
-    const reserve=who.permissions?.credit_reserve??0;
     const cost=num(quote,'total_cost')??0;
     if(!(available>0)) {
       const seller=cheapestAsk(knownBooks(),itemId,quantity,at.docked,tickNow()),made=(yield* mayAsk(opts.ask))?yield* handMade(itemId):undefined;
@@ -485,7 +483,6 @@ export const buyEffect:(itemId:string,quantity:number,opts?:BuyOpts)=>Effect.Eff
         [seller&&{id:'seller',choice:`buy at ${seller.base_id}`,take:chain({estimate},[goToEffect(seller.base_id)],buyEffect(itemId,quantity,opts))},
           made&&{id:'craft',choice:`craft ${itemId}`,take:chain({estimate},[supplyEffect(made.recipe,quantity)],craftEffect(made.recipe,quantity).pipe(Effect.map(out=>({...out,detail:{estimate}}))))}]);
     }
-    if(credits-cost<reserve)return {status:'refused',did:`did not buy ${itemId}`,why:`costs ${cost}; credits ${credits} less reserve ${reserve} leaves ${credits-reserve}`,detail:{estimate}};
     const dear=overpay(itemId,Math.min(quantity,available),cost,opts.maxEach,at.docked);
     if(dear.why) {
       const units=Math.min(quantity,available),each=Math.ceil(cost/units),ref=dear.ref;

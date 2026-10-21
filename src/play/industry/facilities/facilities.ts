@@ -132,8 +132,7 @@ export interface Built {facility_id:string;rent_per_cycle:number;ready_tick?:num
 /** Build a facility of `type` at this station: quarters first if the game asks for them, then
  * a workshop of your own. Owned already here → `done`, nothing sent. Refused, naming the
  * shortfall, when this station's store and the hold together are short a build material (the game
- * takes packages, then the store, then the hold) or the price would breach
- * `credit_reserve`. Costs the build price at commit; construction pauses rent until it
+ * takes packages, then the store, then the hold). Costs the build price at commit; construction pauses rent until it
  * completes; the build grants corporation_management xp once. */
 export function buildFacility(type:string):Promise<Outcome<Built>> {return edge(buildFacilityEffect(type));}
 
@@ -167,11 +166,6 @@ export const buildFacilityEffect=(type:string)=>jobEffect('buildFacility',type,E
   if(short.length)
     return refuse(`${type} needs ${short.map(row=>`${row.item_id} ${row.have} of ${row.quantity}`).join(', ')} in ${docked}'s store and your hold`,
       short.map(row=>`buy('${row.item_id}', ${row.quantity-row.have}, {deliverTo:'storage'}) or stow it there`));
-
-  const credits=acct().state.player?.credits??0;
-  const reserve=pilot().permissions?.credit_reserve??0;
-  if(credits-typed.build_cost<reserve)
-    return refuse(`${type} costs ${typed.build_cost} cr; ${credits} less the ${reserve} credit reserve cannot cover it`);
 
   const action=typed.category==='personal'?'spacemolt_facility/personal_build':'spacemolt_facility/build';
   const commit=yield* Effect.result(game.command(action,{facility_type:type}));

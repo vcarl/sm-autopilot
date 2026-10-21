@@ -114,14 +114,12 @@ export const serviceElsewhereEffect=(docked?:string)=>Effect.gen(function*() {
 
 const num=(body:unknown,key:string)=>{const value=field(body,key);return typeof value==='number'&&Number.isFinite(value)?value:undefined;};
 const str=(body:unknown,key:string)=>{const value=field(body,key);return typeof value==='string'&&value?value:undefined;};
-/** Read the policies held, then quote and buy cover with `insure` when the premium leaves `reserve`
- * standing. All take no arguments: the lib's `insure()` covers the ship you fly, at the counter you
+/** Read the policies held, then quote and buy cover with `insure`. All take no arguments: the lib's `insure()` covers the ship you fly, at the counter you
  * are docked at. An active policy for the flown hull's class (or one naming no class) is reported as
  * `held` and nothing is quoted or bought; a policies read that fails buys nothing, since a second
- * policy is money spent on not knowing. What was not bought is one `short` line in the game's or the
- * reserve's words; a lost `insure` reply is not re-sent (it is a purchase), and the line says how to
+ * policy is money spent on not knowing. What was not bought is one `short` line in the game's words; a lost `insure` reply is not re-sent (it is a purchase), and the line says how to
  * learn whether it landed. */
-const insureEffect=(reserve:number)=>Effect.gen(function*() {
+const insureEffect=Effect.gen(function*() {
   const game=yield* Game;
   const listed=yield* Effect.result(game.command('spacemolt_salvage/policies',{}));
   if(Result.isFailure(listed))return {short:`insure: held cover unread, nothing bought (${words(listed.failure)}); account().commands.spacemolt_salvage.policies() lists it`};
@@ -145,9 +143,6 @@ const insureEffect=(reserve:number)=>Effect.gen(function*() {
   const said=str(body,'notice')??str(body,'message');
   if(quote.refused||premium===undefined)
     return {insurance:{quote},short:`insure: the counter will not cover this hull${said?`: ${said}`:''}${quote.factors.length?` (risk ${quote.risk_score??'?'}: ${quote.factors.join(', ')})`:''}`};
-  const credits=acct().state.player?.credits??0;
-  if(credits-premium<reserve)
-    return {insurance:{quote},short:`insure: the ${premium} cr premium would leave ${credits-premium} cr, under the credit_reserve of ${reserve}`};
   const bought=yield* Effect.result(game.command('spacemolt_salvage/insure',{}));
   if(Result.isFailure(bought))return {insurance:{quote},short:`insure: ${words(bought.failure)}`
     +(bought.failure._tag==='ReplyLost'?'; not re-sent: account().commands.spacemolt_salvage.policies() says whether cover landed':'')};
@@ -168,12 +163,11 @@ export const asBase=(body:unknown)=>body as GetBaseResponse; // cast: frozen sur
 /** Bring the ship up at the counter you are docked at: full tank and full hull.
  *
  * Over `refuel` + `repair` it adds: the quote read first, the mood's spend margin on the repair
- * (never the fuel: a mood must not strand a ship) and `permissions.credit_reserve` enforced, the charge checked against the quote, and the
+ * (never the fuel: a mood must not strand a ship), the charge checked against the quote, and the
  * post-state read to confirm the fill. A full ship sends nothing. Not docked: `refused`.
  *
  * A counter bills on credits and reports the charge afterwards, so a station that posts no
- * price still refuels and repairs: the posted price is only a pre-flight estimate, and the
- * reserve is held against the charge itself.
+ * price still refuels and repairs: the posted price is only a pre-flight estimate.
  *
  * A wallet short of the whole bill buys what it can — the fuel first, then the repair if it still
  * fits — and the call is `partial`, with what was not bought in `short` and `why`.
@@ -182,13 +176,12 @@ export const asBase=(body:unknown)=>body as GetBaseResponse; // cast: frozen sur
  * ship), and `cleared_tired` says so.
  *
  * `insure:true` buys cover after the fill (fuel first: cover must not strand a ship): the policies
- * held, then the quote, then `insure` when the premium leaves `credit_reserve` standing. Cover already
+ * held, then the quote, then `insure`. Cover already
  * held for the hull is reported in `detail.insurance.held` and `did`, and nothing is bought. Not bought is `partial`, with the
  * quote in `detail.insurance` and the reason in `short`. `dues` is accepted and reported in `short`
  * until a later slice implements it. */
 export const serviceEffect=(opts:NonNullable<Parameters<typeof service>[0]>={})=>jobEffect<Serviced>('service',Object.keys(opts).join(' '),Effect.gen(function*() {
   const game=yield* Game;
-  const who=pilot();
   const short:string[]=[];
   if(opts.dues)short.push('dues: not implemented yet; account().commands.spacemolt.prepay_tax / pay_bounty');
   if(opts.fuel!==undefined||opts.hull!==undefined)short.push('partial targets: not implemented yet; a service is a full fill');
@@ -210,7 +203,7 @@ export const serviceEffect=(opts:NonNullable<Parameters<typeof service>[0]>={})=
   // only" — the mood it replaced would refuse the very bill that clears it.
   const mood=pilot().mood??'Cautious';
   const system=()=>acct().state.location?.system_id??'this system';
-  const served=yield* Effect.result(serviceShipEffect(acct(),{mood,creditReserve:who.permissions?.credit_reserve??0,
+  const served=yield* Effect.result(serviceShipEffect(acct(),{mood,
     ...runtimeDir()===undefined?{}:{runtime:runtimeDir()}}));
   if(Result.isFailure(served)) {
     const error=served.failure;
@@ -226,7 +219,7 @@ export const serviceEffect=(opts:NonNullable<Parameters<typeof service>[0]>={})=
     return yield* error;
   }
   const done=served.success,cells=done.cells;
-  const insured=opts.insure?yield* insureEffect(who.permissions?.credit_reserve??0):undefined;
+  const insured=opts.insure?yield* insureEffect:undefined;
   const policy=insured?.insurance?.policy,held=insured?.insurance?.held;
   const cleared=mood==='Tired'&&pilot().mood!=='Tired';
   const did=done.issued.length

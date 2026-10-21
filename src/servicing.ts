@@ -14,8 +14,6 @@ export interface ServiceFuelQuote {
 }
 export interface ServiceOptions {
   mood:Mood;
-  /** A standing permission (D11), independent of the mood. */
-  creditReserve?:number;
   /** The runtime whose market memory the fuel-cell price is checked against and written to. */
   runtime?:string;
   /** False skips the fuel-cell top-up: a freighter's hold is its circuit's to plan. */
@@ -60,12 +58,12 @@ const custody=(state:GameState)=>{
 
 /** Servicing is script-owned: the mood resolves the spend margin and D3 resolves the
  * targets. The margin meters the repair only: fuel is resupply, and a mood never strands a ship,
- * so a refuel is bounded by the wallet and `creditReserve` alone. A serviced dock restores the full tank and full hull; the mood's retreat
+ * so a refuel is bounded by the wallet alone. A serviced dock restores the full tank and full hull; the mood's retreat
  * fraction is the away-from-dock line, not a service target. The post-state is read
  * authoritatively and decides.
  *
  * Where the bill does not fit whole, it buys what fits: the refuel first (resupply), then the
- * repair if what is left above the reserve still covers it. What was not bought comes back in
+ * repair if what is left in the wallet still covers it. What was not bought comes back in
  * `short`; only a counter where nothing fits fails with `ServiceBlocked`.
  *
  * A docked counter bills on credits and reports the charge afterwards, so a posted price is an
@@ -75,11 +73,6 @@ const custody=(state:GameState)=>{
  * repairs to full anyway (proved live 2026-09-24: 59 → 80 hull for 105 credits at
  * sirius_observatory_station, whose `get_base` carries no `repair_price_per_hull`). Requiring
  * that field is what wedged a pilot in Tired for six hours.
- *
- * `creditReserve` is the standing bound and is never widened. It cannot be quoted exactly
- * before an unpriced service, so it is enforced twice: the posted estimate must leave it intact
- * beforehand, and the canonical charge is measured against it after each call — a breach stops
- * anything further being bought and names the reserve.
  *
  * A lost reply on the refuel or the repair is never re-sent: it fails with the tag, and the
  * caller's own re-read says what landed. */
@@ -119,7 +112,7 @@ export const listing=(raw:unknown):MarketListingItem[]=>{
 export const words=(error:GameError)=>error._tag==='ReplyLost'?`reply lost on ${error.action}`:`${error.action}: ${error.code} — ${error.message}`;
 
 /** Fuel cells are resupply, bought with the fill: up to `CELL_TARGET` of the hold once they fall
- * under `CELL_FLOOR`. Bounded as the refuel is — by `creditReserve` alone, never the mood's
+ * under `CELL_FLOOR`. Bounded as the refuel is — by the wallet alone, never the mood's
  * margin, so Tired's "service only" covers them. The live ask here is checked against the asks
  * this runtime remembers at other bases (`markets.json`): over `CELL_PRICE_BOUND`× their median
  * it is skipped, and with none remembered one cell is bought at it. Never fails: a counter without cells is
@@ -153,10 +146,10 @@ const topUpCellsEffect=(account:ReadinessAccount,options:ServiceOptions)=>Effect
       return skip(`${ask} cr is over ${CELL_PRICE_BOUND}x the median ${reference} other bases ask`);
     const want=reference===null?1:Math.min(reserve.target-reserve.held,room);
     const quote=replyBody(yield* game.command('spacemolt_market/estimate_purchase',{item_id:FUEL_CELL,quantity:want}));
-    const credits=player.credits,cost=Number(field(quote,'total_cost')),floor=options.creditReserve??0;
+    const credits=player.credits,cost=Number(field(quote,'total_cost'));
     const n=Math.min(want,Number(field(quote,'available')??want));
     if(!(n>0))return skip(`${base} has none available`);
-    if(!Number.isFinite(cost)||credits-cost<floor)return skip(`${n} cost ${cost}; credits ${credits} would fall under the reserve ${floor}`);
+    if(!Number.isFinite(cost)||credits<cost)return skip(`${n} cost ${cost}; credits ${credits} cannot cover it`);
     if(options.quotes!==false)quoteNext('spacemolt/buy',FUEL_CELL,{ask,estimate_total:cost,estimate_available:field(quote,'available')??null,
       reference,reference_asks:seen.length,want,target:reserve.target,held:reserve.held});
     const bought=yield* Effect.result(game.command('spacemolt/buy',{id:FUEL_CELL,quantity:n}));
@@ -174,8 +167,7 @@ const topUpCellsEffect=(account:ReadinessAccount,options:ServiceOptions)=>Effect
 const fill=(account:ReadinessAccount,options:ServiceOptions)=>Effect.gen(function*() {
   const game=yield* Game;
   const refresh=attempt('refresh',()=>account.refresh());
-  const margin=resolveServiceSpend(options.mood),reserve=options.creditReserve??0;
-  if(!finite(reserve))return yield* new ServiceUnsafe({message:'Service credit reserve must be a finite non-negative number'});
+  const margin=resolveServiceSpend(options.mood);
   yield* refresh;
   const before=yield* custody(account.state);
   const held=(rowsHeld:NonNullable<GameState['cargo']>,id:string)=>rowsHeld.filter(row=>row.item_id===id).reduce((sum,row)=>sum+row.quantity,0);
@@ -216,19 +208,19 @@ const fill=(account:ReadinessAccount,options:ServiceOptions)=>Effect.gen(functio
   ].filter(service=>service.need>0);
   const blockers:string[]=[];
   const opening=opened.credits;
-  let budget=opening-reserve;
-  // In order, fuel first: each service is bought if what is left above the reserve covers it.
+  let budget=opening;
+  // In order, fuel first: each service is bought if what is left in the wallet covers it.
   const admitted=services.filter(service=>{
     const {estimate}=service,name=service.action.split('/')[1];
     if(service.action==='spacemolt/repair'&&(estimate??0)>margin) {
       blockers.push(`quoted ${estimate} credits of repair exceeds the ${options.mood} service spend margin ${margin}`);
       return false;
     }
-    // An unpriced service needs room above the reserve to spend at all; a priced one may fit exactly.
+    // An unpriced service needs credits to spend at all; a priced one may fit exactly.
     if(estimate===undefined?budget<=0:budget<estimate) {
       blockers.push(estimate===undefined
-        ?`credits ${opening} leave nothing above the reserve ${reserve}, and this counter posts no ${name} price to quote against`
-        :`credits ${opening} less reserve ${reserve} cannot cover the quoted ${estimate} credits of ${name}`);
+        ?`credits ${opening} leave nothing to spend, and this counter posts no ${name} price to quote against`
+        :`credits ${opening} cannot cover the quoted ${estimate} credits of ${name}`);
       return false;
     }
     budget-=estimate??0;
@@ -255,8 +247,6 @@ const fill=(account:ReadinessAccount,options:ServiceOptions)=>Effect.gen(functio
     spent+=cost;
     if(service.estimate!==undefined&&cost>service.estimate)
       return yield* blocked([`${service.action} charged ${cost} against a ${service.estimate} credit quote`,...gaps(now.ship)]);
-    if(now.credits<reserve)
-      return yield* blocked([`${service.action} charged ${cost}, leaving credits ${now.credits} under the reserve ${reserve}`,...gaps(now.ship)]);
     if(service.action==='spacemolt/repair'&&cost>margin)
       return yield* blocked([`${service.action} charged ${cost}, over the ${options.mood} service spend margin ${margin}`,...gaps(now.ship)]);
     if(!service.reached(now.ship))return yield* blocked([`${service.action} did not reach the serviced-dock target`,...gaps(now.ship)]);

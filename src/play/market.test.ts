@@ -38,7 +38,7 @@ test('a store sell over several hold-loads is summed by item in did, not one cla
   // 30 ore out of a 12-capacity hold takes three withdraw-and-sell loads (12, 12, 6), so the
   // fake bridge answers three `spacemolt/sell` fills for the one row — the shape that produced
   // "sold 12 ore, 12 ore, 6 ore" instead of "sold 30 ore".
-  const f=world({mood:'Focused',permissions:{credit_reserve:0}},{store:[{item_id:'ore',quantity:30}]});
+  const f=world({mood:'Focused'},{store:[{item_id:'ore',quantity:30}]});
   try {
     const out=await sell([{item_id:'ore'}],{from:'store'});
     assert.equal(out.status,'done',out.why);
@@ -115,7 +115,7 @@ test('a sell that landed but whose reply was lost is measured from the hold, and
 });
 
 test('a buy whose estimate is refused is refused, naming the action and the code',async()=>{
-  const f=world({mood:'Focused',permissions:{credit_reserve:0}},{},
+  const f=world({mood:'Focused'},{},
     {'spacemolt_market/estimate_purchase':new SpacemoltError('not_listed','no such listing')});
   try {
     const out=await buy('ore',2);
@@ -126,13 +126,13 @@ test('a buy whose estimate is refused is refused, naming the action and the code
 });
 
 test('a buy the server refuses is refused, and one whose reply is lost is failed and not sent again',async()=>{
-  const refused=world({mood:'Focused',permissions:{credit_reserve:0}},{},{'spacemolt/buy':new SpacemoltError('insufficient_credits','not enough credits')});
+  const refused=world({mood:'Focused'},{},{'spacemolt/buy':new SpacemoltError('insufficient_credits','not enough credits')});
   try {
     const out=await buy('ore',2);
     assert.equal(out.status,'refused');
     assert.match(out.why??'',/spacemolt\/buy: insufficient_credits — not enough credits/);
   } finally {refused.close();}
-  const lost=world({mood:'Focused',permissions:{credit_reserve:0}},{},{'spacemolt/buy':new SpacemoltError('mutation_timeout','timed out')});
+  const lost=world({mood:'Focused'},{},{'spacemolt/buy':new SpacemoltError('mutation_timeout','timed out')});
   try {
     const out=await buy('ore',2);
     assert.equal(out.status,'failed');
@@ -164,7 +164,7 @@ test('prices says an id the catalog does not list is not an item, with the ids t
 test('a buy with no maxEach is refused over OVERPAY × the cheapest ask remembered elsewhere; maxEach pays it (live: b7ad2c0a)',async()=>{
   // Live 2026-10-04 (kvothe 09:12Z, run b7ad2c0a): 69 iron_ore bought at 999 each while confederacy_central_command
   // was remembered asking 2 for 32,928. The fake asks 12 each here.
-  const f=world({mood:'Focused',permissions:{credit_reserve:0}},{});
+  const f=world({mood:'Focused'},{});
   try {
     rememberAll(f.runtime,JSON.stringify([
       {base_id:'confederacy_central_command',at:'',items:[{item_id:'iron_ore',best_buy:0,best_buy_qty:0,best_sell:2,best_sell_qty:32928}]},
@@ -183,7 +183,7 @@ test('a buy with no maxEach is refused over OVERPAY × the cheapest ask remember
 });
 
 test('a buy that goes through is done',async()=>{
-  const f=world({mood:'Focused',permissions:{credit_reserve:0}},{});
+  const f=world({mood:'Focused'},{});
   try {
     const out=await buy('ore',2);
     assert.equal(out.status,'done',out.why);

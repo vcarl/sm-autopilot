@@ -76,12 +76,11 @@ export declare const asBase: (body: unknown) => GetBaseResponse;
 /** Bring the ship up at the counter you are docked at: full tank and full hull.
  *
  * Over `refuel` + `repair` it adds: the quote read first, the mood's spend margin on the repair
- * (never the fuel: a mood must not strand a ship) and `permissions.credit_reserve` enforced, the charge checked against the quote, and the
+ * (never the fuel: a mood must not strand a ship), the charge checked against the quote, and the
  * post-state read to confirm the fill. A full ship sends nothing. Not docked: `refused`.
  *
  * A counter bills on credits and reports the charge afterwards, so a station that posts no
- * price still refuels and repairs: the posted price is only a pre-flight estimate, and the
- * reserve is held against the charge itself.
+ * price still refuels and repairs: the posted price is only a pre-flight estimate.
  *
  * A wallet short of the whole bill buys what it can — the fuel first, then the repair if it still
  * fits — and the call is `partial`, with what was not bought in `short` and `why`.
@@ -90,7 +89,7 @@ export declare const asBase: (body: unknown) => GetBaseResponse;
  * ship), and `cleared_tired` says so.
  *
  * `insure:true` buys cover after the fill (fuel first: cover must not strand a ship): the policies
- * held, then the quote, then `insure` when the premium leaves `credit_reserve` standing. Cover already
+ * held, then the quote, then `insure`. Cover already
  * held for the hull is reported in `detail.insurance.held` and `did`, and nothing is bought. Not bought is `partial`, with the
  * quote in `detail.insurance` and the reason in `short`. `dues` is accepted and reported in `short`
  * until a later slice implements it. */

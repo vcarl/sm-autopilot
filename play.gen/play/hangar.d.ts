@@ -102,7 +102,7 @@ export declare const catalogClassEffect: (id: string) => Effect.Effect<ShipClass
 /** Hulls for sale within a budget, here or at a named base: `ship/browse_ships` listings and
  * `ship/commission_quote` for the classes this yard can build (the ones a listing names,
  * plus `classId` when you pass one — the lib has no way to enumerate a yard's catalogue).
- * Budget defaults to credits minus `permissions.credit_reserve`. Sorted by
+ * Budget defaults to credits. Sorted by
  * `cargo_capacity`, then price, because cargo multiplies every loop. Reads only. Flags crew
  * traps: a class whose `minimum_crew` exceeds your crew capacity is listed with a warning in
  * `versus`, not hidden. */
@@ -146,8 +146,7 @@ export interface Purchase {
     policy?: InsurancePolicy;
 }
 /** Buy a listed hull (`listing_id`) or commission a class (`class_id` with `commission:true`)
- * and, with `switchTo` and a shipyard here, switch to it. Refused before anything is sent
- * when the price takes the wallet under `permissions.credit_reserve`, with the numbers. A commission that stalls in `sourcing` is
+ * and, with `switchTo` and a shipyard here, switch to it. A commission that stalls in `sourcing` is
  * `partial` with `materials_to_source` named. Done when `list_ships` shows the new hull.
  * Costs the price; trains nothing. `next` says what is left to do on the new hull. */
 export declare function buyShip(id: string, opts?: {

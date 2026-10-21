@@ -368,7 +368,7 @@ export const goToEffect:(id:string,opts?:{ask?:boolean})=>Effect.Effect<Outcome<
   // A refuel that does not complete is said, and the fuel check after it decides: a lost reply is
   // never re-sent, the quote that follows re-reads the tank.
   const refuel=()=>Effect.gen(function*() {
-    const served=yield* Effect.result(serviceShipEffect(acct(),{mood:flying(),creditReserve:who.permissions?.credit_reserve??0,
+    const served=yield* Effect.result(serviceShipEffect(acct(),{mood:flying(),
       ...runtimeDir()===undefined?{}:{runtime:runtimeDir()}}));
     if(Result.isFailure(served))step(`refuel on the way did not complete (${told(served.failure)}); the fuel check decides`);
   });
