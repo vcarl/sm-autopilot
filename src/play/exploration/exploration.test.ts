@@ -4,11 +4,10 @@ import {mkdtempSync,rmSync,writeFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {ConnectionClosedError,SpacemoltError,type MapSystemInfo,type Account} from '@spacemolt/lib';
-import type {ReadinessAccount} from '../../readiness.ts';
 import {bridgeWorld,type WorldOptions} from '../../test-support/bridge-world.ts';
 import {bind,unbind,type Pilot} from '../runtime.ts';
 import {survey} from '../mining/mining.ts';
-import {around,exploreNearby,mapOf,markSeen,nearFacts,readSeen} from './exploration.ts';
+import {around,exploreNearby,mapOf,markSeen,readSeen} from './exploration.ts';
 
 const sys=(system_id:string,connections:string[],over:Partial<MapSystemInfo>={}):MapSystemInfo=>
   ({system_id,name:system_id,connections,visited:false,poi_count:1,online:0,position:{x:0,y:0},visited_at:'',...over});
@@ -19,8 +18,7 @@ test('the walk: jumps to every system, nearest first, with what the map and memo
   const near=around(map,'home',Infinity,{a:{police:40,pirates:2,at:new Date(Date.now()-60_000).toISOString()}});
   assert.deepEqual(near.map(row=>[row.system_id,row.jumps,row.visited]),[['a',1,true],['b',1,false],['c',2,false],['d',3,false]]);
   assert.equal(around(map,'home',2).length,3,'max bounds the walk');
-  assert.equal(nearFacts(near[0]!),'1 jump, visited, empire solarian, police 40, 2 pirate(s) at arrival seen 6t ago');
-  assert.equal(nearFacts(near[2]!),'2 jumps, never visited, no empire listed, a stronghold, 3 online');
+  assert.deepEqual(near[0]!.seen?.pirates,2,'what memory saw rides with the row');
 });
 
 // sol – deep_range – a – b – c, and every system up to `a` already visited.

@@ -31,7 +31,7 @@ import {ammoReport,preyHereEffect} from './play/combat/hunting.ts';
 import {fleetBrief,resumeFreighters,stopFreighters} from './play/freighter/host.ts';
 import {attempt,isGameError,message} from './play/game.ts';
 import {learnNames,nameIds,readNames} from './play/places.ts';
-import {answer as answerQuestion,bind,isBound,onBinding,pendingQuestion,present,progress,skillMap,stop as stopRun,unbind,
+import {answer as answerQuestion,bind,isBound,onBinding,pendingQuestion,progress,skillMap,stop as stopRun,unbind,
   type Pilot as Flying} from './play/runtime.ts';
 
 /** `attach` is how a request takes the run's stream: the loop routes streamed lines to the

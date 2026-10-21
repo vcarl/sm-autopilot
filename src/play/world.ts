@@ -243,46 +243,6 @@ export async function noteStore(dir:string|undefined,docked:string|undefined,act
   } catch {} // edge: a store this memory could not keep is still the game's; the next view keeps it
 }
 
-// ---- Derived views: pure over the tables, no call ------------------------------------------
-
-/** A side's top level: the first kept, else the row's own best price and quantity (a book read without its levels). */
-const topOf=(row:MarketListingItem,side:'buy_orders'|'sell_orders'):OrderLevel|undefined=>{
-  const [price_each,quantity]=side==='buy_orders'?[row.best_buy,row.best_buy_qty]:[row.best_sell,row.best_sell_qty];
-  return row[side][0]??(price_each>0&&quantity>0?{price_each,quantity}:undefined);
-};
-
-/** One side's top at one base: price, units at that price, the book's age in ticks against `now` (null untagged),
- * and since when that price has stood (null for a level kept before stamps). */
-export interface Quoted {base_id:string;price:number;quantity:number;age:number|null;since:number|null}
-/** Everything known of one item: aboard, stored by base, and each base's best bid and ask, best first. */
-export interface ItemView {item_id:string;aboard:number;stored:{base_id:string;quantity:number;at:string}[];bids:Quoted[];asks:Quoted[]}
-export function itemView(dir:string|undefined,item_id:string,aboard:number,now:number):ItemView {
-  const books=readBooks(dir).flatMap(book=>book.items.filter(row=>row.item_id===item_id).map(row=>({book,row})));
-  const top=(side:'buy_orders'|'sell_orders')=>books.flatMap(({book,row}):Quoted[]=>{const level=topOf(row,side);
-    return level?[{base_id:book.base_id,price:level.price_each,quantity:level.quantity,age:book.tick===undefined?null:Math.max(0,now-book.tick),since:level?sinceOf(level)??null:null}]:[];});
-  return {item_id,aboard,stored:readStores(dir).filter(row=>row.item_id===item_id).map(({base_id,quantity,at})=>({base_id,quantity,at})),
-    bids:top('buy_orders').sort((a,b)=>b.price-a.price),asks:top('sell_orders').sort((a,b)=>a.price-b.price)};
-}
-/** Where `need` units of an input come from, cheapest first: the hold, then the store at `here`, then other stores
- * (free, but a trip), then the cheapest known ask. What a recipe's inputs are sourced by. */
-export function inputSources(view:ItemView,need:number,here:string|undefined):{from:string;quantity:number;price:number}[] {
-  const out:{from:string;quantity:number;price:number}[]=[];
-  const take=(from:string,quantity:number,price:number)=>{const n=Math.min(need,quantity);if(n>0){out.push({from,quantity:n,price});need-=n;}};
-  take('hold',view.aboard,0);
-  for(const row of [...view.stored].sort((a,b)=>Number(b.base_id===here)-Number(a.base_id===here)))take(`store:${row.base_id}`,row.quantity,0);
-  for(const ask of view.asks)take(`ask:${ask.base_id}`,ask.quantity,ask.price);
-  return out;
-}
-/** Every base's stores with the best known bid for each item there (anywhere), largest stored value first. */
-export function holdings(dir:string|undefined,now:number):{base_id:string;item_id:string;quantity:number;bid:Quoted|null}[] {
-  const bids=new Map<string,Quoted>();
-  for(const book of readBooks(dir))for(const row of book.items){const level=topOf(row,'buy_orders');
-    if(level&&level.price_each>(bids.get(row.item_id)?.price??0))bids.set(row.item_id,{base_id:book.base_id,price:level.price_each,quantity:level.quantity,
-      age:book.tick===undefined?null:Math.max(0,now-book.tick),since:sinceOf(level)??null});}
-  return readStores(dir).map(row=>({base_id:row.base_id,item_id:row.item_id,quantity:row.quantity,bid:bids.get(row.item_id)??null}))
-    .sort((a,b)=>(b.bid?.price??0)*Math.min(b.quantity,b.bid?.quantity??0)-(a.bid?.price??0)*Math.min(a.quantity,a.bid?.quantity??0));
-}
-
 // ---- The facility book ---------------------------------------------------------------------
 
 /** A public facility seen at a base. `type` is the facility definition id; a row learnt from a `no_facility`

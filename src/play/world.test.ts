@@ -9,7 +9,7 @@ import {bridgeWorld,type WorldOptions} from '../test-support/bridge-world.ts';
 import {buy,knownBooks,rememberBook} from './market.ts';
 import {bind,stateSnapshot,unbind} from './runtime.ts';
 import {storage,stow,withdraw} from './storage.ts';
-import {holdings,inputSources,itemView,keepBook,openDirs,readBooks,readStores,worldDb,type Level} from './world.ts';
+import {keepBook,openDirs,readBooks,readStores,worldDb,type Level} from './world.ts';
 
 const fresh=()=>mkdtempSync(join(tmpdir(),'spacemolt-world-'));
 const row=(item_id:string,bids:[number,number][],asks:[number,number][]=[])=>({item_id,item_name:'',category:'',
@@ -60,21 +60,6 @@ test('every base is kept whatever its age, and levels past ten a side are trimme
     rememberBook(dir,'sol_base','sol',[row('ore',Array.from({length:15},(_,i):[number,number]=>[100-i,1]))],1_000_000);
     assert.deepEqual(knownBooks(dir).map(book=>book.base_id).sort(),['old_base','sol_base']);
     assert.equal(knownBooks(dir).find(book=>book.base_id==='sol_base')!.items[0]!.buy_orders.length,10);
-  } finally {rmSync(dir,{recursive:true,force:true});}
-});
-
-test('the views: an item seen whole, inputs sourced hold then store then ask, holdings valued at the best known bid',()=>{
-  const dir=fresh();
-  try {
-    keepBook(dir,{base_id:'sol_base',at:'a',tick:100,items:[row('ore',[[8,50]],[[10,5]])]});
-    keepBook(dir,{base_id:'range_base',at:'b',tick:150,items:[row('ore',[[15,4]],[[9,100]])]});
-    worldDb(dir)!.prepare("INSERT INTO stores VALUES('range_base','ore',6,NULL,'x'),('sol_base','ore',3,NULL,'x')").run();
-    const view=itemView(dir,'ore',2,200);
-    assert.deepEqual(view.bids.map(bid=>[bid.base_id,bid.price,bid.age,bid.since]),[['range_base',15,50,150],['sol_base',8,100,100]]);
-    assert.deepEqual(view.asks.map(ask=>[ask.base_id,ask.price]),[['range_base',9],['sol_base',10]]);
-    assert.deepEqual(inputSources(view,20,'sol_base'),[{from:'hold',quantity:2,price:0},{from:'store:sol_base',quantity:3,price:0},
-      {from:'store:range_base',quantity:6,price:0},{from:'ask:range_base',quantity:9,price:9}]);
-    assert.deepEqual(holdings(dir,200).map(row=>[row.base_id,row.quantity,row.bid?.base_id]),[['range_base',6,'range_base'],['sol_base',3,'range_base']]);
   } finally {rmSync(dir,{recursive:true,force:true});}
 });
 

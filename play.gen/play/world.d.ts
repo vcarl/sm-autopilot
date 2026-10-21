@@ -54,42 +54,6 @@ export declare function storedTotals(dir: string | undefined): Record<string, nu
  * `storage_total`, a withdraw to its `storage_remaining`, a buy delivered to storage adds `delivered_to_storage`.
  * `docked` is where the ship is, for the replies that do not name a base. Never throws. */
 export declare function noteStore(dir: string | undefined, docked: string | undefined, action: string, params: Record<string, unknown> | undefined, reply: unknown, view?: (station: string) => Promise<unknown>): Promise<void>;
-/** One side's top at one base: price, units at that price, the book's age in ticks against `now` (null untagged),
- * and since when that price has stood (null for a level kept before stamps). */
-export interface Quoted {
-    base_id: string;
-    price: number;
-    quantity: number;
-    age: number | null;
-    since: number | null;
-}
-/** Everything known of one item: aboard, stored by base, and each base's best bid and ask, best first. */
-export interface ItemView {
-    item_id: string;
-    aboard: number;
-    stored: {
-        base_id: string;
-        quantity: number;
-        at: string;
-    }[];
-    bids: Quoted[];
-    asks: Quoted[];
-}
-export declare function itemView(dir: string | undefined, item_id: string, aboard: number, now: number): ItemView;
-/** Where `need` units of an input come from, cheapest first: the hold, then the store at `here`, then other stores
- * (free, but a trip), then the cheapest known ask. What a recipe's inputs are sourced by. */
-export declare function inputSources(view: ItemView, need: number, here: string | undefined): {
-    from: string;
-    quantity: number;
-    price: number;
-}[];
-/** Every base's stores with the best known bid for each item there (anywhere), largest stored value first. */
-export declare function holdings(dir: string | undefined, now: number): {
-    base_id: string;
-    item_id: string;
-    quantity: number;
-    bid: Quoted | null;
-}[];
 /** A public facility seen at a base. `type` is the facility definition id; a row learnt from a `no_facility`
  * refusal has only the name the server gave, as both `type` and `name`, and no fee. `tick` is when it was seen. */
 export interface FacilitySeen {

@@ -24,7 +24,7 @@ import {readStores,storedAt} from '../world.ts';
 import {counterEffect} from '../counter.ts';
 import {baseValues} from '../industry/crafting.ts';
 import {readDrained,ring} from '../freighter/drained.ts';
-import {Game,GameLive,field,message,type GameError} from '../game.ts';
+import {Game,field,message,type GameError} from '../game.ts';
 import {markPlace,readMobile,readPlaces} from '../places.ts';
 import {Stopped,acct,admit,checkStop,edge,jobEffect,reached,runtimeDir,step,stopped,type Said} from '../runtime.ts';
 import {literal} from '../rows.ts';

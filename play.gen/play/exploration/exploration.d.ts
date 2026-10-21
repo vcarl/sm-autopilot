@@ -45,12 +45,6 @@ export declare const mapOf: (reply: unknown) => MapRow[];
 export declare function jumpsFrom(map: readonly MapRow[], here: string, max?: number): Map<string, number>;
 /** Every other system within `max` jumps, nearest first, with the facts the map and memory hold. */
 export declare function around(map: readonly MapRow[], here: string, max?: number, seen?: Record<string, SystemSeen>): Near[];
-/** A system's facts as one clause, for the pilot to weigh: nothing here judges safe or unsafe.
- * The map publishes no police level, so for a system never stood in the empire is the only law
- * there is to name; police and pirates appear once this runtime has seen them.
- * ponytail: the faction intel map (`query_intel`, read by `candidates`) carries `police_level` for
- * systems never stood in; fold it into `seen` when a pilot's faction has mapped its region. */
-export declare function nearFacts(row: Near, now?: number): string;
 export interface Explored {
     /** Each system flown to, in order, with what `scout()` read on arrival. */
     visited: {

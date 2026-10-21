@@ -8,7 +8,6 @@ import {readFileSync} from 'node:fs';
 import type {FaintSignature,SurveyedPoi} from '@spacemolt/lib';
 import {join} from 'node:path';
 import {Effect,Option,Result,Schema,Struct} from 'effect';
-import {sightingTicksOld} from '../../sighting-memory.ts';
 import * as Wire from '../../wire.gen.ts';
 import {Game,field,type GameError} from '../game.ts';
 import {scoutEffect} from '../orient.ts';
@@ -72,19 +71,6 @@ export function around(map:readonly MapRow[],here:string,max=Infinity,seen:Recor
       ...row.online?{online:row.online}:{},...seenHere?{seen:seenHere}:{}}];
   }).sort((a,b)=>a.jumps-b.jumps||a.system_id.localeCompare(b.system_id));
 }
-/** A system's facts as one clause, for the pilot to weigh: nothing here judges safe or unsafe.
- * The map publishes no police level, so for a system never stood in the empire is the only law
- * there is to name; police and pirates appear once this runtime has seen them.
- * ponytail: the faction intel map (`query_intel`, read by `candidates`) carries `police_level` for
- * systems never stood in; fold it into `seen` when a pilot's faction has mapped its region. */
-export function nearFacts(row:Near,now=Date.now()):string {
-  const seen=row.seen;
-  return [`${row.jumps} jump${row.jumps===1?'':'s'}`,row.visited?'visited':'never visited',
-    row.empire?`empire ${row.empire}`:'no empire listed',...row.stronghold?['a stronghold']:[],...row.online?[`${row.online} online`]:[],
-    ...seen?[`${[...seen.police!==undefined?[`police ${seen.police}`]:[],...seen.security?[seen.security]:[],
-      ...seen.pirates!==undefined?[`${seen.pirates} pirate(s) at arrival`]:[]].join(', ')} seen ${sightingTicksOld(seen.at,now)}t ago`]:[]].join(', ');
-}
-
 export interface Explored {
   /** Each system flown to, in order, with what `scout()` read on arrival. */
   visited:{system_id:string;name:string;jumps:number;police?:number;security?:string;pirates?:number;
