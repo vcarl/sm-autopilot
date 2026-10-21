@@ -7,6 +7,45 @@ All notable changes to this plugin are recorded here. The format follows
 
 ## [Unreleased]
 
+## [2026.10.5] - 2026-10-21
+
+### Added
+
+- One juncture flies at most 90 minutes. Past that, the fire's new runs and queries are blocked
+  and the pilot is asked to close, so the next juncture reads the game afresh. A flight under
+  way is never cut, and its questions can still be answered.
+- `buildFactionFacility(type)` sends a faction build once and names the missing step the game
+  refused it for (faction, docked, permission, faction storage, prerequisite, upgrade, skill,
+  credits or materials), with the call that supplies it.
+
+### Changed
+
+- `trace()` values a recipe's components and output at the catalog's base value, not at remembered
+  market asks, which could be thousands of ticks old. It no longer prints a remembered ask beside
+  each raw material; a program still finds it in `detail`.
+
+### Fixed
+
+- A fire with no stance (a new objective clears it) now asks the pilot to choose one and names
+  the call that sets it, instead of flying on the base skill alone.
+- The flight report, the run headline and the "again" offer show credits net of what the flight
+  spent, not only what it gained.
+- `catalog('steel')` searches for steel instead of failing; a bare string is the search.
+- `quote`, `supply` and `craft` with a recipe id the game does not know name the recipes near it
+  and the `catalog()` call that lists them.
+- `prices([...])` says an id that is not an item (`not an item: iron (iron_ore?)`) instead of
+  "no book for" it.
+- `buildFacility` counts build materials in the hold as well as the station store.
+- Without a trade ledger, filing trade intel stops after the first refusal instead of refusing
+  every book, and the market and scouting reads' own intel refusals are no longer counted as the
+  pilot's failures.
+- A refused command's error is kept whole in the journal (400 characters), so the fix the game
+  names is not cut off.
+- An end-of-flight picture shows its own flight's route and moments, not every run of the
+  juncture.
+- The skill docs are corrected against the game: faction facility ids and materials, raw command
+  shapes, exact item ids, and state tables for faction building and for death and recovery.
+
 ## [2026.10.4] - 2026-10-20
 
 ### Added
