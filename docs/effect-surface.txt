@@ -641,11 +641,12 @@ src/play/index.ts function arena: (opts?: { challenge?: string; }) => Promise<Ou
 src/play/index.ts function ask: (asked: { question: string; choices?: string[]; }) => Promise<string>
 src/play/index.ts function assign: (name: string, circuit: Circuit, caps: { float: number; }) => Promise<Outcome<{ freighter: FreighterRow | null; }>>
 src/play/index.ts function buildFacility: (type: string) => Promise<Outcome<Built>>
+src/play/index.ts function buildFactionFacility: (type: string) => Promise<Outcome<Built>>
 src/play/index.ts function buy: (itemId: string, quantity: number, opts?: BuyOpts) => Promise<Outcome<Bought>>
 src/play/index.ts function buyShip: (id: string, opts?: { commission?: boolean; switchTo?: boolean; }) => Promise<Outcome<Purchase>>
 src/play/index.ts function buyers: (items: string | readonly string[]) => Promise<Outcome<{ buyers: Buyer[]; }>>
 src/play/index.ts function carryPassengers: (destination?: string | undefined) => Promise<Outcome<Carried>>
-src/play/index.ts function catalog: (filter?: CatalogFilter) => Promise<Outcome<Browsed>>
+src/play/index.ts function catalog: (filter?: string | CatalogFilter) => Promise<Outcome<Browsed>>
 src/play/index.ts function chat: (channel: Channel, text: string, to?: string | undefined) => Promise<Outcome<{ readonly channel: string; readonly message: string; readonly sent_at: number; }>>
 src/play/index.ts function completeMissions: () => Promise<Outcome<{ completed: CompleteMissionResponse[]; remaining: Active[]; }>>
 src/play/index.ts function craft: (recipeId: string, quantity?: number, opts?: { at?: string; ask?: boolean; }) => Promise<Outcome<Crafted>>
@@ -761,12 +762,14 @@ src/play/index.ts type Stance: "Prospector" | "Industrialist" | "Trader" | "Carr
 src/play/index.ts type Status: "done" | "partial" | "refused" | "failed"
 src/play/index.ts type Want: Pick<V2CargoItem, "item_id"> & { quantity?: number; }
 src/play/industry/facilities/index.ts function buildFacility: (type: string) => Promise<Outcome<Built>>
+src/play/industry/facilities/index.ts function buildFactionFacility: (type: string) => Promise<Outcome<Built>>
 src/play/industry/facilities/index.ts function facilities: () => Promise<Outcome<Facilities>>
 src/play/industry/facilities/index.ts interface Built: Built
 src/play/industry/facilities/index.ts interface Rentable: Rentable
 src/play/industry/facilities/index.ts type Owned: OwnedFacilityEntry & { runway_cycles: number; }
 src/play/industry/index.ts function buildFacility: (type: string) => Promise<Outcome<Built>>
-src/play/industry/index.ts function catalog: (filter?: CatalogFilter) => Promise<Outcome<Browsed>>
+src/play/industry/index.ts function buildFactionFacility: (type: string) => Promise<Outcome<Built>>
+src/play/industry/index.ts function catalog: (filter?: string | CatalogFilter) => Promise<Outcome<Browsed>>
 src/play/industry/index.ts function craft: (recipeId: string, quantity?: number, opts?: { at?: string; ask?: boolean; }) => Promise<Outcome<Crafted>>
 src/play/industry/index.ts function facilities: () => Promise<Outcome<Facilities>>
 src/play/industry/index.ts function jobs: () => Promise<Outcome<{ jobs: Queued[]; }>>
