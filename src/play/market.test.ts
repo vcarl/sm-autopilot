@@ -7,6 +7,7 @@ import test from 'node:test';
 import type {ReadinessAccount} from '../readiness.ts';
 import {bridgeWorld,rememberAll,TICK,type WorldOptions} from '../test-support/bridge-world.ts';
 import {buy,prices,sell} from './market.ts';
+import {useCatalog} from './industry/crafting.ts';
 import {bind,unbind,type Pilot} from './runtime.ts';
 
 /** What the server raises for an action, if anything: the same error every time it is asked. */
@@ -146,6 +147,17 @@ test('a store view the server refuses still quotes the book, stored as 0',async(
     const out=await prices();
     assert.equal(out.status,'done',out.why);
     assert.deepEqual(out.detail.quotes.map(q=>[q.item_id,q.held,q.stored]),[['ore',4,0]]);
+  } finally {f.close();}
+});
+
+// Live 2026-10-20 (kvothe v10): prices(['iron','silicon']) said "no book for iron, silicon", and the pilot flew a tour to buy them.
+test('prices says an id the catalog does not list is not an item, with the ids that contain it',async()=>{
+  useCatalog(async()=>({version:'test',recipes:[],items:[{id:'ore',extracted_by:'mining'},{id:'iron_ore',extracted_by:'mining'},{id:'steel_plate'}]}));
+  const f=world({mood:'Focused'},ore);
+  try {
+    const out=await prices(['ore','iron','steel_plate','unobtainium']);
+    assert.equal(out.status,'done',out.why);
+    assert.equal(out.did,'1 of 4 items are quoted here; no book for steel_plate; not an item: iron (iron_ore?), unobtainium');
   } finally {f.close();}
 });
 

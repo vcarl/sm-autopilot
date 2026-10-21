@@ -14,7 +14,7 @@ import {bench,moduleSpecEffect,room,whyNotFit} from './hangar.ts';
 import {Stopped,acct,admit,askOnBlock,chain,edge,jobEffect,mayAsk,pilot,reached,runtimeDir,step,stopped,wanted,type Run,type Said} from './runtime.ts';
 import {roomFor,stowEffect,withdrawEffect} from './storage.ts';
 import {goToEffect} from './travel.ts';
-import {craftEffect,handMade,supplyEffect} from './industry/crafting.ts';
+import {craftEffect,graphOf,handMade,supplyEffect} from './industry/crafting.ts';
 import {literal,num} from './rows.ts';
 import {keepBook,keepRow,readBooks,rememberFacilities} from './world.ts';
 import {walkBook} from '../order-book.ts';
@@ -226,9 +226,15 @@ export const pricesEffect=(items?:string[])=>jobEffect<{quotes:Quote[]}>('prices
   const wanted=items?.length?items:[...new Set([...Object.keys(held),...Object.keys(stored)])];
   const listed=yield* bookEffect();
   const quotes:Quote[]=wanted.flatMap(id=>{const row=listed.get(id);return row?[{...row,held:held[id]??0,stored:stored[id]??0}]:[];}).slice(0,CAP);
-  const missing=wanted.filter(id=>!listed.has(id));
+  // Live 2026-10-20 (kvothe v10): prices(['iron','silicon']) said "no book for iron, silicon", and the pilot flew a tour to buy
+  // them. An id the catalog does not list is not an item, said so, with the ids that contain it.
+  const loaded=items?.some(id=>!listed.has(id))?yield* graphOf():undefined;
+  const ids=loaded&&Result.isSuccess(loaded)&&loaded.success.items.length?loaded.success.items.map(item=>item.id):undefined;
+  const unknown=ids?wanted.filter(id=>!listed.has(id)&&!ids.includes(id)):[];
+  const missing=wanted.filter(id=>!listed.has(id)&&!unknown.includes(id));
+  const meant=(id:string)=>{const near=ids?.filter(item=>item.includes(id)).slice(0,3)??[];return near.length?`${id} (${near.join(', ')}?)`:id;};
   const best=quotes.map(q=>({q,value:q.best_buy*Math.min(q.best_buy_qty,q.held+q.stored)})).sort((a,b)=>b.value-a.value)[0];
-  return {status:'done',did:`${quotes.length} of ${wanted.length} items are quoted here${missing.length?`; no book for ${missing.slice(0,5).join(', ')}`:''}`,
+  return {status:'done',did:`${quotes.length} of ${wanted.length} items are quoted here${missing.length?`; no book for ${missing.slice(0,5).join(', ')}`:''}${unknown.length?`; not an item: ${unknown.slice(0,5).map(meant).join(', ')}`:''}`,
     detail:{quotes},next:best&&best.value>0?[`${best.q.item_id}: best buy ${best.q.best_buy} × ${Math.min(best.q.best_buy_qty,best.q.held+best.q.stored)} ≈ ${Math.round(best.value)} cr`]:[]};
 }));
 export function prices(items?:string[]):Promise<Outcome<{quotes:Quote[]}>> {return edge(pricesEffect(items));}
