@@ -2,6 +2,9 @@
  * when someone can answer; otherwise the fixes come back as pasteable calls. The runtime's own sends never ask. */
 import {SpacemoltError,type Account} from '@spacemolt/lib';
 import assert from 'node:assert/strict';
+import {mkdtempSync,rmSync,writeFileSync} from 'node:fs';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
 import test from 'node:test';
 import {Effect} from 'effect';
 import type {ReadinessCommand} from '../readiness.ts';
@@ -132,4 +135,21 @@ test('a mutation\'s hint reaches the pilot, with its build state: a flight line,
     assert.equal(out.did,'faction_lockbox under construction at sol_base as f1');
     assert.deepEqual(out.next,[`under_construction; ${hint}`]);
   } finally {unbind();}
+});
+
+test('an unknown facility type or item offers the catalog ids nearest it, from the copy on disk',async()=>{
+  const runtime=mkdtempSync(join(tmpdir(),'spacemolt-fixes-')),game=bridgeWorld({services:['storage']});
+  writeFileSync(join(runtime,'catalog.json'),JSON.stringify({catalog:{
+    facilities:[{id:'trade_nexus',name:'Trade Nexus'},{id:'trade_ledger',name:'Trade Ledger'},{id:'intel_terminal',name:'Intel Terminal'}],
+    items:[{id:'iron_ore',base_value:4},{id:'vanadium_ore',base_value:30},{id:'vanadium_steel',base_value:200}]}}));
+  bind({account:game.account as unknown as Account,command:game.command,runtime,pilot:()=>({mood:'Focused' as const}),emit:()=>{}});
+  const ids=(code:string,message:string,params:Record<string,unknown>,action:string)=>
+    onBinding(fixesFor({action,params,code,message})).then(rows=>rows.map(row=>row.id));
+  try {
+    // Verbatim from handlers/facility.go:1536 and exchange.go:195.
+    assert.deepEqual(await ids('not_found',"Facility type 'trade_ledgr' not found. Use action 'types' to browse available types, or filter with category (e.g. category=production) or name (e.g. name=fuel cell).",
+      {facility_type:'trade_ledgr'},'spacemolt_facility/types'),['trade_ledger','trade_nexus']);
+    assert.deepEqual(await ids('invalid_item',"Unknown item 'vanadum_steel'. Use exact item ID (e.g. 'iron_ore') or full name (e.g. 'Iron Ore').",
+      {item_id:'vanadum_steel',quantity:1},'spacemolt_market/estimate_purchase'),['vanadium_steel']);
+  } finally {unbind();rmSync(runtime,{recursive:true,force:true});}
 });
