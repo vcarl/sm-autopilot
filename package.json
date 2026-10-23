@@ -25,7 +25,7 @@
   },
   "private": true,
   "name": "sm-autopilot",
-  "version": "2026.10.5",
+  "version": "2026.10.6",
   "engines": {
     "node": "^24.15.0 || >=25.7.0"
   },

@@ -7,6 +7,38 @@ All notable changes to this plugin are recorded here. The format follows
 
 ## [Unreleased]
 
+## [2026.10.6] - 2026-10-22
+
+### Added
+
+- A refused call that the library knows how to fix pauses the flight and asks, with the fixes as
+  choices and `skip`. This covers `play` functions and raw `account().commands` calls:
+  - not docked: dock at the base, then send the call again;
+  - an ambiguous or unknown recipe, an unknown facility type or an unknown item: the nearest ids
+    from the catalog;
+  - no faction storage: build a `faction_lockbox`, with its cost stated in the choice.
+
+  With `ask:false`, in a query, or with no one to answer, the fixes go first in `next` instead.
+- A refusal keeps the game's `details`. The game's `hint` on a change, and a facility's
+  `under_construction` state, reach the flight lines and `next`. Hints that only say how to
+  browse are left out.
+
+### Changed
+
+- The operator's credit reserve is guidance, not a refusal. No `play` function refuses a buy, a
+  hull, a craft, a facility, insurance, fuel or repair because it would take the wallet under
+  `permissions.credit_reserve`; a call is refused only when the wallet itself is short. A reserve
+  set with `spacemolt_direct` shows in the pilot's context as the operator's preference, and the
+  pilot decides. `max_liability` still limits freight and passenger jobs.
+- The juncture no longer offers a menu of suggested moves. The snapshot that carried it is now
+  called the state.
+
+### Fixed
+
+- The near-recipe search matches the words inside an underscored id, so `forge_vanadian_steel`
+  finds `forge_vanadium_steel`.
+- `buildFactionFacility` says whether the facility is under construction or built and active.
+
 ## [2026.10.5] - 2026-10-21
 
 ### Added
