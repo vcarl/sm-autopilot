@@ -3,7 +3,7 @@
     "@jsquash/webp": "1.5.0",
     "@resvg/resvg-wasm": "2.6.2",
     "@spacemolt/lib": "15.2.0",
-    "effect": "4.0.0"
+    "effect": "4.0.5"
   },
   "devDependencies": {
     "@effect/language-service": "0.87.3",
